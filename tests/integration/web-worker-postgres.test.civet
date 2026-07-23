@@ -1,4 +1,3 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import {
@@ -11,7 +10,6 @@ import {
 } from "node:fs/promises"
 import { createServer } from "node:net"
 import { join } from "node:path"
-import type { Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
 
 import { ensureDevelopmentSeedIdentity } from "@darkfactory/auth/server"
@@ -26,9 +24,20 @@ import {
   type PostgresTestDatabase,
 } from "@darkfactory/testkit/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  ownedProcessTreeExists,
+  spawnOwnedProcess,
+  terminateOwnedProcessTree,
+  terminateOwnedProcessTreeThen,
+  type OwnedProcess,
+} from "./helpers/owned-process-tree.civet"
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const WEB_DIRECTORY = join(REPOSITORY_ROOT, "apps/web")
+const VINEXT_CLI_PATH = join(
+  WEB_DIRECTORY,
+  "node_modules/vinext/dist/cli.js",
+)
 const DEV_VARS_PATH = join(WEB_DIRECTORY, ".dev.vars")
 const DEV_VARS_LOCK_PATH = join(
   WEB_DIRECTORY,
@@ -47,9 +56,14 @@ const WORKER_BINDING_NAMES = Array.from(
 )
 const READINESS_ATTEMPT_TIMEOUT_MILLIS = 5_000
 const READINESS_TIMEOUT_MILLIS = 150_000
+const WORKER_TERMINATION_OPTIONS = {
+  forceTimeoutMillis: 3_000,
+  gracefulTimeoutMillis: 3_000,
+  taskkillTimeoutMillis: 2_000,
+} as const
 
 let database: PostgresTestDatabase
-let devServer: ChildProcessByStdio<null, Readable, Readable> | undefined
+let devServer: OwnedProcess | undefined
 let baseUrl = ""
 let createdDevVars = false
 let devVarsLockToken: string | undefined
@@ -141,13 +155,10 @@ const runLockContender = async (): Promise<LockContenderResult> => {
       process.stdout.write("blocked");
     }
   `
-  const contender = spawn(
+  const contender = spawnOwnedProcess(
     process.execPath,
     ["--input-type=module", "--eval", script],
-    {
-      signal: AbortSignal.timeout(5_000),
-      stdio: ["ignore", "pipe", "pipe"],
-    },
+    { signal: AbortSignal.timeout(5_000) },
   )
   let stderr = ""
   let stdout = ""
@@ -229,25 +240,24 @@ const safeDiagnostic = (value: string): string => {
   return safe.slice(-24_000)
 }
 
-const startWorker = (port: number): ChildProcessByStdio<null, Readable, Readable> => {
+const startWorker = (port: number): OwnedProcess => {
   const workerEnvironment = { ...process.env }
   for (const name of WORKER_BINDING_NAMES) {
     delete workerEnvironment[name]
   }
 
   serverOutput = ""
-  const server = spawn(
-    "corepack",
-    ["pnpm", "--filter", "@darkfactory/web", "dev"],
+  const server = spawnOwnedProcess(
+    process.execPath,
+    [VINEXT_CLI_PATH, "dev"],
     {
-      cwd: REPOSITORY_ROOT,
+      cwd: WEB_DIRECTORY,
       env: {
         ...workerEnvironment,
         FORCE_COLOR: "0",
         HOST: "127.0.0.1",
         PORT: port.toString(),
       },
-      stdio: ["ignore", "pipe", "pipe"],
     },
   )
   const consume = (chunk: Buffer): void => {
@@ -326,32 +336,20 @@ type ProcessState = Readonly<{
 const hasProcessExited = (server: ProcessState): boolean =>
   server.exitCode !== null || server.signalCode !== null
 
-const waitForProcessExit = async (
-  exited: Promise<void>,
-  timeoutMillis: number,
-): Promise<boolean> => new Promise((resolve) => {
-  const timeout = setTimeout(() => resolve(false), timeoutMillis)
-  void exited.then(() => {
-    clearTimeout(timeout)
-    resolve(true)
-  })
-})
-
 const stopWorker = async (): Promise<void> => {
   const server = devServer
-  if (server === undefined || hasProcessExited(server)) return
+  if (server === undefined) return
+  await terminateOwnedProcessTree(server, WORKER_TERMINATION_OPTIONS)
+  if (devServer === server) devServer = undefined
+}
 
-  const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()))
-  if (hasProcessExited(server)) return
-
-  server.kill("SIGTERM")
-  if (await waitForProcessExit(exited, 5_000)) return
-  if (hasProcessExited(server)) return
-
-  server.kill("SIGKILL")
-  if (!(await waitForProcessExit(exited, 5_000)) && !hasProcessExited(server)) {
-    throw new Error("Vinext Worker did not exit after SIGKILL")
+const cleanupWorkerResources = async (): Promise<void> => {
+  if (createdDevVars) {
+    await unlink(DEV_VARS_PATH)
+    createdDevVars = false
   }
+  if (database !== undefined) await dropPostgresTestDatabase(database)
+  await releaseDevVarsLock()
 }
 
 const cookieFrom = (response: Response): string => {
@@ -409,18 +407,34 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
   }, 240_000)
 
   afterAll(async () => {
+    const server = devServer
+    if (server === undefined) {
+      await cleanupWorkerResources()
+      return
+    }
+
     try {
-      try {
-        await stopWorker()
-      } finally {
-        try {
-          if (createdDevVars) await unlink(DEV_VARS_PATH)
-        } finally {
-          if (database !== undefined) await dropPostgresTestDatabase(database)
-        }
-      }
-    } finally {
-      await releaseDevVarsLock()
+      await terminateOwnedProcessTreeThen(
+        server,
+        async () => {
+          if (ownedProcessTreeExists(server)) {
+            throw new Error("Owned Vinext process tree is still running")
+          }
+          if (devServer === server) devServer = undefined
+          await cleanupWorkerResources()
+        },
+        WORKER_TERMINATION_OPTIONS,
+      )
+    } catch (error) {
+      const diagnostic = safeDiagnostic(
+        error instanceof Error
+          ? error.stack ?? error.message
+          : String(error),
+      )
+      throw new Error(
+        `Worker teardown failed; retained test resources and lock:\n${diagnostic}`,
+        { cause: error },
+      )
     }
   }, 30_000)
 
@@ -535,6 +549,13 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
     )
     expect(openWorkerConnections).toEqual([{ count: 0 }])
   }, 60_000)
+
+  it("stops the exact Vinext process tree before teardown resolves", async () => {
+    const server = devServer
+    if (server === undefined) throw new Error("Worker process was not started")
+    await stopWorker()
+    expect(ownedProcessTreeExists(server)).toBe(false)
+  }, 15_000)
 
   it("recognizes a signal-terminated Worker as already exited", () => {
     expect(hasProcessExited({

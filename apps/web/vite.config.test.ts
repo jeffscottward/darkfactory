@@ -101,15 +101,15 @@ describe("Vite application plugin contract", () => {
     });
   });
 
-  it("prebundles client libraries without optimizing Vinext's Link shim", () => {
+  it("prebundles Civet-discovered client hooks while leaving Lucide and the Link shim unoptimized", () => {
     // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for Vite environment index-signature keys.
     expect(viteConfig.environments?.["client"]?.optimizeDeps).toEqual({
-      exclude: ["next/link"],
+      exclude: ["lucide-react", "next/link"],
       include: [
+        "@tanstack/react-form",
         "@darkfactory/state > zustand/vanilla",
         "@darkfactory/ui > radix-ui",
         "@darkfactory/ui > sonner",
-        "lucide-react",
         "next/router",
       ],
     });

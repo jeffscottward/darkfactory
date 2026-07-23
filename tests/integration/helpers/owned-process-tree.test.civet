@@ -1,0 +1,226 @@
+import { createConnection } from "node:net"
+import { describe, expect, it } from "vitest"
+
+import {
+  processExists,
+  spawnOwnedProcess,
+  type TaskkillResult,
+  terminateOwnedProcessTree,
+  terminateOwnedProcessTreeThen,
+} from "./owned-process-tree.civet"
+
+type FixtureAddress = Readonly<{
+  pid: number
+  port: number
+}>
+
+const grandchildScript = `
+  import { createServer } from "node:net";
+  const server = createServer();
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    process.stdout.write(JSON.stringify({ pid: process.pid, port: address.port }) + "\\n");
+  });
+  setInterval(() => undefined, 1000);
+`
+
+const parentScript = `
+  import { spawn } from "node:child_process";
+  const grandchild = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", ${JSON.stringify(grandchildScript)}],
+    { shell: false, stdio: ["ignore", "pipe", "inherit"] },
+  );
+  grandchild.stdout.once("data", (chunk) => process.stdout.write(chunk));
+  setInterval(() => undefined, 1000);
+`
+
+const fixtureAddress = async (
+  fixture: ReturnType<typeof spawnOwnedProcess>,
+): Promise<FixtureAddress> => new Promise((resolve, reject) => {
+  const timeout = setTimeout(
+    () => reject(new Error("Timed out waiting for process-tree fixture")),
+    5_000,
+  )
+  let output = ""
+  fixture.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString()
+    const lineEnd = output.indexOf("\n")
+    if (lineEnd < 0) return
+    clearTimeout(timeout)
+    resolve(JSON.parse(output.slice(0, lineEnd)) as FixtureAddress)
+  })
+  fixture.once("error", (error) => {
+    clearTimeout(timeout)
+    reject(error)
+  })
+  return undefined
+})
+
+const portAcceptsConnections = async (port: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port })
+    const finish = (connected: boolean): void => {
+      socket.destroy()
+      resolve(connected)
+    }
+    socket.setTimeout(500, () => finish(false))
+    socket.once("connect", () => finish(true))
+    socket.once("error", () => finish(false))
+  })
+
+const shortLivedOwnedProcess = (durationMillis: number) =>
+  spawnOwnedProcess(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `setTimeout(() => undefined, ${durationMillis});`,
+    ],
+  )
+
+const waitForOwnedExit = async (
+  child: ReturnType<typeof spawnOwnedProcess>,
+): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  await new Promise<void>((resolve) => {
+    child.once("exit", () => resolve())
+    return undefined
+  })
+}
+
+describe("owned process-tree lifecycle", () => {
+  it("does not resolve until the exact child and grandchild have exited", async () => {
+    const fixture = spawnOwnedProcess(
+      process.execPath,
+      ["--input-type=module", "--eval", parentScript],
+    )
+    let primaryError: unknown
+    try {
+      const address = await fixtureAddress(fixture)
+      expect(processExists(fixture.pid!)).toBe(true)
+      expect(processExists(address.pid)).toBe(true)
+      expect(await portAcceptsConnections(address.port)).toBe(true)
+
+      await terminateOwnedProcessTree(fixture)
+
+      expect(processExists(fixture.pid!)).toBe(false)
+      expect(processExists(address.pid)).toBe(false)
+      expect(await portAcceptsConnections(address.port)).toBe(false)
+    } catch (error) {
+      primaryError = error
+    }
+
+    let cleanupError: unknown
+    try {
+      await terminateOwnedProcessTree(fixture)
+    } catch (error) {
+      cleanupError = error
+    }
+    if (primaryError !== undefined && cleanupError !== undefined) {
+      throw new AggregateError(
+        [primaryError, cleanupError],
+        "Process-tree fixture and cleanup both failed",
+      )
+    }
+    if (primaryError !== undefined) throw primaryError
+    if (cleanupError !== undefined) throw cleanupError
+  }, 15_000)
+
+  it("bounds a hung Windows taskkill before force escalation fails closed", async () => {
+    const attempts: boolean[] = []
+    const child = shortLivedOwnedProcess(100)
+    const startedAt = Date.now()
+    await expect(terminateOwnedProcessTree(child, {
+      forceTimeoutMillis: 10,
+      gracefulTimeoutMillis: 10,
+      platform: "win32",
+      taskkillRunner: async (_pid, force): Promise<TaskkillResult> => {
+        attempts.push(force)
+        return await new Promise<TaskkillResult>(() => undefined)
+      },
+      taskkillTimeoutMillis: 10,
+    })).rejects.toThrow("Failed to terminate owned process tree")
+    expect(attempts).toEqual([false, true])
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    await waitForOwnedExit(child)
+  })
+
+  it("rejects partial Windows taskkill failure after the root exits", async () => {
+    const attempts: boolean[] = []
+    const child = shortLivedOwnedProcess(25)
+    await expect(terminateOwnedProcessTree(child, {
+      platform: "win32",
+      taskkillRunner: async (_pid, force) => {
+        attempts.push(force)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return { exitCode: 5, signal: null }
+      },
+      taskkillTimeoutMillis: 100,
+    })).rejects.toThrow("Failed to terminate owned process tree")
+    expect(attempts).toEqual([false, true])
+    await waitForOwnedExit(child)
+  })
+
+
+  it("waits for force completion after graceful taskkill reports success", async () => {
+    const attempts: boolean[] = []
+    const child = shortLivedOwnedProcess(5_000)
+    await terminateOwnedProcessTree(child, {
+      forceTimeoutMillis: 200,
+      gracefulTimeoutMillis: 20,
+      platform: "win32",
+      taskkillRunner: async (pid, force) => {
+        attempts.push(force)
+        if (force) {
+          setTimeout(() => process.kill(-pid, "SIGTERM"), 25)
+        }
+        return { exitCode: 0, signal: null }
+      },
+      taskkillTimeoutMillis: 100,
+    })
+    expect(attempts).toEqual([false, true])
+    expect(processExists(child.pid!)).toBe(false)
+  })
+
+  it("retains resources when owned process-tree termination is unproven", async () => {
+    const child = shortLivedOwnedProcess(25)
+    let cleaned = false
+    await expect(terminateOwnedProcessTreeThen(
+      child,
+      async () => {
+        cleaned = true
+        return undefined
+      },
+      {
+        platform: "win32",
+        taskkillRunner: async () => ({ exitCode: 5, signal: null }),
+        taskkillTimeoutMillis: 100,
+      },
+    )).rejects.toThrow("Failed to terminate owned process tree")
+    expect(cleaned).toBe(false)
+    await waitForOwnedExit(child)
+  })
+  it("memoizes concurrent and repeated termination to one signal path", async () => {
+    const attempts: boolean[] = []
+    const child = shortLivedOwnedProcess(5_000)
+    const options = {
+      platform: "win32" as const,
+      taskkillRunner: async (pid: number, force: boolean) => {
+        attempts.push(force)
+        process.kill(-pid, "SIGTERM")
+        return { exitCode: 0, signal: null }
+      },
+    }
+
+    await Promise.all([
+      terminateOwnedProcessTree(child, options),
+      terminateOwnedProcessTree(child, options),
+    ])
+    await terminateOwnedProcessTree(child, options)
+
+    expect(attempts).toEqual([false])
+    expect(processExists(child.pid!)).toBe(false)
+  })
+  return undefined
+})

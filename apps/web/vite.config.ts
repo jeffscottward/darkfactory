@@ -49,12 +49,12 @@ export default defineConfig({
   environments: {
     client: {
       optimizeDeps: {
-        exclude: ["next/link"],
+        exclude: ["lucide-react", "next/link"],
         include: [
+          "@tanstack/react-form",
           "@darkfactory/state > zustand/vanilla",
           "@darkfactory/ui > radix-ui",
           "@darkfactory/ui > sonner",
-          "lucide-react",
           "next/router",
         ],
       },

@@ -1,0 +1,271 @@
+import {
+  spawn,
+  type ChildProcess,
+  type ChildProcessByStdio,
+  type SpawnOptions,
+} from "node:child_process"
+import type { Readable } from "node:stream"
+
+declare const ownedProcessBrand: unique symbol
+export type OwnedProcess = ChildProcessByStdio<null, Readable, Readable> & {
+  readonly [ownedProcessBrand]: true
+}
+
+export type TaskkillResult = Readonly<{
+  exitCode: number | null
+  signal: NodeJS.Signals | null
+}>
+
+export type TaskkillRunner = (
+  pid: number,
+  force: boolean,
+  signal: AbortSignal,
+) => Promise<TaskkillResult>
+
+export type TerminateOwnedProcessOptions = Readonly<{
+  forceTimeoutMillis?: number
+  gracefulTimeoutMillis?: number
+  platform?: NodeJS.Platform
+  taskkillRunner?: TaskkillRunner
+  taskkillTimeoutMillis?: number
+}>
+const ownedProcesses = new WeakSet<ChildProcess>()
+const terminationPromises = new WeakMap<ChildProcess, Promise<void>>()
+
+
+const isErrno = (error: unknown, code: string): boolean =>
+  error !== null &&
+  typeof error === "object" &&
+  "code" in error &&
+  error.code === code
+
+const pause = (durationMillis: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, durationMillis))
+
+export const spawnOwnedProcess = (
+  command: string,
+  args: readonly string[],
+  options: Omit<SpawnOptions, "detached" | "shell" | "stdio"> = {},
+): OwnedProcess => {
+  const child = spawn(command, args, {
+    ...options,
+    detached: true,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  }) as OwnedProcess
+  ownedProcesses.add(child)
+  return child
+}
+
+export const processExists = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (isErrno(error, "ESRCH")) return false
+    throw error
+  }
+}
+
+const processTreeExists = (
+  child: ChildProcess,
+  pid: number,
+  platform: NodeJS.Platform,
+): boolean => {
+  if (platform === "win32") {
+    return child.exitCode === null && child.signalCode === null
+  }
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (error) {
+    if (isErrno(error, "ESRCH")) return false
+    if (isErrno(error, "EPERM")) return true
+    throw error
+  }
+}
+
+export const ownedProcessTreeExists = (child: ChildProcess): boolean => {
+  const pid = child.pid
+  return pid !== undefined && processTreeExists(child, pid, process.platform)
+}
+
+const waitForProcessTreeExit = async (
+  child: ChildProcess,
+  pid: number,
+  timeoutMillis: number,
+  platform: NodeJS.Platform,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMillis
+  while (Date.now() < deadline) {
+    if (!processTreeExists(child, pid, platform)) return true
+    await pause(25)
+  }
+  return !processTreeExists(child, pid, platform)
+}
+
+const runTaskkill: TaskkillRunner = async (pid, force, signal) => {
+  const taskkill = spawn(
+    "taskkill",
+    ["/PID", pid.toString(), "/T", ...(force ? ["/F"] : [])],
+    {
+      shell: false,
+      signal,
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  )
+  return await new Promise<TaskkillResult>((resolve, reject) => {
+    taskkill.once("error", reject)
+    taskkill.once("exit", (exitCode, taskkillSignal) => {
+      resolve({ exitCode, signal: taskkillSignal })
+    })
+    return undefined
+  })
+}
+
+const runBoundedTaskkill = async (
+  runner: TaskkillRunner,
+  pid: number,
+  force: boolean,
+  timeoutMillis: number,
+): Promise<void> => {
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const timeoutResult = new Promise<TaskkillResult>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort()
+      reject(new Error(`taskkill timed out for owned process tree ${pid}`))
+    }, timeoutMillis)
+  })
+
+  let result: TaskkillResult
+  try {
+    result = await Promise.race([
+      runner(pid, force, controller.signal),
+      timeoutResult,
+    ])
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+
+  if (result.signal !== null) {
+    throw new Error(`taskkill exited by signal ${result.signal}`)
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`taskkill exited with code ${result.exitCode}`)
+  }
+}
+
+const signalProcessTree = async (
+  child: ChildProcess,
+  pid: number,
+  signal: "SIGKILL" | "SIGTERM",
+  platform: NodeJS.Platform,
+  taskkillRunner: TaskkillRunner,
+  taskkillTimeoutMillis: number,
+): Promise<void> => {
+  if (platform === "win32") {
+    await runBoundedTaskkill(
+      taskkillRunner,
+      pid,
+      signal === "SIGKILL",
+      taskkillTimeoutMillis,
+    )
+    return
+  }
+  try {
+    process.kill(-pid, signal)
+  } catch (error) {
+    if (!isErrno(error, "ESRCH")) throw error
+  }
+}
+
+const terminateOwnedProcessTreeOnce = async (
+  child: OwnedProcess,
+  options: TerminateOwnedProcessOptions,
+): Promise<void> => {
+  const pid = child.pid
+  if (pid === undefined) throw new Error("Owned process has no PID")
+  const platform = options.platform ?? process.platform
+  if (!processTreeExists(child, pid, platform)) return
+
+  const taskkillRunner = options.taskkillRunner ?? runTaskkill
+  const taskkillTimeoutMillis = options.taskkillTimeoutMillis ?? 5_000
+  let gracefulError: unknown
+  try {
+    await signalProcessTree(
+      child,
+      pid,
+      "SIGTERM",
+      platform,
+      taskkillRunner,
+      taskkillTimeoutMillis,
+    )
+  } catch (error) {
+    gracefulError = error
+  }
+
+  if (
+    gracefulError === undefined &&
+    await waitForProcessTreeExit(
+      child,
+      pid,
+      options.gracefulTimeoutMillis ?? 5_000,
+      platform,
+    )
+  ) return
+
+  try {
+    await signalProcessTree(
+      child,
+      pid,
+      "SIGKILL",
+      platform,
+      taskkillRunner,
+      taskkillTimeoutMillis,
+    )
+  } catch (forceError) {
+    throw new AggregateError(
+      gracefulError === undefined
+        ? [forceError]
+        : [gracefulError, forceError],
+      `Failed to terminate owned process tree ${pid}`,
+    )
+  }
+
+  if (
+    await waitForProcessTreeExit(
+      child,
+      pid,
+      options.forceTimeoutMillis ?? 5_000,
+      platform,
+    )
+  ) return
+
+  throw new Error(`Owned process tree ${pid} did not exit after SIGKILL`)
+}
+
+export const terminateOwnedProcessTree = async (
+  child: OwnedProcess,
+  options: TerminateOwnedProcessOptions = {},
+): Promise<void> => {
+  if (!ownedProcesses.has(child)) {
+    throw new Error("Refusing to terminate a process not spawned as owned")
+  }
+  const existing = terminationPromises.get(child)
+  if (existing !== undefined) return await existing
+
+  const termination = terminateOwnedProcessTreeOnce(child, options)
+  terminationPromises.set(child, termination)
+  return await termination
+}
+
+export const terminateOwnedProcessTreeThen = async (
+  child: OwnedProcess,
+  cleanup: () => Promise<void>,
+  options: TerminateOwnedProcessOptions = {},
+): Promise<void> => {
+  await terminateOwnedProcessTree(child, options)
+  await cleanup()
+}

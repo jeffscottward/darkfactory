@@ -1,6 +1,24 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+const runtimeErrors = new WeakMap<Page, string[]>();
+const expectedRuntimeErrors = new WeakMap<Page, string[]>();
 
 test.describe("DF-076 public contact form", () => {
+  test.beforeEach(({ page }) => {
+    const errors: string[] = [];
+    runtimeErrors.set(page, errors);
+    expectedRuntimeErrors.set(page, []);
+    page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        errors.push(`console: ${message.text()}`);
+      }
+    });
+  });
+
+  test.afterEach(({ page }) => {
+    expect(runtimeErrors.get(page)).toEqual(expectedRuntimeErrors.get(page));
+  });
   test("validates, focuses, prevents duplicate submission, and preserves values on failure", async ({
     page,
   }) => {
@@ -52,7 +70,11 @@ test.describe("DF-076 public contact form", () => {
     await page.route("**/api/orpc/contact/submit", async (route) => {
       submissions += 1;
       await page.waitForTimeout(250);
-      await route.abort("failed");
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({ json: null }),
+      });
     });
 
     await form.evaluate((element: HTMLFormElement) => {
@@ -146,6 +168,10 @@ test.describe("DF-076 public contact form", () => {
     };
     let code: "TOO_MANY_REQUESTS" | "SERVICE_UNAVAILABLE" | "sent" =
       "TOO_MANY_REQUESTS";
+    expectedRuntimeErrors.set(page, [
+      "console: Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    ]);
     await page.route("**/api/orpc/contact/submit", (route) => {
       if (code === "sent") {
         return route.fulfill({
