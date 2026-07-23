@@ -1,0 +1,20 @@
+export default function HomePage() {
+  return (
+    <>
+      <header>
+        <nav aria-label="Primary">
+          <a aria-current="page" href="/">
+            Home
+          </a>
+        </nav>
+      </header>
+      <main>
+        <section aria-labelledby="darkfactory-heading">
+          <p>Application foundation</p>
+          <h1 id="darkfactory-heading">DarkFactory</h1>
+          <p>A modular, Postgres-first, AI-native application foundation.</p>
+        </section>
+      </main>
+    </>
+  );
+}

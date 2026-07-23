@@ -28,7 +28,7 @@ DarkFactory is for developers and AI agents evaluating, learning, and adapting a
 ### Requirement classes
 
 | Class | Meaning | Design-system examples |
-|---|---|---|
+| --- | --- | --- |
 | **Core** | Present in every DarkFactory project | Public surface, portal surface, accessible semantic tokens, Manrope + Public Sans, responsive shell |
 | **Capability** | Optional and explicitly enabled | Additional marketing sections, charts, richer documentation, product-specific navigation |
 | **Convention** | Rule followed by humans and agents | Token-only styling, complete states, no domain assumptions, visible focus, stable interactions |
@@ -70,7 +70,7 @@ The shared visual language is **engineered editorial**: warm tinted neutrals, st
 ### Surface-specific expression
 
 | Public site | Authenticated portal |
-|---|---|
+| --- | --- |
 | Squarespace-inspired editorial restraint | shadcn-blocks-inspired application clarity |
 | Generous whitespace and expressive type scale | Compact, scannable information hierarchy |
 | Asymmetric compositions and image/content rhythm | Clear shell, sidebar, forms, tables, and states |
@@ -88,7 +88,7 @@ The two surfaces must look related, not identical. Public pages may be spacious 
 All DarkFactory typography is sans serif.
 
 | Role | Family | Weights | Use |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Display and headings | **Manrope** | 500, 600, 700 | Public hero, page titles, section headings, portal headings |
 | Body and interface | **Public Sans** | 400, 500, 600, 700 | Paragraphs, navigation, controls, labels, data, code-adjacent copy |
 
@@ -106,7 +106,7 @@ Do not use Libre Bodoni or any other serif. Do not use Inter, Roboto, Arial, or 
 #### Type scale
 
 | Token | Size / line-height | Intended use |
-|---|---|---|
+| --- | --- | --- |
 | `--text-xs` | `0.75rem / 1rem` | Metadata only; never primary instructions |
 | `--text-sm` | `0.875rem / 1.25rem` | Secondary UI, table metadata |
 | `--text-base` | `1rem / 1.5rem` | Default body and controls |
@@ -131,7 +131,7 @@ Components consume semantic tokens only. Palette values are defined centrally; p
 #### Neutral foundation
 
 | Semantic token | Light | Dark | Purpose |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--background` | `#F6F2EA` | `#171715` | Page canvas |
 | `--foreground` | `#211F1B` | `#F1EDE5` | Primary text |
 | `--surface` | `#FBF9F4` | `#1D1C19` | Default grouped surface |
@@ -153,7 +153,7 @@ The neutral foundation is intentionally warm. Avoid pure `#000000`, pure `#FFFFF
 Mode and palette are independent. The mode control offers **light**, **dark**, and **system**. The palette control offers exactly ten schemes:
 
 | Palette | Light primary / foreground | Dark primary / foreground |
-|---|---|---|
+| --- | --- | --- |
 | Neutral | `#3D3933 / #FAF7F0` | `#D8D1C5 / #1B1A17` |
 | Slate | `#334155 / #F8FAFC` | `#CBD5E1 / #18202B` |
 | Blue | `#1D4ED8 / #F7FAFF` | `#9DB8FF / #102452` |
@@ -178,7 +178,7 @@ Success, warning, info, and destructive styles must include an icon or text labe
 Use a 4px/8px-based scale only.
 
 | Token | Value | Typical use |
-|---|---|---|
+| --- | --- | --- |
 | `--space-0` | `0` | Reset |
 | `--space-1` | `0.25rem` | Tight optical adjustment |
 | `--space-2` | `0.5rem` | Icon-to-label gap |
@@ -199,7 +199,7 @@ Public pages may use the upper tiers. Portal components should usually stay betw
 ### 3.4 Radius, borders, and elevation
 
 | Token | Value | Use |
-|---|---|---|
+| --- | --- | --- |
 | `--radius-xs` | `0.25rem` | Code chips and compact tags |
 | `--radius-sm` | `0.375rem` | Inputs and compact controls |
 | `--radius-md` | `0.5rem` | Buttons and menus |
@@ -218,7 +218,7 @@ Public pages may use the upper tiers. Portal components should usually stay betw
 ### 3.5 Motion
 
 | Token | Value |
-|---|---|
+| --- | --- |
 | `--duration-fast` | `120ms` |
 | `--duration-base` | `180ms` |
 | `--duration-slow` | `240ms` |
@@ -261,7 +261,7 @@ Use mobile-first styles. Content must remain usable between targets, not only at
 ### Shared layout tokens
 
 | Token | Value | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `--content-reading` | `45rem` | Long-form copy |
 | `--content-portal` | `80rem` | Portal content maximum |
 | `--content-public` | `90rem` | Public composition maximum |
@@ -308,7 +308,7 @@ The default public mode is light with warm tinted neutrals. Dark mode remains co
 The public surface must support multiple pages without inventing a business domain:
 
 | Page | Purpose |
-|---|---|
+| --- | --- |
 | **Home** | Explain DarkFactory and route visitors to architecture, demo, and sign-in |
 | **Architecture** | Show boundaries, request flow, and Core/Capability/Convention/Implementation distinctions |
 | **Vertical Slice** | Explain the neutral feature item from interface through persistence and observability |
@@ -332,7 +332,7 @@ Additional pages inherit these patterns. A public page must earn its existence w
 
 ## 6. Authenticated Portal Direction
 
-### Reference and intent
+### Portal composition reference
 
 Use [shadcn blocks](https://ui.shadcn.com/blocks) as the continual composition reference for the authenticated portal. Reuse the clarity of its shells, navigation, forms, settings, tables, and authentication patterns while preserving DarkFactory tokens and voice.
 

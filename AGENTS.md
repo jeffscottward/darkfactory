@@ -64,7 +64,7 @@ The canonical lifecycle is:
 
 `develop → typecheck → compile/build → unit → integration → e2e → lint → format check → Graphify update/verify → docs → commit → pre-push → CI → deployment`
 
-Root pnpm scripts and Turborepo tasks are the source of truth. `pnpm ci` must mirror GitHub Actions. Pre-commit hooks stay fast and focused; pre-push covers the wider validation required before CI. Never bypass a failing gate, disable a test, or skip hooks merely to make a change pass.
+Root pnpm scripts and Turborepo tasks are the source of truth. `pnpm run ci` must mirror GitHub Actions. Never use bare `pnpm ci` as a gate: pnpm reserves it for clean installation. Pre-commit hooks stay fast and focused; pre-push covers the wider validation required before CI. Never bypass a failing gate, disable a test, or skip hooks merely to make a change pass.
 
 Use pnpm for packages, workspaces, and the sole lockfile. Turborepo is the root task graph. Bun may run a compatible local script only when the repository explicitly supports it; it is not a second package manager.
 
@@ -72,8 +72,8 @@ Use pnpm for packages, workspaces, and the sole lockfile. Turborepo is the root 
 
 - Maintain two domain-neutral surfaces: a refined public site and a practical authenticated portal. Do not invent a business-specific sitemap, entities, metrics, or workflow.
 - Treat `design-system/darkfactory/MASTER.md` as the authoritative UI specification and `.impeccable.md` as persistent design context. Read both before designing or implementing an interface; page-specific design files may narrow but not silently replace the Master.
-- Use https://www.squarespace.com/ as a continual public-site reference for editorial restraint, hierarchy, spacing, imagery, and polished responsive composition. It inspires patterns; do not copy layouts, copy, branding, assets, or trade dress.
-- Use https://ui.shadcn.com/blocks as a continual authenticated-portal reference for proven shells, navigation, forms, tables, settings, account, and administration patterns. It inspires composition; do not copy a block wholesale or let examples define the product domain.
+- Use <https://www.squarespace.com/> as a continual public-site reference for editorial restraint, hierarchy, spacing, imagery, and polished responsive composition. It inspires patterns; do not copy layouts, copy, branding, assets, or trade dress.
+- Use <https://ui.shadcn.com/blocks> as a continual authenticated-portal reference for proven shells, navigation, forms, tables, settings, account, and administration patterns. It inspires composition; do not copy a block wholesale or let examples define the product domain.
 - All typography is sans serif. The default direction is Manrope for display/headings and Public Sans for body/UI; never introduce serif typography, Inter, Roboto, Arial, or Open Sans.
 - Build with Tailwind and shadcn tokens. Support light, dark, and system modes plus the ten defined color palettes; reject dark-only design and generic purple/cyan glowing “AI” aesthetics.
 - Preserve visible keyboard focus, semantic structure, labels, contrast, and minimum 44×44 px interactive targets. Verify responsive behavior at 375, 768, 1024, and 1440 px.

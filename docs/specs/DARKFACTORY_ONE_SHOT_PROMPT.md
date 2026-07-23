@@ -71,7 +71,7 @@ The governing portability rule is:
 Apply these labels in code review, architecture docs, manifests, and decisions:
 
 | Class | Definition | DarkFactory v0.1 examples |
-|---|---|---|
+| --- | --- | --- |
 | **Core** | Present and working in every DarkFactory repository. | pnpm/Turborepo shell, Vite/vinext web app, Civet-authored app code, Postgres/Drizzle, Better Auth, contract-first oRPC/OpenAPI, Tailwind/shadcn, provider ports, OTel, evlog, PostHog adapter, Graphify workflow, HTTPS setup, seeded development identities, feature stub, CI and verification scripts. |
 | **Capability** | Optional functionality represented by a manifest, port, documentation, and enablement path; not necessarily installed. | Celery/Flower, Mintlify, Uptime Kuma, GlitchTip, R2, Memori, pgvector, PostGIS, TimescaleDB, pg_cron, Postgres queue/search/realtime profiles. |
 | **Convention** | A rule every human and AI contributor follows regardless of current provider. | Contracts before implementations, Postgres/extensions first, no direct ORM bypass, Graphify before broad exploration, meaningful file boundaries, focused green commits, CI follow-through, sans-serif typography. |
@@ -84,7 +84,7 @@ Do not describe a provider implementation as an immutable domain rule. Do not de
 Later decisions are authoritative. Use this table in review and reject regressions.
 
 | Superseded or rejected choice | Final decision |
-|---|---|
+| --- | --- |
 | npm, Yarn, or Bun as dependency manager; dual lockfiles | **pnpm** owns dependencies, workspaces, and the sole lockfile. Bun may run compatible local scripts only and is not required for correctness. |
 | A single-app repository with no workspace shell | **Turborepo + pnpm workspaces** at the root so sibling apps/services can be added without restructuring. Only `apps/web` is active in v0.1. |
 | Standard Next build as the only runtime, OpenNext, TanStack Start, or a vinext-later placeholder | **Vite + vinext now**, exposing Next.js-compatible App Router conventions and retaining portability to standard Next tooling. |
@@ -225,6 +225,7 @@ Pin versions through the pnpm workspace catalog or a single root policy. Confirm
 - In Vite's plugin array, run the Civet Vite plugin **before** the vinext plugin so Civet transforms are available to vinext. Add a build/runtime test that fails if the order regresses.
 - Keep TypeScript for configuration, generated artifacts, Cloudflare/tool entrypoints, and Playwright harness/spec/config files. Do not force those tooling boundaries into Civet.
 - Use the official `@vinext/cloudflare` package for the web deploy. Alchemy `0.93.12` has no documented first-class vinext resource; do not invent or locally wrap one and call it official.
+- pnpm `11.16` reserves `pnpm ci` as its built-in clean-install command. The repository lifecycle script is still named `ci`, but it MUST always be invoked unambiguously as `pnpm run ci` in docs, hooks, agents, and workflows.
 
 ## 7. Exact target repository tree
 
@@ -465,7 +466,7 @@ Do not create empty decorative packages. Every core package must expose an actua
 Each workspace package must use explicit exports. No app reaches into another package's private path.
 
 | Package | Owns | Required public API |
-|---|---|---|
+| --- | --- | --- |
 | `@darkfactory/api` | oRPC contracts, procedure composition, context, error mapping, OpenAPI generation, typed client | `appContract`, `appRouter`, `createApiContext`, `createApiClient`, OpenAPI document builder; auth/feature namespaces. |
 | `@darkfactory/auth` | Better Auth configuration and client/server helpers | `auth`, `authClient`, `requireSession`, `requireRole`, auth route handler bridge, safe session/user types. |
 | `@darkfactory/db` | Drizzle client, schema, migrations, transaction boundary, repositories, seeds | `db`, schema exports, `withTransaction`, repository constructors, `seedDevelopment`, `resetDevelopment`; no provider-specific types leak upward. |
@@ -632,7 +633,7 @@ Production seeding must fail closed when default credentials are requested.
 Use complete realistic fake data, not vertical-domain data:
 
 | Identity | Role | Name | Business | Theme | Other required data |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | Admin | `admin` | Admin User | Example Operations | neutral/system | Verified email, phone, job title, biography, timezone, locale, nullable or fake date of birth, primary work address, fake avatar. |
 | Alice | `member` | Alice Adams | Alice & Co. | violet/dark | Verified email, phone, job title, biography, timezone, locale, date of birth, primary address, fake avatar. |
 | Bob | `member` | Bob Baker | Bob Industries | blue/light | Verified email, phone, job title, biography, timezone, locale, date of birth, primary address, fake avatar. |
@@ -705,7 +706,7 @@ All routes are in `apps/web`. Use route groups without changing public URLs.
 ### Public and authentication routes
 
 | Route | Purpose | Required observable behavior |
-|---|---|---|
+| --- | --- | --- |
 | `/` | Refined DarkFactory landing page | Clear neutral value proposition, product preview, feature narrative, capability architecture, CTA to sign up and explore. |
 | `/features` | Core architecture/features | Describe contracts, Postgres-first data, auth, observability, AI/provider boundaries, generators without vertical claims. |
 | `/solutions` | Generic use-case archetypes | Present adaptable archetypes such as internal tool, customer portal, AI workflow, and data application; explicitly examples, not baked-in domains. |
@@ -721,7 +722,7 @@ All routes are in `apps/web`. Use route groups without changing public URLs.
 ### Authenticated portal routes
 
 | Route | Access | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `/dashboard` | authenticated | Practical overview using neutral metrics, recent feature items, quick actions, and system/capability status from real or clearly labeled seed data. |
 | `/feature-items` | authenticated | Search/filter/list the current user's `FeatureItem` records. |
 | `/feature-items/new` | authenticated | Validated create workflow. |
@@ -1097,6 +1098,7 @@ Requirements:
 - `pnpm doctor` verifies Node >=22.13, pnpm 11, portless, PM2, the named route, process health, HTTPS trust, and auth-origin consistency. It checks mkcert/certificate SANs/expiry only when the fallback is selected.
 - Verify secure cookies, browser secure context, auth redirects, no certificate warning, and no user-facing raw-port URL.
 - Provide local Postgres through the repository's minimal supported approach, with health check and isolated test database. Do not add unrelated service containers.
+
 ## 17. Root scripts, Turborepo, hooks, and CI
 
 Expose these root commands. Each must do real work or clearly report that a disabled optional capability is not applicable; no success-only placeholders.
@@ -1133,10 +1135,10 @@ pnpm capability:add
 pnpm generate:feature <name>
 pnpm doctor
 pnpm verify
-pnpm ci
+pnpm run ci
 ```
 
-`pnpm verify` is the complete local pre-push gate. `pnpm ci` executes the same ordered checks as GitHub Actions in a clean CI mode. Avoid divergence between package scripts, Turbo, hooks, and workflow YAML.
+`pnpm verify` is the complete local pre-push gate. `pnpm run ci` invokes the repository `ci` script and executes the same ordered checks as GitHub Actions in a clean CI mode. Avoid divergence between package scripts, Turbo, hooks, and workflow YAML.
 
 Keep `turbo.json` simple:
 
@@ -1270,7 +1272,7 @@ Graphify and Memori are different: Graphify maps repository code/docs and is ena
 Tests defend observable contracts and plausible failure modes, not source text or implementation trivia. Use deterministic clocks/IDs/adapters where needed. No live production provider calls in the default suite.
 
 | Layer | Required coverage |
-|---|---|
+| --- | --- |
 | Unit | Pure validators, theme resolution, config/manifest parsing, feature service policies, authorization predicates, generator planning/naming, error mapping, redaction, state-machine transitions. |
 | Contract | oRPC input/output/error shapes, auth context/role requirements, OpenAPI generation, adapter conformance, client/server inference, backward-incompatible snapshot review. |
 | Database integration | Empty migration, constraints/indexes/FKs, repositories, transaction rollback, owner scoping, audit/outbox atomicity, idempotent seeds, production seed rejection, reset isolation. |
@@ -1347,7 +1349,7 @@ Acceptance:
 - Node >=22.13 and pnpm 11 are enforced; Next `pageExtensions` includes `civet`; the Civet Vite plugin runs before vinext.
 - The web deploy path resolves through official `@vinext/cloudflare`; Alchemy owns only ancillary supported resources.
 - Root commands dispatch correctly through Turbo.
-- CI invokes the same scripts as local `pnpm ci`.
+- CI invokes the same scripts as local `pnpm run ci`.
 - Disabled capabilities are truthful and dependencies are absent.
 
 Commit/push only after this gate is green; follow CI to green.
@@ -1496,7 +1498,7 @@ pnpm db:reset
 pnpm db:migrate
 pnpm db:seed
 pnpm verify
-pnpm ci
+pnpm run ci
 ```
 
 Then exercise the built app through portless-managed `https://darkfactory.localhost` in a real browser, including all routes and seeded roles. Validate the official `@vinext/cloudflare` build/deploy preview path and the separate Alchemy ancillary-resource plan without leaking or requiring production secrets; do not invent an Alchemy vinext adapter.
@@ -1506,7 +1508,7 @@ Acceptance:
 - Full matrix is green.
 - No console errors, failed network requests, certificate warnings, hydration errors, or accessibility blockers in exercised paths.
 - All generated files are current.
-- `pnpm ci` matches GitHub Actions.
+- `pnpm run ci` matches GitHub Actions.
 - Latest pushed commit has green CI.
 - Evidence bundle and definition-of-done checklist are complete.
 

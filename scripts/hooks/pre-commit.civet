@@ -1,0 +1,3 @@
+import { runPreCommit } from "./index.civet"
+
+process.exitCode = runPreCommit()

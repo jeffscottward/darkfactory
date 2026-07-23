@@ -1,0 +1,21 @@
+{
+  "name": "@darkfactory/testkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --emit-declaration src/index.civet",
+    "typecheck": "civet --typecheck src/index.civet"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:"
+  }
+}

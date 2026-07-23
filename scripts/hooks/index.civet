@@ -1,0 +1,144 @@
+import { spawnSync } from "node:child_process"
+import { extname } from "node:path"
+
+const BIOME_EXTENSIONS = new Set([
+  ".cjs",
+  ".css",
+  ".cts",
+  ".js",
+  ".json",
+  ".jsonc",
+  ".jsx",
+  ".mjs",
+  ".mts",
+  ".ts",
+  ".tsx",
+])
+
+const MARKDOWN_EXTENSIONS = new Set([".markdown", ".md"])
+
+const STAGED_PATH_ARGUMENTS = [
+  "diff",
+  "--cached",
+  "--name-only",
+  "--diff-filter=ACMR",
+  "-z",
+]
+
+function formatCommand(executable, arguments_) {
+  return [executable, ...arguments_]
+    .map((argument) => JSON.stringify(argument))
+    .join(" ")
+}
+
+function failureExitCode(executable, arguments_, result) {
+  const exitCode = result.status ?? 1
+  console.error(
+    `[hook] failed (${exitCode}): ${formatCommand(executable, arguments_)}`,
+  )
+
+  if (result.error) {
+    console.error(result.error.message)
+  }
+
+  return exitCode
+}
+
+function readStagedPaths() {
+  const result = spawnSync("git", STAGED_PATH_ARGUMENTS, {
+    encoding: "utf8",
+    shell: false,
+    stdio: ["ignore", "pipe", "inherit"],
+  })
+
+  if (result.status !== 0) {
+    return {
+      exitCode: failureExitCode("git", STAGED_PATH_ARGUMENTS, result),
+      paths: [],
+    }
+  }
+
+  return {
+    exitCode: 0,
+    paths: result.stdout.split("\0").filter(Boolean),
+  }
+}
+
+function isCivetPath(path) {
+  return extname(path).toLowerCase() === ".civet"
+}
+
+function selectBiomePaths(paths) {
+  return paths.filter((path) =>
+    BIOME_EXTENSIONS.has(extname(path).toLowerCase())
+  )
+}
+
+function selectMarkdownPaths(paths) {
+  return paths.filter((path) =>
+    MARKDOWN_EXTENSIONS.has(extname(path).toLowerCase())
+  )
+}
+
+function runPnpmScripts(scripts, paths = []) {
+  const safePaths = paths.map((path) => `./${path}`)
+
+  for (const script of scripts) {
+    const arguments_ =
+      safePaths.length === 0
+        ? ["pnpm", "run", script]
+        : ["pnpm", "run", script, "--", ...safePaths]
+    const result = spawnSync("corepack", arguments_, {
+      shell: false,
+      stdio: "inherit",
+    })
+
+    if (result.status !== 0) {
+      return failureExitCode("corepack", arguments_, result)
+    }
+  }
+
+  return 0
+}
+
+export function runPreCommit() {
+  const staged = readStagedPaths()
+
+  if (staged.exitCode !== 0) {
+    return staged.exitCode
+  }
+
+  const biomePaths = selectBiomePaths(staged.paths)
+  const markdownPaths = selectMarkdownPaths(staged.paths)
+
+  if (biomePaths.length === 0 && markdownPaths.length === 0) {
+    if (staged.paths.some(isCivetPath)) {
+      console.error(
+        "[hook] staged Civet validation is deferred to mandatory corepack pnpm run verify before push.",
+      )
+    }
+
+    return 0
+  }
+
+  if (biomePaths.length > 0) {
+    const biomeExitCode = runPnpmScripts(
+      ["format:staged", "lint:staged"],
+      biomePaths,
+    )
+
+    if (biomeExitCode !== 0) {
+      return biomeExitCode
+    }
+  }
+
+  if (markdownPaths.length > 0) {
+    return runPnpmScripts(["lint:markdown:staged"], markdownPaths)
+  }
+
+  return 0
+}
+
+export function runPrePush() {
+  return runPnpmScripts(["verify"])
+}

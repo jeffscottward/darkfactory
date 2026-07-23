@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/core"],
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      // Civet owns parsing and type checks for authored .civet source.
+      "!!**/*.civet",
+      "!!.markdownlint-cli2.jsonc",
+      "!!**/node_modules",
+      "!!**/.turbo",
+      "!!**/dist",
+      "!!**/build",
+      "!!**/coverage",
+      "!!**/playwright-report",
+      "!!**/test-results"
+    ]
+  }
+}

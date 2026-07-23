@@ -1,0 +1,49 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    "tsconfig.base.json",
+    "tsconfig.json",
+    "vitest.config.ts"
+  ],
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "passThroughEnv": ["HOST", "PORT", "PORTLESS_*"],
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "types": {
+      "dependsOn": ["^types"],
+      "outputs": ["src/*.civet.d.ts"]
+    },
+    "typecheck": {
+      "dependsOn": ["types", "^typecheck"],
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "format": {
+      "cache": false,
+      "outputs": []
+    },
+    "format:check": {
+      "outputs": []
+    },
+    "test:unit": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test:integration": {
+      "cache": false,
+      "outputs": []
+    },
+    "test:e2e": {
+      "cache": false,
+      "outputs": ["playwright-report/**", "test-results/**"]
+    }
+  }
+}

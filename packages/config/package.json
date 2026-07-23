@@ -1,0 +1,30 @@
+{
+  "name": "@darkfactory/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/env.civet.d.ts",
+      "import": "./src/env.civet",
+      "default": "./src/env.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --emit-declaration src/env.civet",
+    "typecheck": "civet --typecheck src/env.civet src/env.test.civet",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/env.test.civet",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/env.test.civet"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "vitest": "catalog:"
+  }
+}

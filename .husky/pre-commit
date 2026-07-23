@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node --import @danielx/civet/register scripts/hooks/pre-commit.civet

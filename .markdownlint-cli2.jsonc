@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/markdownlint-cli2/schema/markdownlint-cli2-config-schema.json",
+  "config": {
+    "default": true,
+    // Architecture/specification tables intentionally contain long requirement rows.
+    "MD013": false,
+    // Specifications may embed illustrative HTML that Markdown must preserve verbatim.
+    "MD033": false
+  },
+  "gitignore": true,
+  "ignores": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/.turbo/**",
+    "**/.next/**",
+    "**/.vinext/**",
+    "**/.wrangler/**",
+    "**/.graphify/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/generated/**",
+    "**/playwright-report/**",
+    "**/test-results/**",
+    "graphify-out/**"
+  ]
+}

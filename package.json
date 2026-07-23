@@ -1,0 +1,51 @@
+{
+  "name": "@darkfactory/root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A modular, Postgres-first, AI-native application foundation.",
+  "type": "module",
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=22.13.0",
+    "pnpm": "11.16.0"
+  },
+  "scripts": {
+    "dev": "portless darkfactory turbo run dev",
+    "build": "turbo run build",
+    "types": "turbo run types",
+    "typecheck": "corepack pnpm run types && tsc --project tsconfig.json && turbo run typecheck",
+    "lint": "biome lint . && corepack pnpm run lint:markdown",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "format:staged": "biome format",
+    "lint:staged": "biome lint",
+    "lint:markdown": "markdownlint-cli2 \"**/*.md\"",
+    "lint:markdown:staged": "markdownlint-cli2",
+    "test": "corepack pnpm run test:unit && corepack pnpm run test:integration && corepack pnpm run test:e2e",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "vitest run --config vitest.config.ts --project integration",
+    "test:e2e": "playwright test",
+    "verify": "corepack pnpm run format:check && corepack pnpm run lint && corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test:unit && corepack pnpm run test:integration && corepack pnpm run test:e2e",
+    "ci": "corepack pnpm run format:check && corepack pnpm run lint && corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test:unit && corepack pnpm run test:integration && corepack pnpm run test:e2e",
+    "doctor": "node --input-type=module -e \"import { execFileSync } from 'node:child_process'; import { readFileSync } from 'node:fs'; const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { throw new Error('Node >=22.13.0 is required; found ' + process.versions.node); } const pnpmVersion = execFileSync('corepack', ['pnpm', '--version'], { encoding: 'utf8' }).trim(); if (pnpmVersion !== '11.16.0') { throw new Error('pnpm 11.16.0 is required; found ' + pnpmVersion); } const civetVersion = execFileSync('corepack', ['pnpm', 'exec', 'civet', '--version'], { encoding: 'utf8' }).trim(); if (civetVersion !== '0.11.15') { throw new Error('Civet 0.11.15 is required; found ' + civetVersion); } for (const [manifestPath, expectedVersion] of [['node_modules/turbo/package.json', '2.10.6'], ['node_modules/vitest/package.json', '4.1.10'], ['node_modules/@playwright/test/package.json', '1.61.1'], ['apps/web/node_modules/vinext/package.json', '1.0.0-beta.3'], ['apps/web/node_modules/@vinext/cloudflare/package.json', '1.0.0-beta.3'], ['apps/web/node_modules/vite/package.json', '8.1.5']]) { const actualVersion = JSON.parse(readFileSync(manifestPath, 'utf8')).version; if (actualVersion !== expectedVersion) { throw new Error(manifestPath + ' must be ' + expectedVersion + '; found ' + actualVersion); } }\" && corepack pnpm --filter @darkfactory/web exec vinext check",
+    "deploy:web": "corepack pnpm --filter @darkfactory/web exec vinext-cloudflare deploy",
+    "deploy:web:preview": "corepack pnpm --filter @darkfactory/web exec vinext-cloudflare deploy --preview",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@danielx/civet": "catalog:",
+    "@darkfactory/config": "workspace:*",
+    "@darkfactory/shared": "workspace:*",
+    "@darkfactory/testkit": "workspace:*",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "husky": "catalog:",
+    "markdownlint-cli2": "catalog:",
+    "portless": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "ultracite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

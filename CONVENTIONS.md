@@ -5,7 +5,7 @@ These conventions keep DarkFactory predictable for people and AI agents. `AGENTS
 ## Naming
 
 | Item | Convention | Example |
-|---|---|---|
+| --- | --- | --- |
 | Directories and authored files | kebab-case | `feature-stub/`, `account-menu.civet` |
 | Civet functions and values | camelCase; verb-first for actions | `createFeatureItem`, `parseInput` |
 | Components, classes, types, schemas exposed as types | PascalCase | `FeatureCard`, `FeatureItem` |
@@ -34,6 +34,7 @@ Use domain-neutral names in the foundation. Do not encode a sample company, indu
 Author `.civet` for application logic, features, React UI, contracts, schemas, services, adapters, scripts, and tests.
 
 Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication target, or exact filename convention, including `vite.config.ts`, Vitest/Playwright configuration, `alchemy.run.ts`, `drizzle.config.ts`, environment declarations, generated OpenAPI clients, generated Cloudflare bindings, and migration artifacts. Keep compatibility files thin and delegate into Civet when possible.
+
 - Register `@danielx/civet/vite` in the Vite compatibility configuration and include `civet` in vinext/Next route `pageExtensions`; vinext does not discover `.civet` routes by default.
 - Pin and verify a mutually compatible Node, Vite, React/RSC, vinext, and Civet toolchain during implementation. Exact versions are Implementation, not architectural invariants.
 
@@ -113,7 +114,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 - End-to-end tests cover critical user journeys through the rendered application, including authentication and the generic feature flow.
 - Keep tests deterministic, isolated, parallel-safe, and independent of production credentials or live providers. Use explicit test/local adapters, never silent mocks in production code.
 - A regression test must fail if the plausible bug returns. Test names describe behavior and outcome.
-- Run the narrow test while iterating, then the applicable root lifecycle. `pnpm ci` and GitHub Actions must remain equivalent.
+- Run the narrow test while iterating, then the applicable root lifecycle. `pnpm run ci` and GitHub Actions must remain equivalent; never use bare `pnpm ci` as a gate because pnpm reserves it for clean installation.
 - Never skip, weaken, snapshot-away, or delete a failing test to obtain green status.
 
 ## UI and accessibility

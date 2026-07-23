@@ -75,13 +75,14 @@ Toolchain requirements:
 - `.civet` pages, layouts, loading/error boundaries, components, contracts, services, scripts, and ordinary tests MUST compile and be discovered.
 - TypeScript remains at exact tooling boundaries: `vite.config.ts`, `next.config.ts`, `playwright.config.ts`, Playwright specs/harness files, `drizzle.config.ts`, `alchemy.run.ts`, generated OpenAPI clients, generated Cloudflare bindings, environment declarations, and migration artifacts.
 - No undocumented Alchemy vinext resource or locally invented adapter may be represented as official.
+- pnpm 11.16 reserves bare `pnpm ci` for its built-in clean-install command. The repository lifecycle script remains named `ci` but MUST be invoked as `pnpm run ci` everywhere to avoid dispatching the built-in command.
 
 ## 4. Superseded-decision registry
 
 Checklist items cite these IDs.
 
 | Ref | Superseded decision | Authoritative decision |
-|---|---|---|
+| --- | --- | --- |
 | **S01** | npm, Yarn, Bun package management, or dual lockfiles | pnpm 11 owns packages/workspaces and the sole lockfile; Bun is optional script runtime only. |
 | **S02** | Flat/single-app repository with no workspace shell | pnpm workspaces + Turborepo root; only `apps/web` is active in v0.1. |
 | **S03** | Standard Next-only build, OpenNext, TanStack Start, Convex, or vinext-later placeholder | Vite + vinext now, retaining portable Next-compatible conventions. |
@@ -274,10 +275,10 @@ pnpm docs:generate       pnpm docs:check         pnpm openapi:generate
 pnpm openapi:check       pnpm db:generate        pnpm db:migrate
 pnpm db:seed             pnpm db:reset           pnpm certs:install
 pnpm certs:generate      pnpm capability:add     pnpm generate:feature <name>
-pnpm verify              pnpm ci
+pnpm verify              pnpm run ci
 ```
 
-`pnpm verify` is the full pre-push gate. `pnpm ci` and GitHub Actions execute the same clean sequence. Husky pre-commit stays staged/focused; pre-push executes the wider deterministic gate. Commit/push only focused green increments; after every push follow CI to terminal green or document an exact external blocker.
+`pnpm verify` is the full pre-push gate. `pnpm run ci` invokes the repository `ci` script and GitHub Actions executes the same clean sequence. Husky pre-commit stays staged/focused; pre-push executes the wider deterministic gate. Commit/push only focused green increments; after every push follow CI to terminal green or document an exact external blocker.
 
 Tests cover unit, contract, database/auth/feature/provider integration, component behavior, E2E public/auth/portal/admin/feature journeys, accessibility, visual/responsive themes, security smoke, build/runtime, and generator behavior. No live production providers in default tests.
 
@@ -286,7 +287,7 @@ Evidence includes commit/branch, classified checklist, dependency inventory, fin
 ## 10. Phase and owner map
 
 | Phase | Owner code | Exclusive surface | Dependency |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **P0** | **L** lead architect | specification, requirement trace, integration sequencing | none |
 | **P1** | **W** workspace/tooling | root manifests, config package, Turbo, Vite/vinext/Civet, hooks, CI skeleton | P0 |
 | **P2a** | **D** database | `packages/db`, local/test Postgres, migrations, seeds | P1 |
@@ -438,7 +439,7 @@ Every item is mandatory unless explicitly classified Capability and disabled. `A
 ### Scripts, hooks, CI, delivery — DF-101 through DF-110
 
 - [ ] **DF-101 · Core · P1/W · depends: DF-011–DF-020.** All listed root scripts exist and perform real work or truthful not-applicable result. **Accept/evidence:** script inventory and focused command transcripts. **Supersedes:** none.
-- [ ] **DF-102 · Core · P1/W · depends: DF-019, DF-101.** `pnpm verify` is complete pre-push gate; `pnpm ci` mirrors GitHub Actions. **Accept/evidence:** task/workflow comparison and clean run. **Supersedes:** none.
+- [ ] **DF-102 · Core · P1/W · depends: DF-019, DF-101.** `pnpm verify` is the complete pre-push gate; `pnpm run ci` unambiguously invokes the repository lifecycle script and mirrors GitHub Actions. **Accept/evidence:** task/workflow comparison plus a clean `pnpm run ci` invocation. **Supersedes:** none.
 - [ ] **DF-103 · Core · P1/W · depends: DF-101.** Husky pre-commit is staged/focused and calls scripts; pre-push calls full deterministic gate. **Accept/evidence:** hook fixture behavior; no duplicated logic. **Supersedes:** none.
 - [ ] **DF-104 · Convention · P1/W · depends: DF-103.** Hooks/tests/gates are never bypassed, weakened, skipped, or snapshot-deleted for green. **Accept/evidence:** AGENTS/conventions and review history. **Supersedes:** none.
 - [ ] **DF-105 · Core · P1/W · depends: DF-102.** CI uses frozen pnpm install, safe caches, isolated Postgres, migrations/seeds, config validation, full deterministic gates. **Accept/evidence:** workflow and successful run. **Supersedes:** S01.
