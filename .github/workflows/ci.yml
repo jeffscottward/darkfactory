@@ -11,6 +11,9 @@ jobs:
   verification:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Keep the CI proxy unprivileged; Playwright derives its readiness and browser URLs from this port.
+    env:
+      PORTLESS_PORT: "1355"
 
     steps:
       - name: Check out repository
