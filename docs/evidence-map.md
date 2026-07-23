@@ -8,10 +8,10 @@ The normative requirement text and acceptance criteria remain in [`docs/specs/DA
 
 | Field | Required final value | Current value |
 | --- | --- | --- |
-| Final commit | Full SHA and branch/ref | `PENDING` — working state is not yet committed/pushed |
-| Repository tree | Clean/status evidence and submodule state if applicable | `PENDING` — final committed tree evidence is not available |
+| Final commit | Full SHA and branch/ref | Implementation commit `fd3f071` (`feat: build production application foundation`) exists on `main`; push and any evidence follow-up commit are `PENDING` |
+| Repository tree | Clean/status evidence and submodule state if applicable | Implementation is committed at `fd3f071`; subsequent evidence/checkpoint updates and final clean-tree proof are `PENDING` |
 | Dependency inventory | pnpm/Node versions, lockfile digest, relevant package inventory | Local lifecycle used the locked workspace successfully; final version inventory and lockfile digest are `PENDING` |
-| CI | Workflow URL, run ID, attempt, exact SHA, terminal conclusion, artifacts | Local canonical `pnpm run ci` exit 0 on 2026-07-23; final remote CI is `PENDING`. Earlier run `30019480805` was cancelled after stale scope and is not final evidence |
+| CI | Workflow URL, run ID, attempt, exact SHA, terminal conclusion, artifacts | Publication-candidate local `pnpm run ci` exit 0 on 2026-07-23. Push did not occur because a later pre-push invocation lacked `DATABASE_URL` and correctly failed closed before integration; an environment-provisioned rerun and final remote CI are `PENDING`. Earlier run `30019480805` was cancelled after stale scope and is not final evidence |
 | PostgreSQL | Image/version, isolated target, migrations/digests, schema check | Loopback real PostgreSQL on port 55432; integration 12 files/88 tests passed locally. Final migration/digest attachment is `PENDING` |
 | Seeds | Target classification, first/second seed result, identities/content, reset evidence | Focused real-PostgreSQL seed/reset gates were approved; final per-command transcript/digest mapping is `PENDING` |
 | Auth/OpenAPI | Auth schema check; OpenAPI path/version/digest/check | Auth schema and generated OpenAPI drift checks passed in the local lifecycle; final SHA/digests are `PENDING` |
@@ -28,12 +28,13 @@ The normative requirement text and acceptance criteria remain in [`docs/specs/DA
 
 | UTC date | Scope | Observed result | Limitation |
 | --- | --- | --- | --- |
-| 2026-07-23 | Publication-candidate `APP_ENV=test DATABASE_URL=<redacted loopback PostgreSQL URL on port 55432> PORTLESS_PORT=1355 CI=1 corepack pnpm run ci` | Exit 0 after contact-expiry race and Civet Graphify/environment hardening: format, lint, Markdown, auth schema, OpenAPI, type exports, 15-package typechecks, vinext build, 13-package unit suites, integration 12 files/88 tests, and Chromium E2E 8 tests passed | Local working state; final commit SHA and remote CI are pending |
+| 2026-07-23 | Publication-candidate `APP_ENV=test DATABASE_URL=<redacted loopback PostgreSQL URL on port 55432> PORTLESS_PORT=1355 CI=1 corepack pnpm run ci` before commit `fd3f071` | Exit 0 after contact-expiry race and Civet Graphify/environment hardening: format, lint, Markdown, auth schema, OpenAPI, type exports, 15-package typechecks, vinext build, 13-package unit suites, integration 12 files/88 tests, and Chromium E2E 8 tests passed | Local exact working state was green immediately before the implementation commit; final remote CI is pending |
 | 2026-07-23 | `pnpm deploy:web:check` | Exit 0; official adapter dry-run reported no build and no deployment | Not preview, production, runtime, or rollback evidence |
 | 2026-07-23 | Secure Graphify build/check/verify | PASS with Graphify 0.9.2, a Civet-aware local compiler, exact workspace-alias rewriting, 435 source files, `queriesVerified=5`, config digest `64fdc615ac01f6591f781106c26b9ca7eaa54e983342bc7d2057b88fadf0e341`, graph digest `9e3b8245990ce52b0956826d4dac548d52eeee56db10a694e59e8b25a03453bd`, and source fingerprint `e4041ec7ed7694f6d09e0ed2736024676bccffe70aaa7e9f8e53142418c492a6` | Provider/application environment is never forwarded; code and security reviews are terminal APPROVE; final commit SHA remains pending |
 | 2026-07-23 | Focused real-PostgreSQL, contact, auth, account, theme, generator, local-DX, code, security, database, and design reviews | Focused gates/reviews reported approved in final agent handoffs | Per-DF artifact links and final integrator sign-off remain pending |
 | 2026-07-23 | High-confidence custom publish secret scan | 462 files scanned, 0 findings | Varlock scan output is noisy with a false positive and is not claimed as a green result |
 | 2026-07-23 | GitHub Actions run `30019480805` | Cancelled after stale scope | Not evidence for the current working state; replacement push/run is pending |
+| 2026-07-23 | Commit/push attempt | Implementation commit `fd3f071` created; pre-push hook then correctly failed closed before integration because `DATABASE_URL` was absent, so no push occurred | Environment invocation failure, not a test regression. Rerun the unweakened hook with the isolated test database environment, then push/follow remote CI |
 
 ## Per-item evidence record
 
@@ -211,12 +212,12 @@ These paths and local results were observed during the documentation audit. Term
 | --- | --- | --- | --- |
 | DF-101 | Root `package.json`; local CI exercised canonical lifecycle and focused operation/generator/DX gates were approved | Final script inventory and remaining focused transcripts | `PENDING` |
 | DF-102 | Local canonical `pnpm run ci` exit 0; workflow source exists | Replacement exact-SHA remote CI run and lifecycle/workflow comparison | `PENDING` |
-| DF-103 | `.husky/pre-commit`; `.husky/pre-push`; staged scripts | Hook fixture behavior and no duplicated logic at final SHA | `PENDING` |
+| DF-103 | `.husky/pre-commit`; `.husky/pre-push`; staged scripts; no-DB pre-push attempt failed closed as designed | Rerun the unweakened hook with isolated test DB environment and attach successful output | `PENDING` |
 | DF-104 | `AGENTS.md`; `CONVENTIONS.md`; scoped Markdown lint PASS | Final policy checklist and review history showing no bypass | `PENDING` |
 | DF-105 | Local isolated real-PostgreSQL lifecycle PASS (12 files/88 tests) | Replacement exact-SHA remote isolated CI, migration/seed attachments | `PENDING` |
 | DF-106 | Local format/lint/auth/OpenAPI/types/build/unit/integration/E2E all PASS | Replacement remote logs and failure-artifact behavior | `PENDING` |
-| DF-107 | Focused review/gate handoffs are approved | Final focused commit(s) made only after green affected gates | `PENDING` |
-| DF-108 | Earlier run `30019480805` cancelled after stale scope | Push final SHA and follow replacement GitHub Actions to terminal state | `PENDING` |
+| DF-107 | Focused review/gate handoffs approved; implementation commit `fd3f071` created after the green local lifecycle | Push/final evidence follow-up and exact tree mapping | `PENDING` |
+| DF-108 | Earlier run `30019480805` cancelled after stale scope; first `fd3f071` push attempt stopped locally because required DB env was absent | Rerun pre-push with test DB env, push, and follow replacement GitHub Actions to terminal state | `PENDING` |
 | DF-109 | Deploy adapter dry-run PASS without deployment; current CI has no deploy job | Protected authorized preview/deploy permissions/dependency evidence, or exact accepted blocker | `PENDING` |
 | DF-110 | Cancelled stale run and remaining final-evidence gaps are recorded with next actions | Final URL/log/rerun/owner/stop record or explicit none | `PENDING` |
 
