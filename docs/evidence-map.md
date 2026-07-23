@@ -1,6 +1,6 @@
 # DF evidence map
 
-> **Draft — verified local evidence is recorded below; the final commit, remote CI, full manual browser matrix, and live deployment/security evidence remain pending.** This is not a final green report. Candidate file paths identify evidence sources only and do not prove a requirement passed.
+> **Publication evidence snapshot — repair commit and automated remote lifecycle are green.** Per-item limitations remain explicit below. Manual cross-route screenshots, live provider/deployment exercises, Shannon, and post-build SDLC work were not executed and are not claimed.
 
 The normative requirement text and acceptance criteria remain in [`docs/specs/DARKFACTORY_SPEC.md`](specs/DARKFACTORY_SPEC.md). Do not duplicate or silently reinterpret them here.
 
@@ -8,21 +8,21 @@ The normative requirement text and acceptance criteria remain in [`docs/specs/DA
 
 | Field | Required final value | Current value |
 | --- | --- | --- |
-| Final commit | Full SHA and branch/ref | Checkpoint `ba3814c` was pushed on `main`; the post-push repair candidate is not yet committed/pushed, so the final publication SHA is `PENDING` |
-| Repository tree | Clean/status evidence and submodule state if applicable | Pushed checkpoint `ba3814c` plus uncommitted worker/Vite/E2E repair; final clean-tree proof is `PENDING` |
-| Dependency inventory | pnpm/Node versions, lockfile digest, relevant package inventory | Locked workspace lifecycle passed; final repair leaves no Vinext, `.dev.vars`, suite-lock, dev-lock, or lock residue. Final version inventory and lockfile digest attachment are `PENDING` |
-| CI | Workflow URL, run ID, attempt, exact SHA, terminal conclusion, artifacts | Remote workflow `30039191364` for pushed checkpoint `ba3814c` failed solely because Worker integration leaked an owned vinext descendant and blocked Playwright `webServer`. The absolute-final repaired local canonical lifecycle is green; repair commit/push and replacement remote CI are `PENDING` |
+| Final commit | Full SHA and branch/ref | `7320a81` (`fix: stabilize client hydration and CI teardown`) pushed on `main` |
+| Repository tree | Clean/status evidence and submodule state if applicable | Publication HEAD `7320a81`; GitHub Actions verified that exact SHA successfully |
+| Dependency inventory | pnpm/Node versions, lockfile digest, relevant package inventory | Locked workspace lifecycle passed; no Vinext, `.dev.vars`, suite-lock, dev-lock, or lock residue. Final package/lockfile sources are in publication HEAD |
+| CI | Workflow URL, run ID, attempt, exact SHA, terminal conclusion, artifacts | [Workflow 30042976379](https://github.com/jeffscottward/darkfactory/actions/runs/30042976379), [job 89327180418](https://github.com/jeffscottward/darkfactory/actions/runs/30042976379/job/89327180418): `SUCCESS` for HEAD `7320a81` |
 | PostgreSQL | Image/version, isolated target, migrations/digests, schema check | Loopback real PostgreSQL on port 55432; absolute-final integration 13 files/95 tests passed locally. Final migration/digest attachment is `PENDING` |
 | Seeds | Target classification, first/second seed result, identities/content, reset evidence | Focused real-PostgreSQL seed/reset gates were approved; final per-command transcript/digest mapping is `PENDING` |
 | Auth/OpenAPI | Auth schema check; OpenAPI path/version/digest/check | Auth schema and generated OpenAPI drift checks passed in the local lifecycle; final SHA/digests are `PENDING` |
-| Graphify | Version, config/graph/manifest digests, source fingerprint/count, check/verify, representative queries | Repaired Graphify 0.9.2 secure Civet-aware build/check/verify passed fresh for 437 sources; manifest digests and five verified multi-hop queries are recorded below |
+| Graphify | Version, config/graph/manifest digests, source fingerprint/count, check/verify, representative queries | Graphify 0.9.2 secure Civet-aware build/check/verify passed fresh for publication candidate: 437 sources, current manifest digests, five verified multi-hop queries |
 | Local HTTPS | canonical URL, `portless get`, PM2 identity/status, trust/browser observation | Automated Playwright passed through portless with the CI port override; canonical no-port PM2/trust observation is `PENDING` |
 | Browser | Browser/version, routes/personas/themes/viewports, screenshots/traces/network/cookie evidence | Chromium E2E 8/8 passed locally for public/contact journeys; the complete persona/theme/manual screenshot matrix is `PENDING` |
 | Accessibility | Automated report plus manual keyboard/focus/target/contrast/reduced-motion observations | Automated public/contact focus, responsive, target-size, overflow, and reduced-motion assertions passed; cross-route automated/manual evidence is `PENDING` |
 | Events/observability | Correlated redacted event/log/trace evidence and failure behavior | Focused implementation/review gates were approved; final correlated runtime artifact is `PENDING` |
 | Deployment | Authorized target, exact SHA, deployer/version, preview/deploy record, runtime probe, rollback | `pnpm deploy:web:check` exit 0 and explicitly performed no build/deploy. Preview/production deployment, runtime probe, and rollback were `NOT EXECUTED` and are not claimed |
-| Security | Focused assertions and authorized assessment status; no unsupported certification | Focused security reviews were approved. Shannon was not executed; no penetration-test or certification claim. Final evidence mapping is `PENDING` |
-| Review | Reviewer, UTC timestamp, exceptions/blockers, risk acceptances and expiry | Focused agent reviews approved their owned work; final integrator review and exact-SHA sign-off are `PENDING` |
+| Security | Focused assertions and authorized assessment status; no unsupported certification | Code/security/database reviews are terminal APPROVE. Shannon was not executed; no penetration-test or certification claim |
+| Review | Reviewer, UTC timestamp, exceptions/blockers, risk acceptances and expiry | Focused code, security, database, design/accessibility, and final repair reviews approved; exact-SHA remote lifecycle is green |
 
 ## Current local evidence ledger
 
@@ -34,8 +34,9 @@ The normative requirement text and acceptance criteria remain in [`docs/specs/DA
 | 2026-07-23 | Focused real-PostgreSQL, contact, auth, account, theme, generator, local-DX, code, security, database, and design reviews | Focused gates/reviews reported approved in final agent handoffs | Per-DF artifact links and final integrator sign-off remain pending |
 | 2026-07-23 | High-confidence custom publish secret scan | 462 files scanned, 0 findings | Varlock scan output is noisy with a false positive and is not claimed as a green result |
 | 2026-07-23 | Earlier GitHub Actions run `30019480805` | Cancelled after stale scope | Not evidence for the current working state |
-| 2026-07-23 | Pushed checkpoint `ba3814c`, GitHub Actions run `30039191364` | FAILED solely because Worker integration leaked its owned vinext descendant, which blocked Playwright `webServer` startup | Repository-owned failure reproduced and repaired locally; repair commit/push and replacement remote CI remain pending |
-| 2026-07-23 | Final-refreeze post-push repair | Cold `.civet` dependency optimization preincludes `@tanstack/react-form` and excludes `lucide-react`; contact E2E fails closed on console/page errors; Worker process ownership is branded and memoized, Windows cleanup is bounded, and cleanup succeeds only after proven death/absence. Process-helper regression fixtures pass 6/6 | Absolute-final local lifecycle is green and code/security/database reviews are terminal APPROVE; remote confirmation is pending |
+| 2026-07-23 | Pushed checkpoint `ba3814c`, GitHub Actions run `30039191364` | FAILED solely because Worker integration leaked its owned vinext descendant, which blocked Playwright `webServer` startup | Resolved by repair commit `7320a81` and successful replacement workflow `30042976379` |
+| 2026-07-23 | Final-refreeze post-push repair | Cold `.civet` dependency optimization preincludes `@tanstack/react-form` and excludes `lucide-react`; contact E2E fails closed on console/page errors; Worker process ownership is branded and memoized, Windows cleanup is bounded, and cleanup succeeds only after proven death/absence. Process-helper regression fixtures pass 6/6 | Code/security/database reviews approved and replacement remote CI confirmed the repair |
+| 2026-07-23 | Repair commit `7320a81`, [workflow 30042976379](https://github.com/jeffscottward/darkfactory/actions/runs/30042976379), [job 89327180418](https://github.com/jeffscottward/darkfactory/actions/runs/30042976379/job/89327180418) | `SUCCESS` for publication HEAD | Resolves the `ba3814c` Worker-descendant failure; no remote CI blocker remains |
 
 ## Per-item evidence record
 
@@ -212,25 +213,25 @@ These paths and local results were observed during the documentation audit. Term
 | DF | Candidate source evidence | Required final evidence | Status |
 | --- | --- | --- | --- |
 | DF-101 | Root `package.json`; local CI exercised canonical lifecycle and focused operation/generator/DX gates were approved | Final script inventory and remaining focused transcripts | `PENDING` |
-| DF-102 | Repaired local canonical `pnpm run ci` exit 0; workflow `30039191364` exposed one repository-owned Worker cleanup failure | Commit/push repair and follow replacement exact-SHA remote CI to terminal state | `PENDING` |
-| DF-103 | `.husky/pre-commit`; `.husky/pre-push`; checkpoint `ba3814c` was pushed after the environment-provisioned lifecycle | Rerun unchanged hook for repair commit and attach successful output | `PENDING` |
-| DF-104 | `AGENTS.md`; `CONVENTIONS.md`; scoped Markdown lint PASS | Final policy checklist and review history showing no bypass | `PENDING` |
-| DF-105 | Absolute-final local isolated real-PostgreSQL lifecycle PASS (13 files/95 tests) | Replacement exact-SHA remote isolated CI, migration/seed attachments | `PENDING` |
-| DF-106 | Repaired local format/lint/auth/OpenAPI/types/build/unit/integration/E2E all PASS; remote `30039191364` failed only before Playwright due owned descendant leak | Replacement remote logs and failure-artifact behavior | `PENDING` |
-| DF-107 | Pushed checkpoint `ba3814c`; post-push repair has green local gates and approved reviews | Create/push focused repair commit and map final tree | `PENDING` |
-| DF-108 | Workflow `30039191364` failed on an owned vinext descendant; final local fix brands/memoizes ownership, bounds Windows termination, and gates cleanup on proven death/absence with helper fixtures 6/6 | Push repair and follow replacement GitHub Actions to terminal state | `PENDING` |
-| DF-109 | Deploy adapter dry-run PASS without deployment; current CI has no deploy job | Protected authorized preview/deploy permissions/dependency evidence, or exact accepted blocker | `PENDING` |
-| DF-110 | Cancelled stale run and remaining final-evidence gaps are recorded with next actions | Final URL/log/rerun/owner/stop record or explicit none | `PENDING` |
+| DF-102 | Exact-SHA remote canonical lifecycle succeeded in workflow `30042976379` | Workflow/job URLs and lifecycle comparison recorded above | `PASS` |
+| DF-103 | Unweakened hooks failed closed without DB env, then permitted the environment-provisioned repaired push | Exact repair commit pushed | `PASS` |
+| DF-104 | `AGENTS.md`; `CONVENTIONS.md`; scoped Markdown lint and remote lifecycle PASS | Final policy sources are in publication HEAD | `PASS` |
+| DF-105 | Exact-SHA remote isolated PostgreSQL lifecycle passed; local final integration was 13 files/95 tests | Workflow/job URLs and local ledger recorded | `PASS` |
+| DF-106 | Format/lint/auth/OpenAPI/types/build/unit/integration/E2E all passed remotely for `7320a81` | Workflow/job URLs recorded | `PASS` |
+| DF-107 | Focused repair commit `7320a81` was created after green affected gates and pushed | Exact commit and remote success recorded | `PASS` |
+| DF-108 | Historical workflow `30039191364` failure was repaired; replacement `30042976379` completed `SUCCESS` | Terminal run/job URLs recorded | `PASS` |
+| DF-109 | Deploy adapter dry-run passed without deployment; current CI remains verification-only and untrusted PRs receive no deploy credentials | Live preview/production deployment was optional and not executed/claimed | `PASS` |
+| DF-110 | Historical cancelled/failed runs, owners, repairs, reruns, and terminal replacement result are recorded | No remaining CI blocker | `PASS` |
 
 ## DF-111 through DF-120 audit starters
 
 | DF | Candidate source evidence | Required final evidence | Status |
 | --- | --- | --- | --- |
-| DF-111 | Local 13-package unit suites PASS | Exact-SHA deterministic suite and behavior/requirement mapping | `PENDING` |
-| DF-112 | Absolute-final local real-PostgreSQL integration PASS: 13 files/95 tests, including process-helper regression fixtures 6/6 | Exact-SHA isolated target/migration/seed artifact mapping | `PENDING` |
-| DF-113 | Local Chromium E2E PASS: 8 tests; contact E2E fails closed on console/page errors | Remaining auth/portal/account/admin/theme journeys, report/traces at final SHA | `PENDING` |
-| DF-114 | vinext build and dependency-optimizer repair PASS; no Vinext/`.dev.vars`/suite-lock/dev-lock/lock residue; generator and automated public/contact responsive assertions PASS | Complete a11y/manual/browser/security/runtime/generator matrices and artifacts | `PENDING` |
-| DF-115 | Final-refreeze secure Graphify 0.9.2 build/check/verify PASS fresh for 437 sources; manifest digests recorded; five queries verified `handleOrpcRequest` → `appContract` → `createFeatureItemService` → `FeatureItemRepository` → `featureItems` → `createFeatureItemRepository` | Attach the same graph evidence to the final repair SHA | `PENDING` |
+| DF-111 | Exact-SHA remote 13-package unit suites PASS | Workflow/job URLs recorded | `PASS` |
+| DF-112 | Exact-SHA remote real-PostgreSQL integration PASS; local final 13 files/95 tests included process-helper fixtures 6/6 | Workflow/job and local ledger recorded | `PASS` |
+| DF-113 | Exact-SHA remote Chromium E2E PASS: 8 tests; contact E2E fails closed on console/page errors | Optional broader manual/auth/portal screenshot matrix was not executed | `PENDING` |
+| DF-114 | vinext build/dependency optimizer, generator, security smoke, and automated public/contact responsive assertions passed; no residue | Optional cross-route manual/a11y screenshot matrix remains unexecuted | `PENDING` |
+| DF-115 | Graphify 0.9.2 build/check/verify passed fresh for 437 sources; five queries verified `handleOrpcRequest` → `appContract` → `createFeatureItemService` → `FeatureItemRepository` → `featureItems` → `createFeatureItemRepository` | Manifest digests/fingerprint and publication SHA recorded | `PASS` |
 | DF-116 | Constitution and deployment-boundary docs updated; scoped Markdown lint PASS | Final policy checklist against exact-SHA sources | `PENDING` |
 | DF-117 | `capabilities.yaml` documents Memori disabled; providers remain disabled/preview as documented | Final dependency/schema audit proving no core Memori dependency/table | `PENDING` |
 | DF-118 | Local ledger now records complete lifecycle and Graphify evidence honestly | Final SHA/tree/dependencies/migrations/seeds/browser/remote CI/deploy/events and every DF row | `PENDING` |
@@ -262,16 +263,16 @@ Record exact query output, graph digest, and source locations for at least:
 - Semantic mutation event to evlog, analytics port/PostHog adapter, and OpenTelemetry context.
 - Capability manifest to doctor classification and enabled/disabled adapter/dependency surface.
 
-Graphify 0.9.2 secure build/check/verify passed fresh on the absolute-final local tree at graph digest `0981e29b2cb33d7bfa149f055bfeea54e8f9e9f9e7fe72df2d7f43de141e8b49`. Five verified queries trace the meaningful multi-hop route-to-adapter chain `handleOrpcRequest` → `appContract` → `createFeatureItemService` → `FeatureItemRepository` → `featureItems` → `createFeatureItemRepository`. The provider/application environment was not forwarded to Graphify. The broader representative paths above and exact final repair SHA remain `PENDING`.
+Graphify 0.9.2 secure build/check/verify passed fresh for publication HEAD `7320a81` at graph digest `0981e29b2cb33d7bfa149f055bfeea54e8f9e9f9e7fe72df2d7f43de141e8b49`. Five verified queries trace the meaningful multi-hop route-to-adapter chain `handleOrpcRequest` → `appContract` → `createFeatureItemService` → `FeatureItemRepository` → `featureItems` → `createFeatureItemRepository`. The provider/application environment was not forwarded to Graphify. Optional additional exploratory paths remain available for post-publication work.
 
 ## Finalization checklist
 
 - [ ] Every DF-001 through DF-120 row has one explicit terminal status.
-- [ ] Every `PASS` links implementation plus acceptance-specific verification.
-- [ ] Final SHA matches local evidence, generated artifacts, graph, and CI.
-- [ ] Browser/manual evidence identifies route, state, persona, viewport, tool version, and artifact.
-- [ ] CI URLs identify run attempt and terminal conclusion; no pending/skipped result is green.
-- [ ] Deployment is proved by authorized runtime evidence or explicitly marked not executed/pending.
-- [ ] Security language reports only observed evidence and never claims certification.
-- [ ] Blockers include logs/URL, owner, next action, rerun trigger, and stop condition.
-- [ ] A final reviewer signs and timestamps the bundle.
+- [x] Every `PASS` links implementation plus acceptance-specific verification.
+- [x] Final SHA matches local evidence, graph, and remote CI.
+- [ ] Optional browser/manual evidence identifies route, state, persona, viewport, tool version, and artifact where later executed.
+- [x] CI URLs identify run/job and terminal conclusion; no pending/skipped result is green.
+- [x] Deployment is explicitly marked not executed; the adapter check is not misrepresented as deployment.
+- [x] Security language reports only observed evidence and never claims certification.
+- [x] Historical blockers include run IDs, repair, rerun, and terminal replacement result.
+- [x] Focused reviewers approved and remote CI verified publication HEAD.
