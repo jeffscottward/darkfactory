@@ -1,0 +1,68 @@
+import { createApiClient } from "@darkfactory/api"
+
+import { INDETERMINATE_THEME } from "./server-theme.civet"
+import { fetchThemeApiRequest } from "./theme-api-timeout.civet"
+
+export interface ThemeApiRequestOptions {
+  readonly appUrl: string | URL
+  readonly cookieHeader: string | null
+  readonly clientFactory?: typeof createApiClient
+  readonly fetch?: typeof globalThis.fetch
+  readonly requestId: string | null
+}
+
+const isUnauthorized = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null) return false
+  const record = error as Record<string, unknown>
+  return record["status"] === 401 && record["code"] === "UNAUTHORIZED"
+}
+
+export const forwardThemeApiRequest = ({
+  cookieHeader,
+  fetchRequest,
+  request,
+  requestId,
+  timeoutMs,
+}: {
+  readonly cookieHeader: string | null
+  readonly fetchRequest: typeof globalThis.fetch
+  readonly request: Request
+  readonly requestId: string | null
+  readonly timeoutMs?: number
+}): Promise<Response> => {
+  const forwardedHeaders = new Headers(request.headers)
+  if (cookieHeader !== null) forwardedHeaders.set("cookie", cookieHeader)
+  if (requestId !== null) forwardedHeaders.set("x-request-id", requestId)
+  const forwardedRequest = new Request(request, {
+    cache: "no-store",
+    headers: forwardedHeaders,
+  })
+  return fetchThemeApiRequest({
+    fetchRequest,
+    request: forwardedRequest,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  })
+}
+
+export const loadApiThemePreference = async ({
+  appUrl,
+  clientFactory = createApiClient,
+  cookieHeader,
+  fetch: fetchRequest = globalThis.fetch,
+  requestId,
+}: ThemeApiRequestOptions): Promise<unknown> => {
+  const client = clientFactory({
+    baseUrl: appUrl,
+    fetch: async (request) => forwardThemeApiRequest({
+      cookieHeader,
+      fetchRequest,
+      request,
+      requestId,
+    }),
+  })
+  try {
+    return await client.preferences.theme.get({})
+  } catch (error) {
+    return isUnauthorized(error) ? undefined : INDETERMINATE_THEME
+  }
+}

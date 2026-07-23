@@ -1,0 +1,91 @@
+import { createUiStore } from "@darkfactory/state/client"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { updateTrustedThemePreference } from "./lib/theme-update.civet"
+import { fetchThemeApiRequest } from "./lib/theme-api-timeout.civet"
+
+const deferred = <Value>() => {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
+describe "trusted theme updates", ->
+  afterEach -> vi.useRealTimers()
+
+  it "leaves the authoritative store unchanged when persistence fails", async ->
+    const store = createUiStore()
+    const result = await updateTrustedThemePreference({
+      authority: () => "trusted",
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store,
+      update: async () => { throw new Error("unavailable") },
+    })
+    expect(result).toBe("failed")
+    expect(store.getState()).toMatchObject({ themeMode: "system", palette: "neutral" })
+
+  it "applies only the latest completed trusted write", async ->
+    const store = createUiStore()
+    const sequence = { current: 0 }
+    const first = deferred<Readonly<{ themeMode: "dark"; palette: "rose" }>>()
+    const second = deferred<Readonly<{ themeMode: "light"; palette: "blue" }>>()
+    const firstUpdate = updateTrustedThemePreference({
+      authority: () => "trusted",
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence,
+      store,
+      update: async () => first.promise,
+    })
+    const secondUpdate = updateTrustedThemePreference({
+      authority: () => "trusted",
+      preference: { themeMode: "light", palette: "blue" },
+      sequence,
+      store,
+      update: async () => second.promise,
+    })
+
+    first.resolve({ themeMode: "dark", palette: "rose" })
+    await expect(firstUpdate).resolves.toBe("superseded")
+    expect(store.getState()).toMatchObject({ themeMode: "system", palette: "neutral" })
+
+    second.resolve({ themeMode: "light", palette: "blue" })
+    await expect(secondUpdate).resolves.toBe("applied")
+    expect(store.getState()).toMatchObject({ themeMode: "light", palette: "blue" })
+
+  it "fails and preserves state when a trusted PATCH exceeds its bound", async ->
+    vi.useFakeTimers()
+    const store = createUiStore()
+    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+      const stalled = input instanceof Request ? input : new Request(input, init)
+      return new Promise<Response>((_resolve, reject) => {
+        stalled.signal.addEventListener(
+          "abort",
+          () => reject(stalled.signal.reason),
+          { once: true },
+        )
+      })
+    }
+    const pending = updateTrustedThemePreference({
+      authority: () => "trusted",
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store,
+      update: async () => {
+        await fetchThemeApiRequest({
+          fetchRequest,
+          request: new Request("https://darkfactory.example/api/orpc", {
+            method: "PATCH",
+          }),
+          timeoutMs: 25,
+        })
+        return { themeMode: "dark", palette: "rose" }
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(25)
+    await expect(pending).resolves.toBe("failed")
+    expect(store.getState()).toMatchObject({ themeMode: "system", palette: "neutral" })
+    expect(vi.getTimerCount()).toBe(0)

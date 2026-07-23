@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { DrizzleQueryError } from "drizzle-orm/errors"
 import {
+  COLOR_SCHEMES,
+  PREFERENCE_MODES,
   addresses,
   auditRecords,
   featureItems,
@@ -15,6 +17,7 @@ import {
   InvalidRepositoryInputError,
   createFeatureItemRepository,
   createRepositories,
+  createUserPreferencesRepository,
 } from "./repositories.civet"
 
 const FIXED_NOW = new Date("2026-01-02T03:04:05.000Z")
@@ -445,6 +448,91 @@ describe "feature item mutation repository", ->
       ).rejects.toThrow("strict JSON values")
 
     expect(double.lifecycle).toEqual([])
+
+  it "projects only theme fields and returns null when preferences are missing", async ->
+    const limit = vi.fn(async () => [])
+    const where = vi.fn(() => ({ limit }))
+    const from = vi.fn(() => ({ where }))
+    const select = vi.fn(() => ({ from }))
+    const database = { select } as unknown as Database
+    const repository = createUserPreferencesRepository(database)
+
+    await expect(repository.findThemeByUserId("user_alice")).resolves.toBeNull()
+    expect(select).toHaveBeenCalledWith({
+      mode: userPreferences.mode,
+      colorScheme: userPreferences.colorScheme,
+    })
+    expect(from).toHaveBeenCalledWith(userPreferences)
+    expect(limit).toHaveBeenCalledWith(1)
+
+  it "upserts only validated theme fields while preserving unrelated preferences", async ->
+    const returning = vi.fn(async () => [{
+      mode: "dark" as const,
+      colorScheme: "violet" as const,
+    }])
+    const onConflictDoUpdate = vi.fn(() => ({ returning }))
+    const values = vi.fn(() => ({ onConflictDoUpdate }))
+    const insert = vi.fn(() => ({ values }))
+    const database = { insert } as unknown as Database
+    const repository = createUserPreferencesRepository(database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "violet",
+      }),
+    ).resolves.toEqual({ mode: "dark", colorScheme: "violet" })
+    expect(insert).toHaveBeenCalledWith(userPreferences)
+    expect(values).toHaveBeenCalledWith({
+      userId: "user_alice",
+      mode: "dark",
+      colorScheme: "violet",
+    })
+    expect(onConflictDoUpdate).toHaveBeenCalledWith({
+      target: userPreferences.userId,
+      set: {
+        mode: "dark",
+        colorScheme: "violet",
+        updatedAt: FIXED_NOW,
+      },
+    })
+    expect(returning).toHaveBeenCalledWith({
+      mode: userPreferences.mode,
+      colorScheme: userPreferences.colorScheme,
+    })
+
+  it "rejects blank owners and non-canonical theme values before persistence", async ->
+    const insert = vi.fn()
+    const database = { insert } as unknown as Database
+    const repository = createUserPreferencesRepository(database)
+    const invalidInputs = [
+      { userId: " ", mode: "dark", colorScheme: "violet" },
+      { userId: "user_alice", mode: "sepia", colorScheme: "violet" },
+      { userId: "user_alice", mode: "dark", colorScheme: "purple" },
+    ]
+
+    for (const input of invalidInputs)
+      await expect(repository.upsertTheme(input as never)).rejects.toBeInstanceOf(
+        InvalidRepositoryInputError,
+      )
+
+    expect(insert).not.toHaveBeenCalled()
+    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"])
+    expect(COLOR_SCHEMES).toEqual([
+      "neutral",
+      "slate",
+      "blue",
+      "cyan",
+      "green",
+      "amber",
+      "orange",
+      "red",
+      "rose",
+      "violet",
+    ])
 
   it "constructs the complete repository set without exposing drivers", ->
     const double = createDatabaseDouble()

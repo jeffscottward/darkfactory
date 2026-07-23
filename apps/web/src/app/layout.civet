@@ -1,18 +1,103 @@
-import type { ReactNode } from "react";
+import type { ReactNode } from "react"
+import { headers } from "next/headers"
+import { CANONICAL_APP_URL } from "@darkfactory/config"
+
+import { ThemeController } from "../components/theme-controller.civet"
+import { resolveRequestTheme } from "../lib/server-theme.civet"
+import { loadApiThemePreference } from "../lib/server-theme-api.civet"
+import {
+  THEME_BOOTSTRAP_PATH,
+  type AnonymousThemePreference,
+  type ThemeAuthority,
+  type ThemeCookieStatus,
+} from "../lib/theme.civet"
+import "./globals.css"
 
 export const metadata = {
-  title: "DarkFactory",
+  applicationName: "DarkFactory",
+  title: {
+    default: "DarkFactory",
+    template: "%s | DarkFactory",
+  },
   description: "A modular, Postgres-first, AI-native application foundation.",
-};
+  icons: { icon: "/favicon.svg" },
+}
+
+export const viewport = {
+  colorScheme: "light dark",
+}
+
+
+export const themeRootAttributes = (
+  preference: Readonly<AnonymousThemePreference>,
+  authority: ThemeAuthority = "anonymous",
+  cookieStatus: ThemeCookieStatus = "missing",
+) => ({
+  "data-mode": preference.themeMode,
+  "data-palette": preference.palette,
+  "data-theme-authority": authority,
+  "data-theme-cookie-status": cookieStatus,
+}) as const
+
+export interface RootDocumentProps {
+  readonly children: ReactNode
+  readonly cookieStatus?: ThemeCookieStatus
+  readonly initialTheme: Readonly<AnonymousThemePreference>
+  readonly themeAuthority?: ThemeAuthority
+}
+
+export const RootDocument = ({
+  cookieStatus = "missing",
+  children,
+  initialTheme,
+  themeAuthority = "anonymous",
+}: RootDocumentProps) => (
+  <html {...themeRootAttributes(initialTheme, themeAuthority, cookieStatus)} lang="en">
+    <head>
+      <script src={THEME_BOOTSTRAP_PATH} />
+    </head>
+    <body>
+      <ThemeController
+        initialPreference={initialTheme}
+        themeAuthority={themeAuthority}
+      >
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
+        {children}
+      </ThemeController>
+    </body>
+  </html>
+)
 
 type RootLayoutProps = Readonly<{
-  children: ReactNode;
-}>;
+  children: ReactNode
+}>
 
-export default function RootLayout({ children }: RootLayoutProps) {
+const trustedAppUrl = (): URL => {
+  const configured = process.env["APP_URL"]?.trim()
+  const url = new URL(configured || CANONICAL_APP_URL)
+  if (url.protocol !== "https:") throw new TypeError("APP_URL must use HTTPS")
+  return url
+}
+
+export default async function RootLayout({ children }: RootLayoutProps) {
+  const requestHeaders = await headers()
+  const resolvedTheme = await resolveRequestTheme({
+    cookieHeader: requestHeaders.get("cookie"),
+    loadTrustedPreference: () => loadApiThemePreference({
+      appUrl: trustedAppUrl(),
+      cookieHeader: requestHeaders.get("cookie"),
+      requestId: requestHeaders.get("x-request-id"),
+    }),
+  })
   return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
+    <RootDocument
+      cookieStatus={resolvedTheme.cookie.status}
+      initialTheme={resolvedTheme.preference}
+      themeAuthority={resolvedTheme.authority}
+    >
+      {children}
+    </RootDocument>
+  )
 }

@@ -1,0 +1,490 @@
+import { spawn, type ChildProcessByStdio } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { readFileSync } from "node:fs"
+import {
+  mkdir,
+  open,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises"
+import { createServer } from "node:net"
+import { join } from "node:path"
+import type { Readable } from "node:stream"
+import { fileURLToPath } from "node:url"
+
+import {
+  createNodeDatabase,
+  migrate,
+} from "@darkfactory/db/server"
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
+const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url))
+const WEB_DIRECTORY = join(REPOSITORY_ROOT, "apps/web")
+const DEV_VARS_PATH = join(WEB_DIRECTORY, ".dev.vars")
+const DEV_VARS_LOCK_PATH = join(
+  WEB_DIRECTORY,
+  ".wrangler/worker-postgres-test.lock",
+)
+const DEV_VARS_LOCK_OWNER_PATH = join(DEV_VARS_LOCK_PATH, "owner")
+const DEV_VARS_MARKER = "# darkfactory-worker-postgres-test"
+const AUTH_SECRET = "worker-runtime-test-secret-at-least-32-chars"
+const PASSWORD = "CorrectHorseBatteryStaple!42"
+const APP_ORIGIN = "https://darkfactory-worker-test.localhost"
+const WORKER_BINDING_NAMES = Array.from(
+  readFileSync(join(REPOSITORY_ROOT, ".env.schema"), "utf8").matchAll(
+    /^([A-Z][A-Z0-9_]*)=/gmu,
+  ),
+  (match) => match[1]!,
+)
+const READINESS_ATTEMPT_TIMEOUT_MILLIS = 5_000
+const READINESS_TIMEOUT_MILLIS = 150_000
+
+let database: PostgresTestDatabase
+let devServer: ChildProcessByStdio<null, Readable, Readable> | undefined
+let baseUrl = ""
+let createdDevVars = false
+let devVarsLockToken: string | undefined
+let serverOutput = ""
+
+const availablePort = async (): Promise<number> => {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  if (address === null || typeof address === "string") {
+    server.close()
+    throw new Error("Failed to reserve a Worker test port")
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error === undefined ? resolve() : reject(error))
+  })
+  return address.port
+}
+
+const isFileSystemError = (error: unknown, code: string): boolean =>
+  error !== null &&
+  typeof error === "object" &&
+  "code" in error &&
+  error.code === code
+
+const acquireDevVarsLock = async (): Promise<void> => {
+  await mkdir(join(WEB_DIRECTORY, ".wrangler"), { recursive: true })
+  try {
+    await mkdir(DEV_VARS_LOCK_PATH, { mode: 0o700 })
+  } catch (error) {
+    if (!isFileSystemError(error, "EEXIST")) throw error
+    const owner = await readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")
+      .then((value) => value.trim())
+      .catch(() => "unavailable")
+    throw new Error(
+      `Worker .dev.vars lock already exists at ${DEV_VARS_LOCK_PATH} (${owner}). ` +
+        "Another suite may be running; if no test process remains, remove the lock directory manually.",
+    )
+  }
+
+  const token = `${process.pid}:${randomUUID()}`
+  try {
+    await writeFile(DEV_VARS_LOCK_OWNER_PATH, `${token}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    })
+  } catch (error) {
+    await rm(DEV_VARS_LOCK_PATH, { recursive: true, force: true })
+    throw error
+  }
+  devVarsLockToken = token
+}
+
+const releaseDevVarsLock = async (): Promise<void> => {
+  const token = devVarsLockToken
+  if (token === undefined) return
+
+  const owner = (await readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).trim()
+  if (owner !== token) {
+    throw new Error("Refusing to release a Worker .dev.vars lock owned elsewhere")
+  }
+
+  await rm(DEV_VARS_LOCK_PATH, { recursive: true })
+  devVarsLockToken = undefined
+}
+
+type LockContenderResult = Readonly<{
+  exitCode: number | null
+  signal: NodeJS.Signals | null
+  stderr: string
+  stdout: string
+}>
+
+const runLockContender = async (): Promise<LockContenderResult> => {
+  const script = `
+    import { mkdir, rm } from "node:fs/promises";
+    const lockPath = ${JSON.stringify(DEV_VARS_LOCK_PATH)};
+    try {
+      await mkdir(lockPath);
+      await rm(lockPath, { recursive: true, force: true });
+      process.stdout.write("acquired");
+      process.exitCode = 2;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      process.stdout.write("blocked");
+    }
+  `
+  const contender = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", script],
+    {
+      signal: AbortSignal.timeout(5_000),
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  )
+  let stderr = ""
+  let stdout = ""
+  contender.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString()
+  })
+  contender.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString()
+  })
+  return await new Promise<LockContenderResult>((resolve, reject) => {
+    contender.once("error", reject)
+    contender.once("exit", (exitCode, signal) => {
+      resolve({ exitCode, signal, stderr, stdout })
+    })
+    return undefined
+  })
+}
+
+const removeStaleTestVars = async (): Promise<void> => {
+  try {
+    const current = await readFile(DEV_VARS_PATH, "utf8")
+    if (!current.startsWith(DEV_VARS_MARKER)) {
+      throw new Error("Refusing to overwrite an existing apps/web/.dev.vars")
+    }
+    await unlink(DEV_VARS_PATH)
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) return
+    throw error
+  }
+}
+
+const writeWorkerVars = async (): Promise<void> => {
+  await removeStaleTestVars()
+  const file = await open(DEV_VARS_PATH, "wx", 0o600)
+  createdDevVars = true
+  try {
+    await file.writeFile([
+      DEV_VARS_MARKER,
+      "APP_ENV=test",
+      `APP_URL=${APP_ORIGIN}`,
+      "APP_NAME=DarkFactory",
+      "DATABASE_PROVIDER=postgres",
+      `DATABASE_URL=${database.databaseUrl}`,
+      `BETTER_AUTH_SECRET=${AUTH_SECRET}`,
+      `BETTER_AUTH_URL=${APP_ORIGIN}`,
+      "EMAIL_TRANSPORT=preview",
+      "EMAIL_FROM=DarkFactory <noreply@domain.test>",
+      "OTEL_ENABLED=false",
+      "OTEL_SERVICE_NAME=darkfactory-web-worker-test",
+      "STORAGE_ENABLED=false",
+      "DOCS_ENABLED=false",
+      "DOCS_PUBLIC=false",
+      "JOBS_ENABLED=false",
+      "FLOWER_ENABLED=false",
+      "UPTIME_KUMA_ENABLED=false",
+      "ERROR_TRACKING_ENABLED=false",
+      "MEMORI_ENABLED=false",
+      "",
+    ].join("\n"))
+  } finally {
+    await file.close()
+  }
+}
+
+const safeDiagnostic = (value: string): string => {
+  let safe = value
+    .replaceAll(AUTH_SECRET, "[AUTH_SECRET]")
+    .replaceAll(PASSWORD, "[PASSWORD]")
+    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/giu, "[DATABASE_URL]")
+  if (database !== undefined) {
+    safe = safe.replaceAll(database.databaseUrl, "[DATABASE_URL]")
+  }
+  return safe.slice(-24_000)
+}
+
+const startWorker = (port: number): ChildProcessByStdio<null, Readable, Readable> => {
+  const workerEnvironment = { ...process.env }
+  for (const name of WORKER_BINDING_NAMES) {
+    delete workerEnvironment[name]
+  }
+
+  serverOutput = ""
+  const server = spawn(
+    "corepack",
+    ["pnpm", "--filter", "@darkfactory/web", "dev"],
+    {
+      cwd: REPOSITORY_ROOT,
+      env: {
+        ...workerEnvironment,
+        FORCE_COLOR: "0",
+        HOST: "127.0.0.1",
+        PORT: port.toString(),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  )
+  const consume = (chunk: Buffer): void => {
+    serverOutput = safeDiagnostic(`${serverOutput}${chunk.toString()}`)
+  }
+  server.stdout.on("data", consume)
+  server.stderr.on("data", consume)
+  return server
+}
+
+class WorkerReadinessError extends Error {}
+
+const requestWorkerReadiness = async (): Promise<Response> => {
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(),
+    READINESS_ATTEMPT_TIMEOUT_MILLIS,
+  )
+  try {
+    return await fetch(`${baseUrl}/api/orpc/preferences/theme/get`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: APP_ORIGIN,
+      },
+      body: JSON.stringify({ json: {} }),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+const waitForWorker = async (): Promise<void> => {
+  const server = devServer
+  if (server === undefined) throw new Error("Worker process was not started")
+
+  const deadline = Date.now() + READINESS_TIMEOUT_MILLIS
+  while (Date.now() < deadline) {
+    if (hasProcessExited(server)) {
+      throw new WorkerReadinessError(
+        `Vinext Worker exited before readiness:\n${serverOutput}`,
+      )
+    }
+
+    try {
+      const response = await requestWorkerReadiness()
+      if (response.status === 401) {
+        await response.body?.cancel()
+        return
+      }
+      if (response.status === 500) {
+        const body = safeDiagnostic(await response.text())
+        throw new WorkerReadinessError(
+          `Vinext Worker route failed during readiness:\n${body}\n${serverOutput}`,
+        )
+      }
+      await response.body?.cancel()
+    } catch (error) {
+      if (error instanceof WorkerReadinessError) throw error
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+
+  throw new WorkerReadinessError(
+    `Timed out waiting for Vinext Worker route:\n${serverOutput}`,
+  )
+}
+
+type ProcessState = Readonly<{
+  exitCode: number | null
+  signalCode: NodeJS.Signals | null
+}>
+
+const hasProcessExited = (server: ProcessState): boolean =>
+  server.exitCode !== null || server.signalCode !== null
+
+const waitForProcessExit = async (
+  exited: Promise<void>,
+  timeoutMillis: number,
+): Promise<boolean> => new Promise((resolve) => {
+  const timeout = setTimeout(() => resolve(false), timeoutMillis)
+  void exited.then(() => {
+    clearTimeout(timeout)
+    resolve(true)
+  })
+})
+
+const stopWorker = async (): Promise<void> => {
+  const server = devServer
+  if (server === undefined || hasProcessExited(server)) return
+
+  const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()))
+  if (hasProcessExited(server)) return
+
+  server.kill("SIGTERM")
+  if (await waitForProcessExit(exited, 5_000)) return
+  if (hasProcessExited(server)) return
+
+  server.kill("SIGKILL")
+  if (!(await waitForProcessExit(exited, 5_000)) && !hasProcessExited(server)) {
+    throw new Error("Vinext Worker did not exit after SIGKILL")
+  }
+}
+
+const cookieFrom = (response: Response): string => {
+  const setCookie = response.headers.get("set-cookie")
+  if (setCookie === null) throw new Error("Expected Better Auth session cookie")
+  return setCookie.split(";", 1)[0]!
+}
+
+const rpc = async (
+  path: string,
+  input: Readonly<Record<string, unknown>>,
+  cookie: string,
+): Promise<Response> => fetch(`${baseUrl}/api/orpc/${path}`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    cookie,
+    origin: APP_ORIGIN,
+  },
+  body: JSON.stringify({ json: input }),
+})
+
+describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
+  beforeAll(async () => {
+    await acquireDevVarsLock()
+    database = await createPostgresTestDatabase({ runId: "vinext_worker_pg" })
+    const migrationDatabase = createNodeDatabase({
+      connectionString: database.databaseUrl,
+      maxConnections: 1,
+    })
+    try {
+      await migrate(migrationDatabase.db)
+    } finally {
+      await migrationDatabase.close()
+    }
+
+    const port = await availablePort()
+    baseUrl = `http://127.0.0.1:${port}`
+    await writeWorkerVars()
+    devServer = startWorker(port)
+    await waitForWorker()
+  }, 240_000)
+
+  afterAll(async () => {
+    try {
+      try {
+        await stopWorker()
+      } finally {
+        try {
+          if (createdDevVars) await unlink(DEV_VARS_PATH)
+        } finally {
+          if (database !== undefined) await dropPostgresTestDatabase(database)
+        }
+      }
+    } finally {
+      await releaseDevVarsLock()
+    }
+  }, 30_000)
+
+  it("runs authenticated typed theme reads and writes through real PostgreSQL", async () => {
+    const email = `worker-${database.runId}@domain.test`
+    const lockToken = devVarsLockToken
+    if (lockToken === undefined) throw new Error("Worker lock was not acquired")
+    await expect(readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).resolves.toBe(
+      `${lockToken}\n`,
+    )
+    await expect(runLockContender()).resolves.toEqual({
+      exitCode: 0,
+      signal: null,
+      stderr: "",
+      stdout: "blocked",
+    })
+    await expect(readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).resolves.toBe(
+      `${lockToken}\n`,
+    )
+    const signUp = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: APP_ORIGIN },
+      body: JSON.stringify({
+        name: "Worker Runtime Proof",
+        email,
+        password: PASSWORD,
+      }),
+    })
+    expect(signUp.status).toBe(200)
+
+    const signIn = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: APP_ORIGIN },
+      body: JSON.stringify({ email, password: PASSWORD }),
+    })
+    expect(signIn.status).toBe(200)
+    const cookie = cookieFrom(signIn)
+
+    const initial = await rpc("preferences/theme/get", {}, cookie)
+    expect(initial.status).toBe(200)
+    await expect(initial.json()).resolves.toEqual({
+      json: { themeMode: "system", palette: "neutral" },
+    })
+
+    const updated = await rpc(
+      "preferences/theme/update",
+      { themeMode: "dark", palette: "violet" },
+      cookie,
+    )
+    expect(updated.status).toBe(200)
+    await expect(updated.json()).resolves.toEqual({
+      json: { themeMode: "dark", palette: "violet" },
+    })
+
+    const reloaded = await rpc("preferences/theme/get", {}, cookie)
+    expect(reloaded.status).toBe(200)
+    await expect(reloaded.json()).resolves.toEqual({
+      json: { themeMode: "dark", palette: "violet" },
+    })
+
+    const stored = await database.query<{
+      mode: string
+      color_scheme: string
+    }>(
+      'SELECT mode, color_scheme FROM user_preferences WHERE user_id = (SELECT id FROM "user" WHERE email = $1)',
+      [email],
+    )
+    expect(stored).toEqual([{ mode: "dark", color_scheme: "violet" }])
+
+    const openWorkerConnections = await database.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()",
+    )
+    expect(openWorkerConnections).toEqual([{ count: 0 }])
+  }, 60_000)
+
+  it("recognizes a signal-terminated Worker as already exited", () => {
+    expect(hasProcessExited({
+      exitCode: null,
+      signalCode: "SIGTERM",
+    })).toBe(true)
+  })
+  return undefined
+})

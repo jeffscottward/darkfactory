@@ -1,0 +1,409 @@
+import { access } from "node:fs/promises"
+import { runInNewContext } from "node:vm"
+import { createElement, type ReactNode } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import { PALETTES } from "@darkfactory/state"
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }))
+vi.mock("next/navigation", () => ({ usePathname: () => "" }))
+vi.mock("next/link", () => ({ default: "a" }))
+vi.mock("@darkfactory/ui/client/toaster", () => ({ Toaster: () => null }))
+vi.mock("./components/theme-menu.civet", () => ({
+  ThemeMenu: () => createElement("button", { "aria-label": "Theme settings" }),
+}))
+vi.mock("@darkfactory/ui/client/dialog", () => ({
+  Dialog: ({ children }: { children: ReactNode }) => createElement("div", {}, children),
+  DialogContent: ({
+    children,
+    description,
+    title,
+  }: {
+    children: ReactNode
+    description?: ReactNode
+    title: ReactNode
+  }) => createElement("section", {}, createElement("h2", {}, title), description, children),
+  DialogTrigger: ({ children }: { children: ReactNode }) => children,
+}))
+
+import {
+  RootDocument,
+  metadata,
+  themeRootAttributes,
+  viewport,
+} from "./app/layout.civet"
+import { GET as getThemeBootstrap } from "./app/theme-bootstrap.js/route.civet"
+import robots from "./app/robots.civet"
+import HomePage from "./app/(public)/page.civet"
+import { AuthShell } from "./components/auth-shell.civet"
+import { PortalShell } from "./components/portal-shell.civet"
+import {
+  PublicShell,
+  getPublicNavigationModel,
+} from "./components/public-shell.civet"
+import {
+  ALL_NAVIGATION,
+  ACCOUNT_NAVIGATION,
+  ADMIN_NAVIGATION,
+  AUTH_NAVIGATION,
+  EXPOSED_ROUTE_PATHS,
+  PORTAL_NAVIGATION,
+  PUBLIC_NAVIGATION,
+  SUPPORT_NAVIGATION,
+  ROUTE_PAGE_FILES,
+  isNavigationItemActive,
+  isRouteExposed,
+} from "./lib/navigation.civet"
+import {
+  INDETERMINATE_THEME,
+  resolveRequestTheme,
+} from "./lib/server-theme.civet"
+import {
+  DEFAULT_ANONYMOUS_THEME,
+  MAX_COOKIE_HEADER_LENGTH,
+  MAX_THEME_COOKIE_VALUE_LENGTH,
+  THEME_BOOTSTRAP_PATH,
+  THEME_BOOTSTRAP_SCRIPT,
+  serializeThemeCookie,
+  parseThemeCookieHeader,
+  themeDomAttributes,
+  shouldPersistAnonymousLocalState,
+} from "./lib/theme.civet"
+import {
+  createAnonymousUiStateSnapshot,
+  parseAnonymousThemePreference,
+  serializeAnonymousThemePreference,
+} from "./lib/ui-store.civet"
+import { UiStateProvider } from "./lib/ui-store.civet"
+
+const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
+  renderToStaticMarkup(component)
+
+
+const withUiState = (children: ReactNode) => createElement(UiStateProvider, {
+  children,
+  initialPreference: DEFAULT_ANONYMOUS_THEME,
+})
+
+const runThemeBootstrap = ({
+  cookieStatus,
+  palette = "neutral",
+  serializedTheme,
+  themeMode = "system",
+}: {
+  cookieStatus: "invalid" | "missing" | "valid"
+  palette?: string
+  serializedTheme?: string
+  themeMode?: string
+}) => {
+  const documentElement = {
+    dataset: {
+      mode: themeMode,
+      palette,
+      themeAuthority: "anonymous",
+      themeCookieStatus: cookieStatus,
+    },
+  }
+  const windowObject: Record<string, unknown> = {}
+  runInNewContext(THEME_BOOTSTRAP_SCRIPT, {
+    document: { documentElement },
+    localStorage: { getItem: () => serializedTheme ?? null },
+    window: windowObject,
+    Object,
+  })
+  return {
+    dataset: documentElement.dataset,
+    snapshot: windowObject["__DARKFACTORY_THEME__"],
+  }
+}
+describe "application navigation manifest", ->
+  it "contains every public, portal, account, and admin destination exactly once per group", ->
+    expect(PUBLIC_NAVIGATION.map((item) => item.href)).toEqual([
+      "/",
+      "/features",
+      "/solutions",
+      "/resources",
+      "/about",
+      "/sign-in",
+    ])
+    expect(PORTAL_NAVIGATION.map((item) => item.href)).toEqual([
+      "/dashboard",
+      "/feature-items",
+      "/account",
+    ])
+    expect(ACCOUNT_NAVIGATION.map((item) => item.href)).toEqual([
+      "/account/profile",
+      "/account/address",
+      "/account/preferences",
+      "/account/security",
+    ])
+    expect(ADMIN_NAVIGATION.map((item) => item.href)).toEqual(["/admin/users"])
+    expect(SUPPORT_NAVIGATION.map((item) => item.href)).toEqual([
+      "/contact",
+      "/legal/privacy",
+      "/legal/terms",
+    ])
+    expect(AUTH_NAVIGATION.map((item) => item.href)).toEqual([
+      "/sign-up",
+      "/forgot-password",
+      "/reset-password",
+    ])
+    expect(new Set(ALL_NAVIGATION.map((item) => item.href)).size).toBe(
+      ALL_NAVIGATION.length,
+    )
+
+    for group of [PUBLIC_NAVIGATION, PORTAL_NAVIGATION, ACCOUNT_NAVIGATION, ADMIN_NAVIGATION]
+      expect(new Set(group.map((item) => item.href)).size).toBe(group.length)
+
+  it "maps every exposed destination to a real page while future definitions remain non-navigable", async ->
+    const exposedRoutes = ALL_NAVIGATION
+      .filter((item) => isRouteExposed(item.href))
+      .map((item) => item.href)
+    expect(exposedRoutes).toEqual([...EXPOSED_ROUTE_PATHS])
+    expect(Object.keys(ROUTE_PAGE_FILES)).toEqual(exposedRoutes)
+    for pageFile of Object.values(ROUTE_PAGE_FILES)
+      await expect(access(new URL(`./app/${pageFile}`, import.meta.url))).resolves.toBeUndefined()
+
+  it "marks exact and nested destinations without falsely selecting sibling routes", ->
+    const dashboard = PORTAL_NAVIGATION[0]
+    const featureItems = PORTAL_NAVIGATION[1]
+    expect(dashboard).toBeDefined()
+    expect(featureItems).toBeDefined()
+    expect(isNavigationItemActive("/dashboard", dashboard!)).toBe(true)
+    expect(isNavigationItemActive("/feature-items/example", featureItems!)).toBe(true)
+    expect(isNavigationItemActive("/feature-items-archive", featureItems!)).toBe(false)
+    expect(isNavigationItemActive("/about", PUBLIC_NAVIGATION[0]!)).toBe(false)
+
+describe "root metadata and theme contract", ->
+  it "publishes metadata and resolves trusted server preference ahead of cookies", async ->
+    expect(metadata.title).toEqual({
+      default: "DarkFactory",
+      template: "%s | DarkFactory",
+    })
+    expect(metadata.description).toBe(
+      "A modular, Postgres-first, AI-native application foundation.",
+    )
+    expect(metadata.icons).toEqual({ icon: "/favicon.svg" })
+    expect(viewport.colorScheme).toBe("light dark")
+    expect(themeRootAttributes(DEFAULT_ANONYMOUS_THEME)).toEqual({
+      "data-mode": "system",
+      "data-palette": "neutral",
+      "data-theme-authority": "anonymous",
+      "data-theme-cookie-status": "missing",
+    })
+    expect((await resolveRequestTheme({
+      cookieHeader: "darkfactory-theme=dark%3Arose",
+    })).preference).toEqual({ themeMode: "dark", palette: "rose" })
+    expect(await resolveRequestTheme({
+      cookieHeader: "darkfactory-theme=dark%3Arose",
+      loadTrustedPreference: async () => ({ themeMode: "light", palette: "blue" }),
+    })).toMatchObject({
+      authority: "trusted",
+      preference: { themeMode: "light", palette: "blue" },
+    })
+    expect((await resolveRequestTheme({
+      cookieHeader: "darkfactory-theme=dark%3Arose",
+      loadTrustedPreference: async () => ({ themeMode: "night", palette: "blue" }),
+    })).preference).toEqual(DEFAULT_ANONYMOUS_THEME)
+    expect(await resolveRequestTheme({
+      cookieHeader: "darkfactory-theme=dark%3Arose",
+      loadTrustedPreference: async () => INDETERMINATE_THEME,
+    })).toMatchObject({
+      authority: "indeterminate",
+      preference: DEFAULT_ANONYMOUS_THEME,
+    })
+    expect(shouldPersistAnonymousLocalState("anonymous")).toBe(true)
+    expect(shouldPersistAnonymousLocalState("trusted")).toBe(false)
+    expect(shouldPersistAnonymousLocalState("indeterminate")).toBe(false)
+
+  it "rejects malformed anonymous persistence and fails closed to canonical defaults", ->
+    for malformed of [
+      null,
+      "",
+      "not-json",
+      '{"version":1,"themeMode":"dark"}',
+      '{"version":1,"themeMode":"night","palette":"neutral"}',
+      '{"version":1,"themeMode":"dark","palette":"magenta"}',
+      '{"version":1,"themeMode":"dark","palette":"rose","mobileNavigationOpen":true}',
+      '{"version":1,"state":{"sidebar":"expanded","mobileNavigationOpen":true,"themeMode":"dark","palette":"rose","consent":"unknown"}}',
+    ]
+      expect(parseAnonymousThemePreference(malformed)).toEqual(DEFAULT_ANONYMOUS_THEME)
+    const serialized = serializeAnonymousThemePreference({
+      themeMode: "dark",
+      palette: "rose",
+    })
+    expect(serialized).toBe('{"version":1,"themeMode":"dark","palette":"rose"}')
+    expect(serialized).not.toContain("mobileNavigationOpen")
+    expect(serialized).not.toContain("sidebar")
+    expect(parseAnonymousThemePreference(serialized)).toEqual({
+      themeMode: "dark",
+      palette: "rose",
+    })
+
+  it "accepts one bounded canonical preference cookie and rejects malformed, oversized, or duplicate values", ->
+    expect(parseThemeCookieHeader("other=1; darkfactory-theme=dark%3Arose")).toEqual({
+      status: "valid",
+      preference: { themeMode: "dark", palette: "rose" },
+    })
+    expect(parseThemeCookieHeader(
+      `other=${"x".repeat(5_000)}; darkfactory-theme=dark%3Arose`,
+    )).toEqual({
+      status: "valid",
+      preference: { themeMode: "dark", palette: "rose" },
+    })
+    expect(parseThemeCookieHeader("other=1")).toEqual({ status: "missing" })
+    for malformed of [
+      "darkfactory-theme=dark",
+      "darkfactory-theme=night%3Arose",
+      "darkfactory-theme=dark%3Amagenta",
+      "darkfactory-theme=%E0%A4%A",
+      "darkfactory-theme=dark%3Arose; darkfactory-theme=light%3Ablue",
+      `darkfactory-theme=${"x".repeat(MAX_THEME_COOKIE_VALUE_LENGTH + 1)}`,
+      "x".repeat(MAX_COOKIE_HEADER_LENGTH + 1),
+    ]
+      expect(parseThemeCookieHeader(malformed)).toEqual({ status: "invalid" })
+    expect(serializeThemeCookie({ themeMode: "dark", palette: "rose" })).toContain(
+      "; Secure",
+    )
+    expect(createAnonymousUiStateSnapshot({ themeMode: "dark", palette: "rose" })).toEqual({
+      version: 1,
+      state: {
+        sidebar: "expanded",
+        mobileNavigationOpen: false,
+        themeMode: "dark",
+        palette: "rose",
+        consent: "unknown",
+      },
+    })
+
+  it "uses a CSP-safe parser-blocking DF-088 bootstrap with no inline style escape hatch", async ->
+    const response = getThemeBootstrap()
+    expect(response.headers.get("Content-Type")).toBe("text/javascript; charset=utf-8")
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(await response.text()).toBe(THEME_BOOTSTRAP_SCRIPT)
+    expect(THEME_BOOTSTRAP_SCRIPT).not.toContain("document.cookie")
+    expect(THEME_BOOTSTRAP_SCRIPT).toContain("themeCookieStatus")
+    const storedTheme = '{"version":1,"themeMode":"dark","palette":"blue"}'
+    expect(runThemeBootstrap({
+      cookieStatus: "missing",
+      serializedTheme: storedTheme,
+    })).toMatchObject({
+      dataset: { mode: "dark", palette: "blue" },
+      snapshot: { themeMode: "dark", palette: "blue", source: "localStorage" },
+    })
+    expect(runThemeBootstrap({
+      cookieStatus: "invalid",
+      serializedTheme: storedTheme,
+    })).toMatchObject({
+      dataset: { mode: "system", palette: "neutral" },
+      snapshot: { themeMode: "system", palette: "neutral", source: "server" },
+    })
+    expect(runThemeBootstrap({
+      cookieStatus: "valid",
+      palette: "rose",
+      serializedTheme: storedTheme,
+      themeMode: "dark",
+    })).toMatchObject({
+      dataset: { mode: "dark", palette: "rose" },
+      snapshot: { themeMode: "dark", palette: "rose", source: "cookie" },
+    })
+
+    const html = markup(createElement(RootDocument, {
+      children: createElement("main", { id: "main-content" }),
+      initialTheme: { themeMode: "dark", palette: "rose" },
+    }))
+    expect(html).toContain('data-mode="dark"')
+    expect(html).toContain('data-palette="rose"')
+    expect(html).toContain(`src="${THEME_BOOTSTRAP_PATH}"`)
+    expect(html).not.toContain("document.documentElement")
+    expect(html).not.toContain("style=")
+    expect(html).not.toContain("unsafe-inline")
+
+  it "applies every canonical palette while keeping mode and color-scheme independent", ->
+    for palette of PALETTES
+      expect(themeDomAttributes({ themeMode: "dark", palette })).toEqual({
+        "data-mode": "dark",
+        "data-palette": palette,
+        colorScheme: "dark",
+      })
+
+    expect(themeDomAttributes({ themeMode: "system", palette: "neutral" }).colorScheme).toBe(
+      "light dark",
+    )
+
+
+  it "keeps private, portal, authentication, admin, and API routes out of robots", ->
+    expect(robots().rules.disallow).toEqual([
+      "/account",
+      "/account/",
+      "/admin/",
+      "/api/",
+      "/dashboard",
+      "/feature-items",
+      "/forgot-password",
+      "/reset-password",
+      "/sign-in",
+      "/sign-up",
+    ])
+describe "shared shell semantics", ->
+  it "renders one skip link, one main target, distinct nav labels, and no guessed SSR active link", ->
+    const html = markup(
+      createElement(RootDocument, {
+        children: createElement(PublicShell, {
+          children: createElement("h1", {}, "Public page"),
+        }),
+        initialTheme: DEFAULT_ANONYMOUS_THEME,
+      }),
+    )
+    expect(html).not.toContain("aria-current")
+    expect(html.match(/href="#main-content"/g)).toHaveLength(1)
+    expect(html.match(/id="main-content"/g)).toHaveLength(1)
+    expect(html.match(/<main/g)).toHaveLength(1)
+    expect(html).not.toContain('href="/sign-in"')
+
+    expect(html).not.toContain('aria-label="Primary navigation"')
+    expect(html).not.toContain('aria-label="Footer navigation"')
+    expect(html).not.toContain('aria-label="Open navigation"')
+    expect(getPublicNavigationModel(["/"]).showNavigation).toBe(false)
+    const fanout = getPublicNavigationModel(["/", "/sign-in"])
+    expect(fanout.showNavigation).toBe(true)
+    expect(fanout.primary.map((item) => item.href)).toEqual(["/"])
+    expect(fanout.signIn?.href).toBe("/sign-in")
+    const fanoutHtml = markup(withUiState(createElement(PublicShell, {
+      availableRoutes: ["/", "/sign-in"],
+      children: createElement("h1", {}, "Public page"),
+    })))
+    expect(fanoutHtml).toContain('aria-label="Primary navigation"')
+    expect(fanoutHtml).toContain('aria-label="Open navigation"')
+    expect(fanoutHtml.match(/href="\/sign-in"/g)).toHaveLength(2)
+  it "links the hero CTA to a substantive, focusable capability section", ->
+    const home = markup(createElement(HomePage))
+    expect(home).toContain('href="#foundation-capabilities"')
+    expect(home).toContain('id="foundation-capabilities"')
+    expect(home).toContain('tabindex="-1"')
+    expect(home).toContain("<h2")
+    expect(home).toContain("<dl")
+    expect(home).toContain("Contract-first core")
+    expect(home).toContain("Replaceable boundaries")
+    expect(home).toContain("Observable operations")
+
+  it "renders portal and auth shells with semantic, composable, fail-closed landmarks", ->
+    const portal = markup(withUiState(createElement(PortalShell, {
+      children: createElement("h1", {}, "Portal page"),
+    })))
+    const auth = markup(withUiState(createElement(AuthShell, {
+      children: createElement("h1", {}, "Sign in"),
+    })))
+    expect(portal.match(/id="main-content"/g)).toHaveLength(1)
+    expect(portal).toContain("<aside")
+    expect(portal).toContain("Portal destinations appear as their page implementations become available.")
+    expect(portal).not.toContain("authenticated")
+    expect(auth.match(/id="main-content"/g)).toHaveLength(1)
+    expect(portal).not.toContain('href="/admin/users"')
+    const adminPortal = markup(withUiState(createElement(PortalShell, {
+      children: createElement("h1", {}, "Admin portal"),
+      availableRoutes: ["/admin/users"],
+      isAdmin: true,
+    })))
+    expect(adminPortal).toContain('href="/admin/users"')
+    expect(auth).toContain("<main")

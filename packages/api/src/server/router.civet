@@ -6,12 +6,19 @@ import type { FeatureItem } from "@darkfactory/db/schema"
 import type { EventOutcome, SemanticEvent } from "@darkfactory/observability/port"
 import { implement } from "@orpc/server"
 
-import { appContract, type FeatureItemInput } from "../contract.civet"
+import {
+  appContract,
+  type FeatureItemInput,
+  type ThemePreferenceOutput,
+} from "../contract.civet"
 import type { ApiContext } from "./context.civet"
 import {
   FeatureServiceError,
+  ThemePreferenceServiceError,
   createFeatureItemService,
+  createThemePreferenceService,
   type FeatureServiceErrorCode,
+  type ThemePreferenceServiceErrorCode,
 } from "./service.civet"
 
 const api = implement(appContract).$context<ApiContext>()
@@ -28,6 +35,19 @@ const mapFeatureServiceError = (
   if (!(error instanceof FeatureServiceError)) throw error
   throw errors[error.code]({ message: error.message })
 }
+type ThemeExpectedErrorFactories = Record<
+  ThemePreferenceServiceErrorCode,
+  (options?: { message?: string }) => Error
+>
+
+const mapThemePreferenceServiceError = (
+  error: unknown,
+  errors: ThemeExpectedErrorFactories,
+): never => {
+  if (!(error instanceof ThemePreferenceServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+
 const toContractItem = (item: FeatureItem): FeatureItemInput =>
   item as unknown as FeatureItemInput
 
@@ -116,6 +136,65 @@ const runMutation = async (
       spec.entityId,
       error,
     )
+    throw error
+  }
+}
+
+const emitThemeUpdateEvent = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  outcome: EventOutcome,
+  error?: unknown,
+): Promise<void> => {
+  try {
+    if (context.semanticEvents === undefined) return
+    const event: SemanticEvent = {
+      eventId: crypto.randomUUID(),
+      name: "user-preferences.theme-updated",
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        ...(context.span?.correlation ?? {}),
+        requestId: context.requestId,
+        actorId: principal.userId,
+        route: "/api/orpc/preferences/theme/update",
+        procedure: "preferences.theme.update",
+      },
+      action: "update",
+      entityType: "user-preferences",
+      outcome,
+      source: "api",
+      ...(error === undefined
+        ? {}
+        : {
+            errorCategory:
+              error instanceof ThemePreferenceServiceError
+                ? error.code.toLowerCase()
+                : "unexpected",
+          }),
+      attributes: { actorRole: principal.role },
+    }
+    await context.semanticEvents.emit(event, {
+      ...(context.span === undefined ? {} : { span: context.span }),
+      ...(context.waitUntil === undefined
+        ? {}
+        : { waitUntil: context.waitUntil }),
+    })
+  } catch {
+    // Observability is best-effort and must not affect preference persistence.
+  }
+}
+
+const runThemeUpdate = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  operation: () => Promise<ThemePreferenceOutput>,
+): Promise<ThemePreferenceOutput> => {
+  try {
+    const preference = await operation()
+    await emitThemeUpdateEvent(context, principal, "success")
+    return preference
+  } catch (error) {
+    await emitThemeUpdateEvent(context, principal, "failure", error)
     throw error
   }
 }
@@ -287,10 +366,39 @@ const adminList = api.admin.featureItems.list
     }
   })
 
+const themeGet = api.preferences.theme.get
+  .use(requireAuthenticated)
+  .handler(async ({ context, errors }) => {
+    try {
+      return await createThemePreferenceService(
+        context.repositories.userPreferences,
+      ).get(context.principal)
+    } catch (error) {
+      return mapThemePreferenceServiceError(error, errors)
+    }
+  })
+
+const themeUpdate = api.preferences.theme.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createThemePreferenceService(
+        context.repositories.userPreferences,
+      )
+      const operation = (): Promise<ThemePreferenceOutput> =>
+        service.update(context.principal, input)
+      return await runThemeUpdate(context, context.principal, operation)
+    } catch (error) {
+      return mapThemePreferenceServiceError(error, errors)
+    }
+  })
+
 export const appRouter = api.router({
   featureItems: { list, get, create, update, changeStatus, archive },
   admin: { featureItems: { list: adminList } },
+  preferences: { theme: { get: themeGet, update: themeUpdate } },
 })
+
 
 export type AuthenticatedApiContext = ApiContext &
   Readonly<{ principal: SafePrincipal }>

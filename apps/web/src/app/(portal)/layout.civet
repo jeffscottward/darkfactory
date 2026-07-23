@@ -1,0 +1,7 @@
+import type { ReactNode } from "react"
+
+import { PortalShell } from "../../components/portal-shell.civet"
+
+export default function PortalLayout({ children }: { readonly children: ReactNode }) {
+  return <PortalShell>{children}</PortalShell>
+}

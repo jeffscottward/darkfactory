@@ -1,0 +1,11 @@
+import { THEME_BOOTSTRAP_SCRIPT } from "../../lib/theme.civet"
+
+export function GET() {
+  return new Response(THEME_BOOTSTRAP_SCRIPT, {
+    headers: {
+      "Cache-Control": "public, max-age=300",
+      "Content-Type": "text/javascript; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    },
+  })
+}

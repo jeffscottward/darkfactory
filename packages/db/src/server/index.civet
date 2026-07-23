@@ -37,7 +37,9 @@ export type {
   UpdateFeatureItemInput,
   UpsertProfileInput,
   UpsertUserPreferencesInput,
+  UpsertUserThemeInput,
   UserPreferencesRepository,
+  UserThemePreference,
 } from "./repositories.civet"
 
 export {

@@ -1,0 +1,38 @@
+import type { UiStore } from "@darkfactory/state/client"
+
+import type { AnonymousThemePreference, ThemeAuthority } from "./theme.civet"
+
+export interface ThemeUpdateSequence {
+  current: number
+}
+
+export type ThemeUpdateResult = "applied" | "failed" | "superseded"
+
+export const updateTrustedThemePreference = async ({
+  authority,
+  preference,
+  sequence,
+  store,
+  update,
+}: {
+  readonly authority: () => ThemeAuthority
+  readonly preference: Readonly<AnonymousThemePreference>
+  readonly sequence: ThemeUpdateSequence
+  readonly store: UiStore
+  readonly update: (
+    preference: Readonly<AnonymousThemePreference>,
+  ) => Promise<Readonly<AnonymousThemePreference>>
+}): Promise<ThemeUpdateResult> => {
+  const requestSequence = sequence.current + 1
+  sequence.current = requestSequence
+  try {
+    const saved = await update(preference)
+    if (sequence.current !== requestSequence || authority() !== "trusted") {
+      return "superseded"
+    }
+    store.setState({ themeMode: saved.themeMode, palette: saved.palette })
+    return "applied"
+  } catch {
+    return sequence.current === requestSequence ? "failed" : "superseded"
+  }
+}

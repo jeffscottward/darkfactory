@@ -3,15 +3,17 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
-import "./vite.config";
+import viteConfig from "./vite.config";
 
 const pluginMocks = vi.hoisted(() => ({
   civet: vi.fn(() => ({ name: "test-civet" })),
+  tailwind: vi.fn(() => ({ name: "test-tailwind" })),
   cloudflare: vi.fn(() => ({ name: "test-cloudflare" })),
   vinext: vi.fn(() => ({ name: "test-vinext" })),
 }));
 
 vi.mock("@danielx/civet/vite", () => ({ default: pluginMocks.civet }));
+vi.mock("@tailwindcss/vite", () => ({ default: pluginMocks.tailwind }));
 vi.mock("@cloudflare/vite-plugin", () => ({
   cloudflare: pluginMocks.cloudflare,
 }));
@@ -58,5 +60,40 @@ describe("Civet build type-check isolation", () => {
       true
     );
     expect(parsedTypecheckConfig.options.noCheck).not.toBe(true);
+  });
+});
+
+describe("Vite application plugin contract", () => {
+  it("keeps Civet before Tailwind, Vinext, and Cloudflare", () => {
+    const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : [];
+    expect(
+      plugins.map((plugin) => (plugin && "name" in plugin ? plugin.name : null))
+    ).toEqual([
+      "test-civet",
+      "test-tailwind",
+      "test-vinext",
+      "test-cloudflare",
+    ]);
+  });
+
+  it("preserves Vinext route discovery and Cloudflare Worker environments", () => {
+    expect(pluginMocks.vinext).toHaveBeenCalledWith({
+      nextConfig: {
+        pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
+      },
+    });
+    expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
+      viteEnvironment: {
+        name: "rsc",
+        childEnvironments: ["ssr"],
+      },
+    });
+  });
+
+  it("prebundles node-postgres for Worker-compatible CommonJS interop", () => {
+    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for Vite environment index-signature keys.
+    expect(viteConfig.environments?.["rsc"]?.optimizeDeps).toEqual({
+      include: ["@darkfactory/db > pg"],
+    });
   });
 });

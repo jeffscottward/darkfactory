@@ -1,0 +1,89 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import {
+  forwardThemeApiRequest,
+  loadApiThemePreference,
+  type ThemeApiRequestOptions,
+} from "./lib/server-theme-api.civet"
+import { INDETERMINATE_THEME } from "./lib/server-theme.civet"
+
+describe "server theme API forwarding", ->
+  afterEach -> vi.useRealTimers()
+
+  it "forwards only explicit request identity with no-store semantics", async ->
+    const requests: Request[] = []
+    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+      requests.push(input instanceof Request ? input : new Request(input, init))
+      return new Response(null, { status: 204 })
+    }
+    const request = new Request("https://darkfactory.example/api/orpc", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-orpc-procedure": "preferences.theme.get",
+      },
+      body: "{}",
+    })
+
+    await forwardThemeApiRequest({
+      cookieHeader: "session=trusted",
+      fetchRequest,
+      request,
+      requestId: "request-123",
+    })
+
+    const forwarded = requests[0]!
+    expect(forwarded).toBeInstanceOf(Request)
+    expect(forwarded?.cache).toBe("no-store")
+    expect(forwarded?.headers.get("cookie")).toBe("session=trusted")
+    expect(forwarded?.headers.get("x-request-id")).toBe("request-123")
+    expect(forwarded?.headers.get("content-type")).toBe("application/json")
+    expect(forwarded?.headers.get("authorization")).toBeNull()
+
+  it "aborts a stalled request and clears its timeout", async ->
+    vi.useFakeTimers()
+    let aborted = false
+    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+      const stalled = input instanceof Request ? input : new Request(input, init)
+      return new Promise<Response>((_resolve, reject) => {
+        stalled.signal.addEventListener("abort", () => {
+          aborted = true
+          reject(stalled.signal.reason)
+        }, { once: true })
+      })
+    }
+    const pending = forwardThemeApiRequest({
+      cookieHeader: null,
+      fetchRequest,
+      request: new Request("https://darkfactory.example/api/orpc"),
+      requestId: null,
+      timeoutMs: 25,
+    })
+    const rejection = expect(pending).rejects.toMatchObject({ name: "TimeoutError" })
+    await vi.advanceTimersByTimeAsync(25)
+    await rejection
+    expect(aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "maps unauthorized, trusted, and infrastructure outcomes to distinct authorities", async ->
+    const load = async (get: () => Promise<unknown>) => (
+      loadApiThemePreference({
+        appUrl: "https://darkfactory.example",
+        clientFactory: (() => ({
+          preferences: { theme: { get } },
+        })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>,
+        cookieHeader: "session=trusted",
+        requestId: "request-123",
+      })
+    )
+
+    await expect(load(async () => {
+      throw { status: 401, code: "UNAUTHORIZED" }
+    })).resolves.toBeUndefined()
+    await expect(load(async () => ({
+      themeMode: "dark",
+      palette: "rose",
+    }))).resolves.toEqual({ themeMode: "dark", palette: "rose" })
+    await expect(load(async () => {
+      throw new Error("upstream unavailable")
+    })).resolves.toBe(INDETERMINATE_THEME)

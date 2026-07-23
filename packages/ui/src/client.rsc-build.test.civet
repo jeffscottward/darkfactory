@@ -1,0 +1,93 @@
+import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
+const webPackageRoot = fileURLToPath(new URL("../../../apps/web", import.meta.url))
+
+const clientBoundarySource = [
+  '"use client";',
+  'import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogTrigger } from "@darkfactory/ui/client/dialog";',
+  'import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@darkfactory/ui/client/dropdown-menu";',
+  'import { Tabs, TabsContent, TabsList, TabsTrigger } from "@darkfactory/ui/client/tabs";',
+  'import { Toaster, toast } from "@darkfactory/ui/client/toaster";',
+  "export const clientReferences = [Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogTrigger, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, Tabs, TabsContent, TabsList, TabsTrigger, Toaster, toast];",
+].join("\n")
+
+const runRscScanBuild = () => {
+  const script = `
+    const { build } = await import("vite")
+    const { default: civet } = await import("@danielx/civet/vite")
+    const { default: rsc } = await import("@vitejs/plugin-rsc")
+
+    const rscPlugins = rsc().flat()
+    const minimal = rscPlugins.find((plugin) => plugin.name === "rsc:minimal")
+    const scanStrip = rscPlugins.find((plugin) => plugin.name === "rsc:scan-strip")
+    if (!minimal?.api?.manager || !scanStrip || typeof scanStrip.transform !== "object") {
+      throw new Error("The installed RSC plugin no longer exposes its scan-strip build path")
+    }
+
+    minimal.api.manager.isScanBuild = true
+    const scannedClientFiles = new Set()
+    const originalHandler = scanStrip.transform.handler
+    const instrumentedScanStrip = {
+      ...scanStrip,
+      transform: {
+        ...scanStrip.transform,
+        async handler(code, id, options) {
+          if (id.includes("/packages/ui/src/client/") && id.endsWith(".civet")) {
+            scannedClientFiles.add(id.split("/").at(-1))
+          }
+          return originalHandler.call(this, code, id, options)
+        },
+      },
+    }
+
+    const virtualId = "virtual:ui-rsc-client-boundary"
+    const resolvedId = "\\0" + virtualId
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      root: ${JSON.stringify(workspaceRoot)},
+      plugins: [
+        civet({ ts: "esbuild", typecheck: false }),
+        {
+          name: "ui-rsc-client-boundary-fixture",
+          resolveId(id) { if (id === virtualId) return resolvedId },
+          load(id) { if (id === resolvedId) return ${JSON.stringify(clientBoundarySource)} },
+        },
+        instrumentedScanStrip,
+      ],
+      build: {
+        minify: false,
+        write: false,
+        rollupOptions: {
+          input: virtualId,
+          external(id) {
+            return !id.startsWith("@darkfactory/ui") && /^[A-Za-z@]/.test(id)
+          },
+          output: { format: "es" },
+        },
+      },
+    })
+    process.stdout.write(JSON.stringify([...scannedClientFiles].sort()))
+  `
+
+  return spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    cwd: webPackageRoot,
+    encoding: "utf8",
+  })
+}
+
+describe "UI client Vinext compatibility", ->
+  it "imports every client export through the actual Vite RSC scan-strip path", ->
+    const result = runRscScanBuild()
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status, output).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual([
+      "dialog.civet",
+      "dropdown-menu.civet",
+      "tabs.civet",
+      "toaster.civet",
+    ])

@@ -1,12 +1,27 @@
 export {
   EXPECTED_API_ERRORS,
   FEATURE_ITEM_STATUSES,
+  THEME_MODES,
+  THEME_PALETTES,
+  THEME_PREFERENCE_ERRORS,
   FeatureItemMetadataSchema,
   FeatureItemSchema,
   FeatureItemStatusSchema,
+  ThemeModeSchema,
+  ThemePaletteSchema,
+  ThemePreferenceSchema,
+  UpdateThemePreferenceSchema,
   appContract,
 } from "./contract.civet"
-export type { FeatureItemOutput, FeatureItemStatus } from "./contract.civet"
+export type {
+  FeatureItemOutput,
+  FeatureItemStatus,
+  ThemeMode,
+  ThemePalette,
+  ThemePreferenceOutput,
+  UpdateThemePreferenceInput,
+} from "./contract.civet"
+
 
 export { createApiClient } from "./client.civet"
 export type { ApiClient, ApiClientOptions } from "./client.civet"

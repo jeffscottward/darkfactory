@@ -1,0 +1,350 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  type SafeAuthSession,
+} from "@darkfactory/auth/server"
+import {
+  DatabasePersistenceError,
+  type FeatureItemRepository,
+  type Repositories,
+  type UserPreferencesRepository,
+  type UserThemePreference,
+} from "@darkfactory/db/server"
+import type {
+  SemanticEvent,
+  SemanticEventPort,
+} from "@darkfactory/observability/port"
+import { ORPCError } from "@orpc/client"
+import { describe, expect, it, vi } from "vitest"
+
+import { createApiClient } from "./client.civet"
+import { createApiContext } from "./server/context.civet"
+import { handleApiRequest } from "./server/handler.civet"
+import {
+  ThemePreferenceServiceError,
+  createThemePreferenceService,
+} from "./server/service.civet"
+
+const memberSession: SafeAuthSession = {
+  user: {
+    id: "member-1",
+    name: "member",
+    email: "member@domain.test",
+    emailVerified: true,
+    image: null,
+    createdAt: new Date("2026-01-02T03:04:05.000Z"),
+    updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+    role: "member",
+    status: "active",
+  },
+  session: {
+    id: "session-member",
+    userId: "member-1",
+    expiresAt: new Date("2026-01-03T03:04:05.000Z"),
+    createdAt: new Date("2026-01-02T03:04:05.000Z"),
+    updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+    ipAddress: null,
+    userAgent: null,
+  },
+  principal: { userId: "member-1", role: "member", status: "active" },
+}
+
+const themeRepository = (
+  overrides: Partial<UserPreferencesRepository> = {},
+): UserPreferencesRepository => ({
+  findByUserId: vi.fn(async () => null),
+  findThemeByUserId: vi.fn(async () => null),
+  upsert: vi.fn(async () => {
+    throw new Error("Legacy full-preference upsert must not be called")
+  }),
+  upsertTheme: vi.fn(async (input) => ({
+    mode: input.mode,
+    colorScheme: input.colorScheme,
+  })),
+  ...overrides,
+})
+
+const repositories = (userPreferences: UserPreferencesRepository): Repositories => ({
+  profiles: {} as Repositories["profiles"],
+  addresses: {} as Repositories["addresses"],
+  userPreferences,
+  featureItems: {} as FeatureItemRepository,
+})
+
+const clientFor = (
+  requestSession: SafeAuthSession | null,
+  userPreferences: UserPreferencesRepository = themeRepository(),
+  semanticEvents?: SemanticEventPort,
+) => {
+  const fetch = async (request: Request): Promise<Response> => {
+    const context = createApiContext(request, {
+      repositories: repositories(userPreferences),
+      requestId: "request-theme-1",
+      requireSession: async () => {
+        if (requestSession === null)
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+            401,
+          )
+        return requestSession
+      },
+      requireRole: async () => {
+        if (requestSession === null)
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+            401,
+          )
+        return requestSession
+      },
+      ...(semanticEvents === undefined ? {} : { semanticEvents }),
+    })
+    return handleApiRequest(request, context)
+  }
+
+  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
+}
+
+const expectError = async (
+  promise: Promise<unknown>,
+  code: string,
+  status: number,
+): Promise<void> => {
+  try {
+    await promise
+    throw new Error("Expected the oRPC call to fail")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ORPCError)
+    expect(error).toMatchObject({ code, status, defined: true })
+  }
+}
+
+const recordingPort = (): Readonly<{
+  events: SemanticEvent[]
+  port: SemanticEventPort
+}> => {
+  const events: SemanticEvent[] = []
+  const port: SemanticEventPort = {
+    emit: vi.fn(async (event) => {
+      events.push(event)
+      return {
+        structuredEvent: "emitted" as const,
+        span: "skipped" as const,
+        analytics: "skipped" as const,
+      }
+    }),
+  }
+  return { events, port }
+}
+
+describe "DF-088 theme preference service", ->
+  it "maps missing storage to canonical database defaults", async ->
+    const findThemeByUserId = vi.fn(async () => null)
+    const service = createThemePreferenceService(
+      themeRepository({ findThemeByUserId }),
+    )
+
+    await expect(service.get(memberSession.principal)).resolves.toEqual({
+      themeMode: "system",
+      palette: "neutral",
+    })
+    expect(findThemeByUserId).toHaveBeenCalledWith("member-1")
+
+  it "maps projected storage fields and always derives the owner from principal", async ->
+    const stored: UserThemePreference = {
+      mode: "light",
+      colorScheme: "cyan",
+    }
+    const findThemeByUserId = vi.fn(async () => stored)
+    const upsertTheme = vi.fn(async (input) => ({
+      mode: input.mode,
+      colorScheme: input.colorScheme,
+    }))
+    const service = createThemePreferenceService(
+      themeRepository({ findThemeByUserId, upsertTheme }),
+    )
+
+    await expect(service.get(memberSession.principal)).resolves.toEqual({
+      themeMode: "light",
+      palette: "cyan",
+    })
+    await expect(
+      service.update(memberSession.principal, {
+        themeMode: "dark",
+        palette: "rose",
+      }),
+    ).resolves.toEqual({ themeMode: "dark", palette: "rose" })
+    expect(upsertTheme).toHaveBeenCalledWith({
+      userId: "member-1",
+      mode: "dark",
+      colorScheme: "rose",
+    })
+
+  it "sanitizes expected storage failures", async ->
+    const service = createThemePreferenceService(
+      themeRepository({
+        findThemeByUserId: vi.fn(async () => {
+          throw new DatabasePersistenceError("private preference query")
+        }),
+      }),
+    )
+
+    await expect(service.get(memberSession.principal)).rejects.toMatchObject({
+      name: "ThemePreferenceServiceError",
+      code: "STORAGE_ERROR",
+      message: "Theme preference storage is unavailable",
+    })
+    expect(
+      new ThemePreferenceServiceError("VALIDATION_ERROR", "Invalid theme"),
+    ).toMatchObject({ code: "VALIDATION_ERROR", message: "Invalid theme" })
+
+describe "DF-088 authenticated theme preference router", ->
+  it "denies anonymous reads and updates", async ->
+    await expectError(
+      clientFor(null).preferences.theme.get({}),
+      "UNAUTHORIZED",
+      401,
+    )
+    await expectError(
+      clientFor(null).preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+      }),
+      "UNAUTHORIZED",
+      401,
+    )
+
+  it "reads defaults and persists exact canonical input for the principal", async ->
+    const upsertTheme = vi.fn(async (input) => ({
+      mode: input.mode,
+      colorScheme: input.colorScheme,
+    }))
+    const client = clientFor(
+      memberSession,
+      themeRepository({ upsertTheme }),
+    )
+
+    await expect(client.preferences.theme.get({})).resolves.toEqual({
+      themeMode: "system",
+      palette: "neutral",
+    })
+    await expect(
+      client.preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+      }),
+    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    expect(upsertTheme).toHaveBeenCalledWith({
+      userId: "member-1",
+      mode: "dark",
+      colorScheme: "violet",
+    })
+
+  it "rejects non-canonical and owner-bearing update payloads before persistence", async ->
+    const upsertTheme = vi.fn(async (input) => ({
+      mode: input.mode,
+      colorScheme: input.colorScheme,
+    }))
+    const client = clientFor(
+      memberSession,
+      themeRepository({ upsertTheme }),
+    )
+
+    await expectError(
+      client.preferences.theme.update({
+        themeMode: "sepia",
+        palette: "violet",
+      } as never),
+      "BAD_REQUEST",
+      400,
+    )
+    await expectError(
+      client.preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+        ownerId: "victim-user",
+      } as never),
+      "BAD_REQUEST",
+      400,
+    )
+    expect(upsertTheme).not.toHaveBeenCalled()
+
+  it "emits one safe correlated success event with an independent UUID", async ->
+    const recording = recordingPort()
+    await expect(
+      clientFor(
+        memberSession,
+        themeRepository(),
+        recording.port,
+      ).preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+      }),
+    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+
+    expect(recording.events).toHaveLength(1)
+    expect(recording.events[0]).toMatchObject({
+      name: "user-preferences.theme-updated",
+      correlation: {
+        requestId: "request-theme-1",
+        actorId: "member-1",
+        procedure: "preferences.theme.update",
+        route: "/api/orpc/preferences/theme/update",
+      },
+      action: "update",
+      entityType: "user-preferences",
+      outcome: "success",
+      source: "api",
+      attributes: { actorRole: "member" },
+    })
+    expect(recording.events[0]?.eventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    expect(recording.events[0]?.eventId).not.toBe("request-theme-1")
+    expect(JSON.stringify(recording.events[0])).not.toContain("violet")
+    expect(JSON.stringify(recording.events[0])).not.toContain("dark")
+
+  it "emits one sanitized failure event without replaying the update", async ->
+    const upsertTheme = vi.fn(async () => {
+      throw new DatabasePersistenceError("private theme values")
+    })
+    const recording = recordingPort()
+
+    await expectError(
+      clientFor(
+        memberSession,
+        themeRepository({ upsertTheme }),
+        recording.port,
+      ).preferences.theme.update({ themeMode: "light", palette: "amber" }),
+      "STORAGE_ERROR",
+      503,
+    )
+    expect(upsertTheme).toHaveBeenCalledOnce()
+    expect(recording.events).toHaveLength(1)
+    expect(recording.events[0]).toMatchObject({
+      name: "user-preferences.theme-updated",
+      outcome: "failure",
+      errorCategory: "storage_error",
+    })
+    expect(JSON.stringify(recording.events[0])).not.toContain("private theme values")
+    expect(JSON.stringify(recording.events[0])).not.toContain("amber")
+
+  it "does not change a successful update when observability fails", async ->
+    const upsertTheme = vi.fn(async (input) => ({
+      mode: input.mode,
+      colorScheme: input.colorScheme,
+    }))
+    const semanticEvents: SemanticEventPort = {
+      emit: vi.fn(async () => {
+        throw new Error("event provider unavailable")
+      }),
+    }
+
+    await expect(
+      clientFor(
+        memberSession,
+        themeRepository({ upsertTheme }),
+        semanticEvents,
+      ).preferences.theme.update({ themeMode: "system", palette: "green" }),
+    ).resolves.toEqual({ themeMode: "system", palette: "green" })
+    expect(upsertTheme).toHaveBeenCalledOnce()
+    expect(semanticEvents.emit).toHaveBeenCalledOnce()

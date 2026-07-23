@@ -1,0 +1,29 @@
+export const THEME_API_REQUEST_TIMEOUT_MS = 8_000 as const
+
+export const fetchThemeApiRequest = async ({
+  fetchRequest,
+  request,
+  timeoutMs = THEME_API_REQUEST_TIMEOUT_MS,
+}: {
+  readonly fetchRequest: typeof globalThis.fetch
+  readonly request: Request
+  readonly timeoutMs?: number
+}): Promise<Response> => {
+  const controller = new AbortController()
+  const abortFromRequest = (): void => {
+    controller.abort(request.signal.reason)
+  }
+  if (request.signal.aborted) abortFromRequest()
+  else request.signal.addEventListener("abort", abortFromRequest, { once: true })
+
+  const timeout = setTimeout(() => {
+    controller.abort(new DOMException("Theme preference request timed out", "TimeoutError"))
+  }, timeoutMs)
+
+  try {
+    return await fetchRequest(new Request(request, { signal: controller.signal }))
+  } finally {
+    clearTimeout(timeout)
+    request.signal.removeEventListener("abort", abortFromRequest)
+  }
+}

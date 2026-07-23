@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-test("home page exposes its identity and primary navigation", async ({
+const THEME_TRIGGER_NAME = /^Theme settings(?: unavailable)?$/;
+
+const viewportCases = [
+  { height: 812, name: "mobile", width: 375 },
+  { height: 900, name: "desktop", width: 1440 },
+] as const;
+
+test("home page exposes its foundation identity and journey", async ({
   baseURL,
   page,
 }) => {
@@ -14,18 +21,68 @@ test("home page exposes its identity and primary navigation", async ({
 
   await expect(page).toHaveTitle("DarkFactory");
   await expect(
-    page.getByRole("heading", { level: 1, name: "DarkFactory" })
+    page
+      .getByRole("banner")
+      .getByRole("link", { name: "DarkFactory", exact: true })
   ).toBeVisible();
-
-  const primaryNavigation = page.getByRole("navigation", { name: "Primary" });
-  await expect(primaryNavigation).toBeVisible();
-
-  const homeLink = primaryNavigation.getByRole("link", { name: "Home" });
-  await expect(homeLink).toHaveAttribute("aria-current", "page");
-  await homeLink.click();
-
-  await expect(page).toHaveURL(new URL("/", baseURL).href);
   await expect(
-    page.getByRole("heading", { level: 1, name: "DarkFactory" })
+    page.getByRole("heading", {
+      level: 1,
+      name: "Production structure without a borrowed business domain.",
+    })
   ).toBeVisible();
+
+  const foundationLink = page.getByRole("link", {
+    name: "Read the foundation",
+  });
+  await expect(foundationLink).toHaveAttribute(
+    "href",
+    "#foundation-capabilities"
+  );
+  await foundationLink.click();
+
+  const capabilities = page.getByRole("region", {
+    name: "Boundaries you can see, test, and replace.",
+  });
+  await expect(page).toHaveURL(
+    new URL("/#foundation-capabilities", baseURL).href
+  );
+  await expect(capabilities).toBeVisible();
+  await expect(capabilities).toBeFocused();
 });
+
+for (const viewport of viewportCases) {
+  test(`sole-route shell works at ${viewport.name} width`, async ({ page }) => {
+    await page.setViewportSize({
+      height: viewport.height,
+      width: viewport.width,
+    });
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    await expect(page.getByRole("navigation")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Open navigation" })
+    ).toHaveCount(0);
+
+    const themeTrigger = page.getByRole("button", {
+      name: THEME_TRIGGER_NAME,
+    });
+    await expect(themeTrigger).toBeVisible();
+    await themeTrigger.focus();
+    await expect(themeTrigger).toBeFocused();
+    await themeTrigger.press("ArrowDown");
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(themeTrigger).toBeFocused();
+
+    const documentWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(
+      documentWidth.scrollWidth,
+      `${viewport.name} document should not overflow horizontally`
+    ).toBeLessThanOrEqual(documentWidth.clientWidth + 1);
+  });
+}

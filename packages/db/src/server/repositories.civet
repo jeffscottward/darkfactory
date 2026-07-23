@@ -1,5 +1,7 @@
 import { and as andWhere, asc, desc, eq } from "drizzle-orm"
 import {
+  COLOR_SCHEMES,
+  PREFERENCE_MODES,
   addresses,
   auditRecords,
   featureItems,
@@ -530,8 +532,20 @@ export type UpsertUserPreferencesInput = Readonly<{
   profileVisibility: ProfileVisibility
 }>
 
+export type UpsertUserThemeInput = Readonly<{
+  userId: string
+  mode: PreferenceMode
+  colorScheme: ColorScheme
+}>
+
+export type UserThemePreference = Readonly<
+  Pick<UserPreferences, "mode" | "colorScheme">
+>
+
 export type UserPreferencesRepository = Readonly<{
   findByUserId: (userId: string) => Promise<UserPreferences | null>
+  findThemeByUserId: (userId: string) => Promise<UserThemePreference | null>
+  upsertTheme: (input: UpsertUserThemeInput) => Promise<UserThemePreference>
   upsert: (input: UpsertUserPreferencesInput) => Promise<UserPreferences>
 }>
 
@@ -542,6 +556,23 @@ export const createUserPreferencesRepository = (
   const { now } = resolveDependencies(dependencies)
 
   return {
+    findThemeByUserId: async (userId) => {
+      requireNonBlank(userId, "userId")
+      try {
+        const [preference] = await database
+          .select({
+            mode: userPreferences.mode,
+            colorScheme: userPreferences.colorScheme,
+          })
+          .from(userPreferences)
+          .where(eq(userPreferences.userId, userId))
+          .limit(1)
+        return preference ?? null
+      } catch {
+        throw new DatabasePersistenceError("theme preference query")
+      }
+    },
+
     findByUserId: async (userId) => {
       const [preferences] = await database
         .select()
@@ -549,6 +580,46 @@ export const createUserPreferencesRepository = (
         .where(eq(userPreferences.userId, userId))
         .limit(1)
       return preferences ?? null
+    },
+
+    upsertTheme: async (input) => {
+      requireNonBlank(input.userId, "userId")
+      if (!(PREFERENCE_MODES as readonly string[]).includes(input.mode))
+        throw new InvalidRepositoryInputError("mode must be canonical")
+      if (!(COLOR_SCHEMES as readonly string[]).includes(input.colorScheme))
+        throw new InvalidRepositoryInputError("colorScheme must be canonical")
+
+      try {
+        const [preference] = await database
+          .insert(userPreferences)
+          .values({
+            userId: input.userId,
+            mode: input.mode,
+            colorScheme: input.colorScheme,
+          })
+          .onConflictDoUpdate({
+            target: userPreferences.userId,
+            set: {
+              mode: input.mode,
+              colorScheme: input.colorScheme,
+              updatedAt: now(),
+            },
+          })
+          .returning({
+            mode: userPreferences.mode,
+            colorScheme: userPreferences.colorScheme,
+          })
+        if (preference === undefined)
+          throw new DatabasePersistenceError("theme preference upsert")
+        return preference
+      } catch (error) {
+        if (
+          error instanceof InvalidRepositoryInputError ||
+          error instanceof DatabasePersistenceError
+        )
+          throw error
+        throw new DatabasePersistenceError("theme preference upsert")
+      }
     },
 
     upsert: async (input) => {

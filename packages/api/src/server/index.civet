@@ -17,7 +17,9 @@ export type { AuthenticatedApiContext } from "./router.civet"
 
 export {
   FeatureServiceError,
+  ThemePreferenceServiceError,
   createFeatureItemService,
+  createThemePreferenceService,
 } from "./service.civet"
 export type {
   ChangeFeatureStatusInput,
@@ -26,5 +28,7 @@ export type {
   FeatureServiceErrorCode,
   ItemScopeInput,
   OwnerScopeInput,
+  ThemePreferenceService,
+  ThemePreferenceServiceErrorCode,
   UpdateFeatureInput,
 } from "./service.civet"

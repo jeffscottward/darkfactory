@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "types": "civet --config civet.types.json --emit-declaration",
+    "types": "civet --config civet.types.json --emit-declaration src/schema/index.civet src/server/client.civet src/server/repositories.civet src/reset.civet src/seeds/users.civet src/seeds/content.civet src/seeds/preferences.civet src/seeds/profiles.civet src/seeds/index.civet src/server/index.civet",
     "typecheck": "civet --config civet.typecheck.json --typecheck",
     "test": "vitest run --config ../../vitest.config.ts --project unit src/schema/schema.contract.test.civet src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet",
     "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/schema/schema.contract.test.civet src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet",

@@ -15,6 +15,7 @@ import {
   migrate,
 } from "@darkfactory/db/server"
 import type { EmailPort } from "@darkfactory/email"
+import type { SemanticEvent, SemanticEventPort } from "@darkfactory/observability/port"
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
@@ -92,7 +93,13 @@ const createIdentity = async (
   return cookieFrom(signIn)
 }
 
-const apiClient = (cookie?: string): ApiClient =>
+const apiClient = (
+  cookie?: string,
+  options: Readonly<{
+    semanticEvents?: SemanticEventPort
+    requestId?: string
+  }> = {},
+): ApiClient =>
   createApiClient({
     baseUrl: BASE_URL,
     fetch: async (request) => {
@@ -104,6 +111,10 @@ const apiClient = (cookie?: string): ApiClient =>
         repositories: createRepositories(databaseResource.db),
         requireSession: (requestHeaders) => requireSession(auth, requestHeaders),
         requireRole: (requestHeaders, role) => requireRole(auth, requestHeaders, role),
+        ...(options.semanticEvents === undefined
+          ? {}
+          : { semanticEvents: options.semanticEvents }),
+        ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
       })
       return handleApiRequest(authenticatedRequest, context)
     },
@@ -231,3 +242,104 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
     const visible = await apiClient(adminCookie).admin.featureItems.list({ ownerId })
     expect(visible).toHaveLength(1)
     expect(visible[0]).toMatchObject({ ownerId, name: "Admin-visible item" })
+
+
+  it "persists authenticated theme preferences with defaults, isolation, reload, and one semantic event", async ->
+    const memberCookie = await createIdentity("theme-member@domain.test")
+    const otherCookie = await createIdentity("theme-other@domain.test")
+
+    await expectedError(
+      apiClient().preferences.theme.get({}),
+      "UNAUTHORIZED",
+      401,
+    )
+    await expect(
+      apiClient(memberCookie).preferences.theme.get({}),
+    ).resolves.toEqual({ themeMode: "system", palette: "neutral" })
+
+    const events: SemanticEvent[] = []
+    const semanticEvents: SemanticEventPort = {
+      emit: async (event) => {
+        events.push(event)
+        return {
+          structuredEvent: "emitted",
+          span: "skipped",
+          analytics: "skipped",
+        }
+      },
+    }
+    await expect(
+      apiClient(memberCookie, {
+        semanticEvents,
+        requestId: "theme-request-1",
+      }).preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+      }),
+    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+
+    await expect(
+      apiClient(memberCookie).preferences.theme.get({}),
+    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    await expect(
+      apiClient(otherCookie).preferences.theme.update({
+        themeMode: "light",
+        palette: "amber",
+      }),
+    ).resolves.toEqual({ themeMode: "light", palette: "amber" })
+    await expect(
+      apiClient(memberCookie).preferences.theme.get({}),
+    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+
+    const stored = await testDatabase.query<{
+      email: string
+      mode: string
+      color_scheme: string
+      email_notifications: boolean
+      product_updates: boolean
+      analytics_consent: boolean
+      personalization_consent: boolean
+      profile_visibility: string
+    }>(
+      'SELECT u.email, p.mode, p.color_scheme, p.email_notifications, p.product_updates, p.analytics_consent, p.personalization_consent, p.profile_visibility FROM user_preferences p JOIN "user" u ON u.id = p.user_id ORDER BY u.email',
+    )
+    expect(stored).toEqual([
+      {
+        email: "theme-member@domain.test",
+        mode: "dark",
+        color_scheme: "violet",
+        email_notifications: true,
+        product_updates: true,
+        analytics_consent: false,
+        personalization_consent: false,
+        profile_visibility: "private",
+      },
+      {
+        email: "theme-other@domain.test",
+        mode: "light",
+        color_scheme: "amber",
+        email_notifications: true,
+        product_updates: true,
+        analytics_consent: false,
+        personalization_consent: false,
+        profile_visibility: "private",
+      },
+    ])
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      name: "user-preferences.theme-updated",
+      correlation: {
+        requestId: "theme-request-1",
+        procedure: "preferences.theme.update",
+        route: "/api/orpc/preferences/theme/update",
+      },
+      action: "update",
+      entityType: "user-preferences",
+      outcome: "success",
+      source: "api",
+    })
+    expect(events[0]?.correlation.actorId).toBeDefined()
+    expect(events[0]?.eventId).not.toBe("theme-request-1")
+    expect(JSON.stringify(events[0])).not.toContain("violet")
+    expect(JSON.stringify(events[0])).not.toContain("dark")

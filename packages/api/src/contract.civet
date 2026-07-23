@@ -2,6 +2,28 @@ import { oc } from "@orpc/contract"
 import { z } from "zod"
 
 export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const
+export const THEME_MODES = ["light", "dark", "system"] as const
+export const THEME_PALETTES = [
+  "neutral",
+  "slate",
+  "blue",
+  "cyan",
+  "green",
+  "amber",
+  "orange",
+  "red",
+  "rose",
+  "violet",
+] as const
+
+export const ThemeModeSchema = z.enum(THEME_MODES)
+export const ThemePaletteSchema = z.enum(THEME_PALETTES)
+export const ThemePreferenceSchema = z.object({
+  themeMode: ThemeModeSchema,
+  palette: ThemePaletteSchema,
+})
+export const UpdateThemePreferenceSchema = ThemePreferenceSchema.strict()
+
 export type JsonValue =
   | string
   | number
@@ -146,11 +168,59 @@ const adminList = featureItem
   .input(z.object({ ownerId: z.string().min(1) }))
   .output(z.array(FeatureItemSchema))
 
+export const THEME_PREFERENCE_ERRORS = {
+  BAD_REQUEST: { status: 400, message: "Invalid request" },
+  UNAUTHORIZED: { status: 401, message: "Authentication required" },
+  FORBIDDEN: { status: 403, message: "Forbidden" },
+  VALIDATION_ERROR: {
+    status: 422,
+    message: "Theme preference validation failed",
+  },
+  STORAGE_ERROR: {
+    status: 503,
+    message: "Theme preference storage unavailable",
+  },
+} as const
+
+const themePreference = oc.errors(THEME_PREFERENCE_ERRORS)
+
+const getThemePreference = themePreference
+  .route({
+    method: "GET",
+    path: "/preferences/theme",
+    operationId: "preferences.theme.get",
+    summary: "Get the authenticated user's theme preference",
+    tags: ["Preferences"],
+  })
+  .input(z.object({}).strict())
+  .output(ThemePreferenceSchema)
+
+const updateThemePreference = themePreference
+  .route({
+    method: "PATCH",
+    path: "/preferences/theme",
+    operationId: "preferences.theme.update",
+    summary: "Update the authenticated user's theme preference",
+    tags: ["Preferences"],
+  })
+  .input(UpdateThemePreferenceSchema)
+  .output(ThemePreferenceSchema)
+
 export const appContract = {
   featureItems: { list, get, create, update, changeStatus, archive },
   admin: { featureItems: { list: adminList } },
+  preferences: {
+    theme: { get: getThemePreference, update: updateThemePreference },
+  },
 }
 
 export type FeatureItemInput = z.input<typeof FeatureItemSchema>
 export type FeatureItemOutput = z.infer<typeof FeatureItemSchema>
 export type FeatureItemStatus = z.infer<typeof FeatureItemStatusSchema>
+
+export type ThemeMode = z.infer<typeof ThemeModeSchema>
+export type ThemePalette = z.infer<typeof ThemePaletteSchema>
+export type ThemePreferenceOutput = z.infer<typeof ThemePreferenceSchema>
+export type UpdateThemePreferenceInput = z.input<
+  typeof UpdateThemePreferenceSchema
+>

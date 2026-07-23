@@ -13,6 +13,8 @@ const expectedOperations = [
   ["patch", "/feature-items/{id}/status", "featureItems.changeStatus"],
   ["delete", "/feature-items/{id}", "featureItems.archive"],
   ["get", "/admin/feature-items", "admin.featureItems.list"],
+  ["get", "/preferences/theme", "preferences.theme.get"],
+  ["patch", "/preferences/theme", "preferences.theme.update"],
 ] as const
 
 const expectedErrorStatuses = ["400", "401", "403", "404", "409", "422", "503"]
@@ -21,12 +23,25 @@ describe "DF-051/052 oRPC application contract", ->
   it "publishes every feature operation and the real admin operation", async ->
     const document = await buildOpenApiDocument()
 
-    for (const [method, path, operationId] of expectedOperations) {
+    for (const [method, path, operationId] of expectedOperations.slice(0, 7)) {
       const operation = document.paths![path]?.[method]
       expect(operation, `${method.toUpperCase()} ${path}`).toBeDefined()
       expect(operation?.operationId).toBe(operationId)
       expect(operation?.tags).toContain(
         operationId.startsWith("admin.") ? "Admin" : "Feature items",
+      )
+    }
+
+  it "documents authenticated theme read and exact update operations", async ->
+    const document = await buildOpenApiDocument()
+
+    for (const [method, path, operationId] of expectedOperations.slice(7)) {
+      const operation = document.paths![path]?.[method]
+      expect(operation, `${method.toUpperCase()} ${path}`).toBeDefined()
+      expect(operation?.operationId).toBe(operationId)
+      expect(operation?.tags).toEqual(["Preferences"])
+      expect(Object.keys(operation?.responses ?? {})).toEqual(
+        expect.arrayContaining(["401", "422", "503"]),
       )
     }
 

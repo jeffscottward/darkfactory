@@ -1,5 +1,6 @@
 "use client"
 
+import { createElement } from "react"
 import type { ToastClassnames, ToasterProps } from "sonner"
 import { Toaster as SonnerToaster, toast } from "sonner"
 
@@ -65,19 +66,17 @@ export const Toaster = ({
     ...callerToastOptions
   } = toastOptions ?? {}
 
-  return (
-    <SonnerToaster
-      {...props}
-      closeButton={closeButton}
-      containerAriaLabel={containerAriaLabel}
-      position={position}
-      richColors={false}
-      theme={theme}
-      toastOptions={{
-        ...callerToastOptions,
-        unstyled: true,
-        classNames: mergeToastClassNames(callerClassNames),
-      }}
-    />
-  )
+  return createElement(SonnerToaster, {
+    ...props,
+    closeButton,
+    containerAriaLabel,
+    position,
+    richColors: false,
+    theme,
+    toastOptions: {
+      ...callerToastOptions,
+      unstyled: true,
+      classNames: mergeToastClassNames(callerClassNames),
+    },
+  })
 }

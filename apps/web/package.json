@@ -10,7 +10,8 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "typecheck": "civet --config civet.typecheck.json --typecheck"
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit"
   },
   "dependencies": {
     "@darkfactory/auth": "workspace:*",
@@ -20,14 +21,21 @@
     "@darkfactory/db": "workspace:*",
     "@darkfactory/email": "workspace:*",
     "@darkfactory/observability": "workspace:*",
+    "@darkfactory/state": "workspace:*",
+    "@darkfactory/ui": "workspace:*",
+    "@tanstack/react-form": "catalog:",
     "@vinext/cloudflare": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-server-dom-webpack": "catalog:",
+    "tailwindcss": "catalog:",
     "vinext": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-devtools": "catalog:",
     "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",

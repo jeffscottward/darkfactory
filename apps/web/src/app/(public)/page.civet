@@ -1,0 +1,75 @@
+export default function HomePage() {
+  return (
+    <>
+      <section className="df-container grid gap-12 py-20 md:grid-cols-2 md:items-end md:py-24 lg:py-32">
+        <div className="space-y-6">
+          <p className="text-sm font-semibold tracking-wide text-primary">
+            Application foundation
+          </p>
+          <h1 className="max-w-3xl font-heading text-4xl font-semibold tracking-tight text-foreground">
+            Production structure without a borrowed business domain.
+          </h1>
+          <a
+            className="inline-flex min-h-11 items-center rounded-md border border-border-strong px-4 text-sm font-semibold text-foreground transition-colors duration-base ease-out hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            href="#foundation-capabilities"
+          >
+            Read the foundation
+          </a>
+        </div>
+        <p className="max-w-xl text-lg leading-8 text-muted-foreground">
+          DarkFactory connects a public surface, an application portal, PostgreSQL,
+          and inspectable AI workflows through explicit, replaceable boundaries.
+        </p>
+      </section>
+      <section
+        aria-labelledby="foundation-capabilities-title"
+        className="border-t border-border bg-surface"
+        id="foundation-capabilities"
+        tabIndex={-1}
+      >
+        <div className="df-container grid gap-12 py-20 md:grid-cols-3 md:py-24">
+          <div className="md:col-span-1">
+            <p className="text-sm font-semibold tracking-wide text-primary">
+              Built to inspect
+            </p>
+            <h2
+              className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+              id="foundation-capabilities-title"
+            >
+              Boundaries you can see, test, and replace.
+            </h2>
+          </div>
+          <dl className="divide-y divide-border border-y border-border md:col-span-2">
+            <div className="grid gap-3 py-6 sm:grid-cols-3">
+              <dt className="font-heading text-lg font-semibold text-foreground">
+                Contract-first core
+              </dt>
+              <dd className="text-base leading-7 text-muted-foreground sm:col-span-2">
+                Shared schemas keep browser, server, jobs, and tests aligned on the
+                same observable behavior.
+              </dd>
+            </div>
+            <div className="grid gap-3 py-6 sm:grid-cols-3">
+              <dt className="font-heading text-lg font-semibold text-foreground">
+                Replaceable boundaries
+              </dt>
+              <dd className="text-base leading-7 text-muted-foreground sm:col-span-2">
+                Authentication, persistence, delivery, analytics, and AI providers
+                stay behind explicit application ports.
+              </dd>
+            </div>
+            <div className="grid gap-3 py-6 sm:grid-cols-3">
+              <dt className="font-heading text-lg font-semibold text-foreground">
+                Observable operations
+              </dt>
+              <dd className="text-base leading-7 text-muted-foreground sm:col-span-2">
+                Request context, structured events, and worker status make the
+                complete path inspectable without invented dashboard theater.
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+    </>
+  )
+}

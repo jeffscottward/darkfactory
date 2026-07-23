@@ -4,12 +4,18 @@ import {
   DatabasePersistenceError,
   InvalidRepositoryInputError,
   type FeatureItemRepository,
+  type UserPreferencesRepository,
+  type UserThemePreference,
 } from "@darkfactory/db/server"
 import type {
   FeatureItem,
   FeatureItemMetadata,
   FeatureItemStatus,
 } from "@darkfactory/db/schema"
+import type {
+  ThemePreferenceOutput,
+  UpdateThemePreferenceInput,
+} from "../contract.civet"
 
 export type FeatureServiceErrorCode =
   | "FORBIDDEN"
@@ -212,5 +218,87 @@ export const createFeatureItemService = (
       })
     })
     return requireItem(archived)
+  },
+})
+
+export type ThemePreferenceServiceErrorCode =
+  | "VALIDATION_ERROR"
+  | "STORAGE_ERROR"
+
+export class ThemePreferenceServiceError extends Error {
+  readonly code: ThemePreferenceServiceErrorCode
+
+  constructor(code: ThemePreferenceServiceErrorCode, message: string) {
+    super(message)
+    this.name = "ThemePreferenceServiceError"
+    this.code = code
+  }
+}
+
+export type ThemePreferenceService = Readonly<{
+  get: (principal: SafePrincipal) => Promise<ThemePreferenceOutput>
+  update: (
+    principal: SafePrincipal,
+    input: UpdateThemePreferenceInput,
+  ) => Promise<ThemePreferenceOutput>
+}>
+
+const DEFAULT_THEME_PREFERENCE: ThemePreferenceOutput = {
+  themeMode: "system",
+  palette: "neutral",
+}
+
+const toThemePreferenceOutput = (
+  preference: UserThemePreference,
+): ThemePreferenceOutput => ({
+  themeMode: preference.mode,
+  palette: preference.colorScheme,
+})
+
+const mapThemeRepositoryError = (error: unknown): never => {
+  if (error instanceof ThemePreferenceServiceError) throw error
+  if (error instanceof InvalidRepositoryInputError)
+    throw new ThemePreferenceServiceError(
+      "VALIDATION_ERROR",
+      "Theme preference validation failed",
+    )
+  if (error instanceof DatabasePersistenceError)
+    throw new ThemePreferenceServiceError(
+      "STORAGE_ERROR",
+      "Theme preference storage is unavailable",
+    )
+  throw error
+}
+
+const runThemeRepository = async <T>(
+  operation: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await operation()
+  } catch (error) {
+    return mapThemeRepositoryError(error)
+  }
+}
+
+export const createThemePreferenceService = (
+  repository: UserPreferencesRepository,
+): ThemePreferenceService => ({
+  get: async (principal) => {
+    const operation = (): Promise<UserThemePreference | null> =>
+      repository.findThemeByUserId(principal.userId)
+    const preference = await runThemeRepository(operation)
+    return preference === null
+      ? DEFAULT_THEME_PREFERENCE
+      : toThemePreferenceOutput(preference)
+  },
+
+  update: async (principal, input) => {
+    const operation = (): Promise<UserThemePreference> =>
+      repository.upsertTheme({
+        userId: principal.userId,
+        mode: input.themeMode,
+        colorScheme: input.palette,
+      })
+    return toThemePreferenceOutput(await runThemeRepository(operation))
   },
 })

@@ -1,0 +1,75 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+import { createUiStore } from "@darkfactory/state/client"
+
+import {
+  consumeInitialThemeBootstrap,
+  reconcileThemeAuthorityTransition,
+  ThemeController,
+} from "./components/theme-controller.civet"
+import { ThemeMenu } from "./components/theme-menu.civet"
+
+describe "trusted theme controls", ->
+  it "keeps trusted and indeterminate ownership controls discoverable", ->
+    const trusted = renderToStaticMarkup(createElement(ThemeController, {
+      children: createElement(ThemeMenu),
+      initialPreference: { themeMode: "dark", palette: "rose" },
+      themeAuthority: "trusted",
+    }))
+    const indeterminate = renderToStaticMarkup(createElement(ThemeController, {
+      children: createElement(ThemeMenu),
+      initialPreference: { themeMode: "system", palette: "neutral" },
+      themeAuthority: "indeterminate",
+    }))
+    expect(trusted).toContain('aria-label="Theme settings"')
+    expect(indeterminate).toContain('aria-label="Theme settings unavailable"')
+    expect(trusted).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
+    expect(indeterminate).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
+
+  it "neutralizes anonymous subscriptions before a soft transition applies trusted state", ->
+    const store = createUiStore()
+    const writes: string[] = []
+    const unsubscribe = store.subscribe(() => writes.push("anonymous persistence"))
+    const authorityChanges: string[] = []
+
+    reconcileThemeAuthorityTransition({
+      authority: "trusted",
+      bootstrapPreference: { themeMode: "light", palette: "cyan" },
+      initialPreference: { themeMode: "dark", palette: "rose" },
+      onAuthorityChange: (authority) => authorityChanges.push(authority),
+      store,
+      unsubscribe,
+    })
+
+    expect(authorityChanges).toEqual(["trusted"])
+    expect(writes).toEqual([])
+    expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "rose" })
+
+  it "consumes pre-hydration bootstrap once and never reverts a soft refresh", ->
+    const store = createUiStore()
+    const consumption = { consumed: false }
+    const bootstrapA = { themeMode: "dark", palette: "blue" } as const
+    const preferenceB = { themeMode: "light", palette: "rose" } as const
+    const apply = (authority: "anonymous" | "trusted", initialPreference: typeof preferenceB | typeof bootstrapA) => {
+      reconcileThemeAuthorityTransition({
+        authority,
+        bootstrapPreference: consumeInitialThemeBootstrap(
+          authority,
+          consumption,
+          bootstrapA,
+        ),
+        initialPreference,
+        onAuthorityChange: () => undefined,
+        store,
+      })
+    }
+
+    apply("anonymous", preferenceB)
+    expect(store.getState()).toMatchObject(bootstrapA)
+    store.setState(preferenceB)
+    apply("anonymous", preferenceB)
+    apply("trusted", preferenceB)
+    apply("anonymous", preferenceB)
+    expect(consumption.consumed).toBe(true)
+    expect(store.getState()).toMatchObject(preferenceB)
