@@ -20,6 +20,7 @@ graphify-out/
 # Environment and local credentials
 .env
 .env.*
+.dev.vars*
 !.env.example
 !.env.schema
 .certs/

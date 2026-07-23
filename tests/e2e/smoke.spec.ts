@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const THEME_TRIGGER_NAME = /^Theme settings(?: unavailable)?$/;
 
@@ -6,6 +6,37 @@ const viewportCases = [
   { height: 812, name: "mobile", width: 375 },
   { height: 900, name: "desktop", width: 1440 },
 ] as const;
+
+interface BrowserErrorCounts {
+  consoleErrorCount: number;
+  pageErrorCount: number;
+}
+
+const browserErrorsByPage = new WeakMap<Page, BrowserErrorCounts>();
+
+test.beforeEach(({ page }) => {
+  const browserErrors: BrowserErrorCounts = {
+    consoleErrorCount: 0,
+    pageErrorCount: 0,
+  };
+  browserErrorsByPage.set(page, browserErrors);
+
+  page.on("pageerror", () => {
+    browserErrors.pageErrorCount += 1;
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.consoleErrorCount += 1;
+    }
+  });
+});
+
+test.afterEach(({ page }) => {
+  expect(browserErrorsByPage.get(page)).toEqual({
+    consoleErrorCount: 0,
+    pageErrorCount: 0,
+  });
+});
 
 test("home page exposes its foundation identity and journey", async ({
   baseURL,

@@ -33,12 +33,32 @@ if (isIP(host) === 0 && !isHostname) {
 }
 
 export default defineConfig({
+  resolve: {
+    dedupe: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+    ],
+  },
   server: {
     host,
     ...(port === undefined ? {} : { port }),
     strictPort: true,
   },
   environments: {
+    client: {
+      optimizeDeps: {
+        exclude: ["next/link"],
+        include: [
+          "@darkfactory/state > zustand/vanilla",
+          "@darkfactory/ui > radix-ui",
+          "@darkfactory/ui > sonner",
+          "lucide-react",
+          "next/router",
+        ],
+      },
+    },
     rsc: {
       optimizeDeps: {
         include: ["@darkfactory/db > pg"],

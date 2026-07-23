@@ -1,0 +1,38 @@
+import { readFile } from "node:fs/promises"
+import { describe, expect, it } from "vitest"
+
+type RootManifest = Readonly<{
+  scripts: Readonly<{
+    "test:unit": string
+    verify: string
+    ci: string
+  }>
+}>
+
+const readRootManifest = async (): Promise<RootManifest> =>
+  JSON.parse(
+    await readFile(new URL("../../../package.json", import.meta.url), "utf8"),
+  ) as RootManifest
+
+const tokenize = (command: string): string[] => command.trim().split(/\s+/u)
+
+const lifecycleStages = (command: string): string[][] =>
+  command.split(/\s*&&\s*/u).map(tokenize)
+
+describe("root lifecycle orchestration", () => {
+  it("bounds the canonical unit stage without skip or timeout overrides", async () => {
+    const { scripts } = await readRootManifest()
+    const canonicalUnitInvocation = ["corepack", "pnpm", "run", "test:unit"]
+
+    expect(tokenize(scripts["test:unit"])).toEqual([
+      "turbo",
+      "run",
+      "test:unit",
+      "--concurrency=50%",
+    ])
+    expect(lifecycleStages(scripts.verify)).toContainEqual(canonicalUnitInvocation)
+    expect(lifecycleStages(scripts.ci)).toContainEqual(canonicalUnitInvocation)
+    return undefined
+  })
+  return undefined
+})

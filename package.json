@@ -27,7 +27,7 @@
     "api:openapi:generate": "corepack pnpm --filter @darkfactory/api run openapi:generate",
     "api:openapi:check": "corepack pnpm --filter @darkfactory/api run openapi:check",
     "test": "corepack pnpm run test:unit && corepack pnpm run test:integration && corepack pnpm run test:e2e",
-    "test:unit": "turbo run test:unit",
+    "test:unit": "turbo run test:unit --concurrency=50%",
     "test:integration": "vitest run --config vitest.config.ts --project integration",
     "test:e2e": "playwright test",
     "verify": "corepack pnpm run format:check && corepack pnpm run lint && corepack pnpm run auth:schema:check && corepack pnpm run api:openapi:check && corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test:unit && corepack pnpm run test:integration && corepack pnpm run test:e2e",

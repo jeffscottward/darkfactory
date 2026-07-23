@@ -5,6 +5,8 @@ import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import viteConfig from "./vite.config";
 
+const LINE_BREAK_PATTERN = /\r?\n/u;
+
 const pluginMocks = vi.hoisted(() => ({
   civet: vi.fn(() => ({ name: "test-civet" })),
   tailwind: vi.fn(() => ({ name: "test-tailwind" })),
@@ -76,6 +78,15 @@ describe("Vite application plugin contract", () => {
     ]);
   });
 
+  it("deduplicates React runtime entry points across Vinext environments", () => {
+    expect(viteConfig.resolve?.dedupe).toEqual([
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+    ]);
+  });
+
   it("preserves Vinext route discovery and Cloudflare Worker environments", () => {
     expect(pluginMocks.vinext).toHaveBeenCalledWith({
       nextConfig: {
@@ -90,10 +101,32 @@ describe("Vite application plugin contract", () => {
     });
   });
 
+  it("prebundles client libraries without optimizing Vinext's Link shim", () => {
+    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for Vite environment index-signature keys.
+    expect(viteConfig.environments?.["client"]?.optimizeDeps).toEqual({
+      exclude: ["next/link"],
+      include: [
+        "@darkfactory/state > zustand/vanilla",
+        "@darkfactory/ui > radix-ui",
+        "@darkfactory/ui > sonner",
+        "lucide-react",
+        "next/router",
+      ],
+    });
+  });
+
   it("prebundles node-postgres for Worker-compatible CommonJS interop", () => {
     // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for Vite environment index-signature keys.
     expect(viteConfig.environments?.["rsc"]?.optimizeDeps).toEqual({
       include: ["@darkfactory/db > pg"],
     });
+  });
+
+  it("keeps Worker dev-var files out of source control", async () => {
+    const rootGitignore = await readFile(
+      new URL("../../.gitignore", import.meta.url),
+      "utf8"
+    );
+    expect(rootGitignore.split(LINE_BREAK_PATTERN)).toContain(".dev.vars*");
   });
 });
