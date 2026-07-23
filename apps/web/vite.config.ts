@@ -40,7 +40,9 @@ export default defineConfig({
   plugins: [
     civetVitePlugin({
       ts: "esbuild",
-      typecheck: true,
+      // Vite transforms (development and production) only: Civet's TS service
+      // misreports /Users vs /users as TS1149. The package script remains strict.
+      typecheck: false,
     }),
     vinext({
       nextConfig: {

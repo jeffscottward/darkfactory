@@ -1,0 +1,153 @@
+import type { DatabaseExecutor } from "../server/client.civet"
+import {
+  createAddressRepository,
+  createFeatureItemRepository,
+  type CreateAddressInput,
+  type CreateFeatureItemInput,
+  type FeatureMutationContext,
+  type UpdateAddressInput,
+  type UpdateFeatureItemInput,
+} from "../server/repositories.civet"
+import type { Address, FeatureItem } from "../schema/index.civet"
+
+export const DEVELOPMENT_ADDRESSES: readonly CreateAddressInput[] = Object.freeze([
+  Object.freeze({
+    id: "20000000-0000-4000-8000-000000000001",
+    userId: "00000000-0000-4000-8000-000000000001",
+    type: "work",
+    line1: "101 Example Avenue",
+    line2: null,
+    city: "Example City",
+    region: "DC",
+    postalCode: "00000",
+    country: "US",
+    isPrimary: true,
+  }),
+  Object.freeze({
+    id: "20000000-0000-4000-8000-000000000002",
+    userId: "00000000-0000-4000-8000-000000000002",
+    type: "home",
+    line1: "102 Example Avenue",
+    line2: null,
+    city: "Example City",
+    region: "NY",
+    postalCode: "00000",
+    country: "US",
+    isPrimary: true,
+  }),
+  Object.freeze({
+    id: "20000000-0000-4000-8000-000000000003",
+    userId: "00000000-0000-4000-8000-000000000003",
+    type: "home",
+    line1: "103 Example Avenue",
+    line2: null,
+    city: "Example City",
+    region: "IL",
+    postalCode: "00000",
+    country: "US",
+    isPrimary: true,
+  }),
+])
+
+export const DEVELOPMENT_FEATURE_ITEMS: readonly CreateFeatureItemInput[] = Object.freeze([
+  Object.freeze({
+    id: "30000000-0000-4000-8000-000000000001",
+    ownerId: "00000000-0000-4000-8000-000000000001",
+    name: "Admin example item",
+    description: "Neutral example content for Admin User.",
+    status: "active",
+    metadata: Object.freeze({ source: "development-seed" }),
+  }),
+  Object.freeze({
+    id: "30000000-0000-4000-8000-000000000002",
+    ownerId: "00000000-0000-4000-8000-000000000002",
+    name: "Alice example item",
+    description: "Neutral example content for Alice Adams.",
+    status: "draft",
+    metadata: Object.freeze({ source: "development-seed" }),
+  }),
+  Object.freeze({
+    id: "30000000-0000-4000-8000-000000000003",
+    ownerId: "00000000-0000-4000-8000-000000000003",
+    name: "Bob example item",
+    description: "Neutral example content for Bob Baker.",
+    status: "archived",
+    metadata: Object.freeze({ source: "development-seed" }),
+  }),
+])
+
+const matchesAddress = (
+  current: Address,
+  expected: CreateAddressInput,
+): boolean =>
+  current.type === expected.type &&
+  current.line1 === expected.line1 &&
+  current.line2 === (expected.line2 ?? null) &&
+  current.city === expected.city &&
+  current.region === expected.region &&
+  current.postalCode === expected.postalCode &&
+  current.country === expected.country.toUpperCase() &&
+  current.isPrimary === (expected.isPrimary ?? false)
+
+const addressUpdate = (expected: CreateAddressInput): UpdateAddressInput => ({
+  id: expected.id!,
+  userId: expected.userId,
+  type: expected.type,
+  line1: expected.line1,
+  line2: expected.line2 ?? null,
+  city: expected.city,
+  region: expected.region,
+  postalCode: expected.postalCode,
+  country: expected.country,
+  isPrimary: expected.isPrimary ?? false,
+})
+
+const matchesFeatureItem = (
+  current: FeatureItem,
+  expected: CreateFeatureItemInput,
+): boolean =>
+  current.name === expected.name &&
+  current.description === expected.description &&
+  current.status === (expected.status ?? "draft") &&
+  JSON.stringify(current.metadata) === JSON.stringify(expected.metadata ?? {})
+
+const featureUpdate = (
+  expected: CreateFeatureItemInput,
+): UpdateFeatureItemInput => ({
+  id: expected.id!,
+  ownerId: expected.ownerId,
+  name: expected.name,
+  description: expected.description,
+  status: expected.status ?? "draft",
+  metadata: expected.metadata ?? {},
+})
+
+const mutationContext = (ownerId: string): FeatureMutationContext => ({
+  actorUserId: ownerId,
+  requestId: `development-seed:${ownerId}`,
+})
+
+export const convergeDevelopmentContent = async (
+  database: DatabaseExecutor,
+): Promise<void> => {
+  const addresses = createAddressRepository(database)
+  for (const expected of DEVELOPMENT_ADDRESSES) {
+    const current = await addresses.findByIdForUser(expected.id!, expected.userId)
+    if (!current) {
+      await addresses.create(expected)
+    } else if (!matchesAddress(current, expected)) {
+      await addresses.update(addressUpdate(expected))
+    }
+  }
+
+  const features = createFeatureItemRepository(database)
+  for (const expected of DEVELOPMENT_FEATURE_ITEMS) {
+    const current = await features.findByIdForOwner(expected.id!, expected.ownerId)
+    const context = mutationContext(expected.ownerId)
+    if (!current) {
+      await features.create(expected, context)
+    } else if (!matchesFeatureItem(current, expected)) {
+      await features.update(featureUpdate(expected), context)
+    }
+  }
+}

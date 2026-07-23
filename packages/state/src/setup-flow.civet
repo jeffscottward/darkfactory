@@ -1,0 +1,112 @@
+import { assign, setup } from "xstate"
+
+export interface SetupFlowContext {
+  readonly detailsComplete: boolean
+  readonly preferencesComplete: boolean
+  readonly submissionAttempts: number
+  readonly error: string | null
+}
+
+export type SetupFlowEvent =
+  | { readonly type: "SET_DETAILS_COMPLETE"; readonly value: boolean }
+  | { readonly type: "SET_PREFERENCES_COMPLETE"; readonly value: boolean }
+  | { readonly type: "NEXT" }
+  | { readonly type: "BACK" }
+  | { readonly type: "SUBMIT" }
+  | { readonly type: "SUCCEED" }
+  | { readonly type: "FAIL"; readonly message: string }
+  | { readonly type: "RETRY" }
+
+const setupFlow = setup({
+  types: {} as {
+    context: SetupFlowContext
+    events: SetupFlowEvent
+  },
+  guards: {
+    detailsAreComplete: ({ context }) => context.detailsComplete,
+    preferencesAreComplete: ({ context }) => context.preferencesComplete,
+  },
+  actions: {
+    setDetailsComplete: assign(({ context, event }) => {
+      if (event.type !== "SET_DETAILS_COMPLETE") return context
+      return { ...context, detailsComplete: event.value }
+    }),
+    setPreferencesComplete: assign(({ context, event }) => {
+      if (event.type !== "SET_PREFERENCES_COMPLETE") return context
+      return { ...context, preferencesComplete: event.value }
+    }),
+    prepareSubmission: assign(({ context }) => ({
+      ...context,
+      submissionAttempts: context.submissionAttempts + 1,
+      error: null,
+    })),
+    recordFailure: assign(({ context, event }) => {
+      if (event.type !== "FAIL") return context
+      return { ...context, error: event.message }
+    }),
+    clearFailure: assign(({ context }) => ({ ...context, error: null })),
+  },
+})
+
+export const setupFlowMachine = setupFlow.createMachine({
+  id: "darkfactory-setup-flow",
+  initial: "details",
+  context: () => ({
+    detailsComplete: false,
+    preferencesComplete: false,
+    submissionAttempts: 0,
+    error: null,
+  }),
+  states: {
+    details: {
+      on: {
+        SET_DETAILS_COMPLETE: { actions: "setDetailsComplete" },
+        NEXT: {
+          guard: "detailsAreComplete",
+          target: "preferences",
+        },
+      },
+    },
+    preferences: {
+      on: {
+        SET_PREFERENCES_COMPLETE: { actions: "setPreferencesComplete" },
+        BACK: { target: "details" },
+        NEXT: {
+          guard: "preferencesAreComplete",
+          target: "review",
+        },
+      },
+    },
+    review: {
+      on: {
+        BACK: { target: "preferences" },
+        SUBMIT: {
+          target: "submitting",
+          actions: "prepareSubmission",
+        },
+      },
+    },
+    submitting: {
+      on: {
+        SUCCEED: { target: "success" },
+        FAIL: {
+          target: "failure",
+          actions: "recordFailure",
+        },
+      },
+    },
+    failure: {
+      on: {
+        BACK: {
+          target: "review",
+          actions: "clearFailure",
+        },
+        RETRY: {
+          target: "submitting",
+          actions: "prepareSubmission",
+        },
+      },
+    },
+    success: { type: "final" },
+  },
+})

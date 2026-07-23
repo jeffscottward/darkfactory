@@ -1,0 +1,62 @@
+import type { ComponentPropsWithRef } from "react"
+import type { VariantProps } from "class-variance-authority"
+import { cva } from "class-variance-authority"
+import { LoaderCircle } from "lucide-react"
+
+import { cn } from "./utilities.civet"
+
+export const iconButtonVariants = cva(
+  "relative inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-transparent text-foreground transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100 [&_svg]:size-5 [&_svg]:shrink-0",
+  {
+    variants: {
+      variant: {
+        ghost: "hover:bg-accent active:bg-muted",
+        secondary:
+          "border-border-strong bg-surface hover:bg-accent active:bg-muted",
+        primary:
+          "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active",
+        destructive:
+          "text-destructive hover:bg-destructive-subtle active:bg-destructive-subtle",
+      },
+    },
+    defaultVariants: { variant: "ghost" },
+  },
+)
+
+export interface IconButtonProps
+  extends Omit<ComponentPropsWithRef<"button">, "aria-label">,
+    VariantProps<typeof iconButtonVariants> {
+  "aria-label": string
+  loading?: boolean
+  loadingLabel?: string
+}
+
+export const IconButton = ({
+  "aria-label": ariaLabel,
+  children,
+  className,
+  disabled = false,
+  loading = false,
+  loadingLabel,
+  type = "button",
+  variant,
+  ...props
+}: IconButtonProps) => (
+  <button
+    {...props}
+    type={type}
+    aria-busy={loading || undefined}
+    aria-label={loading ? (loadingLabel ?? `Loading: ${ariaLabel}`) : ariaLabel}
+    data-loading={loading || undefined}
+    disabled={disabled || loading}
+    className={cn(iconButtonVariants({ variant }), className)}
+  >
+    <span className={cn("inline-flex", loading && "invisible")}>{children}</span>
+    {loading ? (
+      <LoaderCircle
+        aria-hidden="true"
+        className="absolute size-5 animate-spin motion-reduce:animate-none"
+      />
+    ) : null}
+  </button>
+)

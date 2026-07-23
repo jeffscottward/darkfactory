@@ -1,0 +1,30 @@
+import { COLOR_SCHEMES } from "@darkfactory/db/schema"
+import { DEFAULT_UI_PREFERENCES, PALETTES } from "@darkfactory/state"
+import {
+  DEFAULT_PALETTE,
+  PALETTE_NAMES,
+} from "@darkfactory/ui/palettes"
+import { describe, expect, it } from "vitest"
+
+const canonicalPalettes = [
+  "neutral",
+  "slate",
+  "blue",
+  "cyan",
+  "green",
+  "amber",
+  "orange",
+  "red",
+  "rose",
+  "violet",
+] as const
+
+describe "persisted palette contract", ->
+  it "keeps database, client state, and UI identifiers identical", ->
+    expect(COLOR_SCHEMES).toEqual(canonicalPalettes)
+    expect(PALETTES).toEqual(canonicalPalettes)
+    expect(PALETTE_NAMES).toEqual(canonicalPalettes)
+
+  it "keeps neutral as the shared default", ->
+    expect(DEFAULT_UI_PREFERENCES.palette).toBe("neutral")
+    expect(DEFAULT_PALETTE).toBe("neutral")

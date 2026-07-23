@@ -1,0 +1,232 @@
+export const MAX_JOB_PAYLOAD_BYTES = 64 * 1024
+
+export const MAX_JOB_PAYLOAD_DEPTH = 64
+const MAX_JOB_ARRAY_ITEMS = Math.floor((MAX_JOB_PAYLOAD_BYTES - 1) / 2)
+const MAX_JOB_OBJECT_PROPERTIES = Math.floor((MAX_JOB_PAYLOAD_BYTES - 2) / 4)
+const invalidPayload = Symbol("invalid-job-payload")
+const utf8Encoder = new TextEncoder()
+
+export type JsonPrimitive = string | number | boolean | null
+export type JsonArray = readonly JsonValue[]
+export type JsonObject = { readonly [key: string]: JsonValue }
+export type JsonValue = JsonPrimitive | JsonArray | JsonObject
+
+export type JsonCompatible<Value> =
+  Value extends JsonPrimitive ? Value
+  : Value extends undefined | bigint | symbol | ((...args: never[]) => unknown)
+    ? never
+  : Value extends readonly (infer Item)[]
+    ? readonly JsonCompatible<Item>[]
+  : Value extends object
+    ? { readonly [Key in keyof Value]: JsonCompatible<Value[Key]> }
+  : never
+
+export type JobPayload<Payload extends object> =
+  Payload extends readonly unknown[]
+    ? never
+    : { readonly [Key in keyof Payload]: JsonCompatible<Payload[Key]> }
+
+export type JobPayloadSnapshot =
+  | Readonly<{ status: "valid"; payload: JsonObject }>
+  | Readonly<{ status: "invalid" }>
+
+type SnapshotState = {
+  bytes: number
+  ancestors: Set<object>
+}
+
+const addBytes = (state: SnapshotState, bytes: number): void => {
+  state.bytes += bytes
+  if (state.bytes > MAX_JOB_PAYLOAD_BYTES) throw invalidPayload
+}
+
+const addJsonStringBytes = (state: SnapshotState, value: string): void => {
+  if (value.length > MAX_JOB_PAYLOAD_BYTES) throw invalidPayload
+  addBytes(state, utf8Encoder.encode(JSON.stringify(value)).byteLength)
+}
+
+const snapshotJsonValue = (
+  value: unknown,
+  state: SnapshotState,
+  depth: number,
+): JsonValue => {
+  if (depth > MAX_JOB_PAYLOAD_DEPTH) throw invalidPayload
+  if (value === null) {
+    addBytes(state, 4)
+    return null
+  }
+  if (typeof value === "string") {
+    addJsonStringBytes(state, value)
+    return value
+  }
+  if (typeof value === "boolean") {
+    addBytes(state, value ? 4 : 5)
+    return value
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw invalidPayload
+    const normalized = Object.is(value, -0) ? 0 : value
+    addBytes(state, String(normalized).length)
+    return normalized
+  }
+  if (typeof value !== "object") throw invalidPayload
+  if (state.ancestors.has(value)) throw invalidPayload
+
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) throw invalidPayload
+    if (value.length > MAX_JOB_ARRAY_ITEMS) throw invalidPayload
+    const keys = Reflect.ownKeys(value)
+    if (
+      keys.length !== value.length + 1 ||
+      keys[value.length] !== "length" ||
+      keys.slice(0, -1).some((key, index) => key !== String(index))
+    )
+      throw invalidPayload
+
+    state.ancestors.add(value)
+    addBytes(state, 2 + Math.max(0, value.length - 1))
+    const snapshot: JsonValue[] = []
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+      if (
+        descriptor === undefined ||
+        !("value" in descriptor) ||
+        !descriptor.enumerable
+      )
+        throw invalidPayload
+      snapshot.push(snapshotJsonValue(descriptor.value, state, depth + 1))
+    }
+    state.ancestors.delete(value)
+    return snapshot
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) throw invalidPayload
+  const keys = Reflect.ownKeys(value)
+  if (keys.length > MAX_JOB_OBJECT_PROPERTIES) throw invalidPayload
+  if (keys.some((key) => typeof key !== "string")) throw invalidPayload
+  const sortedKeys = (keys as string[]).sort()
+  const descriptors = sortedKeys.map((key) => [
+    key,
+    Object.getOwnPropertyDescriptor(value, key),
+  ] as const)
+  if (
+    descriptors.some(([, descriptor]) =>
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      !descriptor.enumerable
+    )
+  )
+    throw invalidPayload
+
+  state.ancestors.add(value)
+  addBytes(state, 2 + Math.max(0, sortedKeys.length - 1))
+  const snapshot: Record<string, JsonValue> = {}
+  for (const [key, descriptor] of descriptors) {
+    addJsonStringBytes(state, key)
+    addBytes(state, 1)
+    Object.defineProperty(snapshot, key, {
+      configurable: true,
+      enumerable: true,
+      value: snapshotJsonValue(
+        (descriptor as PropertyDescriptor & { value: unknown }).value,
+        state,
+        depth + 1,
+      ),
+      writable: true,
+    })
+  }
+  state.ancestors.delete(value)
+  return snapshot
+}
+
+export const snapshotJobPayload = (payload: unknown): JobPayloadSnapshot => {
+  try {
+    const snapshot = snapshotJsonValue(
+      payload,
+      { bytes: 0, ancestors: new Set() },
+      0,
+    )
+    if (snapshot === null || Array.isArray(snapshot) || typeof snapshot !== "object")
+      throw invalidPayload
+    return Object.freeze({ status: "valid", payload: snapshot as JsonObject })
+  } catch {
+    return Object.freeze({ status: "invalid" })
+  }
+}
+
+export type JobExecutionContext<Name extends string> = Readonly<{
+  jobId: string
+  jobName: Name
+  enqueuedAt: string
+}>
+
+export type JobDefinition<
+  Name extends string,
+  Payload extends object,
+  Result,
+> = Readonly<{
+  name: Name
+  execute: (
+    payload: JobPayload<Payload>,
+    context: JobExecutionContext<Name>,
+  ) => Result | Promise<Result>
+}>
+
+export type JobEnvelope<Name extends string, Payload extends object> = Readonly<{
+  id: string
+  name: Name
+  payload: JobPayload<Payload>
+  enqueuedAt: string
+}>
+
+export type JobExecutionError = Readonly<{
+  code: "JOB_EXECUTION_FAILED"
+  retryable: false
+}>
+
+export type JobPayloadError = Readonly<{
+  code: "JOB_PAYLOAD_INVALID"
+  retryable: false
+}>
+
+export type JobError = JobExecutionError | JobPayloadError
+
+export type RecordedJobReceipt<Name extends string> = Readonly<{
+  status: "recorded"
+  execution: "recording"
+  jobId: string
+  jobName: Name
+  enqueuedAt: string
+}>
+
+export type CompletedJobReceipt<Name extends string, Result> = Readonly<{
+  status: "completed"
+  execution: "inline"
+  jobId: string
+  jobName: Name
+  enqueuedAt: string
+  result: Result
+}>
+
+export type FailedJobReceipt<Name extends string> = Readonly<{
+  status: "failed"
+  execution: "inline" | "recording"
+  jobId: string
+  jobName: Name
+  enqueuedAt: string
+  error: JobError
+}>
+
+export type JobReceipt<Name extends string, Result> =
+  | RecordedJobReceipt<Name>
+  | CompletedJobReceipt<Name, Result>
+  | FailedJobReceipt<Name>
+
+export interface JobPort {
+  enqueue<Name extends string, Payload extends object, Result>(
+    definition: JobDefinition<Name, Payload, Result>,
+    payload: JobPayload<Payload>,
+  ): Promise<JobReceipt<Name, Result>>
+  flush(): Promise<void>
+}

@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  buildOpenApiDocument,
+  serializeOpenApiDocument,
+} from "./openapi.civet"
+
+const expectedOperations = [
+  ["get", "/feature-items", "featureItems.list"],
+  ["get", "/feature-items/{id}", "featureItems.get"],
+  ["post", "/feature-items", "featureItems.create"],
+  ["patch", "/feature-items/{id}", "featureItems.update"],
+  ["patch", "/feature-items/{id}/status", "featureItems.changeStatus"],
+  ["delete", "/feature-items/{id}", "featureItems.archive"],
+  ["get", "/admin/feature-items", "admin.featureItems.list"],
+] as const
+
+const expectedErrorStatuses = ["400", "401", "403", "404", "409", "422", "503"]
+
+describe "DF-051/052 oRPC application contract", ->
+  it "publishes every feature operation and the real admin operation", async ->
+    const document = await buildOpenApiDocument()
+
+    for (const [method, path, operationId] of expectedOperations) {
+      const operation = document.paths![path]?.[method]
+      expect(operation, `${method.toUpperCase()} ${path}`).toBeDefined()
+      expect(operation?.operationId).toBe(operationId)
+      expect(operation?.tags).toContain(
+        operationId.startsWith("admin.") ? "Admin" : "Feature items",
+      )
+    }
+
+  it "documents typed expected errors for every owner-scoped feature operation", async ->
+    const document = await buildOpenApiDocument()
+
+    for (const [method, path, operationId] of expectedOperations.slice(0, 6)) {
+      const responses = document.paths![path]?.[method]?.responses
+      expect(Object.keys(responses ?? {}), operationId).toEqual(
+        expect.arrayContaining(expectedErrorStatuses),
+      )
+    }
+
+  it "documents authentication, authorization, and storage failures for admin", async ->
+    const document = await buildOpenApiDocument()
+    const responses = document.paths!["/admin/feature-items"]?.get?.responses
+
+    expect(Object.keys(responses ?? {})).toEqual(
+      expect.arrayContaining(["401", "403", "503"]),
+    )
+
+  it "serializes the generated OpenAPI document deterministically", async ->
+    const first = serializeOpenApiDocument(await buildOpenApiDocument())
+    const second = serializeOpenApiDocument(await buildOpenApiDocument())
+
+    expect(first).toBe(second)
+    expect(first.endsWith("\n")).toBe(true)

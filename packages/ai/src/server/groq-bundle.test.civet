@@ -1,0 +1,104 @@
+import civet from "@danielx/civet/vite"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it } from "vitest"
+import { build } from "vite"
+
+const serverEntry = fileURLToPath(new URL("./groq.civet", import.meta.url))
+const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
+
+describe "Groq Worker bundle", ->
+  it "bundles the SDK without leaving a bare provider import", async ->
+    const outDir = await mkdtemp(join(tmpdir(), "darkfactory-ai-worker-bundle-"))
+
+    try
+      const buildResult = await build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [civet({ ts: "esbuild" })],
+        resolve: {
+          conditions: ["workerd", "worker", "browser"],
+        },
+        ssr: {
+          noExternal: true,
+          resolve: {
+            conditions: ["workerd", "worker", "browser"],
+          },
+        },
+        build: {
+          outDir,
+          ssr: true,
+          target: "esnext",
+          write: false,
+          rollupOptions: {
+            input: serverEntry,
+          },
+        },
+      })
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      const bundle = builds
+        .flatMap((build) => {
+          if (!("output" in build)) throw new Error("Vite build did not finish")
+          return build.output
+        })
+        .filter((output) => output.type === "chunk")
+        .map((chunk) => chunk.code)
+        .join("\n")
+
+      expect(bundle).toContain("https://api.groq.com")
+      expect(bundle).not.toMatch(/\bimport\s*\(\s*["']groq-sdk["']\s*\)/)
+      expect(bundle).not.toMatch(
+        /\b(?:import|export)\b[^;\n]*\bfrom\s*["']groq-sdk["']/,
+      )
+      expect(bundle).not.toMatch(/\bimport\s*["']groq-sdk["']/)
+    finally
+      await rm(outDir, { recursive: true, force: true })
+
+  it "preserves the browser poison for a side-effect-only server import", async ->
+    const tempDir = await mkdtemp(join(packageRoot, ".groq-browser-bundle-"))
+    const entry = join(tempDir, "entry.mjs")
+
+    try
+      await writeFile(entry, 'import "@darkfactory/ai/server/groq"\n')
+      const buildResult = await build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [civet({ ts: "esbuild" })],
+        resolve: {
+          conditions: ["browser"],
+        },
+        ssr: {
+          noExternal: true,
+          resolve: {
+            conditions: ["browser"],
+          },
+        },
+        build: {
+          outDir: join(tempDir, "dist"),
+          ssr: true,
+          target: "esnext",
+          write: false,
+          rollupOptions: {
+            input: entry,
+          },
+        },
+      })
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      const bundle = builds
+        .flatMap((build) => {
+          if (!("output" in build)) throw new Error("Vite build did not finish")
+          return build.output
+        })
+        .filter((output) => output.type === "chunk")
+        .map((chunk) => chunk.code)
+        .join("\n")
+      const moduleUrl =
+        `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`
+
+      await expect(import(moduleUrl)).rejects.toThrow(
+        "@darkfactory/ai/server/groq is unavailable in browser bundles",
+      )
+    finally
+      await rm(tempDir, { recursive: true, force: true })

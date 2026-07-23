@@ -1,0 +1,9 @@
+import { waitUntil } from "cloudflare:workers"
+
+import { handleAuthRequest } from "./handler.civet"
+
+const handleAuth = (request: Request): Promise<Response> =>
+  handleAuthRequest(request, (task) => waitUntil(task))
+
+export const GET = handleAuth
+export const POST = handleAuth

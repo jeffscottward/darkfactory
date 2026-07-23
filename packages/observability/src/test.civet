@@ -1,0 +1,169 @@
+import type {
+  CorrelationContext,
+  MetricObservation,
+  SemanticEvent,
+  SpanHandle,
+  SpanInput,
+  StructuredEventSink,
+  TelemetryRuntime,
+} from "./port.civet"
+import { redact, redactSemanticEvent } from "./redaction.civet"
+
+export type RecordedSpan = Readonly<{
+  name: string
+  requestId: string
+  procedure?: string
+  traceId: string
+  spanId: string
+  parentSpanId?: string
+  startedAt: number
+  endedAt: number
+  durationMs: number
+  outcome: "success" | "failure"
+  errorCategory?: string
+  attributes?: SpanInput["attributes"]
+  events: readonly SemanticEvent[]
+}>
+
+export type RecordedMetric = MetricObservation &
+  Readonly<{
+    requestId: string
+    traceId: string
+    spanId: string
+  }>
+
+export type RecordingTelemetryOptions = Readonly<{
+  now?: () => number
+  createTraceId?: () => string
+  createSpanId?: () => string
+}>
+
+export interface RecordingTelemetry extends TelemetryRuntime {
+  readonly spans: readonly RecordedSpan[]
+  readonly metrics: readonly RecordedMetric[]
+  readonly disposed: boolean
+}
+
+export interface RecordingEventSink extends StructuredEventSink {
+  readonly events: readonly SemanticEvent[]
+}
+
+export const safeErrorCategory = (error: unknown): string ->
+  if error instanceof DOMException and error.name is "AbortError"
+    return "aborted"
+  if error instanceof TypeError
+    return "type"
+  if error instanceof RangeError
+    return "range"
+  return "application"
+
+const defaultIdFactory = (width: number): (() => string) => {
+  let counter = 0
+  return () => {
+    counter += 1
+    return counter.toString(16).padStart(width, "0")
+  }
+}
+
+export const createRecordingTelemetry = (
+  options: RecordingTelemetryOptions = {},
+): RecordingTelemetry => {
+  const now = options.now ?? Date.now
+  const createTraceId = options.createTraceId ?? defaultIdFactory(32)
+  const createSpanId = options.createSpanId ?? defaultIdFactory(16)
+  const spans: RecordedSpan[] = []
+  const metrics: RecordedMetric[] = []
+  let disposed = false
+
+  const withSpan = async <T>(
+    input: SpanInput,
+    run: (span: SpanHandle) => T | Promise<T>,
+  ): Promise<T> => {
+    const startedAt = now()
+    const attributes =
+      input.attributes === undefined
+        ? undefined
+        : (redact(input.attributes) as SpanInput["attributes"])
+    const traceId = input.correlation.traceId ?? createTraceId()
+    const parentSpanId = input.correlation.spanId
+    const spanId = createSpanId()
+    const correlation: CorrelationContext = {
+      ...input.correlation,
+      traceId,
+      spanId,
+    }
+    const events: SemanticEvent[] = []
+    let outcome: "success" | "failure" = "success"
+    let errorCategory: string | undefined
+    const span: SpanHandle = {
+      correlation,
+      addEvent: (event) => {
+        events.push(redactSemanticEvent(event))
+      },
+      recordMetric: (metric) => {
+        const sanitized = redact(metric) as unknown as MetricObservation
+        metrics.push({
+          ...sanitized,
+          requestId: correlation.requestId,
+          traceId,
+          spanId,
+        })
+      },
+    }
+
+    try {
+      return await run(span)
+    } catch (error) {
+      outcome = "failure"
+      errorCategory = safeErrorCategory(error)
+      throw error
+    } finally {
+      const endedAt = now()
+      spans.push(
+        Object.freeze({
+          name: input.name,
+          requestId: correlation.requestId,
+          ...((input.procedure ?? correlation.procedure) === undefined
+            ? {}
+            : { procedure: input.procedure ?? correlation.procedure }),
+          traceId,
+          spanId,
+          ...(parentSpanId === undefined ? {} : { parentSpanId }),
+          startedAt,
+          endedAt,
+          durationMs: Math.max(0, endedAt - startedAt),
+          outcome,
+          ...(errorCategory === undefined ? {} : { errorCategory }),
+          ...(attributes === undefined ? {} : { attributes }),
+          events: Object.freeze([...events]),
+        }),
+      )
+    }
+  }
+
+  return {
+    state: Object.freeze({ status: "in-memory" as const }),
+    spans,
+    metrics,
+    get disposed() {
+      return disposed
+    },
+    withSpan,
+    forceFlush: async () => undefined,
+    dispose: async () => {
+      disposed = true
+      return undefined
+    },
+  }
+}
+
+export const createRecordingEventSink = (): RecordingEventSink => {
+  const events: SemanticEvent[] = []
+  return {
+    events,
+    emit: (event) => {
+      events.push(redactSemanticEvent(event))
+      return undefined
+    },
+  }
+}

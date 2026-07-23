@@ -1,0 +1,295 @@
+import { PgDialect, getTableConfig } from "drizzle-orm/pg-core"
+import { describe, expect, it } from "vitest"
+import {
+  ADDRESS_TYPES,
+  COLOR_SCHEMES,
+  FEATURE_ITEM_STATUSES,
+  PREFERENCE_MODES,
+  PROFILE_VISIBILITIES,
+  USER_ROLES,
+  USER_STATUSES,
+  accounts,
+  addresses,
+  auditRecords,
+  featureItems,
+  outboxEvents,
+  profiles,
+  sessions,
+  userPreferences,
+  users,
+  verifications,
+} from "./index.civet"
+
+const columnNames = (table: Parameters<typeof getTableConfig>[0]): string[] =>
+  getTableConfig(table).columns.map((column) => column.name)
+
+const column = (
+  table: Parameters<typeof getTableConfig>[0],
+  name: string,
+) => getTableConfig(table).columns.find((candidate) => candidate.name === name)!
+
+const indexNames = (table: Parameters<typeof getTableConfig>[0]): string[] =>
+  getTableConfig(table).indexes.flatMap((entry) =>
+    entry.config.name === undefined ? [] : [entry.config.name]
+  )
+
+const indexSignature = (
+  table: Parameters<typeof getTableConfig>[0],
+  name: string,
+): Array<readonly [string | undefined, string]> => {
+  const entry = getTableConfig(table).indexes.find(
+    (candidate) => candidate.config.name === name,
+  )!
+  return entry.config.columns.map((candidate) => {
+    const indexed = candidate as {
+      name?: string
+      indexConfig?: { order?: string }
+    }
+    return [indexed.name, indexed.indexConfig?.order ?? "asc"] as const
+  })
+}
+
+const checkNames = (table: Parameters<typeof getTableConfig>[0]): string[] =>
+  getTableConfig(table).checks.map((entry) => entry.name)
+
+const foreignKey = (
+  table: Parameters<typeof getTableConfig>[0],
+  localColumnName: string,
+) => getTableConfig(table).foreignKeys.find((key) =>
+  key.reference().columns.some((candidate) => candidate.name === localColumnName)
+)!
+
+describe "Better Auth 1.6.24 schema", ->
+  it "uses the required core tables and supported user extensions", ->
+    expect(getTableConfig(users).name).toBe("user")
+    expect(getTableConfig(sessions).name).toBe("session")
+    expect(getTableConfig(accounts).name).toBe("account")
+    expect(getTableConfig(verifications).name).toBe("verification")
+
+    expect(columnNames(users)).toEqual([
+      "id",
+      "name",
+      "email",
+      "email_verified",
+      "image",
+      "created_at",
+      "updated_at",
+      "role",
+      "status",
+    ])
+    expect(columnNames(sessions)).toEqual([
+      "id",
+      "expires_at",
+      "token",
+      "created_at",
+      "updated_at",
+      "ip_address",
+      "user_agent",
+      "user_id",
+    ])
+    expect(columnNames(accounts)).toEqual([
+      "id",
+      "account_id",
+      "provider_id",
+      "user_id",
+      "access_token",
+      "refresh_token",
+      "id_token",
+      "access_token_expires_at",
+      "refresh_token_expires_at",
+      "scope",
+      "password",
+      "created_at",
+      "updated_at",
+    ])
+    expect(columnNames(verifications)).toEqual([
+      "id",
+      "identifier",
+      "value",
+      "expires_at",
+      "created_at",
+      "updated_at",
+    ])
+
+    expect(USER_ROLES).toEqual(["member", "admin"])
+    expect(USER_STATUSES).toEqual(["active", "suspended", "deactivated"])
+    expect(checkNames(users)).toEqual(
+      expect.arrayContaining(["user_role_check", "user_status_check"]),
+    )
+
+  it "keeps credential storage nullable and deletes auth dependants with users", ->
+    expect(column(accounts, "password").notNull).toBe(false)
+    expect(foreignKey(sessions, "user_id").onDelete).toBe("cascade")
+    expect(foreignKey(accounts, "user_id").onDelete).toBe("cascade")
+    expect(indexNames(sessions)).toContain("session_user_id_idx")
+    expect(indexNames(accounts)).toContain("account_user_id_idx")
+
+  it "stores every auth timestamp with timezone", ->
+    for table of [users, sessions, accounts, verifications]
+      for candidate of getTableConfig(table).columns.filter((entry) =>
+        entry.name.endsWith("_at")
+      )
+        expect(candidate.getSQLType()).toBe("timestamp with time zone")
+
+  it "matches Better Auth generated updatedAt callbacks and defaults", ->
+    for table of [users, sessions, accounts, verifications]
+      expect(typeof column(table, "updated_at").onUpdateFn).toBe("function")
+
+    expect(column(users, "updated_at").default).toBeDefined()
+    expect(column(verifications, "updated_at").default).toBeDefined()
+    expect(column(sessions, "updated_at").default).toBeUndefined()
+    expect(column(accounts, "updated_at").default).toBeDefined()
+
+describe "DarkFactory-owned schema", ->
+  it "defines the complete profiles contract with deliberate nullability", ->
+    expect(columnNames(profiles)).toEqual([
+      "user_id",
+      "first_name",
+      "last_name",
+      "display_name",
+      "avatar_url",
+      "phone",
+      "business_name",
+      "job_title",
+      "biography",
+      "timezone",
+      "locale",
+      "date_of_birth",
+      "created_at",
+      "updated_at",
+    ])
+    expect(column(profiles, "user_id").primary).toBe(true)
+    expect(column(profiles, "date_of_birth").notNull).toBe(false)
+    expect(foreignKey(profiles, "user_id").onDelete).toBe("cascade")
+
+  it "enforces typed addresses and at most one primary address per user", ->
+    expect(ADDRESS_TYPES).toEqual(["home", "work", "other"])
+    expect(checkNames(addresses)).toContain("addresses_type_check")
+    expect(indexNames(addresses)).toContain("addresses_user_id_idx")
+    expect(indexSignature(addresses, "addresses_user_id_idx")).toEqual([
+      ["user_id", "asc"],
+      ["is_primary", "desc"],
+      ["created_at", "asc"],
+      ["id", "asc"],
+    ])
+
+    const primaryIndex = getTableConfig(addresses).indexes.find(
+      (entry) => entry.config.name === "addresses_one_primary_per_user_idx",
+    )!
+    expect(primaryIndex.config.unique).toBe(true)
+    expect(primaryIndex.config.where).toBeDefined()
+    const primaryPredicate = new PgDialect().sqlToQuery(
+      primaryIndex.config.where!,
+    ).sql
+    expect(primaryPredicate).toContain('"addresses"."is_primary" = true')
+    expect(foreignKey(addresses, "user_id").onDelete).toBe("cascade")
+
+  it "persists the complete settled preference domains", ->
+    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"])
+    expect(COLOR_SCHEMES).toEqual([
+      "neutral",
+      "slate",
+      "blue",
+      "cyan",
+      "green",
+      "amber",
+      "orange",
+      "red",
+      "rose",
+      "violet",
+    ])
+    expect(PROFILE_VISIBILITIES).toEqual(["private", "members", "public"])
+    expect(columnNames(userPreferences)).toEqual([
+      "user_id",
+      "mode",
+      "color_scheme",
+      "email_notifications",
+      "product_updates",
+      "analytics_consent",
+      "personalization_consent",
+      "profile_visibility",
+      "created_at",
+      "updated_at",
+    ])
+    expect(checkNames(userPreferences)).toEqual(
+      expect.arrayContaining([
+        "user_preferences_mode_check",
+        "user_preferences_color_scheme_check",
+        "user_preferences_profile_visibility_check",
+      ]),
+    )
+
+  it "defines neutral feature items with bounded object metadata and an owner index", ->
+    expect(FEATURE_ITEM_STATUSES).toEqual(["draft", "active", "archived"])
+    expect(columnNames(featureItems)).toEqual([
+      "id",
+      "name",
+      "description",
+      "status",
+      "metadata",
+      "owner_id",
+      "created_at",
+      "updated_at",
+    ])
+    expect(column(featureItems, "metadata").getSQLType()).toBe("jsonb")
+    expect(indexNames(featureItems)).toContain("feature_items_owner_id_idx")
+    expect(indexSignature(featureItems, "feature_items_owner_id_idx")).toEqual([
+      ["owner_id", "asc"],
+      ["updated_at", "desc"],
+      ["id", "desc"],
+    ])
+    expect(checkNames(featureItems)).toEqual(
+      expect.arrayContaining([
+        "feature_items_status_check",
+        "feature_items_metadata_check",
+      ]),
+    )
+    expect(foreignKey(featureItems, "owner_id").onDelete).toBe("cascade")
+
+  it "defines durable outbox and redacted audit storage", ->
+    expect(columnNames(outboxEvents)).toEqual([
+      "id",
+      "event_type",
+      "aggregate_type",
+      "aggregate_id",
+      "payload",
+      "occurred_at",
+      "published_at",
+      "attempt_count",
+    ])
+    expect(columnNames(auditRecords)).toEqual([
+      "id",
+      "actor_user_id",
+      "action",
+      "entity_type",
+      "entity_id",
+      "metadata",
+      "request_id",
+      "created_at",
+    ])
+    expect(column(outboxEvents, "published_at").notNull).toBe(false)
+    expect(column(auditRecords, "actor_user_id").notNull).toBe(false)
+    expect(checkNames(outboxEvents)).toContain("outbox_events_attempt_count_check")
+    expect(indexNames(outboxEvents)).toContain("outbox_events_unpublished_idx")
+    expect(indexNames(auditRecords)).toEqual(
+      expect.arrayContaining([
+        "audit_records_actor_user_id_idx",
+        "audit_records_entity_idx",
+        "audit_records_request_id_idx",
+      ]),
+    )
+    expect(foreignKey(auditRecords, "actor_user_id").onDelete).toBe("set null")
+
+  it "stores all DarkFactory timestamps in UTC-capable columns", ->
+    for table of [
+      profiles,
+      addresses,
+      userPreferences,
+      featureItems,
+      outboxEvents,
+      auditRecords,
+    ]
+      for candidate of getTableConfig(table).columns.filter((entry) =>
+        entry.name.endsWith("_at")
+      )
+        expect(candidate.getSQLType()).toBe("timestamp with time zone")

@@ -1,0 +1,212 @@
+import { z } from "zod"
+
+const enabledFlagSchema = z.object({ enabled: z.boolean() }).strict()
+
+const capabilitiesSchema = z
+  .object({
+    docs: z
+      .object({
+        provider: z.literal("mintlify"),
+        enabled: z.boolean(),
+        public: z.boolean(),
+      })
+      .strict(),
+    jobs: z
+      .object({
+        engine: z.literal("celery"),
+        dashboard: z.literal("flower"),
+        enabled: z.boolean(),
+      })
+      .strict(),
+    uptime: z
+      .object({ provider: z.literal("uptime-kuma"), enabled: z.boolean() })
+      .strict(),
+    error_tracking: z
+      .object({
+        provider: z.literal("glitchtip"),
+        database: z.literal("postgres"),
+        enabled: z.boolean(),
+      })
+      .strict(),
+    storage: z
+      .object({
+        provider: z.literal("r2"),
+        metadata: z.literal("postgres"),
+        enabled: z.boolean(),
+      })
+      .strict(),
+    context_graphs: z
+      .object({
+        data: z
+          .object({
+            provider: z.literal("memori"),
+            database: z.literal("postgres"),
+            enabled: z.boolean(),
+          })
+          .strict(),
+      })
+      .strict(),
+    postgres_extensions: z
+      .object({
+        pgvector: enabledFlagSchema,
+        postgis: enabledFlagSchema,
+        timescaledb: enabledFlagSchema,
+        pg_trgm: enabledFlagSchema,
+        pg_cron: enabledFlagSchema,
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((capabilities, context): void => {
+    if (capabilities.docs.public && !capabilities.docs.enabled) {
+      context.addIssue({
+        code: "custom",
+        path: ["docs", "public"],
+        message: "Public docs require docs to be enabled",
+      })
+    }
+  })
+
+export const capabilityManifestSchema = z
+  .object({
+    project: z
+      .object({
+        name: z.literal("DarkFactory"),
+        slug: z.literal("darkfactory"),
+        version: z.literal("0.1.0"),
+        framework_api: z.literal("next-app-router"),
+        framework_implementation: z.literal("vinext"),
+        build_tool: z.literal("vite"),
+        language: z.literal("civet"),
+        runtime: z.literal("cloudflare-workers"),
+      })
+      .strict(),
+    workspace: z
+      .object({
+        package_manager: z.literal("pnpm"),
+        orchestration: z.literal("turborepo"),
+      })
+      .strict(),
+    deployment: z
+      .object({
+        web: z
+          .object({
+            provider: z.literal("cloudflare"),
+            deployer: z.literal("@vinext/cloudflare"),
+          })
+          .strict(),
+        ancillary_resources: z
+          .object({
+            provider: z.literal("cloudflare"),
+            infrastructure: z.literal("alchemy"),
+          })
+          .strict(),
+      })
+      .strict(),
+    database: z
+      .object({
+        engine: z.literal("postgres"),
+        orm: z.literal("drizzle"),
+        provider: z.literal("planetscale"),
+        extensions_first: z.literal(true),
+      })
+      .strict(),
+    api: z
+      .object({
+        provider: z.literal("orpc"),
+        style: z.literal("contract-first"),
+        openapi: z.literal(true),
+      })
+      .strict(),
+    auth: z.object({ provider: z.literal("better-auth") }).strict(),
+    ui: z
+      .object({
+        styling: z.literal("tailwind"),
+        components: z.literal("shadcn"),
+        typography: z.literal("sans-serif"),
+        public_reference: z.literal("https://www.squarespace.com/"),
+        portal_reference: z.literal("https://ui.shadcn.com/blocks"),
+      })
+      .strict(),
+    ai: z.object({ provider: z.literal("groq") }).strict(),
+    email: z
+      .object({
+        renderer: z.literal("react-email"),
+        provider: z.literal("resend"),
+        local_transport: z.literal("preview"),
+      })
+      .strict(),
+    analytics: z
+      .object({ provider: z.literal("posthog"), adapter_required: z.literal(true) })
+      .strict(),
+    telemetry: z.object({ provider: z.literal("opentelemetry") }).strict(),
+    logging: z.object({ provider: z.literal("evlog") }).strict(),
+    quality: z
+      .object({
+        formatter_linter: z.literal("ultracite"),
+        git_hooks: z.literal("husky"),
+        unit_tests: z.literal("vitest"),
+        browser_tests: z.literal("playwright"),
+      })
+      .strict(),
+    developer_context: z
+      .object({
+        code_graph: z
+          .object({ provider: z.literal("graphify"), enabled: z.literal(true) })
+          .strict(),
+      })
+      .strict(),
+    examples: z
+      .object({
+        feature_stub: z
+          .object({
+            enabled: z.literal(true),
+            removable: z.literal(true),
+            generator_source: z.literal(true),
+          })
+          .strict(),
+      })
+      .strict(),
+    development: z
+      .object({
+        https: z
+          .object({
+            enabled: z.literal(true),
+            provider: z.literal("portless"),
+            service_name: z.literal("darkfactory"),
+            canonical_url: z.literal("https://darkfactory.localhost"),
+            process_manager: z.literal("pm2"),
+            certificate_fallback: z.literal("mkcert"),
+            fallback_hostnames: z.tuple([
+              z.literal("localhost"),
+              z.literal("*.localhost"),
+              z.literal("127.0.0.1"),
+              z.literal("::1"),
+            ]),
+          })
+          .strict(),
+        seeded_accounts: z
+          .object({
+            enabled: z.literal(true),
+            production_allowed: z.literal(false),
+            users: z.tuple([z.literal("admin"), z.literal("alice"), z.literal("bob")]),
+          })
+          .strict(),
+      })
+      .strict(),
+    state: z
+      .object({ workflows: z.literal("xstate"), client_local: z.literal("zustand") })
+      .strict(),
+    effects: z
+      .object({ provider: z.literal("effect"), adoption: z.literal("boundary-driven") })
+      .strict(),
+    developer_tools: z
+      .object({
+        tanstack_devtools: z.object({ enabled: z.literal("development") }).strict(),
+      })
+      .strict(),
+    capabilities: capabilitiesSchema,
+  })
+  .strict()
+
+export type CapabilityManifest = z.infer<typeof capabilityManifestSchema>

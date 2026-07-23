@@ -1,0 +1,11 @@
+{
+  "tsConfig": {
+    "rootDir": ".",
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+      "forceConsistentCasingInFileNames": false
+    },
+    "include": ["src/**/*.civet"],
+    "exclude": ["src/**/*.test.civet"]
+  }
+}

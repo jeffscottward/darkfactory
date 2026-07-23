@@ -1,0 +1,21 @@
+import { describe, expect, it } from "vitest"
+
+import { buttonVariants } from "./button.civet"
+import { cn } from "./utilities.civet"
+
+describe "cn", ->
+  it "merges conditional classes and resolves Tailwind conflicts", ->
+    expect(cn("px-2 text-sm", false && "hidden", ["px-4", "font-medium"])).toBe(
+      "text-sm px-4 font-medium",
+    )
+
+  it "lets callers extend component variants without duplicate conflicts", ->
+    const classes = cn(buttonVariants({ variant: "primary", size: "default" }), "h-12")
+
+    expect(classes).toContain("bg-primary")
+    expect(classes).toContain("h-12")
+    expect(classes.split(" ")).not.toContain("h-11")
+
+  it "provides named ghost and link action variants", ->
+    expect(buttonVariants({ variant: "ghost" })).toContain("hover:bg-accent")
+    expect(buttonVariants({ variant: "link" })).toContain("underline-offset-4")

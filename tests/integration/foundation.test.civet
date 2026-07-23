@@ -1,4 +1,5 @@
-import { parseServerEnv, toClientEnv } from "@darkfactory/config"
+import { toClientEnv } from "@darkfactory/config"
+import { parseServerEnv } from "@darkfactory/config/server"
 import {
   createIdentifier,
   matchResult,

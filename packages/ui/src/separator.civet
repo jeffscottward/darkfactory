@@ -1,0 +1,23 @@
+import type { ComponentPropsWithRef } from "react"
+
+import { cn } from "./utilities.civet"
+
+export interface SeparatorProps extends ComponentPropsWithRef<"hr"> {
+  orientation?: "horizontal" | "vertical"
+}
+
+export const Separator = ({
+  className,
+  orientation = "horizontal",
+  ...props
+}: SeparatorProps) => (
+  <hr
+    aria-orientation={orientation}
+    className={cn(
+      "shrink-0 border-0 bg-border",
+      orientation === "horizontal" ? "h-px w-full" : "h-full min-h-6 w-px",
+      className,
+    )}
+    {...props}
+  />
+)

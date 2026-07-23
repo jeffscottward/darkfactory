@@ -1,0 +1,127 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+
+import { Avatar } from "./avatar.civet"
+import { Button } from "./button.civet"
+import { CardTitle } from "./card.civet"
+import { EmptyState } from "./empty-state.civet"
+import { PageHeader, SectionHeader } from "./headings.civet"
+import { IconButton } from "./icon-button.civet"
+import { Input } from "./input.civet"
+import { Separator } from "./separator.civet"
+import { Skeleton, SkeletonGroup } from "./skeleton.civet"
+import { StatCard } from "./stat-card.civet"
+import { StatusBadge } from "./status-badge.civet"
+import { Textarea } from "./textarea.civet"
+
+const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
+  renderToStaticMarkup(component)
+
+describe "semantic server-safe primitives", ->
+  it "renders safe button defaults, stable loading states, and accessible icon labels", ->
+    const button = markup(createElement(Button, { disabled: true }, "Save changes"))
+    const loadingButton = markup(
+      createElement(Button, { loading: true, loadingLabel: "Saving changes" }, "Save changes"),
+    )
+    const iconButton = markup(
+      createElement(
+        IconButton,
+        { "aria-label": "Open navigation", loading: true },
+        "menu",
+      ),
+    )
+
+    expect(button).toContain('type="button"')
+    expect(button).toContain("disabled")
+    expect(button).toContain("Save changes")
+    expect(loadingButton).toContain('aria-busy="true"')
+    expect(loadingButton).toContain("Saving changes")
+    expect(loadingButton).toContain("invisible")
+    expect(iconButton).toContain('aria-label="Loading: Open navigation"')
+    expect(iconButton).toContain('aria-busy="true"')
+    expect(iconButton).toContain('type="button"')
+
+  it "preserves form relationships and invalid state", ->
+    const input = markup(
+      createElement(Input, {
+        id: "email",
+        invalid: true,
+        "aria-describedby": "email-error",
+      }),
+    )
+    const textarea = markup(
+      createElement(Textarea, { id: "notes", invalid: true }),
+    )
+
+    expect(input).toContain('id="email"')
+    expect(input).toContain('aria-invalid="true"')
+    expect(input).toContain('aria-describedby="email-error"')
+    expect(textarea).toContain('aria-invalid="true"')
+
+  it "renders regions and configurable headings with explicit accessible names", ->
+    const empty = markup(
+      createElement(EmptyState, {
+        title: "No feature items",
+        description: "Create an item to exercise the vertical slice.",
+        headingLevel: 3,
+      }),
+    )
+    const portalHeader = markup(
+      createElement(PageHeader, {
+        title: "Feature items",
+        description: "Inspect a complete request path.",
+      }),
+    )
+    const publicHeader = markup(
+      createElement(PageHeader, {
+        title: "Architecture",
+        variant: "public",
+      }),
+    )
+    const sectionHeader = markup(
+      createElement(SectionHeader, { title: "Recent items", headingLevel: 3 }),
+    )
+    const cardTitle = markup(
+      createElement(CardTitle, { headingLevel: 2 }, "Account settings"),
+    )
+
+    expect(empty).toContain('role="region"')
+    expect(empty).toMatch(/aria-labelledby="[^"]+"/)
+    expect(empty).toContain("<h3")
+    expect(portalHeader).toContain("<header")
+    expect(portalHeader).toContain("<h1")
+    expect(portalHeader).toContain("text-2xl")
+    expect(publicHeader).toContain("text-4xl")
+    expect(sectionHeader).toContain("<h3")
+    expect(cardTitle).toContain("<h2")
+
+  it "announces one loading region while keeping skeleton shapes decorative", ->
+    const status = markup(createElement(StatusBadge, { status: "success" }, "Ready"))
+    const skeletons = markup(
+      createElement(
+        SkeletonGroup,
+        { label: "Loading feature items" },
+        createElement(Skeleton, {}),
+        createElement(Skeleton, {}),
+      ),
+    )
+
+    expect(status).toContain('data-status="success"')
+    expect(status).toContain("Status:")
+    expect(status).toContain("Ready")
+    expect(skeletons.match(/role="status"/g)).toHaveLength(1)
+    expect(skeletons).toContain('aria-label="Loading feature items"')
+    expect(skeletons.match(/aria-hidden="true"/g)).toHaveLength(2)
+
+  it "uses semantic data markup and image alternatives", ->
+    const stat = markup(createElement(StatCard, { label: "Open items", value: "12" }))
+    const avatar = markup(createElement(Avatar, { fallback: "JS", name: "Jeff Scott" }))
+    const separator = markup(createElement(Separator, {}))
+
+    expect(stat).toContain("<dl")
+    expect(stat).toContain("<dt")
+    expect(stat).toContain("<dd")
+    expect(avatar).toContain('role="img"')
+    expect(avatar).toContain('aria-label="Jeff Scott"')
+    expect(separator).toContain("<hr")

@@ -1,0 +1,15 @@
+{
+  "tsConfig": {
+    "rootDir": ".",
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+      "types": ["node"]
+    },
+    "include": [
+      "src/index.civet",
+      "src/validation.civet",
+      "src/test.civet",
+      "src/server/posthog.civet"
+    ]
+  }
+}

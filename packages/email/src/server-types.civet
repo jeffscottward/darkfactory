@@ -1,0 +1,94 @@
+export type PasswordResetEmailInput = Readonly<{
+  to: string
+  resetUrl: string
+  expiresInMinutes: number
+  recipientName?: string
+}>
+
+export type EmailProvider = "preview" | "resend" | "disabled"
+export type EmailDeliveryFailureCode =
+  | "EMAIL_DELIVERY_DISABLED"
+  | "EMAIL_PROVIDER_NOT_CONFIGURED"
+  | "EMAIL_RECIPIENT_INVALID"
+  | "EMAIL_RENDER_FAILED"
+  | "EMAIL_PREVIEW_WRITE_FAILED"
+  | "EMAIL_PROVIDER_REJECTED"
+  | "EMAIL_PROVIDER_INVALID_RESPONSE"
+  | "EMAIL_PROVIDER_UNAVAILABLE"
+export type EmailDeliveryResult =
+  | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
+  | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
+  | Readonly<{
+      status: "failed"
+      provider: EmailProvider
+      code: EmailDeliveryFailureCode
+      retryable: boolean
+    }>
+export interface EmailPort {
+  sendPasswordReset(input: PasswordResetEmailInput): Promise<EmailDeliveryResult>
+}
+export type RenderedPasswordResetEmail = Readonly<{
+  subject: string
+  html: string
+  text: string
+}>
+export type RenderPasswordResetEmailOptions = Readonly<{
+  trustedAppOrigin?: string | undefined
+}>
+export type PreviewEmailPortOptions = Readonly<{
+  environment: "development" | "test" | "production"
+  directory?: string | undefined
+  maxArtifacts?: number | undefined
+  trustedAppOrigin?: string | undefined
+}>
+export type ResendMessage = Readonly<{
+  from: string
+  to: readonly string[]
+  subject: string
+  html: string
+  text: string
+}>
+export type ResendProviderError = Readonly<{
+  name?: string | undefined
+  statusCode?: number | null | undefined
+}>
+export type ResendClient = Readonly<{
+  emails: Readonly<{
+    send: (message: ResendMessage) => Promise<
+      Readonly<{
+        data: Readonly<{ id: string }> | null
+        error: ResendProviderError | null
+      }>
+    >
+  }>
+}>
+export type ResendEmailPortOptions = Readonly<{
+  enabled: boolean
+  apiKey?: string | undefined
+  from?: string | undefined
+  trustedAppOrigin?: string | undefined
+  client?: ResendClient | undefined
+}>
+export type SelectEmailPortOptions = Readonly<{
+  environment: "development" | "test" | "production"
+  transport?: "preview" | "resend" | undefined
+  previewDirectory?: string | undefined
+  previewMaxArtifacts?: number | undefined
+  resendApiKey?: string | undefined
+  from?: string | undefined
+  trustedAppOrigin?: string | undefined
+  resendClient?: ResendClient | undefined
+}>
+export declare const renderPasswordResetEmail: (
+  input: PasswordResetEmailInput,
+  options?: RenderPasswordResetEmailOptions,
+) => Promise<RenderedPasswordResetEmail>
+export declare const createPreviewEmailPort: (
+  options: PreviewEmailPortOptions,
+) => EmailPort
+export declare const createResendEmailPort: (
+  options: ResendEmailPortOptions,
+) => EmailPort
+export declare const selectEmailPort: (
+  options: SelectEmailPortOptions,
+) => EmailPort

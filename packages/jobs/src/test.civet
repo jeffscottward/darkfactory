@@ -1,0 +1,89 @@
+import {
+  snapshotJobPayload,
+  type JobDefinition,
+  type JobEnvelope,
+  type JobPort,
+  type JobPayload,
+  type JobReceipt,
+  type JsonObject,
+} from "./index.civet"
+
+export type RecordingJobPortOptions = Readonly<{
+  now?: (() => string) | undefined
+}>
+
+export interface RecordingJobPort extends JobPort {
+  getEnvelopes(): readonly JobEnvelope<string, JsonObject>[]
+}
+
+const formatSequence = (sequence: number): string =>
+  sequence.toString().padStart(6, "0")
+
+const cloneEnvelope = <Name extends string, Payload extends object>(
+  envelope: JobEnvelope<Name, Payload>,
+): JobEnvelope<Name, Payload> => {
+  const snapshot = snapshotJobPayload(envelope.payload)
+  if (snapshot.status === "invalid")
+    throw new Error("recorded job payload invariant violated")
+  return Object.freeze({
+    ...envelope,
+    payload: snapshot.payload as JobPayload<Payload>,
+  })
+}
+
+export const createRecordingJobPort = (
+  options: RecordingJobPortOptions = {},
+): RecordingJobPort => {
+  const now = options.now ?? (() => "1970-01-01T00:00:00.000Z")
+  const envelopes: JobEnvelope<string, JsonObject>[] = []
+  let sequence = 0
+
+  const enqueue = async <
+    Name extends string,
+    Payload extends object,
+    Result,
+  >(
+    definition: JobDefinition<Name, Payload, Result>,
+    payload: JobPayload<Payload>,
+  ): Promise<JobReceipt<Name, Result>> => {
+    sequence += 1
+    const jobId = `recording-job-${formatSequence(sequence)}`
+    const jobName = definition.name
+    const enqueuedAt = now()
+    const snapshot = snapshotJobPayload(payload)
+    if (snapshot.status === "invalid")
+      return Object.freeze({
+        status: "failed",
+        execution: "recording",
+        jobId,
+        jobName,
+        enqueuedAt,
+        error: Object.freeze({
+          code: "JOB_PAYLOAD_INVALID",
+          retryable: false,
+        }),
+      })
+
+    const envelope: JobEnvelope<Name, Payload> = Object.freeze({
+      id: jobId,
+      name: jobName,
+      payload: snapshot.payload as JobPayload<Payload>,
+      enqueuedAt,
+    })
+    envelopes.push(envelope)
+
+    return Object.freeze({
+      status: "recorded",
+      execution: "recording",
+      jobId,
+      jobName,
+      enqueuedAt,
+    })
+  }
+
+  const flush = async (): Promise<void> => {}
+  const getEnvelopes = (): readonly JobEnvelope<string, JsonObject>[] =>
+    Object.freeze(envelopes.map((envelope) => cloneEnvelope(envelope)))
+
+  return Object.freeze({ enqueue, flush, getEnvelopes })
+}

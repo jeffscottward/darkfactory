@@ -1,0 +1,47 @@
+{
+  "name": "@darkfactory/email",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.civet"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    },
+    "./server": {
+      "types": "./src/server-types.civet.d.ts",
+      "workerd": "./src/server.civet",
+      "worker": "./src/server.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server.civet",
+      "default": "./src/server.civet"
+    },
+    "./test": {
+      "types": "./src/test.civet.d.ts",
+      "import": "./src/test.civet",
+      "default": "./src/test.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --emit-declaration src/index.civet && civet --emit-declaration src/server-types.civet && civet --emit-declaration src/test.civet",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/server/",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/server/"
+  },
+  "dependencies": {
+    "react": "catalog:",
+    "react-email": "catalog:",
+    "resend": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

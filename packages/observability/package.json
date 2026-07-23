@@ -1,0 +1,75 @@
+{
+  "name": "@darkfactory/observability",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.civet"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    },
+    "./port": {
+      "types": "./src/port.civet.d.ts",
+      "import": "./src/port.civet",
+      "default": "./src/port.civet"
+    },
+    "./redaction": {
+      "types": "./src/redaction.civet.d.ts",
+      "import": "./src/redaction.civet",
+      "default": "./src/redaction.civet"
+    },
+    "./server/otel": {
+      "types": "./src/server/otel.civet.d.ts",
+      "workerd": "./src/server/otel.civet",
+      "worker": "./src/server/otel.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/otel.civet",
+      "default": "./src/server/otel.civet"
+    },
+    "./server/evlog": {
+      "types": "./src/server/evlog.civet.d.ts",
+      "workerd": "./src/server/evlog.civet",
+      "worker": "./src/server/evlog.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/evlog.civet",
+      "default": "./src/server/evlog.civet"
+    },
+    "./server/fanout": {
+      "types": "./src/server/fanout.civet.d.ts",
+      "workerd": "./src/server/fanout.civet",
+      "worker": "./src/server/fanout.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/fanout.civet",
+      "default": "./src/server/fanout.civet"
+    },
+    "./test": {
+      "types": "./src/test.civet.d.ts",
+      "import": "./src/test.civet",
+      "default": "./src/test.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --config civet.types.json --emit-declaration src/port.civet && civet --config civet.types.json --emit-declaration src/redaction.civet && civet --config civet.types.json --emit-declaration src/index.civet && civet --config civet.types.json --emit-declaration src/server/otel.civet && civet --config civet.types.json --emit-declaration src/server/evlog.civet && civet --config civet.types.json --emit-declaration src/server/fanout.civet && civet --config civet.types.json --emit-declaration src/test.civet",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/exporter-metrics-otlp-http": "catalog:",
+    "@opentelemetry/exporter-trace-otlp-http": "catalog:",
+    "@opentelemetry/resources": "catalog:",
+    "@opentelemetry/sdk-metrics": "catalog:",
+    "@opentelemetry/sdk-trace-base": "catalog:",
+    "evlog": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

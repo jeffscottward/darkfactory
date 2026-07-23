@@ -1,0 +1,148 @@
+import { describe, expect, it, vi } from "vitest"
+
+import { createGroqAiPort } from "./groq.civet"
+
+describe "Groq SDK boundary", ->
+  it "dynamically constructs the SDK with injected fetch for one nonstreaming completion", async ->
+    let requestUrl = ""
+    let requestBody: unknown
+    let requestSignal: AbortSignal | null | undefined
+    const injectedFetch = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        requestUrl = String(input)
+        requestBody = JSON.parse(String(init?.body))
+        requestSignal = init?.signal
+        return new Response(
+          JSON.stringify({
+            id: "completion-id",
+            choices: [{ message: { content: "SDK generated text" } }],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        )
+      },
+    )
+    const port = createGroqAiPort({
+      apiKey: "secret-api-key",
+      model: "test-model",
+      fetch: injectedFetch,
+    })
+
+    await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+      status: "generated",
+      text: "SDK generated text",
+    })
+    expect(injectedFetch).toHaveBeenCalledTimes(1)
+    expect(requestUrl).toContain("/openai/v1/chat/completions")
+    expect(requestBody).toEqual({
+      model: "test-model",
+      messages: [{ role: "user", content: "private prompt" }],
+      stream: false,
+    })
+    expect(requestSignal?.aborted).toBe(false)
+
+  it "does not send credentials or prompts to an ambient base URL", async ->
+    vi.stubEnv("GROQ_BASE_URL", "https://attacker.invalid")
+    let requestUrl = ""
+    const injectedFetch = vi.fn(async (input: string | URL | Request) => {
+      requestUrl = String(input)
+      return new Response(
+        JSON.stringify({
+          id: "completion-id",
+          choices: [{ message: { content: "SDK generated text" } }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      )
+    })
+
+    try
+      const port = createGroqAiPort({
+        apiKey: "secret-api-key",
+        model: "test-model",
+        fetch: injectedFetch,
+      })
+
+      await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+        status: "generated",
+        text: "SDK generated text",
+      })
+      expect(requestUrl).toMatch(/^https:\/\/api\.groq\.com\//)
+      expect(requestUrl).not.toContain("attacker.invalid")
+    finally
+      vi.unstubAllEnvs()
+
+  it "does not log prompts or provider bodies from an ambient log level", async ->
+    vi.stubEnv("GROQ_LOG", "debug")
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined)
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const injectedFetch = vi.fn(async () => {
+      return new Response("secret plaintext provider error", {
+        status: 400,
+        headers: { "content-type": "text/plain" },
+      })
+    })
+
+    try
+      const port = createGroqAiPort({
+        apiKey: "secret-api-key",
+        model: "test-model",
+        fetch: injectedFetch,
+      })
+
+      await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+        status: "failed",
+        category: "provider_rejected",
+        retryable: false,
+        statusCode: 400,
+      })
+      const logs = [debugSpy, infoSpy, warnSpy, errorSpy]
+        .flatMap((spy) => spy.mock.calls)
+        .map((args) => JSON.stringify(args))
+        .join("\n")
+      expect(logs).not.toMatch(
+        /private prompt|secret-api-key|secret plaintext provider error/i,
+      )
+    finally
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+
+  it "maps an actual SDK status error without retrying or exposing its body", async ->
+    const injectedFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "secret provider body containing private prompt",
+          },
+        }),
+        {
+          status: 503,
+          headers: {
+            "content-type": "application/json",
+            "x-secret-provider-header": "secret header",
+          },
+        },
+      )
+    })
+    const port = createGroqAiPort({
+      apiKey: "secret-api-key",
+      model: "test-model",
+      fetch: injectedFetch,
+    })
+
+    const result = await port.generateText({ prompt: "private prompt" })
+
+    expect(result).toEqual({
+      status: "failed",
+      category: "provider_unavailable",
+      retryable: true,
+      statusCode: 503,
+    })
+    expect(injectedFetch).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(result)).not.toMatch(/secret|private prompt|header|body/i)

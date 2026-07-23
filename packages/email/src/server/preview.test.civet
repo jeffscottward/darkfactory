@@ -1,0 +1,219 @@
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { basename, join, relative, resolve } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+
+import type { PasswordResetEmailInput } from "../index.civet"
+import {
+  createPreviewEmailPort,
+  createPreviewEmailPortForTest,
+} from "./preview.civet"
+
+const resetInput: PasswordResetEmailInput = {
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  resetUrl:
+    "https://darkfactory.localhost/api/auth/reset-password/preview-raw-token" +
+    "?callbackURL=https%3A%2F%2Fdarkfactory.localhost%2Freset-password",
+  expiresInMinutes: 60,
+}
+
+const temporaryDirectories: string[] = []
+
+const createTemporaryDirectory = async (): Promise<string> => {
+  const directory = await mkdtemp(join(tmpdir(), "darkfactory-email-"))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
+afterEach async ->
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true })
+    )
+  )
+
+describe "createPreviewEmailPort", ->
+  it "writes inspectable semantic HTML and text without claiming it was sent", async ->
+    const directory = await createTemporaryDirectory()
+    const canonicalDirectory = await realpath(directory)
+    const email = createPreviewEmailPort({
+      environment: "test",
+      directory,
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("previewed")
+    if result.status !== "previewed" then throw new Error("Expected preview")
+    expect(result.artifactPath).toMatch(
+      new RegExp(`^${canonicalDirectory}/reset-password-[a-f0-9-]+\\.html$`),
+    )
+    const html = await readFile(result.artifactPath, "utf8")
+    const text = await readFile(
+      result.artifactPath.replace(/\.html$/, ".txt"),
+      "utf8",
+    )
+    expect(html).toContain("<h1")
+    expect(html).toContain(resetInput.resetUrl)
+    expect(text).toContain(resetInput.resetUrl)
+
+  it "keeps traversal-shaped internal names and recipient data out of filenames", async ->
+    const directory = await createTemporaryDirectory()
+    const canonicalDirectory = await realpath(directory)
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "../../outside/../reset:alice@domain.test",
+    })
+
+    const result = await email.sendPasswordReset({
+      ...resetInput,
+      to: "victim+private@domain.test",
+    })
+
+    if result.status !== "previewed" then throw new Error("Expected preview")
+    expect(relative(canonicalDirectory, resolve(result.artifactPath))).not.toMatch(
+      /^\.\.(?:\/|\\|$)/,
+    )
+    expect(basename(result.artifactPath)).toBe(
+      "reset-alice-domain.test.html",
+    )
+    expect(result.artifactPath).not.toContain("victim")
+
+  it "bounds retained preview messages", async ->
+    const directory = await createTemporaryDirectory()
+    const artifactNames = ["001", "002", "003"]
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      maxArtifacts: 2,
+      artifactName: () => artifactNames.shift() ?? "unexpected",
+    })
+
+    for _index of [0, 1, 2]
+      const result = await email.sendPasswordReset(resetInput)
+      expect(result.status).toBe("previewed")
+
+    const retainedFiles = (await readdir(directory)).filter((fileName) => {
+      return !fileName.startsWith(".")
+    })
+    expect(retainedFiles).toHaveLength(4)
+    expect(retainedFiles.filter((fileName) => fileName.endsWith(".html"))).toHaveLength(2)
+    expect(retainedFiles.filter((fileName) => fileName.endsWith(".txt"))).toHaveLength(2)
+
+  it "retains the just-written artifact even when its name sorts first", async ->
+    const directory = await createTemporaryDirectory()
+    const artifactNames = ["zzz", "aaa"]
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      maxArtifacts: 1,
+      artifactName: () => artifactNames.shift() ?? "unexpected",
+    })
+    await email.sendPasswordReset(resetInput)
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("previewed")
+    if result.status !== "previewed" then throw new Error("Expected preview")
+    expect(await readFile(result.artifactPath, "utf8")).toContain(
+      resetInput.resetUrl,
+    )
+    expect((await readdir(directory)).sort()).toEqual([
+      "aaa.html",
+      "aaa.txt",
+    ])
+
+  it "maps artifact-name generation errors to a typed failure", async ->
+    const directory = await createTemporaryDirectory()
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => {
+        throw new Error("identifier failed")
+      },
+    })
+
+    expect(await email.sendPasswordReset(resetInput)).toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })
+
+  it "rejects direct preview construction for production", ->
+    expect(() => {
+      createPreviewEmailPort({
+        environment: "production",
+      })
+    }).toThrowError("Preview email transport is unavailable in production")
+
+  it "rejects a symlink preview directory without writing into its target", async ->
+    const parent = await createTemporaryDirectory()
+    const target = join(parent, "target")
+    const linkedDirectory = join(parent, "linked")
+    await mkdir(target)
+    await symlink(target, linkedDirectory, "dir")
+    const email = createPreviewEmailPort({
+      environment: "test",
+      directory: linkedDirectory,
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await readdir(target)).toEqual([])
+
+  it "cleans every partial artifact after an atomic publish collision", async ->
+    const directory = await createTemporaryDirectory()
+    const collidingTextPath = join(directory, "collision.txt")
+    await writeFile(collidingTextPath, "pre-existing", "utf8")
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "collision",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })
+    expect(await readFile(collidingTextPath, "utf8")).toBe("pre-existing")
+    expect(await lstat(collidingTextPath)).toBeDefined()
+    expect((await readdir(directory)).sort()).toEqual(["collision.txt"])
+
+  it "returns a typed failure when the preview cannot be persisted", async ->
+    const parent = await createTemporaryDirectory()
+    const filePath = join(parent, "not-a-directory")
+    await writeFile(filePath, "occupied", "utf8")
+    const email = createPreviewEmailPort({
+      environment: "test",
+      directory: filePath,
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })

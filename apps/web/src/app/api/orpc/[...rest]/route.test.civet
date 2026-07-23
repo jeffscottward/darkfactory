@@ -1,0 +1,192 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(->
+  const waitUntil = vi.fn((promise: Promise<unknown>) => { void promise.catch(() => undefined) })
+  const close = vi.fn(async () => undefined)
+  const forceFlush = vi.fn(async () => undefined)
+  const span = {
+    correlation: {
+      requestId: "provider-controlled",
+      traceId: "11111111111111111111111111111111",
+      spanId: "2222222222222222",
+      route: "/api/orpc",
+    },
+    addEvent: vi.fn(),
+    recordMetric: vi.fn(),
+  }
+  const withSpan = vi.fn(async (_input, run) => run(span))
+  return {
+    waitUntil,
+    close,
+    forceFlush,
+    span,
+    withSpan,
+    initializeTelemetry: vi.fn(() => ({
+      state: { status: "in-memory" },
+      withSpan,
+      forceFlush,
+      dispose: vi.fn(async () => undefined),
+    })),
+    initializeEvlog: vi.fn(() => ({ runtime: "evlog" })),
+    createEvlogSink: vi.fn((_options: unknown) => ({ emit: vi.fn() })),
+    createSemanticEventFanout: vi.fn(
+      (_options: Readonly<{
+        resolveConsent: () => "granted" | "denied" | "unknown"
+      }>) => ({ emit: vi.fn() }),
+    ),
+    createPostHogAnalyticsPort: vi.fn(() => ({ capture: vi.fn() })),
+    createApiContext: vi.fn((_request, dependencies) => ({
+      ...dependencies,
+      requestId: dependencies.requestId,
+      requireSession: vi.fn(),
+      requireRole: vi.fn(),
+    })),
+    resolveApiRequestId: vi.fn(() => "request-stable"),
+    createRequestDatabase: vi.fn(async () => ({ db: { request: true }, close })),
+    createRepositories: vi.fn(() => ({ featureItems: {} })),
+    composeDatabaseProfile: vi.fn(() => ({
+      connection: { connectionString: "postgres://configured.invalid/db" },
+    })),
+    parseServerEnv: vi.fn(() => ({
+      APP_ENV: "test",
+      APP_URL: "https://darkfactory.localhost",
+      EMAIL_TRANSPORT: "preview",
+      EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+      RESEND_API_KEY: undefined,
+      BETTER_AUTH_SECRET: "configured-secret",
+      BETTER_AUTH_URL: "https://darkfactory.localhost",
+      OTEL_ENABLED: true,
+      OTEL_SERVICE_NAME: "darkfactory-web",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.configured.test:4318/base",
+      POSTHOG_KEY: "configured-posthog-key",
+      POSTHOG_HOST: "https://analytics.configured.test",
+    })),
+    createAuth: vi.fn(() => ({ auth: true })),
+    requireSession: vi.fn(),
+    requireRole: vi.fn(),
+    selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
+    handleOrpcRequest: vi.fn(async () => new Response("handled", { status: 202 })),
+  }
+)
+
+vi.mock("cloudflare:workers", -> ({ waitUntil: mocks.waitUntil }))
+vi.mock("@darkfactory/api/server", -> ({
+  createApiContext: mocks.createApiContext,
+  resolveApiRequestId: mocks.resolveApiRequestId,
+}))
+vi.mock("@darkfactory/analytics/server/posthog", -> ({
+  createPostHogAnalyticsPort: mocks.createPostHogAnalyticsPort,
+}))
+vi.mock("@darkfactory/auth/server", -> ({
+  createAuth: mocks.createAuth,
+  requireSession: mocks.requireSession,
+  requireRole: mocks.requireRole,
+}))
+vi.mock("@darkfactory/config/database", -> ({
+  composeDatabaseProfile: mocks.composeDatabaseProfile,
+}))
+vi.mock("@darkfactory/config/server", -> ({ parseServerEnv: mocks.parseServerEnv }))
+vi.mock("@darkfactory/db/server", -> ({
+  createRepositories: mocks.createRepositories,
+  createRequestDatabase: mocks.createRequestDatabase,
+}))
+vi.mock("@darkfactory/email/server", -> ({ selectEmailPort: mocks.selectEmailPort }))
+vi.mock("@darkfactory/observability/server/evlog", -> ({
+  createEvlogSink: mocks.createEvlogSink,
+  initializeEvlog: mocks.initializeEvlog,
+}))
+vi.mock("@darkfactory/observability/server/fanout", -> ({
+  createSemanticEventFanout: mocks.createSemanticEventFanout,
+}))
+vi.mock("@darkfactory/observability/server/otel", -> ({
+  initializeTelemetry: mocks.initializeTelemetry,
+}))
+vi.mock("./handler.civet", -> ({ handleOrpcRequest: mocks.handleOrpcRequest }))
+
+import { POST } from "./route.civet"
+
+describe "oRPC Worker route provider composition", ->
+  beforeEach ->
+    mocks.waitUntil.mockClear()
+    mocks.close.mockClear()
+    mocks.forceFlush.mockClear()
+    mocks.createEvlogSink.mockClear()
+    mocks.createSemanticEventFanout.mockClear()
+    mocks.createApiContext.mockClear()
+    mocks.createRequestDatabase.mockClear()
+    mocks.handleOrpcRequest.mockClear()
+  
+  it "uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async ->
+    const firstRequest = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create?endpoint=https://attacker.invalid",
+      { method: "POST", headers: { "x-analytics-consent": "granted" } },
+    )
+    const secondRequest = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/update",
+      { method: "POST" },
+    )
+
+    const firstResponse = await POST(firstRequest)
+    const secondResponse = await POST(secondRequest)
+
+    expect(firstResponse.status).toBe(202)
+    expect(secondResponse.status).toBe(202)
+    expect(mocks.initializeTelemetry).toHaveBeenCalledOnce()
+    expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
+      enabled: true,
+      serviceName: "darkfactory-web",
+      otlpEndpoint: "https://collector.configured.test:4318/base",
+      otlpAllowedHosts: ["collector.configured.test"],
+    })
+    expect(mocks.initializeEvlog).toHaveBeenCalledOnce()
+    expect(mocks.createPostHogAnalyticsPort).toHaveBeenCalledOnce()
+    expect(mocks.createEvlogSink).toHaveBeenCalledTimes(2)
+    expect(mocks.createEvlogSink.mock.calls[0]![0]).toMatchObject({
+      request: firstRequest,
+      executionContext: { waitUntil: mocks.waitUntil },
+    })
+    expect(mocks.withSpan).toHaveBeenCalledTimes(2)
+    expect(mocks.withSpan.mock.calls[0]?.[0]).toEqual({
+      name: "orpc.request",
+      correlation: { requestId: "request-stable", route: "/api/orpc" },
+      attributes: { "rpc.system": "orpc" },
+    })
+    expect(mocks.createApiContext).toHaveBeenCalledTimes(2)
+    expect(mocks.createApiContext.mock.calls[0]?.[1]).toMatchObject({
+      requestId: "request-stable",
+      span: mocks.span,
+      waitUntil: mocks.waitUntil,
+    })
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.close).toHaveBeenCalledTimes(2)
+    expect(mocks.forceFlush).toHaveBeenCalledTimes(2)
+    expect(mocks.waitUntil).toHaveBeenCalledTimes(2)
+
+    const firstFanoutOptions = mocks.createSemanticEventFanout.mock.calls[0]![0]
+    const secondFanoutOptions = mocks.createSemanticEventFanout.mock.calls[1]![0]
+    expect(firstFanoutOptions.resolveConsent()).toBe("granted")
+    expect(secondFanoutOptions.resolveConsent()).toBe("unknown")
+  
+  it "preserves a successful response when database close rejects", async ->
+    mocks.close.mockRejectedValueOnce(new Error("private close failure"))
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      { method: "POST" },
+    )
+
+    await expect(POST(request)).resolves.toMatchObject({ status: 202 })
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    expect(mocks.close).toHaveBeenCalledOnce()
+  
+  it "preserves the application error when database close also rejects", async ->
+    const applicationError = new Error("application failure")
+    mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError)
+    mocks.close.mockRejectedValueOnce(new Error("private close failure"))
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      { method: "POST" },
+    )
+
+    await expect(POST(request)).rejects.toBe(applicationError)
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    expect(mocks.close).toHaveBeenCalledOnce()

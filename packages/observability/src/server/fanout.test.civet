@@ -1,0 +1,240 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type {
+  MetricObservation,
+  SemanticEvent,
+  SpanHandle,
+  StructuredEventSink,
+} from "../port.civet"
+import { createSemanticEventFanout } from "./fanout.civet"
+
+const correlation = {
+  requestId: "request_01",
+  traceId: "11111111111111111111111111111111",
+  spanId: "2222222222222222",
+  actorId: "actor_opaque_01",
+  route: "/rpc/feature.create",
+  procedure: "feature.create",
+} as const
+
+const baseEvent: SemanticEvent = {
+  eventId: "event_01",
+  name: "feature-item.created",
+  occurredAt: "2026-07-23T12:00:00.000Z",
+  correlation,
+  action: "create",
+  entityId: "feature_01",
+  entityType: "feature-item",
+  outcome: "success",
+  source: "api",
+  attributes: { status: "draft", password: "raw-password" },
+}
+
+const createSpan = () ->
+  const events: SemanticEvent[] = []
+  const metrics: MetricObservation[] = []
+  const span: SpanHandle = {
+    correlation,
+    addEvent: (event) -> events.push(event),
+    recordMetric: (metric) -> metrics.push(metric),
+  }
+  return { span, events, metrics }
+
+afterEach -> vi.restoreAllMocks()
+
+describe "createSemanticEventFanout", ->
+  it "snapshots and redacts once, then performs exactly one sink, span-event, metric, and consented analytics call", async ->
+    const sinkEvents: SemanticEvent[] = []
+    const sink: StructuredEventSink = {
+      emit: vi.fn((event: SemanticEvent) => {
+        sinkEvents.push(event)
+        return undefined
+      }),
+    }
+    const analyticsCapture = vi.fn(async -> ({
+      status: "captured" as const,
+      eventId: "event_01",
+    }))
+    const resolveConsent = vi.fn(async -> "granted" as const)
+    const waitUntil = vi.fn((promise: Promise<unknown>) -> void promise)
+    const { span, events: spanEvents, metrics } = createSpan()
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(-> undefined)
+    const consoleError = vi.spyOn(console, "error").mockImplementation(-> undefined)
+    let attributeReads = 0
+    const event = { ...baseEvent } as SemanticEvent
+    Object.defineProperty(event, "attributes", {
+      enumerable: true,
+      get: ->
+        attributeReads += 1
+        return baseEvent.attributes
+    })
+    const fanout = createSemanticEventFanout({
+      sink,
+      analytics: { capture: analyticsCapture },
+      resolveConsent,
+    })
+
+    const result = await fanout.emit(event, { span, waitUntil })
+
+    expect(attributeReads).toBe(1)
+    expect(sink.emit).toHaveBeenCalledOnce()
+    expect(spanEvents).toHaveLength(1)
+    expect(metrics).toEqual([
+      {
+        name: "darkfactory.semantic_event",
+        value: 1,
+        attributes: {
+          eventName: "feature-item.created",
+          outcome: "success",
+        },
+      },
+    ])
+    expect(sinkEvents[0]).toBe(spanEvents[0])
+    expect(Object.isFrozen(sinkEvents[0])).toBe(true)
+    expect(JSON.stringify(sinkEvents[0])).not.toContain("raw-password")
+    expect(resolveConsent).toHaveBeenCalledOnce()
+    expect(analyticsCapture).toHaveBeenCalledOnce()
+    expect(analyticsCapture).toHaveBeenCalledWith({
+      consent: "granted",
+      distinctId: "actor_opaque_01",
+      event: "feature-item.created",
+      eventId: "event_01",
+      properties: {
+        action: "create",
+        entityId: "feature_01",
+        entityType: "feature-item",
+        outcome: "success",
+        requestId: "request_01",
+        source: "api",
+        traceId: "11111111111111111111111111111111",
+      },
+      timestamp: "2026-07-23T12:00:00.000Z",
+    })
+    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(consoleLog).not.toHaveBeenCalled()
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      structuredEvent: "emitted",
+      span: "recorded",
+      analytics: "captured",
+    })
+
+  it "does not call analytics for denied, unknown, absent actor, or failed consent", async ->
+    for (const resolveConsent of [
+      vi.fn(async -> "denied" as const),
+      vi.fn(async -> "unknown" as const),
+      vi.fn(async -> throw new Error("raw-consent-provider-body")),
+    ]) {
+      const analyticsCapture = vi.fn()
+      const fanout = createSemanticEventFanout({
+        sink: { emit: vi.fn() },
+        analytics: { capture: analyticsCapture },
+        resolveConsent,
+      })
+
+      const result = await fanout.emit(baseEvent)
+
+      expect(analyticsCapture).not.toHaveBeenCalled()
+      expect(result.analytics).toBe("skipped")
+      expect(JSON.stringify(result)).not.toContain("raw-consent-provider-body")
+    }
+
+    const analyticsCapture = vi.fn()
+    const fanout = createSemanticEventFanout({
+      sink: { emit: vi.fn() },
+      analytics: { capture: analyticsCapture },
+      resolveConsent: vi.fn(async -> "granted" as const),
+    })
+    await fanout.emit({
+      ...baseEvent,
+      correlation: {
+        requestId: correlation.requestId,
+        traceId: correlation.traceId,
+        spanId: correlation.spanId,
+        route: correlation.route,
+        procedure: correlation.procedure,
+      },
+    })
+    expect(analyticsCapture).not.toHaveBeenCalled()
+
+  it "contains adapter failures as safe result states without retrying or duplicating calls", async ->
+    const sink = {
+      emit: vi.fn(-> throw new Error("raw-provider-payload secret=hidden")),
+    }
+    const analyticsCapture = vi.fn(async -> throw new Error("raw-analytics-body"))
+    const { span, events, metrics } = createSpan()
+    const fanout = createSemanticEventFanout({
+      sink,
+      analytics: { capture: analyticsCapture },
+      resolveConsent: vi.fn(async -> "granted" as const),
+    })
+
+    const result = await fanout.emit(baseEvent, { span })
+
+    expect(sink.emit).toHaveBeenCalledOnce()
+    expect(events).toHaveLength(1)
+    expect(metrics).toHaveLength(1)
+    expect(analyticsCapture).toHaveBeenCalledOnce()
+    expect(result).toEqual({
+      structuredEvent: "failed",
+      span: "recorded",
+      analytics: "failed",
+    })
+    expect(JSON.stringify(result)).not.toMatch(
+      /raw-provider-payload|secret=hidden|raw-analytics-body/
+    )
+
+
+  it "canonicalizes required event fields before bounded optional data despite key floods", async ->
+    const flooded: Record<string, unknown> = {}
+    for index in [0...100]
+      flooded[`attacker_${index.toString().padStart(3, "0")}`] = "ignored"
+    Object.assign(flooded, baseEvent, {
+      attributes: Object.fromEntries(
+        Array.from({ length: 100 }, (_, index) -> [
+          `optional_${index.toString().padStart(3, "0")}`,
+          index,
+        ])
+      ),
+    })
+    const sink = { emit: vi.fn() }
+    const { span, events, metrics } = createSpan()
+    const fanout = createSemanticEventFanout({ sink })
+
+    await expect(
+      fanout.emit(flooded as unknown as SemanticEvent, { span })
+    ).resolves.toEqual({
+      structuredEvent: "emitted",
+      span: "recorded",
+      analytics: "skipped",
+    })
+    expect(sink.emit).toHaveBeenCalledOnce()
+    expect(events[0]?.eventId).toBe(baseEvent.eventId)
+    expect(events[0]?.name).toBe(baseEvent.name)
+    expect(events[0]?.correlation.requestId).toBe(correlation.requestId)
+    expect(metrics).toHaveLength(1)
+    expect(JSON.stringify(events[0])).not.toContain("attacker_")
+    expect(JSON.stringify(events[0])).not.toContain("optional_099")
+
+  it "rejects unsafe required-field access before any partial fanout", async ->
+    const unsafe = { ...baseEvent }
+    Object.defineProperty(unsafe, "name", {
+      enumerable: true,
+      get: -> throw new Error("raw-required-field-secret"),
+    })
+    const sink = { emit: vi.fn() }
+    const analyticsCapture = vi.fn()
+    const { span, events, metrics } = createSpan()
+    const fanout = createSemanticEventFanout({
+      sink,
+      analytics: { capture: analyticsCapture },
+      resolveConsent: vi.fn(async -> "granted" as const),
+    })
+
+    await expect(
+      fanout.emit(unsafe, { span })
+    ).rejects.toThrow("Invalid semantic event")
+    expect(sink.emit).not.toHaveBeenCalled()
+    expect(events).toHaveLength(0)
+    expect(metrics).toHaveLength(0)
+    expect(analyticsCapture).not.toHaveBeenCalled()

@@ -1,0 +1,35 @@
+import { OpenAPIHandler } from "@orpc/openapi/fetch"
+import { RPCHandler } from "@orpc/server/fetch"
+
+import type { ApiContext } from "./context.civet"
+import { appRouter } from "./router.civet"
+
+export const ORPC_RPC_PREFIX = "/api/orpc"
+export const ORPC_OPENAPI_PREFIX = "/api/openapi"
+
+const rpcHandler = new RPCHandler(appRouter)
+const openApiHandler = new OpenAPIHandler(appRouter)
+
+const notFound = (): Response => new Response("Not Found", { status: 404 })
+
+export const handleApiRequest = async (
+  request: Request,
+  context: ApiContext,
+): Promise<Response> => {
+  const result = await rpcHandler.handle(request, {
+    prefix: ORPC_RPC_PREFIX,
+    context,
+  })
+  return result.matched ? result.response : notFound()
+}
+
+export const handleOpenApiRequest = async (
+  request: Request,
+  context: ApiContext,
+): Promise<Response> => {
+  const result = await openApiHandler.handle(request, {
+    prefix: ORPC_OPENAPI_PREFIX,
+    context,
+  })
+  return result.matched ? result.response : notFound()
+}

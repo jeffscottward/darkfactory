@@ -1,0 +1,86 @@
+import {
+  snapshotJobPayload,
+  type JobDefinition,
+  type JobExecutionContext,
+  type JobPort,
+  type JobReceipt,
+  type JobPayload,
+} from "../index.civet"
+
+export type InlineJobPortOptions = Readonly<{
+  now?: (() => string) | undefined
+}>
+
+const formatSequence = (sequence: number): string =>
+  sequence.toString().padStart(6, "0")
+
+export const createInlineJobPort = (
+  options: InlineJobPortOptions = {},
+): JobPort => {
+  const now = options.now ?? (() => new Date().toISOString())
+  let sequence = 0
+  let tail: Promise<void> = Promise.resolve()
+
+  const enqueue = <Name extends string, Payload extends object, Result>(
+    definition: JobDefinition<Name, Payload, Result>,
+    payload: JobPayload<Payload>,
+  ): Promise<JobReceipt<Name, Result>> => {
+    const execute = definition.execute
+    const jobName = definition.name
+    const enqueuedAt = now()
+    sequence += 1
+    const context: JobExecutionContext<Name> = Object.freeze({
+      jobId: `inline-job-${formatSequence(sequence)}`,
+      jobName,
+      enqueuedAt,
+    })
+    const snapshot = snapshotJobPayload(payload)
+    if (snapshot.status === "invalid")
+      return Promise.resolve(Object.freeze({
+        status: "failed",
+        execution: "inline",
+        jobId: context.jobId,
+        jobName: context.jobName,
+        enqueuedAt: context.enqueuedAt,
+        error: Object.freeze({
+          code: "JOB_PAYLOAD_INVALID",
+          retryable: false,
+        }),
+      }))
+
+    const payloadSnapshot = snapshot.payload as JobPayload<Payload>
+    const execution = tail.then(async (): Promise<JobReceipt<Name, Result>> => {
+      try {
+        const result = await execute(payloadSnapshot, context)
+        return Object.freeze({
+          status: "completed",
+          execution: "inline",
+          jobId: context.jobId,
+          jobName: context.jobName,
+          enqueuedAt: context.enqueuedAt,
+          result,
+        })
+      } catch {
+        return Object.freeze({
+          status: "failed",
+          execution: "inline",
+          jobId: context.jobId,
+          jobName: context.jobName,
+          enqueuedAt: context.enqueuedAt,
+          error: Object.freeze({
+            code: "JOB_EXECUTION_FAILED",
+            retryable: false,
+          }),
+        })
+      }
+    })
+    tail = execution.then(() => undefined)
+
+    return execution
+  }
+
+  return Object.freeze({
+    enqueue,
+    flush: async (): Promise<void> => tail,
+  })
+}

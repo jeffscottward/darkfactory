@@ -1,0 +1,305 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  type SafeAuthSession,
+} from "@darkfactory/auth/server"
+import type { FeatureItemRepository, Repositories } from "@darkfactory/db/server"
+import type { FeatureItem } from "@darkfactory/db/schema"
+import type {
+  SemanticEvent,
+  SemanticEventPort,
+  SpanHandle,
+  WaitUntil,
+} from "@darkfactory/observability/port"
+import { describe, expect, it, vi } from "vitest"
+
+import { createApiClient } from "./client.civet"
+import { createApiContext, resolveApiRequestId } from "./server/context.civet"
+import { handleApiRequest } from "./server/handler.civet"
+
+const baseItem: FeatureItem = {
+  id: "item-1",
+  ownerId: "member-1",
+  name: "Neutral item",
+  description: "A neutral description",
+  status: "draft",
+  metadata: {},
+  createdAt: new Date("2026-01-02T03:04:05.000Z"),
+  updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+}
+
+const session: SafeAuthSession = {
+  user: {
+    id: "member-1",
+    name: "member",
+    email: "member@domain.test",
+    emailVerified: true,
+    image: null,
+    createdAt: new Date("2026-01-02T03:04:05.000Z"),
+    updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+    role: "member",
+    status: "active",
+  },
+  session: {
+    id: "session-member",
+    userId: "member-1",
+    expiresAt: new Date("2026-01-03T03:04:05.000Z"),
+    createdAt: new Date("2026-01-02T03:04:05.000Z"),
+    updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+    ipAddress: null,
+    userAgent: null,
+  },
+  principal: { userId: "member-1", role: "member", status: "active" },
+}
+
+const repository = (
+  overrides: Partial<FeatureItemRepository> = {},
+): FeatureItemRepository => ({
+  listByOwner: vi.fn(async () => [baseItem]),
+  findByIdForOwner: vi.fn(async () => baseItem),
+  create: vi.fn(async () => baseItem),
+  update: vi.fn(async (input) => ({ ...baseItem, ...input })),
+  archive: vi.fn(async () => ({ ...baseItem, status: "archived" as const })),
+  ...overrides,
+})
+
+const repositories = (featureItems: FeatureItemRepository): Repositories => ({
+  profiles: {} as Repositories["profiles"],
+  addresses: {} as Repositories["addresses"],
+  userPreferences: {} as Repositories["userPreferences"],
+  featureItems,
+})
+
+const clientFor = (
+  featureItems: FeatureItemRepository,
+  semanticEvents?: SemanticEventPort,
+  span?: SpanHandle,
+  waitUntil?: WaitUntil,
+) => {
+  const fetch = async (request: Request): Promise<Response> => {
+    const context = createApiContext(request, {
+      repositories: repositories(featureItems),
+      requestId: "request-1",
+      requireSession: async () => session,
+      requireRole: async (_headers, role) => {
+        if (role !== "member")
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+            403,
+          )
+        return session
+      },
+      ...(semanticEvents === undefined ? {} : { semanticEvents }),
+      ...(span === undefined ? {} : { span }),
+      ...(waitUntil === undefined ? {} : { waitUntil }),
+    })
+    return handleApiRequest(request, context)
+  }
+
+  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
+}
+
+const recordingPort = () => {
+  const events: SemanticEvent[] = []
+  const emit = vi.fn(async (event: SemanticEvent) => {
+    events.push(event)
+    return {
+      structuredEvent: "emitted" as const,
+      span: "skipped" as const,
+      analytics: "skipped" as const,
+    }
+  })
+  return { events, port: { emit } satisfies SemanticEventPort }
+}
+
+const expectSafeStableEvent = (
+  event: SemanticEvent,
+  expected: Readonly<{
+    name: string
+    procedure: string
+    route: string
+    action: string
+    outcome: "success" | "failure"
+  }>,
+  expectedEntityId: string | null = "item-1",
+): void => {
+  expect(event).toMatchObject({
+    name: expected.name,
+    correlation: {
+      requestId: "request-1",
+      actorId: "member-1",
+      procedure: expected.procedure,
+      route: expected.route,
+    },
+    action: expected.action,
+    ...(expectedEntityId === null ? {} : { entityId: expectedEntityId }),
+    entityType: "feature-item",
+    outcome: expected.outcome,
+    source: "api",
+    attributes: { actorRole: "member" },
+  })
+  expect(event.eventId).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  )
+  if (expectedEntityId === null) expect(event.entityId).toBeUndefined()
+  expect(Number.isNaN(Date.parse(event.occurredAt))).toBe(false)
+  expect(JSON.stringify(event.attributes)).not.toContain("private mutation input")
+  expect(Object.keys(event.attributes ?? {})).toHaveLength(1)
+}
+
+describe "feature mutation semantic events", ->
+  it "ignores an untrusted public request ID header at the request boundary", ->
+    const request = new Request("https://darkfactory.localhost/api/orpc", {
+      headers: { "x-request-id": "attacker-controlled" },
+    })
+
+    expect(
+      resolveApiRequestId(request, {
+        generateRequestId: () => "internal-request-id",
+      }),
+    ).toBe("internal-request-id")
+  
+  it.each([
+    {
+      name: "feature-item.created",
+      procedure: "featureItems.create",
+      route: "/api/orpc/featureItems/create",
+      action: "create",
+      mutate: (client: ReturnType<typeof clientFor>) => client.featureItems.create({
+        name: "private mutation input", description: "private mutation input",
+      }),
+    },
+    {
+      name: "feature-item.updated",
+      procedure: "featureItems.update",
+      route: "/api/orpc/featureItems/update",
+      action: "update",
+      mutate: (client: ReturnType<typeof clientFor>) => client.featureItems.update({
+        id: "item-1", name: "private mutation input",
+      }),
+    },
+    {
+      name: "feature-item.updated",
+      procedure: "featureItems.changeStatus",
+      route: "/api/orpc/featureItems/changeStatus",
+      action: "change-status",
+      mutate: (client: ReturnType<typeof clientFor>) => client.featureItems.changeStatus({ id: "item-1", status: "active" }),
+    },
+    {
+      name: "feature-item.archived",
+      procedure: "featureItems.archive",
+      route: "/api/orpc/featureItems/archive",
+      action: "archive",
+      mutate: (client: ReturnType<typeof clientFor>) => client.featureItems.archive({ id: "item-1" }),
+    },
+  ])("emits exactly one $name event for $procedure", async (testCase) ->
+    const recording = recordingPort()
+    await expect(testCase.mutate(clientFor(repository(), recording.port))).resolves.toBeDefined()
+
+    expect(recording.port.emit).toHaveBeenCalledOnce()
+    expectSafeStableEvent(recording.events[0]!, { ...testCase, outcome: "success" })
+  )
+  it "uses a unique event ID for repeated procedures in one correlation chain", async ->
+    const recording = recordingPort()
+    const client = clientFor(repository(), recording.port)
+    const input = { name: "Neutral item", description: "Neutral description" }
+
+    await client.featureItems.create(input)
+    await client.featureItems.create(input)
+
+    expect(recording.events).toHaveLength(2)
+    expect(recording.events[0]?.eventId).not.toBe(recording.events[1]?.eventId)
+  
+
+  it "emits one safe failure event without replaying the mutation", async ->
+    const create = vi.fn(async () => {
+      throw new Error("private provider payload")
+    })
+    const recording = recordingPort()
+
+    await expect(
+      clientFor(repository({ create }), recording.port).featureItems.create({
+        name: "private mutation input",
+        description: "private mutation input",
+      }),
+    ).rejects.toBeDefined()
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(recording.port.emit).toHaveBeenCalledOnce()
+    expectSafeStableEvent(recording.events[0]!, {
+      name: "feature-item.created",
+      procedure: "featureItems.create",
+      route: "/api/orpc/featureItems/create",
+      action: "create",
+      outcome: "failure",
+    }, null)
+    expect(recording.events[0]?.errorCategory).toBe("unexpected")
+    expect(JSON.stringify(recording.events[0])).not.toContain("private provider payload")
+  
+  it "does not replay or fail a successful mutation when event emission fails", async ->
+    const create = vi.fn(async () => baseItem)
+    const semanticEvents: SemanticEventPort = {
+      emit: vi.fn(async () => {
+        throw new Error("provider unavailable")
+      }),
+    }
+
+    await expect(
+      clientFor(repository({ create }), semanticEvents).featureItems.create({
+        name: "Neutral item",
+        description: "Neutral description",
+      }),
+    ).resolves.toEqual(baseItem)
+    expect(create).toHaveBeenCalledOnce()
+    expect(semanticEvents.emit).toHaveBeenCalledOnce()
+  
+  it "passes the request span and Worker lifetime through one emission", async ->
+    const recording = recordingPort()
+    const span: SpanHandle = {
+      correlation: {
+        requestId: "request-1",
+        traceId: "11111111111111111111111111111111",
+        spanId: "2222222222222222",
+      },
+      addEvent: vi.fn(),
+      recordMetric: vi.fn(),
+    }
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise)
+
+    await clientFor(
+      repository(),
+      recording.port,
+      span,
+      waitUntil,
+    ).featureItems.create({
+      name: "Neutral item",
+      description: "Neutral description",
+    })
+
+    expect(recording.port.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlation: expect.objectContaining({
+          requestId: "request-1",
+          traceId: "11111111111111111111111111111111",
+          spanId: "2222222222222222",
+          actorId: "member-1",
+        }),
+      }),
+      { span, waitUntil },
+    )
+  
+  it "does not emit mutation events for read procedures", async ->
+    const recording = recordingPort()
+    const client = clientFor(repository(), recording.port)
+
+    await expect(client.featureItems.list({})).resolves.toEqual([baseItem])
+    await expect(client.featureItems.get({ id: "item-1" })).resolves.toEqual(baseItem)
+    expect(recording.port.emit).not.toHaveBeenCalled()
+  
+  it "keeps legacy contexts without observability valid", async ->
+    await expect(
+      clientFor(repository()).featureItems.create({
+        name: "Neutral item",
+        description: "Neutral description",
+      }),
+    ).resolves.toEqual(baseItem)

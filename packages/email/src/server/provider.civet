@@ -1,0 +1,224 @@
+import { Resend } from "resend"
+
+import type {
+  EmailDeliveryFailureCode,
+  EmailDeliveryResult,
+  EmailPort,
+  PasswordResetEmailInput,
+} from "../index.civet"
+import {
+  createPreviewEmailPort,
+  renderPasswordResetEmail,
+  type PreviewEmailPortOptions,
+  type RenderedPasswordResetEmail,
+  type RenderPasswordResetEmailOptions,
+} from "./preview.civet"
+
+export type ResendMessage = Readonly<{
+  from: string
+  to: readonly string[]
+  subject: string
+  html: string
+  text: string
+}>
+
+export type ResendProviderError = Readonly<{
+  name?: string | undefined
+  statusCode?: number | null | undefined
+}>
+
+export type ResendClient = Readonly<{
+  emails: Readonly<{
+    send: (message: ResendMessage) => Promise<
+      Readonly<{
+        data: Readonly<{ id: string }> | null
+        error: ResendProviderError | null
+      }>
+    >
+  }>
+}>
+
+export type ResendEmailPortOptions = Readonly<{
+  enabled: boolean
+  apiKey?: string | undefined
+  from?: string | undefined
+  trustedAppOrigin?: string | undefined
+  client?: ResendClient | undefined
+}>
+
+export type SelectEmailPortOptions = Readonly<{
+  environment: "development" | "test" | "production"
+  transport?: "preview" | "resend" | undefined
+  previewDirectory?: string | undefined
+  previewMaxArtifacts?: number | undefined
+  resendApiKey?: string | undefined
+  from?: string | undefined
+  trustedAppOrigin?: string | undefined
+  resendClient?: ResendClient | undefined
+}>
+
+const RETRYABLE_RESEND_ERROR_NAMES = new Set([
+  "rate_limit_exceeded",
+  "application_error",
+  "internal_server_error",
+])
+const MAILBOX_PATTERN = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
+
+const createDisabledEmailPort = (
+  code: EmailDeliveryFailureCode,
+): EmailPort =>
+  Object.freeze({
+    sendPasswordReset: async (): Promise<EmailDeliveryResult> => ({
+      status: "failed",
+      provider: "disabled",
+      code,
+      retryable: false,
+    }),
+  })
+
+const resendFailure = (
+  code: EmailDeliveryFailureCode,
+  retryable: boolean,
+): EmailDeliveryResult => ({
+  status: "failed",
+  provider: "resend",
+  code,
+  retryable,
+})
+
+const normalizeRecipient = (recipient: string): string | null => {
+  const trimmedRecipient = recipient.trim()
+  const separatorIndex = trimmedRecipient.lastIndexOf("@")
+  if (separatorIndex <= 0) return null
+  const normalizedRecipient =
+    `${trimmedRecipient.slice(0, separatorIndex)}@` +
+    trimmedRecipient.slice(separatorIndex + 1).toLowerCase()
+  if (
+    normalizedRecipient.length > 254 ||
+    !MAILBOX_PATTERN.test(normalizedRecipient)
+  ) {
+    return null
+  }
+
+  return normalizedRecipient
+}
+
+const isRetryableProviderError = (error: ResendProviderError): boolean =>
+  error.name !== undefined && RETRYABLE_RESEND_ERROR_NAMES.has(error.name)
+
+export const createResendEmailPort = (
+  options: ResendEmailPortOptions,
+): EmailPort => {
+  if (!options.enabled) {
+    return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
+  }
+
+  const apiKey = options.apiKey?.trim()
+  const from = options.from?.trim()
+  if (!apiKey || !from) {
+    return createDisabledEmailPort("EMAIL_PROVIDER_NOT_CONFIGURED")
+  }
+
+  const sdkClient = options.client ? undefined : new Resend(apiKey)
+  const send = options.client
+    ? (message: ResendMessage) => options.client!.emails.send(message)
+    : async (message: ResendMessage) => {
+        const response = await sdkClient!.emails.send({
+          ...message,
+          to: [...message.to],
+        })
+        return {
+          data: response.data,
+          error: response.error,
+        }
+      }
+
+  return Object.freeze({
+    sendPasswordReset: async (
+      input: PasswordResetEmailInput,
+    ): Promise<EmailDeliveryResult> => {
+      const recipient = normalizeRecipient(input.to)
+      if (!recipient) {
+        return resendFailure("EMAIL_RECIPIENT_INVALID", false)
+      }
+
+      let rendered
+      try {
+        rendered = await renderPasswordResetEmail(input, {
+          trustedAppOrigin: options.trustedAppOrigin,
+        })
+      } catch {
+        return resendFailure("EMAIL_RENDER_FAILED", false)
+      }
+
+      let response
+      try {
+        response = await send({
+          from,
+          to: [recipient],
+          subject: rendered.subject,
+          html: rendered.html,
+          text: rendered.text,
+        })
+      } catch {
+        return resendFailure("EMAIL_PROVIDER_UNAVAILABLE", true)
+      }
+
+      if (response.error) {
+        const retryable = isRetryableProviderError(response.error)
+        return resendFailure(
+          retryable ? "EMAIL_PROVIDER_UNAVAILABLE" : "EMAIL_PROVIDER_REJECTED",
+          retryable,
+        )
+      }
+
+      if (!response.data?.id) {
+        return resendFailure("EMAIL_PROVIDER_INVALID_RESPONSE", false)
+      }
+
+      return {
+        status: "sent",
+        provider: "resend",
+        messageId: response.data.id,
+      }
+    },
+  })
+}
+
+export const selectEmailPort = (
+  options: SelectEmailPortOptions,
+): EmailPort => {
+  if (options.transport === "resend") {
+    return createResendEmailPort({
+      enabled: true,
+      apiKey: options.resendApiKey,
+      from: options.from,
+      trustedAppOrigin: options.trustedAppOrigin,
+      client: options.resendClient,
+    })
+  }
+
+  const isLocal =
+    options.environment === "development" || options.environment === "test"
+  if (isLocal && (options.transport === undefined || options.transport === "preview")) {
+    const previewOptions: PreviewEmailPortOptions = {
+      environment: options.environment,
+      directory: options.previewDirectory,
+      maxArtifacts: options.previewMaxArtifacts,
+      trustedAppOrigin: options.trustedAppOrigin,
+    }
+    return createPreviewEmailPort(previewOptions)
+  }
+
+  return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
+}
+
+export {
+  createPreviewEmailPort,
+  renderPasswordResetEmail,
+}
+export type {
+  PreviewEmailPortOptions,
+  RenderedPasswordResetEmail,
+  RenderPasswordResetEmailOptions,
+}

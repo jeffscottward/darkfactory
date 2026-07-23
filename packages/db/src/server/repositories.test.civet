@@ -1,0 +1,458 @@
+import { describe, expect, it, vi } from "vitest"
+import { DrizzleQueryError } from "drizzle-orm/errors"
+import {
+  addresses,
+  auditRecords,
+  featureItems,
+  outboxEvents,
+  profiles,
+  userPreferences,
+} from "../schema/index.civet"
+import type { Database } from "./client.civet"
+import {
+  DatabaseConflictError,
+  DatabasePersistenceError,
+  InvalidRepositoryInputError,
+  createFeatureItemRepository,
+  createRepositories,
+} from "./repositories.civet"
+
+const FIXED_NOW = new Date("2026-01-02T03:04:05.000Z")
+
+const tableName = (table: unknown): string => {
+  if (table === featureItems) return "feature_items"
+  if (table === auditRecords) return "audit_records"
+  if (table === outboxEvents) return "outbox_events"
+  if (table === profiles) return "profiles"
+  if (table === addresses) return "addresses"
+  if (table === userPreferences) return "user_preferences"
+  return "unknown"
+}
+
+type InsertOperation = {
+  table: string
+  value: Record<string, unknown>
+}
+
+type DatabaseDoubleOptions = {
+  failOnTable?: string
+  transactionError?: unknown
+  beforeTransaction?: () => void | Promise<void>
+}
+
+const createDatabaseDouble = (options: DatabaseDoubleOptions = {}) => {
+  const lifecycle: string[] = []
+  const inserts: InsertOperation[] = []
+
+  const transaction = {
+    insert: (table: unknown) => ({
+      values: (value: Record<string, unknown>) => {
+        const name = tableName(table)
+        inserts.push({ table: name, value })
+        lifecycle.push(`insert:${name}`)
+        if (options.failOnTable === name) throw new Error(`failed ${name}`)
+
+        return {
+          returning: async () => [
+            {
+              ...value,
+              createdAt: value["createdAt"] ?? FIXED_NOW,
+              updatedAt: value["updatedAt"] ?? FIXED_NOW,
+            },
+          ],
+        }
+      },
+    }),
+  }
+
+  const database = {
+    transaction: vi.fn(async (operation: (tx: typeof transaction) => unknown) => {
+      lifecycle.push("begin")
+      try {
+        if (options.transactionError) throw options.transactionError
+        await options.beforeTransaction?.()
+        const result = await operation(transaction)
+        lifecycle.push("commit")
+        return result
+      } catch (error) {
+        lifecycle.push("rollback")
+        throw error
+      }
+    }),
+  } as unknown as Database
+
+  return { database, inserts, lifecycle }
+}
+
+const mutationContext = {
+  actorUserId: "user_alice",
+  requestId: "request_123",
+} as const
+
+const wrappedDatabaseError = (
+  code: string,
+  constraint: string,
+): DrizzleQueryError =>
+  new DrizzleQueryError(
+    "insert secret_table values ($1)",
+    ["secret parameter"],
+    Object.assign(new Error("provider detail"), { code, constraint }),
+  )
+
+describe "feature item mutation repository", ->
+  it "writes feature state, redacted audit context, and an outbox event atomically", async ->
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_event_id",
+    })
+
+    const created = await repository.create(
+      {
+        id: "feature_123",
+        ownerId: "user_alice",
+        name: "Domain-neutral item",
+        description: "A removable vertical slice",
+        status: "draft",
+        metadata: { priority: "normal" },
+      },
+      mutationContext,
+    )
+
+    expect(created).toMatchObject({
+      id: "feature_123",
+      ownerId: "user_alice",
+      status: "draft",
+      metadata: { priority: "normal" },
+    })
+    expect(double.lifecycle).toEqual([
+      "begin",
+      "insert:feature_items",
+      "insert:audit_records",
+      "insert:outbox_events",
+      "commit",
+    ])
+
+    const audit = double.inserts.find(
+      (operation) => operation.table === "audit_records",
+    )!.value
+    expect(audit).toMatchObject({
+      actorUserId: "user_alice",
+      action: "feature_item.created",
+      entityType: "feature_item",
+      entityId: "feature_123",
+      metadata: { status: "draft" },
+      requestId: "request_123",
+    })
+    expect(JSON.stringify(audit)).not.toContain("Domain-neutral item")
+    expect(JSON.stringify(audit)).not.toContain("removable vertical slice")
+
+    const outbox = double.inserts.find(
+      (operation) => operation.table === "outbox_events",
+    )!.value
+    expect(outbox).toMatchObject({
+      eventType: "feature_item.created",
+      aggregateType: "feature_item",
+      aggregateId: "feature_123",
+      payload: {
+        id: "feature_123",
+        ownerId: "user_alice",
+        status: "draft",
+      },
+      attemptCount: 0,
+    })
+
+  it "rolls back the whole mutation when a companion write fails", async ->
+    const double = createDatabaseDouble({ failOnTable: "outbox_events" })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_event_id",
+    })
+
+    await expect(
+      repository.create(
+        {
+          id: "feature_rollback",
+          ownerId: "user_alice",
+          name: "Rollback item",
+          description: "Must not partially persist",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow("failed outbox_events")
+    expect(double.lifecycle.at(-1)).toBe("rollback")
+    expect(double.lifecycle).not.toContain("commit")
+
+  it "maps unique violations without exposing a driver-specific public error", async ->
+    const double = createDatabaseDouble({
+      transactionError: wrappedDatabaseError(
+        "23505",
+        "feature_items_pkey",
+      ),
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.create(
+        {
+          id: "feature_duplicate",
+          ownerId: "user_alice",
+          name: "Duplicate",
+          description: "Duplicate stable identifier",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow(DatabaseConflictError)
+    await expect(
+      repository.create(
+        {
+          id: "feature_duplicate",
+          ownerId: "user_alice",
+          name: "Duplicate",
+          description: "Duplicate stable identifier",
+        },
+        mutationContext,
+      ),
+    ).rejects.not.toThrow("provider detail")
+
+  it "does not misreport companion-write conflicts as feature conflicts", async ->
+    const double = createDatabaseDouble({
+      transactionError: wrappedDatabaseError(
+        "23505",
+        "outbox_events_pkey",
+      ),
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.create(
+        {
+          id: "feature_companion_conflict",
+          ownerId: "user_alice",
+          name: "Companion conflict",
+          description: "Outbox identifiers are infrastructure-owned",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow(DatabasePersistenceError)
+    await expect(
+      repository.create(
+        {
+          id: "feature_companion_conflict",
+          ownerId: "user_alice",
+          name: "Companion conflict",
+          description: "Outbox identifiers are infrastructure-owned",
+        },
+        mutationContext,
+      ),
+    ).rejects.not.toThrow("provider detail")
+
+  it "maps wrapped metadata checks without leaking query parameters", async ->
+    const double = createDatabaseDouble({
+      transactionError: wrappedDatabaseError(
+        "23514",
+        "feature_items_metadata_check",
+      ),
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    let thrown: unknown
+    try {
+      await repository.create(
+        {
+          id: "feature_metadata_check",
+          ownerId: "user_alice",
+          name: "Metadata check",
+          description: "Database remains authoritative",
+        },
+        mutationContext,
+      )
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(InvalidRepositoryInputError)
+    expect(String(thrown)).not.toContain("secret_table")
+    expect(String(thrown)).not.toContain("secret parameter")
+    expect(String(thrown)).not.toContain("provider detail")
+
+  it "rejects empty feature patches without writing audit or outbox events", async ->
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.update(
+        {
+          id: "feature_123",
+          ownerId: "user_alice",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow("must change at least one field")
+    expect(double.lifecycle).toEqual([])
+
+  it "rejects non-object or oversized metadata before opening a transaction", async ->
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.create(
+        {
+          ownerId: "user_alice",
+          name: "Invalid metadata",
+          description: "Top-level arrays are not supported",
+          metadata: [] as never,
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow(InvalidRepositoryInputError)
+
+    await expect(
+      repository.create(
+        {
+          ownerId: "user_alice",
+          name: "Oversized metadata",
+          description: "Payload is bounded",
+          metadata: { value: "x".repeat(17_000) },
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow("16 KiB")
+    expect(double.lifecycle).toEqual([])
+
+  it "uses canonical jsonb text size for punctuation and exponent numbers", async ->
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+    const punctuationHeavy: Record<string, [number, number]> = {}
+    for (let index = 0; index < 1_030; index += 1)
+      punctuationHeavy[`key_${index}`] = [0, 1]
+
+    for (const metadata of [
+      punctuationHeavy,
+      { number: 1e308, padding: "x".repeat(16_100) },
+      { number: 1e-308, padding: "x".repeat(16_100) },
+    ])
+      await expect(
+        repository.create(
+          {
+            ownerId: "user_alice",
+            name: "Canonical size",
+            description: "Compact JSON would undercount this payload",
+            metadata,
+          },
+          mutationContext,
+        ),
+      ).rejects.toThrow("16 KiB")
+
+    expect(double.lifecycle).toEqual([])
+
+  it "accepts nested strict JSON metadata without coercion", async ->
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_json_id",
+    })
+    const metadata = {
+      enabled: true,
+      ratio: 1.5,
+      nested: {
+        values: [null, "value", 0, false],
+        label: "é".repeat(8_000),
+      },
+    } as const
+
+    const created = await repository.create(
+      {
+        id: "feature_json",
+        ownerId: "user_alice",
+        name: "Strict JSON",
+        description: "Metadata is preserved",
+        metadata,
+      },
+      mutationContext,
+    )
+
+    expect(created.metadata).toEqual(metadata)
+    expect(double.lifecycle.at(-1)).toBe("commit")
+
+  it "persists a detached metadata snapshot across deferred proxy mutation", async ->
+    const target = { nested: { value: "before" } }
+    const metadata = new Proxy(target, {})
+    const double = createDatabaseDouble({
+      beforeTransaction: () => {
+        target.nested.value = "after";
+      },
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_snapshot_id",
+    })
+
+    const created = await repository.create(
+      {
+        id: "feature_snapshot",
+        ownerId: "user_alice",
+        name: "Snapshot",
+        description: "Caller mutation cannot change persisted metadata",
+        metadata,
+      },
+      mutationContext,
+    )
+
+    expect(created.metadata).toEqual({ nested: { value: "before" } })
+    expect(target.nested.value).toBe("after")
+
+  it "rejects coercive, non-finite, sparse, cyclic, and non-JSON metadata", async ->
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+    const cyclic: Record<string, unknown> = {}
+    cyclic["self"] = cyclic
+    const sparse: unknown[] = []
+    sparse.length = 1
+    const nonPlain = Object.assign(Object.create({ inherited: true }), {
+      value: "not plain",
+    })
+    const invalidMetadata: unknown[] = [
+      new Date(),
+      { nested: undefined },
+      { nested: () => "ignored" },
+      { nested: Symbol("ignored") },
+      { numeric: Number.NaN },
+      { numeric: Number.POSITIVE_INFINITY },
+      { toJSON: () => ({ coerced: true }) },
+      { nested: sparse },
+      { nested: nonPlain },
+      { [Symbol("ignored")]: "value" },
+      cyclic,
+      JSON.parse('{"constructor":"unsafe"}'),
+      new Proxy({}, {
+        ownKeys: () => {
+          throw new Error("proxy trap")
+        },
+      }),
+    ]
+
+    for (const metadata of invalidMetadata)
+      await expect(
+        repository.create(
+          {
+            ownerId: "user_alice",
+            name: "Invalid JSON",
+            description: "Must fail before persistence",
+            metadata: metadata as never,
+          },
+          mutationContext,
+        ),
+      ).rejects.toThrow("strict JSON values")
+
+    expect(double.lifecycle).toEqual([])
+
+  it "constructs the complete repository set without exposing drivers", ->
+    const double = createDatabaseDouble()
+    const repositories = createRepositories(double.database)
+
+    expect(Object.keys(repositories)).toEqual([
+      "profiles",
+      "addresses",
+      "userPreferences",
+      "featureItems",
+    ])

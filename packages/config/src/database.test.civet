@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest"
+import { toClientEnv } from "./client.civet"
+import { parseServerEnv } from "./server.civet"
+import {
+  DatabaseConfigurationError,
+  composeDatabaseProfile,
+} from "./database.civet"
+
+const DATABASE_URL = "postgresql://localhost/darkfactory_test"
+const BETTER_AUTH_SECRET = "a".repeat(32)
+
+const serverEnvFor = (provider: "planetscale" | "postgres" = "planetscale") =>
+  parseServerEnv({
+    DATABASE_PROVIDER: provider,
+    DATABASE_URL,
+    BETTER_AUTH_SECRET,
+  })
+
+describe "composeDatabaseProfile", ->
+  it "changes composition metadata but preserves one PostgreSQL connection contract", ->
+    const planetscaleProfile = composeDatabaseProfile(serverEnvFor("planetscale"))
+    const postgresProfile = composeDatabaseProfile(serverEnvFor("postgres"))
+
+    expect(planetscaleProfile.composition).toEqual({
+      provider: "planetscale",
+      deployment: "managed",
+    })
+    expect(postgresProfile.composition).toEqual({
+      provider: "postgres",
+      deployment: "standard",
+    })
+    expect(planetscaleProfile.connection).toEqual(postgresProfile.connection)
+    expect(planetscaleProfile.connection).toEqual({
+      protocol: "postgresql",
+      connectionString: DATABASE_URL,
+    })
+
+  it "uses DATABASE_URL when the optional request binding is absent", ->
+    const profile = composeDatabaseProfile(serverEnvFor())
+
+    expect(profile.connection.connectionString).toBe(DATABASE_URL)
+
+  it "uses a request-scoped PostgreSQL connectionString when supplied", ->
+    const requestConnectionString =
+      "postgresql://hyperdrive.internal/darkfactory_test"
+    const profile = composeDatabaseProfile(serverEnvFor(), {
+      connectionString: requestConnectionString,
+    })
+
+    expect(profile.connection).toEqual({
+      protocol: "postgresql",
+      connectionString: requestConnectionString,
+    })
+
+  it "keeps DATABASE_URL mandatory even when a request binding is available", ->
+    const composeWithoutDatabaseUrl = () =>
+      composeDatabaseProfile(
+        parseServerEnv({
+          DATABASE_PROVIDER: "planetscale",
+          BETTER_AUTH_SECRET,
+        }),
+        { connectionString: "postgresql://hyperdrive.internal/darkfactory_test" },
+      )
+
+    expect(composeWithoutDatabaseUrl).toThrow("DATABASE_URL")
+
+  it "rejects invalid DATABASE_URL and unsupported provider values", ->
+    const invalidDatabaseUrl = "https://database.internal/darkfactory"
+
+    const parseInvalidDatabaseUrl = () =>
+      parseServerEnv({
+        DATABASE_PROVIDER: "unsupported",
+        DATABASE_URL: invalidDatabaseUrl,
+        BETTER_AUTH_SECRET,
+      })
+    const parseUnsupportedProvider = () =>
+      parseServerEnv({
+        DATABASE_PROVIDER: "unsupported",
+        DATABASE_URL,
+        BETTER_AUTH_SECRET,
+      })
+
+    expect(parseInvalidDatabaseUrl).toThrow(
+      "DATABASE_URL must be a PostgreSQL URL",
+    )
+    expect(parseUnsupportedProvider).toThrow("DATABASE_PROVIDER")
+
+  it "rejects invalid request connection strings without echoing secrets", ->
+    const invalidConnectionString =
+      "https://database-user:database-password@database.internal/darkfactory"
+
+    const composeWithInvalidBinding = () =>
+      composeDatabaseProfile(serverEnvFor(), {
+        connectionString: invalidConnectionString,
+      })
+
+    expect(composeWithInvalidBinding).toThrow(DatabaseConfigurationError)
+    expect(composeWithInvalidBinding).toThrow(
+      "request binding connectionString must be a PostgreSQL URL",
+    )
+
+    try
+      composeDatabaseProfile(serverEnvFor(), {
+        connectionString: invalidConnectionString,
+      })
+    catch error
+      expect(String(error)).not.toContain(invalidConnectionString)
+
+  it "does not add database configuration or secrets to client config", ->
+    const env = serverEnvFor("planetscale")
+    const clientEnv = toClientEnv(env)
+    const serializedClientEnv = JSON.stringify(clientEnv)
+
+    expect(clientEnv).not.toHaveProperty("DATABASE_PROVIDER")
+    expect(clientEnv).not.toHaveProperty("DATABASE_URL")
+    expect(serializedClientEnv).not.toContain(DATABASE_URL)

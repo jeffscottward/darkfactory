@@ -1,0 +1,522 @@
+import { createAuth } from "@darkfactory/auth/server"
+import {
+  createNodeDatabase,
+  migrate,
+  resetDevelopment,
+  seedDevelopment,
+  type EnsureSeedIdentity,
+} from "@darkfactory/db/server"
+import type { EmailPort } from "@darkfactory/email"
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+
+const BASE_URL = "https://darkfactory.localhost"
+const AUTH_SECRET = "seed-integration-secret-with-at-least-32-characters"
+const DEVELOPMENT_PASSWORD = "Development123!"
+
+const IDS = {
+  users: [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002",
+    "00000000-0000-4000-8000-000000000003",
+  ],
+  accounts: [
+    "10000000-0000-4000-8000-000000000001",
+    "10000000-0000-4000-8000-000000000002",
+    "10000000-0000-4000-8000-000000000003",
+  ],
+  addresses: [
+    "20000000-0000-4000-8000-000000000001",
+    "20000000-0000-4000-8000-000000000002",
+    "20000000-0000-4000-8000-000000000003",
+  ],
+  features: [
+    "30000000-0000-4000-8000-000000000001",
+    "30000000-0000-4000-8000-000000000002",
+    "30000000-0000-4000-8000-000000000003",
+  ],
+} as const
+
+const email: EmailPort = {
+  sendPasswordReset: async () => ({
+    status: "failed",
+    provider: "disabled",
+    code: "EMAIL_DELIVERY_DISABLED",
+    retryable: false,
+  }),
+}
+
+let testDatabase: PostgresTestDatabase
+let databaseResource: ReturnType<typeof createNodeDatabase>
+let backgroundTasks: Promise<unknown>[]
+
+const awaitBackgroundTasks = async (): Promise<void> => {
+  const tasks = backgroundTasks.splice(0)
+  await Promise.all(tasks)
+}
+
+const ensureIdentity: EnsureSeedIdentity = async (identity, exists) => {
+  const auth = createAuth({
+    database: databaseResource.db,
+    email,
+    secret: AUTH_SECRET,
+    baseURL: BASE_URL,
+    trustedOrigins: [BASE_URL],
+    rateLimitEnabled: false,
+    scheduleBackgroundTask: (task) => backgroundTasks.push(task),
+    generateId: ({ model }) => {
+      if (model === "user") return identity.userId
+      if (model === "account") return identity.accountId
+      throw new Error(`Unexpected seed auth model: ${model}`)
+    },
+  })
+  if (!exists) {
+    await auth.api.signUpEmail({
+      body: {
+        name: identity.name,
+        email: identity.email,
+        password: identity.password,
+      },
+    })
+    return
+  }
+
+  const context = await auth.$context
+  const credential = (
+    await context.internalAdapter.findAccounts(identity.userId)
+  ).find((account) => account.id === identity.accountId)
+  if (!credential?.password) throw new Error("Expected seed credential")
+  if (await context.password.verify({
+    hash: credential.password,
+    password: identity.password,
+  })) return
+  await context.internalAdapter.updateAccount(credential.id, {
+    password: await context.password.hash(identity.password),
+  })
+}
+
+const tableCount = async (table: string): Promise<number> => {
+  const rows = await testDatabase.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM "${table}"`,
+  )
+  const row = rows[0]
+  if (!row) throw new Error("Count query returned no rows")
+  return Number(row.count)
+}
+const tableCounts = async (tables: readonly string[]): Promise<number[]> => {
+  const counts: number[] = []
+  for (const table of tables) counts.push(await tableCount(table))
+  return counts
+}
+
+const seed = async () => {
+  const result = await seedDevelopment(databaseResource.db, {
+    environment: "test",
+    ensureIdentity,
+  })
+  await awaitBackgroundTasks()
+  return result
+}
+
+describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
+  beforeAll(async () => {
+    testDatabase = await createPostgresTestDatabase()
+    databaseResource = createNodeDatabase({
+      connectionString: testDatabase.databaseUrl,
+      maxConnections: 4,
+    })
+    await migrate(databaseResource.db)
+  }, 60_000)
+
+  beforeEach(async () => {
+    backgroundTasks = []
+    await resetDevelopment(databaseResource.db, { environment: "test" })
+  })
+
+  afterAll(async () => {
+    try {
+      if (databaseResource !== undefined) await databaseResource.close()
+    } finally {
+      if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
+    }
+  }, 60_000)
+
+  it("seeds the three exact personas through Better Auth with hashed credentials and valid sign-in", async () => {
+    const result = await seed()
+
+    expect(result).toEqual({
+      identitiesCreated: 3,
+      usersConverged: 3,
+      profilesConverged: 3,
+      preferencesConverged: 3,
+      addressesConverged: 3,
+      featureItemsConverged: 3,
+    })
+    await expect(tableCounts([
+      "user",
+      "account",
+      "profiles",
+      "user_preferences",
+      "addresses",
+      "feature_items",
+      "audit_records",
+      "outbox_events",
+    ])).resolves.toEqual([3, 3, 3, 3, 3, 3, 3, 3])
+
+    const users = await testDatabase.query<{
+      id: string
+      name: string
+      email: string
+      email_verified: boolean
+      image: string | null
+      role: string
+      status: string
+    }>(
+      'SELECT id, name, email, email_verified, image, role, status FROM "user" ORDER BY email',
+    )
+    expect(users).toEqual([
+      {
+        id: IDS.users[0],
+        name: "Admin User",
+        email: "admin@domain.test",
+        email_verified: true,
+        image: "https://placehold.co/256x256/png?text=AU",
+        role: "admin",
+        status: "active",
+      },
+      {
+        id: IDS.users[1],
+        name: "Alice Adams",
+        email: "alice@domain.test",
+        email_verified: true,
+        image: "https://placehold.co/256x256/png?text=AA",
+        role: "member",
+        status: "active",
+      },
+      {
+        id: IDS.users[2],
+        name: "Bob Baker",
+        email: "bob@domain.test",
+        email_verified: true,
+        image: "https://placehold.co/256x256/png?text=BB",
+        role: "member",
+        status: "active",
+      },
+    ])
+
+    const accounts = await testDatabase.query<{
+      id: string
+      user_id: string
+      account_id: string
+      provider_id: string
+      password: string | null
+    }>(
+      'SELECT id, user_id, account_id, provider_id, password FROM "account" ORDER BY user_id',
+    )
+    expect(accounts.map(({ id, user_id, account_id, provider_id }) => ({
+      id,
+      user_id,
+      account_id,
+      provider_id,
+    }))).toEqual(IDS.accounts.map((id, index) => ({
+      id,
+      user_id: IDS.users[index],
+      account_id: IDS.users[index],
+      provider_id: "credential",
+    })))
+    for (const account of accounts) {
+      expect(account.password).toEqual(expect.any(String))
+      expect(account.password).not.toBe(DEVELOPMENT_PASSWORD)
+    }
+
+    const profiles = await testDatabase.query(
+      `SELECT user_id, first_name, last_name, display_name, avatar_url, phone,
+              business_name, job_title, biography, timezone, locale, date_of_birth::text AS date_of_birth
+       FROM profiles ORDER BY user_id`,
+    )
+    expect(profiles).toEqual([
+      {
+        user_id: IDS.users[0],
+        first_name: "Admin",
+        last_name: "User",
+        display_name: "Admin User",
+        avatar_url: "https://placehold.co/256x256/png?text=AU",
+        phone: "+1-202-555-0101",
+        business_name: "Example Operations",
+        job_title: "Operations Director",
+        biography: "Coordinates example operations for the development workspace.",
+        timezone: "UTC",
+        locale: "en-US",
+        date_of_birth: null,
+      },
+      {
+        user_id: IDS.users[1],
+        first_name: "Alice",
+        last_name: "Adams",
+        display_name: "Alice Adams",
+        avatar_url: "https://placehold.co/256x256/png?text=AA",
+        phone: "+1-202-555-0102",
+        business_name: "Alice & Co.",
+        job_title: "Product Designer",
+        biography: "Designs clear example experiences for the development workspace.",
+        timezone: "America/New_York",
+        locale: "en-US",
+        date_of_birth: "1990-04-12",
+      },
+      {
+        user_id: IDS.users[2],
+        first_name: "Bob",
+        last_name: "Baker",
+        display_name: "Bob Baker",
+        avatar_url: "https://placehold.co/256x256/png?text=BB",
+        phone: "+1-202-555-0103",
+        business_name: "Bob Industries",
+        job_title: "Engineering Manager",
+        biography: "Builds reliable example systems for the development workspace.",
+        timezone: "America/Chicago",
+        locale: "en-US",
+        date_of_birth: "1988-09-23",
+      },
+    ])
+
+    const preferences = await testDatabase.query(
+      `SELECT user_id, mode, color_scheme, email_notifications, product_updates,
+              analytics_consent, personalization_consent, profile_visibility
+       FROM user_preferences ORDER BY user_id`,
+    )
+    expect(preferences).toEqual([
+      {
+        user_id: IDS.users[0], mode: "system", color_scheme: "neutral",
+        email_notifications: false, product_updates: false,
+        analytics_consent: false, personalization_consent: false,
+        profile_visibility: "private",
+      },
+      {
+        user_id: IDS.users[1], mode: "dark", color_scheme: "violet",
+        email_notifications: true, product_updates: true,
+        analytics_consent: true, personalization_consent: true,
+        profile_visibility: "members",
+      },
+      {
+        user_id: IDS.users[2], mode: "light", color_scheme: "blue",
+        email_notifications: false, product_updates: true,
+        analytics_consent: false, personalization_consent: true,
+        profile_visibility: "members",
+      },
+    ])
+
+    const addresses = await testDatabase.query(
+      `SELECT id, user_id, type, line_1, line_2, city, region, postal_code, country, is_primary
+       FROM addresses ORDER BY user_id`,
+    )
+    expect(addresses).toEqual([
+      {
+        id: IDS.addresses[0], user_id: IDS.users[0], type: "work",
+        line_1: "101 Example Avenue", line_2: null, city: "Example City",
+        region: "DC", postal_code: "00000", country: "US", is_primary: true,
+      },
+      {
+        id: IDS.addresses[1], user_id: IDS.users[1], type: "home",
+        line_1: "102 Example Avenue", line_2: null, city: "Example City",
+        region: "NY", postal_code: "00000", country: "US", is_primary: true,
+      },
+      {
+        id: IDS.addresses[2], user_id: IDS.users[2], type: "home",
+        line_1: "103 Example Avenue", line_2: null, city: "Example City",
+        region: "IL", postal_code: "00000", country: "US", is_primary: true,
+      },
+    ])
+
+    const features = await testDatabase.query(
+      "SELECT id, owner_id, name, description, status, metadata FROM feature_items ORDER BY owner_id",
+    )
+    expect(features).toEqual([
+      {
+        id: IDS.features[0], owner_id: IDS.users[0], name: "Admin example item",
+        description: "Neutral example content for Admin User.", status: "active",
+        metadata: { source: "development-seed" },
+      },
+      {
+        id: IDS.features[1], owner_id: IDS.users[1], name: "Alice example item",
+        description: "Neutral example content for Alice Adams.", status: "draft",
+        metadata: { source: "development-seed" },
+      },
+      {
+        id: IDS.features[2], owner_id: IDS.users[2], name: "Bob example item",
+        description: "Neutral example content for Bob Baker.", status: "archived",
+        metadata: { source: "development-seed" },
+      },
+    ])
+
+    const auth = createAuth({
+      database: databaseResource.db,
+      email,
+      secret: AUTH_SECRET,
+      baseURL: BASE_URL,
+      trustedOrigins: [BASE_URL],
+      rateLimitEnabled: false,
+      scheduleBackgroundTask: (task) => backgroundTasks.push(task),
+    })
+    for (const emailAddress of [
+      "admin@domain.test",
+      "alice@domain.test",
+      "bob@domain.test",
+    ]) {
+      await expect(auth.api.signInEmail({
+        body: { email: emailAddress, password: DEVELOPMENT_PASSWORD },
+      })).resolves.toMatchObject({ user: { email: emailAddress } })
+    }
+    await awaitBackgroundTasks()
+  }, 60_000)
+
+  it("is idempotent without adding audit or outbox records and repairs drift", async () => {
+    await seed()
+    const auth = createAuth({
+      database: databaseResource.db,
+      email,
+      secret: AUTH_SECRET,
+      baseURL: BASE_URL,
+      trustedOrigins: [BASE_URL],
+      rateLimitEnabled: false,
+      scheduleBackgroundTask: (task) => backgroundTasks.push(task),
+    })
+    const authContext = await auth.$context
+    const adminAccount = (await authContext.internalAdapter.findAccounts(
+      IDS.users[0],
+    )).find((account) => account.providerId === "credential")
+    if (!adminAccount) throw new Error("Expected seeded admin credential")
+    await authContext.internalAdapter.updateAccount(adminAccount.id, {
+      password: await authContext.password.hash("ValidPasswordDrift!42"),
+    })
+    const before = await tableCounts(["audit_records", "outbox_events"])
+    const [beforeAudit, beforeOutbox] = before
+    if (beforeAudit === undefined || beforeOutbox === undefined)
+      throw new Error("Expected audit and outbox seed counts")
+
+    const rerun = await seed()
+    expect(rerun.identitiesCreated).toBe(0)
+    await expect(tableCounts([
+      "user", "account", "profiles", "user_preferences", "addresses",
+      "feature_items", "audit_records", "outbox_events",
+    ])).resolves.toEqual([3, 3, 3, 3, 3, 3, beforeAudit, beforeOutbox])
+    await expect(auth.api.signInEmail({
+      body: {
+        email: "admin@domain.test",
+        password: DEVELOPMENT_PASSWORD,
+      },
+    })).resolves.toMatchObject({ user: { email: "admin@domain.test" } })
+    await awaitBackgroundTasks()
+
+    await testDatabase.query(
+      'UPDATE "user" SET name = $1, role = $2, status = $3 WHERE id = $4',
+      ["Drifted", "member", "suspended", IDS.users[0]],
+    )
+    await testDatabase.query(
+      "UPDATE profiles SET business_name = $1 WHERE user_id = $2",
+      ["Drifted", IDS.users[0]],
+    )
+    await testDatabase.query(
+      "UPDATE user_preferences SET mode = $1 WHERE user_id = $2",
+      ["dark", IDS.users[0]],
+    )
+    await testDatabase.query(
+      "UPDATE addresses SET city = $1 WHERE id = $2",
+      ["Drifted", IDS.addresses[0]],
+    )
+    await testDatabase.query(
+      "UPDATE feature_items SET status = $1 WHERE id = $2",
+      ["draft", IDS.features[0]],
+    )
+
+    await seed()
+    const [repaired] = await testDatabase.query(
+      `SELECT u.name, u.role, u.status, p.business_name, preferences.mode,
+              address.city, item.status AS feature_status
+       FROM "user" AS u
+       JOIN profiles AS p ON p.user_id = u.id
+       JOIN user_preferences AS preferences ON preferences.user_id = u.id
+       JOIN addresses AS address ON address.user_id = u.id
+       JOIN feature_items AS item ON item.owner_id = u.id
+       WHERE u.id = $1`,
+      [IDS.users[0]],
+    )
+    expect(repaired).toEqual({
+      name: "Admin User", role: "admin", status: "active",
+      business_name: "Example Operations", mode: "system",
+      city: "Example City", feature_status: "active",
+    })
+    await expect(tableCounts([
+      "audit_records",
+      "outbox_events",
+    ])).resolves.toEqual([beforeAudit + 1, beforeOutbox + 1])
+  }, 60_000)
+
+  it("preflights a late-persona credential collision before creating any identity", async () => {
+    await testDatabase.query(
+      `INSERT INTO "user" (id, name, email, email_verified, role, status)
+       VALUES ($1, $2, $3, true, 'member', 'active')`,
+      ["collision-user", "Collision", "collision@domain.test"],
+    )
+    await testDatabase.query(
+      `INSERT INTO account (id, account_id, provider_id, user_id)
+       VALUES ($1, $2, 'credential', $3)`,
+      ["collision-account", IDS.users[2], "collision-user"],
+    )
+    const assurer = vi.fn<EnsureSeedIdentity>()
+
+    await expect(seedDevelopment(databaseResource.db, {
+      environment: "test",
+      ensureIdentity: assurer,
+    })).rejects.toThrow(/collision/i)
+
+    expect(assurer).not.toHaveBeenCalled()
+    await expect(tableCounts([
+      "user", "account", "profiles", "user_preferences", "addresses",
+      "feature_items", "audit_records", "outbox_events",
+    ])).resolves.toEqual([1, 1, 0, 0, 0, 0, 0, 0])
+
+    await resetDevelopment(databaseResource.db, { environment: "test" })
+    await testDatabase.query(
+      `INSERT INTO "user" (id, name, email, email_verified, role, status)
+       VALUES ($1, $2, $3, true, 'member', 'active')`,
+      [IDS.users[0], "Admin User", "admin@domain.test"],
+    )
+    await testDatabase.query(
+      `INSERT INTO account (id, account_id, provider_id, user_id, password)
+       VALUES ($1, $2, 'credential', $3, $4)`,
+      [IDS.accounts[0], IDS.users[0], IDS.users[0], "plaintext-password"],
+    )
+
+    await expect(seedDevelopment(databaseResource.db, {
+      environment: "test",
+      ensureIdentity: assurer,
+    })).rejects.toThrow(/malformed/i)
+    expect(assurer).not.toHaveBeenCalled()
+    await expect(tableCounts([
+      "user", "account", "profiles", "user_preferences", "addresses",
+      "feature_items", "audit_records", "outbox_events",
+    ])).resolves.toEqual([1, 1, 0, 0, 0, 0, 0, 0])
+  })
+
+  it("rejects every environment outside development and test before database or identity mutation", async () => {
+    await testDatabase.query(
+      `INSERT INTO "user" (id, name, email, email_verified, role, status)
+       VALUES ($1, $2, $3, true, 'member', 'active')`,
+      ["preserved-user", "Preserved", "preserved@domain.test"],
+    )
+    const assurer = vi.fn<EnsureSeedIdentity>()
+
+    for (const environment of ["production", "staging", "", undefined]) {
+      await expect(seedDevelopment(databaseResource.db, {
+        environment: environment as never,
+        ensureIdentity: assurer,
+      })).rejects.toThrow(/development or test/i)
+
+      expect(assurer).not.toHaveBeenCalled()
+      expect(await tableCount("user")).toBe(1)
+    }
+  })

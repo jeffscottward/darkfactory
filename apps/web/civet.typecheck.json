@@ -1,0 +1,10 @@
+{
+  "tsConfig": {
+    "rootDir": ".",
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+      "lib": ["ES2023", "DOM", "DOM.Iterable"]
+    },
+    "include": ["src/**/*.civet", "src/**/*.d.ts"]
+  }
+}

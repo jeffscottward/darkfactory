@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    environment:
+      POSTGRES_DB: darkfactory_test_maintenance
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres-bootstrap-local-only
+    configs:
+      - source: postgres-test-runner
+        target: /docker-entrypoint-initdb.d/10-darkfactory-test-runner.sql
+    ports:
+      - "127.0.0.1:${DARKFACTORY_POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGPASSWORD=darkfactory-test-only psql --host=127.0.0.1 --username=darkfactory_test_runner --dbname=darkfactory_test_maintenance --no-password --command='SELECT 1' >/dev/null",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data
+
+configs:
+  postgres-test-runner:
+    content: |
+      CREATE ROLE darkfactory_test_runner
+        LOGIN
+        CREATEDB
+        NOSUPERUSER
+        NOCREATEROLE
+        NOINHERIT
+        NOREPLICATION
+        PASSWORD 'darkfactory-test-only';
+      ALTER ROLE postgres NOLOGIN;
+      REVOKE CONNECT ON DATABASE darkfactory_test_maintenance FROM PUBLIC;
+      GRANT CONNECT ON DATABASE darkfactory_test_maintenance TO darkfactory_test_runner;

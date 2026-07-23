@@ -1,0 +1,533 @@
+import type {
+  CorrelationContext,
+  SemanticEvent,
+} from "./port.civet"
+
+export const REDACTED = "[REDACTED]" as const
+export const TRUNCATED = "[Truncated]" as const
+
+const CIRCULAR = "[Circular]" as const
+const UNSERIALIZABLE = "[Unserializable]" as const
+const NON_FINITE = "[NonFiniteNumber]" as const
+const REDACTED_KEY = "[REDACTED_KEY]" as const
+const INVALID_EVENT_MESSAGE = "Invalid semantic event"
+
+export type RedactedValue =
+  | null
+  | boolean
+  | number
+  | string
+  | RedactedValue[]
+  | { [key: string]: RedactedValue }
+
+export type RedactionOptions = Readonly<{
+  maxDepth?: number
+  maxEntries?: number
+  maxKeyLength?: number
+  maxObjectKeys?: number
+  maxStringLength?: number
+  maxTotalNodes?: number
+}>
+
+const DEFAULT_MAX_DEPTH = 8
+const DEFAULT_MAX_ENTRIES = 64
+const DEFAULT_MAX_KEY_LENGTH = 128
+const DEFAULT_MAX_OBJECT_KEYS = 64
+const DEFAULT_MAX_STRING_LENGTH = 2_048
+const DEFAULT_MAX_TOTAL_NODES = 1_024
+const MAX_FREEZE_DEPTH = 16
+const MAX_FREEZE_KEYS = 128
+const MAX_FREEZE_NODES = 2_048
+
+const SENSITIVE_KEYS = new Set([
+  "authorization",
+  "body",
+  "cookie",
+  "dob",
+  "email",
+  "emailbody",
+  "emailhtml",
+  "emailtext",
+  "headers",
+  "password",
+  "passwd",
+  "passcode",
+  "passphrase",
+  "phone",
+  "privatekey",
+  "prompt",
+  "completion",
+  "requestbody",
+  "responsebody",
+  "reseturl",
+  "setcookie",
+])
+
+const SAFE_SENSITIVE_FIELD_NAMES = new Set([
+  ...SENSITIVE_KEYS,
+  "accesstoken",
+  "address",
+  "apikey",
+  "birthdate",
+  "clientsecret",
+  "dateofbirth",
+  "postalcode",
+  "providerpayload",
+  "providerrequest",
+  "providerresponse",
+  "refreshtoken",
+  "zipcode",
+])
+
+const REDACTED_SEMANTIC_EVENTS = new WeakSet<object>()
+
+const normalizeLimit = (
+  value: number | undefined,
+  fallback: number,
+): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.floor(value))
+}
+
+const normalizeKey = (key: string): string =>
+  key.toLowerCase().replace(/[^a-z0-9]/g, "")
+
+const isSensitiveKey = (key: string): boolean => {
+  const normalized = normalizeKey(key)
+  return (
+    SENSITIVE_KEYS.has(normalized) ||
+    normalized.includes("token") ||
+    normalized.includes("secret") ||
+    normalized.includes("apikey") ||
+    normalized.includes("address") ||
+    normalized.includes("birthdate") ||
+    normalized.includes("dateofbirth") ||
+    normalized.includes("postalcode") ||
+    normalized.includes("zipcode") ||
+    normalized.includes("providerpayload") ||
+    normalized.includes("providerrequest") ||
+    normalized.includes("providerresponse")
+  )
+}
+
+const scrubString = (input: string): string =>
+  input
+    .replace(/\bBearer\s+[^\s,;]+/gi, `Bearer ${REDACTED}`)
+    .replace(
+      /\b(password|passcode|token|secret|api[-_ ]?key|cookie|authorization)\s*[:=]\s*[^\s,;]+/gi,
+      (_match, label: string) => `${label}=${REDACTED}`,
+    )
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, REDACTED)
+    .replace(
+      /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+      REDACTED,
+    )
+
+const boundedString = (input: string, maxLength: number): string => {
+  const bounded = input.slice(0, maxLength)
+  const suffix = input.length > maxLength ? TRUNCATED : ""
+  return `${scrubString(bounded)}${suffix}`
+}
+
+const sanitizeKey = (key: string, maxLength: number): string => {
+  if (key.length > maxLength) return REDACTED_KEY
+  const normalized = normalizeKey(key)
+  if (
+    isSensitiveKey(key) &&
+    !SAFE_SENSITIVE_FIELD_NAMES.has(normalized)
+  ) {
+    return REDACTED_KEY
+  }
+  const sanitized = boundedString(key, maxLength)
+  return sanitized.length === 0 ? "[EmptyKey]" : sanitized
+}
+
+const hasPlainPrototype = (value: object, array: boolean): boolean => {
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    return array
+      ? prototype === Array.prototype
+      : prototype === Object.prototype || prototype === null
+  } catch {
+    return false
+  }
+}
+
+export const redact = (
+  input: unknown,
+  options: RedactionOptions = {},
+): RedactedValue => {
+  const maxDepth = normalizeLimit(options.maxDepth, DEFAULT_MAX_DEPTH)
+  const maxEntries = normalizeLimit(options.maxEntries, DEFAULT_MAX_ENTRIES)
+  const maxKeyLength = normalizeLimit(
+    options.maxKeyLength,
+    DEFAULT_MAX_KEY_LENGTH,
+  )
+  const maxObjectKeys = normalizeLimit(
+    options.maxObjectKeys,
+    DEFAULT_MAX_OBJECT_KEYS,
+  )
+  const maxStringLength = normalizeLimit(
+    options.maxStringLength,
+    DEFAULT_MAX_STRING_LENGTH,
+  )
+  const maxTotalNodes = normalizeLimit(
+    options.maxTotalNodes,
+    DEFAULT_MAX_TOTAL_NODES,
+  )
+  const active = new WeakSet<object>()
+  let visitedNodes = 0
+
+  const visit = (value: unknown, depth: number): RedactedValue => {
+    visitedNodes += 1
+    if (visitedNodes > maxTotalNodes) return TRUNCATED
+
+    if (value === null) return null
+    if (typeof value === "string") {
+      return boundedString(value, maxStringLength)
+    }
+    if (typeof value === "boolean") return value
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : NON_FINITE
+    }
+    if (typeof value === "undefined") return "[Undefined]"
+    if (typeof value === "bigint") return "[BigInt]"
+    if (typeof value === "symbol") return "[Symbol]"
+    if (typeof value === "function") return "[Function]"
+    if (typeof value !== "object") return UNSERIALIZABLE
+    if (depth >= maxDepth) return TRUNCATED
+    if (active.has(value)) return CIRCULAR
+
+    let array: boolean
+    try {
+      array = Array.isArray(value)
+    } catch {
+      return UNSERIALIZABLE
+    }
+    if (!hasPlainPrototype(value, array)) return UNSERIALIZABLE
+
+    active.add(value)
+    try {
+      if (array) {
+        let length: number
+        try {
+          const candidate = Reflect.get(value, "length")
+          if (
+            typeof candidate !== "number" ||
+            !Number.isSafeInteger(candidate) ||
+            candidate < 0
+          ) {
+            return UNSERIALIZABLE
+          }
+          length = candidate
+        } catch {
+          return UNSERIALIZABLE
+        }
+
+        const result: RedactedValue[] = []
+        const count = Math.min(length, maxEntries)
+        for (let index = 0; index < count; index += 1) {
+          let child: unknown
+          try {
+            const descriptor = Object.getOwnPropertyDescriptor(
+              value,
+              index.toString(),
+            )
+            child =
+              descriptor === undefined
+                ? undefined
+                : "value" in descriptor
+                  ? descriptor.value
+                  : UNSERIALIZABLE
+          } catch {
+            child = UNSERIALIZABLE
+          }
+          result.push(visit(child, depth + 1))
+        }
+        if (length > count) result.push(TRUNCATED)
+        return result
+      }
+
+      const output: Record<string, RedactedValue> = Object.create(null)
+      let processed = 0
+      try {
+        for (const rawKey in value) {
+          if (!Object.hasOwn(value, rawKey)) continue
+          if (processed >= maxObjectKeys) {
+            output[TRUNCATED] = TRUNCATED
+            break
+          }
+          processed += 1
+          if (rawKey.length > maxKeyLength) {
+            output[REDACTED_KEY] = REDACTED
+            continue
+          }
+          const key = sanitizeKey(rawKey, maxKeyLength)
+          if (isSensitiveKey(rawKey)) {
+            output[key] = REDACTED
+            continue
+          }
+
+          const descriptor = Object.getOwnPropertyDescriptor(value, rawKey)
+          if (descriptor === undefined || !("value" in descriptor)) {
+            output[key] = UNSERIALIZABLE
+            continue
+          }
+          output[key] = visit(descriptor.value, depth + 1)
+        }
+      } catch {
+        return UNSERIALIZABLE
+      }
+      return output
+    } finally {
+      active.delete(value)
+    }
+  }
+
+  return visit(input, 0)
+}
+
+const unsafeSnapshot = (): TypeError =>
+  new TypeError("Unsafe snapshot value")
+
+const freezeValue = (
+  value: unknown,
+  seen: WeakSet<object>,
+  state: { nodes: number },
+  depth: number,
+): void => {
+  if (value === null || typeof value !== "object") return
+  if (seen.has(value)) return
+  state.nodes += 1
+  if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH) {
+    throw unsafeSnapshot()
+  }
+
+  let array: boolean
+  let keys: (string | symbol)[]
+  try {
+    array = Array.isArray(value)
+    if (!hasPlainPrototype(value, array)) throw unsafeSnapshot()
+    keys = Reflect.ownKeys(value)
+  } catch {
+    throw unsafeSnapshot()
+  }
+  const dataKeys = array ? keys.filter((key) => key !== "length") : keys
+  if (dataKeys.length > MAX_FREEZE_KEYS) throw unsafeSnapshot()
+
+  seen.add(value)
+  for (const key of dataKeys) {
+    if (typeof key !== "string") throw unsafeSnapshot()
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key)
+    } catch {
+      throw unsafeSnapshot()
+    }
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw unsafeSnapshot()
+    }
+    freezeValue(descriptor.value, seen, state, depth + 1)
+  }
+  try {
+    Object.freeze(value)
+  } catch {
+    throw unsafeSnapshot()
+  }
+}
+
+export const freezeSnapshot = <T>(value: T): T => {
+  try {
+    freezeValue(value, new WeakSet<object>(), { nodes: 0 }, 0)
+    return value
+  } catch {
+    throw unsafeSnapshot()
+  }
+}
+
+const invalidSemanticEvent = (): TypeError =>
+  new TypeError(INVALID_EVENT_MESSAGE)
+
+const requirePlainRecord = (value: unknown): Record<string, unknown> => {
+  if (value === null || typeof value !== "object") {
+    throw invalidSemanticEvent()
+  }
+  let array: boolean
+  try {
+    array = Array.isArray(value)
+  } catch {
+    throw invalidSemanticEvent()
+  }
+  if (array || !hasPlainPrototype(value, false)) {
+    throw invalidSemanticEvent()
+  }
+  return value as Record<string, unknown>
+}
+
+const readDataProperty = (
+  record: Record<string, unknown>,
+  key: string,
+): unknown => {
+  let descriptor: PropertyDescriptor | undefined
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(record, key)
+  } catch {
+    throw invalidSemanticEvent()
+  }
+  if (descriptor === undefined) return undefined
+  if (!("value" in descriptor)) throw invalidSemanticEvent()
+  return descriptor.value
+}
+
+const readAttributesOnce = (
+  record: Record<string, unknown>,
+): unknown => {
+  let descriptor: PropertyDescriptor | undefined
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(record, "attributes")
+  } catch {
+    throw invalidSemanticEvent()
+  }
+  if (descriptor === undefined) return undefined
+  if ("value" in descriptor) return descriptor.value
+  if (typeof descriptor.get !== "function") throw invalidSemanticEvent()
+  try {
+    return descriptor.get.call(record)
+  } catch {
+    throw invalidSemanticEvent()
+  }
+}
+
+const requireEventString = (
+  value: unknown,
+  maxLength: number,
+): string => {
+  if (typeof value !== "string" || value.length === 0) {
+    throw invalidSemanticEvent()
+  }
+  return boundedString(value, maxLength)
+}
+
+const optionalEventString = (
+  value: unknown,
+  maxLength: number,
+): string | undefined =>
+  typeof value === "string" && value.length > 0
+    ? boundedString(value, maxLength)
+    : undefined
+
+const canonicalCorrelation = (value: unknown): CorrelationContext => {
+  const input = requirePlainRecord(value)
+  const requestId = requireEventString(
+    readDataProperty(input, "requestId"),
+    256,
+  )
+  const traceId = optionalEventString(readDataProperty(input, "traceId"), 32)
+  const spanId = optionalEventString(readDataProperty(input, "spanId"), 16)
+  const actorId = optionalEventString(readDataProperty(input, "actorId"), 256)
+  const route = optionalEventString(readDataProperty(input, "route"), 512)
+  const procedure = optionalEventString(
+    readDataProperty(input, "procedure"),
+    256,
+  )
+
+  return {
+    requestId,
+    ...(traceId === undefined ? {} : { traceId }),
+    ...(spanId === undefined ? {} : { spanId }),
+    ...(actorId === undefined ? {} : { actorId }),
+    ...(route === undefined ? {} : { route }),
+    ...(procedure === undefined ? {} : { procedure }),
+  }
+}
+
+export const redactSemanticEvent = (event: SemanticEvent): SemanticEvent => {
+  if (
+    event !== null &&
+    typeof event === "object" &&
+    REDACTED_SEMANTIC_EVENTS.has(event)
+  ) {
+    return event
+  }
+
+  const input = requirePlainRecord(event)
+  const eventId = requireEventString(readDataProperty(input, "eventId"), 256)
+  const name = requireEventString(readDataProperty(input, "name"), 256)
+  const occurredAt = requireEventString(
+    readDataProperty(input, "occurredAt"),
+    64,
+  )
+  const correlation = canonicalCorrelation(
+    readDataProperty(input, "correlation"),
+  )
+  const action = optionalEventString(readDataProperty(input, "action"), 128)
+  const entityId = optionalEventString(
+    readDataProperty(input, "entityId"),
+    256,
+  )
+  const entityType = optionalEventString(
+    readDataProperty(input, "entityType"),
+    128,
+  )
+  const errorCategory = optionalEventString(
+    readDataProperty(input, "errorCategory"),
+    128,
+  )
+  const outcomeValue = readDataProperty(input, "outcome")
+  const outcome =
+    outcomeValue === "success" || outcomeValue === "failure"
+      ? outcomeValue
+      : undefined
+  const sourceValue = readDataProperty(input, "source")
+  const source =
+    sourceValue === "api" ||
+    sourceValue === "system" ||
+    sourceValue === "web" ||
+    sourceValue === "worker"
+      ? sourceValue
+      : undefined
+  const durationValue = readDataProperty(input, "durationMs")
+  const durationMs =
+    typeof durationValue === "number" &&
+    Number.isFinite(durationValue) &&
+    durationValue >= 0
+      ? durationValue
+      : undefined
+  const attributesValue = readAttributesOnce(input)
+  const redactedAttributes =
+    attributesValue === undefined
+      ? undefined
+      : redact(attributesValue, {
+          maxDepth: 6,
+          maxEntries: 64,
+          maxKeyLength: 128,
+          maxObjectKeys: 64,
+          maxStringLength: 2_048,
+          maxTotalNodes: 1_024,
+        })
+  const attributes =
+    redactedAttributes !== null &&
+    typeof redactedAttributes === "object" &&
+    !Array.isArray(redactedAttributes)
+      ? (redactedAttributes as Readonly<Record<string, unknown>>)
+      : undefined
+
+  const snapshot: SemanticEvent = {
+    eventId,
+    name,
+    occurredAt,
+    correlation,
+    ...(action === undefined ? {} : { action }),
+    ...(entityId === undefined ? {} : { entityId }),
+    ...(entityType === undefined ? {} : { entityType }),
+    ...(outcome === undefined ? {} : { outcome }),
+    ...(source === undefined ? {} : { source }),
+    ...(errorCategory === undefined ? {} : { errorCategory }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(attributes === undefined ? {} : { attributes }),
+  }
+
+  freezeSnapshot(snapshot)
+  REDACTED_SEMANTIC_EVENTS.add(snapshot)
+  return snapshot
+}

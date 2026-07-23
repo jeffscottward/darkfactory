@@ -1,0 +1,182 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const driver = vi.hoisted(() => {
+  const pools: Array<{
+    options: unknown
+    end: ReturnType<typeof vi.fn>
+  }> = []
+  const clients: Array<{
+    options: unknown
+    connect: ReturnType<typeof vi.fn>
+    end: ReturnType<typeof vi.fn>
+  }> = []
+  const databases: Array<{
+    client: unknown
+    transaction: ReturnType<typeof vi.fn>
+  }> = []
+  let nextConnectionError: unknown
+
+  class Pool {
+    options: unknown
+    end = vi.fn(async () => undefined)
+
+    constructor(options: unknown) {
+      this.options = options
+      pools.push(this)
+    }
+  }
+
+  class Client {
+    options: unknown
+    connect = vi.fn(async () => {
+      if (nextConnectionError === undefined) return
+      const error = nextConnectionError
+      nextConnectionError = undefined
+      throw error
+    })
+    end = vi.fn(async () => undefined)
+
+    constructor(options: unknown) {
+      this.options = options
+      clients.push(this)
+    }
+  }
+
+  const drizzle = vi.fn(({ client }: { client: unknown }) => {
+    const database = {
+      client,
+      transaction: vi.fn(),
+    }
+    databases.push(database)
+    return database
+  })
+  const runMigrations = vi.fn(async () => undefined)
+
+  const failNextConnection = (error: unknown): void => {
+    nextConnectionError = error
+  }
+
+  return {
+    Client,
+    Pool,
+    clients,
+    databases,
+    drizzle,
+    failNextConnection,
+    pools,
+    runMigrations,
+  }
+})
+
+vi.mock("pg", () => ({ Client: driver.Client, Pool: driver.Pool }))
+vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: driver.drizzle }))
+vi.mock("drizzle-orm/node-postgres/migrator", () => ({
+  migrate: driver.runMigrations,
+}))
+
+import {
+  createNodeDatabase,
+  createRequestDatabase,
+  migrate,
+  withTransaction,
+} from "./client.civet"
+
+const CONNECTION_STRING = "postgresql://localhost/darkfactory_test"
+
+describe "database client factories", ->
+  beforeEach ->
+    driver.clients.length = 0
+    driver.databases.length = 0
+    driver.pools.length = 0
+    driver.drizzle.mockClear()
+    driver.runMigrations.mockClear()
+
+  it "creates one private Node pool and closes it through a neutral resource", async ->
+    const resource = createNodeDatabase({
+      connectionString: CONNECTION_STRING,
+      maxConnections: 7,
+      idleTimeoutMillis: 12_000,
+      connectionTimeoutMillis: 4_000,
+    })
+
+    expect(driver.pools).toHaveLength(1)
+    expect(driver.pools[0]?.options).toEqual({
+      connectionString: CONNECTION_STRING,
+      max: 7,
+      idleTimeoutMillis: 12_000,
+      connectionTimeoutMillis: 4_000,
+    })
+    expect(resource.db).toBe(driver.databases[0])
+    expect(resource).not.toHaveProperty("pool")
+
+    await resource.close()
+    expect(driver.pools[0]?.end).toHaveBeenCalledOnce()
+
+  it "creates and connects a fresh client for every request", async ->
+    const first = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+      connectionTimeoutMillis: 3_000,
+    })
+    const second = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+      connectionTimeoutMillis: 3_000,
+    })
+
+    expect(driver.clients).toHaveLength(2)
+    expect(driver.clients[0]).not.toBe(driver.clients[1])
+    expect(driver.clients[0]?.connect).toHaveBeenCalledOnce()
+    expect(driver.clients[1]?.connect).toHaveBeenCalledOnce()
+    expect(first).not.toHaveProperty("client")
+
+    await first.close()
+    await second.close()
+    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
+    expect(driver.clients[1]?.end).toHaveBeenCalledOnce()
+
+  it "closes a request client when connection setup fails", async ->
+    const connectionFailure = new Error("connection failed")
+    driver.failNextConnection(connectionFailure)
+
+    await expect(
+      createRequestDatabase({ connectionString: CONNECTION_STRING }),
+    ).rejects.toBe(connectionFailure)
+    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
+
+
+  it "runs migrations from the package folder unless explicitly overridden", async ->
+    const resource = createNodeDatabase({ connectionString: CONNECTION_STRING })
+
+    await migrate(resource.db)
+    expect(driver.runMigrations).toHaveBeenCalledWith(
+      resource.db,
+      expect.objectContaining({
+        migrationsFolder: expect.stringMatching(/packages\/db\/migrations$/),
+      }),
+    )
+
+    await migrate(resource.db, { migrationsFolder: "/tmp/darkfactory-migrations" })
+    expect(driver.runMigrations).toHaveBeenLastCalledWith(resource.db, {
+      migrationsFolder: "/tmp/darkfactory-migrations",
+    })
+
+  it "returns transaction results and preserves rollback rejections", async ->
+    const successfulDatabase = {
+      transaction: vi.fn(async (operation: (tx: { marker: string }) => unknown) =>
+        operation({ marker: "transaction" })
+      ),
+    }
+    const result = await withTransaction(
+      successfulDatabase as never,
+      async (transaction) => (transaction as unknown as { marker: string }).marker,
+    )
+    expect(result).toBe("transaction")
+
+    const rollbackError = new Error("roll back")
+    const failingDatabase = {
+      transaction: vi.fn(async () => {
+        throw rollbackError
+      }),
+    }
+    await expect(
+      withTransaction(failingDatabase as never, async () => "unreachable"),
+    ).rejects.toBe(rollbackError)

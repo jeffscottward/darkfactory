@@ -1,0 +1,120 @@
+import { createActor } from "xstate"
+import { describe, expect, expectTypeOf, it } from "vitest"
+
+import {
+  setupFlowMachine,
+  type SetupFlowContext,
+  type SetupFlowEvent,
+} from "./setup-flow.civet"
+
+const startFlow = -> createActor(setupFlowMachine).start()
+
+describe "setupFlowMachine", ->
+  it "moves through details, preferences, review, submitting, and success", ->
+    const actor = startFlow()
+
+    expect(actor.getSnapshot().value).toBe("details")
+
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    expect(actor.getSnapshot().value).toBe("preferences")
+
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    expect(actor.getSnapshot().value).toBe("review")
+
+    actor.send({ type: "SUBMIT" })
+    expect(actor.getSnapshot().value).toBe("submitting")
+    expect(actor.getSnapshot().context.submissionAttempts).toBe(1)
+
+    actor.send({ type: "SUCCEED" })
+    expect(actor.getSnapshot().value).toBe("success")
+    expect(actor.getSnapshot().status).toBe("done")
+
+    actor.stop()
+
+  it "supports back navigation only where explicitly allowed", ->
+    const actor = startFlow()
+
+    actor.send({ type: "BACK" })
+    expect(actor.getSnapshot().value).toBe("details")
+
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    actor.send({ type: "BACK" })
+    expect(actor.getSnapshot().value).toBe("details")
+
+    actor.send({ type: "NEXT" })
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    actor.send({ type: "BACK" })
+    expect(actor.getSnapshot().value).toBe("preferences")
+
+    actor.stop()
+
+  it "rejects next until the current step guard passes", ->
+    const actor = startFlow()
+
+    actor.send({ type: "NEXT" })
+    expect(actor.getSnapshot().value).toBe("details")
+
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    actor.send({ type: "NEXT" })
+    expect(actor.getSnapshot().value).toBe("preferences")
+
+    actor.stop()
+
+  it "ignores submit outcomes outside the submitting state", ->
+    const actor = startFlow()
+
+    actor.send({ type: "SUCCEED" })
+    actor.send({ type: "FAIL", message: "must be ignored" })
+
+    expect(actor.getSnapshot().value).toBe("details")
+    expect(actor.getSnapshot().context.error).toBeNull()
+    expect(actor.getSnapshot().context.submissionAttempts).toBe(0)
+
+    actor.stop()
+
+  it "captures failure and retries submission with deterministic context", ->
+    const actor = startFlow()
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    actor.send({ type: "SUBMIT" })
+    actor.send({ type: "FAIL", message: "Connection interrupted" })
+
+    expect(actor.getSnapshot().value).toBe("failure")
+    expect(actor.getSnapshot().context).toEqual({
+      detailsComplete: true,
+      preferencesComplete: true,
+      submissionAttempts: 1,
+      error: "Connection interrupted",
+    })
+
+    actor.send({ type: "RETRY" })
+
+    expect(actor.getSnapshot().value).toBe("submitting")
+    expect(actor.getSnapshot().context.submissionAttempts).toBe(2)
+    expect(actor.getSnapshot().context.error).toBeNull()
+
+    actor.send({ type: "FAIL", message: "Still unavailable" })
+    actor.send({ type: "BACK" })
+    expect(actor.getSnapshot().value).toBe("review")
+    expect(actor.getSnapshot().context.error).toBeNull()
+
+    actor.stop()
+
+  it "exposes typed context and events", ->
+    expectTypeOf<SetupFlowContext>().toEqualTypeOf<{
+      readonly detailsComplete: boolean
+      readonly preferencesComplete: boolean
+      readonly submissionAttempts: number
+      readonly error: string | null
+    }>()
+    expectTypeOf<Extract<SetupFlowEvent, { type: "FAIL" }>>().toEqualTypeOf<{
+      readonly type: "FAIL"
+      readonly message: string
+    }>()

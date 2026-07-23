@@ -1,0 +1,208 @@
+import { readFile } from "node:fs/promises"
+
+import { describe, expect, it } from "vitest"
+
+import {
+  createDisabledStoragePort,
+  type ObjectMetadata,
+  type ObjectMetadataRepository,
+  type PutObjectInput,
+} from "./index.civet"
+import { createRecordingStoragePort } from "./test.civet"
+
+const bytes = (...values: number[]) => new Uint8Array(values)
+
+describe "storage port", ->
+  it.each([
+    ["capability-disabled", "disabled"],
+    ["provider-unconfigured", "unconfigured"],
+  ] as const)(
+    "returns an explicit %s result without touching object data",
+    async (reason, expectedState) =>
+      const storage = createDisabledStoragePort(reason)
+
+      const put = await storage.put({ key: "private/object", body: bytes(1, 2) })
+      const get = await storage.get("private/object")
+      const remove = await storage.delete("private/object")
+
+      expect([put, get, remove]).toEqual([
+        { status: "unavailable", state: expectedState },
+        { status: "unavailable", state: expectedState },
+        { status: "unavailable", state: expectedState },
+      ])
+  )
+
+  it "keeps the Postgres metadata boundary provider-neutral", async ->
+    const metadata: ObjectMetadata = {
+      key: "objects/report.pdf",
+      size: 3,
+      contentType: "application/pdf",
+      createdAt: "2026-01-02T03:04:05.000Z",
+      updatedAt: "2026-01-02T03:04:05.000Z",
+    }
+    const repository: ObjectMetadataRepository = {
+      upsert: async (value) => expect(value).toEqual(metadata),
+      findByKey: async (key) => key === metadata.key ? metadata : null,
+      deleteByKey: async (key) => key === metadata.key,
+    }
+
+    await repository.upsert(metadata)
+    await expect(repository.findByKey(metadata.key)).resolves.toEqual(metadata)
+    await expect(repository.deleteByKey(metadata.key)).resolves.toBe(true)
+  
+
+describe "recording storage adapter", ->
+  it "records deterministic put/get/delete behavior without recording bodies", async ->
+    const storage = createRecordingStoragePort({
+      now: () => "2026-01-02T03:04:05.000Z",
+    })
+    const input = bytes(1, 2, 3)
+
+    const put = await storage.put({
+      key: "objects/report.pdf",
+      body: input,
+      contentType: "application/pdf",
+    })
+    input[0] = 99
+    const firstGet = await storage.get("objects/report.pdf")
+    if (firstGet.status !== "ok") throw new Error("expected recorded object")
+    firstGet.value.body[1] = 88
+    const secondGet = await storage.get("objects/report.pdf")
+    const remove = await storage.delete("objects/report.pdf")
+    const missing = await storage.get("objects/report.pdf")
+
+    expect(put).toEqual({
+      status: "ok",
+      value: {
+        key: "objects/report.pdf",
+        size: 3,
+        contentType: "application/pdf",
+        createdAt: "2026-01-02T03:04:05.000Z",
+        updatedAt: "2026-01-02T03:04:05.000Z",
+      },
+    })
+    expect(secondGet).toEqual({
+      status: "ok",
+      value: {
+        metadata: put.status === "ok" ? put.value : undefined,
+        body: bytes(1, 2, 3),
+      },
+    })
+    expect(remove).toEqual({ status: "ok", value: { deleted: true } })
+    expect(missing).toEqual({ status: "not-found" })
+    expect(storage.getOperations()).toEqual([
+      { operation: "put", key: "objects/report.pdf" },
+      { operation: "get", key: "objects/report.pdf" },
+      { operation: "get", key: "objects/report.pdf" },
+      { operation: "delete", key: "objects/report.pdf" },
+      { operation: "get", key: "objects/report.pdf" },
+    ])
+    expect(JSON.stringify(storage.getOperations())).not.toContain("1,2,3")
+
+  it "copies bytes without invoking a Uint8Array subclass override", async ->
+    let sliceCalls = 0
+    class OverriddenBytes extends Uint8Array {
+      override slice(
+        _start?: number,
+        _end?: number,
+      ): Uint8Array<ArrayBuffer> {
+        sliceCalls += 1
+        return this
+      }
+    }
+    const input = new OverriddenBytes([4, 5, 6])
+    const storage = createRecordingStoragePort()
+
+    await storage.put({ key: "object", body: input })
+    input[0] = 99
+    const stored = await storage.get("object")
+
+    expect(stored).toEqual({
+      status: "ok",
+      value: {
+        metadata: {
+          key: "object",
+          size: 3,
+          createdAt: "1970-01-01T00:00:00.000Z",
+          updatedAt: "1970-01-01T00:00:00.000Z",
+        },
+        body: bytes(4, 5, 6),
+      },
+    })
+    expect(sliceCalls).toBe(0)
+
+  it "captures every put input property exactly once", async ->
+    const reads = { key: 0, body: 0, contentType: 0, checksum: 0 }
+    const input: PutObjectInput = {
+      get key() {
+        reads.key += 1
+        return reads.key === 1 ? "stable" : "changed"
+      },
+      get body() {
+        reads.body += 1
+        return reads.body === 1 ? bytes(7) : bytes(9, 9)
+      },
+      get contentType() {
+        reads.contentType += 1
+        return reads.contentType === 1 ? "application/test" : "changed"
+      },
+      get checksum() {
+        reads.checksum += 1
+        return reads.checksum === 1 ? "checksum" : "changed"
+      },
+    }
+    const storage = createRecordingStoragePort()
+
+    const put = await storage.put(input)
+    const stored = await storage.get("stable")
+
+    expect(reads).toEqual({ key: 1, body: 1, contentType: 1, checksum: 1 })
+    expect(put).toMatchObject({
+      status: "ok",
+      value: {
+        key: "stable",
+        size: 1,
+        contentType: "application/test",
+        checksum: "checksum",
+      },
+    })
+    expect(stored).toMatchObject({
+      status: "ok",
+      value: { body: bytes(7) },
+    })
+  
+  it "replaces an object while preserving its creation time", async ->
+    const timestamps = [
+      "2026-01-02T03:04:05.000Z",
+      "2026-01-03T03:04:05.000Z",
+    ]
+    const storage = createRecordingStoragePort({ now: () => timestamps.shift()! })
+
+    await storage.put({ key: "object", body: bytes(1) })
+    const replaced = await storage.put({ key: "object", body: bytes(2, 3) })
+
+    expect(replaced).toEqual({
+      status: "ok",
+      value: {
+        key: "object",
+        size: 2,
+        createdAt: "2026-01-02T03:04:05.000Z",
+        updatedAt: "2026-01-03T03:04:05.000Z",
+      },
+    })
+
+describe "storage dependency inventory", ->
+  it "contains no runtime, optional, or peer dependencies", async ->
+    const manifestText = await readFile(new URL("../package.json", import.meta.url), "utf8")
+    const manifest = JSON.parse(manifestText)
+
+    expect({
+      dependencies: manifest.dependencies ?? {},
+      optionalDependencies: manifest.optionalDependencies ?? {},
+      peerDependencies: manifest.peerDependencies ?? {},
+    }).toEqual({
+      dependencies: {},
+      optionalDependencies: {},
+      peerDependencies: {},
+    })
+    expect(Object.keys(manifest.exports)).toEqual([".", "./test"])

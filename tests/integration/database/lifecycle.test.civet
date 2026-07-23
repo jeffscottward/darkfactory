@@ -1,0 +1,279 @@
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
+
+import { createAuth } from "@darkfactory/auth/server"
+import {
+  createNodeDatabase,
+  migrate,
+  resetDevelopment,
+  seedDevelopment,
+  type EnsureSeedIdentity,
+} from "@darkfactory/db/server"
+import type { EmailPort } from "@darkfactory/email"
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
+const BASE_URL = "https://darkfactory.localhost"
+const AUTH_SECRET = "lifecycle-integration-secret-at-least-32-characters"
+const PROJECT_ROOT = fileURLToPath(new URL("../../..", import.meta.url))
+const execFileAsync = promisify(execFile)
+const CIVET_REGISTER_DEPRECATION =
+  /\(node:\d+\) \[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated\. Use `module\.registerHooks\(\)` instead\.\n(?:\(Use `node --trace-deprecation \.\.\.` to show where the warning was created\)\n)?/g
+
+const expectNoUnexpectedStderr = (stderr: string): void => {
+  expect(stderr.replace(CIVET_REGISTER_DEPRECATION, "")).toBe("")
+}
+const TABLES = [
+  "session",
+  "account",
+  "addresses",
+  "profiles",
+  "user_preferences",
+  "feature_items",
+  "audit_records",
+  "user",
+  "verification",
+  "outbox_events",
+] as const
+
+const email: EmailPort = {
+  sendPasswordReset: async () => ({
+    status: "failed",
+    provider: "disabled",
+    code: "EMAIL_DELIVERY_DISABLED",
+    retryable: false,
+  }),
+}
+
+let testDatabase: PostgresTestDatabase
+let databaseResource: ReturnType<typeof createNodeDatabase>
+let backgroundTasks: Promise<unknown>[]
+
+const ensureIdentity: EnsureSeedIdentity = async (identity, exists) => {
+  const auth = createAuth({
+    database: databaseResource.db,
+    email,
+    secret: AUTH_SECRET,
+    baseURL: BASE_URL,
+    trustedOrigins: [BASE_URL],
+    rateLimitEnabled: false,
+    scheduleBackgroundTask: (task) => backgroundTasks.push(task),
+    generateId: ({ model }) => {
+      if (model === "user") return identity.userId
+      if (model === "account") return identity.accountId
+      throw new Error(`Unexpected seed auth model: ${model}`)
+    },
+  })
+  if (!exists) {
+    await auth.api.signUpEmail({
+      body: {
+        name: identity.name,
+        email: identity.email,
+        password: identity.password,
+      },
+    })
+    return
+  }
+
+  const context = await auth.$context
+  const credential = (
+    await context.internalAdapter.findAccounts(identity.userId)
+  ).find((account) => account.id === identity.accountId)
+  if (!credential?.password) throw new Error("Expected seed credential")
+  if (await context.password.verify({
+    hash: credential.password,
+    password: identity.password,
+  })) return
+  await context.internalAdapter.updateAccount(credential.id, {
+    password: await context.password.hash(identity.password),
+  })
+}
+
+const countFrom = (rows: readonly { count: string }[]): number => {
+  const row = rows[0]
+  if (!row) throw new Error("Count query returned no rows")
+  return Number(row.count)
+}
+
+const tableCounts = async (): Promise<Record<string, number>> => {
+  const entries: [string, number][] = []
+  for (const table of TABLES) {
+    const rows = await testDatabase.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM "${table}"`,
+    )
+    entries.push([table, countFrom(rows)])
+  }
+  return Object.fromEntries(entries)
+}
+
+const migrationCount = async (): Promise<number> => {
+  const rows = await testDatabase.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
+  )
+  return countFrom(rows)
+}
+
+const seed = async (): Promise<void> => {
+  await seedDevelopment(databaseResource.db, {
+    environment: "test",
+    ensureIdentity,
+  })
+  const tasks = backgroundTasks.splice(0)
+  await Promise.all(tasks)
+}
+
+const populateSessionAndVerification = async (): Promise<void> => {
+  await testDatabase.query(
+    `INSERT INTO "session" (id, expires_at, token, created_at, updated_at, user_id)
+     VALUES ($1, now() + interval '1 hour', $2, now(), now(), $3)`,
+    [
+      "40000000-0000-4000-8000-000000000001",
+      "development-session-token",
+      "00000000-0000-4000-8000-000000000001",
+    ],
+  );
+  await testDatabase.query(
+    `INSERT INTO "verification" (id, identifier, value, expires_at, created_at, updated_at)
+     VALUES ($1, $2, $3, now() + interval '1 hour', now(), now())`,
+    [
+      "50000000-0000-4000-8000-000000000001",
+      "development-verification",
+      "opaque-test-value",
+    ],
+  )
+}
+
+const runCli = async (
+  command: "seed" | "reset",
+  appEnvironment: string | null = "test",
+) => {
+  const { APP_ENV: _inheritedAppEnvironment, ...parentEnvironment } = process.env
+  return execFileAsync(
+    "corepack",
+    ["pnpm", "--silent", "run", `db:${command}`],
+    {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...parentEnvironment,
+        ...(appEnvironment === null ? {} : { APP_ENV: appEnvironment }),
+        APP_URL: BASE_URL,
+        BETTER_AUTH_URL: BASE_URL,
+        DATABASE_PROVIDER: "postgres",
+        DATABASE_URL: testDatabase.databaseUrl,
+        BETTER_AUTH_SECRET: AUTH_SECRET,
+        EMAIL_TRANSPORT: "preview",
+      },
+      timeout: 30_000,
+    },
+  )
+}
+
+describe.sequential "DF-040 development database lifecycle", ->
+  beforeAll(async () => {
+    testDatabase = await createPostgresTestDatabase()
+    databaseResource = createNodeDatabase({
+      connectionString: testDatabase.databaseUrl,
+      maxConnections: 4,
+    })
+    await migrate(databaseResource.db)
+  }, 60_000)
+
+  beforeEach(async () => {
+    backgroundTasks = []
+    await resetDevelopment(databaseResource.db, { environment: "test" })
+  })
+
+  afterAll(async () => {
+    try {
+      if (databaseResource !== undefined) await databaseResource.close()
+    } finally {
+      if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
+    }
+  }, 60_000)
+
+  it("rejects unsafe reset environments before mutation, explicitly clears all ten tables, preserves the journal, and reseeds", async () => {
+    await seed()
+    await populateSessionAndVerification()
+
+    const populated = await tableCounts()
+    expect(Object.values(populated).every((count) => count > 0)).toBe(true)
+    const journalBefore = await migrationCount()
+    expect(journalBefore).toBeGreaterThan(0)
+
+    for (const environment of ["production", "staging", "", undefined]) {
+      await expect(resetDevelopment(databaseResource.db, {
+        environment: environment as never,
+      })).rejects.toThrow(/development or test/i)
+      expect(await tableCounts()).toEqual(populated)
+      expect(await migrationCount()).toBe(journalBefore)
+    }
+
+    await expect(resetDevelopment(databaseResource.db, {
+      environment: "test",
+    })).resolves.toEqual({ tablesCleared: 10 })
+    expect(await tableCounts()).toEqual(Object.fromEntries(
+      TABLES.map((table) => [table, 0]),
+    ))
+    expect(await migrationCount()).toBe(journalBefore)
+
+    await seed()
+    const reseeded = await tableCounts()
+    expect(reseeded).toMatchObject({
+      user: 3,
+      account: 3,
+      profiles: 3,
+      user_preferences: 3,
+      addresses: 3,
+      feature_items: 3,
+      audit_records: 3,
+      outbox_events: 3,
+      session: 0,
+      verification: 0,
+    })
+    expect(await migrationCount()).toBe(journalBefore)
+  }, 60_000)
+
+  it("runs seed and reset as rerunnable secret-safe CLI commands", async () => {
+    const firstSeed = await runCli("seed")
+    expect(JSON.parse(firstSeed.stdout)).toEqual({
+      identitiesCreated: 3,
+      usersConverged: 3,
+      profilesConverged: 3,
+      preferencesConverged: 3,
+      addressesConverged: 3,
+      featureItemsConverged: 3,
+    })
+    const populated = await tableCounts()
+    for (const [command, environment] of [
+      ["seed", null],
+      ["reset", ""],
+      ["seed", "staging"],
+      ["reset", "production"],
+    ] as const) {
+      await expect(runCli(command, environment)).rejects.toMatchObject({
+        stderr: expect.stringContaining("APP_ENV must be explicitly set"),
+      })
+      expect(await tableCounts()).toEqual(populated)
+    }
+    expectNoUnexpectedStderr(firstSeed.stderr)
+
+    const secondSeed = await runCli("seed")
+    expect(JSON.parse(secondSeed.stdout)).toMatchObject({ identitiesCreated: 0 })
+    expect(secondSeed.stdout).not.toContain("Development123!")
+    expect(secondSeed.stdout).not.toContain(AUTH_SECRET)
+    expectNoUnexpectedStderr(secondSeed.stderr)
+
+    const reset = await runCli("reset")
+    expect(JSON.parse(reset.stdout)).toEqual({ tablesCleared: 10 })
+    expect(reset.stdout).not.toContain("Development123!")
+    expect(reset.stdout).not.toContain(AUTH_SECRET)
+    expectNoUnexpectedStderr(reset.stderr)
+    expect(await tableCounts()).toEqual(Object.fromEntries(
+      TABLES.map((table) => [table, 0]),
+    ))
+  }, 60_000)

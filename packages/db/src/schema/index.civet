@@ -1,0 +1,376 @@
+import { sql } from "drizzle-orm"
+import {
+  boolean,
+  check,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core"
+
+export const USER_ROLES = ["member", "admin"] as const
+export type UserRole = (typeof USER_ROLES)[number]
+
+export const USER_STATUSES = ["active", "suspended", "deactivated"] as const
+export type UserStatus = (typeof USER_STATUSES)[number]
+
+export const ADDRESS_TYPES = ["home", "work", "other"] as const
+export type AddressType = (typeof ADDRESS_TYPES)[number]
+
+export const PREFERENCE_MODES = ["light", "dark", "system"] as const
+export type PreferenceMode = (typeof PREFERENCE_MODES)[number]
+
+export const COLOR_SCHEMES = [
+  "neutral",
+  "slate",
+  "blue",
+  "cyan",
+  "green",
+  "amber",
+  "orange",
+  "red",
+  "rose",
+  "violet",
+] as const
+export type ColorScheme = (typeof COLOR_SCHEMES)[number]
+
+export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const
+export type ProfileVisibility = (typeof PROFILE_VISIBILITIES)[number]
+
+export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const
+export type FeatureItemStatus = (typeof FEATURE_ITEM_STATUSES)[number]
+
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue =
+  | JsonPrimitive
+  | ReadonlyArray<JsonValue>
+  | { readonly [key: string]: JsonValue }
+export type FeatureItemMetadata = Readonly<Record<string, JsonValue>>
+export type EventPayload = Readonly<Record<string, JsonValue>>
+export type AuditMetadata = Readonly<Record<string, JsonValue>>
+
+const utcTimestamp = (name: string) =>
+  timestamp(name, { mode: "date", withTimezone: true })
+
+export const users = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: boolean("email_verified").default(false).notNull(),
+    image: text("image"),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    role: text("role").$type<UserRole>().default("member").notNull(),
+    status: text("status").$type<UserStatus>().default("active").notNull(),
+  },
+  (table) => [
+    check("user_role_check", sql`${table.role} in ('member', 'admin')`),
+    check(
+      "user_status_check",
+      sql`${table.status} in ('active', 'suspended', 'deactivated')`,
+    ),
+  ],
+)
+
+export const sessions = pgTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: utcTimestamp("expires_at").notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at")
+      .$onUpdate(() => new Date())
+      .notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("session_user_id_idx").on(table.userId),
+    index("session_expires_at_idx").on(table.expiresAt),
+  ],
+)
+
+export const accounts = pgTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: utcTimestamp("access_token_expires_at"),
+    refreshTokenExpiresAt: utcTimestamp("refresh_token_expires_at"),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("account_user_id_idx").on(table.userId),
+    uniqueIndex("account_provider_account_unique_idx").on(
+      table.providerId,
+      table.accountId,
+    ),
+  ],
+)
+
+export const verifications = pgTable(
+  "verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: utcTimestamp("expires_at").notNull(),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("verification_identifier_idx").on(table.identifier),
+    index("verification_expires_at_idx").on(table.expiresAt),
+    uniqueIndex("verification_identifier_value_unique_idx").on(
+      table.identifier,
+      table.value,
+    ),
+  ],
+)
+
+export const profiles = pgTable("profiles", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  displayName: text("display_name"),
+  avatarUrl: text("avatar_url"),
+  phone: text("phone"),
+  businessName: text("business_name"),
+  jobTitle: text("job_title"),
+  biography: text("biography"),
+  timezone: text("timezone").default("UTC").notNull(),
+  locale: text("locale").default("en").notNull(),
+  dateOfBirth: date("date_of_birth", { mode: "string" }),
+  createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+  updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
+})
+
+export const addresses = pgTable(
+  "addresses",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").$type<AddressType>().notNull(),
+    line1: text("line_1").notNull(),
+    line2: text("line_2"),
+    city: text("city").notNull(),
+    region: text("region").notNull(),
+    postalCode: text("postal_code").notNull(),
+    country: text("country").notNull(),
+    isPrimary: boolean("is_primary").default(false).notNull(),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("addresses_user_id_idx").on(
+      table.userId,
+      table.isPrimary.desc(),
+      table.createdAt,
+      table.id,
+    ),
+    uniqueIndex("addresses_one_primary_per_user_idx")
+      .on(table.userId)
+      .where(sql`${table.isPrimary} = true`),
+    check(
+      "addresses_type_check",
+      sql`${table.type} in ('home', 'work', 'other')`,
+    ),
+    check("addresses_line_1_check", sql`length(trim(${table.line1})) > 0`),
+    check("addresses_country_check", sql`length(${table.country}) = 2`),
+  ],
+)
+
+export const userPreferences = pgTable(
+  "user_preferences",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mode: text("mode").$type<PreferenceMode>().default("system").notNull(),
+    colorScheme: text("color_scheme")
+      .$type<ColorScheme>()
+      .default("neutral")
+      .notNull(),
+    emailNotifications: boolean("email_notifications").default(true).notNull(),
+    productUpdates: boolean("product_updates").default(true).notNull(),
+    analyticsConsent: boolean("analytics_consent").default(false).notNull(),
+    personalizationConsent: boolean("personalization_consent")
+      .default(false)
+      .notNull(),
+    profileVisibility: text("profile_visibility")
+      .$type<ProfileVisibility>()
+      .default("private")
+      .notNull(),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    check(
+      "user_preferences_mode_check",
+      sql`${table.mode} in ('light', 'dark', 'system')`,
+    ),
+    check(
+      "user_preferences_color_scheme_check",
+      sql`${table.colorScheme} in (
+        'neutral', 'slate', 'blue', 'cyan', 'green',
+        'amber', 'orange', 'red', 'rose', 'violet'
+      )`,
+    ),
+    check(
+      "user_preferences_profile_visibility_check",
+      sql`${table.profileVisibility} in ('private', 'members', 'public')`,
+    ),
+  ],
+)
+
+export const featureItems = pgTable(
+  "feature_items",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    status: text("status")
+      .$type<FeatureItemStatus>()
+      .default("draft")
+      .notNull(),
+    metadata: jsonb("metadata")
+      .$type<FeatureItemMetadata>()
+      .default({})
+      .notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("feature_items_owner_id_idx").on(
+      table.ownerId,
+      table.updatedAt.desc(),
+      table.id.desc(),
+    ),
+    check(
+      "feature_items_status_check",
+      sql`${table.status} in ('draft', 'active', 'archived')`,
+    ),
+    check("feature_items_name_check", sql`length(trim(${table.name})) > 0`),
+    check(
+      "feature_items_metadata_check",
+      sql`jsonb_typeof(${table.metadata}) = 'object' and octet_length(${table.metadata}::text) <= 16384`,
+    ),
+  ],
+)
+
+export const outboxEvents = pgTable(
+  "outbox_events",
+  {
+    id: text("id").primaryKey(),
+    eventType: text("event_type").notNull(),
+    aggregateType: text("aggregate_type").notNull(),
+    aggregateId: text("aggregate_id").notNull(),
+    payload: jsonb("payload").$type<EventPayload>().notNull(),
+    occurredAt: utcTimestamp("occurred_at").defaultNow().notNull(),
+    publishedAt: utcTimestamp("published_at"),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+  },
+  (table) => [
+    index("outbox_events_unpublished_idx")
+      .on(table.occurredAt)
+      .where(sql`${table.publishedAt} is null`),
+    index("outbox_events_aggregate_idx").on(
+      table.aggregateType,
+      table.aggregateId,
+    ),
+    check(
+      "outbox_events_payload_check",
+      sql`jsonb_typeof(${table.payload}) = 'object'`,
+    ),
+    check(
+      "outbox_events_attempt_count_check",
+      sql`${table.attemptCount} >= 0`,
+    ),
+  ],
+)
+
+export const auditRecords = pgTable(
+  "audit_records",
+  {
+    id: text("id").primaryKey(),
+    actorUserId: text("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    metadata: jsonb("metadata").$type<AuditMetadata>().default({}).notNull(),
+    requestId: text("request_id").notNull(),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("audit_records_actor_user_id_idx").on(table.actorUserId),
+    index("audit_records_entity_idx").on(table.entityType, table.entityId),
+    index("audit_records_request_id_idx").on(table.requestId),
+    check(
+      "audit_records_metadata_check",
+      sql`jsonb_typeof(${table.metadata}) = 'object'`,
+    ),
+    check(
+      "audit_records_request_id_check",
+      sql`length(trim(${table.requestId})) > 0`,
+    ),
+  ],
+)
+
+export type User = typeof users.$inferSelect
+export type NewUser = typeof users.$inferInsert
+export type Session = typeof sessions.$inferSelect
+export type NewSession = typeof sessions.$inferInsert
+export type Account = typeof accounts.$inferSelect
+export type NewAccount = typeof accounts.$inferInsert
+export type Verification = typeof verifications.$inferSelect
+export type NewVerification = typeof verifications.$inferInsert
+export type Profile = typeof profiles.$inferSelect
+export type NewProfile = typeof profiles.$inferInsert
+export type Address = typeof addresses.$inferSelect
+export type NewAddress = typeof addresses.$inferInsert
+export type UserPreferences = typeof userPreferences.$inferSelect
+export type NewUserPreferences = typeof userPreferences.$inferInsert
+export type FeatureItem = typeof featureItems.$inferSelect
+export type NewFeatureItem = typeof featureItems.$inferInsert
+export type OutboxEvent = typeof outboxEvents.$inferSelect
+export type NewOutboxEvent = typeof outboxEvents.$inferInsert
+export type AuditRecord = typeof auditRecords.$inferSelect
+export type NewAuditRecord = typeof auditRecords.$inferInsert

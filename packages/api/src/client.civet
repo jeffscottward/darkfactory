@@ -1,0 +1,21 @@
+import { createORPCClient } from "@orpc/client"
+import { RPCLink } from "@orpc/client/fetch"
+import type { ContractRouterClient } from "@orpc/contract"
+
+import { appContract } from "./contract.civet"
+
+export type ApiClient = ContractRouterClient<typeof appContract>
+
+export type ApiClientOptions = Readonly<{
+  baseUrl: string | URL
+  fetch?: (request: Request) => Promise<Response>
+}>
+
+export const createApiClient = (options: ApiClientOptions): ApiClient => {
+  const baseUrl = new URL(options.baseUrl)
+  const link = new RPCLink({
+    url: () => new URL("/api/orpc", baseUrl),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  })
+  return createORPCClient<ApiClient>(link)
+}

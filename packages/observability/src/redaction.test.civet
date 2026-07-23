@@ -1,0 +1,187 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  REDACTED,
+  TRUNCATED,
+  freezeSnapshot,
+  redact,
+} from "./redaction.civet"
+
+describe "redact", ->
+  it "recursively removes every prohibited observability field without mutating the input", ->
+    const input = {
+      safe: "kept",
+      password: "password-value",
+      nested: {
+        access_token: "access-token-value",
+        refreshToken: "refresh-token-value",
+        cookie: "session=raw-cookie",
+        authorization: "Bearer raw-authorization",
+        emailBody: "Reset with raw-email-body",
+        email: "member@domain.test",
+        address: { street: "1 Private Way", postalCode: "12345" },
+        dateOfBirth: "1990-01-02",
+        providerPayload: { response: "raw-provider-response" },
+        clientSecret: "raw-client-secret",
+        apiKey: "raw-api-key",
+        prompt: "raw-provider-prompt",
+        completion: "raw-provider-completion",
+      },
+      list: [{ setCookie: "raw-set-cookie" }, { safe: true }],
+    }
+
+    const output = redact(input)
+
+    expect(output).toEqual({
+      safe: "kept",
+      password: REDACTED,
+      nested: {
+        access_token: REDACTED,
+        refreshToken: REDACTED,
+        cookie: REDACTED,
+        authorization: REDACTED,
+        emailBody: REDACTED,
+        email: REDACTED,
+        address: REDACTED,
+        dateOfBirth: REDACTED,
+        providerPayload: REDACTED,
+        clientSecret: REDACTED,
+        apiKey: REDACTED,
+        prompt: REDACTED,
+        completion: REDACTED,
+      },
+      list: [{ setCookie: REDACTED }, { safe: true }],
+    })
+    expect("password" in input.nested).toBe(false)
+    expect(input.nested.providerPayload.response).toBe("raw-provider-response")
+    expect(JSON.stringify(output)).not.toMatch(
+      /password-value|access-token-value|raw-cookie|member@domain|Private Way|1990|provider-response|client-secret|api-key|provider-prompt|provider-completion/
+    )
+
+  it "scrubs secret patterns even when an attacker hides them under an innocent key", ->
+    const output = redact({
+      note: "Authorization: Bearer abc.def.ghi token=hidden password: hunter2 contact member@domain.test",
+      jwt: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
+    })
+
+    const serialized = JSON.stringify(output)
+    expect(serialized).not.toContain("abc.def.ghi")
+    expect(serialized).not.toContain("hidden")
+    expect(serialized).not.toContain("hunter2")
+    expect(serialized).not.toContain("member@domain.test")
+    expect(serialized).not.toContain("eyJhbGci")
+
+  it "terminates cycles, throwing getters, excessive depth, entries, and strings with deterministic markers", ->
+    const cyclic: Record<string, unknown> = { safe: "ok" }
+    cyclic["self"] = cyclic
+    Object.defineProperty(cyclic, "throwing", {
+      enumerable: true,
+      get: -> throw new Error("raw-provider-body"),
+    })
+    cyclic["deep"] = { one: { two: { three: "too-deep" } } }
+    cyclic["large"] = [1, 2, 3, 4]
+    cyclic["long"] = "0123456789-secret-tail"
+
+    const output = redact(cyclic, {
+      maxDepth: 2,
+      maxEntries: 3,
+      maxStringLength: 10,
+    }) as Record<string, unknown>
+
+    expect(output["self"]).toBe("[Circular]")
+    expect(output["throwing"]).toBe("[Unserializable]")
+    expect(output["deep"]).toEqual({ one: TRUNCATED })
+    expect(output["large"]).toEqual([1, 2, 3, TRUNCATED])
+    expect(output["long"]).toBe(`0123456789${TRUNCATED}`)
+    expect(JSON.stringify(output)).not.toContain("raw-provider-body")
+    expect(JSON.stringify(output)).not.toContain("secret-tail")
+
+  it "contains revoked proxies, hostile array lengths, oversized objects, and sensitive key names", ->
+    const revoked = Proxy.revocable([], {})
+    revoked.revoke()
+    const hostileArray = new Proxy([1, 2, 3], {
+      get: (target, key, receiver) ->
+        if key is "length"
+          throw new Error("raw-array-secret")
+        return Reflect.get(target, key, receiver)
+    })
+    let accessorReads = 0
+    const accessorArray = [1]
+    Object.defineProperty(accessorArray, "0", {
+      enumerable: true,
+      get: ->
+        accessorReads += 1
+        throw new Error("raw-array-accessor-secret")
+    })
+    const oversizedKey = "x".repeat(100_000)
+    const keyed: Record<string, unknown> = {
+      "member@domain.test": "safe-email-key-value",
+      "apiKey-super-secret-value": "safe-secret-key-value",
+      [oversizedKey]: "raw-oversized-key-value",
+    }
+    for index in [0...100]
+      keyed[`key_${index.toString().padStart(3, "0")}`] = index
+
+    expect(redact(revoked.proxy)).toBe("[Unserializable]")
+    expect(redact(hostileArray)).toBe("[Unserializable]")
+    expect(redact(accessorArray)).toEqual(["[Unserializable]"])
+    expect(accessorReads).toBe(0)
+
+    const output = redact(keyed, {
+      maxKeyLength: 16,
+      maxObjectKeys: 3,
+    })
+    const serialized = JSON.stringify(output)
+    expect(serialized).not.toContain("member@domain.test")
+    expect(serialized).not.toContain("super-secret-value")
+    expect(serialized).not.toContain(oversizedKey)
+    expect(serialized).not.toContain("raw-oversized-key-value")
+    expect(serialized).not.toContain("key_099")
+    expect(serialized).toContain(TRUNCATED)
+
+  it "freezes only bounded data-property snapshots and rejects unsafe object graphs", ->
+    const safe = { nested: { value: "kept" }, list: [1, 2] }
+    expect(freezeSnapshot(safe)).toBe(safe)
+    expect(Object.isFrozen(safe)).toBe(true)
+    expect(Object.isFrozen(safe.nested)).toBe(true)
+    expect(Object.isFrozen(safe.list)).toBe(true)
+
+    const getter = {}
+    Object.defineProperty(getter, "value", {
+      enumerable: true,
+      get: -> throw new Error("raw-getter-secret"),
+    })
+    const customPrototype = Object.create({ inherited: "raw-prototype-secret" })
+    customPrototype.safe = "value"
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+
+    for (const unsafe of [getter, customPrototype, revoked.proxy])
+      expect(-> freezeSnapshot(unsafe)).toThrow("Unsafe snapshot value")
+
+    let excessive: Record<string, unknown> = {}
+    const root = excessive
+    for index in [0...32]
+      const child: Record<string, unknown> = {}
+      excessive["child"] = child
+      excessive = child
+    expect(-> freezeSnapshot(root)).toThrow("Unsafe snapshot value")
+
+  it "handles primitives and unsupported values without leaking descriptions", ->
+    const secretSymbol = Symbol("raw-secret-description")
+    const output = redact({
+      nil: null,
+      missing: undefined,
+      count: 2n,
+      symbol: secretSymbol,
+      fn: -> "raw-function-body",
+    })
+
+    expect(output).toEqual({
+      nil: null,
+      missing: "[Undefined]",
+      count: "[BigInt]",
+      symbol: "[Symbol]",
+      fn: "[Function]",
+    })
+    expect(JSON.stringify(output)).not.toContain("raw-secret")

@@ -1,0 +1,30 @@
+import { createRef } from "react"
+import { describe, expect, it } from "vitest"
+
+import { Input } from "./input.civet"
+import { DialogBody } from "./client/dialog.civet"
+import { DropdownMenuItem, DropdownMenuSubTrigger } from "./client/dropdown-menu.civet"
+import { TabsTrigger } from "./client/tabs.civet"
+
+describe "React 19 focus refs", ->
+  it "propagates native and client-wrapper refs to the focus-owning element", ->
+    const inputRef = createRef<HTMLInputElement>()
+    const dialogBodyRef = createRef<HTMLDivElement>()
+    const itemRef = createRef<HTMLDivElement>()
+    const subTriggerRef = createRef<HTMLDivElement>()
+    const tabRef = createRef<HTMLButtonElement>()
+
+    expect(Input({ ref: inputRef }).props.ref).toBe(inputRef)
+    expect(DialogBody({ ref: dialogBodyRef }).props.ref).toBe(dialogBodyRef)
+    expect(DropdownMenuItem({ ref: itemRef }).props.ref).toBe(itemRef)
+    expect(DropdownMenuSubTrigger({ ref: subTriggerRef }).props.ref).toBe(subTriggerRef)
+    expect(TabsTrigger({ ref: tabRef, value: "overview" }).props.ref).toBe(tabRef)
+
+  it "keeps menu focus and disabled states visually explicit", ->
+    const itemClasses = DropdownMenuItem({}).props.className as string
+    const subTriggerClasses = DropdownMenuSubTrigger({}).props.className as string
+
+    expect(itemClasses).toContain("focus:ring-2")
+    expect(itemClasses).toContain("data-[disabled]:opacity-100")
+    expect(subTriggerClasses).toContain("focus:ring-2")
+    expect(subTriggerClasses).toContain("data-[disabled]:opacity-100")

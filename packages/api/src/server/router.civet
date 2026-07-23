@@ -1,0 +1,296 @@
+import {
+  AuthAuthorizationError,
+  type SafePrincipal,
+} from "@darkfactory/auth/server"
+import type { FeatureItem } from "@darkfactory/db/schema"
+import type { EventOutcome, SemanticEvent } from "@darkfactory/observability/port"
+import { implement } from "@orpc/server"
+
+import { appContract, type FeatureItemInput } from "../contract.civet"
+import type { ApiContext } from "./context.civet"
+import {
+  FeatureServiceError,
+  createFeatureItemService,
+  type FeatureServiceErrorCode,
+} from "./service.civet"
+
+const api = implement(appContract).$context<ApiContext>()
+
+type ExpectedErrorFactories = Record<
+  FeatureServiceErrorCode,
+  (options?: { message?: string }) => Error
+>
+
+const mapFeatureServiceError = (
+  error: unknown,
+  errors: ExpectedErrorFactories,
+): never => {
+  if (!(error instanceof FeatureServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+const toContractItem = (item: FeatureItem): FeatureItemInput =>
+  item as unknown as FeatureItemInput
+
+const toContractItems = (items: FeatureItem[]): FeatureItemInput[] =>
+  items as unknown as FeatureItemInput[]
+type MutationEventSpec = Readonly<{
+  name:
+    | "feature-item.created"
+    | "feature-item.updated"
+    | "feature-item.archived"
+  procedure:
+    | "featureItems.create"
+    | "featureItems.update"
+    | "featureItems.changeStatus"
+    | "featureItems.archive"
+  route:
+    | "/api/orpc/featureItems/create"
+    | "/api/orpc/featureItems/update"
+    | "/api/orpc/featureItems/changeStatus"
+    | "/api/orpc/featureItems/archive"
+  action: "create" | "update" | "change-status" | "archive"
+  entityId?: string
+}>
+
+const mutationErrorCategory = (error: unknown): string =>
+  error instanceof FeatureServiceError ? error.code.toLowerCase() : "unexpected"
+
+const emitMutationEvent = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  spec: MutationEventSpec,
+  outcome: EventOutcome,
+  entityId: string | undefined,
+  error?: unknown,
+): Promise<void> => {
+  try {
+    if (context.semanticEvents === undefined) return
+    const event: SemanticEvent = {
+      eventId: crypto.randomUUID(),
+      name: spec.name,
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        ...(context.span?.correlation ?? {}),
+        requestId: context.requestId,
+        actorId: principal.userId,
+        route: spec.route,
+        procedure: spec.procedure,
+      },
+      action: spec.action,
+      ...(entityId === undefined ? {} : { entityId }),
+      entityType: "feature-item",
+      outcome,
+      source: "api",
+      ...(error === undefined
+        ? {}
+        : { errorCategory: mutationErrorCategory(error) }),
+      attributes: { actorRole: principal.role },
+    }
+    await context.semanticEvents.emit(event, {
+      ...(context.span === undefined ? {} : { span: context.span }),
+      ...(context.waitUntil === undefined
+        ? {}
+        : { waitUntil: context.waitUntil }),
+    })
+  } catch {
+    // Observability is best-effort and must not affect domain mutation results.
+  }
+}
+
+const runMutation = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  spec: MutationEventSpec,
+  operation: () => Promise<FeatureItem>,
+): Promise<FeatureItem> => {
+  try {
+    const item = await operation()
+    await emitMutationEvent(context, principal, spec, "success", item.id)
+    return item
+  } catch (error) {
+    await emitMutationEvent(
+      context,
+      principal,
+      spec,
+      "failure",
+      spec.entityId,
+      error,
+    )
+    throw error
+  }
+}
+
+
+const requireAuthenticated = api.middleware(
+  async ({ context, next, errors }) => {
+    try {
+      const session = await context.requireSession()
+      return next({ context: { principal: session.principal } })
+    } catch (error) {
+      if (!(error instanceof AuthAuthorizationError)) throw error
+      if (error.status === 401)
+        throw errors.UNAUTHORIZED({ message: error.message })
+      throw errors.FORBIDDEN({ message: error.message })
+    }
+  },
+)
+
+const requireAdmin = api.middleware(async ({ context, next, errors }) => {
+  try {
+    const session = await context.requireRole("admin")
+    return next({ context: { principal: session.principal } })
+  } catch (error) {
+    if (!(error instanceof AuthAuthorizationError)) throw error
+    if (error.status === 401)
+      throw errors.UNAUTHORIZED({ message: error.message })
+    throw errors.FORBIDDEN({ message: error.message })
+  }
+})
+
+const list = api.featureItems.list
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return toContractItems(
+        await createFeatureItemService(context.repositories.featureItems).list(
+          context.principal,
+          input,
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+const get = api.featureItems.get
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return toContractItem(
+        await createFeatureItemService(context.repositories.featureItems).get(
+          context.principal,
+          input,
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+const create = api.featureItems.create
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.created",
+            procedure: "featureItems.create",
+            route: "/api/orpc/featureItems/create",
+            action: "create",
+          },
+          () => service.create(context.principal, input, context.requestId),
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+const update = api.featureItems.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.updated",
+            procedure: "featureItems.update",
+            route: "/api/orpc/featureItems/update",
+            action: "update",
+            entityId: input.id,
+          },
+          () => service.update(context.principal, input, context.requestId),
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+const changeStatus = api.featureItems.changeStatus
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.updated",
+            procedure: "featureItems.changeStatus",
+            route: "/api/orpc/featureItems/changeStatus",
+            action: "change-status",
+            entityId: input.id,
+          },
+          () => service.changeStatus(context.principal, input, context.requestId),
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+const archive = api.featureItems.archive
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.archived",
+            procedure: "featureItems.archive",
+            route: "/api/orpc/featureItems/archive",
+            action: "archive",
+            entityId: input.id,
+          },
+          () => service.archive(context.principal, input, context.requestId),
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+const adminList = api.admin.featureItems.list
+  .use(requireAdmin)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return toContractItems(
+        await createFeatureItemService(context.repositories.featureItems).list(
+          context.principal,
+          input,
+        ),
+      )
+    } catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  })
+
+export const appRouter = api.router({
+  featureItems: { list, get, create, update, changeStatus, archive },
+  admin: { featureItems: { list: adminList } },
+})
+
+export type AuthenticatedApiContext = ApiContext &
+  Readonly<{ principal: SafePrincipal }>

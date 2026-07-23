@@ -1,0 +1,81 @@
+import type { ComponentPropsWithRef } from "react"
+import type { VariantProps } from "class-variance-authority"
+import { cva } from "class-variance-authority"
+import { LoaderCircle } from "lucide-react"
+
+import { cn } from "./utilities.civet"
+
+export const buttonVariants = cva(
+  "relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md border border-transparent px-4 font-body text-sm font-semibold transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100",
+  {
+    variants: {
+      variant: {
+        primary:
+          "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active",
+        secondary:
+          "border-border-strong bg-surface text-foreground hover:bg-accent active:bg-muted",
+        ghost: "text-foreground hover:bg-accent active:bg-muted",
+        link:
+          "text-primary underline-offset-4 hover:underline active:text-primary-active",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive-hover active:bg-destructive-active",
+      },
+      size: {
+        compact: "min-h-11 px-3 text-sm",
+        default: "h-11 px-4",
+        large: "h-12 px-6 text-base",
+      },
+      fullWidth: {
+        true: "w-full",
+        false: "w-auto",
+      },
+    },
+    defaultVariants: {
+      variant: "primary",
+      size: "default",
+      fullWidth: false,
+    },
+  },
+)
+
+export interface ButtonProps
+  extends ComponentPropsWithRef<"button">,
+    VariantProps<typeof buttonVariants> {
+  loading?: boolean
+  loadingLabel?: string
+}
+
+export const Button = ({
+  children,
+  className,
+  disabled = false,
+  fullWidth,
+  loading = false,
+  loadingLabel = "Loading",
+  size,
+  type = "button",
+  variant,
+  ...props
+}: ButtonProps) => (
+  <button
+    {...props}
+    type={type}
+    aria-busy={loading || undefined}
+    data-loading={loading || undefined}
+    disabled={disabled || loading}
+    className={cn(buttonVariants({ variant, size, fullWidth }), className)}
+  >
+    <span className={cn("inline-flex items-center gap-2", loading && "invisible")}>
+      {children}
+    </span>
+    {loading ? (
+      <>
+        <LoaderCircle
+          aria-hidden="true"
+          className="absolute size-5 animate-spin motion-reduce:animate-none"
+        />
+        <span className="sr-only">{loadingLabel}</span>
+      </>
+    ) : null}
+  </button>
+)

@@ -1,6 +1,5 @@
+import { CANONICAL_APP_URL } from "./client.civet"
 import { z } from "zod"
-
-export const CANONICAL_APP_URL = "https://darkfactory.localhost" as const
 
 const emptyStringToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim() === "" ? undefined : value
@@ -212,18 +211,6 @@ export const parseServerEnv = (source: EnvironmentSource): ServerEnv => {
   }))
   throw new EnvironmentValidationError(issues)
 }
-
-export type ClientEnv = Readonly<{
-  APP_ENV: ServerEnv["APP_ENV"]
-  APP_URL: ServerEnv["APP_URL"]
-  APP_NAME: ServerEnv["APP_NAME"]
-}>
-
-export const toClientEnv = (env: ServerEnv): ClientEnv => ({
-  APP_ENV: env.APP_ENV,
-  APP_URL: env.APP_URL,
-  APP_NAME: env.APP_NAME,
-})
 
 export type ProviderCapabilities = Readonly<{
   ai: boolean

@@ -1,0 +1,214 @@
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  createGroqAiPort,
+  type GroqTextRequest,
+} from "./groq.civet"
+
+const groqModuleFactory = vi.hoisted(() => vi.fn(() => ({ default: vi.fn() })))
+vi.mock("groq-sdk", groqModuleFactory)
+
+const configuredOptions = {
+  apiKey: "secret-api-key",
+  model: "test-model",
+} as const
+
+const createClientFactory = (
+  complete: (request: {
+    model: string
+    prompt: string
+    signal: AbortSignal
+  }) => Promise<{ text: unknown }>,
+) => vi.fn(() => ({ complete }))
+
+describe "createGroqAiPort", ->
+  it.each([
+    { apiKey: undefined, model: "test-model" },
+    { apiKey: "   ", model: "test-model" },
+    { apiKey: "secret-api-key", model: undefined },
+    { apiKey: "secret-api-key", model: "   " },
+  ])("stays unconfigured without constructing a client for $apiKey/$model", async (configuration) =>
+    const clientFactory = createClientFactory(async () => ({ text: "unused" }))
+    const port = createGroqAiPort({ ...configuration, clientFactory })
+
+    await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+      status: "disabled",
+      reason: "not_configured",
+    })
+    expect(clientFactory).not.toHaveBeenCalled()
+    expect(groqModuleFactory).not.toHaveBeenCalled()
+  )
+
+  it "does not construct the configured client until generation is requested", ->
+    const clientFactory = createClientFactory(async () => ({ text: "unused" }))
+
+    createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    expect(clientFactory).not.toHaveBeenCalled()
+
+  it "creates one zero-retry bounded client and generates nonstreaming text", async ->
+    const requests: GroqTextRequest[] = []
+    const injectedFetch = vi.fn()
+    const clientFactory = vi.fn((_options) => ({
+      complete: async (request: GroqTextRequest) => {
+        requests.push(request)
+        return { text: "generated text" }
+      },
+    }))
+    const port = createGroqAiPort({
+      ...configuredOptions,
+      fetch: injectedFetch,
+      clientFactory,
+    })
+
+    await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+      status: "generated",
+      text: "generated text",
+    })
+    await expect(port.generateText({ prompt: "second prompt" })).resolves.toEqual({
+      status: "generated",
+      text: "generated text",
+    })
+    expect(clientFactory).toHaveBeenCalledTimes(1)
+    expect(clientFactory).toHaveBeenCalledWith({
+      apiKey: "secret-api-key",
+      fetch: injectedFetch,
+      maxRetries: 0,
+      timeoutMs: 5_000,
+    })
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toMatchObject({
+      model: "test-model",
+      prompt: "private prompt",
+    })
+    expect(requests.at(0)?.signal).toBeInstanceOf(AbortSignal)
+  
+  it.each([undefined, null, "", "   "])(
+    "rejects an empty provider output %#",
+    async (text) => {
+      const clientFactory = createClientFactory(async () => ({ text }))
+      const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+      await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+        status: "failed",
+        category: "invalid_response",
+        retryable: false,
+      })
+    },
+  )
+
+  it "bounds a provider call and classifies its timeout", async ->
+    let providerSignal: AbortSignal | undefined
+    const clientFactory = createClientFactory(async (request) => {
+      providerSignal = request.signal
+      return await new Promise(() => {})
+    })
+    const port = createGroqAiPort({
+      ...configuredOptions,
+      timeoutMs: 5,
+      clientFactory,
+    })
+
+    await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+      status: "failed",
+      category: "timeout",
+      retryable: true,
+    })
+    expect(providerSignal?.aborted).toBe(true)
+  
+  it "classifies a caller abort without constructing for a pre-aborted call", async ->
+    const controller = new AbortController()
+    controller.abort()
+    const clientFactory = createClientFactory(async () => ({ text: "unused" }))
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    await expect(
+      port.generateText({ prompt: "private prompt", signal: controller.signal }),
+    ).resolves.toEqual({
+      status: "failed",
+      category: "aborted",
+      retryable: false,
+    })
+    expect(clientFactory).not.toHaveBeenCalled()
+  
+  it "classifies a caller abort while a request is pending", async ->
+    const controller = new AbortController()
+    const clientFactory = createClientFactory(async () => await new Promise(() => {}))
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    const pending = port.generateText({
+      prompt: "private prompt",
+      signal: controller.signal,
+    })
+    controller.abort()
+
+    await expect(pending).resolves.toEqual({
+      status: "failed",
+      category: "aborted",
+      retryable: false,
+    })
+  
+  it "maps network errors without exposing provider details", async ->
+    const providerError = Object.assign(new Error("prompt and secret response body"), {
+      name: "APIConnectionError",
+      headers: { authorization: "Bearer secret" },
+      error: { providerBody: "secret response body" },
+    })
+    const clientFactory = createClientFactory(async () => {
+      throw providerError
+    })
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    const result = await port.generateText({ prompt: "private prompt" })
+
+    expect(result).toEqual({
+      status: "failed",
+      category: "network",
+      retryable: true,
+    })
+    expect(JSON.stringify(result)).not.toMatch(/prompt|secret|authorization|providerBody/i)
+  
+  it.each([
+    { statusCode: 400, category: "provider_rejected", retryable: false },
+    { statusCode: 408, category: "timeout", retryable: true },
+    { statusCode: 429, category: "rate_limited", retryable: true },
+    { statusCode: 500, category: "provider_unavailable", retryable: true },
+  ])("maps status $statusCode to $category", async ({ statusCode, category, retryable }) =>
+    const providerError = Object.assign(new Error("secret response body"), {
+      status: statusCode,
+      headers: { cookie: "secret cookie" },
+      error: { body: "secret provider body" },
+    })
+    const clientFactory = createClientFactory(async () => {
+      throw providerError
+    })
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    const result = await port.generateText({ prompt: "private prompt" })
+
+    expect(result).toEqual({
+      status: "failed",
+      category,
+      retryable,
+      statusCode,
+    })
+    expect(JSON.stringify(result)).not.toMatch(/prompt|secret|cookie|body/i)
+  )
+
+  it "maps SDK timeout errors without copying their message", async ->
+    const providerError = Object.assign(new Error("secret timeout body"), {
+      name: "APIConnectionTimeoutError",
+    })
+    const clientFactory = createClientFactory(async () => {
+      throw providerError
+    })
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    const result = await port.generateText({ prompt: "private prompt" })
+
+    expect(result).toEqual({
+      status: "failed",
+      category: "timeout",
+      retryable: true,
+    })
+    expect(JSON.stringify(result)).not.toContain("secret timeout body")

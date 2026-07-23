@@ -1,0 +1,71 @@
+import type { ServerEnv } from "./server.civet"
+
+export type DatabaseProvider = ServerEnv["DATABASE_PROVIDER"]
+export type DatabaseDeploymentProfile = "managed" | "standard"
+
+export type DatabaseCompositionMetadata = Readonly<{
+  provider: DatabaseProvider
+  deployment: DatabaseDeploymentProfile
+}>
+
+export type DatabaseConnectionContract = Readonly<{
+  protocol: "postgresql"
+  connectionString: string
+}>
+
+/** Structural request input so runtime bindings do not leak platform-specific types. */
+export type DatabaseRequestBinding = Readonly<{
+  connectionString: string
+}>
+
+export type DatabaseCompositionProfile = Readonly<{
+  composition: DatabaseCompositionMetadata
+  connection: DatabaseConnectionContract
+}>
+
+export class DatabaseConfigurationError extends Error {
+  constructor(message: string) {
+    super(`Invalid database configuration: ${message}`)
+    this.name = "DatabaseConfigurationError"
+  }
+}
+
+const isPostgresUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value)
+    return (
+      (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
+      url.hostname.length > 0
+    )
+  } catch {
+    return false
+  }
+}
+
+const getConnectionString = (
+  env: ServerEnv,
+  requestBinding?: DatabaseRequestBinding,
+): string => {
+  if (!requestBinding) return env.DATABASE_URL
+
+  const connectionString = requestBinding.connectionString.trim()
+  if (isPostgresUrl(connectionString)) return connectionString
+
+  throw new DatabaseConfigurationError(
+    "request binding connectionString must be a PostgreSQL URL",
+  )
+}
+
+export const composeDatabaseProfile = (
+  env: ServerEnv,
+  requestBinding?: DatabaseRequestBinding,
+): DatabaseCompositionProfile => ({
+  composition: {
+    provider: env.DATABASE_PROVIDER,
+    deployment: env.DATABASE_PROVIDER === "planetscale" ? "managed" : "standard",
+  },
+  connection: {
+    protocol: "postgresql",
+    connectionString: getConnectionString(env, requestBinding),
+  },
+})

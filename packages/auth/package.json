@@ -1,0 +1,54 @@
+{
+  "name": "@darkfactory/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.js"
+  ],
+  "exports": {
+    "./server": {
+      "types": "./src/server.civet.d.ts",
+      "workerd": "./src/server.civet",
+      "worker": "./src/server.civet",
+      "browser": "./src/server/unsupported.js",
+      "import": "./src/server.civet",
+      "default": "./src/server.civet"
+    },
+    "./client": {
+      "types": "./src/client.civet.d.ts",
+      "import": "./src/client.civet",
+      "default": "./src/client.civet"
+    },
+    "./types": {
+      "types": "./src/types.civet.d.ts",
+      "import": "./src/types.civet",
+      "default": "./src/types.civet"
+    }
+  },
+  "scripts": {
+    "auth:schema:generate": "node --experimental-strip-types scripts/check-auth-schema.ts --write",
+    "auth:schema:check": "node --experimental-strip-types scripts/check-auth-schema.ts",
+    "types": "civet --config civet.types.json --emit-declaration",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/server-bundle.test.civet",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/server-bundle.test.civet"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "catalog:",
+    "@darkfactory/db": "workspace:*",
+    "@darkfactory/email": "workspace:*",
+    "better-auth": "catalog:",
+    "drizzle-orm": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "auth": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

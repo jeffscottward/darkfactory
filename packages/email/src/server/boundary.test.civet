@@ -1,0 +1,75 @@
+import { spawnSync } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+
+const workspaceRoot = fileURLToPath(new URL("../../../..", import.meta.url))
+
+describe "email package boundaries", ->
+  it "keeps the public root runtime-free", async ->
+    expect(Object.keys(await import("../index.civet"))).toEqual([])
+
+  it "routes browser server imports to a provider-free poison module", async ->
+    const manifest = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    )
+
+    const serverExport = manifest.exports["./server"]
+
+    expect(Object.keys(serverExport)).toEqual([
+      "types",
+      "workerd",
+      "worker",
+      "browser",
+      "import",
+      "default",
+    ])
+    expect(serverExport.browser).toBe("./src/server/unsupported.civet")
+
+    const browserResolution = spawnSync(
+      process.execPath,
+      [
+        "--conditions",
+        "browser",
+        "--input-type=module",
+        "--eval",
+        'console.log(import.meta.resolve("@darkfactory/email/server"))',
+      ],
+      { cwd: workspaceRoot, encoding: "utf8" },
+    )
+    expect(browserResolution.status).toBe(0)
+    expect(
+      browserResolution.stdout
+        .trim()
+        .replaceAll("\\", "/")
+        .endsWith("/packages/email/src/server/unsupported.civet"),
+    ).toBe(true)
+    await expect(import("./unsupported.civet")).rejects.toThrow(
+      "@darkfactory/email/server is unavailable in browser bundles",
+    )
+
+    for (const workerCondition of ["workerd", "worker"]) {
+      const workerResolution = spawnSync(
+        process.execPath,
+        [
+          "--conditions",
+          workerCondition,
+          "--conditions",
+          "browser",
+          "--input-type=module",
+          "--eval",
+          'console.log(import.meta.resolve("@darkfactory/email/server"))',
+        ],
+        { cwd: workspaceRoot, encoding: "utf8" },
+      )
+
+      expect(workerResolution.status).toBe(0)
+      expect(
+        workerResolution.stdout
+          .trim()
+          .replaceAll("\\", "/")
+          .endsWith("/packages/email/src/server.civet"),
+      ).toBe(true)
+      expect(workerResolution.stderr).toBe("")
+    }
+    return undefined

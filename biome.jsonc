@@ -12,6 +12,8 @@
       // Civet owns parsing and type checks for authored .civet source.
       "!!**/*.civet",
       "!!.markdownlint-cli2.jsonc",
+      // Generated deterministically by @darkfactory/api; stale-check owns its exact bytes.
+      "!!packages/api/openapi.json",
       "!!**/node_modules",
       "!!**/.turbo",
       "!!**/dist",

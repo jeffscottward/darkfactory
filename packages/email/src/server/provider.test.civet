@@ -1,0 +1,278 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { PasswordResetEmailInput } from "../index.civet"
+import {
+  createResendEmailPort,
+  selectEmailPort,
+  type ResendClient,
+} from "./provider.civet"
+
+const resetInput: PasswordResetEmailInput = {
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  resetUrl:
+    "https://darkfactory.localhost/api/auth/reset-password/provider-raw-token" +
+    "?callbackURL=https%3A%2F%2Fdarkfactory.localhost%2Freset-password",
+  expiresInMinutes: 60,
+}
+
+const temporaryDirectories: string[] = []
+
+const createTemporaryDirectory = async (): Promise<string> => {
+  const directory = await mkdtemp(join(tmpdir(), "darkfactory-provider-"))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
+afterEach async ->
+  vi.restoreAllMocks()
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true })
+    )
+  )
+
+describe "selectEmailPort", ->
+  it "selects preview locally even when Resend credentials happen to exist", async ->
+    const directory = await createTemporaryDirectory()
+    const send = vi.fn()
+    const email = selectEmailPort({
+      environment: "development",
+      previewDirectory: directory,
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      resendClient: { emails: { send } },
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("previewed")
+    expect(send).not.toHaveBeenCalled()
+
+  it "selects Resend only when explicitly requested and fully configured", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: { id: "email_123" },
+      error: null,
+    })
+    const email = selectEmailPort({
+      environment: "production",
+      transport: "resend",
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      resendClient: { emails: { send } },
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toEqual({
+      status: "sent",
+      provider: "resend",
+      messageId: "email_123",
+    })
+    expect(send).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "DarkFactory <noreply@domain.test>",
+        to: ["member@domain.test"],
+        subject: "Reset your DarkFactory password",
+      }),
+    )
+
+  it "returns a disabled failure instead of silently previewing explicit Resend without a key", async ->
+    const email = selectEmailPort({
+      environment: "production",
+      transport: "resend",
+      from: "DarkFactory <noreply@domain.test>",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_PROVIDER_NOT_CONFIGURED",
+      retryable: false,
+    })
+
+  it "does not enable a production transport by default", async ->
+    const email = selectEmailPort({ environment: "production" })
+
+    expect(await email.sendPasswordReset(resetInput)).toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_DELIVERY_DISABLED",
+      retryable: false,
+    })
+
+describe "createResendEmailPort", ->
+  it "does not call Resend when the adapter is disabled", async ->
+    const send = vi.fn()
+    const email = createResendEmailPort({
+      enabled: false,
+      apiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("failed")
+    expect(result).toMatchObject({
+      provider: "disabled",
+      code: "EMAIL_DELIVERY_DISABLED",
+    })
+    expect(send).not.toHaveBeenCalled()
+
+  it "rejects recipient injection without calling the provider", async ->
+    const send = vi.fn()
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    const result = await email.sendPasswordReset({
+      ...resetInput,
+      to: "victim@domain.test\\r\\nBcc: attacker@domain.test",
+    })
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_RECIPIENT_INVALID",
+      retryable: false,
+    })
+    expect(send).not.toHaveBeenCalled()
+
+  it "preserves the mailbox local-part while normalizing the domain", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: { id: "email_case" },
+      error: null,
+    })
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    await email.sendPasswordReset({
+      ...resetInput,
+      to: "  Case.Sensitive@DOMAIN.TEST  ",
+    })
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ["Case.Sensitive@domain.test"] }),
+    )
+
+  it "maps provider rejection to failure instead of fake success", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: null,
+      error: { name: "validation_error", message: "Rejected" },
+    })
+    const client: ResendClient = { emails: { send } }
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      client,
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_PROVIDER_REJECTED",
+      retryable: false,
+    })
+    expect(result.status).not.toBe("sent")
+
+  it "marks Resend throttling and server failures retryable without exposing details", async ->
+    for (const error of [
+      { name: "rate_limit_exceeded", statusCode: 429 },
+      { name: "application_error", statusCode: 500 },
+      { name: "internal_server_error" },
+    ]) {
+      const send = vi.fn().mockResolvedValue({ data: null, error })
+      const email = createResendEmailPort({
+        enabled: true,
+        apiKey: "re_test_key",
+        from: "DarkFactory <noreply@domain.test>",
+        client: { emails: { send } },
+      })
+
+      const result = await email.sendPasswordReset(resetInput)
+
+      expect(result).toEqual({
+        status: "failed",
+        provider: "resend",
+        code: "EMAIL_PROVIDER_UNAVAILABLE",
+        retryable: true,
+      })
+      expect(JSON.stringify(result)).not.toContain(error.name)
+    }
+
+  it "does not retry daily or monthly quota exhaustion", async ->
+    for (const name of [
+      "daily_quota_exceeded",
+      "monthly_quota_exceeded",
+    ]) {
+      const send = vi.fn().mockResolvedValue({
+        data: null,
+        error: { name, statusCode: 429 },
+      })
+      const email = createResendEmailPort({
+        enabled: true,
+        apiKey: "re_test_key",
+        from: "DarkFactory <noreply@domain.test>",
+        client: { emails: { send } },
+      })
+
+      const result = await email.sendPasswordReset(resetInput)
+
+      expect(result).toEqual({
+        status: "failed",
+        provider: "resend",
+        code: "EMAIL_PROVIDER_REJECTED",
+        retryable: false,
+      })
+      expect(JSON.stringify(result)).not.toContain(name)
+    }
+
+  it "returns a redacted typed failure and never logs provider secrets or message content", async ->
+    const apiKey = "re_secret-do-not-log"
+    const rawToken = "provider-raw-token"
+    const send = vi.fn().mockRejectedValue(
+      new Error(`Request with ${apiKey} and ${rawToken} failed`),
+    )
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined)
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey,
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+    const serialized = JSON.stringify(result)
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_PROVIDER_UNAVAILABLE",
+      retryable: true,
+    })
+    expect(serialized).not.toContain(apiKey)
+    expect(serialized).not.toContain(rawToken)
+    expect(consoleLog).not.toHaveBeenCalled()
+    expect(consoleWarn).not.toHaveBeenCalled()
+    expect(consoleError).not.toHaveBeenCalled()

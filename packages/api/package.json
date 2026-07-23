@@ -1,0 +1,52 @@
+{
+  "name": "@darkfactory/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.civet"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    },
+    "./server": {
+      "types": "./src/server/index.civet.d.ts",
+      "workerd": "./src/server/index.civet",
+      "worker": "./src/server/index.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/index.civet",
+      "default": "./src/server/index.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --config civet.types.json --emit-declaration src/index.civet && civet --config civet.types.json --emit-declaration src/server/index.civet",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/",
+    "openapi:generate": "civet scripts/openapi.civet --write",
+    "openapi:check": "civet scripts/openapi.civet"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@darkfactory/auth": "workspace:*",
+    "@darkfactory/db": "workspace:*",
+    "@darkfactory/observability": "workspace:*",
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/zod": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

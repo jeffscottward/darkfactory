@@ -1,0 +1,488 @@
+import { createHash, randomUUID } from "node:crypto"
+import {
+  Client,
+  type ClientConfig,
+  type QueryResultRow,
+} from "pg"
+
+const TEST_DATABASE_PREFIX = "darkfactory_test_"
+const TEST_MAINTENANCE_DATABASE = "darkfactory_test_maintenance"
+const TEST_RUNNER_ROLE = "darkfactory_test_runner"
+const DATABASE_NAME_LIMIT = 63
+const RUN_ID_DIGEST_LENGTH = 12
+const CONNECTION_TIMEOUT_MILLISECONDS = 5_000
+const STATEMENT_TIMEOUT_MILLISECONDS = 15_000
+const LOCK_TIMEOUT_MILLISECONDS = 5_000
+const UNSAFE_TARGET_PATTERN = /(?:^|[_-])(prod|production|live)(?:$|[_-])/i
+const SAFE_IDENTIFIER_PATTERN = /^[a-z0-9_]+$/
+const SAFE_TEST_HOSTS = new Set([
+  "",
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "[::1]",
+])
+const ROUTING_QUERY_PARAMETERS = new Set([
+  "database",
+  "dbname",
+  "host",
+  "hostaddr",
+  "password",
+  "port",
+  "service",
+  "servicefile",
+  "user",
+])
+
+export type PostgresTestConnection = Readonly<{
+  query: <Row extends QueryResultRow = QueryResultRow>(
+    statement: string,
+    values?: unknown[],
+  ) => Promise<readonly Row[]>
+  waitForTermination: () => Promise<Error>
+  waitForClose: () => Promise<void>
+  close: () => Promise<void>
+}>
+
+export type PostgresTestDatabase = Readonly<{
+  databaseUrl: string
+  databaseName: string
+  runId: string
+  query: <Row extends QueryResultRow = QueryResultRow>(
+    statement: string,
+    values?: unknown[],
+  ) => Promise<readonly Row[]>
+  openConnection: () => Promise<PostgresTestConnection>
+}>
+
+export type CreatePostgresTestDatabaseOptions = Readonly<{
+  databaseUrl?: string
+  runId?: string
+}>
+
+type ValidatedDatabaseUrl = Readonly<{
+  clientConfig: ClientConfig
+  parsedUrl: URL
+}>
+
+type TestDatabaseState = {
+  client: Client
+  databaseName: string
+  isolatedConfig: ClientConfig
+  maintenanceConfig: ClientConfig
+}
+
+const activeDatabases = new WeakMap<PostgresTestDatabase, TestDatabaseState>()
+
+const assertTestEnvironment = (): void => {
+  if (process.env.NODE_ENV !== "test" && process.env["APP_ENV"] !== "test") {
+    throw new Error("Postgres test database lifecycle requires NODE_ENV=test or APP_ENV=test")
+  }
+}
+
+const decodeUrlComponent = (component: string, fieldName: string): string => {
+  try {
+    return decodeURIComponent(component)
+  } catch {
+    throw new TypeError(`DATABASE_URL contains an invalid ${fieldName}`)
+  }
+}
+
+const normalizeHostname = (hostname: string): string =>
+  hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname
+
+const parseDatabaseUrl = (databaseUrl: string): ValidatedDatabaseUrl => {
+  let parsedUrl: URL
+
+  try {
+    parsedUrl = new URL(databaseUrl)
+  } catch {
+    throw new TypeError("DATABASE_URL must be a valid PostgreSQL URL")
+  }
+
+  if (parsedUrl.protocol !== "postgres:" && parsedUrl.protocol !== "postgresql:") {
+    throw new TypeError("DATABASE_URL must use the postgres or postgresql protocol")
+  }
+
+  for (const parameterName of parsedUrl.searchParams.keys()) {
+    if (ROUTING_QUERY_PARAMETERS.has(parameterName.toLowerCase())) {
+      throw new Error("Refusing DATABASE_URL connection-routing query parameters")
+    }
+  }
+
+  const sslMode = parsedUrl.searchParams.get("sslmode")
+  if (sslMode !== null && sslMode !== "disable") {
+    throw new Error("Local Postgres test DATABASE_URL only supports sslmode=disable")
+  }
+
+  const hostname = normalizeHostname(parsedUrl.hostname.toLowerCase())
+  const databaseName = decodeUrlComponent(parsedUrl.pathname.slice(1), "database name")
+  const username = decodeUrlComponent(parsedUrl.username, "username")
+  const password = decodeUrlComponent(parsedUrl.password, "password")
+
+  if (databaseName.length === 0 || username.length === 0) {
+    throw new TypeError("DATABASE_URL must name a maintenance database and user")
+  }
+
+  if (
+    !SAFE_TEST_HOSTS.has(parsedUrl.hostname.toLowerCase()) &&
+    !SAFE_TEST_HOSTS.has(hostname)
+  ) {
+    throw new Error("Refusing destructive test database lifecycle for a non-local host")
+  }
+
+  if (
+    (databaseName.startsWith(TEST_DATABASE_PREFIX) &&
+      databaseName !== TEST_MAINTENANCE_DATABASE) ||
+    UNSAFE_TARGET_PATTERN.test(databaseName) ||
+    UNSAFE_TARGET_PATTERN.test(hostname)
+  ) {
+    throw new Error("Refusing destructive test database lifecycle for an unsafe DATABASE_URL")
+  }
+
+  if (
+    databaseName !== TEST_MAINTENANCE_DATABASE ||
+    username !== TEST_RUNNER_ROLE
+  ) {
+    throw new Error(
+      "Postgres test lifecycle requires the dedicated darkfactory test runner and maintenance database",
+    )
+  }
+
+  const parsedPort = parsedUrl.port.length === 0 ? 5432 : Number(parsedUrl.port)
+  if (!Number.isSafeInteger(parsedPort) || parsedPort < 1 || parsedPort > 65_535) {
+    throw new TypeError("DATABASE_URL must contain a valid Postgres port")
+  }
+
+  return {
+    parsedUrl,
+    clientConfig: {
+      host: hostname.length === 0 ? undefined : hostname,
+      port: parsedPort,
+      database: databaseName,
+      user: username,
+      password,
+      ssl: false,
+      application_name: "darkfactory-testkit",
+      connectionTimeoutMillis: CONNECTION_TIMEOUT_MILLISECONDS,
+      query_timeout: STATEMENT_TIMEOUT_MILLISECONDS,
+      statement_timeout: STATEMENT_TIMEOUT_MILLISECONDS,
+      lock_timeout: LOCK_TIMEOUT_MILLISECONDS,
+    },
+  }
+}
+
+const normalizeRunId = (runId: string): string => {
+  if (runId.length > 512) {
+    throw new TypeError("Postgres test database runId must not exceed 512 characters")
+  }
+
+  const normalizedRunId = runId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+
+  if (normalizedRunId.length === 0) {
+    throw new TypeError("Postgres test database runId must contain a letter or number")
+  }
+
+  return normalizedRunId
+}
+
+const createDatabaseName = (runId: string): string => {
+  const normalizedRunId = normalizeRunId(runId)
+  const digest = createHash("sha256")
+    .update(normalizedRunId)
+    .digest("hex")
+    .slice(0, RUN_ID_DIGEST_LENGTH)
+  const stemLength =
+    DATABASE_NAME_LIMIT -
+    TEST_DATABASE_PREFIX.length -
+    RUN_ID_DIGEST_LENGTH -
+    1
+  const databaseName = `${TEST_DATABASE_PREFIX}${normalizedRunId.slice(0, stemLength)}_${digest}`
+
+  if (!SAFE_IDENTIFIER_PATTERN.test(databaseName)) {
+    throw new Error("Generated Postgres test database name is unsafe")
+  }
+
+  return databaseName
+}
+
+const quoteIdentifier = (identifier: string): string => {
+  if (!SAFE_IDENTIFIER_PATTERN.test(identifier)) {
+    throw new Error("Refusing to execute database lifecycle with an unsafe identifier")
+  }
+
+  return `"${identifier}"`
+}
+
+const createIsolatedUrl = (sourceUrl: URL, databaseName: string): string => {
+  const isolatedUrl = new URL(sourceUrl)
+  isolatedUrl.pathname = `/${databaseName}`
+  isolatedUrl.search = ""
+  return isolatedUrl.toString()
+}
+
+const queryWithClient = async <Row extends QueryResultRow = QueryResultRow>(
+  client: Client,
+  statement: string,
+  values?: unknown[],
+): Promise<readonly Row[]> => {
+  const result = await client.query<Row>(statement, values)
+  return result.rows
+}
+
+const forceDropAndVerifyDatabase = async (
+  maintenanceConfig: ClientConfig,
+  databaseName: string,
+): Promise<void> => {
+  if (!databaseName.startsWith(TEST_DATABASE_PREFIX)) {
+    throw new Error("Refusing to drop a database not owned by the Postgres test harness")
+  }
+
+  const maintenanceClient = new Client(maintenanceConfig)
+  const cleanupErrors: unknown[] = []
+  let dropped = false
+
+  try {
+    await maintenanceClient.connect()
+    await maintenanceClient.query(
+      `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`,
+    )
+    const result = await maintenanceClient.query<{ database_exists: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS database_exists",
+      [databaseName],
+    )
+
+    if (result.rows[0]?.database_exists !== false) {
+      throw new Error("Postgres test database remained in the catalog after cleanup")
+    }
+
+    dropped = true
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+  }
+
+  try {
+    await maintenanceClient.end()
+  } catch (closeError) {
+    cleanupErrors.push(closeError)
+  }
+
+  if (!dropped || cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, "Postgres test database cleanup failed")
+  }
+}
+
+const throwPrimaryWithCleanup = (
+  primaryError: unknown,
+  cleanupErrors: unknown[],
+): never => {
+  if (cleanupErrors.length === 0) {
+    throw primaryError
+  }
+
+  throw new AggregateError(
+    [primaryError, ...cleanupErrors],
+    "Postgres test database operation and cleanup both failed",
+  )
+}
+
+const isDuplicateDatabaseError = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false
+  }
+
+  if (error.code === "42P04") return true
+
+  return (
+    error.code === "23505" &&
+    "constraint" in error &&
+    error.constraint === "pg_database_datname_index"
+  )
+}
+
+export const createPostgresTestDatabase = async (
+  options: CreatePostgresTestDatabaseOptions = {},
+): Promise<PostgresTestDatabase> => {
+  assertTestEnvironment()
+  const sourceDatabaseUrl = options.databaseUrl ?? process.env["DATABASE_URL"]
+
+  if (sourceDatabaseUrl === undefined || sourceDatabaseUrl.length === 0) {
+    throw new Error("DATABASE_URL is required for real Postgres integration tests")
+  }
+
+  const validatedUrl = parseDatabaseUrl(sourceDatabaseUrl)
+  const runId = normalizeRunId(
+    options.runId ?? `${randomUUID()}_${process.pid}_${process.env["VITEST_POOL_ID"] ?? "0"}`,
+  )
+  const databaseName = createDatabaseName(runId)
+  const maintenanceConfig = validatedUrl.clientConfig
+  const isolatedConfig: ClientConfig = {
+    ...maintenanceConfig,
+    database: databaseName,
+  }
+  const maintenanceClient = new Client(maintenanceConfig)
+  let databaseCreated = false
+  let isolatedClient: Client | undefined
+
+  try {
+    await maintenanceClient.connect()
+    const roleResult = await maintenanceClient.query<{
+      role_name: string
+      database_name: string
+      can_create_database: boolean
+      can_create_role: boolean
+      can_replicate: boolean
+      bypasses_rls: boolean
+      is_superuser: boolean
+    }>(
+      "SELECT current_user AS role_name, current_database() AS database_name, rolcreatedb AS can_create_database, rolcreaterole AS can_create_role, rolreplication AS can_replicate, rolbypassrls AS bypasses_rls, rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user",
+    )
+    const role = roleResult.rows[0]
+    if (
+      role === undefined ||
+      role.role_name !== TEST_RUNNER_ROLE ||
+      role.database_name !== TEST_MAINTENANCE_DATABASE ||
+      !role.can_create_database ||
+      role.can_create_role ||
+      role.can_replicate ||
+      role.bypasses_rls ||
+      role.is_superuser
+    ) {
+      throw new Error(
+        "Postgres test lifecycle requires the dedicated CREATEDB-only test role",
+      )
+    }
+
+
+    try {
+      await maintenanceClient.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`)
+      databaseCreated = true
+    } catch (createError) {
+      if (isDuplicateDatabaseError(createError)) {
+        throw new Error(`Postgres test database runId collision: ${runId}`)
+      }
+      throw createError
+    }
+
+    isolatedClient = new Client(isolatedConfig)
+    await isolatedClient.connect()
+    await maintenanceClient.end()
+
+    let database: PostgresTestDatabase
+    const openConnection = async (): Promise<PostgresTestConnection> => {
+      if (!activeDatabases.has(database)) {
+        throw new Error("Cannot open a connection to a dropped Postgres test database")
+      }
+
+      const client = new Client(isolatedConfig)
+      let resolveTermination: (error: Error) => void = () => undefined
+      const termination = new Promise<Error>((resolve) => {
+        resolveTermination = resolve
+      })
+      const closed = new Promise<void>((resolve) => {
+        client.once("end", resolve)
+      })
+      client.on("error", (error) => {
+        resolveTermination(error)
+      })
+      await client.connect()
+      return Object.freeze({
+        query: <Row extends QueryResultRow = QueryResultRow>(
+          statement: string,
+          values?: unknown[],
+        ): Promise<readonly Row[]> => queryWithClient<Row>(client, statement, values),
+        waitForTermination: () => termination,
+        waitForClose: () => closed,
+        close: () => client.end(),
+      })
+    }
+
+    const query = <Row extends QueryResultRow = QueryResultRow>(
+      statement: string,
+      values?: unknown[],
+    ): Promise<readonly Row[]> =>
+      queryWithClient<Row>(isolatedClient as Client, statement, values)
+
+    database = Object.freeze({
+      databaseUrl: createIsolatedUrl(validatedUrl.parsedUrl, databaseName),
+      databaseName,
+      runId,
+      query,
+      openConnection,
+    })
+
+    activeDatabases.set(database, {
+      client: isolatedClient,
+      databaseName,
+      isolatedConfig,
+      maintenanceConfig,
+    })
+
+    return database
+  } catch (primaryError) {
+    const cleanupErrors: unknown[] = []
+
+    if (isolatedClient !== undefined) {
+      try {
+        await isolatedClient.end()
+      } catch (closeError) {
+        cleanupErrors.push(closeError)
+      }
+    }
+
+    if (databaseCreated) {
+      try {
+        await forceDropAndVerifyDatabase(maintenanceConfig, databaseName)
+      } catch (dropError) {
+        cleanupErrors.push(dropError)
+      }
+    }
+
+    try {
+      await maintenanceClient.end()
+    } catch (closeError) {
+      cleanupErrors.push(closeError)
+    }
+
+    throwPrimaryWithCleanup(primaryError, cleanupErrors)
+  }
+}
+
+export const dropPostgresTestDatabase = async (
+  database: PostgresTestDatabase,
+): Promise<void> => {
+  const state = activeDatabases.get(database)
+
+  if (state === undefined) {
+    throw new Error("Refusing to drop an unowned or already-dropped test database")
+  }
+
+  const cleanupErrors: unknown[] = []
+
+  try {
+    await state.client.end()
+  } catch (closeError) {
+    cleanupErrors.push(closeError)
+  }
+
+  let databaseDropped = false
+  try {
+    await forceDropAndVerifyDatabase(state.maintenanceConfig, state.databaseName)
+    databaseDropped = true
+  } catch (dropError) {
+    cleanupErrors.push(dropError)
+  }
+
+  if (databaseDropped) {
+    activeDatabases.delete(database)
+  }
+
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, "Postgres test database cleanup failed")
+  }
+}

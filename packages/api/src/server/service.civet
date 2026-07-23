@@ -1,0 +1,216 @@
+import type { SafePrincipal } from "@darkfactory/auth/types"
+import {
+  DatabaseConflictError,
+  DatabasePersistenceError,
+  InvalidRepositoryInputError,
+  type FeatureItemRepository,
+} from "@darkfactory/db/server"
+import type {
+  FeatureItem,
+  FeatureItemMetadata,
+  FeatureItemStatus,
+} from "@darkfactory/db/schema"
+
+export type FeatureServiceErrorCode =
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "VALIDATION_ERROR"
+  | "STORAGE_ERROR"
+
+export class FeatureServiceError extends Error {
+  readonly code: FeatureServiceErrorCode
+
+  constructor(code: FeatureServiceErrorCode, message: string) {
+    super(message)
+    this.name = "FeatureServiceError"
+    this.code = code
+  }
+}
+
+export type OwnerScopeInput = Readonly<{ ownerId?: string | undefined }>
+export type ItemScopeInput = Readonly<{
+  id: string
+  ownerId?: string | undefined
+}>
+export type CreateFeatureInput = OwnerScopeInput &
+  Readonly<{
+    name: string
+    description: string
+    metadata?: FeatureItemMetadata | undefined
+  }>
+export type UpdateFeatureInput = ItemScopeInput &
+  Readonly<{
+    name?: string | undefined
+    description?: string | undefined
+    metadata?: FeatureItemMetadata | undefined
+  }>
+export type ChangeFeatureStatusInput = ItemScopeInput &
+  Readonly<{ status: FeatureItemStatus }>
+
+export type FeatureItemService = Readonly<{
+  list: (principal: SafePrincipal, input: OwnerScopeInput) => Promise<FeatureItem[]>
+  get: (principal: SafePrincipal, input: ItemScopeInput) => Promise<FeatureItem>
+  create: (
+    principal: SafePrincipal,
+    input: CreateFeatureInput,
+    requestId: string,
+  ) => Promise<FeatureItem>
+  update: (
+    principal: SafePrincipal,
+    input: UpdateFeatureInput,
+    requestId: string,
+  ) => Promise<FeatureItem>
+  changeStatus: (
+    principal: SafePrincipal,
+    input: ChangeFeatureStatusInput,
+    requestId: string,
+  ) => Promise<FeatureItem>
+  archive: (
+    principal: SafePrincipal,
+    input: ItemScopeInput,
+    requestId: string,
+  ) => Promise<FeatureItem>
+}>
+
+const ownerFor = (principal: SafePrincipal, requestedOwnerId?: string): string => {
+  if (
+    requestedOwnerId !== undefined &&
+    requestedOwnerId !== principal.userId &&
+    principal.role !== "admin"
+  )
+    throw new FeatureServiceError(
+      "FORBIDDEN",
+      "Members may access only their own feature items",
+    )
+
+  return requestedOwnerId ?? principal.userId
+}
+
+const mapRepositoryError = (error: unknown): never => {
+  if (error instanceof FeatureServiceError) throw error
+  if (error instanceof InvalidRepositoryInputError)
+    throw new FeatureServiceError("VALIDATION_ERROR", error.message)
+  if (error instanceof DatabaseConflictError)
+    throw new FeatureServiceError("CONFLICT", error.message)
+  if (error instanceof DatabasePersistenceError)
+    throw new FeatureServiceError(
+      "STORAGE_ERROR",
+      "Feature item storage is unavailable",
+    )
+  throw error
+}
+
+const runRepository = async <T>(operation: () => Promise<T>): Promise<T> => {
+  try {
+    return await operation()
+  } catch (error) {
+    return mapRepositoryError(error)
+  }
+}
+
+const requireItem = (item: FeatureItem | null): FeatureItem => {
+  if (item === null)
+    throw new FeatureServiceError("NOT_FOUND", "Feature item not found")
+  return item
+}
+
+const ALLOWED_STATUS_TRANSITIONS: Readonly<
+  Record<FeatureItemStatus, readonly FeatureItemStatus[]>
+> = {
+  draft: ["active", "archived"],
+  active: ["draft", "archived"],
+  archived: [],
+}
+
+export const createFeatureItemService = (
+  repository: FeatureItemRepository,
+): FeatureItemService => ({
+  list: async (principal, input) => {
+    const ownerId = ownerFor(principal, input.ownerId)
+    return runRepository(() => repository.listByOwner(ownerId))
+  },
+
+  get: async (principal, input) => {
+    const ownerId = ownerFor(principal, input.ownerId)
+    const found = await runRepository(() => {
+      return repository.findByIdForOwner(input.id, ownerId)
+    })
+    return requireItem(found)
+  },
+
+  create: async (principal, input, requestId) => {
+    const ownerId = ownerFor(principal, input.ownerId)
+    return runRepository(() => {
+      return repository.create(
+        {
+          ownerId,
+          name: input.name,
+          description: input.description,
+          ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+        },
+        { actorUserId: principal.userId, requestId },
+      )
+    })
+  },
+
+  update: async (principal, input, requestId) => {
+    const ownerId = ownerFor(principal, input.ownerId)
+    const updated = await runRepository(() => {
+      return repository.update(
+        {
+          id: input.id,
+          ownerId,
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(input.description === undefined
+            ? {}
+            : { description: input.description }),
+          ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+        },
+        { actorUserId: principal.userId, requestId },
+      )
+    })
+    return requireItem(updated)
+  },
+
+  changeStatus: async (principal, input, requestId) => {
+    const ownerId = ownerFor(principal, input.ownerId)
+    const current = requireItem(
+      await runRepository(() => {
+        return repository.findByIdForOwner(input.id, ownerId)
+      }),
+    )
+    if (!ALLOWED_STATUS_TRANSITIONS[current.status].includes(input.status))
+      throw new FeatureServiceError(
+        "CONFLICT",
+        `Cannot change feature item status from ${current.status} to ${input.status}`,
+      )
+
+    const updated = await runRepository(() => {
+      return repository.update(
+        { id: input.id, ownerId, status: input.status },
+        { actorUserId: principal.userId, requestId },
+      )
+    })
+    return requireItem(updated)
+  },
+
+  archive: async (principal, input, requestId) => {
+    const ownerId = ownerFor(principal, input.ownerId)
+    const current = requireItem(
+      await runRepository(() => {
+        return repository.findByIdForOwner(input.id, ownerId)
+      }),
+    )
+    if (current.status === "archived")
+      throw new FeatureServiceError("CONFLICT", "Feature item is already archived")
+
+    const archived = await runRepository(() => {
+      return repository.archive(input.id, ownerId, {
+        actorUserId: principal.userId,
+        requestId,
+      })
+    })
+    return requireItem(archived)
+  },
+})

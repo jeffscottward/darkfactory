@@ -1,0 +1,60 @@
+import type { ComponentPropsWithRef, JSX, ReactNode } from "react"
+import { useId } from "react"
+
+import { cn } from "./utilities.civet"
+
+export type EmptyStateHeadingLevel = 2 | 3 | 4 | 5 | 6
+
+export interface EmptyStateProps
+  extends Omit<ComponentPropsWithRef<"section">, "title"> {
+  title: ReactNode
+  description: ReactNode
+  icon?: ReactNode
+  action?: ReactNode
+  headingLevel?: EmptyStateHeadingLevel
+}
+
+export const EmptyState = ({
+  action,
+  className,
+  description,
+  headingLevel = 2,
+  icon,
+  title,
+  ...props
+}: EmptyStateProps) => {
+  const generatedId = useId()
+  const titleId = `${generatedId}-title`
+  const Heading = `h${headingLevel}` as keyof Pick<
+    JSX.IntrinsicElements,
+    "h2" | "h3" | "h4" | "h5" | "h6"
+  >
+
+  return (
+    <section
+      {...props}
+      role="region"
+      aria-labelledby={titleId}
+      className={cn(
+        "mx-auto flex max-w-reading flex-col items-start gap-4 border-y border-border py-10 text-left",
+        className,
+      )}
+    >
+      {icon === undefined ? null : (
+        <span aria-hidden="true" className="text-muted-foreground [&_svg]:size-6">
+          {icon}
+        </span>
+      )}
+      <div className="space-y-2">
+        <Heading
+          id={titleId}
+          className="font-heading text-2xl font-semibold tracking-tight text-foreground"
+        >
+          {title}
+        </Heading>
+        <p className="max-w-reading text-base leading-6 text-muted-foreground">{description}</p>
+      </div>
+      {action === undefined ? null : <div className="pt-2">{action}</div>}
+    </section>
+  )
+}

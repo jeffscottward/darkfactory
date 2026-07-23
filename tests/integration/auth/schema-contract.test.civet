@@ -1,0 +1,92 @@
+import {
+  account as generatedAccount,
+  session as generatedSession,
+  user as generatedUser,
+  verification as generatedVerification,
+} from "../../../packages/auth/generated/better-auth-schema.ts"
+import { tableContract } from "../../../packages/auth/scripts/schema-contract.ts"
+import {
+  USER_ROLES,
+  USER_STATUSES,
+  accounts,
+  sessions,
+  users,
+  verifications,
+} from "@darkfactory/db/schema"
+import { describe, expect, it } from "vitest"
+
+const compareRequiredContract = (
+  generatedTable: Parameters<typeof tableContract>[0],
+  productionTable: Parameters<typeof tableContract>[0],
+) => {
+  const generated = tableContract(generatedTable)
+  const production = tableContract(productionTable)
+
+  expect(production.name).toBe(generated.name)
+  expect(production.columns.map(({ name }) => name)).toEqual(
+    generated.columns.map(({ name }) => name),
+  )
+  for (const requiredColumn of generated.columns) {
+    const actualColumn = production.columns.find(
+      ({ name }) => name === requiredColumn.name,
+    )
+    expect(actualColumn).toMatchObject({
+      name: requiredColumn.name,
+      sqlType: requiredColumn.sqlType,
+      notNull: requiredColumn.notNull,
+      primary: requiredColumn.primary,
+      unique: requiredColumn.unique,
+      hasOnUpdate: requiredColumn.hasOnUpdate,
+    })
+    if (requiredColumn.hasDefault) {
+      expect(actualColumn?.hasDefault).toBe(true)
+    }
+    if (requiredColumn.defaultValue !== null) {
+      expect(actualColumn?.defaultValue).toBe(requiredColumn.defaultValue)
+    }
+  }
+  expect(production.foreignKeys).toEqual(generated.foreignKeys)
+
+  for (const requiredIndex of generated.indexes) {
+    expect(production.indexes).toContainEqual(requiredIndex)
+  }
+
+  // DarkFactory deliberately hardens the CLI baseline with timestamptz,
+  // expiration indexes, composite uniqueness, and database checks. Those
+  // additions are allowed; weakening any CLI-required metadata is not.
+  for (const timestamp of production.timestamps) {
+    expect(timestamp.withTimezone).toBe(true)
+  }
+  for (const timestamp of generated.timestamps) {
+    expect(timestamp.withTimezone).toBe(false)
+  }
+}
+
+describe "Better Auth 1.6.24 generated schema contract", ->
+  it "matches required physical tables, columns, constraints, defaults, hooks, FKs, and indexes", ->
+    compareRequiredContract(generatedUser, users)
+    compareRequiredContract(generatedSession, sessions)
+    compareRequiredContract(generatedAccount, accounts)
+    compareRequiredContract(generatedVerification, verifications)
+
+    const generatedUserContract = tableContract(generatedUser)
+    const productionUser = tableContract(users)
+    expect(productionUser.checks).toEqual([
+      "user_role_check",
+      "user_status_check",
+    ])
+    expect(
+      generatedUserContract.columns.find(({ name }) => name === "role")?.enumValues,
+    ).toEqual(USER_ROLES)
+    expect(
+      generatedUserContract.columns.find(({ name }) => name === "status")?.enumValues,
+    ).toEqual(USER_STATUSES)
+
+    expect(tableContract(accounts).indexes).toContainEqual({
+      columns: ["provider_id", "account_id"],
+      unique: true,
+    })
+    expect(tableContract(verifications).indexes).toContainEqual({
+      columns: ["identifier", "value"],
+      unique: true,
+    })

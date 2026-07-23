@@ -1,0 +1,233 @@
+import { createApiClient, type ApiClient } from "@darkfactory/api"
+import {
+  createApiContext,
+  handleApiRequest,
+} from "@darkfactory/api/server"
+import {
+  createAuth,
+  createAuthHandler,
+  requireRole,
+  requireSession,
+} from "@darkfactory/auth/server"
+import {
+  createNodeDatabase,
+  createRepositories,
+  migrate,
+} from "@darkfactory/db/server"
+import type { EmailPort } from "@darkfactory/email"
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
+const BASE_URL = "https://darkfactory.localhost"
+const AUTH_SECRET = "api-integration-secret-with-at-least-32-characters"
+const PASSWORD = "CorrectHorseBatteryStaple!42"
+
+let testDatabase: PostgresTestDatabase
+let databaseResource: ReturnType<typeof createNodeDatabase>
+let auth: ReturnType<typeof createAuth>
+let authHandler: (request: Request) => Promise<Response>
+let backgroundTasks: Promise<unknown>[]
+
+const email: EmailPort = {
+  sendPasswordReset: async () => ({
+    status: "previewed",
+    provider: "preview",
+    artifactPath: "/tmp/darkfactory-api-reset.html",
+  }),
+}
+
+const resetDatabase = async (): Promise<void> => {
+  await testDatabase.query(
+    'TRUNCATE TABLE "audit_records", "outbox_events", "feature_items", "verification", "session", "account", "profiles", "user_preferences", "user" CASCADE',
+  )
+}
+
+const authRequest = (
+  path: string,
+  body: Readonly<Record<string, unknown>>,
+): Request =>
+  new Request(`${BASE_URL}/api/auth${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE_URL },
+    body: JSON.stringify(body),
+  })
+
+const cookieFrom = (response: Response): string => {
+  const setCookie = response.headers.get("set-cookie")
+  if (setCookie === null) throw new Error("Expected a session cookie")
+  return setCookie.split(";", 1)[0]!
+}
+
+const createIdentity = async (
+  emailAddress: string,
+  role: "member" | "admin" = "member",
+): Promise<string> => {
+  const signUpRequest = authRequest("/sign-up/email", {
+    name: `API ${role}`,
+    email: emailAddress,
+    password: PASSWORD,
+  })
+  expect(signUpRequest).toBeInstanceOf(Request)
+  const signUp = await authHandler(signUpRequest)
+  expect(signUp.status).toBe(200)
+  await Promise.all(backgroundTasks)
+  backgroundTasks = []
+
+  if (role === "admin")
+    await testDatabase.query('UPDATE "user" SET role = $1 WHERE email = $2', [
+      "admin",
+      emailAddress,
+    ])
+
+  const signIn = await authHandler(
+    authRequest("/sign-in/email", { email: emailAddress, password: PASSWORD }),
+  )
+  expect(signIn.status).toBe(200)
+  await Promise.all(backgroundTasks)
+  backgroundTasks = []
+  return cookieFrom(signIn)
+}
+
+const apiClient = (cookie?: string): ApiClient =>
+  createApiClient({
+    baseUrl: BASE_URL,
+    fetch: async (request) => {
+      const headers = new Headers(request.headers)
+      headers.set("origin", BASE_URL)
+      if (cookie !== undefined) headers.set("cookie", cookie)
+      const authenticatedRequest = new Request(request, { headers })
+      const context = createApiContext(authenticatedRequest, {
+        repositories: createRepositories(databaseResource.db),
+        requireSession: (requestHeaders) => requireSession(auth, requestHeaders),
+        requireRole: (requestHeaders, role) => requireRole(auth, requestHeaders, role),
+      })
+      return handleApiRequest(authenticatedRequest, context)
+    },
+  })
+
+const expectedError = async (
+  operation: Promise<unknown>,
+  code: string,
+  status: number,
+): Promise<void> => {
+  try {
+    await operation
+  } catch (error) {
+    expect(error).toMatchObject({ code, status, defined: true })
+    return
+  }
+  throw new Error("Expected the API operation to fail")
+}
+
+describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
+  beforeAll(async ->
+    testDatabase = await createPostgresTestDatabase()
+    databaseResource = createNodeDatabase({
+      connectionString: testDatabase.databaseUrl,
+      maxConnections: 4,
+    })
+    await migrate(databaseResource.db)
+  , 60_000)
+
+  beforeEach(async ->
+    await resetDatabase()
+    backgroundTasks = []
+    auth = createAuth({
+      database: databaseResource.db,
+      secret: AUTH_SECRET,
+      baseURL: BASE_URL,
+      trustedOrigins: [BASE_URL],
+      email,
+      scheduleBackgroundTask: (task) => {
+        backgroundTasks.push(task)
+      },
+      rateLimitEnabled: false,
+    })
+    authHandler = createAuthHandler(auth)
+    // Vitest treats a returned function as teardown; this handler requires a Request.
+    return undefined
+  )
+
+  afterAll(async ->
+    try {
+      if (databaseResource !== undefined) await databaseResource.close()
+    } finally {
+      if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
+    }
+  , 60_000)
+
+  it "runs owner-scoped lifecycle mutations through atomic audit and outbox writes", async ->
+    const memberCookie = await createIdentity("member-api@domain.test")
+    const otherCookie = await createIdentity("other-api@domain.test")
+    const member = apiClient(memberCookie)
+    const other = apiClient(otherCookie)
+
+    const created = await member.featureItems.create({
+      name: "Neutral workflow",
+      description: "Created through the typed production handler",
+      metadata: { source: "integration" },
+    })
+    expect(created).toMatchObject({ status: "draft", name: "Neutral workflow" })
+
+    await expectedError(
+      other.featureItems.get({ id: created.id }),
+      "NOT_FOUND",
+      404,
+    )
+
+    const updated = await member.featureItems.update({
+      id: created.id,
+      name: "Updated neutral workflow",
+    })
+    expect(updated.name).toBe("Updated neutral workflow")
+
+    const activated = await member.featureItems.changeStatus({
+      id: created.id,
+      status: "active",
+    })
+    expect(activated.status).toBe("active")
+
+    const archived = await member.featureItems.archive({ id: created.id })
+    expect(archived.status).toBe("archived")
+
+    const mutationEvidence = await testDatabase.query<{
+      audit_count: number
+      outbox_count: number
+    }>(
+      'SELECT (SELECT count(*)::int FROM audit_records WHERE entity_id = $1) AS audit_count, (SELECT count(*)::int FROM outbox_events WHERE aggregate_id = $1) AS outbox_count',
+      [created.id],
+    )
+    expect(mutationEvidence).toEqual([{ audit_count: 4, outbox_count: 4 }])
+
+  it "uses real auth boundaries to deny anonymous/member admin access and accept admin", async ->
+    const memberCookie = await createIdentity("member-admin-proof@domain.test")
+    const adminCookie = await createIdentity("admin-proof@domain.test", "admin")
+    const ownerRows = await testDatabase.query<{ id: string }>(
+      'SELECT id FROM "user" WHERE email = $1',
+      ["member-admin-proof@domain.test"],
+    )
+    const ownerId = ownerRows[0]!.id
+
+    await apiClient(memberCookie).featureItems.create({
+      name: "Admin-visible item",
+      description: "Still owner-scoped",
+    })
+
+    await expectedError(
+      apiClient().admin.featureItems.list({ ownerId }),
+      "UNAUTHORIZED",
+      401,
+    )
+    await expectedError(
+      apiClient(memberCookie).admin.featureItems.list({ ownerId }),
+      "FORBIDDEN",
+      403,
+    )
+
+    const visible = await apiClient(adminCookie).admin.featureItems.list({ ownerId })
+    expect(visible).toHaveLength(1)
+    expect(visible[0]).toMatchObject({ ownerId, name: "Admin-visible item" })

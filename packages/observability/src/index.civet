@@ -1,0 +1,32 @@
+export type {
+  AnalyticsCapture,
+  AnalyticsCaptureFacade,
+  AnalyticsConsent,
+  AnalyticsResult,
+  ConsentResolver,
+  CorrelationContext,
+  EventOutcome,
+  EventSource,
+  MetricObservation,
+  SemanticEmissionContext,
+  SemanticEmissionResult,
+  SemanticEvent,
+  SemanticEventPort,
+  SpanHandle,
+  SpanInput,
+  StructuredEventSink,
+  TelemetryPort,
+  TelemetryRuntime,
+  TelemetryRuntimeState,
+  WaitUntil,
+} from "./port.civet"
+
+export {
+  REDACTED,
+  TRUNCATED,
+  freezeSnapshot,
+  redact,
+  redactSemanticEvent,
+  type RedactedValue,
+  type RedactionOptions,
+} from "./redaction.civet"

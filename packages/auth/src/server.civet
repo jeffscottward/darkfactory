@@ -1,0 +1,498 @@
+import { eq } from "drizzle-orm"
+import { drizzleAdapter } from "@better-auth/drizzle-adapter"
+import { withTransaction, type Database } from "@darkfactory/db/server"
+import {
+  USER_ROLES,
+  USER_STATUSES,
+  profiles,
+  userPreferences,
+  users,
+  type UserRole,
+  type UserStatus,
+} from "@darkfactory/db/schema"
+import * as databaseSchema from "@darkfactory/db/schema"
+import type { EmailPort } from "@darkfactory/email"
+import { betterAuth } from "better-auth"
+import { APIError, createAuthMiddleware } from "better-auth/api"
+
+import {
+  AUTH_BASE_URL,
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  type SafeAuthSession,
+} from "./types.civet"
+
+const DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS = 60 * 60
+const SAFE_RESET_RESPONSE = {
+  status: true,
+  message: "If this email exists in our system, check your email for the reset link",
+} as const
+
+export const PASSWORD_RESET_DELIVERY_ERROR_CODE =
+  "PASSWORD_RESET_DELIVERY_FAILED" as const
+
+export type AuthFactoryOptions = Readonly<{
+  database: Database
+  secret: string
+  email: EmailPort
+  baseURL?: string
+  scheduleBackgroundTask: (task: Promise<unknown>) => void
+  trustedOrigins?: readonly string[]
+  resetPasswordTokenExpiresInSeconds?: number
+  resetRateLimitMax?: number
+  rateLimitEnabled?: boolean
+  generateId?: (options: { model: string; size?: number | undefined }) => string
+}>
+
+export type ProvisionableUser = Readonly<{
+  id: string
+  name: string
+}>
+
+const supportsTransactions = (database: Database): boolean =>
+  typeof (database as unknown as { transaction?: unknown }).transaction === "function"
+
+const resetExpiry = (options: AuthFactoryOptions): number => {
+  const seconds =
+    options.resetPasswordTokenExpiresInSeconds ??
+    DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new RangeError("resetPasswordTokenExpiresInSeconds must be a positive integer")
+  }
+  return seconds
+}
+
+const trustedOrigins = (baseURL: string, configured?: readonly string[]): string[] =>
+  [...new Set([baseURL, ...(configured ?? [])])]
+
+const NORMALIZED_EMAIL_PATHS = new Set([
+  "/sign-up/email",
+  "/sign-in/email",
+  "/request-password-reset",
+])
+
+
+/**
+ * Creates or repairs application-owned rows without overwriting member choices.
+ * The Better Auth user-create after-hook runs after Better Auth's transaction has
+ * committed. This separate application transaction is deliberately idempotent;
+ * it is reliable and repairable, but does not claim cross-table signup atomicity.
+ */
+export const ensureUserResources = async (
+  database: Database,
+  user: ProvisionableUser,
+): Promise<void> => {
+  return await withTransaction(database, async (transaction) => {
+    await transaction
+      .insert(profiles)
+      .values({
+        userId: user.id,
+        displayName: user.name,
+      })
+      .onConflictDoNothing({ target: profiles.userId });
+
+    await transaction
+      .insert(userPreferences)
+      .values({ userId: user.id })
+      .onConflictDoNothing({ target: userPreferences.userId });
+  })
+}
+
+const inactiveStatusError = (status: UserStatus): APIError | undefined => {
+  if (status === "suspended") {
+    return new APIError("FORBIDDEN", {
+      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
+      message: "Account is unavailable",
+    })
+  }
+  if (status === "deactivated") {
+    return new APIError("FORBIDDEN", {
+      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED,
+      message: "Account is unavailable",
+    })
+  }
+  return undefined
+}
+
+const requireActiveUserId = async (
+  database: Database,
+  userId: string,
+): Promise<void> => {
+  const [user] = await database
+    .select({ status: users.status })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  const error = user ? inactiveStatusError(user.status) : undefined
+  if (error) throw error
+}
+
+export const createAuth = (options: AuthFactoryOptions) => {
+  const baseURL = options.baseURL ?? AUTH_BASE_URL
+  const resetPasswordTokenExpiresInSeconds = resetExpiry(options)
+
+  return betterAuth({
+    baseURL,
+    secret: options.secret,
+    trustedOrigins: trustedOrigins(baseURL, options.trustedOrigins),
+    database: drizzleAdapter(options.database, {
+      provider: "pg",
+      schema: databaseSchema,
+      transaction: supportsTransactions(options.database),
+    }),
+    advanced: {
+      useSecureCookies: true,
+      disableCSRFCheck: false,
+      disableOriginCheck: false,
+      backgroundTasks: {
+        handler: options.scheduleBackgroundTask,
+      },
+      ...(options.generateId
+        ? { database: { generateId: options.generateId } }
+        : {}),
+    },
+    hooks: {
+      before: createAuthMiddleware(async (context) => {
+        const currentUser = (
+          context.context as {
+            session?: { user?: { status?: unknown } } | null
+          }
+        ).session?.user
+        if (
+          context.path !== "/sign-out" &&
+          (currentUser?.status === "suspended" ||
+            currentUser?.status === "deactivated")
+        ) {
+          throw inactiveStatusError(currentUser.status)
+        }
+
+        if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return undefined
+        const body = context.body as Record<string, unknown> | undefined
+        if (typeof body?.["email"] !== "string") return undefined
+        const email = body["email"].trim().toLowerCase()
+        if (email === body["email"]) return undefined
+        return {
+          context: {
+            ...context,
+            body: { ...body, email },
+          },
+        }
+      }),
+      after: createAuthMiddleware(async (context) => {
+        if (context.path !== "/sign-in/email") return undefined
+        const signedInUser = (
+          context.context as {
+            newSession?: { user?: ProvisionableUser } | null
+          }
+        ).newSession?.user
+        if (signedInUser) {
+          await ensureUserResources(options.database, signedInUser)
+        }
+        return undefined
+      }),
+    },
+    rateLimit: {
+      enabled: options.rateLimitEnabled ?? true,
+      window: 60,
+      max: 1_000,
+      customRules: {
+        "/request-password-reset": {
+          window: 60,
+          max: options.resetRateLimitMax ?? 5,
+        },
+      },
+    },
+    emailAndPassword: {
+      enabled: true,
+      autoSignIn: false,
+      revokeSessionsOnPasswordReset: true,
+      resetPasswordTokenExpiresIn: resetPasswordTokenExpiresInSeconds,
+      sendResetPassword: async ({ user, url }) => {
+        const result = await options.email.sendPasswordReset({
+          to: user.email,
+          recipientName: user.name,
+          resetUrl: url,
+          expiresInMinutes: Math.ceil(
+            resetPasswordTokenExpiresInSeconds / 60,
+          ),
+        })
+        if (result.status === "failed") {
+          throw new APIError("SERVICE_UNAVAILABLE", {
+            code: PASSWORD_RESET_DELIVERY_ERROR_CODE,
+            message: "Password reset delivery is unavailable",
+          })
+        }
+      },
+    },
+    user: {
+      modelName: "users",
+      additionalFields: {
+        role: {
+          type: [...USER_ROLES] as ["member", "admin"],
+          required: true,
+          input: false,
+          returned: true,
+          defaultValue: "member",
+        },
+        status: {
+          type: [...USER_STATUSES] as ["active", "suspended", "deactivated"],
+          required: true,
+          input: false,
+          returned: true,
+          defaultValue: "active",
+        },
+      },
+    },
+    session: {
+      modelName: "sessions",
+    },
+    account: {
+      modelName: "accounts",
+    },
+    verification: {
+      modelName: "verifications",
+      storeIdentifier: "hashed",
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            await ensureUserResources(options.database, user)
+            return undefined
+          },
+        },
+      },
+      session: {
+        create: {
+          before: async (session) => {
+            await requireActiveUserId(options.database, session.userId)
+            return undefined
+          },
+        },
+      },
+    },
+  })
+}
+
+export type DarkFactoryAuth = ReturnType<typeof createAuth>
+
+type AuthSession = NonNullable<
+  Awaited<ReturnType<DarkFactoryAuth["api"]["getSession"]>>
+>
+
+const userRole = (value: unknown): UserRole => {
+  if (value === "member" || value === "admin") return value
+  throw new TypeError("Auth user has an invalid role")
+}
+
+const userStatus = (value: unknown): UserStatus => {
+  if (
+    value === "active" ||
+    value === "suspended" ||
+    value === "deactivated"
+  )
+    return value
+  throw new TypeError("Auth user has an invalid status")
+}
+
+const safeSession = (value: AuthSession): SafeAuthSession => {
+  const extendedUser = value.user as typeof value.user & {
+    role?: unknown
+    status?: unknown
+  }
+  const role = userRole(extendedUser.role)
+  const status = userStatus(extendedUser.status)
+
+  return {
+    user: {
+      id: value.user.id,
+      name: value.user.name,
+      email: value.user.email,
+      emailVerified: value.user.emailVerified,
+      image: value.user.image ?? null,
+      createdAt: value.user.createdAt,
+      updatedAt: value.user.updatedAt,
+      role,
+      status,
+    },
+    session: {
+      id: value.session.id,
+      userId: value.session.userId,
+      expiresAt: value.session.expiresAt,
+      createdAt: value.session.createdAt,
+      updatedAt: value.session.updatedAt,
+      ipAddress: value.session.ipAddress ?? null,
+      userAgent: value.session.userAgent ?? null,
+    },
+    principal: {
+      userId: value.user.id,
+      role,
+      status,
+    },
+  }
+}
+
+const activeSession = (value: AuthSession): SafeAuthSession => {
+  const session = safeSession(value)
+  if (session.user.status === "suspended") {
+    throw new AuthAuthorizationError(
+      AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
+      403,
+    )
+  }
+  if (session.user.status === "deactivated") {
+    throw new AuthAuthorizationError(
+      AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED,
+      403,
+    )
+  }
+  return session
+}
+
+type SanitizedJson = Readonly<{ value: unknown; changed: boolean }>
+
+const sanitizeJsonTokens = (value: unknown): SanitizedJson => {
+  if (Array.isArray(value)) {
+    const entries = value.map(sanitizeJsonTokens)
+    return {
+      value: entries.map((entry) => entry.value),
+      changed: entries.some((entry) => entry.changed),
+    }
+  }
+  if (typeof value !== "object" || value === null) {
+    return { value, changed: false }
+  }
+
+  const sanitized: Record<string, unknown> = {}
+  let changed = false
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "token") {
+      changed = true
+      continue
+    }
+    const entry = sanitizeJsonTokens(child)
+    sanitized[key] = entry.value
+    changed ||= entry.changed
+  }
+  return { value: sanitized, changed }
+}
+
+const sanitizeTokenResponse = async (response: Response): Promise<Response> => {
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) return response
+  const result = sanitizeJsonTokens(await response.clone().json())
+  if (!result.changed) return response
+
+  const headers = new Headers(response.headers)
+  headers.set("content-type", "application/json")
+  headers.delete("content-length")
+  return new Response(JSON.stringify(result.value), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+export const requireSession = async (
+  auth: DarkFactoryAuth,
+  headers: Headers,
+): Promise<SafeAuthSession> => {
+  const session = await auth.api.getSession({ headers })
+  if (!session) {
+    throw new AuthAuthorizationError(
+      AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+      401,
+    )
+  }
+  return activeSession(session)
+}
+
+export const requireRole = async (
+  auth: DarkFactoryAuth,
+  headers: Headers,
+  role: UserRole,
+): Promise<SafeAuthSession> => {
+  const session = await requireSession(auth, headers)
+  if (session.principal.role !== role) {
+    throw new AuthAuthorizationError(
+      AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+      403,
+    )
+  }
+  return session
+}
+
+const isResetRequest = (request: Request): boolean =>
+  request.method === "POST" &&
+  new URL(request.url).pathname.endsWith("/api/auth/request-password-reset")
+
+const isDeliveryFailure = async (response: Response): Promise<boolean> => {
+  if (response.status !== 503) return false
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) return false
+  const body = (await response.clone().json()) as { code?: unknown }
+  return body.code === PASSWORD_RESET_DELIVERY_ERROR_CODE
+}
+
+const isStatusGateExempt = (request: Request): boolean => {
+  const path = new URL(request.url).pathname
+  return (
+    path.endsWith("/api/auth/ok") ||
+    path.endsWith("/api/auth/sign-up/email") ||
+    path.endsWith("/api/auth/sign-in/email") ||
+    path.endsWith("/api/auth/sign-out") ||
+    path.endsWith("/api/auth/request-password-reset") ||
+    path.endsWith("/api/auth/reset-password") ||
+    path.includes("/api/auth/reset-password/")
+  )
+}
+
+const inactiveSessionResponse = async (
+  auth: DarkFactoryAuth,
+  request: Request,
+): Promise<Response | undefined> => {
+  if (isStatusGateExempt(request)) return undefined
+  const session = await auth.api.getSession({ headers: request.headers })
+  const status = (session?.user as { status?: unknown } | undefined)?.status
+  if (status !== "suspended" && status !== "deactivated") return undefined
+  const code =
+    status === "suspended"
+      ? AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED
+      : AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED
+  return Response.json(
+    { code, message: "Account is unavailable" },
+    { status: 403 },
+  )
+}
+
+/** Fetch-native route bridge. It masks delivery availability so reset requests
+ * do not become an account-existence oracle, while direct API callers still
+ * receive the typed PASSWORD_RESET_DELIVERY_FAILED hook error. */
+export const createAuthHandler = (
+  auth: DarkFactoryAuth,
+): ((request: Request) => Promise<Response>) =>
+  async (request) => {
+    const inactiveResponse = await inactiveSessionResponse(auth, request)
+    if (inactiveResponse) return inactiveResponse
+    let response = await auth.handler(request)
+    if (isResetRequest(request) && (await isDeliveryFailure(response))) {
+      const headers = new Headers(response.headers)
+      headers.set("content-type", "application/json")
+      headers.delete("content-length")
+      response = new Response(JSON.stringify(SAFE_RESET_RESPONSE), {
+        status: 200,
+        headers,
+      })
+    }
+    return await sanitizeTokenResponse(response)
+  }
+
+export { AUTHORIZATION_ERROR_CODES, AuthAuthorizationError }
+export type {
+  SafeAuthSession,
+  SafeAuthUser,
+  SafePrincipal,
+  SafeSessionRecord,
+  UserRole,
+  UserStatus,
+} from "./types.civet"

@@ -1,0 +1,308 @@
+import type { CapabilityManifest } from "../capabilities.civet"
+import type { ServerEnv } from "../server.civet"
+
+export type CapabilityDependency =
+  | "inlineJobs"
+  | "mintlify"
+  | "celery"
+  | "flower"
+  | "uptimeKuma"
+  | "glitchtip"
+  | "r2"
+  | "memori"
+  | "pgvector"
+  | "postgis"
+  | "timescaledb"
+  | "pgTrgm"
+  | "pgCron"
+
+export type InstalledCapabilityInventory = Readonly<
+  Record<CapabilityDependency, boolean>
+>
+export type CapabilityBindingInventory = Readonly<
+  Record<CapabilityDependency, boolean>
+>
+
+export const V01_INSTALLED_CAPABILITIES = {
+  inlineJobs: true,
+  mintlify: false,
+  celery: false,
+  flower: false,
+  uptimeKuma: false,
+  glitchtip: false,
+  r2: false,
+  memori: false,
+  pgvector: false,
+  postgis: false,
+  timescaledb: false,
+  pgTrgm: false,
+  pgCron: false,
+} as const satisfies InstalledCapabilityInventory
+
+export const V01_CAPABILITY_BINDINGS = {
+  inlineJobs: true,
+  mintlify: false,
+  celery: false,
+  flower: false,
+  uptimeKuma: false,
+  glitchtip: false,
+  r2: false,
+  memori: false,
+  pgvector: false,
+  postgis: false,
+  timescaledb: false,
+  pgTrgm: false,
+  pgCron: false,
+} as const satisfies CapabilityBindingInventory
+
+export type CapabilityRuntimeInventory = Readonly<{
+  installed: InstalledCapabilityInventory
+  bindings: CapabilityBindingInventory
+}>
+
+export type CapabilityReadinessStatus =
+  | "disabled"
+  | "unconfigured"
+  | "unavailable"
+  | "ready"
+
+export type CapabilityReadinessReason =
+  | "capability_disabled"
+  | "missing_required_configuration"
+  | "dependency_not_installed"
+  | "binding_unavailable"
+
+export type CapabilityReadiness = Readonly<{
+  provider: string
+  enabled: boolean
+  configured: boolean
+  available: boolean
+  status: CapabilityReadinessStatus
+  reason?: CapabilityReadinessReason
+  missingRequirements: readonly string[]
+}>
+
+export type CapabilityReadinessInventory = Readonly<{
+  docs: CapabilityReadiness
+  jobs: CapabilityReadiness
+  jobsDashboard: CapabilityReadiness
+  uptime: CapabilityReadiness
+  errorTracking: CapabilityReadiness
+  storage: CapabilityReadiness
+  contextGraphs: CapabilityReadiness
+  pgvector: CapabilityReadiness
+  postgis: CapabilityReadiness
+  timescaledb: CapabilityReadiness
+  pgTrgm: CapabilityReadiness
+  pgCron: CapabilityReadiness
+}>
+
+type CapabilityEnabledKey =
+  | "DOCS_ENABLED"
+  | "JOBS_ENABLED"
+  | "FLOWER_ENABLED"
+  | "UPTIME_KUMA_ENABLED"
+  | "ERROR_TRACKING_ENABLED"
+  | "STORAGE_ENABLED"
+  | "MEMORI_ENABLED"
+
+type CapabilityConfigurationKey =
+  | "ERROR_TRACKING_DSN"
+  | "R2_ACCOUNT_ID"
+  | "R2_ACCESS_KEY_ID"
+  | "R2_SECRET_ACCESS_KEY"
+  | "R2_BUCKET"
+
+export type CapabilityReadinessEnvironment = Readonly<
+  Partial<
+    Pick<ServerEnv, CapabilityEnabledKey | CapabilityConfigurationKey>
+  >
+>
+
+const DEFAULT_RUNTIME_INVENTORY: CapabilityRuntimeInventory = {
+  installed: V01_INSTALLED_CAPABILITIES,
+  bindings: V01_CAPABILITY_BINDINGS,
+}
+
+const isEnabled = (
+  source: CapabilityReadinessEnvironment,
+  key: CapabilityEnabledKey,
+): boolean => source[key] === true
+
+const hasConfiguration = (
+  source: CapabilityReadinessEnvironment,
+  key: CapabilityConfigurationKey,
+): boolean => {
+  const value = source[key]
+  return typeof value === "string" && value.trim().length > 0
+}
+
+const readiness = (
+  provider: string,
+  dependency: CapabilityDependency,
+  enabled: boolean,
+  requirements: readonly CapabilityConfigurationKey[],
+  source: CapabilityReadinessEnvironment,
+  inventory: CapabilityRuntimeInventory,
+): CapabilityReadiness => {
+  const missingRequirements = requirements.filter((key) => !hasConfiguration(source, key))
+  const configured = missingRequirements.length === 0
+  const installed = inventory.installed[dependency]
+  const available = installed && inventory.bindings[dependency]
+
+  if (!enabled) {
+    return {
+      provider,
+      enabled,
+      configured,
+      available,
+      status: "disabled",
+      reason: "capability_disabled",
+      missingRequirements,
+    }
+  }
+  if (!configured) {
+    return {
+      provider,
+      enabled,
+      configured,
+      available,
+      status: "unconfigured",
+      reason: "missing_required_configuration",
+      missingRequirements,
+    }
+  }
+  if (!available) {
+    return {
+      provider,
+      enabled,
+      configured,
+      available,
+      status: "unavailable",
+      reason: installed ? "binding_unavailable" : "dependency_not_installed",
+      missingRequirements,
+    }
+  }
+  return {
+    provider,
+    enabled,
+    configured,
+    available,
+    status: "ready",
+    missingRequirements,
+  }
+}
+
+const STORAGE_REQUIREMENTS = [
+  "R2_ACCOUNT_ID",
+  "R2_ACCESS_KEY_ID",
+  "R2_SECRET_ACCESS_KEY",
+  "R2_BUCKET",
+] as const
+
+export const evaluateCapabilityReadiness = (
+  manifest: CapabilityManifest,
+  source: CapabilityReadinessEnvironment,
+  inventory: CapabilityRuntimeInventory = DEFAULT_RUNTIME_INVENTORY,
+): CapabilityReadinessInventory => ({
+  docs: readiness(
+    manifest.capabilities.docs.provider,
+    "mintlify",
+    manifest.capabilities.docs.enabled && isEnabled(source, "DOCS_ENABLED"),
+    [],
+    source,
+    inventory,
+  ),
+  jobs: readiness(
+    manifest.capabilities.jobs.engine,
+    "celery",
+    manifest.capabilities.jobs.enabled && isEnabled(source, "JOBS_ENABLED"),
+    [],
+    source,
+    inventory,
+  ),
+  jobsDashboard: readiness(
+    manifest.capabilities.jobs.dashboard,
+    "flower",
+    manifest.capabilities.jobs.enabled &&
+      isEnabled(source, "JOBS_ENABLED") &&
+      isEnabled(source, "FLOWER_ENABLED"),
+    [],
+    source,
+    inventory,
+  ),
+  uptime: readiness(
+    manifest.capabilities.uptime.provider,
+    "uptimeKuma",
+    manifest.capabilities.uptime.enabled && isEnabled(source, "UPTIME_KUMA_ENABLED"),
+    [],
+    source,
+    inventory,
+  ),
+  errorTracking: readiness(
+    manifest.capabilities.error_tracking.provider,
+    "glitchtip",
+    manifest.capabilities.error_tracking.enabled &&
+      isEnabled(source, "ERROR_TRACKING_ENABLED"),
+    ["ERROR_TRACKING_DSN"],
+    source,
+    inventory,
+  ),
+  storage: readiness(
+    manifest.capabilities.storage.provider,
+    "r2",
+    manifest.capabilities.storage.enabled && isEnabled(source, "STORAGE_ENABLED"),
+    STORAGE_REQUIREMENTS,
+    source,
+    inventory,
+  ),
+  contextGraphs: readiness(
+    manifest.capabilities.context_graphs.data.provider,
+    "memori",
+    manifest.capabilities.context_graphs.data.enabled &&
+      isEnabled(source, "MEMORI_ENABLED"),
+    [],
+    source,
+    inventory,
+  ),
+  pgvector: readiness(
+    "pgvector",
+    "pgvector",
+    manifest.capabilities.postgres_extensions.pgvector.enabled,
+    [],
+    source,
+    inventory,
+  ),
+  postgis: readiness(
+    "postgis",
+    "postgis",
+    manifest.capabilities.postgres_extensions.postgis.enabled,
+    [],
+    source,
+    inventory,
+  ),
+  timescaledb: readiness(
+    "timescaledb",
+    "timescaledb",
+    manifest.capabilities.postgres_extensions.timescaledb.enabled,
+    [],
+    source,
+    inventory,
+  ),
+  pgTrgm: readiness(
+    "pg_trgm",
+    "pgTrgm",
+    manifest.capabilities.postgres_extensions.pg_trgm.enabled,
+    [],
+    source,
+    inventory,
+  ),
+  pgCron: readiness(
+    "pg_cron",
+    "pgCron",
+    manifest.capabilities.postgres_extensions.pg_cron.enabled,
+    [],
+    source,
+    inventory,
+  ),
+})

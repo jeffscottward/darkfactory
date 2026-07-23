@@ -1,0 +1,58 @@
+export const PALETTES = Object.freeze([
+  "neutral",
+  "slate",
+  "blue",
+  "cyan",
+  "green",
+  "amber",
+  "orange",
+  "red",
+  "rose",
+  "violet",
+] as const)
+
+export const THEME_MODES = Object.freeze([
+  "light",
+  "dark",
+  "system",
+] as const)
+
+export const CONSENT_STATES = Object.freeze([
+  "granted",
+  "denied",
+  "unknown",
+] as const)
+
+export type Palette = (typeof PALETTES)[number]
+export type ThemeMode = (typeof THEME_MODES)[number]
+export type ConsentState = (typeof CONSENT_STATES)[number]
+export type SidebarState = "expanded" | "collapsed"
+
+export interface UiPreferences {
+  readonly sidebar: SidebarState
+  readonly mobileNavigationOpen: boolean
+  readonly themeMode: ThemeMode
+  readonly palette: Palette
+  readonly consent: ConsentState
+}
+
+const paletteNames: ReadonlySet<string> = new Set(PALETTES)
+const themeModeNames: ReadonlySet<string> = new Set(THEME_MODES)
+const consentStateNames: ReadonlySet<string> = new Set(CONSENT_STATES)
+
+export const isPalette = (value: unknown): value is Palette =>
+  typeof value === "string" && paletteNames.has(value)
+
+export const isThemeMode = (value: unknown): value is ThemeMode =>
+  typeof value === "string" && themeModeNames.has(value)
+
+export const isConsentState = (value: unknown): value is ConsentState =>
+  typeof value === "string" && consentStateNames.has(value)
+
+export const DEFAULT_UI_PREFERENCES: Readonly<UiPreferences> = Object.freeze({
+  sidebar: "expanded",
+  mobileNavigationOpen: false,
+  themeMode: "system",
+  palette: "neutral",
+  consent: "unknown",
+})

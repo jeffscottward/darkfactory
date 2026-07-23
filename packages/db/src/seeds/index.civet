@@ -1,0 +1,238 @@
+import { and as andWhere, eq, or as orWhere, sql } from "drizzle-orm"
+
+import { accounts, users } from "../schema/index.civet"
+import {
+  withTransaction,
+  type Database,
+  type DatabaseExecutor,
+} from "../server/client.civet"
+import { convergeDevelopmentContent } from "./content.civet"
+import { convergeDevelopmentPreferences } from "./preferences.civet"
+import { convergeDevelopmentProfiles } from "./profiles.civet"
+import {
+  DEVELOPMENT_PERSONAS,
+  seedIdentityInput,
+  type EnsureSeedIdentity,
+  type DevelopmentPersona,
+} from "./users.civet"
+
+export type DevelopmentEnvironment = "development" | "test" | "production"
+
+export type SeedDevelopmentOptions = Readonly<{
+  environment: DevelopmentEnvironment
+  ensureIdentity: EnsureSeedIdentity
+}>
+
+export type SeedDevelopmentResult = Readonly<{
+  identitiesCreated: number
+  usersConverged: number
+  profilesConverged: number
+  preferencesConverged: number
+  addressesConverged: number
+  featureItemsConverged: number
+}>
+
+export class DevelopmentSeedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "DevelopmentSeedError"
+  }
+}
+
+export class SeedIdentityCollisionError extends DevelopmentSeedError {
+  constructor(message: string) {
+    super(message)
+    this.name = "SeedIdentityCollisionError"
+  }
+}
+
+type IdentityState = Readonly<{
+  persona: DevelopmentPersona
+  exists: boolean
+}>
+
+const normalizedEmail = (email: string): string => email.trim().toLowerCase()
+const CREDENTIAL_HASH = /^[0-9a-f]{32}:[0-9a-f]{128}$/u
+
+const isCredentialFor = (
+  account: typeof accounts.$inferSelect,
+  persona: DevelopmentPersona,
+): boolean =>
+  account.id === persona.accountId &&
+  account.userId === persona.userId &&
+  account.providerId === "credential" &&
+  account.accountId === persona.userId
+
+const inspectIdentity = async (
+  database: DatabaseExecutor,
+  persona: DevelopmentPersona,
+): Promise<IdentityState> => {
+  const email = normalizedEmail(persona.email)
+  const matchedUsers = await database
+    .select()
+    .from(users)
+    .where(
+      orWhere(
+        eq(users.id, persona.userId),
+        sql`lower(trim(${users.email})) = ${email}`,
+      ),
+    )
+
+  const matchedAccounts = await database
+    .select()
+    .from(accounts)
+    .where(
+      orWhere(
+        eq(accounts.id, persona.accountId),
+        eq(accounts.userId, persona.userId),
+        andWhere(
+          eq(accounts.providerId, "credential"),
+          eq(accounts.accountId, persona.userId),
+        ),
+      ),
+    )
+
+  if (matchedUsers.length === 0) {
+    if (matchedAccounts.length > 0) {
+      throw new SeedIdentityCollisionError(
+        `Seed identity collision for ${persona.name}: deterministic account ID is already in use`,
+      )
+    }
+    return { persona, exists: false }
+  }
+
+  if (
+    matchedUsers.length !== 1 ||
+    matchedUsers[0]!.id !== persona.userId ||
+    normalizedEmail(matchedUsers[0]!.email) !== email
+  ) {
+    throw new SeedIdentityCollisionError(
+      `Seed identity collision for ${persona.name}: deterministic user ID and normalized email do not identify the same user`,
+    )
+  }
+
+  const credential = matchedAccounts.find((account) => isCredentialFor(account, persona))
+  if (!credential) {
+    throw new SeedIdentityCollisionError(
+      `Seed identity collision for ${persona.name}: required credential account is missing or mismatched`,
+    )
+  }
+  if (
+    typeof credential.password !== "string" ||
+    !CREDENTIAL_HASH.test(credential.password)
+  ) {
+    throw new SeedIdentityCollisionError(
+      `Seed identity collision for ${persona.name}: credential password hash is malformed`,
+    )
+  }
+
+  return { persona, exists: true }
+}
+
+const convergeUser = async (
+  database: DatabaseExecutor,
+  persona: DevelopmentPersona,
+): Promise<void> => {
+  const [current] = await database
+    .select()
+    .from(users)
+    .where(eq(users.id, persona.userId))
+    .limit(1)
+
+  if (!current) {
+    throw new DevelopmentSeedError(
+      `Seed identity ${persona.name} disappeared before application convergence`,
+    )
+  }
+
+  if (
+    current.name === persona.name &&
+    current.email === persona.email &&
+    current.emailVerified === true &&
+    current.image === persona.image &&
+    current.role === persona.role &&
+    current.status === "active"
+  ) return
+
+  const repaired = await database
+    .update(users)
+    .set({
+      name: persona.name,
+      email: persona.email,
+      emailVerified: true,
+      image: persona.image,
+      role: persona.role,
+      status: "active",
+    })
+    .where(eq(users.id, persona.userId))
+    .returning({ id: users.id })
+
+  if (repaired.length !== 1) {
+    throw new DevelopmentSeedError(
+      `Seed identity ${persona.name} could not be converged`,
+    )
+  }
+}
+
+const convergeApplicationRows = async (
+  database: Database,
+): Promise<void> => {
+  await withTransaction(database, async (transaction) => {
+    for (const persona of DEVELOPMENT_PERSONAS) {
+      await convergeUser(transaction, persona)
+    }
+    await convergeDevelopmentProfiles(transaction)
+    await convergeDevelopmentPreferences(transaction)
+    await convergeDevelopmentContent(transaction)
+  })
+}
+
+export const seedDevelopment = async (
+  database: Database,
+  options: SeedDevelopmentOptions,
+): Promise<SeedDevelopmentResult> => {
+  if (
+    options.environment !== "development" &&
+    options.environment !== "test"
+  ) {
+    throw new DevelopmentSeedError(
+      "Development seed requires an explicit development or test environment",
+    )
+  }
+
+  const initialStates: IdentityState[] = []
+  for (const persona of DEVELOPMENT_PERSONAS) {
+    initialStates.push(await inspectIdentity(database, persona))
+  }
+
+  let identitiesCreated = 0
+  for (const state of initialStates) {
+    await options.ensureIdentity(
+      seedIdentityInput(state.persona),
+      state.exists,
+    )
+    const ensured = await inspectIdentity(database, state.persona)
+    if (!ensured.exists) {
+      throw new DevelopmentSeedError(
+        `Identity assurer did not persist ${state.persona.name}`,
+      )
+    }
+    if (!state.exists) identitiesCreated += 1
+  }
+
+  await convergeApplicationRows(database)
+
+  return Object.freeze({
+    identitiesCreated,
+    usersConverged: DEVELOPMENT_PERSONAS.length,
+    profilesConverged: DEVELOPMENT_PERSONAS.length,
+    preferencesConverged: DEVELOPMENT_PERSONAS.length,
+    addressesConverged: DEVELOPMENT_PERSONAS.length,
+    featureItemsConverged: DEVELOPMENT_PERSONAS.length,
+  })
+}
+
+export type {
+  EnsureSeedIdentity,
+  SeedIdentityInput,
+} from "./users.civet"

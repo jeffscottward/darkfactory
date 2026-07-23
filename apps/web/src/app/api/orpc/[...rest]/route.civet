@@ -1,0 +1,132 @@
+import { waitUntil } from "cloudflare:workers"
+
+import {
+  createApiContext,
+  resolveApiRequestId,
+} from "@darkfactory/api/server"
+import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog"
+import {
+  createAuth,
+  requireRole,
+  requireSession,
+} from "@darkfactory/auth/server"
+import { composeDatabaseProfile } from "@darkfactory/config/database"
+import { parseServerEnv } from "@darkfactory/config/server"
+import {
+  createRepositories,
+  createRequestDatabase,
+} from "@darkfactory/db/server"
+import { selectEmailPort } from "@darkfactory/email/server"
+import {
+  createEvlogSink,
+  initializeEvlog,
+} from "@darkfactory/observability/server/evlog"
+import { createSemanticEventFanout } from "@darkfactory/observability/server/fanout"
+import { initializeTelemetry } from "@darkfactory/observability/server/otel"
+
+import { handleOrpcRequest } from "./handler.civet"
+import {
+  configuredOtlpAllowedHosts,
+  resolveAnalyticsConsent,
+  runWithRequestTelemetry,
+} from "./runtime.civet"
+
+type ServerEnv = ReturnType<typeof parseServerEnv>
+
+let telemetryRuntime: ReturnType<typeof initializeTelemetry> | undefined
+let evlogRuntime: ReturnType<typeof initializeEvlog> | undefined
+let analyticsPort: ReturnType<typeof createPostHogAnalyticsPort> | undefined
+
+const telemetryFor = (env: ServerEnv) =>
+  telemetryRuntime ??= initializeTelemetry({
+    enabled: env.OTEL_ENABLED,
+    serviceName: env.OTEL_SERVICE_NAME,
+    ...(env.OTEL_EXPORTER_OTLP_ENDPOINT === undefined
+      ? {}
+      : {
+          otlpEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
+          otlpAllowedHosts: configuredOtlpAllowedHosts(
+            env.OTEL_EXPORTER_OTLP_ENDPOINT,
+          ),
+        }),
+  })
+
+const evlogFor = (env: ServerEnv) =>
+  evlogRuntime ??= initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME })
+
+const analyticsFor = (env: ServerEnv) =>
+  analyticsPort ??= createPostHogAnalyticsPort({
+    ...(env.POSTHOG_KEY === undefined ? {} : { apiKey: env.POSTHOG_KEY }),
+    ...(env.POSTHOG_HOST === undefined ? {} : { host: env.POSTHOG_HOST }),
+  })
+
+const handleOrpc = async (request: Request): Promise<Response> => {
+  const env = parseServerEnv(process.env)
+  const telemetry = telemetryFor(env)
+  const requestId = resolveApiRequestId(request)
+
+  return runWithRequestTelemetry(
+    telemetry,
+    {
+      name: "orpc.request",
+      correlation: { requestId, route: "/api/orpc" },
+      attributes: { "rpc.system": "orpc" },
+    },
+    waitUntil,
+    async (span) => {
+      const databaseProfile = composeDatabaseProfile(env)
+      const database = await createRequestDatabase({
+        connectionString: databaseProfile.connection.connectionString,
+      })
+
+      try {
+        const email = selectEmailPort({
+          environment: env.APP_ENV,
+          transport: env.EMAIL_TRANSPORT,
+          resendApiKey: env.RESEND_API_KEY,
+          from: env.EMAIL_FROM,
+          trustedAppOrigin: env.APP_URL,
+        })
+        const auth = createAuth({
+          database: database.db,
+          email,
+          secret: env.BETTER_AUTH_SECRET,
+          baseURL: env.BETTER_AUTH_URL,
+          trustedOrigins: [env.APP_URL],
+          scheduleBackgroundTask: (task) => waitUntil(task),
+        })
+        const sink = createEvlogSink({
+          runtime: evlogFor(env),
+          request,
+          executionContext: { waitUntil },
+        })
+        const semanticEvents = createSemanticEventFanout({
+          sink,
+          analytics: analyticsFor(env),
+          resolveConsent: () => resolveAnalyticsConsent(request),
+        })
+        const context = createApiContext(request, {
+          repositories: createRepositories(database.db),
+          requireSession: (headers) => requireSession(auth, headers),
+          requireRole: (headers, role) => requireRole(auth, headers, role),
+          requestId,
+          semanticEvents,
+          span,
+          waitUntil,
+        })
+        return await handleOrpcRequest(request, context)
+      } finally {
+        try {
+          await database.close()
+        } catch {
+          // Closure is best-effort after the request result has been determined.
+        }
+      }
+    },
+  )
+}
+
+export const GET = handleOrpc
+export const POST = handleOrpc
+export const PATCH = handleOrpc
+export const DELETE = handleOrpc

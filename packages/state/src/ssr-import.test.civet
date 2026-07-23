@@ -1,0 +1,28 @@
+import { describe, expect, it, vi } from "vitest"
+
+describe "client entrypoint SSR safety", ->
+  it "imports and creates a store without reading browser persistence globals", async ->
+    const existingDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "localStorage",
+    )
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get: () => {
+        throw new Error("localStorage must not be read during import")
+      },
+    })
+    vi.resetModules()
+
+    try {
+      const clientModule = await import("@darkfactory/state/client")
+      const store = clientModule.createUiStore()
+
+      expect(store.getState().palette).toBe("neutral")
+    } finally {
+      if (existingDescriptor) {
+        Object.defineProperty(globalThis, "localStorage", existingDescriptor)
+      } else {
+        Reflect.deleteProperty(globalThis, "localStorage")
+      }
+    }

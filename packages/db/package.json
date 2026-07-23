@@ -1,0 +1,49 @@
+{
+  "name": "@darkfactory/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.civet"
+  ],
+  "exports": {
+    "./schema": {
+      "types": "./src/schema/index.civet.d.ts",
+      "import": "./src/schema/index.civet",
+      "default": "./src/schema/index.civet"
+    },
+    "./server": {
+      "types": "./src/server/index.civet.d.ts",
+      "workerd": "./src/server/index.civet",
+      "worker": "./src/server/index.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/index.civet",
+      "default": "./src/server/index.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --config civet.types.json --emit-declaration",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/schema/schema.contract.test.civet src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/schema/schema.contract.test.civet src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet",
+    "db:schema": "civet --compile src/schema/index.civet --output .drizzle/schema.ts",
+    "db:generate": "corepack pnpm run db:schema && drizzle-kit generate --config drizzle.config.ts",
+    "db:check": "corepack pnpm run db:schema && drizzle-kit check --config drizzle.config.ts",
+    "db:migrate": "corepack pnpm run db:schema && drizzle-kit migrate --config drizzle.config.ts"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "drizzle-orm": "catalog:",
+    "pg": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "drizzle-kit": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

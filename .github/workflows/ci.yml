@@ -11,8 +11,10 @@ jobs:
   verification:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Keep the CI proxy unprivileged; Playwright derives its readiness and browser URLs from this port.
+    # Keep CI infrastructure unprivileged and isolated from production credentials.
     env:
+      APP_ENV: test
+      DATABASE_URL: postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance
       PORTLESS_PORT: "1355"
 
     steps:
@@ -45,6 +47,9 @@ jobs:
       - name: Install Playwright browser
         run: corepack pnpm exec playwright install --with-deps chromium
 
+      - name: Start PostgreSQL integration service
+        run: docker compose -f infra/docker/postgres.compose.yml up --detach --wait
+
       - name: Start trusted local HTTPS proxy
         run: corepack pnpm exec portless proxy start
 
@@ -71,6 +76,10 @@ jobs:
 
       - name: Run canonical CI lifecycle
         run: corepack pnpm run ci
+
+      - name: Stop PostgreSQL integration service
+        if: always()
+        run: docker compose -f infra/docker/postgres.compose.yml down --volumes --remove-orphans
 
       - name: Preserve Playwright failure artifacts
         if: failure()

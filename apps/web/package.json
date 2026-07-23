@@ -10,9 +10,16 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "typecheck": "civet --typecheck src/app/layout.civet src/app/page.civet"
+    "typecheck": "civet --config civet.typecheck.json --typecheck"
   },
   "dependencies": {
+    "@darkfactory/auth": "workspace:*",
+    "@darkfactory/api": "workspace:*",
+    "@darkfactory/analytics": "workspace:*",
+    "@darkfactory/config": "workspace:*",
+    "@darkfactory/db": "workspace:*",
+    "@darkfactory/email": "workspace:*",
+    "@darkfactory/observability": "workspace:*",
     "@vinext/cloudflare": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
@@ -30,6 +37,7 @@
     "esbuild": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }

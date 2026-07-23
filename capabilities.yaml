@@ -1,0 +1,135 @@
+project:
+  name: DarkFactory
+  slug: darkfactory
+  version: 0.1.0
+  framework_api: next-app-router
+  framework_implementation: vinext
+  build_tool: vite
+  language: civet
+  runtime: cloudflare-workers
+
+workspace:
+  package_manager: pnpm
+  orchestration: turborepo
+
+deployment:
+  web:
+    provider: cloudflare
+    deployer: "@vinext/cloudflare"
+  ancillary_resources:
+    provider: cloudflare
+    infrastructure: alchemy
+
+database:
+  engine: postgres
+  orm: drizzle
+  provider: planetscale
+  extensions_first: true
+
+api:
+  provider: orpc
+  style: contract-first
+  openapi: true
+
+auth:
+  provider: better-auth
+
+ui:
+  styling: tailwind
+  components: shadcn
+  typography: sans-serif
+  public_reference: https://www.squarespace.com/
+  portal_reference: https://ui.shadcn.com/blocks
+
+ai:
+  provider: groq
+
+email:
+  renderer: react-email
+  provider: resend
+  local_transport: preview
+
+analytics:
+  provider: posthog
+  adapter_required: true
+
+telemetry:
+  provider: opentelemetry
+
+logging:
+  provider: evlog
+
+quality:
+  formatter_linter: ultracite
+  git_hooks: husky
+  unit_tests: vitest
+  browser_tests: playwright
+
+developer_context:
+  code_graph:
+    provider: graphify
+    enabled: true
+
+examples:
+  feature_stub:
+    enabled: true
+    removable: true
+    generator_source: true
+
+development:
+  https:
+    enabled: true
+    provider: portless
+    service_name: darkfactory
+    canonical_url: https://darkfactory.localhost
+    process_manager: pm2
+    certificate_fallback: mkcert
+    fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1"]
+  seeded_accounts:
+    enabled: true
+    production_allowed: false
+    users: [admin, alice, bob]
+
+state:
+  workflows: xstate
+  client_local: zustand
+
+effects:
+  provider: effect
+  adoption: boundary-driven
+
+developer_tools:
+  tanstack_devtools:
+    enabled: development
+
+capabilities:
+  docs:
+    provider: mintlify
+    enabled: false
+    public: false
+  jobs:
+    engine: celery
+    dashboard: flower
+    enabled: false
+  uptime:
+    provider: uptime-kuma
+    enabled: false
+  error_tracking:
+    provider: glitchtip
+    database: postgres
+    enabled: false
+  storage:
+    provider: r2
+    metadata: postgres
+    enabled: false
+  context_graphs:
+    data:
+      provider: memori
+      database: postgres
+      enabled: false
+  postgres_extensions:
+    pgvector: { enabled: false }
+    postgis: { enabled: false }
+    timescaledb: { enabled: false }
+    pg_trgm: { enabled: false }
+    pg_cron: { enabled: false }

@@ -1,0 +1,130 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+import type { SemanticEvent } from "../port.civet"
+
+const workers = vi.hoisted(->
+  const emit = vi.fn()
+  return {
+    emit,
+    initWorkersLogger: vi.fn(),
+    createWorkersLogger: vi.fn(-> ({ emit })),
+  }
+)
+
+vi.mock("evlog/workers", -> ({
+  initWorkersLogger: workers.initWorkersLogger,
+  createWorkersLogger: workers.createWorkersLogger,
+}))
+
+import { createEvlogSink, initializeEvlog } from "./evlog.civet"
+
+const runtime = initializeEvlog({
+  serviceName: "darkfactory-test",
+  silent: true,
+})
+
+beforeEach ->
+  workers.emit.mockReset()
+  workers.createWorkersLogger.mockClear()
+
+const rawEvent = (requestId: string): SemanticEvent => ({
+  eventId: `event_${requestId}`,
+  name: "feature-item.created",
+  occurredAt: "2026-07-23T12:00:00.000Z",
+  correlation: {
+    requestId,
+    traceId: "11111111111111111111111111111111",
+    spanId: "2222222222222222",
+    actorId: "actor_opaque_01",
+    route: "/rpc/feature.create",
+    procedure: "feature.create",
+  },
+  outcome: "success",
+  attributes: { password: "raw-password", safe: "kept" },
+})
+
+describe "evlog Worker runtime", ->
+  it "initializes globally once, keeps redaction enabled, and safely interleaves request sinks", async ->
+    const executionContext = { waitUntil: vi.fn() }
+    const requestA = new Request(
+      "https://darkfactory.localhost/rpc/feature.create",
+      { method: "POST" }
+    )
+    const requestB = new Request(
+      "https://darkfactory.localhost/rpc/feature.update",
+      { method: "POST" }
+    )
+    const sinkA = createEvlogSink({
+      runtime,
+      request: requestA,
+      executionContext,
+    })
+    const sinkB = createEvlogSink({ runtime, request: requestB })
+
+    await sinkA.emit(rawEvent("request_a"))
+    await sinkB.emit(rawEvent("request_b"))
+    await sinkA.emit(rawEvent("request_a_second"))
+
+    expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
+    expect(workers.initWorkersLogger).toHaveBeenCalledWith({
+      env: { service: "darkfactory-test" },
+      pretty: false,
+      redact: true,
+      silent: true,
+      stringify: false,
+    })
+    expect(workers.createWorkersLogger).toHaveBeenCalledTimes(3)
+    expect(workers.createWorkersLogger.mock.calls).toEqual([
+      [
+        requestA,
+        {
+          executionCtx: executionContext,
+          requestId: "request_a",
+        },
+      ],
+      [requestB, { requestId: "request_b" }],
+      [
+        requestA,
+        {
+          executionCtx: executionContext,
+          requestId: "request_a_second",
+        },
+      ],
+    ])
+    expect(workers.emit).toHaveBeenCalledTimes(3)
+    expect(workers.emit).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        event: expect.objectContaining({
+          id: "event_request_a",
+          name: "feature-item.created",
+        }),
+        attributes: { password: "[REDACTED]", safe: "kept" },
+      })
+    )
+    expect(JSON.stringify(workers.emit.mock.calls)).not.toContain("raw-password")
+
+  it "rejects conflicting global initialization without changing the active runtime", ->
+    expect(->
+      initializeEvlog({
+        serviceName: "other-service",
+        silent: false,
+      })
+    ).toThrow("evlog Worker runtime is already initialized")
+    expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
+
+  it "does not expose provider errors or event data in its stable failure result", async ->
+    workers.emit.mockImplementationOnce(->
+      throw new Error("raw-provider-payload password=hidden")
+    )
+    const sink = createEvlogSink({
+      runtime,
+      request: new Request("https://darkfactory.localhost/"),
+    })
+    const event = rawEvent("request_failure")
+
+    await expect(sink.emit(event)).rejects.toThrow(
+      "Structured event emission failed"
+    )
+    await expect(sink.emit(event)).resolves.toBeUndefined()
+    expect(workers.emit).toHaveBeenCalledTimes(2)

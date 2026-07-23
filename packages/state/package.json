@@ -1,0 +1,38 @@
+{
+  "name": "@darkfactory/state",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    },
+    "./client": {
+      "types": "./src/client.civet.d.ts",
+      "import": "./src/client.civet",
+      "default": "./src/client.civet"
+    },
+    "./flow": {
+      "types": "./src/setup-flow.civet.d.ts",
+      "import": "./src/setup-flow.civet",
+      "default": "./src/setup-flow.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --config civet.types.json --emit-declaration src/index.civet && civet --config civet.types.json --emit-declaration src/client.civet && civet --config civet.types.json --emit-declaration src/setup-flow.civet",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet"
+  },
+  "dependencies": {
+    "xstate": "catalog:",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "vitest": "catalog:"
+  }
+}

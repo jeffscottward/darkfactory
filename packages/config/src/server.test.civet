@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest"
+import { CANONICAL_APP_URL, toClientEnv } from "./client.civet"
 import {
-  CANONICAL_APP_URL,
   EnvironmentValidationError,
   getProviderCapabilities,
   parseServerEnv,
-  toClientEnv,
-} from "./env.civet"
+} from "./server.civet"
 
 const validCoreEnv = (): Record<string, string> => ({
   DATABASE_URL: "postgresql://localhost/darkfactory_test",

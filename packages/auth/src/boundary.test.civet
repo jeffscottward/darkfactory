@@ -1,0 +1,92 @@
+import { spawnSync } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
+const browserError =
+  "@darkfactory/auth/server is unavailable in browser bundles"
+const forbiddenServerDependencies =
+  /better-auth|drizzle|\bpg\b|resend|node:fs|DATABASE_URL|BETTER_AUTH_SECRET/i
+
+describe "auth package boundaries", ->
+  it "routes browser server imports to a dependency-free poison module", async ->
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    )
+    const serverExport = manifest.exports["./server"]
+    const poisonSource = await readFile(
+      new URL("./server/unsupported.js", import.meta.url),
+      "utf8",
+    )
+
+    expect(Object.keys(serverExport)).toEqual([
+      "types",
+      "workerd",
+      "worker",
+      "browser",
+      "import",
+      "default",
+    ])
+    expect(serverExport.browser).toBe("./src/server/unsupported.js")
+    expect(poisonSource).not.toMatch(/^\s*import\s/m)
+    expect(poisonSource).not.toMatch(forbiddenServerDependencies)
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--conditions",
+        "browser",
+        "--input-type=module",
+        "--eval",
+        'await import("@darkfactory/auth/server")',
+      ],
+      { cwd: workspaceRoot, encoding: "utf8" },
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(result.status).toBe(1)
+    expect(output).toContain(browserError)
+    expect(output).not.toMatch(forbiddenServerDependencies)
+
+    for (const workerCondition of ["workerd", "worker"]) {
+      const resolution = spawnSync(
+        process.execPath,
+        [
+          "--conditions",
+          workerCondition,
+          "--conditions",
+          "browser",
+          "--input-type=module",
+          "--eval",
+          'console.log(import.meta.resolve("@darkfactory/auth/server"))',
+        ],
+        { cwd: workspaceRoot, encoding: "utf8" },
+      )
+
+      expect(resolution.status).toBe(0)
+      expect(
+        resolution.stdout
+          .trim()
+          .replaceAll("\\", "/")
+          .endsWith("/packages/auth/src/server.civet"),
+      ).toBe(true)
+      expect(resolution.stderr).toBe("")
+    }
+    return undefined
+
+  it "keeps normal server imports and client/type subpaths operational", async ->
+    const [server, client, types] = await Promise.all([
+      import("@darkfactory/auth/server"),
+      import("@darkfactory/auth/client"),
+      import("@darkfactory/auth/types"),
+    ])
+
+    expect(server.createAuth).toBeTypeOf("function")
+    expect(server.createAuthHandler).toBeTypeOf("function")
+    expect(client.createAuthClient).toBeTypeOf("function")
+    expect(Object.keys(types)).toEqual([
+      "AUTH_BASE_URL",
+      "AUTHORIZATION_ERROR_CODES",
+      "AuthAuthorizationError",
+    ])

@@ -1,0 +1,138 @@
+import type { FeatureItemRepository } from "@darkfactory/db/server"
+import type { FeatureItem } from "@darkfactory/db/schema"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  FeatureServiceError,
+  createFeatureItemService,
+} from "./server/service.civet"
+
+const item = (overrides: Partial<FeatureItem> = {}): FeatureItem => ({
+  id: "item-1",
+  ownerId: "member-1",
+  name: "Neutral item",
+  description: "A provider-neutral feature item",
+  status: "draft",
+  metadata: {},
+  createdAt: new Date("2026-01-02T03:04:05.000Z"),
+  updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+  ...overrides,
+})
+
+const principal = (role: "member" | "admin" = "member") => ({
+  userId: role === "admin" ? "admin-1" : "member-1",
+  role,
+  status: "active" as const,
+})
+
+const repository = (overrides: Partial<FeatureItemRepository> = {}): FeatureItemRepository => ({
+  listByOwner: vi.fn(async () => [item()]),
+  findByIdForOwner: vi.fn(async () => item()),
+  create: vi.fn(async (input) => item(input)),
+  update: vi.fn(async (input) => item(input)),
+  archive: vi.fn(async () => item({ status: "archived" })),
+  ...overrides,
+})
+
+describe "DF-063 feature service policy", ->
+  it "forces members to their authenticated owner scope", async ->
+    const listByOwner = vi.fn(async () => [item()])
+    const service = createFeatureItemService(repository({ listByOwner }))
+
+    await expect(service.list(principal(), {})).resolves.toEqual([item()])
+    expect(listByOwner).toHaveBeenCalledWith("member-1")
+
+  it "rejects a member requesting a different owner", async ->
+    const service = createFeatureItemService(repository())
+
+    await expect(
+      service.list(principal(), { ownerId: "another-member" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" })
+
+  it "allows an administrator to act within an explicit owner scope", async ->
+    const findByIdForOwner = vi.fn(async () => item({ ownerId: "member-2" }))
+    const service = createFeatureItemService(repository({ findByIdForOwner }))
+
+    await expect(
+      service.get(principal("admin"), { id: "item-1", ownerId: "member-2" }),
+    ).resolves.toMatchObject({ ownerId: "member-2" })
+    expect(findByIdForOwner).toHaveBeenCalledWith("item-1", "member-2")
+
+  it "uses the repository atomic mutation port with actor and request correlation", async ->
+    const create = vi.fn(async (input) => item(input))
+    const service = createFeatureItemService(repository({ create }))
+
+    await service.create(
+      principal(),
+      { name: "Neutral item", description: "Description", metadata: {} },
+      "request-1",
+    )
+
+    expect(create).toHaveBeenCalledWith(
+      {
+        ownerId: "member-1",
+        name: "Neutral item",
+        description: "Description",
+        metadata: {},
+      },
+      { actorUserId: "member-1", requestId: "request-1" },
+    )
+
+  it.each([
+    ["draft", "active"],
+    ["draft", "archived"],
+    ["active", "draft"],
+    ["active", "archived"],
+  ] as const)("allows the %s to %s transition", async (from, to) ->
+    const update = vi.fn(async (input) => item({ status: input.status }))
+    const service = createFeatureItemService(
+      repository({
+        findByIdForOwner: vi.fn(async () => item({ status: from })),
+        update,
+      }),
+    )
+
+    await service.changeStatus(
+      principal(),
+      { id: "item-1", status: to },
+      "request-1",
+    )
+
+    expect(update).toHaveBeenCalledWith(
+      { id: "item-1", ownerId: "member-1", status: to },
+      { actorUserId: "member-1", requestId: "request-1" },
+    )
+  )
+
+  it "rejects transitions from archived items", async ->
+    const service = createFeatureItemService(
+      repository({
+        findByIdForOwner: vi.fn(async () => item({ status: "archived" })),
+      }),
+    )
+
+    await expect(
+      service.changeStatus(
+        principal(),
+        { id: "item-1", status: "active" },
+        "request-1",
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" })
+
+  it "maps a missing record to the expected not-found failure", async ->
+    const service = createFeatureItemService(
+      repository({ findByIdForOwner: vi.fn(async () => null) }),
+    )
+
+    await expect(
+      service.get(principal(), { id: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+  it "preserves the typed feature service error shape", ->
+    const error = new FeatureServiceError("VALIDATION_ERROR", "Invalid item")
+
+    expect(error).toMatchObject({
+      name: "FeatureServiceError",
+      code: "VALIDATION_ERROR",
+      message: "Invalid item",
+    })

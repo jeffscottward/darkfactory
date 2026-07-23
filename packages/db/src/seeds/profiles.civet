@@ -1,0 +1,79 @@
+import type { DatabaseExecutor } from "../server/client.civet"
+import {
+  createProfileRepository,
+  type UpsertProfileInput,
+} from "../server/repositories.civet"
+import type { Profile } from "../schema/index.civet"
+
+export const DEVELOPMENT_PROFILES: readonly UpsertProfileInput[] = Object.freeze([
+  Object.freeze({
+    userId: "00000000-0000-4000-8000-000000000001",
+    firstName: "Admin",
+    lastName: "User",
+    displayName: "Admin User",
+    avatarUrl: "https://placehold.co/256x256/png?text=AU",
+    phone: "+1-202-555-0101",
+    businessName: "Example Operations",
+    jobTitle: "Operations Director",
+    biography: "Coordinates example operations for the development workspace.",
+    timezone: "UTC",
+    locale: "en-US",
+    dateOfBirth: null,
+  }),
+  Object.freeze({
+    userId: "00000000-0000-4000-8000-000000000002",
+    firstName: "Alice",
+    lastName: "Adams",
+    displayName: "Alice Adams",
+    avatarUrl: "https://placehold.co/256x256/png?text=AA",
+    phone: "+1-202-555-0102",
+    businessName: "Alice & Co.",
+    jobTitle: "Product Designer",
+    biography: "Designs clear example experiences for the development workspace.",
+    timezone: "America/New_York",
+    locale: "en-US",
+    dateOfBirth: "1990-04-12",
+  }),
+  Object.freeze({
+    userId: "00000000-0000-4000-8000-000000000003",
+    firstName: "Bob",
+    lastName: "Baker",
+    displayName: "Bob Baker",
+    avatarUrl: "https://placehold.co/256x256/png?text=BB",
+    phone: "+1-202-555-0103",
+    businessName: "Bob Industries",
+    jobTitle: "Engineering Manager",
+    biography: "Builds reliable example systems for the development workspace.",
+    timezone: "America/Chicago",
+    locale: "en-US",
+    dateOfBirth: "1988-09-23",
+  }),
+])
+
+const matchesProfile = (
+  current: Profile,
+  expected: UpsertProfileInput,
+): boolean =>
+  current.firstName === expected.firstName &&
+  current.lastName === expected.lastName &&
+  current.displayName === expected.displayName &&
+  current.avatarUrl === expected.avatarUrl &&
+  current.phone === expected.phone &&
+  current.businessName === expected.businessName &&
+  current.jobTitle === expected.jobTitle &&
+  current.biography === expected.biography &&
+  current.timezone === expected.timezone &&
+  current.locale === expected.locale &&
+  current.dateOfBirth === expected.dateOfBirth
+
+export const convergeDevelopmentProfiles = async (
+  database: DatabaseExecutor,
+): Promise<void> => {
+  const repository = createProfileRepository(database)
+  for (const profile of DEVELOPMENT_PROFILES) {
+    const current = await repository.findByUserId(profile.userId)
+    if (!current || !matchesProfile(current, profile)) {
+      await repository.upsert(profile)
+    }
+  }
+}

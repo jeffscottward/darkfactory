@@ -1,0 +1,242 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  createDisabledAnalyticsPort,
+  type AnalyticsCapture,
+} from "./index.civet"
+import {
+  createAnalyticsCapture,
+  createRecordingAnalyticsPort,
+} from "./test.civet"
+
+const plainCapture = (): AnalyticsCapture => ({
+  consent: "granted",
+  distinctId: "actor-001",
+  event: "feature-item.created",
+  eventId: "event-001",
+  properties: {
+    action: "created",
+    entityType: "feature-item",
+    outcome: "success",
+    source: "api",
+  },
+})
+
+const malformedCaptureCases: ReadonlyArray<
+  readonly [string, () => AnalyticsCapture]
+> = [
+  ["getter", () => ({
+    ...plainCapture(),
+    get event() {
+      return "member@domain.test"
+    },
+  })],
+  ["proxy", () => new Proxy(plainCapture(), {
+    getOwnPropertyDescriptor: () => {
+      throw new Error("private proxy failure")
+    },
+  })],
+  ["throwing accessor", () => ({
+    ...plainCapture(),
+    get consent(): "granted" {
+      throw new Error("private accessor failure")
+    },
+  })],
+  ["non-enumerable field", () => {
+    const capture = plainCapture()
+    Object.defineProperty(capture, "email", {
+      enumerable: false,
+      value: "member@domain.test",
+    })
+    return capture
+  }],
+  ["symbol field", () => ({
+    ...plainCapture(),
+    [Symbol("email")]: "member@domain.test",
+  })],
+  ["inherited field", () => {
+    const capture = plainCapture() as Record<string, unknown>
+    const { consent, ...ownFields } = capture
+    return Object.assign(Object.create({ consent }), ownFields) as AnalyticsCapture
+  }],
+  ["array properties", () => ({
+    ...plainCapture(),
+    properties: [],
+  }) as never],
+  ["custom prototype", () =>
+    Object.setPrototypeOf(plainCapture(), { privateField: true })],
+  ["nested property", () => ({
+    ...plainCapture(),
+    properties: { action: { email: "member@domain.test" } },
+  }) as never],
+  ["cyclic property", () => {
+    const value: Record<string, unknown> = {}
+    value["action"] = value
+    return { ...plainCapture(), properties: value } as never
+  }],
+  ["BigInt property", () => ({
+    ...plainCapture(),
+    properties: { action: 1n },
+  }) as never],
+  ["excess fields", () => {
+    const capture = plainCapture() as Record<string, unknown>
+    for (let index = 0; index < 1_000; index += 1) {
+      capture[`extra-${index}`] = index
+    }
+    return capture as AnalyticsCapture
+  }],
+  ["oversized timestamp", () => ({
+    ...plainCapture(),
+    timestamp: "0".repeat(100_000),
+  })],
+  ["unknown top-level field", () => ({
+    ...plainCapture(),
+    email: "member@domain.test",
+  })],
+]
+
+describe("AnalyticsPort contract", () => {
+  it.each([
+    ["denied", "consent-denied"],
+    ["unknown", "consent-unknown"],
+  ] as const)("skips %s consent without recording", async (consent, reason) => {
+    const analytics = createRecordingAnalyticsPort()
+
+    const result = await analytics.capture(createAnalyticsCapture({ consent }))
+
+    expect(result).toEqual({ status: "skipped", reason })
+    expect(analytics.captures).toEqual([])
+  })
+
+  it("records an immutable snapshot and returns the event correlation", async () => {
+    const analytics = createRecordingAnalyticsPort()
+    const input = createAnalyticsCapture({
+      eventId: "event-002",
+      properties: { action: "created", entityType: "feature-item" },
+    })
+
+    const result = await analytics.capture(input)
+
+    expect(result).toEqual({ status: "captured", eventId: "event-002" })
+    expect(analytics.captures).toEqual([input])
+    expect(Object.isFrozen(analytics.captures[0])).toBe(true)
+    expect(Object.isFrozen(analytics.captures[0]?.properties)).toBe(true)
+  })
+
+  it("isolates recorded snapshots from later caller mutation", async () => {
+    const analytics = createRecordingAnalyticsPort()
+    const properties = {
+      action: "created",
+      entityType: "feature-item",
+      outcome: "success" as const,
+      source: "api" as const,
+    }
+    const input = {
+      consent: "granted" as const,
+      distinctId: "actor-001",
+      event: "feature-item.created",
+      eventId: "event-001",
+      properties,
+    }
+
+    await analytics.capture(input)
+    input.eventId = "event-mutated"
+    properties.action = "deleted"
+
+    expect(analytics.captures[0]).toMatchObject({
+      eventId: "event-001",
+      properties: { action: "created" },
+    })
+  })
+
+  it("preserves deterministic invocation order for concurrent captures", async () => {
+    const analytics = createRecordingAnalyticsPort()
+
+    await Promise.all([
+      analytics.capture(createAnalyticsCapture({ eventId: "event-001" })),
+      analytics.capture(createAnalyticsCapture({ eventId: "event-002" })),
+      analytics.capture(createAnalyticsCapture({ eventId: "event-003" })),
+    ])
+
+    expect(analytics.captures.map(({ eventId }) => eventId)).toEqual([
+      "event-001",
+      "event-002",
+      "event-003",
+    ])
+    analytics.clear()
+    expect(analytics.captures).toEqual([])
+  })
+
+  it("rejects unknown or PII property keys before recording", async () => {
+    const analytics = createRecordingAnalyticsPort()
+    const invalid = createAnalyticsCapture({
+      properties: {
+        action: "created",
+        email: "member@domain.test",
+      } as never,
+    })
+
+    expect(await analytics.capture(invalid)).toEqual({
+      status: "failed",
+      category: "invalid-capture",
+      retryable: false,
+    })
+    expect(analytics.captures).toEqual([])
+  })
+
+  it.each(malformedCaptureCases)(
+    "rejects malformed %s captures across local ports",
+    async (_name, buildCapture) => {
+      const recording = createRecordingAnalyticsPort()
+      const ports = [recording, createDisabledAnalyticsPort()]
+
+      for (const analytics of ports) {
+        await expect(analytics.capture(buildCapture())).resolves.toEqual({
+          status: "failed",
+          category: "invalid-capture",
+          retryable: false,
+        })
+      }
+      expect(recording.captures).toEqual([])
+    },
+  )
+
+  it.each([
+    { distinctId: "member@domain.test" },
+    { event: "feature item created" },
+    { timestamp: "not-a-date" },
+    { properties: { action: "contains private text" } },
+    { properties: { outcome: "maybe" } },
+    { properties: { requestId: "request with spaces" } },
+  ] as Array<Partial<AnalyticsCapture>>)(
+    "rejects unsafe capture values %#",
+    async (overrides) => {
+      const analytics = createRecordingAnalyticsPort()
+      const result = await analytics.capture(createAnalyticsCapture(overrides))
+
+      expect(result).toEqual({
+        status: "failed",
+        category: "invalid-capture",
+        retryable: false,
+      })
+      expect(analytics.captures).toEqual([])
+    },
+  )
+
+  it("returns an explicit disabled result without retaining input", async () => {
+    const analytics = createDisabledAnalyticsPort()
+
+    expect(await analytics.capture(createAnalyticsCapture())).toEqual({
+      status: "skipped",
+      reason: "disabled",
+    })
+  })
+
+  it("gives consent refusal precedence over disabled configuration", async () => {
+    const analytics = createDisabledAnalyticsPort()
+
+    expect(
+      await analytics.capture(createAnalyticsCapture({ consent: "unknown" })),
+    ).toEqual({ status: "skipped", reason: "consent-unknown" })
+  })
+})

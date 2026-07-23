@@ -1,0 +1,10 @@
+{
+  "tsConfig": {
+    "rootDir": ".",
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+      "types": ["node", "react"]
+    },
+    "include": ["src/**/*.civet"]
+  }
+}

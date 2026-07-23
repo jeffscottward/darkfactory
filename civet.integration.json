@@ -1,0 +1,6 @@
+{
+  "tsConfig": {
+    "extends": "./tsconfig.base.json",
+    "include": ["tests/integration/**/*.civet"]
+  }
+}

@@ -1,0 +1,43 @@
+import type { ComponentPropsWithRef } from "react"
+import type { VariantProps } from "class-variance-authority"
+import { cva } from "class-variance-authority"
+
+import { cn } from "./utilities.civet"
+
+export const statusBadgeVariants = cva(
+  "inline-flex min-h-6 items-center gap-1.5 rounded-pill border px-2.5 py-0.5 font-body text-xs font-semibold leading-4 before:size-1.5 before:rounded-pill before:bg-current",
+  {
+    variants: {
+      status: {
+        neutral: "border-border-strong bg-muted text-foreground",
+        success: "border-success-border bg-success-subtle text-success-foreground",
+        warning: "border-warning-border bg-warning-subtle text-warning-foreground",
+        info: "border-info-border bg-info-subtle text-info-foreground",
+        destructive: "border-destructive-border bg-destructive-subtle text-destructive",
+      },
+    },
+    defaultVariants: { status: "neutral" },
+  },
+)
+
+export interface StatusBadgeProps
+  extends ComponentPropsWithRef<"span">,
+    VariantProps<typeof statusBadgeVariants> {
+  status: NonNullable<VariantProps<typeof statusBadgeVariants>["status"]>
+}
+
+export const StatusBadge = ({
+  children,
+  className,
+  status,
+  ...props
+}: StatusBadgeProps) => (
+  <span
+    data-status={status}
+    className={cn(statusBadgeVariants({ status }), className)}
+    {...props}
+  >
+    <span className="sr-only">Status: </span>
+    {children}
+  </span>
+)

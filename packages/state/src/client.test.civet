@@ -1,0 +1,169 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  MAX_UI_STATE_SNAPSHOT_LENGTH,
+  UI_STATE_VERSION,
+  createUiStore,
+  parseUiStateSnapshot,
+} from "./client.civet"
+
+const hydratedPreferences = {
+  sidebar: "collapsed" as const,
+  mobileNavigationOpen: true,
+  themeMode: "dark" as const,
+  palette: "blue" as const,
+  consent: "granted" as const,
+}
+
+const hydratedSnapshot = {
+  version: UI_STATE_VERSION,
+  state: hydratedPreferences,
+}
+
+const hydratedSnapshotJson = JSON.stringify(hydratedSnapshot)
+
+describe "createUiStore", ->
+  it "updates navigation and sidebar state", ->
+    const store = createUiStore()
+
+    store.getState().toggleSidebar()
+    store.getState().setMobileNavigationOpen(true)
+
+    expect(store.getState().sidebar).toBe("collapsed")
+    expect(store.getState().mobileNavigationOpen).toBe(true)
+
+    store.getState().setSidebar("expanded")
+    store.getState().closeMobileNavigation()
+
+    expect(store.getState().sidebar).toBe("expanded")
+    expect(store.getState().mobileNavigationOpen).toBe(false)
+
+  it "updates theme mode, palette, and consent immutably", ->
+    const store = createUiStore()
+    const initialState = store.getState()
+
+    initialState.setThemeMode("dark")
+    const themedState = store.getState()
+    themedState.setPalette("violet")
+    const paletteState = store.getState()
+    paletteState.setConsent("denied")
+    const consentState = store.getState()
+
+    expect(themedState).not.toBe(initialState)
+    expect(paletteState).not.toBe(themedState)
+    expect(consentState).not.toBe(paletteState)
+    expect(consentState.themeMode).toBe("dark")
+    expect(consentState.palette).toBe("violet")
+    expect(consentState.consent).toBe("denied")
+
+  it "resets every preference to a fresh deterministic default state", ->
+    const store = createUiStore()
+    store.getState().hydrate(hydratedSnapshotJson)
+    const hydratedState = store.getState()
+
+    hydratedState.reset()
+
+    expect(store.getState()).not.toBe(hydratedState)
+    expect(store.getState().dehydrate()).toEqual({
+      version: 1,
+      state: {
+        sidebar: "expanded",
+        mobileNavigationOpen: false,
+        themeMode: "system",
+        palette: "neutral",
+        consent: "unknown",
+      },
+    })
+
+  it "hydrates a valid versioned snapshot deterministically", ->
+    const store = createUiStore()
+
+    expect(store.getState().hydrate(hydratedSnapshotJson)).toBe(true)
+    expect(store.getState().dehydrate()).toEqual(hydratedSnapshot)
+    expect(store.getState().dehydrate()).not.toBe(hydratedSnapshot)
+    expect(store.getState().dehydrate().state).not.toBe(hydratedSnapshot.state)
+
+  it "fails closed without changing state for malformed hydration", ->
+    const validState = hydratedSnapshot.state
+    const malformedSnapshots: readonly unknown[] = [
+      null,
+      [],
+      {},
+      "{",
+      " ".repeat(MAX_UI_STATE_SNAPSHOT_LENGTH + 1),
+      JSON.stringify({ version: 2, state: validState }),
+      JSON.stringify({ version: 1 }),
+      JSON.stringify({ version: 1, state: null }),
+      JSON.stringify({ version: 1, state: { ...validState, sidebar: "open" } }),
+      JSON.stringify({
+        version: 1,
+        state: { ...validState, mobileNavigationOpen: "true" },
+      }),
+      JSON.stringify({ version: 1, state: { ...validState, themeMode: "auto" } }),
+      JSON.stringify({ version: 1, state: { ...validState, palette: "studio" } }),
+      JSON.stringify({ version: 1, state: { ...validState, consent: "pending" } }),
+      JSON.stringify({ version: 1, state: { ...validState, serverRecords: [] } }),
+      JSON.stringify({ version: 1, state: validState, extra: true }),
+    ]
+
+    for (const malformed of malformedSnapshots) {
+      const store = createUiStore()
+      const before = store.getState()
+      const beforeSnapshot = before.dehydrate()
+
+      expect(parseUiStateSnapshot(malformed)).toBeNull()
+      expect(store.getState().hydrate(malformed)).toBe(false)
+      expect(store.getState()).toBe(before)
+      expect(store.getState().dehydrate()).toEqual(beforeSnapshot)
+    }
+
+  it "does not execute hostile accessors or proxy traps during hydration", ->
+    let accessorReads = 0
+    const accessorSnapshot = Object.defineProperty({}, "state", {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1
+        throw new Error("hostile accessor executed")
+      },
+    })
+    const revocable = Proxy.revocable({}, {})
+    revocable.revoke()
+    const store = createUiStore()
+    const before = store.getState()
+
+    expect(() => store.getState().hydrate(accessorSnapshot)).not.toThrow()
+    expect(() => store.getState().hydrate(revocable.proxy)).not.toThrow()
+    expect(accessorReads).toBe(0)
+    expect(store.getState()).toBe(before)
+
+  it "notifies subscribers with previous state and honors unsubscribe", ->
+    const store = createUiStore()
+    const initialState = store.getState()
+    const updates: Array<{
+      state: typeof initialState
+      previousState: typeof initialState
+    }> = []
+    const unsubscribe = store.subscribe((state, previousState) => {
+      updates.push({ state, previousState })
+    })
+
+    store.getState().setPalette("blue")
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]?.previousState).toBe(initialState)
+    expect(updates[0]?.state).toBe(store.getState())
+    expect(updates[0]?.state).not.toBe(initialState)
+
+    unsubscribe()
+    store.getState().setPalette("slate")
+    expect(updates).toHaveLength(1)
+
+  it "parses exactly the bounded versioned client UI preference schema", ->
+    const first = parseUiStateSnapshot(hydratedSnapshotJson)
+    const second = parseUiStateSnapshot(hydratedSnapshotJson)
+
+    expect(first).toEqual(hydratedSnapshot)
+    expect(second).toEqual(hydratedSnapshot)
+    expect(first).not.toBe(second)
+    expect(first?.state).not.toBe(second?.state)
+    expect(UI_STATE_VERSION).toBe(1)

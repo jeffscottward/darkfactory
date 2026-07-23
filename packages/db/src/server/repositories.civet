@@ -1,0 +1,847 @@
+import { and as andWhere, asc, desc, eq } from "drizzle-orm"
+import {
+  addresses,
+  auditRecords,
+  featureItems,
+  outboxEvents,
+  profiles,
+  userPreferences,
+  type Address,
+  type AddressType,
+  type ColorScheme,
+  type FeatureItem,
+  type FeatureItemMetadata,
+  type JsonValue,
+  type FeatureItemStatus,
+  type PreferenceMode,
+  type Profile,
+  type ProfileVisibility,
+  type UserPreferences,
+} from "../schema/index.civet"
+import {
+  withTransaction,
+  type DatabaseExecutor,
+  type Transaction,
+} from "./client.civet"
+
+const FEATURE_METADATA_LIMIT_BYTES = 16 * 1024
+
+export class DatabaseConflictError extends Error {
+  constructor(entity: string) {
+    super(`${entity} conflicts with an existing record`)
+    this.name = "DatabaseConflictError"
+  }
+}
+
+export class DatabasePersistenceError extends Error {
+  constructor(operation: string) {
+    super(`Database operation failed: ${operation}`)
+    this.name = "DatabasePersistenceError"
+  }
+}
+
+export class InvalidRepositoryInputError extends Error {
+  constructor(message: string) {
+    super(`Invalid repository input: ${message}`)
+    this.name = "InvalidRepositoryInputError"
+  }
+}
+
+export type RepositoryDependencies = Readonly<{
+  now?: () => Date
+  generateId?: () => string
+}>
+
+type ResolvedRepositoryDependencies = Readonly<{
+  now: () => Date
+  generateId: () => string
+}>
+
+const resolveDependencies = (
+  dependencies: RepositoryDependencies = {},
+): ResolvedRepositoryDependencies => ({
+  now: dependencies.now ?? (() => new Date()),
+  generateId: dependencies.generateId ?? (() => crypto.randomUUID()),
+})
+
+const databaseErrorDetails = (
+  error: unknown,
+): Readonly<{ code?: unknown; constraint?: unknown }> => {
+  const visited = new Set<object>()
+  let current = error
+
+  while (typeof current === "object" && current !== null) {
+    if (visited.has(current)) break
+    visited.add(current)
+
+    const candidate = current as {
+      cause?: unknown
+      code?: unknown
+      constraint?: unknown
+    }
+    if (typeof candidate.code === "string")
+      return {
+        code: candidate.code,
+        constraint: candidate.constraint,
+      }
+    current = candidate.cause
+  }
+
+  return {}
+}
+
+const isUniqueViolation = (error: unknown): boolean =>
+  databaseErrorDetails(error).code === "23505"
+
+const mapConflict = (error: unknown, entity: string): never => {
+  if (isUniqueViolation(error)) throw new DatabaseConflictError(entity)
+  throw error
+}
+
+const mapFeatureMutationError = (error: unknown): never => {
+  const details = databaseErrorDetails(error)
+  if (
+    details.code === "23505" &&
+    details.constraint === "feature_items_pkey"
+  )
+    throw new DatabaseConflictError("feature item")
+  if (
+    details.code === "23514" &&
+    details.constraint === "feature_items_metadata_check"
+  )
+    throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB")
+  if (typeof details.code === "string")
+    throw new DatabasePersistenceError("feature item mutation")
+  throw error
+}
+
+const requireNonBlank = (value: string, field: string): void => {
+  if (value.trim().length === 0)
+    throw new InvalidRepositoryInputError(`${field} must not be blank`)
+}
+
+const invalidJsonMetadata = (): never => {
+  throw new InvalidRepositoryInputError(
+    "metadata must contain only strict JSON values",
+  )
+}
+
+const normalizeJsonValue = (
+  value: unknown,
+  ancestors: Set<object>,
+): JsonValue => {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  )
+    return value
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return invalidJsonMetadata()
+    return value
+  }
+
+  if (typeof value !== "object" || value === null)
+    return invalidJsonMetadata()
+  if (ancestors.has(value)) return invalidJsonMetadata()
+
+  if (Array.isArray(value)) {
+    const keys = Reflect.ownKeys(value).filter((key) => key !== "length")
+    if (
+      keys.length !== value.length ||
+      keys.some((key, index) => key !== String(index))
+    )
+      return invalidJsonMetadata()
+
+    ancestors.add(value)
+    const normalized: JsonValue[] = []
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+      if (
+        descriptor === undefined ||
+        !(("value") in descriptor) ||
+        !descriptor.enumerable
+      )
+        return invalidJsonMetadata()
+      normalized.push(normalizeJsonValue(descriptor.value, ancestors))
+    }
+    ancestors.delete(value)
+    return normalized
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null)
+    return invalidJsonMetadata()
+  if (Object.prototype.hasOwnProperty.call(value, "toJSON"))
+    return invalidJsonMetadata()
+
+  ancestors.add(value)
+  const normalized: Record<string, JsonValue> = {}
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") return invalidJsonMetadata()
+    if (key === "__proto__" || key === "prototype" || key === "constructor")
+      return invalidJsonMetadata()
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (
+      descriptor === undefined ||
+      !(("value") in descriptor) ||
+      !descriptor.enumerable
+    )
+      return invalidJsonMetadata()
+    normalized[key] = normalizeJsonValue(descriptor.value, ancestors)
+  }
+  ancestors.delete(value)
+  return normalized
+}
+
+const jsonbNumberText = (value: number): string => {
+  const source = String(value)
+  if (!source.includes("e") && !source.includes("E")) return source
+
+  const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)
+  if (!match) return invalidJsonMetadata()
+
+  const sign = match[1] ?? ""
+  const whole = match[2]!
+  const fraction = match[3] ?? ""
+  const exponent = Number(match[4])
+  const digits = whole + fraction
+  const decimalIndex = whole.length + exponent
+
+  if (decimalIndex <= 0)
+    return `${sign}0.${"0".repeat(-decimalIndex)}${digits}`
+  if (decimalIndex >= digits.length)
+    return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`
+  return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
+}
+
+const jsonbText = (value: JsonValue): string => {
+  if (value === null) return "null"
+  if (typeof value === "string") return JSON.stringify(value)
+  if (typeof value === "boolean") return value ? "true" : "false"
+  if (typeof value === "number") return jsonbNumberText(value)
+  if (Array.isArray(value))
+    return `[${value.map((entry) => jsonbText(entry)).join(", ")}]`
+
+  return `{${Object.entries(value)
+    .map(([key, entry]) => `${JSON.stringify(key)}: ${jsonbText(entry)}`)
+    .join(", ")}}`
+}
+
+const validateFeatureMetadata = (
+  metadata: unknown,
+): FeatureItemMetadata => {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata)
+  )
+    throw new InvalidRepositoryInputError("metadata must be a JSON object")
+
+  let normalized: JsonValue
+  try {
+    normalized = normalizeJsonValue(metadata, new Set())
+  } catch (error) {
+    if (error instanceof InvalidRepositoryInputError) throw error
+    return invalidJsonMetadata()
+  }
+
+  if (
+    typeof normalized !== "object" ||
+    normalized === null ||
+    Array.isArray(normalized)
+  )
+    return invalidJsonMetadata()
+
+  const serialized = jsonbText(normalized)
+  if (new TextEncoder().encode(serialized).byteLength > FEATURE_METADATA_LIMIT_BYTES)
+    throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB")
+  return normalized as FeatureItemMetadata
+}
+
+export type UpsertProfileInput = Readonly<{
+  userId: string
+  firstName: string | null
+  lastName: string | null
+  displayName: string | null
+  avatarUrl: string | null
+  phone: string | null
+  businessName: string | null
+  jobTitle: string | null
+  biography: string | null
+  timezone: string
+  locale: string
+  dateOfBirth: string | null
+}>
+
+export type ProfileRepository = Readonly<{
+  findByUserId: (userId: string) => Promise<Profile | null>
+  upsert: (input: UpsertProfileInput) => Promise<Profile>
+}>
+
+export const createProfileRepository = (
+  database: DatabaseExecutor,
+  dependencies: RepositoryDependencies = {},
+): ProfileRepository => {
+  const { now } = resolveDependencies(dependencies)
+
+  return {
+    findByUserId: async (userId) => {
+      const [profile] = await database
+        .select()
+        .from(profiles)
+        .where(eq(profiles.userId, userId))
+        .limit(1)
+      return profile ?? null
+    },
+
+    upsert: async (input) => {
+      requireNonBlank(input.userId, "userId")
+      requireNonBlank(input.timezone, "timezone")
+      requireNonBlank(input.locale, "locale")
+      const updatedAt = now()
+      const [profile] = await database
+        .insert(profiles)
+        .values(input)
+        .onConflictDoUpdate({
+          target: profiles.userId,
+          set: {
+            firstName: input.firstName,
+            lastName: input.lastName,
+            displayName: input.displayName,
+            avatarUrl: input.avatarUrl,
+            phone: input.phone,
+            businessName: input.businessName,
+            jobTitle: input.jobTitle,
+            biography: input.biography,
+            timezone: input.timezone,
+            locale: input.locale,
+            dateOfBirth: input.dateOfBirth,
+            updatedAt,
+          },
+        })
+        .returning()
+      return profile!
+    },
+  }
+}
+
+export type CreateAddressInput = Readonly<{
+  id?: string
+  userId: string
+  type: AddressType
+  line1: string
+  line2?: string | null
+  city: string
+  region: string
+  postalCode: string
+  country: string
+  isPrimary?: boolean
+}>
+
+export type UpdateAddressInput = Readonly<{
+  id: string
+  userId: string
+  type?: AddressType
+  line1?: string
+  line2?: string | null
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+  isPrimary?: boolean
+}>
+
+export type AddressRepository = Readonly<{
+  listByUserId: (userId: string) => Promise<Address[]>
+  findByIdForUser: (id: string, userId: string) => Promise<Address | null>
+  create: (input: CreateAddressInput) => Promise<Address>
+  update: (input: UpdateAddressInput) => Promise<Address | null>
+  remove: (id: string, userId: string) => Promise<boolean>
+  setPrimary: (id: string, userId: string) => Promise<Address | null>
+}>
+
+const findAddress = async (
+  database: DatabaseExecutor,
+  id: string,
+  userId: string,
+): Promise<Address | null> => {
+  const [address] = await database
+    .select()
+    .from(addresses)
+    .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
+    .limit(1)
+  return address ?? null
+}
+
+const clearPrimaryAddress = async (
+  transaction: Transaction,
+  userId: string,
+  updatedAt: Date,
+): Promise<void> => {
+  await transaction
+    .update(addresses)
+    .set({ isPrimary: false, updatedAt })
+    .where(andWhere(eq(addresses.userId, userId), eq(addresses.isPrimary, true)));
+}
+
+export const createAddressRepository = (
+  database: DatabaseExecutor,
+  dependencies: RepositoryDependencies = {},
+): AddressRepository => {
+  const { generateId, now } = resolveDependencies(dependencies)
+
+  return {
+    listByUserId: async (userId) => {
+      return database
+        .select()
+        .from(addresses)
+        .where(eq(addresses.userId, userId))
+        .orderBy(
+          desc(addresses.isPrimary),
+          asc(addresses.createdAt),
+          asc(addresses.id),
+        )
+    },
+
+    findByIdForUser: async (id, userId) => {
+      return findAddress(database, id, userId)
+    },
+
+    create: async (input) => {
+      requireNonBlank(input.userId, "userId")
+      requireNonBlank(input.line1, "line1")
+      if (input.country.length !== 2)
+        throw new InvalidRepositoryInputError("country must be a two-letter code")
+
+      try {
+        return await withTransaction(database, async (transaction) => {
+          const timestamp = now()
+          if (input.isPrimary)
+            await clearPrimaryAddress(transaction, input.userId, timestamp)
+
+          const [address] = await transaction
+            .insert(addresses)
+            .values({
+              id: input.id ?? generateId(),
+              userId: input.userId,
+              type: input.type,
+              line1: input.line1,
+              line2: input.line2 ?? null,
+              city: input.city,
+              region: input.region,
+              postalCode: input.postalCode,
+              country: input.country.toUpperCase(),
+              isPrimary: input.isPrimary ?? false,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            })
+            .returning()
+          return address!
+        })
+      } catch (error) {
+        return mapConflict(error, "address")
+      }
+    },
+
+    update: async (input) => {
+      requireNonBlank(input.id, "id")
+      requireNonBlank(input.userId, "userId")
+      if (input.line1 !== undefined) requireNonBlank(input.line1, "line1")
+      if (input.country !== undefined && input.country.length !== 2)
+        throw new InvalidRepositoryInputError("country must be a two-letter code")
+
+      try {
+        return await withTransaction(database, async (transaction) => {
+          const existing = await findAddress(transaction, input.id, input.userId)
+          if (!existing) return null
+
+          const updatedAt = now()
+          if (input.isPrimary === true)
+            await clearPrimaryAddress(transaction, input.userId, updatedAt)
+
+          const [address] = await transaction
+            .update(addresses)
+            .set({
+              ...(input.type === undefined ? {} : { type: input.type }),
+              ...(input.line1 === undefined ? {} : { line1: input.line1 }),
+              ...(input.line2 === undefined ? {} : { line2: input.line2 }),
+              ...(input.city === undefined ? {} : { city: input.city }),
+              ...(input.region === undefined ? {} : { region: input.region }),
+              ...(input.postalCode === undefined
+                ? {}
+                : { postalCode: input.postalCode }),
+              ...(input.country === undefined
+                ? {}
+                : { country: input.country.toUpperCase() }),
+              ...(input.isPrimary === undefined
+                ? {}
+                : { isPrimary: input.isPrimary }),
+              updatedAt,
+            })
+            .where(andWhere(eq(addresses.id, input.id), eq(addresses.userId, input.userId)))
+            .returning()
+          return address ?? null
+        })
+      } catch (error) {
+        return mapConflict(error, "address")
+      }
+    },
+
+    remove: async (id, userId) => {
+      const removed = await database
+        .delete(addresses)
+        .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
+        .returning({ id: addresses.id })
+      return removed.length > 0
+    },
+
+    setPrimary: async (id, userId) => {
+      try {
+        return await withTransaction(database, async (transaction) => {
+          const existing = await findAddress(transaction, id, userId)
+          if (!existing) return null
+
+          const updatedAt = now()
+          await clearPrimaryAddress(transaction, userId, updatedAt)
+          const [address] = await transaction
+            .update(addresses)
+            .set({ isPrimary: true, updatedAt })
+            .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
+            .returning()
+          return address ?? null
+        })
+      } catch (error) {
+        return mapConflict(error, "address")
+      }
+    },
+  }
+}
+
+export type UpsertUserPreferencesInput = Readonly<{
+  userId: string
+  mode: PreferenceMode
+  colorScheme: ColorScheme
+  emailNotifications: boolean
+  productUpdates: boolean
+  analyticsConsent: boolean
+  personalizationConsent: boolean
+  profileVisibility: ProfileVisibility
+}>
+
+export type UserPreferencesRepository = Readonly<{
+  findByUserId: (userId: string) => Promise<UserPreferences | null>
+  upsert: (input: UpsertUserPreferencesInput) => Promise<UserPreferences>
+}>
+
+export const createUserPreferencesRepository = (
+  database: DatabaseExecutor,
+  dependencies: RepositoryDependencies = {},
+): UserPreferencesRepository => {
+  const { now } = resolveDependencies(dependencies)
+
+  return {
+    findByUserId: async (userId) => {
+      const [preferences] = await database
+        .select()
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, userId))
+        .limit(1)
+      return preferences ?? null
+    },
+
+    upsert: async (input) => {
+      requireNonBlank(input.userId, "userId")
+      const [preferences] = await database
+        .insert(userPreferences)
+        .values(input)
+        .onConflictDoUpdate({
+          target: userPreferences.userId,
+          set: {
+            mode: input.mode,
+            colorScheme: input.colorScheme,
+            emailNotifications: input.emailNotifications,
+            productUpdates: input.productUpdates,
+            analyticsConsent: input.analyticsConsent,
+            personalizationConsent: input.personalizationConsent,
+            profileVisibility: input.profileVisibility,
+            updatedAt: now(),
+          },
+        })
+        .returning()
+      return preferences!
+    },
+  }
+}
+
+export type FeatureMutationContext = Readonly<{
+  actorUserId: string | null
+  requestId: string
+}>
+
+export type CreateFeatureItemInput = Readonly<{
+  id?: string
+  ownerId: string
+  name: string
+  description: string
+  status?: FeatureItemStatus
+  metadata?: FeatureItemMetadata
+}>
+
+export type UpdateFeatureItemInput = Readonly<{
+  id: string
+  ownerId: string
+  name?: string
+  description?: string
+  status?: FeatureItemStatus
+  metadata?: FeatureItemMetadata
+}>
+
+export type FeatureItemRepository = Readonly<{
+  listByOwner: (ownerId: string) => Promise<FeatureItem[]>
+  findByIdForOwner: (id: string, ownerId: string) => Promise<FeatureItem | null>
+  create: (
+    input: CreateFeatureItemInput,
+    context: FeatureMutationContext,
+  ) => Promise<FeatureItem>
+  update: (
+    input: UpdateFeatureItemInput,
+    context: FeatureMutationContext,
+  ) => Promise<FeatureItem | null>
+  archive: (
+    id: string,
+    ownerId: string,
+    context: FeatureMutationContext,
+  ) => Promise<FeatureItem | null>
+}>
+
+type FeatureMutationAction =
+  | "feature_item.created"
+  | "feature_item.updated"
+  | "feature_item.archived"
+
+const validateMutationContext = (context: FeatureMutationContext): void => {
+  requireNonBlank(context.requestId, "requestId")
+  if (context.actorUserId !== null)
+    requireNonBlank(context.actorUserId, "actorUserId")
+}
+
+const writeMutationRecords = async (
+  transaction: Transaction,
+  item: FeatureItem,
+  action: FeatureMutationAction,
+  context: FeatureMutationContext,
+  metadata: FeatureItemMetadata,
+  dependencies: ResolvedRepositoryDependencies,
+  occurredAt: Date,
+): Promise<void> => {
+  await transaction.insert(auditRecords).values({
+    id: dependencies.generateId(),
+    actorUserId: context.actorUserId,
+    action,
+    entityType: "feature_item",
+    entityId: item.id,
+    metadata,
+    requestId: context.requestId,
+    createdAt: occurredAt,
+  });
+
+  await transaction.insert(outboxEvents).values({
+    id: dependencies.generateId(),
+    eventType: action,
+    aggregateType: "feature_item",
+    aggregateId: item.id,
+    payload: {
+      id: item.id,
+      ownerId: item.ownerId,
+      status: item.status,
+    },
+    occurredAt,
+    attemptCount: 0,
+  });
+}
+
+const findFeatureItem = async (
+  database: DatabaseExecutor,
+  id: string,
+  ownerId: string,
+): Promise<FeatureItem | null> => {
+  const [item] = await database
+    .select()
+    .from(featureItems)
+    .where(andWhere(eq(featureItems.id, id), eq(featureItems.ownerId, ownerId)))
+    .limit(1)
+  return item ?? null
+}
+
+export const createFeatureItemRepository = (
+  database: DatabaseExecutor,
+  repositoryDependencies: RepositoryDependencies = {},
+): FeatureItemRepository => {
+  const dependencies = resolveDependencies(repositoryDependencies)
+
+  return {
+    listByOwner: async (ownerId) => {
+      return database
+        .select()
+        .from(featureItems)
+        .where(eq(featureItems.ownerId, ownerId))
+        .orderBy(desc(featureItems.updatedAt), desc(featureItems.id))
+    },
+
+    findByIdForOwner: async (id, ownerId) => {
+      return findFeatureItem(database, id, ownerId)
+    },
+
+    create: async (input, context) => {
+      requireNonBlank(input.ownerId, "ownerId")
+      requireNonBlank(input.name, "name")
+      validateMutationContext(context)
+      const metadata = validateFeatureMetadata(input.metadata ?? {})
+
+      try {
+        return await withTransaction(database, async (transaction) => {
+          const timestamp = dependencies.now()
+          const [item] = await transaction
+            .insert(featureItems)
+            .values({
+              id: input.id ?? dependencies.generateId(),
+              ownerId: input.ownerId,
+              name: input.name,
+              description: input.description,
+              status: input.status ?? "draft",
+              metadata,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            })
+            .returning()
+          await writeMutationRecords(
+            transaction,
+            item!,
+            "feature_item.created",
+            context,
+            { status: item!.status },
+            dependencies,
+            timestamp,
+          )
+          return item!
+        })
+      } catch (error) {
+        return mapFeatureMutationError(error)
+      }
+    },
+
+    update: async (input, context) => {
+      requireNonBlank(input.id, "id")
+      requireNonBlank(input.ownerId, "ownerId")
+      if (input.name !== undefined) requireNonBlank(input.name, "name")
+      validateMutationContext(context)
+      const metadata =
+        input.metadata === undefined
+          ? undefined
+          : validateFeatureMetadata(input.metadata)
+
+      const changedFields = [
+        input.name === undefined ? null : "name",
+        input.description === undefined ? null : "description",
+        input.status === undefined ? null : "status",
+        input.metadata === undefined ? null : "metadata",
+      ].filter((field): field is string => field !== null)
+      if (changedFields.length === 0)
+        throw new InvalidRepositoryInputError(
+          "feature item update must change at least one field",
+        )
+
+      try {
+        return await withTransaction(database, async (transaction) => {
+          const timestamp = dependencies.now()
+          const [item] = await transaction
+            .update(featureItems)
+            .set({
+              ...(input.name === undefined ? {} : { name: input.name }),
+              ...(input.description === undefined
+                ? {}
+                : { description: input.description }),
+              ...(input.status === undefined ? {} : { status: input.status }),
+              ...(metadata === undefined
+                ? {}
+                : { metadata }),
+              updatedAt: timestamp,
+            })
+            .where(
+              andWhere(
+                eq(featureItems.id, input.id),
+                eq(featureItems.ownerId, input.ownerId),
+              ),
+            )
+            .returning()
+          if (!item) return null
+
+          await writeMutationRecords(
+            transaction,
+            item,
+            "feature_item.updated",
+            context,
+            { changedFields },
+            dependencies,
+            timestamp,
+          )
+          return item
+        })
+      } catch (error) {
+        return mapFeatureMutationError(error)
+      }
+    },
+
+    archive: async (id, ownerId, context) => {
+      requireNonBlank(id, "id")
+      requireNonBlank(ownerId, "ownerId")
+      validateMutationContext(context)
+
+      try {
+        return await withTransaction(database, async (transaction) => {
+          const timestamp = dependencies.now()
+          const [item] = await transaction
+            .update(featureItems)
+            .set({ status: "archived", updatedAt: timestamp })
+            .where(
+              andWhere(eq(featureItems.id, id), eq(featureItems.ownerId, ownerId)),
+            )
+            .returning()
+          if (!item) return null
+
+          await writeMutationRecords(
+            transaction,
+            item,
+            "feature_item.archived",
+            context,
+            { status: "archived" },
+            dependencies,
+            timestamp,
+          )
+          return item
+        })
+      } catch (error) {
+        return mapFeatureMutationError(error)
+      }
+    },
+  }
+}
+
+export type Repositories = Readonly<{
+  profiles: ProfileRepository
+  addresses: AddressRepository
+  userPreferences: UserPreferencesRepository
+  featureItems: FeatureItemRepository
+}>
+
+export const createRepositories = (
+  database: DatabaseExecutor,
+  dependencies: RepositoryDependencies = {},
+): Repositories => ({
+  profiles: createProfileRepository(database, dependencies),
+  addresses: createAddressRepository(database, dependencies),
+  userPreferences: createUserPreferencesRepository(database, dependencies),
+  featureItems: createFeatureItemRepository(database, dependencies),
+})

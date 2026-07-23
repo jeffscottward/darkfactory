@@ -1,0 +1,163 @@
+import { randomUUID } from "node:crypto"
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres"
+import { describe, expect, it } from "vitest"
+
+describe.sequential "real Postgres test database lifecycle", ->
+  it "rejects remote, production-like, routed, and already-isolated URLs before connecting", async ->
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl: "postgresql://user:secret@production-db.example/darkfactory",
+      }),
+    ).rejects.toThrow(/non-local host|unsafe DATABASE_URL/)
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl: "postgresql://user:secret@db.example.test/darkfactory",
+      }),
+    ).rejects.toThrow(/non-local host/)
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://user:secret@localhost/darkfactory?host=production-db.example",
+      }),
+    ).rejects.toThrow(/connection-routing query parameters/)
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl: "postgresql://user:secret@localhost/darkfactory_test_forged",
+      }),
+    ).rejects.toThrow(/unsafe DATABASE_URL/)
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://darkfactory_test_runner:secret@localhost/darkfactory",
+      }),
+    ).rejects.toThrow(/dedicated darkfactory test runner/)
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://local_createdb_role:secret@localhost/darkfactory_test_maintenance",
+      }),
+    ).rejects.toThrow(/dedicated darkfactory test runner/)
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl: "https://localhost/darkfactory",
+      }),
+    ).rejects.toThrow(/postgres or postgresql protocol/)
+
+  it "refuses cleanup for a handle the harness did not create", async ->
+    const forgedDatabase = Object.freeze({
+      databaseUrl: "postgresql://localhost/darkfactory_test_forged",
+      databaseName: "darkfactory_test_forged",
+      runId: "forged",
+      query: async -> [],
+      openConnection: async -> {
+        throw new Error("not a real connection")
+      },
+    }) as PostgresTestDatabase
+
+    await expect(dropPostgresTestDatabase(forgedDatabase)).rejects.toThrow(
+      /unowned or already-dropped/,
+    )
+
+  it "force-drops its isolated database and terminates another live client", async ->
+    const runId = `lifecycle_${randomUUID()}`
+    const database = await createPostgresTestDatabase({ runId })
+    const liveConnection = await database.openConnection()
+    let dropped = false
+    let recreated: PostgresTestDatabase | undefined
+
+    try {
+      const rows = await liveConnection.query<{ current_database: string }>(
+        "SELECT current_database()",
+      )
+
+      expect(database.databaseName).toMatch(/^darkfactory_test_[a-z0-9_]+$/)
+      expect(database.databaseName.length).toBeLessThanOrEqual(63)
+      expect(database.databaseUrl).not.toBe(process.env["DATABASE_URL"])
+      expect(rows).toEqual([{ current_database: database.databaseName }])
+
+      await dropPostgresTestDatabase(database)
+      dropped = true
+
+      const terminationError = await liveConnection.waitForTermination()
+      await liveConnection.waitForClose()
+      expect(terminationError.message).toMatch(
+        /terminating connection|Connection terminated unexpectedly/i,
+      )
+      if ("code" in terminationError) expect(terminationError.code).toBe("57P01")
+
+      await expect(liveConnection.query("SELECT 1")).rejects.toThrow()
+      await expect(database.openConnection()).rejects.toThrow(/dropped/)
+
+      recreated = await createPostgresTestDatabase({ runId })
+      expect(recreated.databaseName).toBe(database.databaseName)
+      expect(
+        await recreated.query<{ current_database: string }>("SELECT current_database()"),
+      ).toEqual([{ current_database: database.databaseName }])
+    } finally {
+      await liveConnection.close().catch(() => undefined)
+      if (!dropped) await dropPostgresTestDatabase(database)
+      if (recreated !== undefined) await dropPostgresTestDatabase(recreated)
+    }
+
+    await expect(dropPostgresTestDatabase(database)).rejects.toThrow(
+      /unowned or already-dropped/,
+    )
+
+  it "hashes the full run ID so long shared prefixes remain isolated", async ->
+    const sharedPrefix = `long_${randomUUID()}_${"x".repeat(200)}`
+    const first = await createPostgresTestDatabase({ runId: `${sharedPrefix}_a` })
+    let second: PostgresTestDatabase | undefined
+
+    try {
+      second = await createPostgresTestDatabase({ runId: `${sharedPrefix}_b` })
+      expect(first.databaseName).not.toBe(second.databaseName)
+      expect(first.databaseName.length).toBeLessThanOrEqual(63)
+      expect(second.databaseName.length).toBeLessThanOrEqual(63)
+    } finally {
+      await dropPostgresTestDatabase(first)
+      if (second !== undefined) await dropPostgresTestDatabase(second)
+    }
+
+  it "reports a concurrent normalized run-ID collision without dropping the winner", async ->
+    const runId = `collision_${randomUUID()}`
+    const results = await Promise.allSettled([
+      createPostgresTestDatabase({ runId }),
+      createPostgresTestDatabase({ runId: runId.toUpperCase() }),
+    ])
+    const fulfilled = results.filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<PostgresTestDatabase> => {
+        return result.status === "fulfilled"
+      },
+    )
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => {
+        return result.status === "rejected"
+      },
+    )
+
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]?.reason).toMatchObject({
+      message: expect.stringMatching(/runId collision/),
+    })
+
+    const winner = fulfilled[0]?.value
+    if (winner === undefined) throw new Error("Expected one collision winner")
+
+    try {
+      expect(await winner.query("SELECT 1 AS alive")).toEqual([{ alive: 1 }])
+    } finally {
+      await dropPostgresTestDatabase(winner)
+    }

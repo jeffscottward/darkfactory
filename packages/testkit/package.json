@@ -9,13 +9,20 @@
       "types": "./src/index.civet.d.ts",
       "import": "./src/index.civet",
       "default": "./src/index.civet"
+    },
+    "./postgres": {
+      "types": "./src/postgres.civet.d.ts",
+      "import": "./src/postgres.civet",
+      "default": "./src/postgres.civet"
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/index.civet",
-    "typecheck": "civet --typecheck src/index.civet"
+    "types": "civet --emit-declaration src/index.civet src/postgres.civet",
+    "typecheck": "civet --typecheck src/index.civet src/postgres.civet"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:"
+    "@danielx/civet": "catalog:",
+    "@types/pg": "catalog:",
+    "pg": "catalog:"
   }
 }

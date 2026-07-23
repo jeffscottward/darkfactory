@@ -3,25 +3,54 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/server/unsupported.js",
+    "./src/server/capabilities-unsupported.js",
+    "./src/database/unsupported.js"
+  ],
   "exports": {
     ".": {
-      "types": "./src/env.civet.d.ts",
-      "import": "./src/env.civet",
-      "default": "./src/env.civet"
+      "types": "./src/client.civet.d.ts",
+      "import": "./src/client.civet",
+      "default": "./src/client.civet"
+    },
+    "./server": {
+      "types": "./src/server.civet.d.ts",
+      "workerd": "./src/server.civet",
+      "worker": "./src/server.civet",
+      "browser": "./src/server/unsupported.js",
+      "import": "./src/server.civet",
+      "default": "./src/server.civet"
+    },
+    "./server/capabilities": {
+      "types": "./src/server/capabilities.civet.d.ts",
+      "workerd": "./src/server/capabilities.civet",
+      "worker": "./src/server/capabilities.civet",
+      "browser": "./src/server/capabilities-unsupported.js",
+      "import": "./src/server/capabilities.civet",
+      "default": "./src/server/capabilities.civet"
+    },
+    "./database": {
+      "types": "./src/database.civet.d.ts",
+      "workerd": "./src/database.civet",
+      "worker": "./src/database.civet",
+      "browser": "./src/database/unsupported.js",
+      "import": "./src/database.civet",
+      "default": "./src/database.civet"
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/env.civet",
-    "typecheck": "civet --typecheck src/env.civet src/env.test.civet",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/env.test.civet",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/env.test.civet"
+    "types": "civet --emit-declaration src/client.civet src/server.civet src/database.civet src/capabilities.civet src/server/capabilities.civet src/server/capabilities-loader.civet src/server/capability-readiness.civet",
+    "typecheck": "civet --typecheck src/client.civet src/server.civet src/database.civet src/capabilities.civet src/server/capabilities.civet src/server/capabilities-loader.civet src/server/capability-readiness.civet src/*.test.civet",
+    "test": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src/*.test.civet",
+    "test:unit": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src/*.test.civet"
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
-    "zod": "4.1.12"
+    "yaml": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",

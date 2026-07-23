@@ -1,0 +1,44 @@
+{
+  "name": "@darkfactory/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.civet"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    },
+    "./server/groq": {
+      "types": "./src/server/groq.civet.d.ts",
+      "workerd": "./src/server/groq.civet",
+      "worker": "./src/server/groq.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/groq.civet",
+      "default": "./src/server/groq.civet"
+    },
+    "./test": {
+      "types": "./src/test.civet.d.ts",
+      "import": "./src/test.civet",
+      "default": "./src/test.civet"
+    }
+  },
+  "scripts": {
+    "types": "civet --emit-declaration src/index.civet && civet --emit-declaration src/server/groq.civet && civet --emit-declaration src/test.civet",
+    "typecheck": "civet --config civet.typecheck.json --typecheck",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet"
+  },
+  "dependencies": {
+    "groq-sdk": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

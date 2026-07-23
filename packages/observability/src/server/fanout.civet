@@ -1,0 +1,153 @@
+import type {
+  AnalyticsCapture,
+  AnalyticsCaptureFacade,
+  ConsentResolver,
+  SemanticEmissionContext,
+  SemanticEmissionResult,
+  SemanticEvent,
+  SemanticEventPort,
+  SpanHandle,
+  StructuredEventSink,
+  WaitUntil,
+} from "../port.civet"
+import { redactSemanticEvent } from "../redaction.civet"
+
+export type SemanticEventFanoutOptions = Readonly<{
+  sink: StructuredEventSink
+  analytics?: AnalyticsCaptureFacade
+  resolveConsent?: ConsentResolver
+}>
+
+const toAnalyticsCapture = (
+  event: SemanticEvent,
+  actorId: string,
+  consent: "granted",
+): AnalyticsCapture => ({
+  consent,
+  distinctId: actorId,
+  event: event.name,
+  eventId: event.eventId,
+  properties: {
+    ...(event.action === undefined ? {} : { action: event.action }),
+    ...(event.entityId === undefined ? {} : { entityId: event.entityId }),
+    ...(event.entityType === undefined ? {} : { entityType: event.entityType }),
+    ...(event.outcome === undefined ? {} : { outcome: event.outcome }),
+    requestId: event.correlation.requestId,
+    ...(event.source === undefined ? {} : { source: event.source }),
+    ...(event.correlation.traceId === undefined
+      ? {}
+      : { traceId: event.correlation.traceId }),
+  },
+  timestamp: event.occurredAt,
+})
+
+const emitAnalytics = async (
+  event: SemanticEvent,
+  actorId: string,
+  analytics: AnalyticsCaptureFacade,
+  resolveConsent: ConsentResolver,
+): Promise<"captured" | "skipped" | "failed"> => {
+  let consent
+  try {
+    consent = await resolveConsent(event.correlation)
+  } catch {
+    return "skipped"
+  }
+  if (consent !== "granted") return "skipped"
+
+  try {
+    const result = await analytics.capture(
+      toAnalyticsCapture(event, actorId, consent),
+    )
+    return result.status === "captured"
+      ? "captured"
+      : result.status === "failed"
+        ? "failed"
+        : "skipped"
+  } catch {
+    return "failed"
+  }
+}
+
+const registerWaitUntil = (
+  waitUntil: WaitUntil | undefined,
+  task: Promise<unknown>,
+): void => {
+  if (waitUntil === undefined) return
+  try {
+    waitUntil(task)
+  } catch {
+    // The emission still awaits the task; a broken lifetime hook must not retry it.
+  }
+}
+
+const recordOnSpan = (
+  span: SpanHandle,
+  event: SemanticEvent,
+): "recorded" | "failed" => {
+  let failed = false
+  try {
+    span.addEvent(event)
+  } catch (_error) {
+    failed = true
+  }
+
+  try {
+    span.recordMetric({
+      name: "darkfactory.semantic_event",
+      value: 1,
+      attributes: {
+        eventName: event.name,
+        ...(event.outcome === undefined ? {} : { outcome: event.outcome }),
+      },
+    })
+  } catch (_error) {
+    failed = true
+  }
+  return failed ? "failed" : "recorded"
+}
+
+export const createSemanticEventFanout = (
+  options: SemanticEventFanoutOptions,
+): SemanticEventPort => {
+  const emit = async (
+    event: SemanticEvent,
+    context: SemanticEmissionContext = {},
+  ): Promise<SemanticEmissionResult> => {
+    const snapshot = redactSemanticEvent(event)
+
+    let structuredEvent: SemanticEmissionResult["structuredEvent"] = "emitted"
+    try {
+      await options.sink.emit(snapshot)
+    } catch (_error) {
+      structuredEvent = "failed"
+    }
+
+    const span =
+      context.span === undefined
+        ? ("skipped" as const)
+        : recordOnSpan(context.span, snapshot)
+
+    let analytics: SemanticEmissionResult["analytics"] = "skipped"
+    const actorId = snapshot.correlation.actorId
+    if (
+      options.analytics !== undefined &&
+      options.resolveConsent !== undefined &&
+      actorId !== undefined &&
+      actorId !== "[Undefined]"
+    ) {
+      const task = emitAnalytics(
+        snapshot,
+        actorId,
+        options.analytics,
+        options.resolveConsent,
+      )
+      registerWaitUntil(context.waitUntil, task)
+      analytics = await task
+    }
+
+    return Object.freeze({ structuredEvent, span, analytics })
+  }
+
+  return Object.freeze({ emit })
+}

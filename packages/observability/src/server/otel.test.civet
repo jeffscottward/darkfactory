@@ -1,0 +1,251 @@
+import { describe, expect, it } from "vitest"
+
+import type { SemanticEvent } from "../port.civet"
+import {
+  initializeTelemetry,
+  resolveOtlpSignalUrls,
+} from "./otel.civet"
+
+const event: SemanticEvent = {
+  eventId: "event_otel_01",
+  name: "feature-item.created",
+  occurredAt: "2026-07-23T12:00:00.000Z",
+  correlation: {
+    requestId: "request_otel_01",
+    traceId: "11111111111111111111111111111111",
+    spanId: "2222222222222222",
+    actorId: "actor_opaque_01",
+    route: "/rpc/feature.create",
+    procedure: "feature.create",
+  },
+  outcome: "success",
+  attributes: { password: "raw-password", safe: "kept" },
+}
+
+describe "resolveOtlpSignalUrls", ->
+  it "constructs exact signal endpoints only for explicitly trusted collectors", ->
+    expect(
+      resolveOtlpSignalUrls("https://collector.example.test/otlp/", {
+        allowedHosts: ["collector.example.test"],
+      })
+    ).toEqual({
+      traces: "https://collector.example.test/otlp/v1/traces",
+      metrics: "https://collector.example.test/otlp/v1/metrics",
+    })
+    expect(
+      resolveOtlpSignalUrls("http://127.0.0.1:4318", {
+        allowedHosts: ["127.0.0.1"],
+        allowInsecureLocalhost: true,
+      })
+    ).toEqual({
+      traces: "http://127.0.0.1:4318/v1/traces",
+      metrics: "http://127.0.0.1:4318/v1/metrics",
+    })
+
+  it "fails closed for untrusted, private, credentialed, or ambiguous collector URLs", ->
+    expect(
+      resolveOtlpSignalUrls("https://collector.example.test/otlp/")
+    ).toBeUndefined()
+    expect(
+      resolveOtlpSignalUrls("https://10.0.0.1/otlp", {
+        allowedHosts: ["10.0.0.1"],
+      })
+    ).toBeUndefined()
+    for (const endpoint of [
+      "javascript:secret-provider-body",
+      "not a URL password=hidden",
+      "https://user:password@collector.example.test/otlp",
+      "https://collector.example.test/otlp?token=hidden",
+      "https://collector.example.test/otlp#secret",
+    ]) {
+      expect(
+        resolveOtlpSignalUrls(endpoint, {
+          allowedHosts: ["collector.example.test"],
+        })
+      ).toBeUndefined()
+    }
+
+describe "initializeTelemetry", ->
+  it "reports explicit disabled, unconfigured, and no-export states", async ->
+    const disabled = initializeTelemetry({ enabled: false })
+    const unconfigured = initializeTelemetry({ enabled: true })
+    const invalidEndpoint = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpEndpoint: "not-a-url raw-secret",
+    })
+    const noExport = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+    })
+
+    expect(disabled.state).toEqual({ status: "disabled" })
+    expect(unconfigured.state).toEqual({
+      status: "unconfigured",
+      reason: "service-name-missing",
+    })
+    expect(invalidEndpoint.state).toEqual({
+      status: "unconfigured",
+      reason: "endpoint-invalid",
+    })
+    expect(noExport.state).toEqual({ status: "no-export" })
+
+    const invalidHeaders = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpEndpoint: "https://collector.example.test/otlp",
+      otlpAllowedHosts: ["collector.example.test"],
+      otlpHeaders: { cookie: "raw-cookie" },
+    })
+    expect(invalidHeaders.state).toEqual({
+      status: "unconfigured",
+      reason: "headers-invalid",
+    })
+
+    let callbacks = 0
+    for (const runtime of [disabled, unconfigured, invalidEndpoint, noExport]) {
+      await expect(
+        runtime.withSpan(
+          { name: "noop", correlation: { requestId: "request_noop" } },
+          ->
+            callbacks += 1
+            return "ok"
+        )
+      ).resolves.toBe("ok")
+      await runtime.forceFlush()
+      await runtime.dispose()
+      await runtime.dispose()
+    }
+    expect(callbacks).toBe(4)
+
+  it "exports correlated spans and metrics deterministically in memory with explicit parent context", async ->
+    let now = 1_000
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+      now: -> now,
+    })
+
+    expect(runtime.state).toEqual({ status: "in-memory" })
+    const value = await runtime.withSpan(
+      {
+        name: "rpc.feature.create",
+        correlation: event.correlation,
+        procedure: "feature.create",
+      },
+      (span) ->
+        expect(span.correlation.traceId).toBe(event.correlation.traceId)
+        expect(span.correlation.spanId).not.toBe(event.correlation.spanId)
+        span.addEvent(event)
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 1,
+          attributes: {
+            eventName: event.name,
+            outcome: "success",
+            requestId: "metric_unique_request",
+            custom: "metric_custom_value",
+          },
+        })
+        span.recordMetric({
+          name: `attacker.${"x".repeat(1_000)}`,
+          value: 1,
+        })
+        now = 1_037
+        return "ok"
+    )
+
+    expect(value).toBe("ok")
+    await runtime.forceFlush()
+
+    const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
+    expect(spans).toHaveLength(1)
+    const span = spans[0]!
+    expect(span.name).toBe("rpc.feature.create")
+    expect(span.spanContext().traceId).toBe(event.correlation.traceId)
+    expect(span.parentSpanContext?.spanId).toBe(event.correlation.spanId)
+    expect(span.resource.attributes["service.name"]).toBe("darkfactory-test")
+    expect(span.resource.attributes["telemetry.sdk.name"]).toBe(
+      "opentelemetry"
+    )
+    expect(span.attributes).toMatchObject({
+      "service.name": "darkfactory-test",
+      "request.id": "request_otel_01",
+      "rpc.procedure": "feature.create",
+      "http.route": "/rpc/feature.create",
+      "darkfactory.outcome": "success",
+      "darkfactory.duration_ms": 37,
+    })
+    expect(span.events).toHaveLength(1)
+    expect(span.events[0]?.name).toBe("feature-item.created")
+    expect(JSON.stringify(span.events)).not.toContain("raw-password")
+
+    const metrics = runtime.testExports?.metrics.getMetrics() ?? []
+    const serializedMetrics = JSON.stringify(metrics)
+    expect(serializedMetrics).toContain("darkfactory.semantic_event")
+    expect(serializedMetrics).not.toContain("request_otel_01")
+    expect(serializedMetrics).toContain("feature-item.created")
+    expect(serializedMetrics).toContain("success")
+    expect(serializedMetrics).not.toContain("metric_unique_request")
+    expect(serializedMetrics).not.toContain("metric_custom_value")
+    expect(serializedMetrics).not.toContain("attacker.")
+    expect(metrics[0]?.resource.attributes["service.name"]).toBe(
+      "darkfactory-test"
+    )
+    expect(
+      metrics[0]?.resource.attributes["telemetry.sdk.name"]
+    ).toBe("opentelemetry")
+
+    await runtime.dispose()
+    await runtime.dispose()
+
+  it "records a safe failure outcome without copying provider error details", async ->
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+    })
+    const providerError = new Error("raw-provider-body token=hidden")
+
+    await expect(
+      runtime.withSpan(
+        {
+          name: "rpc.feature.update",
+          correlation: { requestId: "request_failure" },
+          procedure: "feature.update",
+        },
+        -> throw providerError
+      )
+    ).rejects.toBe(providerError)
+    await runtime.forceFlush()
+
+    const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
+    expect(spans[0]?.attributes).toMatchObject({
+      "darkfactory.outcome": "failure",
+      "error.category": "application",
+    })
+    expect(
+      JSON.stringify(
+        spans.map((finishedSpan) => ({
+          attributes: finishedSpan.attributes,
+          events: finishedSpan.events,
+          name: finishedSpan.name,
+          status: finishedSpan.status,
+        }))
+      )
+    ).not.toMatch(/raw-provider-body|token=hidden/)
+    await runtime.dispose()
+
+
+  it "memoizes one concurrent disposal promise", async ->
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+    })
+
+    const first = runtime.dispose()
+    const second = runtime.dispose()
+    expect(second).toBe(first)
+    await expect(first).resolves.toBeUndefined()

@@ -1,0 +1,102 @@
+import { fileURLToPath } from "node:url"
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres"
+import { migrate as runMigrations } from "drizzle-orm/node-postgres/migrator"
+import { Client, Pool } from "pg"
+import * as schema from "../schema/index.civet"
+
+export type Database = NodePgDatabase<typeof schema>
+export type Transaction = Parameters<
+  Parameters<Database["transaction"]>[0]
+>[0]
+export type DatabaseExecutor = Database | Transaction
+
+export type DatabaseOptions = Readonly<{
+  connectionString: string
+  maxConnections?: number
+  idleTimeoutMillis?: number
+  connectionTimeoutMillis?: number
+}>
+
+export type RequestDatabaseOptions = Pick<
+  DatabaseOptions,
+  "connectionString" | "connectionTimeoutMillis"
+>
+
+export type DatabaseResource = Readonly<{
+  db: Database
+  close: () => Promise<void>
+}>
+
+export type MigrationOptions = Readonly<{
+  migrationsFolder?: string
+}>
+
+const drizzleDatabase = (client: Pool | Client): Database =>
+  drizzle({ client, schema })
+
+export const createNodeDatabase = (
+  options: DatabaseOptions,
+): DatabaseResource => {
+  const pool = new Pool({
+    connectionString: options.connectionString,
+    ...(options.maxConnections === undefined
+      ? {}
+      : { max: options.maxConnections }),
+    ...(options.idleTimeoutMillis === undefined
+      ? {}
+      : { idleTimeoutMillis: options.idleTimeoutMillis }),
+    ...(options.connectionTimeoutMillis === undefined
+      ? {}
+      : { connectionTimeoutMillis: options.connectionTimeoutMillis }),
+  })
+
+  return {
+    db: drizzleDatabase(pool),
+    close: async () => {
+      await pool.end();
+    },
+  }
+}
+
+export const createRequestDatabase = async (
+  options: RequestDatabaseOptions,
+): Promise<DatabaseResource> => {
+  const client = new Client({
+    connectionString: options.connectionString,
+    ...(options.connectionTimeoutMillis === undefined
+      ? {}
+      : { connectionTimeoutMillis: options.connectionTimeoutMillis }),
+  })
+
+  try {
+    await client.connect()
+  } catch (error) {
+    await client.end().catch(() => undefined)
+    throw error
+  }
+
+  return {
+    db: drizzleDatabase(client),
+    close: async () => {
+      await client.end();
+    },
+  }
+}
+
+const defaultMigrationsFolder = fileURLToPath(
+  new URL("../../migrations", import.meta.url),
+)
+
+export const migrate = async (
+  database: Database,
+  options: MigrationOptions = {},
+): Promise<void> => {
+  await runMigrations(database, {
+    migrationsFolder: options.migrationsFolder ?? defaultMigrationsFolder,
+  });
+}
+
+export const withTransaction = async <Result>(
+  database: DatabaseExecutor,
+  operation: (transaction: Transaction) => Promise<Result>,
+): Promise<Result> => database.transaction(operation)

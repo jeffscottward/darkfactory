@@ -1,0 +1,174 @@
+import { register } from "node:module"
+
+import type { EnsureSeedIdentity } from "@darkfactory/db/server"
+
+const packageLoaderSource = (
+  civetLoaderUrl: string,
+  typescriptUrl: string,
+): string => `
+import { load as civetLoad, resolve as civetResolve } from ${JSON.stringify(civetLoaderUrl)};
+import ts from ${JSON.stringify(typescriptUrl)};
+export const resolve = async (specifier, context, nextResolve) => {
+  const resolved = await civetResolve(specifier, context, nextResolve);
+  return /\\.civet(?:$|[?#])/.test(resolved.url)
+    ? { ...resolved, format: "civet" }
+    : resolved;
+};
+export const load = async (url, context, nextLoad) => {
+  const loaded = await civetLoad(url, context, nextLoad);
+  if (context.format !== "civet") return loaded;
+  return {
+    ...loaded,
+    source: ts.transpileModule(String(loaded.source), {
+      compilerOptions: {
+        jsx: ts.JsxEmit.ReactJSX,
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2023,
+      },
+    }).outputText,
+  };
+};
+`
+
+const registerPackageLoader = (): void => {
+  const source = packageLoaderSource(
+    import.meta.resolve("@danielx/civet/esm"),
+    import.meta.resolve("typescript"),
+  )
+  register(
+    `data:text/javascript,${encodeURIComponent(source)}`,
+    import.meta.url,
+  )
+}
+
+const commandFrom = (argument: string | undefined): "seed" | "reset" => {
+  if (argument === "seed" || argument === "reset") return argument
+  throw new Error("Database command must be either seed or reset")
+}
+const developmentEnvironmentFrom = (
+  value: string | undefined,
+): "development" | "test" => {
+  if (value === "development" || value === "test") return value
+  throw new Error(
+    "APP_ENV must be explicitly set to development or test for database seed/reset",
+  )
+}
+
+const main = async (): Promise<void> => {
+  const command = commandFrom(process.argv[2])
+  const environment = developmentEnvironmentFrom(process.env.APP_ENV)
+  registerPackageLoader()
+
+  const [authModule, configModule, databaseConfigModule, databaseModule, emailModule] =
+    await Promise.all([
+      import("@darkfactory/auth/server"),
+      import("@darkfactory/config/server"),
+      import("@darkfactory/config/database"),
+      import("@darkfactory/db/server"),
+      import("@darkfactory/email/server"),
+    ])
+
+  const env = configModule.parseServerEnv(process.env)
+  const profile = databaseConfigModule.composeDatabaseProfile(env)
+  const resource = databaseModule.createNodeDatabase({
+    connectionString: profile.connection.connectionString,
+  })
+  const scheduledTasks: Promise<unknown>[] = []
+  const awaitScheduledTasks = async (): Promise<void> => {
+    while (scheduledTasks.length > 0) {
+      const tasks = scheduledTasks.splice(0)
+      await Promise.all(tasks)
+    }
+  }
+  let output = ""
+
+  try {
+    if (command === "reset") {
+      const result = await databaseModule.resetDevelopment(resource.db, {
+        environment,
+      })
+      output = JSON.stringify(result)
+    } else {
+
+      const email = emailModule.selectEmailPort({
+        environment: env.APP_ENV,
+        transport: env.EMAIL_TRANSPORT,
+        from: env.EMAIL_FROM,
+        trustedAppOrigin: env.APP_URL,
+        ...(env.RESEND_API_KEY === undefined
+          ? {}
+          : { resendApiKey: env.RESEND_API_KEY }),
+      })
+
+      const ensureIdentity: EnsureSeedIdentity = async (identity, exists) => {
+        const auth = authModule.createAuth({
+          database: resource.db,
+          email,
+          secret: env.BETTER_AUTH_SECRET,
+          baseURL: env.BETTER_AUTH_URL,
+          trustedOrigins: [env.APP_URL],
+          scheduleBackgroundTask: (task) => scheduledTasks.push(task),
+          generateId: ({ model }) => {
+            if (model === "user") return identity.userId
+            if (model === "account") return identity.accountId
+            throw new Error(`Unexpected seed auth model: ${model}`)
+          },
+        })
+
+        if (!exists) {
+          await auth.api.signUpEmail({
+            body: {
+              name: identity.name,
+              email: identity.email,
+              password: identity.password,
+            },
+          })
+          await awaitScheduledTasks()
+          return
+        }
+
+        const context = await auth.$context
+        const credential = (
+          await context.internalAdapter.findAccounts(identity.userId)
+        ).find((account) =>
+          account.id === identity.accountId &&
+          account.providerId === "credential" &&
+          account.accountId === identity.userId
+        )
+        if (!credential?.password) {
+          throw new Error(`Seed credential is unavailable for ${identity.email}`)
+        }
+
+        let passwordMatches: boolean
+        try {
+          passwordMatches = await context.password.verify({
+            hash: credential.password,
+            password: identity.password,
+          })
+        } catch {
+          throw new Error(`Seed credential is malformed for ${identity.email}`)
+        }
+        if (passwordMatches) return
+
+        await context.internalAdapter.updateAccount(credential.id, {
+          password: await context.password.hash(identity.password),
+        })
+      }
+
+      const result = await databaseModule.seedDevelopment(resource.db, {
+        environment,
+        ensureIdentity,
+      })
+      output = JSON.stringify(result)
+    }
+  } finally {
+    try {
+      await awaitScheduledTasks()
+    } finally {
+      await resource.close()
+    }
+  }
+  process.stdout.write(`${output}\n`)
+}
+
+await main()
