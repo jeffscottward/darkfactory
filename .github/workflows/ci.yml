@@ -48,6 +48,27 @@ jobs:
       - name: Start trusted local HTTPS proxy
         run: corepack pnpm exec portless proxy start
 
+      # Chromium uses NSS, so trust the generated CA instead of bypassing HTTPS validation.
+      - name: Trust portless CA in Chromium
+        run: |
+          set -euo pipefail
+          if ! command -v certutil >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes libnss3-tools
+          fi
+
+          nss_db="$HOME/.pki/nssdb"
+          ca_nickname="portless-local-ca"
+          mkdir -p "$nss_db"
+          if [ ! -f "$nss_db/cert9.db" ]; then
+            certutil -N --empty-password -d "sql:$nss_db"
+          fi
+          if certutil -L -d "sql:$nss_db" -n "$ca_nickname" >/dev/null 2>&1; then
+            certutil -D -d "sql:$nss_db" -n "$ca_nickname"
+          fi
+          certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$HOME/.portless/ca.pem"
+          certutil -L -d "sql:$nss_db" | grep -F -- "$ca_nickname"
+
       - name: Run canonical CI lifecycle
         run: corepack pnpm run ci
 
