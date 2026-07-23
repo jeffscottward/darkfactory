@@ -1,0 +1,92 @@
+const MAX_DASHBOARD_RESPONSE_BYTES = 65_536
+const DEFAULT_DASHBOARD_TIMEOUT_MS = 3_000
+
+export type DashboardTransportFetch = (request: Request) => Promise<Response>
+
+const readBoundedDashboardResponse = async (response: Response, signal: AbortSignal): Promise<Response> => {
+  const declaredLength = Number(response.headers.get("content-length"))
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_DASHBOARD_RESPONSE_BYTES) {
+    try { await response.body?.cancel() } catch {}
+    throw new Error("Dashboard response exceeded the safe size limit")
+  }
+  if (response.body === null) return response
+
+  const reader = response.body.getReader()
+  const cancelAtDeadline = () => { void reader.cancel().catch(() => undefined) }
+  signal.addEventListener("abort", cancelAtDeadline, { once: true })
+  if (signal.aborted) cancelAtDeadline()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  try {
+    while (true) {
+      const result = await reader.read()
+      if (result.done) break
+      byteLength += result.value.byteLength
+      if (byteLength > MAX_DASHBOARD_RESPONSE_BYTES) {
+        try { await reader.cancel() } catch {}
+        throw new Error("Dashboard response exceeded the safe size limit")
+      }
+      chunks.push(result.value)
+    }
+  } finally {
+    signal.removeEventListener("abort", cancelAtDeadline)
+    reader.releaseLock()
+  }
+
+  const body = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new Response(body, {
+    headers: response.headers,
+    status: response.status,
+    statusText: response.statusText,
+  })
+}
+
+export const createAuthenticatedDashboardFetch = (
+  cookieHeader: string,
+  trustedOrigin: string,
+  fetcher: DashboardTransportFetch = globalThis.fetch,
+  timeoutMs = DEFAULT_DASHBOARD_TIMEOUT_MS,
+): DashboardTransportFetch => async (request) => {
+  const controller = new AbortController()
+  const abortFromRequest = () => controller.abort()
+  request.signal.addEventListener("abort", abortFromRequest, { once: true })
+  if (request.signal.aborted) controller.abort()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    if (request.signal.aborted) throw new Error("Dashboard request was cancelled")
+    const configuredOrigin = new URL(trustedOrigin)
+    if (configuredOrigin.protocol !== "https:" || configuredOrigin.origin !== trustedOrigin) {
+      throw new TypeError("Dashboard transport requires a clean HTTPS app origin")
+    }
+    if (new URL(request.url).origin !== configuredOrigin.origin) {
+      throw new Error("Dashboard request origin did not match the configured app origin")
+    }
+    const forwardedHeaders = new Headers(request.headers)
+    forwardedHeaders.set("cookie", cookieHeader)
+    forwardedHeaders.set("origin", configuredOrigin.origin)
+    forwardedHeaders.set("sec-fetch-site", "same-origin")
+    const response = await fetcher(new Request(request, {
+      cache: "no-store",
+      headers: forwardedHeaders,
+      redirect: "manual",
+      signal: controller.signal,
+    }))
+    if (controller.signal.aborted) throw new Error("Dashboard request exceeded the safe deadline")
+    const boundedResponse = await readBoundedDashboardResponse(response, controller.signal)
+    if (controller.signal.aborted) throw new Error("Dashboard request exceeded the safe deadline")
+    return boundedResponse
+  } catch (error) {
+    if (controller.signal.aborted && !request.signal.aborted) {
+      throw new Error("Dashboard request exceeded the safe deadline")
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    request.signal.removeEventListener("abort", abortFromRequest)
+  }
+}

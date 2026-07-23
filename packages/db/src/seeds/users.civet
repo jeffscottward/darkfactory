@@ -1,3 +1,5 @@
+import type { Transaction } from "../server/client.civet"
+
 import type { UserRole } from "../schema/index.civet"
 
 const DEVELOPMENT_PASSWORD = "Development123!"
@@ -7,13 +9,20 @@ export type SeedIdentityInput = Readonly<{
   accountId: string
   name: string
   email: string
+  image: string
+  role: UserRole
   password: string
 }>
 
 export type EnsureSeedIdentity = (
   identity: SeedIdentityInput,
   exists: boolean,
+  database: Transaction,
 ) => Promise<unknown>
+
+export type PrepareSeedIdentities = (
+  identities: readonly SeedIdentityInput[],
+) => Promise<EnsureSeedIdentity>
 
 export type DevelopmentPersona = Readonly<{
   userId: string
@@ -58,5 +67,7 @@ export const seedIdentityInput = (
   accountId: persona.accountId,
   name: persona.name,
   email: persona.email,
+  image: persona.image,
+  role: persona.role,
   password: DEVELOPMENT_PASSWORD,
 })

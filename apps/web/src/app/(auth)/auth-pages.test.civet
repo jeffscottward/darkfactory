@@ -1,0 +1,77 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+}))
+vi.mock("next/link", () => ({ default: "a" }))
+
+import SignInPage, { metadata as signInMetadata } from "./sign-in/page.civet"
+import SignUpPage from "./sign-up/page.civet"
+import ForgotPasswordPage from "./forgot-password/page.civet"
+import ResetPasswordPage, { metadata as resetMetadata } from "./reset-password/page.civet"
+import VerifyEmailPage from "./verify-email/page.civet"
+
+const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
+  renderToStaticMarkup(component)
+const searchParams = (
+  values: Readonly<Record<string, string | undefined>> = {},
+) => Promise.resolve(values)
+
+describe "auth route pages", ->
+  it "renders sign-in with reset confirmation and redirect-back input kept out of markup", async ->
+    const html = markup(
+      await SignInPage({
+        searchParams: searchParams({
+          callbackURL: "/feature-items",
+          reset: "1",
+        }),
+      }),
+    )
+
+    expect(signInMetadata.title).toBe("Sign in")
+    expect(html).toContain("Welcome back.")
+    expect(html).toContain("Checking your session")
+    expect(html).not.toContain('value="/feature-items"')
+    expect(html).not.toContain('type="email"')
+
+  it "renders complete signup and forgot-password routes", ->
+    const signup = markup(createElement(SignUpPage))
+    const forgot = markup(createElement(ForgotPasswordPage))
+
+    expect(signup).toContain("Start with a verified identity.")
+    expect(signup).toContain("Checking your session")
+    expect(forgot).toContain("Reset access without exposing the account.")
+    expect(forgot).toContain("Checking your session")
+
+  it "keeps reset tokens out of the server-rendered page", ->
+    const token = "sensitive-one-time-reset-token"
+    const html = markup(createElement(ResetPasswordPage))
+
+    expect(html).toContain("Opening the reset link")
+    expect(html).not.toContain(token)
+    expect(html).not.toContain('name="newPassword"')
+    expect(resetMetadata.referrer).toBe("no-referrer")
+
+  it "maps verification success and errors to bounded status copy without reflecting raw errors", async ->
+    const verified = markup(
+      await VerifyEmailPage({
+        searchParams: searchParams({ verified: "1" }),
+      }),
+    )
+    const invalid = markup(
+      await VerifyEmailPage({
+        searchParams: searchParams({
+          verified: "1",
+          error: "ATTACKER_CONTROLLED_ERROR",
+        }),
+      }),
+    )
+    expect(verified).toContain("Verification link processed.")
+    expect(verified).toContain("Sign in to confirm the account status.")
+    expect(verified).not.toContain("Email verified.")
+    expect(invalid).not.toContain("ATTACKER_CONTROLLED_ERROR")
+
+    expect(invalid).toContain("Verification link needs attention.")
+    expect(invalid).not.toContain("Verification link processed.")

@@ -1,4 +1,4 @@
-import { assign, setup } from "xstate"
+import { assign, createActor, setup } from "xstate"
 
 export interface SetupFlowContext {
   readonly detailsComplete: boolean
@@ -110,3 +110,5 @@ export const setupFlowMachine = setupFlow.createMachine({
     success: { type: "final" },
   },
 })
+
+export const createSetupFlowActor = () => createActor(setupFlowMachine)

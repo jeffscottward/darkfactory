@@ -1,0 +1,50 @@
+"use client"
+
+import { cn } from "@darkfactory/ui"
+import { useEffect, useRef } from "react"
+
+const accountRoutes = [
+  { href: "/account", label: "Summary" },
+  { href: "/account/profile", label: "Profile" },
+  { href: "/account/address", label: "Addresses" },
+  { href: "/account/preferences", label: "Preferences" },
+  { href: "/account/security", label: "Security" },
+] as const
+
+export interface AccountNavigationProps {
+  readonly currentPath?: string
+}
+
+export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
+  const activeLink = useRef<HTMLAnchorElement | null>(null)
+  useEffect(() => {
+    activeLink.current?.scrollIntoView({ block: "nearest", inline: "center" })
+    return undefined
+  }, [currentPath])
+  return (
+    <nav aria-label="Account settings" className="overflow-x-auto border-b border-border">
+      <ul className="flex min-w-max gap-1" role="list">
+        {accountRoutes.map((route) => {
+          const isCurrent = currentPath === route.href
+          return (
+            <li key={route.href}>
+              <a
+                aria-current={isCurrent ? "page" : undefined}
+                className={cn(
+                  "inline-flex min-h-11 items-center border-b-2 px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  isCurrent
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border-strong hover:text-foreground",
+                )}
+                href={route.href}
+                ref={isCurrent ? activeLink : undefined}
+              >
+                {route.label}
+              </a>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  )
+}

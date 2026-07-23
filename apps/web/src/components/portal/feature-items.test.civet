@@ -1,0 +1,148 @@
+import type { ApiClient, FeatureItemOutput } from "@darkfactory/api"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import { createSetupFlowActor } from "@darkfactory/state/flow"
+import {
+  createFeatureItemGateway,
+  safeFeatureFeedback,
+  upsertFeatureItem,
+  withoutFeatureItem,
+  type FeatureItemGateway,
+} from "./feature-items-client.civet"
+import { FeatureItemsCollection } from "./feature-items-collection.civet"
+import { FeatureItemsWorkspace } from "./feature-items-workspace.civet"
+import { CreateWorkflowStep } from "./feature-item-create-workflow.civet"
+
+const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
+  id: "item-1",
+  name: "Starter checklist",
+  description: "A clearly labeled example feature item.",
+  status: "draft",
+  metadata: {},
+  ownerId: "user-1",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  ...overrides,
+})
+
+describe "typed feature item gateway", ->
+  it "drives list, get, create, update, status, and archive through oRPC", async ->
+    const featureItems = {
+      list: vi.fn(async -> [item()]),
+      get: vi.fn(async -> item()),
+      create: vi.fn(async (input) -> item({ name: input.name })),
+      update: vi.fn(async (input) -> item({ name: input.name ?? item().name })),
+      changeStatus: vi.fn(async (input) -> item({ status: input.status })),
+      archive: vi.fn(async -> item({ status: "archived" })),
+    }
+    const gateway = createFeatureItemGateway({ featureItems } as unknown as ApiClient)
+
+    await expect(gateway.list()).resolves.toHaveLength(1)
+    await expect(gateway.list({ limit: 50, query: "starter", status: "draft" })).resolves.toHaveLength(1)
+    await expect(gateway.get("item-1")).resolves.toMatchObject({ id: "item-1" })
+    await expect(gateway.create({ name: "Created", description: "Description" })).resolves.toMatchObject({ name: "Created" })
+    await expect(gateway.update("item-1", { name: "Updated" })).resolves.toMatchObject({ name: "Updated" })
+    await expect(gateway.changeStatus("item-1", "active")).resolves.toMatchObject({ status: "active" })
+    await expect(gateway.archive("item-1")).resolves.toMatchObject({ status: "archived" })
+
+    expect(featureItems.list).toHaveBeenCalledWith({})
+    expect(featureItems.list).toHaveBeenCalledWith({
+      limit: 50,
+      query: "starter",
+      status: "draft",
+    })
+    expect(featureItems.get).toHaveBeenCalledWith({ id: "item-1" })
+    expect(featureItems.create).toHaveBeenCalledWith({ name: "Created", description: "Description" })
+    expect(featureItems.update).toHaveBeenCalledWith({ id: "item-1", name: "Updated" })
+    expect(featureItems.changeStatus).toHaveBeenCalledWith({ id: "item-1", status: "active" })
+    expect(featureItems.archive).toHaveBeenCalledWith({ id: "item-1" })
+  
+  it "maps failures to safe actionable feedback without exposing raw details", ->
+    expect(safeFeatureFeedback({ code: "VALIDATION_ERROR" })).toBe(
+      "Check the highlighted fields and try again.",
+    )
+    expect(safeFeatureFeedback(new Error("postgres://user:secret@db.internal/table"))).toBe(
+      "The request could not be completed. Try again.",
+    )
+  
+  it "supports exact optimistic rollback snapshots", ->
+    const original = [item(), item({ id: "item-2", name: "Second" })]
+    const updated = upsertFeatureItem(original, item({ name: "Changed" }))
+    expect(updated.map((entry) -> entry.name)).toEqual(["Changed", "Second"])
+    expect(withoutFeatureItem(updated, "item-1").map((entry) -> entry.id)).toEqual(["item-2"])
+    expect(original.map((entry) -> entry.name)).toEqual(["Starter checklist", "Second"])
+
+describe "feature item collection states", ->
+  it "renders a geometry-preserving loading state", ->
+    const html = renderToStaticMarkup(<FeatureItemsCollection state={{ type: "loading" }} />)
+    expect(html).toContain("Loading feature items")
+    expect(html).toContain("aria-busy=\"true\"")
+  
+  it "renders an instructive empty state with a valid next action", ->
+    const html = renderToStaticMarkup(<FeatureItemsCollection state={{ type: "ready", items: [] }} />)
+    expect(html).toContain("No feature items yet")
+    expect(html).toContain("/feature-items/new")
+
+  it "distinguishes a filtered empty result and offers reset", ->
+    const html = renderToStaticMarkup(
+      <FeatureItemsCollection
+        isFiltered
+        state={{ type: "ready", items: [] }}
+      />,
+    )
+    expect(html).toContain("No matching feature items")
+    expect(html).toContain("Reset filters")
+
+  it "renders server-backed search and status controls", ->
+    const gateway = {
+      list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+      changeStatus: vi.fn(), archive: vi.fn(),
+    } as unknown as FeatureItemGateway
+    const html = renderToStaticMarkup(<FeatureItemsWorkspace gateway={gateway} />)
+    expect(html).toContain("Search feature items")
+    expect(html).toContain("Status")
+    expect(html).toContain("All statuses")
+  
+  it "renders safe load failure feedback and retry control", ->
+    const html = renderToStaticMarkup(
+      <FeatureItemsCollection state={{ type: "error", kind: "transient", message: "Feature items could not be loaded." }} />,
+    )
+    expect(html).toContain("Feature items could not be loaded")
+    expect(html).toContain("Try again")
+    expect(html).not.toContain("postgres")
+  
+  it "renders real item fields and an accessible edit action", ->
+    const html = renderToStaticMarkup(
+      <FeatureItemsCollection state={{ type: "ready", items: [item()] }} />,
+    )
+    expect(html).toContain("Starter checklist")
+    expect(html).toContain("A clearly labeled example feature item")
+    expect(html).toContain("/feature-items/item-1")
+    expect(html).toContain("Edit Starter checklist")
+
+describe "feature item setup workflow", ->
+  it "changes the visible task across details, options, review, and failure recovery", ->
+    const actor = createSetupFlowActor().start()
+    let html = renderToStaticMarkup(<CreateWorkflowStep state={actor.getSnapshot().value} name="Example item" status="draft" />)
+    expect(html).toContain("Describe the item")
+
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    html = renderToStaticMarkup(<CreateWorkflowStep state={actor.getSnapshot().value} name="Example item" status="draft" />)
+    expect(html).toContain("Choose its starting state")
+
+    expect(html).toContain("persisted owner-scoped record")
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    html = renderToStaticMarkup(<CreateWorkflowStep state={actor.getSnapshot().value} name="Example item" status="draft" />)
+    expect(html).toContain("Review before creating")
+    expect(html).toContain("Example item")
+
+    actor.send({ type: "SUBMIT" })
+    actor.send({ type: "FAIL", message: "The request could not be completed. Try again." })
+    html = renderToStaticMarkup(<CreateWorkflowStep state={actor.getSnapshot().value} name="Example item" status="draft" error={actor.getSnapshot().context.error} />)
+    expect(html).toContain("Creation was interrupted")
+    expect(html).toContain("Try again")
+
+    actor.stop()

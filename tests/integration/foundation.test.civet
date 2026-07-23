@@ -21,6 +21,7 @@ describe "foundation package integration", ->
       DATABASE_URL:
         "postgresql://darkfactory:darkfactory@database.test/darkfactory",
       BETTER_AUTH_SECRET: "test-only-secret-with-at-least-32-characters",
+      CONTACT_THROTTLE_SECRET: "test-only-contact-throttle-secret-32-characters",
     })
 
     const contextValue = {

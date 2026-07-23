@@ -1,5 +1,6 @@
 import { waitUntil } from "cloudflare:workers"
 
+import { CONTACT_ERRORS } from "@darkfactory/api"
 import {
   createApiContext,
   resolveApiRequestId,
@@ -11,12 +12,17 @@ import {
   requireSession,
 } from "@darkfactory/auth/server"
 import { composeDatabaseProfile } from "@darkfactory/config/database"
-import { parseServerEnv } from "@darkfactory/config/server"
+import {
+  getProviderCapabilities,
+  parseServerEnv,
+} from "@darkfactory/config/server"
 import {
   createRepositories,
   createRequestDatabase,
+  createContactThrottleRepository,
 } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
+import { selectContactEmailPort } from "@darkfactory/email/server"
 import {
   createEvlogSink,
   initializeEvlog,
@@ -25,6 +31,10 @@ import { createSemanticEventFanout } from "@darkfactory/observability/server/fan
 import { initializeTelemetry } from "@darkfactory/observability/server/otel"
 
 import { handleOrpcRequest } from "./handler.civet"
+import {
+  bufferContactRequest,
+  createContactThrottleKey,
+} from "./contact-runtime.civet"
 import {
   configuredOtlpAllowedHosts,
   resolveAnalyticsConsent,
@@ -60,10 +70,53 @@ const analyticsFor = (env: ServerEnv) =>
     ...(env.POSTHOG_HOST === undefined ? {} : { host: env.POSTHOG_HOST }),
   })
 
+const unsafeRequestDenied = (request: Request, appUrl: string): boolean => {
+  if (!["POST", "PATCH", "DELETE"].includes(request.method.toUpperCase())) return false
+  const trustedOrigin = new URL(appUrl).origin
+  if (request.headers.get("origin") !== trustedOrigin) return true
+  const fetchSite = request.headers.get("sec-fetch-site")
+  return fetchSite !== null && fetchSite !== "same-origin"
+}
+
+const forbiddenOriginResponse = (): Response =>
+  Response.json({ error: "Forbidden" }, { status: 403 })
+
+
+const CONTACT_EDGE_MAX_REQUESTS = 30
+
+const contactAbuseResponse = (
+  code: "PAYLOAD_TOO_LARGE" | "TOO_MANY_REQUESTS" | "SERVICE_UNAVAILABLE",
+  retryAfterSeconds?: number,
+): Response => {
+  const definition = CONTACT_ERRORS[code]
+  const error = {
+    defined: true,
+    code,
+    status: definition.status,
+    message: definition.message,
+  }
+  return Response.json(
+    { json: error },
+    {
+      status: definition.status,
+      ...(retryAfterSeconds === undefined
+        ? {}
+        : { headers: { "retry-after": String(retryAfterSeconds) } }),
+    },
+  )
+}
 const handleOrpc = async (request: Request): Promise<Response> => {
   const env = parseServerEnv(process.env)
+  if (unsafeRequestDenied(request, env.APP_URL)) return forbiddenOriginResponse()
+  const isContactSubmission =
+    request.method === "POST" &&
+    new URL(request.url).pathname === "/api/orpc/contact/submit"
+  const bufferedContact = isContactSubmission
+    ? await bufferContactRequest(request)
+    : { request, tooLarge: false }
+  const effectiveRequest = bufferedContact.request
   const telemetry = telemetryFor(env)
-  const requestId = resolveApiRequestId(request)
+  const requestId = resolveApiRequestId(effectiveRequest)
 
   return runWithRequestTelemetry(
     telemetry,
@@ -80,6 +133,42 @@ const handleOrpc = async (request: Request): Promise<Response> => {
       })
 
       try {
+        const contactThrottle = isContactSubmission
+          ? createContactThrottleRepository(database.db)
+          : undefined
+        let contactThrottleKey: string | undefined
+        const contactEdgeThrottle = isContactSubmission
+          ? createContactThrottleRepository(database.db, {
+              maxRequests: CONTACT_EDGE_MAX_REQUESTS,
+            })
+          : undefined
+        if (contactThrottle !== undefined && contactEdgeThrottle !== undefined) {
+          const edgeKey = await createContactThrottleKey(
+            effectiveRequest,
+            env.CONTACT_THROTTLE_SECRET,
+            "edge",
+          )
+          let edgeResult
+          try {
+            edgeResult = await contactEdgeThrottle.consume(edgeKey)
+          } catch {
+            return contactAbuseResponse("SERVICE_UNAVAILABLE")
+          }
+          if (!edgeResult.allowed) {
+            return contactAbuseResponse(
+              "TOO_MANY_REQUESTS",
+              edgeResult.retryAfterSeconds,
+            )
+          }
+          if (bufferedContact.tooLarge) {
+            return contactAbuseResponse("PAYLOAD_TOO_LARGE")
+          }
+          contactThrottleKey = await createContactThrottleKey(
+            effectiveRequest,
+            env.CONTACT_THROTTLE_SECRET,
+            "submit",
+          )
+        }
         const email = selectEmailPort({
           environment: env.APP_ENV,
           transport: env.EMAIL_TRANSPORT,
@@ -87,6 +176,15 @@ const handleOrpc = async (request: Request): Promise<Response> => {
           from: env.EMAIL_FROM,
           trustedAppOrigin: env.APP_URL,
         })
+        const contactDelivery = isContactSubmission
+          ? selectContactEmailPort({
+              environment: env.APP_ENV,
+              transport: env.EMAIL_TRANSPORT,
+              recipient: env.CONTACT_EMAIL_TO,
+              resendApiKey: env.RESEND_API_KEY,
+              from: env.EMAIL_FROM,
+            })
+          : undefined
         const auth = createAuth({
           database: database.db,
           email,
@@ -97,7 +195,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
         })
         const sink = createEvlogSink({
           runtime: evlogFor(env),
-          request,
+          request: effectiveRequest,
           executionContext: { waitUntil },
         })
         const semanticEvents = createSemanticEventFanout({
@@ -105,16 +203,22 @@ const handleOrpc = async (request: Request): Promise<Response> => {
           analytics: analyticsFor(env),
           resolveConsent: () => resolveAnalyticsConsent(request),
         })
-        const context = createApiContext(request, {
+        const context = createApiContext(effectiveRequest, {
           repositories: createRepositories(database.db),
+          capabilities: getProviderCapabilities(env),
           requireSession: (headers) => requireSession(auth, headers),
           requireRole: (headers, role) => requireRole(auth, headers, role),
           requestId,
           semanticEvents,
           span,
           waitUntil,
+          ...(contactDelivery === undefined ||
+          contactThrottle === undefined ||
+          contactThrottleKey === undefined
+            ? {}
+            : { contactDelivery, contactThrottle, contactThrottleKey }),
         })
-        return await handleOrpcRequest(request, context)
+        return await handleOrpcRequest(effectiveRequest, context)
       } finally {
         try {
           await database.close()

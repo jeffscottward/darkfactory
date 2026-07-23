@@ -1,0 +1,142 @@
+"use client"
+
+import { authClient } from "@darkfactory/auth/client"
+
+export interface SafeSession {
+  readonly id: string
+  readonly createdAt: Date
+  readonly updatedAt: Date
+  readonly expiresAt: Date
+  readonly userAgent: string | null
+  readonly isCurrent: boolean
+}
+
+export interface SecuritySessions {
+  readonly currentSessionId: string | null
+  readonly sessions: readonly SafeSession[]
+}
+
+export interface ChangePasswordInput {
+  readonly currentPassword: string
+  readonly newPassword: string
+  readonly revokeOtherSessions?: boolean
+}
+
+export interface SecurityGateway {
+  readonly listSessions: () => Promise<SecuritySessions>
+  readonly revokeOtherSessions: () => Promise<void>
+  readonly changePassword: (input: ChangePasswordInput) => Promise<void>
+}
+
+type SecurityAuthClient = Pick<
+  typeof authClient,
+  "getSession" | "listSessions" | "revokeOtherSessions" | "changePassword"
+>
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null ? value as Record<string, unknown> : null
+
+const asDate = (value: unknown): Date | null => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+  if (typeof value !== "string" && typeof value !== "number") return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const sessionIdFrom = (value: unknown): string | null => {
+  const record = asRecord(value)
+  return typeof record?.["id"] === "string" && record["id"].length > 0
+    ? record["id"]
+    : null
+}
+
+export const toSafeSessions = (
+  sessions: readonly unknown[],
+  currentSessionId: string | null,
+): SafeSession[] => sessions.flatMap((value) => {
+  const record = asRecord(value)
+  if (record === null) return []
+  const id = sessionIdFrom(record)
+  const createdAt = asDate(record["createdAt"])
+  const updatedAt = asDate(record["updatedAt"])
+  const expiresAt = asDate(record["expiresAt"])
+  if (id === null || createdAt === null || updatedAt === null || expiresAt === null) return []
+  return [{
+    id,
+    createdAt,
+    updatedAt,
+    expiresAt,
+    userAgent: typeof record["userAgent"] === "string" && record["userAgent"].trim().length > 0
+      ? record["userAgent"]
+      : null,
+    isCurrent: currentSessionId === id,
+  }]
+})
+
+const authFailure = (result: unknown): unknown => asRecord(result)?.["error"] ?? null
+const authData = (result: unknown): unknown => asRecord(result)?.["data"]
+
+const ensureAuthSuccess = (result: unknown): void => {
+  const failure = authFailure(result)
+  if (failure !== null) throw failure
+}
+
+export const createSecurityGateway = (client: SecurityAuthClient): SecurityGateway => ({
+  listSessions: async () => {
+    const [currentResult, sessionsResult] = await Promise.all([
+      client.getSession(),
+      client.listSessions(),
+    ])
+    ensureAuthSuccess(currentResult)
+    ensureAuthSuccess(sessionsResult)
+    const currentData = asRecord(authData(currentResult))
+    const currentSessionId = sessionIdFrom(currentData?.["session"])
+    const sessionsData = authData(sessionsResult)
+    const sessions = Array.isArray(sessionsData) ? sessionsData : []
+    return {
+      currentSessionId,
+      sessions: toSafeSessions(sessions, currentSessionId),
+    }
+  },
+  revokeOtherSessions: async () => {
+    const result = await client.revokeOtherSessions()
+    ensureAuthSuccess(result)
+  },
+  changePassword: async (input) => {
+    const result = await client.changePassword(input)
+    ensureAuthSuccess(result)
+  },
+})
+
+export const createBrowserSecurityGateway = (): SecurityGateway =>
+  createSecurityGateway(authClient)
+
+const authErrorCode = (error: unknown): string | null => {
+  const record = asRecord(error)
+  const code = record?.["code"]
+  if (typeof code === "string") return code
+  const status = record?.["status"]
+  if (status === 401) return "UNAUTHORIZED"
+  if (status === 403) return "FORBIDDEN"
+  return null
+}
+
+export type SecurityFailureKind = "unauthorized" | "forbidden" | "retryable"
+
+export const securityFailureKind = (error: unknown): SecurityFailureKind => {
+  const code = authErrorCode(error)
+  if (code === "UNAUTHORIZED") return "unauthorized"
+  if (code === "FORBIDDEN") return "forbidden"
+  return "retryable"
+}
+
+export const safeSecurityFeedback = (error: unknown): string => {
+  switch (authErrorCode(error)) {
+    case "UNAUTHORIZED":
+      return "Your session ended. Sign in again to continue."
+    case "FORBIDDEN":
+      return "This security action is not permitted for the current account."
+    default:
+      return "The security request could not be completed. Try again."
+  }
+}

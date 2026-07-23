@@ -1,0 +1,60 @@
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  InvalidAdminUsersCursorError,
+  decodeAdminUsersCursor,
+  encodeAdminUsersCursor,
+} from "./admin-users-repository.civet"
+import type { Database } from "./client.civet"
+import {
+  InvalidRepositoryInputError,
+  createFeatureItemRepository,
+} from "./repositories.civet"
+
+describe "admin user directory cursor", ->
+  it "round-trips an opaque deterministic keyset cursor", ->
+    const cursor = encodeAdminUsersCursor({
+      createdAt: new Date("2026-01-02T03:04:05.000Z"),
+      id: "user-2",
+    })
+    expect(cursor).not.toContain("user-2")
+    expect(decodeAdminUsersCursor(cursor)).toEqual({
+      createdAt: new Date("2026-01-02T03:04:05.000Z"),
+      id: "user-2",
+    })
+
+  it.each([
+    "not-base64",
+    Buffer.from("{}", "utf8").toString("base64url"),
+    Buffer.from(JSON.stringify({ v: 1, createdAt: "bad", id: "user" }), "utf8").toString("base64url"),
+    Buffer.from(JSON.stringify({ v: 1, createdAt: "2026-01-02T03:04:05.000Z", id: "" }), "utf8").toString("base64url"),
+    Buffer.from(JSON.stringify({ v: 2, createdAt: "2026-01-02T03:04:05.000Z", id: "user" }), "utf8").toString("base64url"),
+  ])("rejects malformed cursor %s", (cursor) => {
+    expect(() => decodeAdminUsersCursor(cursor)).toThrow(InvalidAdminUsersCursorError)
+    return undefined
+  })
+
+describe "feature list bounds", ->
+  it "applies the default cap and accepts the maximum cap", async ->
+    const limit = vi.fn(async () => [])
+    const database = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({ limit }),
+          }),
+        }),
+      }),
+    } as unknown as Database
+    const repository = createFeatureItemRepository(database)
+    await repository.listByOwner("owner-1")
+    await repository.listByOwner("owner-1", { limit: 100 })
+    expect(limit).toHaveBeenNthCalledWith(1, 50)
+    expect(limit).toHaveBeenNthCalledWith(2, 100)
+
+  it.each([0, 101, 1.5])("rejects invalid limit %s before querying", async (limit) => {
+    const repository = createFeatureItemRepository({} as Database)
+    await expect(repository.listByOwner("owner-1", { limit })).rejects.toBeInstanceOf(
+      InvalidRepositoryInputError,
+    )
+  })

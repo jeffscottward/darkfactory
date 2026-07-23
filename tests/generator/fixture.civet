@@ -1,0 +1,71 @@
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, relative } from "node:path"
+
+export type GeneratorFixture = Readonly<{
+  root: string
+  cleanup: () => Promise<void>
+}>
+
+export const createGeneratorFixture = async (): Promise<GeneratorFixture> => {
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-generator-test-"))
+  await Promise.all([
+    mkdir(join(root, "apps/web/src/features"), { recursive: true }),
+    mkdir(join(root, "packages/api/src"), { recursive: true }),
+    mkdir(join(root, "packages/db/src"), { recursive: true }),
+    mkdir(join(root, "tests"), { recursive: true }),
+    mkdir(join(root, "docs"), { recursive: true }),
+  ])
+  await writeFile(
+    join(root, "package.json"),
+    `${JSON.stringify({ name: "fixture", private: true }, null, 2)}\n`,
+    "utf8",
+  )
+
+  return Object.freeze({
+    root,
+    cleanup: async () => rm(root, { force: true, recursive: true }),
+  })
+}
+
+export const listFixtureEntries = async (root: string): Promise<readonly string[]> => {
+  const entries: string[] = []
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name)
+      entries.push(relative(root, absolute))
+      if (entry.isDirectory() && !entry.isSymbolicLink()) await visit(absolute)
+    }
+  }
+  await visit(root)
+  return entries.sort()
+}
+
+export const readGeneratedFiles = async (
+  root: string,
+  paths: readonly string[],
+): Promise<Readonly<Record<string, string>>> => {
+  const values = await Promise.all(
+    paths.map(async (path) => [path, await readFile(join(root, path), "utf8")] as const),
+  )
+  return Object.freeze(Object.fromEntries(values))
+}
+
+export const replaceFeaturesDirectoryWithSymlink = async (
+  root: string,
+  outside: string,
+): Promise<void> => {
+  const features = join(root, "apps/web/src/features")
+  await rm(features, { recursive: true })
+  await symlink(outside, features, "dir")
+  if (!(await lstat(features)).isSymbolicLink()) throw new Error("Fixture symlink was not created")
+}

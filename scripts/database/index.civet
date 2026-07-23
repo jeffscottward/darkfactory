@@ -1,6 +1,6 @@
 import { register } from "node:module"
 
-import type { EnsureSeedIdentity } from "@darkfactory/db/server"
+import type { PrepareSeedIdentities } from "@darkfactory/db/server"
 
 const packageLoaderSource = (
   civetLoaderUrl: string,
@@ -59,13 +59,12 @@ const main = async (): Promise<void> => {
   const environment = developmentEnvironmentFrom(process.env.APP_ENV)
   registerPackageLoader()
 
-  const [authModule, configModule, databaseConfigModule, databaseModule, emailModule] =
+  const [authModule, configModule, databaseConfigModule, databaseModule] =
     await Promise.all([
       import("@darkfactory/auth/server"),
       import("@darkfactory/config/server"),
       import("@darkfactory/config/database"),
       import("@darkfactory/db/server"),
-      import("@darkfactory/email/server"),
     ])
 
   const env = configModule.parseServerEnv(process.env)
@@ -73,13 +72,6 @@ const main = async (): Promise<void> => {
   const resource = databaseModule.createNodeDatabase({
     connectionString: profile.connection.connectionString,
   })
-  const scheduledTasks: Promise<unknown>[] = []
-  const awaitScheduledTasks = async (): Promise<void> => {
-    while (scheduledTasks.length > 0) {
-      const tasks = scheduledTasks.splice(0)
-      await Promise.all(tasks)
-    }
-  }
   let output = ""
 
   try {
@@ -89,84 +81,22 @@ const main = async (): Promise<void> => {
       })
       output = JSON.stringify(result)
     } else {
-
-      const email = emailModule.selectEmailPort({
-        environment: env.APP_ENV,
-        transport: env.EMAIL_TRANSPORT,
-        from: env.EMAIL_FROM,
-        trustedAppOrigin: env.APP_URL,
-        ...(env.RESEND_API_KEY === undefined
-          ? {}
-          : { resendApiKey: env.RESEND_API_KEY }),
-      })
-
-      const ensureIdentity: EnsureSeedIdentity = async (identity, exists) => {
-        const auth = authModule.createAuth({
-          database: resource.db,
-          email,
+      const prepareIdentity: PrepareSeedIdentities = async (identities) =>
+        await authModule.ensureDevelopmentSeedIdentity({
+          environment,
           secret: env.BETTER_AUTH_SECRET,
           baseURL: env.BETTER_AUTH_URL,
           trustedOrigins: [env.APP_URL],
-          scheduleBackgroundTask: (task) => scheduledTasks.push(task),
-          generateId: ({ model }) => {
-            if (model === "user") return identity.userId
-            if (model === "account") return identity.accountId
-            throw new Error(`Unexpected seed auth model: ${model}`)
-          },
-        })
-
-        if (!exists) {
-          await auth.api.signUpEmail({
-            body: {
-              name: identity.name,
-              email: identity.email,
-              password: identity.password,
-            },
-          })
-          await awaitScheduledTasks()
-          return
-        }
-
-        const context = await auth.$context
-        const credential = (
-          await context.internalAdapter.findAccounts(identity.userId)
-        ).find((account) =>
-          account.id === identity.accountId &&
-          account.providerId === "credential" &&
-          account.accountId === identity.userId
-        )
-        if (!credential?.password) {
-          throw new Error(`Seed credential is unavailable for ${identity.email}`)
-        }
-
-        let passwordMatches: boolean
-        try {
-          passwordMatches = await context.password.verify({
-            hash: credential.password,
-            password: identity.password,
-          })
-        } catch {
-          throw new Error(`Seed credential is malformed for ${identity.email}`)
-        }
-        if (passwordMatches) return
-
-        await context.internalAdapter.updateAccount(credential.id, {
-          password: await context.password.hash(identity.password),
-        })
-      }
+        }, identities)
 
       const result = await databaseModule.seedDevelopment(resource.db, {
         environment,
-        ensureIdentity,
+        prepareIdentity,
       })
       output = JSON.stringify(result)
     }
   } finally {
-    try {
-      await awaitScheduledTasks()
-    } finally {
-      await resource.close()
-    }
+    await resource.close()
   }
   process.stdout.write(`${output}\n`)
 }

@@ -12,6 +12,7 @@ import {
 import {
   EXPOSED_ROUTE_PATHS,
   PUBLIC_NAVIGATION,
+  SUPPORT_NAVIGATION,
   isRouteExposed,
 } from "../lib/navigation.civet"
 import { useUiState, useUiStoreApi } from "../lib/ui-store.civet"
@@ -25,11 +26,15 @@ export const getPublicNavigationModel = (
   const routes = PUBLIC_NAVIGATION.filter((item) => (
     isRouteExposed(item.href, availableRoutes)
   ))
+  const support = SUPPORT_NAVIGATION.filter((item) => (
+    isRouteExposed(item.href, availableRoutes)
+  ))
   return {
-    all: routes,
+    all: [...routes, ...support],
     primary: routes.filter((item) => item.href !== "/sign-in"),
-    showNavigation: routes.length > 1,
+    showNavigation: routes.length + support.length > 1,
     signIn: routes.find((item) => item.href === "/sign-in"),
+    support,
   }
 }
 
@@ -57,7 +62,7 @@ export const PublicHeader = ({
           <ThemeMenu />
           {navigation.showNavigation && navigation.signIn ? (
             <a
-              className={cn(buttonVariants({ variant: "secondary" }), "hidden sm:inline-flex")}
+              className={cn(buttonVariants({ variant: "secondary" }), "hidden lg:inline-flex")}
               href={navigation.signIn.href}
             >
               {navigation.signIn.label}
@@ -113,7 +118,7 @@ export const PublicFooter = ({
             <nav aria-label="Footer navigation">
               <NavigationLinks
                 className="flex-wrap"
-                items={navigation.primary}
+                items={[...navigation.primary, ...navigation.support]}
                 linkClassName="px-2"
               />
             </nav>

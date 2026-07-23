@@ -1,0 +1,240 @@
+import { oc } from "@orpc/contract"
+import { z } from "zod"
+
+export const ADDRESS_TYPES = ["home", "work", "other"] as const
+export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const
+
+const nullableTrimmed = (maximum: number) =>
+  z.union([z.string().max(maximum), z.null()]).transform((value) => {
+    if (value === null) return null
+    const normalized = value.trim()
+    return normalized.length === 0 ? null : normalized
+  })
+
+const requiredTrimmed = (maximum: number) => z.string().trim().min(1).max(maximum)
+
+const validIsoDate = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split("-").map(Number)
+  const date = new Date(Date.UTC(year!, month! - 1, day!))
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() + 1 === month &&
+    date.getUTCDate() === day
+}
+
+export const IsoDateSchema = z.string().refine(validIsoDate, {
+  message: "Expected an ISO calendar date",
+})
+
+export const ProfileFieldsSchema = z.object({
+  firstName: nullableTrimmed(200),
+  lastName: nullableTrimmed(200),
+  displayName: nullableTrimmed(200),
+  avatarUrl: nullableTrimmed(2_048),
+  phone: nullableTrimmed(64),
+  businessName: nullableTrimmed(200),
+  jobTitle: nullableTrimmed(200),
+  biography: nullableTrimmed(5_000),
+  timezone: requiredTrimmed(64),
+  locale: requiredTrimmed(64),
+  dateOfBirth: z.union([IsoDateSchema, z.null()]),
+}).strict()
+
+export const ProfileSchema = z.object({
+  firstName: z.string().max(200).nullable(),
+  lastName: z.string().max(200).nullable(),
+  displayName: z.string().max(200).nullable(),
+  avatarUrl: z.string().max(2_048).nullable(),
+  phone: z.string().max(64).nullable(),
+  businessName: z.string().max(200).nullable(),
+  jobTitle: z.string().max(200).nullable(),
+  biography: z.string().max(5_000).nullable(),
+  timezone: z.string().min(1).max(64),
+  locale: z.string().min(1).max(64),
+  dateOfBirth: IsoDateSchema.nullable(),
+  updatedAt: z.date().nullable(),
+}).strict()
+
+export const ProfileUpdateSchema = ProfileFieldsSchema.partial().extend({
+  expectedUpdatedAt: z.date().nullable(),
+}).strict().refine(
+  (input) => Object.keys(input).some((key) => key !== "expectedUpdatedAt"),
+  { message: "At least one profile field must change" },
+)
+
+export const AccountProfileSchema = z.object({
+  identity: z.object({
+    email: z.string().email(),
+    emailVerified: z.boolean(),
+  }).strict(),
+  profile: ProfileSchema,
+}).strict()
+
+const normalizedCountry = z.string().trim().length(2).transform((value) => value.toUpperCase()).refine(
+  (value) => /^[A-Z]{2}$/.test(value),
+  { message: "Country must be a two-letter code" },
+)
+
+const addressFields = {
+  type: z.enum(ADDRESS_TYPES),
+  line1: requiredTrimmed(200),
+  line2: nullableTrimmed(200),
+  city: requiredTrimmed(100),
+  region: requiredTrimmed(100),
+  postalCode: requiredTrimmed(32),
+  country: normalizedCountry,
+}
+
+export const AddressSchema = z.object({
+  id: z.string().min(1).max(200),
+  type: z.enum(ADDRESS_TYPES),
+  line1: z.string().min(1).max(200),
+  line2: z.string().max(200).nullable(),
+  city: z.string().min(1).max(100),
+  region: z.string().min(1).max(100),
+  postalCode: z.string().min(1).max(32),
+  country: z.string().length(2).regex(/^[A-Z]{2}$/),
+  isPrimary: z.boolean(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+}).strict()
+
+export const AddressCreateSchema = z.object({
+  ...addressFields,
+  line2: addressFields.line2.optional().default(null),
+  isPrimary: z.boolean().optional().default(false),
+}).strict()
+
+export const AddressUpdateSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  expectedUpdatedAt: z.date(),
+  type: addressFields.type.optional(),
+  line1: addressFields.line1.optional(),
+  line2: addressFields.line2.optional(),
+  city: addressFields.city.optional(),
+  region: addressFields.region.optional(),
+  postalCode: addressFields.postalCode.optional(),
+  country: addressFields.country.optional(),
+}).strict().refine(
+  (input) => Object.keys(input).some(
+    (key) => key !== "id" && key !== "expectedUpdatedAt",
+  ),
+  { message: "At least one address field must change" },
+)
+
+export const AddressIdSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  expectedUpdatedAt: z.date(),
+}).strict()
+
+export const PreferenceFieldsSchema = z.object({
+  themeMode: z.enum(["light", "dark", "system"]),
+  palette: z.enum([
+    "neutral", "slate", "blue", "cyan", "green",
+    "amber", "orange", "red", "rose", "violet",
+  ]),
+  emailNotifications: z.boolean(),
+  productUpdates: z.boolean(),
+  analyticsConsent: z.boolean(),
+  personalizationConsent: z.boolean(),
+  profileVisibility: z.enum(PROFILE_VISIBILITIES),
+}).strict()
+
+const MutablePreferenceFieldsSchema = z.object({
+  emailNotifications: z.boolean(),
+  productUpdates: z.boolean(),
+  analyticsConsent: z.boolean(),
+  personalizationConsent: z.boolean(),
+  profileVisibility: z.enum(PROFILE_VISIBILITIES),
+}).strict()
+
+export const PreferencesSchema = PreferenceFieldsSchema.extend({
+  updatedAt: z.date().nullable(),
+}).strict()
+
+export const PreferencesUpdateSchema = MutablePreferenceFieldsSchema.partial().extend({
+  expectedUpdatedAt: z.date().nullable(),
+}).strict().refine(
+  (input) => Object.keys(input).some((key) => key !== "expectedUpdatedAt"),
+  { message: "At least one preference field must change" },
+)
+
+export const ACCOUNT_ERRORS = {
+  BAD_REQUEST: { status: 400, message: "Invalid request" },
+  UNAUTHORIZED: { status: 401, message: "Authentication required" },
+  FORBIDDEN: { status: 403, message: "Forbidden" },
+  NOT_FOUND: { status: 404, message: "Account resource not found" },
+  CONFLICT: { status: 409, message: "Account resource conflict" },
+  VALIDATION_ERROR: { status: 422, message: "Account validation failed" },
+  STORAGE_ERROR: { status: 503, message: "Account storage unavailable" },
+} as const
+
+const account = oc.errors(ACCOUNT_ERRORS)
+const emptyInput = z.object({}).strict()
+
+const profileGet = account.route({
+  method: "GET", path: "/account/profile", operationId: "account.profile.get",
+  summary: "Get the authenticated account profile", tags: ["Account"],
+}).input(emptyInput).output(AccountProfileSchema)
+
+const profileUpdate = account.route({
+  method: "PATCH", path: "/account/profile", operationId: "account.profile.update",
+  summary: "Update the authenticated account profile", tags: ["Account"],
+}).input(ProfileUpdateSchema).output(AccountProfileSchema)
+
+const addressesList = account.route({
+  method: "GET", path: "/account/addresses", operationId: "account.addresses.list",
+  summary: "List account addresses", tags: ["Account"],
+}).input(emptyInput).output(z.array(AddressSchema))
+
+const addressesCreate = account.route({
+  method: "POST", path: "/account/addresses", operationId: "account.addresses.create",
+  summary: "Create an account address", tags: ["Account"],
+}).input(AddressCreateSchema).output(AddressSchema)
+
+const addressesUpdate = account.route({
+  method: "PATCH", path: "/account/addresses/{id}", operationId: "account.addresses.update",
+  summary: "Update an account address", tags: ["Account"],
+}).input(AddressUpdateSchema).output(AddressSchema)
+
+const addressesRemove = account.route({
+  method: "DELETE", path: "/account/addresses/{id}", operationId: "account.addresses.remove",
+  summary: "Remove an account address", tags: ["Account"],
+}).input(AddressIdSchema).output(z.object({ removed: z.literal(true) }).strict())
+
+const addressesSetPrimary = account.route({
+  method: "PATCH", path: "/account/addresses/{id}/primary", operationId: "account.addresses.setPrimary",
+  summary: "Set the primary account address", tags: ["Account"],
+}).input(AddressIdSchema).output(AddressSchema)
+
+const preferencesGet = account.route({
+  method: "GET", path: "/preferences", operationId: "preferences.get",
+  summary: "Get account preferences", tags: ["Preferences"],
+}).input(emptyInput).output(PreferencesSchema)
+
+const preferencesUpdate = account.route({
+  method: "PATCH", path: "/preferences", operationId: "preferences.update",
+  summary: "Update account preferences", tags: ["Preferences"],
+}).input(PreferencesUpdateSchema).output(PreferencesSchema)
+
+export const accountContract = {
+  profile: { get: profileGet, update: profileUpdate },
+  addresses: {
+    list: addressesList,
+    create: addressesCreate,
+    update: addressesUpdate,
+    remove: addressesRemove,
+    setPrimary: addressesSetPrimary,
+  },
+}
+
+export const preferencesContract = { get: preferencesGet, update: preferencesUpdate }
+
+export type ProfileOutput = z.infer<typeof ProfileSchema>
+export type ProfileUpdateInput = z.input<typeof ProfileUpdateSchema>
+export type AccountProfileOutput = z.infer<typeof AccountProfileSchema>
+export type AddressOutput = z.infer<typeof AddressSchema>
+export type AddressCreateInput = z.input<typeof AddressCreateSchema>
+export type AddressUpdateInput = z.input<typeof AddressUpdateSchema>
+export type PreferencesOutput = z.infer<typeof PreferencesSchema>
+export type PreferencesUpdateInput = z.input<typeof PreferencesUpdateSchema>

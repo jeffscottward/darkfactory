@@ -1,0 +1,61 @@
+export type GeneratorArguments = Readonly<{
+  name: string
+  dryRun: boolean
+  json: boolean
+}>
+
+export type FeatureNames = Readonly<{
+  kebab: string
+  pluralKebab: string
+  camel: string
+  pluralCamel: string
+  pascal: string
+  pluralPascal: string
+  snake: string
+  pluralSnake: string
+}>
+
+export type PlannedFile = Readonly<{
+  path: string
+  content: string
+  sha256: string
+}>
+
+declare const generationPlanCapability: unique symbol
+
+export type GenerationPlan = Readonly<{
+  version: 1
+  targetRoot: string
+  containerRoot: string
+  capsuleRoot: string
+  names: FeatureNames
+  files: readonly PlannedFile[]
+  planId: string
+  readonly [generationPlanCapability]: true
+}>
+
+export type ApplyResult = Readonly<{
+  capsulePath: string
+  promotedFiles: readonly string[]
+  cleanup: "complete" | "manual-cleanup-required"
+}>
+
+export type VerificationResult = Readonly<{
+  isValid: true
+  filesChecked: number
+  planId: string
+}>
+
+export type GenerationStatus = "planned" | "applied"
+
+export type GenerationReport = Readonly<{
+  version: 1
+  status: GenerationStatus
+  feature: string
+  capsuleRoot: string
+  cleanup: "complete" | "manual-cleanup-required" | "not-applicable"
+  dryRun: boolean
+  planId: string
+  files: readonly string[]
+  integration: "manual-reviewed-handoff"
+}>

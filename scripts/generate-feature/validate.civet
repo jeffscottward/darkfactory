@@ -1,0 +1,67 @@
+import { isAbsolute, win32 } from "node:path"
+import { GeneratorError } from "./errors.civet"
+
+import type { FeatureNames } from "./types.civet"
+
+const CANONICAL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
+const MAX_NAME_LENGTH = 63
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/
+
+const capitalize = (value: string): string =>
+  `${value.charAt(0).toUpperCase()}${value.slice(1)}`
+
+const pluralizeWord = (word: string): string => {
+  if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`
+  if (/(?:s|x|z|ch|sh)$/.test(word)) return `${word}es`
+  return `${word}s`
+}
+
+const formsFor = (words: readonly string[], plural: boolean) => {
+  const resolved = [...words]
+  if (plural) resolved[resolved.length - 1] = pluralizeWord(resolved.at(-1)!)
+  return Object.freeze({
+    kebab: resolved.join("-"),
+    camel: `${resolved[0]}${resolved.slice(1).map(capitalize).join("")}`,
+    pascal: resolved.map(capitalize).join(""),
+    snake: resolved.join("_"),
+  })
+}
+
+export const validateFeatureName = (name: string): FeatureNames => {
+  if (typeof name !== "string" || name.length === 0) {
+    throw new GeneratorError("NAME_INVALID", "Feature name is invalid")
+  }
+  if (
+    CONTROL_CHARACTER.test(name) ||
+    isAbsolute(name) ||
+    win32.isAbsolute(name) ||
+    name.includes("/") ||
+    name.includes("\\") ||
+    name === "." ||
+    name === ".." ||
+    name.includes("..")
+  ) {
+    throw new GeneratorError("NAME_INVALID", "Feature name is invalid")
+  }
+  if (name.length > MAX_NAME_LENGTH || !CANONICAL_NAME.test(name)) {
+    throw new GeneratorError("NAME_INVALID", "Feature name must be lowercase kebab-case")
+  }
+
+  const words = name.split("-")
+  if (words.some((word) => WINDOWS_DEVICE_NAME.test(word))) {
+    throw new GeneratorError("NAME_INVALID", "Feature name is not portable")
+  }
+  const singular = formsFor(words, false)
+  const plural = formsFor(words, true)
+  return Object.freeze({
+    kebab: singular.kebab,
+    pluralKebab: plural.kebab,
+    camel: singular.camel,
+    pluralCamel: plural.camel,
+    pascal: singular.pascal,
+    pluralPascal: plural.pascal,
+    snake: singular.snake,
+    pluralSnake: plural.snake,
+  })
+}

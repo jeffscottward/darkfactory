@@ -1,0 +1,229 @@
+import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { constants } from "node:fs"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, extname, join, relative, resolve } from "node:path"
+
+import {
+  compileCivetSnapshot,
+  deriveWorkspaceAliases,
+} from "./corpus.civet"
+import type {
+  GraphCommandOptions,
+  GraphConfig,
+  GraphFileInfo,
+  GraphFileSystem,
+  GraphProcess,
+} from "./graph.civet"
+
+const MAX_OUTPUT_BYTES = 1_048_576
+const MAX_SOURCE_FILE_BYTES = 8_388_608
+const MAX_SOURCE_FILES = 20_000
+const MAX_SOURCE_TOTAL_BYTES = 134_217_728
+const repositoryRoot = await realpath(process.cwd())
+
+const portable = (path: string): string => path.replaceAll("\\", "/")
+const containedPath = (path: string): string => {
+  const absolute = resolve(repositoryRoot, path)
+  const repositoryRelative = relative(repositoryRoot, absolute)
+  if (repositoryRelative === ".." || repositoryRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    throw new Error("Graph path escapes the repository")
+  }
+  return absolute
+}
+const isExcluded = (path: string, excludes: readonly string[]): boolean =>
+  excludes.some((excluded) =>
+    (excluded === "*.civet.d.ts" && path.endsWith(".civet.d.ts")) ||
+    path === excluded ||
+    path.startsWith(`${excluded}/`) ||
+    path.split("/").includes(excluded)
+  )
+const inspectPath = async (path: string): Promise<GraphFileInfo> => {
+  try {
+    const stats = await lstat(containedPath(path))
+    if (stats.isSymbolicLink()) return Object.freeze({ kind: "symlink", size: stats.size })
+    if (stats.isFile()) return Object.freeze({ kind: "file", size: stats.size })
+    if (stats.isDirectory()) return Object.freeze({ kind: "directory", size: stats.size })
+    return Object.freeze({ kind: "other", size: stats.size })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return Object.freeze({ kind: "missing", size: 0 })
+    throw error
+  }
+}
+
+const readBounded = async (path: string, maximumBytes = 67_108_864): Promise<string> => {
+  const handle = await open(containedPath(path), constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const stats = await handle.stat()
+    if (!stats.isFile() || stats.size > maximumBytes) throw new Error("Graph read exceeds its bound")
+    const chunks: Buffer[] = []
+    let total = 0
+    while (true) {
+      const buffer = Buffer.allocUnsafe(Math.min(65_536, maximumBytes - total + 1))
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
+      if (bytesRead === 0) break
+      total += bytesRead
+      if (total > maximumBytes) throw new Error("Graph read exceeds its bound")
+      chunks.push(buffer.subarray(0, bytesRead))
+    }
+    return Buffer.concat(chunks, total).toString("latin1")
+  } finally {
+    await handle.close()
+  }
+}
+
+const collectDirectory = async (root: string, config: GraphConfig, collected: string[]): Promise<void> => {
+  const entries = await readdir(containedPath(root), { withFileTypes: true })
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = portable(join(root, entry.name)).replace(/^\.\//, "")
+    if (isExcluded(path, config.source.excludes) || entry.isSymbolicLink()) continue
+    if (entry.isDirectory()) await collectDirectory(path, config, collected)
+    else if (entry.isFile() && config.source.extensions.includes(extname(entry.name).toLowerCase())) {
+      collected.push(path)
+      if (collected.length > MAX_SOURCE_FILES) throw new Error("Architectural source corpus has too many files")
+    }
+  }
+}
+
+const listConfiguredSourceFiles = async (config: GraphConfig): Promise<readonly string[]> => {
+  const collected: string[] = []
+  for (const root of config.source.roots) {
+    if ((await inspectPath(root)).kind !== "directory") throw new Error(`Graph source root is not a regular directory: ${root}`)
+    await collectDirectory(root, config, collected)
+  }
+  for (const path of config.source.files) {
+    if ((await inspectPath(path)).kind !== "file") throw new Error(`Graph source file is not regular: ${path}`)
+    if (!isExcluded(path, config.source.excludes)) collected.push(path)
+  }
+  return Object.freeze([...new Set(collected)].sort())
+}
+
+const writeAtomic = async (path: string, content: string): Promise<void> => {
+  const target = containedPath(path)
+  const parent = dirname(target)
+  const parentStats = await lstat(parent)
+  if (!parentStats.isDirectory() || parentStats.isSymbolicLink()) throw new Error("Graph write parent must be a regular directory")
+  const realParent = await realpath(parent)
+  const parentRelative = relative(repositoryRoot, realParent)
+  if (parentRelative === ".." || parentRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    throw new Error("Graph write target escapes the repository")
+  }
+  const targetInfo = await inspectPath(path)
+  if (!["missing", "file"].includes(targetInfo.kind)) throw new Error("Graph write target must be a regular file")
+  const temporary = join(parent, `.graphify-manifest-${process.pid}-${randomUUID()}.tmp`)
+  let handle: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_WRONLY, 0o600)
+    await handle.writeFile(content, "utf8")
+    await handle.sync()
+    await handle.close()
+    handle = undefined
+    await rename(temporary, target)
+  } catch (error) {
+    await handle?.close().catch(() => undefined)
+    await rm(temporary, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
+  exists: async (path) => (await inspectPath(path)).kind !== "missing",
+  inspect: inspectPath,
+  readText: readBounded,
+  writeText: writeAtomic,
+  listSourceFiles: listConfiguredSourceFiles,
+  createSourceSnapshot: async (config) => {
+    const snapshotRoot = await mkdtemp(join(tmpdir(), "darkfactory-graphify-"))
+    let total = 0
+    try {
+      const sourcePaths = await listConfiguredSourceFiles(config)
+      const workspaceManifests = await Promise.all(
+        sourcePaths
+          .filter((path) => /^packages\/[^/]+\/package\.json$/.test(path))
+          .map(async (path) => ({
+            directory: dirname(path),
+            source: Buffer.from(
+              await readBounded(path, MAX_SOURCE_FILE_BYTES),
+              "latin1",
+            ).toString("utf8"),
+          })),
+      )
+      const aliases = deriveWorkspaceAliases(workspaceManifests)
+
+      for (const path of sourcePaths) {
+        const info = await inspectPath(path)
+        if (info.size > MAX_SOURCE_FILE_BYTES) throw new Error("Architectural source file is too large")
+        const raw = await readBounded(path, MAX_SOURCE_FILE_BYTES)
+        let snapshot: Readonly<{ path: string; content: string }>
+        try {
+          snapshot = path.endsWith(".civet")
+            ? await compileCivetSnapshot(
+                path,
+                Buffer.from(raw, "latin1").toString("utf8"),
+                aliases,
+              )
+            : { path, content: raw }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message.split("\n", 1)[0] : "unknown"
+          throw new Error(`Civet snapshot compilation failed: ${path}: ${detail}`)
+        }
+        const encoded = path.endsWith(".civet")
+          ? Buffer.from(snapshot.content, "utf8")
+          : Buffer.from(snapshot.content, "latin1")
+        if (encoded.byteLength > MAX_SOURCE_FILE_BYTES) throw new Error("Compiled source file is too large")
+        total += encoded.byteLength
+        if (total > MAX_SOURCE_TOTAL_BYTES) throw new Error("Architectural source corpus is too large")
+        const destination = join(snapshotRoot, snapshot.path)
+        await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
+        await writeFile(destination, encoded, { flag: "wx", mode: 0o600 })
+      }
+      async function cleanup(): Promise<void> {
+        await rm(snapshotRoot, { force: true, recursive: true })
+        return undefined
+      }
+      return Object.freeze({ path: snapshotRoot, cleanup })
+    } catch (error) {
+      await rm(snapshotRoot, { force: true, recursive: true })
+      throw error
+    }
+  },
+})
+
+const ALLOWED_ENV = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"] as const
+export const graphProcessEnvironment = (
+  additions: Readonly<Record<string, string>> = {},
+): NodeJS.ProcessEnv => {
+  const environment: NodeJS.ProcessEnv = {}
+  for (const name of ALLOWED_ENV) if (process.env[name]) environment[name] = process.env[name]
+  if (additions["GRAPHIFY_QUERY_LOG_DISABLE"] === "1") {
+    environment["GRAPHIFY_QUERY_LOG_DISABLE"] = "1"
+  }
+  return environment
+}
+
+export const nodeGraphProcess: GraphProcess = Object.freeze({
+  run: (command, arguments_, options = {}) => new Promise((resolve) => {
+    execFile(command, [...arguments_], {
+      encoding: "utf8",
+      env: graphProcessEnvironment(options.environment),
+      maxBuffer: options.maxOutputBytes ?? MAX_OUTPUT_BYTES,
+      timeout: options.timeoutMs ?? 120_000,
+      windowsHide: true,
+    }, (error, stdout, stderr) => resolve(Object.freeze({
+      exitCode: typeof error?.code === "number" ? error.code : error ? 1 : 0,
+      stdout: String(stdout ?? ""),
+      stderr: String(stderr ?? ""),
+    })))
+  }),
+})

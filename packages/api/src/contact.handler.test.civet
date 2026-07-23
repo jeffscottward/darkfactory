@@ -1,0 +1,165 @@
+import type { SemanticEvent, SemanticEventPort } from "@darkfactory/observability/port"
+import { ORPCError } from "@orpc/client"
+import { describe, expect, it, vi } from "vitest"
+
+import { createApiClient } from "./client.civet"
+import { createApiContext } from "./server/context.civet"
+import { handleApiRequest } from "./server/handler.civet"
+import type {
+  ContactDeliveryPort,
+  ContactThrottlePort,
+} from "./server/contact-service.civet"
+
+const input = {
+  name: "Ada Lovelace",
+  email: "ada@example.test",
+  subject: "Architecture review",
+  message: "Please review the deployment boundary.",
+}
+
+const clientFor = (
+  delivery: ContactDeliveryPort,
+  throttle: ContactThrottlePort,
+  events: SemanticEvent[],
+  wireResponses: Response[] = [],
+) => {
+  const semanticEvents: SemanticEventPort = {
+    emit: vi.fn(async (event) => {
+      events.push(event)
+      return {
+        structuredEvent: "emitted" as const,
+        span: "skipped" as const,
+        analytics: "skipped" as const,
+      }
+    }),
+  }
+  const fetch = async (request: Request): Promise<Response> => {
+    const context = createApiContext(request, {
+      repositories: {} as never,
+      capabilities: {
+        ai: false,
+        emailDelivery: false,
+        analytics: false,
+        telemetryExport: false,
+        storage: false,
+        errorTracking: false,
+      },
+      requireSession: vi.fn(async () => { throw new Error("Contact must stay public") }),
+      requireRole: vi.fn(async () => { throw new Error("Contact must stay public") }),
+      requestId: "contact-request-1",
+      semanticEvents,
+      contactDelivery: delivery,
+      contactThrottle: throttle,
+      contactThrottleKey: "e".repeat(64),
+    })
+    const response = await handleApiRequest(request, context)
+    wireResponses.push(response.clone())
+    return response
+  }
+  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
+}
+
+const allowThrottle = (): ContactThrottlePort => ({
+  consume: vi.fn(async () => ({ allowed: true, remaining: 4, retryAfterSeconds: 0 })),
+})
+
+const expectError = async (
+  promise: Promise<unknown>,
+  code: string,
+  status: number,
+): Promise<void> => {
+  try {
+    await promise
+    throw new Error("Expected contact operation to fail")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ORPCError)
+    expect(error).toMatchObject({ code, status, defined: true })
+    expect(JSON.stringify(error)).not.toContain("provider secret")
+  }
+}
+
+describe "DF-076 contact handler", ->
+  it.each([
+    { result: { status: "sent", provider: "resend", messageId: "message-1" }, expected: { status: "sent" } },
+    { result: { status: "previewed", provider: "preview", artifactPath: "/private/preview.html" }, expected: { status: "previewed" } },
+    { result: { status: "not-delivered", provider: "disabled", code: "CONTACT_DELIVERY_DISABLED", retryable: false }, expected: { status: "not-delivered" } },
+  ] as const)("returns $expected.status without authentication or provider details", async ({ result, expected }) ->
+    const events: SemanticEvent[] = []
+    const sendContact = vi.fn(async () => result)
+    const client = clientFor({ sendContact }, allowThrottle(), events)
+
+    await expect(client.contact.submit(input)).resolves.toEqual(expected)
+    expect(sendContact).toHaveBeenCalledWith(input)
+    expect(events).toHaveLength(1)
+  )
+
+  it "emits only PII-free contact outcome metadata", async ->
+    const events: SemanticEvent[] = []
+    const client = clientFor({
+      sendContact: vi.fn(async () => ({
+        status: "sent",
+        provider: "resend",
+        messageId: "message-1",
+      } as const)),
+    }, allowThrottle(), events)
+
+    await client.contact.submit(input)
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      name: "contact.submitted",
+      outcome: "success",
+      correlation: { requestId: "contact-request-1" },
+      attributes: {
+        sent: true,
+        previewed: false,
+        delivered: true,
+        honeypot: false,
+      },
+    })
+    expect(Object.values(events[0]?.attributes ?? {}).every((value) => typeof value === "boolean")).toBe(true)
+    const serialized = JSON.stringify(events[0])
+    for (const privateValue of Object.values(input)) {
+      expect(serialized).not.toContain(privateValue)
+    }
+    expect(serialized).not.toContain("203.0.113.42")
+
+  it "returns a typed 429 before contacting the provider", async ->
+    const wireResponses: Response[] = []
+    const sendContact = vi.fn()
+    const client = clientFor({ sendContact }, {
+      consume: vi.fn(async () => ({ allowed: false, remaining: 0, retryAfterSeconds: 900 })),
+    }, [], wireResponses)
+
+    await expectError(client.contact.submit(input), "TOO_MANY_REQUESTS", 429)
+    expect(await wireResponses[0]?.json()).toMatchObject({
+      json: {
+        defined: true,
+        code: "TOO_MANY_REQUESTS",
+        status: 429,
+      },
+    })
+    expect(sendContact).not.toHaveBeenCalled()
+
+  it "returns a typed 503 for configured provider failure without fake success", async ->
+    const client = clientFor({
+      sendContact: vi.fn(async () => ({
+        status: "not-delivered",
+        provider: "resend",
+        code: "CONTACT_PROVIDER_UNAVAILABLE",
+        retryable: true,
+      } as const)),
+    }, allowThrottle(), [])
+
+    await expectError(client.contact.submit(input), "SERVICE_UNAVAILABLE", 503)
+
+  it "does not start throttle or delivery for the honeypot", async ->
+    const sendContact = vi.fn()
+    const consume = vi.fn()
+    const client = clientFor({ sendContact }, { consume }, [])
+
+    await expect(client.contact.submit({ ...input, website: "bot.invalid" })).resolves.toEqual({
+      status: "not-delivered",
+    })
+    expect(consume).not.toHaveBeenCalled()
+    expect(sendContact).not.toHaveBeenCalled()

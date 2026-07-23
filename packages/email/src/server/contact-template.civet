@@ -1,0 +1,82 @@
+import type { CSSProperties } from "react"
+import { Body, Container, Head, Html, Preview } from "react-email"
+
+import type { ContactEmailInput } from "../index.civet"
+
+const bodyStyle: CSSProperties = {
+  backgroundColor: "#f6f2ea",
+  color: "#211f1b",
+  fontFamily:
+    "Public Sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+  margin: "0",
+  padding: "32px 12px",
+}
+
+const containerStyle: CSSProperties = {
+  backgroundColor: "#fbf9f4",
+  border: "1px solid #d6d0c4",
+  borderRadius: "12px",
+  boxSizing: "border-box",
+  margin: "0 auto",
+  maxWidth: "600px",
+  padding: "40px",
+}
+
+const headingStyle: CSSProperties = {
+  color: "#211f1b",
+  fontFamily:
+    "Manrope, Public Sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+  fontSize: "28px",
+  fontWeight: "700",
+  letterSpacing: "-0.02em",
+  lineHeight: "1.2",
+  margin: "0 0 28px",
+}
+
+const labelStyle: CSSProperties = {
+  color: "#615d55",
+  fontSize: "13px",
+  fontWeight: "700",
+  letterSpacing: "0.04em",
+  margin: "20px 0 6px",
+  textTransform: "uppercase",
+}
+
+const valueStyle: CSSProperties = {
+  color: "#211f1b",
+  fontSize: "16px",
+  lineHeight: "1.6",
+  margin: "0",
+  overflowWrap: "anywhere",
+  whiteSpace: "pre-wrap",
+}
+
+export const ContactEmail = ({
+  name,
+  email,
+  subject,
+  message,
+}: ContactEmailInput) => (
+  <Html dir="ltr" lang="en">
+    <Head>
+      <title>New DarkFactory contact request</title>
+    </Head>
+    <Preview>New DarkFactory contact request</Preview>
+    <Body dir="ltr" lang="en" style={bodyStyle}>
+      <Container style={containerStyle}>
+        <main aria-labelledby="contact-email-heading">
+          <h1 id="contact-email-heading" style={headingStyle}>
+            New contact request
+          </h1>
+          <p style={labelStyle}>From</p>
+          <p style={valueStyle}>{name}</p>
+          <p style={valueStyle}>{email}</p>
+          <p style={labelStyle}>Subject</p>
+          <p style={valueStyle}>{subject}</p>
+          <p style={labelStyle}>Message</p>
+          <p style={valueStyle}>{message}</p>
+        </main>
+      </Container>
+    </Body>
+  </Html>
+)

@@ -1,0 +1,278 @@
+"use client"
+
+import { useRef, useState } from "react"
+import { useForm } from "@tanstack/react-form"
+import { Button, Input, Label, Textarea } from "@darkfactory/ui"
+
+import {
+  contactFeedbackForOutput,
+  createBrowserContactGateway,
+  safeContactFailure,
+  validateContactField,
+  type ContactFeedback,
+  type ContactFieldName,
+  type ContactGateway,
+} from "./contact-client.civet"
+
+const fieldDefinitions = [
+  {
+    name: "name",
+    label: "Name",
+    maximum: 100,
+    autoComplete: "name",
+    help: "Use the name you would like us to reply to. Maximum 100 characters.",
+  },
+  {
+    name: "email",
+    label: "Email",
+    maximum: 254,
+    autoComplete: "email",
+    help: "We use this address only to reply to this request. Maximum 254 characters.",
+  },
+  {
+    name: "subject",
+    label: "Subject",
+    maximum: 200,
+    autoComplete: "off",
+    help: "Summarize the decision, problem, or question. Maximum 200 characters.",
+  },
+] as const
+
+export interface ContactFormProps {
+  readonly gateway?: ContactGateway | undefined
+}
+
+export const ContactStatus = ({
+  feedback,
+}: {
+  readonly feedback: ContactFeedback
+}) => {
+  const isError = feedback.tone === "error"
+  return (
+    <p
+      aria-live={isError ? "assertive" : "polite"}
+      className={
+        `border-l-2 py-3 pl-4 text-sm leading-6 ${
+          feedback.tone === "error"
+            ? "border-destructive text-destructive"
+            : feedback.tone === "warning"
+              ? "border-warning-border text-warning-foreground"
+              : feedback.tone === "success"
+                ? "border-success-border text-success-foreground"
+                : "border-info-border text-info-foreground"
+        }`
+      }
+      id="contact-status"
+      role={isError ? "alert" : "status"}
+      tabIndex={-1}
+    >
+      {feedback.message}
+    </p>
+  )
+}
+
+export const ContactForm = ({ gateway }: ContactFormProps) => {
+  const [feedback, setFeedback] = useState<ContactFeedback | null>(null)
+  const [validationSummary, setValidationSummary] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const submissionInFlight = useRef(false)
+  const form = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      subject: "",
+      message: "",
+      website: "",
+    },
+    onSubmit: async ({ value }) => {
+      if (submissionInFlight.current) return
+      submissionInFlight.current = true
+      setSubmitting(true)
+      setFeedback(null)
+      try {
+        const output = await (gateway ?? createBrowserContactGateway()).submit({
+          name: value.name.trim(),
+          email: value.email.trim(),
+          subject: value.subject.trim(),
+          message: value.message.trim(),
+          website: value.website,
+        })
+        setFeedback(contactFeedbackForOutput(output))
+        if (output.status === "sent") form.reset()
+      } catch (error) {
+        setFeedback(safeContactFailure(error))
+      } finally {
+        setSubmitting(false)
+        submissionInFlight.current = false
+        window.setTimeout(() => document.getElementById("contact-status")?.focus(), 0)
+      }
+    },
+  })
+
+  return (
+    <form
+      aria-labelledby="contact-form-title"
+      className="relative space-y-6 border-y border-border py-8"
+      id="contact-form"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setValidationSummary(null)
+        void form.handleSubmit().then(() => {
+          if (!form.state.isValid) {
+            setValidationSummary(
+              "Review the highlighted fields. Your message was not submitted.",
+            )
+            document
+              .querySelector<HTMLElement>('#contact-form [aria-invalid="true"]')
+              ?.focus()
+          }
+        })
+      }}
+      role="form"
+    >
+      <div>
+        <h2 className="font-heading text-2xl font-semibold tracking-tight text-foreground" id="contact-form-title">
+          Send a message
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          All fields marked required must be completed. Your entries stay in the form if delivery fails.
+        </p>
+      </div>
+
+      {validationSummary === null ? null : (
+        <p
+          aria-live="assertive"
+          className="border-l-2 border-destructive py-3 pl-4 text-sm leading-6 text-destructive"
+          id="contact-validation-summary"
+          role="alert"
+        >
+          {validationSummary}
+        </p>
+      )}
+      {feedback === null ? null : <ContactStatus feedback={feedback} />}
+
+      <div className="grid gap-5 sm:grid-cols-2">
+        {fieldDefinitions.map((definition) => (
+          <form.Field
+            key={definition.name}
+            name={definition.name}
+            validators={{
+              onBlur: ({ value }) => validateContactField(definition.name as ContactFieldName, value),
+              onSubmit: ({ value }) => validateContactField(definition.name as ContactFieldName, value),
+            }}
+          >
+            {(field) => {
+              const error = field.state.meta.errors[0]
+              const helpId = `${field.name}-help`
+              const errorId = `${field.name}-error`
+              return (
+                <div className={definition.name === "subject" ? "space-y-2 sm:col-span-2" : "space-y-2"}>
+                  <Label htmlFor={field.name}>{definition.label} (required)</Label>
+                  <Input
+                    aria-describedby={error === undefined ? helpId : `${helpId} ${errorId}`}
+                    aria-invalid={error === undefined ? undefined : true}
+                    aria-required="true"
+                    autoComplete={definition.autoComplete}
+                    inputMode={definition.name === "email" ? "email" : undefined}
+                    id={field.name}
+                    name={field.name}
+                    type={definition.name === "email" ? "email" : "text"}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => {
+                      setValidationSummary(null)
+                      field.handleChange(event.target.value)
+                    }}
+                    required
+                    value={field.state.value}
+                  />
+                  <p className="text-sm leading-6 text-muted-foreground" id={helpId}>{definition.help}</p>
+                  {error === undefined ? null : (
+                    <p className="text-sm text-destructive" id={errorId}>
+                      {String(error)}
+                    </p>
+                  )}
+                </div>
+              )
+            }}
+          </form.Field>
+        ))}
+
+        <form.Field
+          name="message"
+          validators={{
+            onBlur: ({ value }) => validateContactField("message", value),
+            onSubmit: ({ value }) => validateContactField("message", value),
+          }}
+        >
+          {(field) => {
+            const error = field.state.meta.errors[0]
+            const helpId = "message-help"
+            const errorId = "message-error"
+            return (
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="message">Message (required)</Label>
+                <Textarea
+                  aria-describedby={error === undefined ? helpId : `${helpId} ${errorId}`}
+                  aria-invalid={error === undefined ? undefined : true}
+                  aria-required="true"
+                  id="message"
+                  name="message"
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    setValidationSummary(null)
+                    field.handleChange(event.target.value)
+                  }}
+                  required
+                  rows={8}
+                  value={field.state.value}
+                />
+                <p className="text-sm leading-6 text-muted-foreground" id={helpId}>
+                  Include enough context to understand the request. Maximum 5,000 characters.
+                </p>
+                {error === undefined ? null : (
+                  <p className="text-sm text-destructive" id={errorId}>
+                    {String(error)}
+                  </p>
+                )}
+              </div>
+            )
+          }}
+        </form.Field>
+      </div>
+
+      <form.Field name="website">
+        {(field) => (
+          <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
+            <label htmlFor="website">Website</label>
+            <input
+              autoComplete="off"
+              id="website"
+              maxLength={200}
+              name="website"
+              onChange={(event) => field.handleChange(event.target.value)}
+              tabIndex={-1}
+              type="text"
+              value={field.state.value}
+            />
+          </div>
+        )}
+      </form.Field>
+
+      <form.Subscribe selector={(state) => state.canSubmit}>
+        {(canSubmit) => (
+          <Button
+            className="min-h-11 w-full sm:w-auto"
+            disabled={!canSubmit || submitting}
+            loading={submitting}
+            loadingLabel="Sending message"
+            type="submit"
+          >
+            Send message
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
+  )
+}

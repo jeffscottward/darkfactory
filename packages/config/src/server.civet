@@ -9,6 +9,39 @@ const optionalString = z.preprocess(
   z.string().trim().min(1).optional(),
 )
 
+const MAILBOX_PATTERN =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
+const optionalContactRecipient = z.preprocess(
+  emptyStringToUndefined,
+  z
+    .string()
+    .trim()
+    .refine(
+      (value) => value.length <= 254 && MAILBOX_PATTERN.test(value),
+      "CONTACT_EMAIL_TO must be a valid email address of at most 254 characters",
+    )
+    .optional(),
+)
+
+const isHeaderSafeEmailFrom = (value: string): boolean => {
+  if (value.length > 400 || /[\r\n]/.test(value)) return false
+  if (MAILBOX_PATTERN.test(value)) return true
+  const displayMailbox = /^([^<>]+)<([^<>]+)>$/.exec(value)
+  if (displayMailbox === null) return false
+  const displayName = displayMailbox[1]?.trim() ?? ""
+  const mailbox = displayMailbox[2]?.trim() ?? ""
+  return displayName.length > 0 && displayName.length <= 100 && MAILBOX_PATTERN.test(mailbox)
+}
+
+const emailFromSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(
+    isHeaderSafeEmailFrom,
+    "EMAIL_FROM must be a header-safe mailbox or display mailbox",
+  )
+
 const optionalUrl = (name: string) =>
   z.preprocess(
     emptyStringToUndefined,
@@ -53,10 +86,11 @@ const databaseUrlSchema = z
   .min(1, "DATABASE_URL is required")
   .refine(isPostgresUrl, "DATABASE_URL must be a PostgreSQL URL")
 
-const authSecretSchema = z
-  .string({ error: "BETTER_AUTH_SECRET is required" })
-  .min(1, "BETTER_AUTH_SECRET is required")
-  .min(32, "BETTER_AUTH_SECRET must contain at least 32 characters")
+const secretSchema = (name: string) =>
+  z
+    .string({ error: `${name} is required` })
+    .min(1, `${name} is required`)
+    .min(32, `${name} must contain at least 32 characters`)
 
 const baseServerEnvSchema = z.object({
   APP_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -66,8 +100,9 @@ const baseServerEnvSchema = z.object({
   DATABASE_PROVIDER: z.enum(["planetscale", "postgres"]).default("planetscale"),
   DATABASE_URL: databaseUrlSchema,
 
-  BETTER_AUTH_SECRET: authSecretSchema,
+  BETTER_AUTH_SECRET: secretSchema("BETTER_AUTH_SECRET"),
   BETTER_AUTH_URL: httpsUrl("BETTER_AUTH_URL").default(CANONICAL_APP_URL),
+  CONTACT_THROTTLE_SECRET: secretSchema("CONTACT_THROTTLE_SECRET"),
 
   AI_PROVIDER: z.enum(["groq"]).default("groq"),
   GROQ_API_KEY: optionalString,
@@ -76,11 +111,8 @@ const baseServerEnvSchema = z.object({
   EMAIL_PROVIDER: z.enum(["resend"]).default("resend"),
   EMAIL_TRANSPORT: z.enum(["preview", "resend"]).default("preview"),
   RESEND_API_KEY: optionalString,
-  EMAIL_FROM: z
-    .string()
-    .trim()
-    .min(1)
-    .default("DarkFactory <noreply@domain.test>"),
+  EMAIL_FROM: emailFromSchema.default("DarkFactory <noreply@domain.test>"),
+  CONTACT_EMAIL_TO: optionalContactRecipient,
 
   ANALYTICS_PROVIDER: z.enum(["posthog"]).default("posthog"),
   POSTHOG_KEY: optionalString,

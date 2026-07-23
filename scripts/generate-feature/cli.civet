@@ -1,0 +1,45 @@
+import { GeneratorError } from "./errors.civet"
+import {
+  formatHumanReport,
+  serializeGenerationReport,
+} from "./report.civet"
+import { generateFeature } from "./workflow.civet"
+
+export type GeneratorCliDependencies = Readonly<{
+  targetRoot: string
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+}>
+
+const failureFrom = (error: unknown): Readonly<{ code: string; message: string }> =>
+  error instanceof GeneratorError
+    ? Object.freeze({ code: error.code, message: error.message })
+    : Object.freeze({
+      code: "GENERATION_FAILED",
+      message: "Feature generation could not be completed",
+    })
+
+export const runFeatureGeneratorCli = async (
+  arguments_: readonly string[],
+  dependencies: GeneratorCliDependencies,
+): Promise<number> => {
+  try {
+    const result = await generateFeature(arguments_, {
+      targetRoot: dependencies.targetRoot,
+    })
+    dependencies.writeOutput(
+      result.arguments.json
+        ? serializeGenerationReport(result.report)
+        : `${formatHumanReport(result.report)}\n`,
+    )
+    return 0
+  } catch (error) {
+    const failure = failureFrom(error)
+    dependencies.writeError(
+      arguments_.includes("--json")
+        ? `${JSON.stringify({ version: 1, status: "failed", error: failure }, null, 2)}\n`
+        : `Feature generation failed [${failure.code}]: ${failure.message}\n`,
+    )
+    return 1
+  }
+}

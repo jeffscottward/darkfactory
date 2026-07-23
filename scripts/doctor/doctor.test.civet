@@ -1,0 +1,254 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  runDoctor,
+  type DoctorDependencies,
+  type DoctorFileSystem,
+} from "./doctor.civet"
+import { parseCapabilityManifest } from "./manifest.civet"
+import { runDoctorCli } from "./cli.civet"
+
+const MANIFEST = `
+project:
+  name: DarkFactory
+database:
+  engine: postgres
+deployment:
+  web:
+    provider: cloudflare
+developer_context:
+  code_graph:
+    provider: graphify
+    enabled: true
+development:
+  https:
+    enabled: true
+    provider: portless
+    service_name: darkfactory
+    canonical_url: https://darkfactory.localhost
+    process_manager: pm2
+    certificate_fallback: mkcert
+developer_tools:
+  tanstack_devtools:
+    enabled: development
+capabilities:
+  docs:
+    provider: mintlify
+    enabled: false
+  storage:
+    provider: r2
+    enabled: false
+`
+
+const TEST_CWD = "/workspace/darkfactory"
+const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
+  "node_modules/@danielx/civet/package.json": "0.11.15",
+  "node_modules/turbo/package.json": "2.10.6",
+  "node_modules/vitest/package.json": "4.1.10",
+  "node_modules/@playwright/test/package.json": "1.61.1",
+  "apps/web/node_modules/vinext/package.json": "1.0.0-beta.3",
+  "apps/web/node_modules/@vinext/cloudflare/package.json": "1.0.0-beta.3",
+  "apps/web/node_modules/vite/package.json": "8.1.5",
+}
+
+const files = (overrides: Readonly<Record<string, string | false>> = {}): DoctorFileSystem => ({
+  exists: async (path) => overrides[path] !== false,
+  readText: async (path) => {
+    const value = overrides[path]
+    if (value === false) throw new Error(`missing ${path}`)
+    if (typeof value === "string") return value
+    if (path === "capabilities.yaml") return MANIFEST
+    if (path === "apps/web/wrangler.jsonc") return `{ "name": "darkfactory-web", "main": "vinext/server/fetch-handler" }`
+    if (path in PINNED_MANIFESTS) return JSON.stringify({ version: PINNED_MANIFESTS[path] })
+    return "{}"
+  },
+})
+
+const healthyDependencies = (
+  overrides: Partial<DoctorDependencies> = {},
+): DoctorDependencies => ({
+  nodeVersion: "22.13.1",
+  workingDirectory: TEST_CWD,
+  pm2DaemonAvailable: async () => true,
+  environmentHas: (name) => new Set([
+    "DATABASE_URL",
+    "BETTER_AUTH_SECRET",
+    "GROQ_API_KEY",
+    "GROQ_MODEL",
+  ]).has(name),
+  files: files(),
+  probeHttps: async () => ({ ok: true, status: 200 }),
+  process: {
+    run: async (command, arguments_) => {
+      if (command === "corepack" && arguments_.join(" ") === "pnpm --version") {
+        return { exitCode: 0, stdout: "11.16.0\n", stderr: "" }
+      }
+      if (command === "docker" && arguments_[0] === "compose" && arguments_.includes("ps")) {
+        return { exitCode: 0, stdout: '[{"Service":"postgres","State":"running"}]', stderr: "" }
+      }
+      if (command === "pm2" && arguments_[0] === "jlist") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([{
+            name: "darkfactory-web-dev",
+            pm_id: 7,
+            pm2_env: {
+              status: "online",
+              pm_exec_path: `${TEST_CWD}/node_modules/.bin/portless`,
+              pm_cwd: TEST_CWD,
+              args: ["darkfactory", "pnpm", "dev"],
+            },
+          }]),
+          stderr: "",
+        }
+      }
+      if (command === "portless" && arguments_[0] === "list") {
+        return { exitCode: 0, stdout: "https://darkfactory.localhost -> localhost:4775\n", stderr: "" }
+      }
+      if (command === "portless" && arguments_[0] === "get") {
+        return { exitCode: 0, stdout: "https://darkfactory.localhost\n", stderr: "" }
+      }
+      return { exitCode: 0, stdout: "1.0.0\n", stderr: "" }
+    },
+  },
+  ...overrides,
+})
+
+describe("capability manifest", () => {
+  it("classifies core, enabled, environment-scoped, and disabled declarations", () => {
+    const parsed = parseCapabilityManifest(MANIFEST)
+
+    expect(parsed.required).toEqual(expect.arrayContaining(["postgres", "graphify", "portless", "pm2"]))
+    expect(parsed.optional).toContain("tanstack_devtools")
+    expect(parsed.disabled).toEqual(expect.arrayContaining(["docs", "storage"]))
+  })
+
+  it("rejects malformed indentation, unknown booleans, and missing core declarations", () => {
+    expect(() => parseCapabilityManifest("capabilities:\n   docs:\n    enabled: false")).toThrow(/manifest/i)
+    expect(() => parseCapabilityManifest(MANIFEST.replace("enabled: true", "enabled: perhaps"))).toThrow(/boolean/i)
+    expect(() => parseCapabilityManifest(MANIFEST.replace("database:\n  engine: postgres\n", ""))).toThrow(/database/i)
+  })
+})
+
+describe("doctor", () => {
+  it("passes a healthy fixture and reports names and status without secret values", async () => {
+    const secret = "never-print-this-secret"
+    const report = await runDoctor(healthyDependencies({
+      environmentHas: (name) => name === "DATABASE_URL" || name === "BETTER_AUTH_SECRET" || name === secret,
+    }))
+    const rendered = JSON.stringify(report)
+
+    expect(report.ok).toBe(true)
+    expect(report.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Node", status: "pass" }),
+      expect.objectContaining({ name: "Docker", status: "pass" }),
+      expect.objectContaining({ name: "Postgres", status: "pass" }),
+      expect.objectContaining({ name: "Cloudflare config", status: "pass" }),
+      expect.objectContaining({ name: "portless route", status: "pass" }),
+      expect.objectContaining({ name: "portless trust", status: "pass" }),
+      expect.objectContaining({ name: "PM2 process", status: "pass" }),
+      expect.objectContaining({ name: "Graphify", status: "pass" }),
+    ]))
+    expect(rendered).not.toContain(secret)
+    expect(rendered).not.toContain("postgresql://")
+  })
+
+  it("fails pinned compatibility drift and inspects no PM2 CLI when its daemon is absent", async () => {
+    const drift = await runDoctor(healthyDependencies({
+      files: files({ "node_modules/vitest/package.json": JSON.stringify({ version: "4.0.0" }) }),
+    }))
+    expect(drift.checks).toContainEqual(expect.objectContaining({
+      name: "Pinned toolchain",
+      status: "fail",
+    }))
+
+    const base = healthyDependencies()
+    const pm2Calls: string[][] = []
+    const absent = await runDoctor(healthyDependencies({
+      pm2DaemonAvailable: async () => false,
+      process: {
+        run: async (command, arguments_, options) => {
+          if (command === "pm2") pm2Calls.push([command, ...arguments_])
+          return base.process.run(command, arguments_, options)
+        },
+      },
+    }))
+    expect(absent.checks).toContainEqual(expect.objectContaining({
+      name: "PM2 process",
+      status: "fail",
+    }))
+    expect(pm2Calls).toHaveLength(0)
+  })
+
+  it("fails truthfully when required prerequisites are missing", async () => {
+    const dependencies = healthyDependencies({
+      nodeVersion: "20.12.0",
+      process: {
+        run: async () => ({ exitCode: 127, stdout: "", stderr: "missing" }),
+      },
+      probeHttps: async () => ({ ok: false, error: "untrusted" }),
+    })
+
+    const report = await runDoctor(dependencies)
+
+    expect(report.ok).toBe(false)
+    expect(report.checks.filter(({ status }) => status === "fail").length).toBeGreaterThan(4)
+  })
+
+  it("turns malformed config and tool failures into bounded failed checks", async () => {
+    const malformed = await runDoctor(healthyDependencies({
+      files: files({ "capabilities.yaml": "capabilities: [" }),
+    }))
+    expect(malformed.ok).toBe(false)
+    expect(malformed.checks).toContainEqual(expect.objectContaining({ name: "Capabilities manifest", status: "fail" }))
+
+    const failedTool = await runDoctor(healthyDependencies({
+      process: {
+        run: async (command) => command === "graphify"
+          ? { exitCode: 1, stdout: "", stderr: "tool exploded with token=secret" }
+          : { exitCode: 0, stdout: "11.16.0", stderr: "" },
+      },
+    }))
+    const graphify = failedTool.checks.find(({ name }) => name === "Graphify")
+    expect(graphify).toMatchObject({ status: "fail" })
+    expect(JSON.stringify(failedTool)).not.toContain("token=secret")
+  })
+
+  it("checks mkcert only when the fallback is explicitly selected", async () => {
+    const calls: Array<readonly [string, readonly string[]]> = []
+    const base = healthyDependencies()
+    const dependencies = healthyDependencies({
+      process: {
+        run: async (command, arguments_) => {
+          calls.push([command, [...arguments_]])
+          return base.process.run(command, arguments_)
+        },
+      },
+    })
+
+    await runDoctor(dependencies)
+    expect(calls.some(([command]) => command === "mkcert")).toBe(false)
+
+    await runDoctor(dependencies, { certificateFallback: true })
+    expect(calls).toContainEqual(["mkcert", ["-version"]])
+  })
+
+  it("returns CLI exit codes for healthy, missing, and malformed fixtures", async () => {
+    const output: string[] = []
+    await expect(runDoctorCli([], {
+      doctor: healthyDependencies(),
+      writeOutput: (value) => output.push(value),
+      writeError: () => undefined,
+    })).resolves.toBe(0)
+    await expect(runDoctorCli([], {
+      doctor: healthyDependencies({ nodeVersion: "18.0.0" }),
+      writeOutput: (value) => output.push(value),
+      writeError: () => undefined,
+    })).resolves.toBe(1)
+    await expect(runDoctorCli(["--unknown"], {
+      doctor: healthyDependencies(),
+      writeOutput: (value) => output.push(value),
+      writeError: () => undefined,
+    })).resolves.toBe(2)
+  })
+})

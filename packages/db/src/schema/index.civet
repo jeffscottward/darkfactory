@@ -55,6 +55,8 @@ export type AuditMetadata = Readonly<Record<string, JsonValue>>
 
 const utcTimestamp = (name: string) =>
   timestamp(name, { mode: "date", withTimezone: true })
+const utcTimestampMs = (name: string) =>
+  timestamp(name, { mode: "date", withTimezone: true, precision: 3 })
 
 export const users = pgTable(
   "user",
@@ -64,7 +66,7 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
-    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    createdAt: utcTimestampMs("created_at").defaultNow().notNull(),
     updatedAt: utcTimestamp("updated_at")
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -73,6 +75,9 @@ export const users = pgTable(
     status: text("status").$type<UserStatus>().default("active").notNull(),
   },
   (table) => [
+    index("user_created_at_id_idx").on(table.createdAt.desc(), table.id.desc()),
+    index("user_email_prefix_idx").on(sql`lower(${table.email}) text_pattern_ops`),
+    index("user_name_prefix_idx").on(sql`lower(${table.name}) text_pattern_ops`),
     check("user_role_check", sql`${table.role} in ('member', 'admin')`),
     check(
       "user_status_check",
@@ -157,24 +162,38 @@ export const verifications = pgTable(
   ],
 )
 
-export const profiles = pgTable("profiles", {
-  userId: text("user_id")
-    .primaryKey()
-    .references(() => users.id, { onDelete: "cascade" }),
-  firstName: text("first_name"),
-  lastName: text("last_name"),
-  displayName: text("display_name"),
-  avatarUrl: text("avatar_url"),
-  phone: text("phone"),
-  businessName: text("business_name"),
-  jobTitle: text("job_title"),
-  biography: text("biography"),
-  timezone: text("timezone").default("UTC").notNull(),
-  locale: text("locale").default("en").notNull(),
-  dateOfBirth: date("date_of_birth", { mode: "string" }),
-  createdAt: utcTimestamp("created_at").defaultNow().notNull(),
-  updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
-})
+export const profiles = pgTable(
+  "profiles",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
+    phone: text("phone"),
+    businessName: text("business_name"),
+    jobTitle: text("job_title"),
+    biography: text("biography"),
+    timezone: text("timezone").default("UTC").notNull(),
+    locale: text("locale").default("en").notNull(),
+    dateOfBirth: date("date_of_birth", { mode: "string" }),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("profiles_display_name_prefix_idx").on(
+      sql`lower(${table.displayName}) text_pattern_ops`,
+    ),
+    index("profiles_first_name_prefix_idx").on(
+      sql`lower(${table.firstName}) text_pattern_ops`,
+    ),
+    index("profiles_last_name_prefix_idx").on(
+      sql`lower(${table.lastName}) text_pattern_ops`,
+    ),
+  ],
+)
 
 export const addresses = pgTable(
   "addresses",
@@ -282,6 +301,12 @@ export const featureItems = pgTable(
       table.updatedAt.desc(),
       table.id.desc(),
     ),
+    index("feature_items_owner_status_order_idx").on(
+      table.ownerId,
+      table.status,
+      table.updatedAt.desc(),
+      table.id.desc(),
+    ),
     check(
       "feature_items_status_check",
       sql`${table.status} in ('draft', 'active', 'archived')`,
@@ -290,6 +315,31 @@ export const featureItems = pgTable(
     check(
       "feature_items_metadata_check",
       sql`jsonb_typeof(${table.metadata}) = 'object' and octet_length(${table.metadata}::text) <= 16384`,
+    ),
+  ],
+)
+
+export const contactRateLimits = pgTable(
+  "contact_rate_limits",
+  {
+    keyHash: text("key_hash").primaryKey(),
+    windowStartedAt: utcTimestampMs("window_started_at").notNull(),
+    requestCount: integer("request_count").notNull(),
+    expiresAt: utcTimestampMs("expires_at").notNull(),
+  },
+  (table) => [
+    index("contact_rate_limits_expires_at_idx").on(table.expiresAt),
+    check(
+      "contact_rate_limits_key_hash_check",
+      sql`${table.keyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "contact_rate_limits_request_count_check",
+      sql`${table.requestCount} between 1 and 1000`,
+    ),
+    check(
+      "contact_rate_limits_window_check",
+      sql`${table.expiresAt} > ${table.windowStartedAt}`,
     ),
   ],
 )
@@ -374,3 +424,5 @@ export type OutboxEvent = typeof outboxEvents.$inferSelect
 export type NewOutboxEvent = typeof outboxEvents.$inferInsert
 export type AuditRecord = typeof auditRecords.$inferSelect
 export type NewAuditRecord = typeof auditRecords.$inferInsert
+export type ContactRateLimit = typeof contactRateLimits.$inferSelect
+export type NewContactRateLimit = typeof contactRateLimits.$inferInsert

@@ -1,6 +1,11 @@
 import { eq } from "drizzle-orm"
 import { drizzleAdapter } from "@better-auth/drizzle-adapter"
-import { withTransaction, type Database } from "@darkfactory/db/server"
+import {
+  withTransaction,
+  type Database,
+  type DatabaseExecutor,
+  type Transaction,
+} from "@darkfactory/db/server"
 import {
   USER_ROLES,
   USER_STATUSES,
@@ -14,6 +19,7 @@ import * as databaseSchema from "@darkfactory/db/schema"
 import type { EmailPort } from "@darkfactory/email"
 import { betterAuth } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
+import { hashPassword, verifyPassword } from "better-auth/crypto"
 
 import {
   AUTH_BASE_URL,
@@ -23,6 +29,11 @@ import {
 } from "./types.civet"
 
 const DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS = 60 * 60
+const DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 60 * 60
+const MIN_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 60
+const MAX_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 24 * 60 * 60
+const DEFAULT_VERIFICATION_RATE_LIMIT_MAX = 5
+const DEFAULT_SIGN_IN_RATE_LIMIT_MAX = 10
 const SAFE_RESET_RESPONSE = {
   status: true,
   message: "If this email exists in our system, check your email for the reset link",
@@ -30,6 +41,14 @@ const SAFE_RESET_RESPONSE = {
 
 export const PASSWORD_RESET_DELIVERY_ERROR_CODE =
   "PASSWORD_RESET_DELIVERY_FAILED" as const
+export const EMAIL_VERIFICATION_DELIVERY_ERROR_CODE =
+  "EMAIL_VERIFICATION_DELIVERY_FAILED" as const
+
+const emailVerificationDeliveryError = (): APIError =>
+  new APIError("SERVICE_UNAVAILABLE", {
+    code: EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
+    message: "Email verification delivery is unavailable",
+  })
 
 export type AuthFactoryOptions = Readonly<{
   database: Database
@@ -39,7 +58,10 @@ export type AuthFactoryOptions = Readonly<{
   scheduleBackgroundTask: (task: Promise<unknown>) => void
   trustedOrigins?: readonly string[]
   resetPasswordTokenExpiresInSeconds?: number
+  verificationEmailTokenExpiresInSeconds?: number
   resetRateLimitMax?: number
+  verificationRateLimitMax?: number
+  signInRateLimitMax?: number
   rateLimitEnabled?: boolean
   generateId?: (options: { model: string; size?: number | undefined }) => string
 }>
@@ -56,12 +78,47 @@ const resetExpiry = (options: AuthFactoryOptions): number => {
   const seconds =
     options.resetPasswordTokenExpiresInSeconds ??
     DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS
-  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
-    throw new RangeError("resetPasswordTokenExpiresInSeconds must be a positive integer")
+  if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds % 60 !== 0) {
+    throw new RangeError(
+      "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
+    )
   }
   return seconds
 }
 
+const verificationExpiry = (options: AuthFactoryOptions): number => {
+  const seconds =
+    options.verificationEmailTokenExpiresInSeconds ??
+    DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS
+  if (
+    !Number.isInteger(seconds) ||
+    seconds < MIN_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS ||
+    seconds > MAX_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS ||
+    seconds % 60 !== 0
+  ) {
+    throw new RangeError(
+      "verificationEmailTokenExpiresInSeconds must be a whole-minute integer from 60 to 86400",
+    )
+  }
+  return seconds
+}
+
+const verificationRateLimitMax = (options: AuthFactoryOptions): number => {
+  const max = options.verificationRateLimitMax ?? DEFAULT_VERIFICATION_RATE_LIMIT_MAX
+  if (!Number.isSafeInteger(max) || max <= 0) {
+    throw new RangeError("verificationRateLimitMax must be a positive integer")
+  }
+  return max
+}
+
+
+const signInRateLimitMax = (options: AuthFactoryOptions): number => {
+  const max = options.signInRateLimitMax ?? DEFAULT_SIGN_IN_RATE_LIMIT_MAX
+  if (!Number.isSafeInteger(max) || max <= 0) {
+    throw new RangeError("signInRateLimitMax must be a positive integer")
+  }
+  return max
+}
 const trustedOrigins = (baseURL: string, configured?: readonly string[]): string[] =>
   [...new Set([baseURL, ...(configured ?? [])])]
 
@@ -69,6 +126,7 @@ const NORMALIZED_EMAIL_PATHS = new Set([
   "/sign-up/email",
   "/sign-in/email",
   "/request-password-reset",
+  "/send-verification-email",
 ])
 
 
@@ -78,23 +136,30 @@ const NORMALIZED_EMAIL_PATHS = new Set([
  * committed. This separate application transaction is deliberately idempotent;
  * it is reliable and repairable, but does not claim cross-table signup atomicity.
  */
+const ensureUserResourcesWithExecutor = async (
+  database: DatabaseExecutor,
+  user: ProvisionableUser,
+): Promise<void> => {
+  await database
+    .insert(profiles)
+    .values({
+      userId: user.id,
+      displayName: user.name,
+    })
+    .onConflictDoNothing({ target: profiles.userId });
+
+  await database
+    .insert(userPreferences)
+    .values({ userId: user.id })
+    .onConflictDoNothing({ target: userPreferences.userId });
+}
+
 export const ensureUserResources = async (
   database: Database,
   user: ProvisionableUser,
 ): Promise<void> => {
-  return await withTransaction(database, async (transaction) => {
-    await transaction
-      .insert(profiles)
-      .values({
-        userId: user.id,
-        displayName: user.name,
-      })
-      .onConflictDoNothing({ target: profiles.userId });
-
-    await transaction
-      .insert(userPreferences)
-      .values({ userId: user.id })
-      .onConflictDoNothing({ target: userPreferences.userId });
+  await withTransaction(database, async (transaction) => {
+    await ensureUserResourcesWithExecutor(transaction, user)
   })
 }
 
@@ -130,6 +195,9 @@ const requireActiveUserId = async (
 export const createAuth = (options: AuthFactoryOptions) => {
   const baseURL = options.baseURL ?? AUTH_BASE_URL
   const resetPasswordTokenExpiresInSeconds = resetExpiry(options)
+  const verificationEmailTokenExpiresInSeconds = verificationExpiry(options)
+  const verificationResendRateLimitMax = verificationRateLimitMax(options)
+  const emailSignInRateLimitMax = signInRateLimitMax(options)
 
   return betterAuth({
     baseURL,
@@ -200,11 +268,43 @@ export const createAuth = (options: AuthFactoryOptions) => {
           window: 60,
           max: options.resetRateLimitMax ?? 5,
         },
+        "/sign-in/email": {
+          window: 60,
+          max: emailSignInRateLimitMax,
+        },
+        "/send-verification-email": {
+          window: 60,
+          max: verificationResendRateLimitMax,
+        },
+      },
+    },
+    emailVerification: {
+      expiresIn: verificationEmailTokenExpiresInSeconds,
+      sendOnSignUp: true,
+      sendOnSignIn: false,
+      autoSignInAfterVerification: false,
+      sendVerificationEmail: async ({ user, url }) => {
+        const deliveryTask = options.email
+          .sendEmailVerification({
+            to: user.email,
+            recipientName: user.name,
+            verificationUrl: url,
+            expiresInMinutes: verificationEmailTokenExpiresInSeconds / 60,
+          })
+          .then((result) => {
+            if (result.status === "failed") throw emailVerificationDeliveryError()
+            return undefined
+          })
+          .catch(() => {
+            throw emailVerificationDeliveryError()
+          })
+        options.scheduleBackgroundTask(deliveryTask)
       },
     },
     emailAndPassword: {
       enabled: true,
       autoSignIn: false,
+      requireEmailVerification: true,
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: resetPasswordTokenExpiresInSeconds,
       sendResetPassword: async ({ user, url }) => {
@@ -212,9 +312,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
           to: user.email,
           recipientName: user.name,
           resetUrl: url,
-          expiresInMinutes: Math.ceil(
-            resetPasswordTokenExpiresInSeconds / 60,
-          ),
+          expiresInMinutes: resetPasswordTokenExpiresInSeconds / 60,
         })
         if (result.status === "failed") {
           throw new APIError("SERVICE_UNAVAILABLE", {
@@ -275,6 +373,216 @@ export const createAuth = (options: AuthFactoryOptions) => {
 }
 
 export type DarkFactoryAuth = ReturnType<typeof createAuth>
+
+export type DevelopmentSeedIdentity = Readonly<{
+  userId: string
+  accountId: string
+  name: string
+  email: string
+  image: string
+  role: UserRole
+  password: string
+}>
+
+export type DevelopmentSeedIdentityPreparationOptions = Readonly<{
+  environment: string | undefined
+  secret: string
+  baseURL?: string
+  trustedOrigins?: readonly string[]
+}>
+
+export type PreparedDevelopmentSeedIdentity = (
+  identity: DevelopmentSeedIdentity,
+  exists: boolean,
+  database: Transaction,
+) => Promise<void>
+
+const createDevelopmentSeedAuth = (
+  database: Transaction,
+  options: DevelopmentSeedIdentityPreparationOptions,
+) => betterAuth({
+  baseURL: options.baseURL ?? AUTH_BASE_URL,
+  secret: options.secret,
+  trustedOrigins: trustedOrigins(
+    options.baseURL ?? AUTH_BASE_URL,
+    options.trustedOrigins,
+  ),
+  database: drizzleAdapter(database, {
+    provider: "pg",
+    schema: databaseSchema,
+    transaction: false,
+  }),
+  emailAndPassword: {
+    enabled: true,
+    autoSignIn: false,
+    requireEmailVerification: true,
+  },
+  user: {
+    modelName: "users",
+    additionalFields: {
+      role: {
+        type: [...USER_ROLES] as ["member", "admin"],
+        required: true,
+        input: false,
+        returned: true,
+        defaultValue: "member",
+      },
+      status: {
+        type: [...USER_STATUSES] as ["active", "suspended", "deactivated"],
+        required: true,
+        input: false,
+        returned: true,
+        defaultValue: "active",
+      },
+    },
+  },
+  session: { modelName: "sessions" },
+  account: { modelName: "accounts" },
+  verification: { modelName: "verifications", storeIdentifier: "hashed" },
+})
+
+export const developmentSeedCrypto: Readonly<{
+  hashPassword: typeof hashPassword
+}> = { hashPassword }
+
+export const ensureDevelopmentSeedIdentity = async (
+  options: DevelopmentSeedIdentityPreparationOptions,
+  identities: readonly DevelopmentSeedIdentity[],
+): Promise<PreparedDevelopmentSeedIdentity> => {
+  if (
+    options.environment !== "development" &&
+    options.environment !== "test"
+  ) {
+    throw new Error(
+      "Development seed identity setup requires an explicit development or test environment",
+    )
+  }
+
+  const prepared = new Map<string, Readonly<{
+    identity: DevelopmentSeedIdentity
+    passwordHash: string
+  }>>()
+  for (const identity of identities) {
+    if (prepared.has(identity.userId)) {
+      throw new Error("Development seed identities require unique user IDs")
+    }
+    prepared.set(identity.userId, {
+      identity,
+      passwordHash: await developmentSeedCrypto.hashPassword(identity.password),
+    })
+  }
+
+  let boundDatabase: Transaction | undefined
+  let context: Awaited<
+    ReturnType<typeof createDevelopmentSeedAuth>["$context"]
+  > | undefined
+
+  return async (identity, exists, database): Promise<void> => {
+    const entry = prepared.get(identity.userId)
+    if (
+      !entry ||
+      entry.identity.accountId !== identity.accountId ||
+      entry.identity.name !== identity.name ||
+      entry.identity.email !== identity.email ||
+      entry.identity.image !== identity.image ||
+      entry.identity.role !== identity.role ||
+      entry.identity.password !== identity.password
+    ) {
+      throw new Error("Seed identity was not prepared")
+    }
+    if (boundDatabase !== undefined && boundDatabase !== database) {
+      throw new Error("Prepared seed identities require one transaction")
+    }
+    if (context === undefined) {
+      boundDatabase = database
+      context = await createDevelopmentSeedAuth(database, options).$context
+    }
+
+    if (!exists) {
+      const created = await context.internalAdapter.createUser({
+        id: identity.userId,
+        name: identity.name,
+        email: identity.email,
+        emailVerified: true,
+        image: identity.image,
+        role: identity.role,
+        status: "active",
+      })
+      if (created.id !== identity.userId) {
+        throw new Error("Seed user received an unexpected identifier")
+      }
+      const account = await context.internalAdapter.linkAccount({
+        id: identity.accountId,
+        userId: identity.userId,
+        providerId: "credential",
+        accountId: identity.userId,
+        password: entry.passwordHash,
+      })
+      if (
+        account.id !== identity.accountId ||
+        account.userId !== identity.userId ||
+        account.providerId !== "credential" ||
+        account.accountId !== identity.userId
+      ) {
+        throw new Error("Seed credential received an unexpected identifier")
+      }
+    } else {
+      const current = await context.internalAdapter.findUserById(identity.userId)
+      if (!current) throw new Error("Seed user is unavailable")
+      const currentState = current as typeof current & {
+        role: unknown
+        status: unknown
+      }
+      if (
+        current.name !== identity.name ||
+        current.email !== identity.email ||
+        current.emailVerified !== true ||
+        current.image !== identity.image ||
+        currentState.role !== identity.role ||
+        currentState.status !== "active"
+      ) {
+        await context.internalAdapter.updateUser(identity.userId, {
+          name: identity.name,
+          email: identity.email,
+          emailVerified: true,
+          image: identity.image,
+          role: identity.role,
+          status: "active",
+        })
+      }
+
+      const credential = (
+        await context.internalAdapter.findAccounts(identity.userId)
+      ).find((account) =>
+        account.id === identity.accountId &&
+        account.providerId === "credential" &&
+        account.accountId === identity.userId
+      )
+      if (!credential?.password) {
+        throw new Error("Seed credential is unavailable")
+      }
+      let passwordMatches: boolean
+      try {
+        passwordMatches = await verifyPassword({
+          hash: credential.password,
+          password: identity.password,
+        })
+      } catch {
+        throw new Error("Seed credential is malformed")
+      }
+      if (!passwordMatches) {
+        await context.internalAdapter.updateAccount(credential.id, {
+          password: entry.passwordHash,
+        })
+      }
+    }
+
+    await ensureUserResourcesWithExecutor(database, {
+      id: identity.userId,
+      name: identity.name,
+    })
+  }
+}
 
 type AuthSession = NonNullable<
   Awaited<ReturnType<DarkFactoryAuth["api"]["getSession"]>>
@@ -426,12 +734,15 @@ const isResetRequest = (request: Request): boolean =>
   request.method === "POST" &&
   new URL(request.url).pathname.endsWith("/api/auth/request-password-reset")
 
-const isDeliveryFailure = async (response: Response): Promise<boolean> => {
+const isDeliveryFailure = async (
+  response: Response,
+  code: string,
+): Promise<boolean> => {
   if (response.status !== 503) return false
   const contentType = response.headers.get("content-type") ?? ""
   if (!contentType.includes("application/json")) return false
   const body = (await response.clone().json()) as { code?: unknown }
-  return body.code === PASSWORD_RESET_DELIVERY_ERROR_CODE
+  return body.code === code
 }
 
 const isStatusGateExempt = (request: Request): boolean => {
@@ -442,6 +753,8 @@ const isStatusGateExempt = (request: Request): boolean => {
     path.endsWith("/api/auth/sign-in/email") ||
     path.endsWith("/api/auth/sign-out") ||
     path.endsWith("/api/auth/request-password-reset") ||
+    path.endsWith("/api/auth/send-verification-email") ||
+    path.endsWith("/api/auth/verify-email") ||
     path.endsWith("/api/auth/reset-password") ||
     path.includes("/api/auth/reset-password/")
   )
@@ -465,9 +778,9 @@ const inactiveSessionResponse = async (
   )
 }
 
-/** Fetch-native route bridge. It masks delivery availability so reset requests
- * do not become an account-existence oracle, while direct API callers still
- * receive the typed PASSWORD_RESET_DELIVERY_FAILED hook error. */
+/** Fetch-native route bridge. It masks reset delivery availability so reset
+ * requests do not become account-existence oracles. Verification delivery is
+ * scheduled independently and its public endpoint returns uniformly. */
 export const createAuthHandler = (
   auth: DarkFactoryAuth,
 ): ((request: Request) => Promise<Response>) =>
@@ -475,7 +788,10 @@ export const createAuthHandler = (
     const inactiveResponse = await inactiveSessionResponse(auth, request)
     if (inactiveResponse) return inactiveResponse
     let response = await auth.handler(request)
-    if (isResetRequest(request) && (await isDeliveryFailure(response))) {
+    if (
+      isResetRequest(request) &&
+      (await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE))
+    ) {
       const headers = new Headers(response.headers)
       headers.set("content-type", "application/json")
       headers.delete("content-length")

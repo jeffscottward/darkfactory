@@ -129,7 +129,12 @@ describe "Better Auth 1.6.24 schema", ->
       for candidate of getTableConfig(table).columns.filter((entry) =>
         entry.name.endsWith("_at")
       )
-        expect(candidate.getSQLType()).toBe("timestamp with time zone")
+        expect(candidate.getSQLType()).toMatch(
+          /^timestamp(?: \(3\))? with time zone$/,
+        )
+    expect(column(users, "created_at").getSQLType()).toBe(
+      "timestamp (3) with time zone",
+    )
 
   it "matches Better Auth generated updatedAt callbacks and defaults", ->
     for table of [users, sessions, accounts, verifications]

@@ -1,0 +1,260 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import type { AuthFlowClient } from "./auth-flow.civet"
+import {
+  SAFE_ACCOUNT_EMAIL_MESSAGE,
+  normalizeAuthDestination,
+  submitForgotPassword,
+  submitResetPassword,
+  submitSignIn,
+  submitSignUp,
+  submitVerificationEmail,
+} from "./auth-flow.civet"
+import { PasswordField } from "./password-field.civet"
+
+const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
+  signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  signUpEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  requestPasswordReset: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  resetPassword: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  sendVerificationEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
+  ...overrides,
+})
+
+describe "normalizeAuthDestination", ->
+  it "preserves same-origin relative application paths", ->
+    expect(normalizeAuthDestination("/feature-items?status=active#results")).toBe(
+      "/feature-items?status=active#results",
+    )
+    expect(normalizeAuthDestination("/dashboard")).toBe("/dashboard")
+
+  it "falls back for absolute, protocol-relative, encoded, credentialed, slash-confused, and control-character callbacks", ->
+    const hostileCallbacks = [
+      "https://attacker.test/steal",
+      "//attacker.test/steal",
+      "/%2f%2fattacker.test/steal",
+      "/%5c%5cattacker.test/steal",
+      "/\\attacker.test/steal",
+      "javascript:alert(1)",
+      "https://user:password@darkfactory.localhost/dashboard",
+      "/dashboard\u0000.evil",
+      "   ",
+      null,
+      undefined,
+      42,
+    ]
+
+    for (const callback of hostileCallbacks) {
+      expect(normalizeAuthDestination(callback)).toBe("/dashboard")
+    }
+
+  it "prevents auth loops and auth API callbacks", ->
+    for (const callback of [
+      "/sign-in",
+      "/sign-up?next=/dashboard",
+      "/forgot-password",
+      "/reset-password?token=secret",
+      "/verify-email?error=INVALID_TOKEN",
+      "/api/auth/get-session",
+    ]) {
+      expect(normalizeAuthDestination(callback)).toBe("/dashboard")
+    }
+
+describe "typed auth operations", ->
+  it "signs in through Better Auth and returns only the sanitized local destination", async ->
+    const signInEmail = vi.fn().mockResolvedValue({
+      data: { redirect: true, url: "https://attacker.test/ignored" },
+      error: null,
+    })
+    const client = authClient({ signInEmail })
+
+    const result = await submitSignIn(client, {
+      email: "  MEMBER@DOMAIN.TEST ",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "//attacker.test/steal",
+    })
+
+    expect(signInEmail).toHaveBeenCalledWith({
+      email: "member@domain.test",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "/dashboard",
+    })
+    expect(result).toEqual({
+      status: "success",
+      destination: "/dashboard",
+    })
+
+  it "returns an actionable verification recovery for unverified sign-in", async ->
+    const client = authClient({
+      signInEmail: vi.fn().mockResolvedValue({
+        data: null,
+        error: {
+          code: "EMAIL_NOT_VERIFIED",
+          message: "Email not verified",
+          status: 403,
+        },
+      }),
+    })
+
+    await expect(
+      submitSignIn(client, {
+        email: "member@domain.test",
+        password: "CorrectHorseBatteryStaple!42",
+        callbackURL: "/feature-items",
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      message: "Verify your email before signing in.",
+      actionHref: "/verify-email",
+      actionLabel: "Send another verification email",
+    })
+
+  it "does not mislabel an unavailable account as unverified", async ->
+    const client = authClient({
+      signInEmail: vi.fn().mockResolvedValue({
+        data: null,
+        error: {
+          code: "ACCOUNT_SUSPENDED",
+          message: "Account is unavailable",
+          status: 403,
+        },
+      }),
+    })
+
+    await expect(
+      submitSignIn(client, {
+        email: "member@domain.test",
+        password: "CorrectHorseBatteryStaple!42",
+        callbackURL: "/dashboard",
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      message: "This account is unavailable. Contact the project administrator.",
+    })
+
+  it "signs up without inventing a session or success destination", async ->
+    const signUpEmail = vi.fn().mockResolvedValue({
+      data: { user: { id: "synthetic-or-real" } },
+      error: null,
+    })
+    const client = authClient({ signUpEmail })
+
+    const result = await submitSignUp(client, {
+      name: "Member Example",
+      email: " Member@Domain.Test ",
+      password: "CorrectHorseBatteryStaple!42",
+    })
+
+    expect(signUpEmail).toHaveBeenCalledWith({
+      name: "Member Example",
+      email: "member@domain.test",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "/verify-email?verified=1",
+    })
+    expect(result).toEqual({
+      status: "success",
+      message: SAFE_ACCOUNT_EMAIL_MESSAGE,
+    })
+
+  it "keeps forgot-password and verification resend responses enumeration-safe", async ->
+    const requestPasswordReset = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const sendVerificationEmail = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const client = authClient({ requestPasswordReset, sendVerificationEmail })
+
+    await expect(
+      submitForgotPassword(client, " Member@Domain.Test "),
+    ).resolves.toEqual({
+      status: "success",
+      message: SAFE_ACCOUNT_EMAIL_MESSAGE,
+    })
+    await expect(
+      submitVerificationEmail(client, " Member@Domain.Test "),
+    ).resolves.toEqual({
+      status: "success",
+      message: SAFE_ACCOUNT_EMAIL_MESSAGE,
+    })
+    expect(requestPasswordReset).toHaveBeenCalledWith({
+      email: "member@domain.test",
+      redirectTo: "/reset-password",
+    })
+    expect(sendVerificationEmail).toHaveBeenCalledWith({
+      email: "member@domain.test",
+      callbackURL: "/verify-email?verified=1",
+    })
+
+  it "requires an in-memory reset token and maps invalid or expired tokens to recovery", async ->
+    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const client = authClient({ resetPassword })
+
+    await expect(
+      submitResetPassword(client, {
+        token: undefined,
+        newPassword: "NewCorrectHorseBatteryStaple!84",
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      message: "This password reset link is invalid or has expired.",
+      actionHref: "/forgot-password",
+      actionLabel: "Request a new link",
+    })
+    expect(resetPassword).not.toHaveBeenCalled()
+
+    const invalidClient = authClient({
+      resetPassword: vi.fn().mockResolvedValue({
+        data: null,
+        error: { code: "INVALID_TOKEN", message: "Invalid token", status: 400 },
+      }),
+    })
+    await expect(
+      submitResetPassword(invalidClient, {
+        token: "one-time-reset-token",
+        newPassword: "NewCorrectHorseBatteryStaple!84",
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      message: "This password reset link is invalid or has expired.",
+      actionHref: "/forgot-password",
+      actionLabel: "Request a new link",
+    })
+
+  it "never includes the reset token in the result or logs", async ->
+    const token = "one-time-reset-token"
+    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+    const result = await submitResetPassword(authClient({ resetPassword }), {
+      token,
+      newPassword: "NewCorrectHorseBatteryStaple!84",
+    })
+
+    expect(resetPassword).toHaveBeenCalledWith({
+      token,
+      newPassword: "NewCorrectHorseBatteryStaple!84",
+    })
+    expect(JSON.stringify(result)).not.toContain(token)
+    expect([consoleLog, consoleWarn, consoleError].flatMap((spy) => spy.mock.calls)).toEqual([])
+
+describe "PasswordField accessibility", ->
+  it "renders a labeled password input and a 44px visibility control", ->
+    const markup = renderToStaticMarkup(
+      createElement(PasswordField, {
+        id: "password",
+        label: "Password",
+        name: "password",
+        value: "secret",
+        onBlur: () => undefined,
+        onChange: () => undefined,
+      }),
+    )
+
+    expect(markup).toContain('for="password"')
+    expect(markup).toContain('id="password"')
+    expect(markup).toContain('type="password"')
+    expect(markup).toContain('aria-label="Show password"')
+    expect(markup).toContain('aria-pressed="false"')
+    expect(markup).toContain("min-h-11")

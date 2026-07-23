@@ -1,0 +1,109 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import { createAccountGateway } from "./account-client.civet"
+import { AddressBook } from "./address-book.civet"
+import { changedAddressUpdateInput } from "./address-form.civet"
+
+const address = {
+  id: "address-1",
+  type: "work" as const,
+  line1: "100 Example Avenue",
+  line2: "Suite 200",
+  city: "Example City",
+  region: "DC",
+  postalCode: "20001",
+  country: "US",
+  isPrimary: true,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+}
+
+describe "typed address gateway", ->
+  it "uses create, update, primary, and confirmed remove procedures", async ->
+    const addresses = {
+      list: vi.fn(async -> [address]),
+      create: vi.fn(async -> address),
+      update: vi.fn(async -> ({ ...address, city: "Changed City" })),
+      setPrimary: vi.fn(async -> address),
+      remove: vi.fn(async -> ({ removed: true as const })),
+    }
+    const gateway = createAccountGateway({
+      account: {
+        profile: { get: vi.fn(), update: vi.fn() },
+        addresses,
+      },
+      preferences: { get: vi.fn(), update: vi.fn() },
+    } as never)
+
+    await expect(gateway.listAddresses()).resolves.toHaveLength(1)
+    await expect(gateway.createAddress({
+      type: "work",
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      region: address.region,
+      postalCode: address.postalCode,
+      country: address.country,
+      isPrimary: true,
+    })).resolves.toMatchObject({ id: "address-1" })
+    await expect(gateway.updateAddress({ id: address.id, expectedUpdatedAt: address.updatedAt, city: "Changed City" })).resolves.toMatchObject({ city: "Changed City" })
+    await expect(gateway.setPrimaryAddress(address.id, address.updatedAt)).resolves.toMatchObject({ isPrimary: true })
+    await expect(gateway.removeAddress(address.id, address.updatedAt)).resolves.toEqual({ removed: true })
+    expect(addresses.setPrimary).toHaveBeenCalledWith({ id: address.id, expectedUpdatedAt: address.updatedAt })
+    expect(addresses.remove).toHaveBeenCalledWith({ id: address.id, expectedUpdatedAt: address.updatedAt })
+  
+  it "submits only dirty address fields with the loaded version", ->
+    expect(changedAddressUpdateInput(address, { ...address, city: "Changed City" })).toEqual({
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: "Changed City",
+    })
+
+describe "address book states and actions", ->
+  it "renders geometry-preserving loading feedback", ->
+    const html = renderToStaticMarkup(<AddressBook state={{ type: "loading" }} />)
+    expect(html).toContain("Loading addresses")
+    expect(html).toContain("aria-busy=\"true\"")
+
+  it "renders an instructive create path when no address exists", ->
+    const html = renderToStaticMarkup(<AddressBook state={{ type: "ready", addresses: [] }} />)
+    expect(html).toContain("No addresses saved")
+    expect(html).toContain("Add an address")
+
+  it "renders persisted address fields and accessible edit/primary/remove actions", ->
+    const html = renderToStaticMarkup(<AddressBook state={{ type: "ready", addresses: [address] }} />)
+    expect(html).toContain("100 Example Avenue")
+    expect(html).toContain("Suite 200")
+    expect(html).toContain("Primary")
+    expect(html).toContain("Edit work address")
+    expect(html).toContain("Remove work address")
+    expect(html).not.toContain("Make work address primary")
+
+  it "requires explicit removal confirmation and retains a cancel action", ->
+    const html = renderToStaticMarkup(
+      <AddressBook
+        confirmingRemoveId="address-1"
+        state={{ type: "ready", addresses: [address] }}
+      />,
+    )
+    expect(html).toContain("Remove this address?")
+    expect(html).toContain("Confirm removal")
+    expect(html).toContain("Cancel")
+
+  it "shows safe error and success feedback without replacing server state", ->
+    const failed = renderToStaticMarkup(
+      <AddressBook
+        feedback={{ tone: "error", message: "Addresses are temporarily unavailable." }}
+        state={{ type: "ready", addresses: [address] }}
+      />,
+    )
+    expect(failed).toContain("Addresses are temporarily unavailable")
+    expect(failed).toContain("100 Example Avenue")
+    const success = renderToStaticMarkup(
+      <AddressBook
+        feedback={{ tone: "success", message: "Primary address updated." }}
+        state={{ type: "ready", addresses: [address] }}
+      />,
+    )
+    expect(success).toContain("Primary address updated")

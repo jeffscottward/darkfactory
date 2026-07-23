@@ -16,8 +16,14 @@ import { basename, dirname, join, parse } from "node:path"
 import type {
   EmailDeliveryResult,
   EmailPort,
+  EmailVerificationEmailInput,
   PasswordResetEmailInput,
 } from "../index.civet"
+import {
+  renderEmailVerificationEmail,
+  type RenderedEmailVerificationEmail,
+  type RenderEmailVerificationEmailOptions,
+} from "./render-email-verification.civet"
 import {
   renderPasswordResetEmail,
   type RenderedPasswordResetEmail,
@@ -36,12 +42,15 @@ export type PreviewEmailPortOptions = Readonly<{
   trustedAppOrigin?: string | undefined
 }>
 
+type PreviewOperation = "reset-password" | "verify-email"
 type PreviewEmailPortTestOptions = PreviewEmailPortOptions &
   Readonly<{
-    artifactName: () => string
+    artifactName: (operation?: PreviewOperation) => string
   }>
 
-const defaultArtifactName = (): string => `reset-password-${randomUUID()}`
+const defaultArtifactName = (
+  operation: PreviewOperation = "reset-password",
+): string => `${operation}-${randomUUID()}`
 
 const sanitizeArtifactName = (candidate: string): string => {
   const leafName = basename(candidate.replaceAll("\\", "/"))
@@ -49,7 +58,7 @@ const sanitizeArtifactName = (candidate: string): string => {
     .replaceAll(/[^a-zA-Z0-9._-]+/g, "-")
     .replaceAll(/^[.-]+|[.-]+$/g, "")
 
-  return safeName || `reset-password-${randomUUID()}`
+  return safeName || `email-preview-${randomUUID()}`
 }
 
 const assertCanonicalDirectory = async (directory: string): Promise<string> => {
@@ -139,7 +148,7 @@ const writeFailure = (): EmailDeliveryResult => ({
 
 const createPreviewPort = (
   options: PreviewEmailPortOptions,
-  artifactName: () => string,
+  artifactName: (operation?: PreviewOperation) => string,
 ): EmailPort => {
   if (options.environment === "production") {
     throw new Error("Preview email transport is unavailable in production")
@@ -151,99 +160,117 @@ const createPreviewPort = (
     throw new RangeError("maxArtifacts must be a positive integer")
   }
 
+  const writePreview = async (
+    operation: PreviewOperation,
+    renderEmail: () => Promise<{ html: string; text: string }>,
+  ): Promise<EmailDeliveryResult> => {
+    let rendered
+    try {
+      rendered = await renderEmail()
+    } catch {
+      return renderFailure()
+    }
+
+    let safeArtifactName: string
+    let canonicalDirectory: string
+    try {
+      safeArtifactName = sanitizeArtifactName(artifactName(operation))
+      canonicalDirectory = await assertCanonicalDirectory(directory)
+    } catch {
+      return writeFailure()
+    }
+
+    const htmlPath = join(canonicalDirectory, `${safeArtifactName}.html`)
+    const textPath = join(canonicalDirectory, `${safeArtifactName}.txt`)
+    const temporaryId = randomUUID()
+    const temporaryHtmlPath = join(
+      canonicalDirectory,
+      `.${safeArtifactName}-${temporaryId}.html.tmp`,
+    )
+    const temporaryTextPath = join(
+      canonicalDirectory,
+      `.${safeArtifactName}-${temporaryId}.txt.tmp`,
+    )
+    const handles: FileHandle[] = []
+    const publishedPaths: string[] = []
+
+    try {
+      const htmlHandle = await open(temporaryHtmlPath, "wx", 0o600)
+      handles.push(htmlHandle)
+      const textHandle = await open(temporaryTextPath, "wx", 0o600)
+      handles.push(textHandle)
+
+      const writeResults = await Promise.allSettled([
+        htmlHandle.writeFile(rendered.html, "utf8"),
+        textHandle.writeFile(rendered.text, "utf8"),
+      ])
+      if (writeResults.some((result) => result.status === "rejected")) {
+        throw new Error("Preview write failed")
+      }
+
+      const publishResults = await Promise.allSettled([
+        link(temporaryHtmlPath, htmlPath),
+        link(temporaryTextPath, textPath),
+      ])
+      if (publishResults[0]?.status === "fulfilled") publishedPaths.push(htmlPath)
+      if (publishResults[1]?.status === "fulfilled") publishedPaths.push(textPath)
+      if (publishResults.some((result) => result.status === "rejected")) {
+        throw new Error("Preview publish failed")
+      }
+
+      const unlinkResults = await Promise.allSettled([
+        rm(temporaryHtmlPath, { force: true }),
+        rm(temporaryTextPath, { force: true }),
+      ])
+      if (unlinkResults.some((result) => result.status === "rejected")) {
+        throw new Error("Preview cleanup failed")
+      }
+      const closeResults = await Promise.allSettled(
+        handles.map((handle) => handle.close()),
+      )
+      if (closeResults.some((result) => result.status === "rejected")) {
+        throw new Error("Preview handle close failed")
+      }
+      handles.length = 0
+      await removeExpiredArtifacts(
+        canonicalDirectory,
+        maxArtifacts,
+        safeArtifactName,
+      )
+    } catch {
+      await cleanupPartialArtifacts(
+        handles,
+        [temporaryHtmlPath, temporaryTextPath],
+        publishedPaths,
+      )
+      return writeFailure()
+    }
+
+    return {
+      status: "previewed",
+      provider: "preview",
+      artifactPath: htmlPath,
+    }
+  }
+
   return Object.freeze({
     sendPasswordReset: async (
       input: PasswordResetEmailInput,
     ): Promise<EmailDeliveryResult> => {
-      let rendered
-      try {
-        rendered = await renderPasswordResetEmail(input, {
+      const renderEmail = () =>
+        renderPasswordResetEmail(input, {
           trustedAppOrigin: options.trustedAppOrigin,
         })
-      } catch {
-        return renderFailure()
-      }
-
-      let safeArtifactName: string
-      let canonicalDirectory: string
-      try {
-        safeArtifactName = sanitizeArtifactName(artifactName())
-        canonicalDirectory = await assertCanonicalDirectory(directory)
-      } catch {
-        return writeFailure()
-      }
-
-      const htmlPath = join(canonicalDirectory, `${safeArtifactName}.html`)
-      const textPath = join(canonicalDirectory, `${safeArtifactName}.txt`)
-      const temporaryId = randomUUID()
-      const temporaryHtmlPath = join(
-        canonicalDirectory,
-        `.${safeArtifactName}-${temporaryId}.html.tmp`,
-      )
-      const temporaryTextPath = join(
-        canonicalDirectory,
-        `.${safeArtifactName}-${temporaryId}.txt.tmp`,
-      )
-      const handles: FileHandle[] = []
-      const publishedPaths: string[] = []
-
-      try {
-        const htmlHandle = await open(temporaryHtmlPath, "wx", 0o600)
-        handles.push(htmlHandle)
-        const textHandle = await open(temporaryTextPath, "wx", 0o600)
-        handles.push(textHandle)
-
-        const writeResults = await Promise.allSettled([
-          htmlHandle.writeFile(rendered.html, "utf8"),
-          textHandle.writeFile(rendered.text, "utf8"),
-        ])
-        if (writeResults.some((result) => result.status === "rejected")) {
-          throw new Error("Preview write failed")
-        }
-
-        const publishResults = await Promise.allSettled([
-          link(temporaryHtmlPath, htmlPath),
-          link(temporaryTextPath, textPath),
-        ])
-        if (publishResults[0]?.status === "fulfilled") publishedPaths.push(htmlPath)
-        if (publishResults[1]?.status === "fulfilled") publishedPaths.push(textPath)
-        if (publishResults.some((result) => result.status === "rejected")) {
-          throw new Error("Preview publish failed")
-        }
-
-        const unlinkResults = await Promise.allSettled([
-          rm(temporaryHtmlPath, { force: true }),
-          rm(temporaryTextPath, { force: true }),
-        ])
-        if (unlinkResults.some((result) => result.status === "rejected")) {
-          throw new Error("Preview cleanup failed")
-        }
-        const closeResults = await Promise.allSettled(
-          handles.map((handle) => handle.close()),
-        )
-        if (closeResults.some((result) => result.status === "rejected")) {
-          throw new Error("Preview handle close failed")
-        }
-        handles.length = 0
-        await removeExpiredArtifacts(
-          canonicalDirectory,
-          maxArtifacts,
-          safeArtifactName,
-        )
-      } catch {
-        await cleanupPartialArtifacts(
-          handles,
-          [temporaryHtmlPath, temporaryTextPath],
-          publishedPaths,
-        )
-        return writeFailure()
-      }
-
-      return {
-        status: "previewed",
-        provider: "preview",
-        artifactPath: htmlPath,
-      }
+      return await writePreview("reset-password", renderEmail)
+    },
+    sendEmailVerification: async (
+      input: EmailVerificationEmailInput,
+    ): Promise<EmailDeliveryResult> => {
+      const renderEmail = () =>
+        renderEmailVerificationEmail(input, {
+          trustedAppOrigin: options.trustedAppOrigin,
+        })
+      return await writePreview("verify-email", renderEmail)
     },
   })
 }
@@ -256,8 +283,13 @@ export const createPreviewEmailPortForTest = (
   options: PreviewEmailPortTestOptions,
 ): EmailPort => createPreviewPort(options, options.artifactName)
 
-export { renderPasswordResetEmail }
+export {
+  renderEmailVerificationEmail,
+  renderPasswordResetEmail,
+}
 export type {
+  RenderedEmailVerificationEmail,
   RenderedPasswordResetEmail,
+  RenderEmailVerificationEmailOptions,
   RenderPasswordResetEmailOptions,
 }

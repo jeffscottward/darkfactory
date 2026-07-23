@@ -1,10 +1,17 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { createApiClient } from "@darkfactory/api"
+import { useEffect, useRef, useState } from "react"
+import {
+  createApiClient,
+  type ApiClient,
+  type ApiClientOptions,
+  type ThemePreferenceOutput,
+  type UpdateThemePreferenceInput,
+} from "@darkfactory/api"
 
 import { Palette as PaletteIcon } from "lucide-react"
 import { PALETTES, THEME_MODES, type Palette, type ThemeMode } from "@darkfactory/state"
+import type { UiStore } from "@darkfactory/state/client"
 import { IconButton } from "@darkfactory/ui"
 import {
   DropdownMenu,
@@ -17,63 +24,163 @@ import {
 } from "@darkfactory/ui/client/dropdown-menu"
 
 import { useThemeAuthority } from "./theme-controller.civet"
-import { PALETTE_LABELS, THEME_MODE_LABELS } from "../lib/theme.civet"
+import {
+  PALETTE_LABELS,
+  THEME_MODE_LABELS,
+  type AnonymousThemePreference,
+  type ThemeAuthority,
+} from "../lib/theme.civet"
 import { fetchThemeApiRequest } from "../lib/theme-api-timeout.civet"
-import { updateTrustedThemePreference } from "../lib/theme-update.civet"
+import {
+  updateTrustedThemePreference,
+  type ThemeUpdateSequence,
+} from "../lib/theme-update.civet"
 import { useUiState, useUiStoreApi } from "../lib/ui-store.civet"
+
+export type ThemePreferenceClient = Readonly<{
+  get: () => Promise<ThemePreferenceOutput>
+  update: (input: UpdateThemePreferenceInput) => Promise<ThemePreferenceOutput>
+}>
+
+export const createThemePreferenceClient = ({
+  baseUrl,
+  clientFactory = createApiClient,
+  fetchRequest,
+}: {
+  readonly baseUrl: string | URL
+  readonly clientFactory?: (options: ApiClientOptions) => ApiClient
+  readonly fetchRequest: typeof globalThis.fetch
+}): ThemePreferenceClient => {
+  const client = clientFactory({
+    baseUrl,
+    fetch: async (request) => fetchThemeApiRequest({
+      fetchRequest,
+      request,
+    }),
+  })
+  return {
+    get: () => client.preferences.theme.get({}),
+    update: (preference) => client.preferences.theme.update(preference),
+  }
+}
+
+export const selectThemeMenuPreference = async ({
+  authority,
+  authorityEpoch,
+  createClient,
+  currentAuthority,
+  nextPreference,
+  requestSequence,
+  setError,
+  setPending,
+  store,
+}: {
+  readonly authority: ThemeAuthority
+  readonly authorityEpoch: () => number
+  readonly createClient: () => ThemePreferenceClient
+  readonly currentAuthority: () => ThemeAuthority
+  readonly nextPreference: Readonly<AnonymousThemePreference>
+  readonly requestSequence: ThemeUpdateSequence
+  readonly setError: (error: string | null) => void
+  readonly setPending: (pending: boolean) => void
+  readonly store: UiStore
+}): Promise<void> => {
+  if (authority === "indeterminate") return
+  if (authority === "anonymous") {
+    setError(null)
+    setPending(false)
+    store.setState(nextPreference)
+    return
+  }
+
+  const selectionAuthorityEpoch = authorityEpoch()
+  const selectionRequestSequence = requestSequence.current + 1
+  setError(null)
+  setPending(true)
+  const client = createClient()
+  const result = await updateTrustedThemePreference({
+    authority: currentAuthority,
+    authorityEpoch,
+    get: client.get,
+    preference: nextPreference,
+    sequence: requestSequence,
+    store,
+    update: client.update,
+  })
+  if (
+    currentAuthority() !== "trusted"
+    || authorityEpoch() !== selectionAuthorityEpoch
+    || requestSequence.current !== selectionRequestSequence
+  ) return
+  switch (result) {
+    case "failed":
+      setError("Could not save theme settings. Try again.")
+      break
+    case "reconciled":
+      setError("Theme settings were refreshed from your account. Review them before trying again.")
+      break
+    case "unconfirmed":
+      setError("Could not confirm theme save. Reload before retrying.")
+      break
+  }
+  setPending(false)
+}
 
 export const ThemeMenu = () => {
   const store = useUiStoreApi()
   const authority = useThemeAuthority()
   const authorityRef = useRef(authority)
+  const authorityEpoch = useRef(0)
+  const previousAuthority = useRef(authority)
   const requestSequence = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const palette = useUiState((state) => state.palette)
   const themeMode = useUiState((state) => state.themeMode)
+  if (previousAuthority.current !== authority) {
+    previousAuthority.current = authority
+    authorityEpoch.current += 1
+    requestSequence.current += 1
+  }
   authorityRef.current = authority
+  useEffect(() => {
+    setError(null)
+    setPending(false)
+    return undefined
+  }, [authority])
+  useEffect(() => {
+    const invalidate = (): void => {
+      authorityEpoch.current += 1
+      requestSequence.current += 1
+    }
+    return invalidate
+  }, [])
   const controlsEnabled = authority !== "indeterminate" && !pending
 
-  const selectPreference = async (
+  const selectPreference = (
     nextPreference: Readonly<{ themeMode: ThemeMode; palette: Palette }>,
-  ): Promise<void> => {
-    if (authority === "indeterminate") return
-    if (authority === "anonymous") {
-      store.setState(nextPreference)
-      return
-    }
-
-    setError(null)
-    setPending(true)
-    const result = await updateTrustedThemePreference({
-      authority: () => authorityRef.current,
-      preference: nextPreference,
-      sequence: requestSequence,
+  ): void => {
+    const selection = selectThemeMenuPreference({
+      authority,
+      authorityEpoch: () => authorityEpoch.current,
+      createClient: () => createThemePreferenceClient({
+        baseUrl: window.location.origin,
+        fetchRequest: globalThis.fetch,
+      }),
+      currentAuthority: () => authorityRef.current,
+      nextPreference,
+      requestSequence,
+      setError,
+      setPending,
       store,
-      update: async (preference) => (
-        createApiClient({
-          baseUrl: window.location.origin,
-          fetch: async (request) => fetchThemeApiRequest({
-            fetchRequest: globalThis.fetch,
-            request,
-          }),
-        }).preferences.theme.update(preference)
-      ),
     })
-    if (result === "failed") {
-      setError("Could not save theme settings. Your previous preference is still active.")
-    }
-    if (result !== "superseded" || authorityRef.current !== "trusted") {
-      setPending(false)
-    }
+    void selection
   }
 
-  const selectThemeMode = (value: string): void => {
-    void selectPreference({ themeMode: value as ThemeMode, palette })
-  }
-  const selectPalette = (value: string): void => {
-    void selectPreference({ themeMode, palette: value as Palette })
-  }
+  const selectThemeMode = (value: string): void =>
+    selectPreference({ themeMode: value as ThemeMode, palette })
+  const selectPalette = (value: string): void =>
+    selectPreference({ themeMode, palette: value as Palette })
 
   const triggerLabel = authority === "indeterminate"
     ? "Theme settings unavailable"

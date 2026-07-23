@@ -68,6 +68,8 @@ const repositories = (featureItems: FeatureItemRepository): Repositories => ({
   addresses: {} as Repositories["addresses"],
   userPreferences: {} as Repositories["userPreferences"],
   featureItems,
+  adminUsers: {} as Repositories["adminUsers"],
+  dashboard: {} as Repositories["dashboard"],
 })
 
 const clientFor = (
@@ -80,6 +82,10 @@ const clientFor = (
     const context = createApiContext(request, {
       repositories: repositories(featureItems),
       requestId: "request-1",
+      capabilities: {
+        ai: false, emailDelivery: false, analytics: false,
+        telemetryExport: false, storage: false, errorTracking: false,
+      },
       requireSession: async () => session,
       requireRole: async (_headers, role) => {
         if (role !== "member")

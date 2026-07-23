@@ -1,0 +1,124 @@
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  ContactServiceError,
+  createContactService,
+  type ContactDeliveryPort,
+  type ContactThrottlePort,
+} from "./server/contact-service.civet"
+
+const input = {
+  name: "Ada Lovelace",
+  email: "ada@example.test",
+  subject: "Architecture review",
+  message: "Please review the deployment boundary.",
+}
+
+const throttle = (allowed = true): ContactThrottlePort => ({
+  consume: vi.fn(async () => ({
+    allowed,
+    remaining: allowed ? 4 : 0,
+    retryAfterSeconds: allowed ? 0 : 900,
+  })),
+})
+
+const delivery = (
+  result: Awaited<ReturnType<ContactDeliveryPort["sendContact"]>>,
+): ContactDeliveryPort => ({ sendContact: vi.fn(async () => result) })
+
+describe "DF-076 contact service", ->
+  it.each([
+    { deliveryResult: { status: "sent", provider: "resend", messageId: "message-1" }, output: { status: "sent" } },
+    { deliveryResult: { status: "previewed", provider: "preview", artifactPath: "/private/preview.html" }, output: { status: "previewed" } },
+    { deliveryResult: { status: "not-delivered", provider: "disabled", code: "CONTACT_DELIVERY_DISABLED", retryable: false }, output: { status: "not-delivered" } },
+  ] as const)("returns $output.status without provider-only details", async ({ deliveryResult, output }) ->
+    const contactDelivery = delivery(deliveryResult)
+    const contactThrottle = throttle()
+    const service = createContactService({
+      delivery: contactDelivery,
+      throttle: contactThrottle,
+      throttleKey: "a".repeat(64),
+    })
+
+    await expect(service.submit(input)).resolves.toEqual(output)
+    expect(contactThrottle.consume).toHaveBeenCalledWith("a".repeat(64))
+    expect(contactDelivery.sendContact).toHaveBeenCalledWith(input)
+  )
+
+  it "returns not-delivered for a filled honeypot without consuming throttle or starting delivery", async ->
+    const contactDelivery = delivery({ status: "sent", provider: "resend", messageId: "must-not-send" })
+    const contactThrottle = throttle()
+    const service = createContactService({
+      delivery: contactDelivery,
+      throttle: contactThrottle,
+      throttleKey: "b".repeat(64),
+    })
+
+    await expect(service.submit({ ...input, website: "https://bot.invalid" })).resolves.toEqual({
+      status: "not-delivered",
+    })
+    expect(contactThrottle.consume).not.toHaveBeenCalled()
+    expect(contactDelivery.sendContact).not.toHaveBeenCalled()
+
+  it "rejects the atomic sixth request with a typed 429 before delivery", async ->
+    const contactDelivery = delivery({ status: "sent", provider: "resend", messageId: "must-not-send" })
+    const service = createContactService({
+      delivery: contactDelivery,
+      throttle: throttle(false),
+      throttleKey: "c".repeat(64),
+    })
+
+    await expect(service.submit(input)).rejects.toMatchObject({
+      name: "ContactServiceError",
+      code: "TOO_MANY_REQUESTS",
+    })
+    expect(contactDelivery.sendContact).not.toHaveBeenCalled()
+
+  it.each([
+    { label: "throttle storage", throttleFailure: true },
+    { label: "configured provider", throttleFailure: false },
+  ])("maps $label failure to a redacted typed 503", async ({ throttleFailure }) ->
+    const contactThrottle: ContactThrottlePort = {
+      consume: vi.fn(async () => {
+        if (throttleFailure) throw new Error("database and raw IP detail")
+        return { allowed: true, remaining: 4, retryAfterSeconds: 0 }
+      }),
+    }
+    const contactDelivery: ContactDeliveryPort = {
+      sendContact: vi.fn(async () => ({
+        status: "not-delivered",
+        provider: "resend",
+        code: "CONTACT_PROVIDER_UNAVAILABLE",
+        retryable: true,
+      } as const)),
+    }
+    const service = createContactService({
+      delivery: contactDelivery,
+      throttle: contactThrottle,
+      throttleKey: "d".repeat(64),
+    })
+
+    await expect(service.submit(input)).rejects.toEqual(
+      new ContactServiceError("SERVICE_UNAVAILABLE"),
+    )
+  )
+
+  it.each([
+    "CONTACT_PROVIDER_NOT_CONFIGURED",
+    "CONTACT_RECIPIENT_INVALID",
+  ] as const)("does not disguise disabled adapter %s as successful non-delivery", async (code) ->
+    const service = createContactService({
+      delivery: delivery({
+        status: "not-delivered",
+        provider: "disabled",
+        code,
+        retryable: false,
+      }),
+      throttle: throttle(true),
+      throttleKey: "e".repeat(64),
+    })
+
+    await expect(service.submit(input)).rejects.toEqual(
+      new ContactServiceError("SERVICE_UNAVAILABLE"),
+    )
+  )

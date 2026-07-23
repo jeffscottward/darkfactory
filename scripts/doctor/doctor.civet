@@ -1,0 +1,353 @@
+import {
+  CANONICAL_URL,
+  PROCESS_NAME,
+  ROUTE_NAME,
+  isCanonicalRouteOutput,
+  parsePm2ProcessList,
+} from "../dev/lifecycle.civet"
+import { parseCapabilityManifest, type CapabilityClassification } from "./manifest.civet"
+
+const MAX_OUTPUT_BYTES = 1_048_576
+const COMMAND_OPTIONS = Object.freeze({ timeoutMs: 10_000, maxOutputBytes: MAX_OUTPUT_BYTES })
+
+export type DoctorCommandResult = Readonly<{
+  exitCode: number
+  stdout: string
+  stderr: string
+}>
+
+export type DoctorCommandOptions = Readonly<{
+  timeoutMs?: number
+  maxOutputBytes?: number
+  environment?: Readonly<Record<string, string>>
+}>
+
+export type DoctorProcess = Readonly<{
+  run: (
+    command: string,
+    arguments_: readonly string[],
+    options?: DoctorCommandOptions,
+  ) => Promise<DoctorCommandResult>
+}>
+
+export type DoctorFileSystem = Readonly<{
+  exists: (path: string) => Promise<boolean>
+  readText: (path: string, maximumBytes?: number) => Promise<string>
+}>
+
+export type HttpsProbeResult = Readonly<{
+  ok: boolean
+  status?: number
+  error?: string
+}>
+
+export type DoctorDependencies = Readonly<{
+  nodeVersion: string
+  workingDirectory: string
+  pm2DaemonAvailable: () => Promise<boolean>
+  environmentHas: (name: string) => boolean
+  process: DoctorProcess
+  files: DoctorFileSystem
+  probeHttps: (url: string) => Promise<HttpsProbeResult>
+}>
+
+export type DoctorCheckStatus = "pass" | "fail" | "optional" | "disabled"
+
+export type DoctorCheck = Readonly<{
+  name: string
+  status: DoctorCheckStatus
+  detail: string
+}>
+
+export type DoctorReport = Readonly<{
+  ok: boolean
+  checks: readonly DoctorCheck[]
+  capabilities: Readonly<{
+    required: readonly string[]
+    optional: readonly string[]
+    disabled: readonly string[]
+  }>
+}>
+
+export type DoctorOptions = Readonly<{
+  certificateFallback?: boolean
+}>
+
+const check = (name: string, status: DoctorCheckStatus, detail: string): DoctorCheck =>
+  Object.freeze({ name, status, detail })
+
+const safeRun = async (
+  dependencies: DoctorDependencies,
+  command: string,
+  arguments_: readonly string[],
+  options: DoctorCommandOptions = {},
+): Promise<DoctorCommandResult> => {
+  try {
+    const result = await dependencies.process.run(command, arguments_, {
+      ...COMMAND_OPTIONS,
+      ...options,
+    })
+    if (
+      Buffer.byteLength(result.stdout, "utf8") > MAX_OUTPUT_BYTES ||
+      Buffer.byteLength(result.stderr, "utf8") > MAX_OUTPUT_BYTES
+    ) return Object.freeze({ exitCode: 1, stdout: "", stderr: "" })
+    return result
+  } catch {
+    return Object.freeze({ exitCode: 1, stdout: "", stderr: "" })
+  }
+}
+
+const toolCheck = async (
+  dependencies: DoctorDependencies,
+  name: string,
+  command: string,
+  arguments_: readonly string[],
+  expected?: (stdout: string) => boolean,
+): Promise<DoctorCheck> => {
+  const result = await safeRun(dependencies, command, arguments_)
+  const valid = result.exitCode === 0 && (expected?.(result.stdout.trim()) ?? result.stdout.trim().length > 0)
+  return check(name, valid ? "pass" : "fail", valid ? `${name} is available` : `${name} is unavailable or incompatible`)
+}
+
+const supportedNode = (version: string): boolean => {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/)
+  if (!match) return false
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  return major > 22 || (major === 22 && minor >= 13)
+}
+
+const inspectManifest = async (
+  dependencies: DoctorDependencies,
+): Promise<Readonly<{ classification?: CapabilityClassification; result: DoctorCheck }>> => {
+  try {
+    const source = await dependencies.files.readText("capabilities.yaml")
+    const classification = parseCapabilityManifest(source)
+    return Object.freeze({
+      classification,
+      result: check("Capabilities manifest", "pass", "Required, optional, and disabled capabilities are classified"),
+    })
+  } catch {
+    return Object.freeze({
+      result: check("Capabilities manifest", "fail", "capabilities.yaml is missing or malformed"),
+    })
+  }
+}
+
+const inspectDocker = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  const version = await safeRun(dependencies, "docker", ["--version"])
+  const daemon = version.exitCode === 0
+    ? await safeRun(dependencies, "docker", ["info", "--format", "{{.ServerVersion}}"])
+    : { exitCode: 1, stdout: "", stderr: "" }
+  const healthy = version.exitCode === 0 && daemon.exitCode === 0 && daemon.stdout.trim().length > 0
+  return check("Docker", healthy ? "pass" : "fail", healthy ? "Docker CLI and daemon are available" : "Docker CLI or daemon is unavailable")
+}
+
+const parseComposeProcesses = (source: string): readonly Record<string, unknown>[] => {
+  if (Buffer.byteLength(source, "utf8") > MAX_OUTPUT_BYTES) throw new Error("compose output too large")
+  const trimmed = source.trim()
+  if (!trimmed) return []
+  const parsed = JSON.parse(trimmed)
+  if (Array.isArray(parsed)) return parsed.filter((value) => typeof value === "object" && value !== null) as Record<string, unknown>[]
+  if (typeof parsed === "object" && parsed !== null) return [parsed as Record<string, unknown>]
+  throw new Error("invalid compose output")
+}
+
+const inspectPostgres = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  const baseArguments = ["compose", "-f", "infra/docker/postgres.compose.yml"]
+  const config = await safeRun(dependencies, "docker", [...baseArguments, "config", "--quiet"])
+  if (config.exitCode !== 0) return check("Postgres", "fail", "Postgres Compose configuration is invalid or unavailable")
+  const processes = await safeRun(dependencies, "docker", [...baseArguments, "ps", "--format", "json"])
+  if (processes.exitCode !== 0) return check("Postgres", "fail", "Postgres status inspection failed")
+  try {
+    const postgres = parseComposeProcesses(processes.stdout).find((entry) =>
+      entry["Service"] === "postgres" || entry["Name"] === "postgres"
+    )
+    const state = String(postgres?.["State"] ?? "").toLowerCase()
+    const healthy = state === "running" || state === "healthy"
+    return check("Postgres", healthy ? "pass" : "fail", healthy ? "Postgres service is running" : "Postgres service is not running")
+  } catch {
+    return check("Postgres", "fail", "Postgres status output is malformed")
+  }
+}
+
+const inspectCloudflareConfig = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  try {
+    if (!await dependencies.files.exists("apps/web/wrangler.jsonc")) throw new Error("missing")
+    const source = await dependencies.files.readText("apps/web/wrangler.jsonc")
+    if (Buffer.byteLength(source, "utf8") > 262_144) throw new Error("large")
+    const parsed = JSON.parse(source) as Record<string, unknown>
+    const valid = parsed["name"] === "darkfactory-web" && parsed["main"] === "vinext/server/fetch-handler"
+    return check("Cloudflare config", valid ? "pass" : "fail", valid ? "Cloudflare web configuration is valid" : "Cloudflare web configuration is malformed")
+  } catch {
+    return check("Cloudflare config", "fail", "Cloudflare web configuration is missing or malformed")
+  }
+}
+
+const inspectPm2 = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  if (!await dependencies.pm2DaemonAvailable()) {
+    return check("PM2 process", "fail", "PM2 daemon and stable process are absent")
+  }
+  const list = await safeRun(dependencies, "pm2", ["jlist"], {
+    environment: { PM2_SILENT: "true" },
+  })
+  try {
+    const process = list.exitCode === 0
+      ? parsePm2ProcessList(list.stdout, dependencies.workingDirectory)
+      : { status: "unknown" }
+    return check(
+      "PM2 process",
+      process.status === "online" ? "pass" : "fail",
+      process.status === "online" ? `${PROCESS_NAME} is online` : `${PROCESS_NAME} is ${process.status}`,
+    )
+  } catch {
+    return check("PM2 process", "fail", "PM2 process output is malformed or has conflicting identity")
+  }
+}
+
+const inspectPortlessRoute = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  const routes = await safeRun(dependencies, "portless", ["list"])
+  const route = await safeRun(dependencies, "portless", ["get", ROUTE_NAME])
+  const healthy = isCanonicalRouteOutput(routes) && isCanonicalRouteOutput(route)
+  return check("portless route", healthy ? "pass" : "fail", healthy ? `${ROUTE_NAME} route is registered at the canonical URL` : `${ROUTE_NAME} canonical route is missing or unhealthy`)
+}
+
+const inspectTrust = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  try {
+    const probe = await dependencies.probeHttps(CANONICAL_URL)
+    return check("portless trust", probe.ok ? "pass" : "fail", probe.ok ? "Canonical HTTPS route is trusted" : "Canonical HTTPS route is unavailable or untrusted")
+  } catch {
+    return check("portless trust", "fail", "Canonical HTTPS route is unavailable or untrusted")
+  }
+}
+
+const environmentChecks = (dependencies: DoctorDependencies): readonly DoctorCheck[] => {
+  const required = ["DATABASE_URL", "BETTER_AUTH_SECRET"]
+  const checks = required.map((name) => check(
+    name,
+    dependencies.environmentHas(name) ? "pass" : "fail",
+    dependencies.environmentHas(name) ? `${name} is configured` : `${name} is missing`,
+  ))
+
+  const providerGroups: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ["AI provider", ["GROQ_API_KEY", "GROQ_MODEL"]],
+    ["Email provider", ["RESEND_API_KEY"]],
+    ["Analytics provider", ["POSTHOG_KEY", "POSTHOG_HOST"]],
+    ["Telemetry exporter", ["OTEL_EXPORTER_OTLP_ENDPOINT"]],
+  ]
+  for (const [name, variables] of providerGroups) {
+    const configured = variables.every((variable) => dependencies.environmentHas(variable))
+    checks.push(check(
+      name,
+      configured ? "pass" : "optional",
+      configured ? `${variables.join(", ")} configured` : `${variables.join(", ")} not fully configured`,
+    ))
+  }
+  return Object.freeze(checks)
+}
+
+const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
+  ["node_modules/@danielx/civet/package.json", "0.11.15"],
+  ["node_modules/turbo/package.json", "2.10.6"],
+  ["node_modules/vitest/package.json", "4.1.10"],
+  ["node_modules/@playwright/test/package.json", "1.61.1"],
+  ["apps/web/node_modules/vinext/package.json", "1.0.0-beta.3"],
+  ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0-beta.3"],
+  ["apps/web/node_modules/vite/package.json", "8.1.5"],
+]
+
+const inspectPinnedToolchain = async (dependencies: DoctorDependencies): Promise<DoctorCheck> => {
+  try {
+    for (const [path, expected] of PINNED_TOOL_MANIFESTS) {
+      const source = await dependencies.files.readText(path)
+      if (Buffer.byteLength(source, "utf8") > 262_144) throw new Error("large")
+      const actual = (JSON.parse(source) as Record<string, unknown>)["version"]
+      if (actual !== expected) throw new Error("drift")
+    }
+    return check("Pinned toolchain", "pass", "Reviewed Civet, Turbo, Vitest, Playwright, Vinext, Cloudflare, and Vite versions match")
+  } catch {
+    return check("Pinned toolchain", "fail", "Reviewed toolchain versions are missing or incompatible")
+  }
+}
+
+export const runDoctor = async (
+  dependencies: DoctorDependencies,
+  options: DoctorOptions = {},
+): Promise<DoctorReport> => {
+  const checks: DoctorCheck[] = []
+  const manifest = await inspectManifest(dependencies)
+  checks.push(manifest.result)
+  checks.push(check(
+    "Node",
+    supportedNode(dependencies.nodeVersion) ? "pass" : "fail",
+    supportedNode(dependencies.nodeVersion) ? "Node satisfies >=22.13.0" : "Node >=22.13.0 is required",
+  ))
+  checks.push(await toolCheck(
+    dependencies,
+    "pnpm",
+    "corepack",
+    ["pnpm", "--version"],
+    (value) => value === "11.16.0",
+  ))
+  checks.push(await inspectPinnedToolchain(dependencies))
+  checks.push(await toolCheck(
+    dependencies,
+    "Vinext configuration",
+    "corepack",
+    ["pnpm", "--filter", "@darkfactory/web", "exec", "vinext", "check"],
+    () => true,
+  ))
+  checks.push(await inspectDocker(dependencies))
+  checks.push(await inspectPostgres(dependencies))
+  checks.push(await toolCheck(
+    dependencies,
+    "Cloudflare tooling",
+    "corepack",
+    ["pnpm", "--filter", "@darkfactory/web", "exec", "wrangler", "--version"],
+  ))
+  checks.push(await inspectCloudflareConfig(dependencies))
+  checks.push(...environmentChecks(dependencies))
+  checks.push(await toolCheck(dependencies, "portless", "portless", ["--version"]))
+  checks.push(await inspectPortlessRoute(dependencies))
+  checks.push(await inspectTrust(dependencies))
+  checks.push(await inspectPm2(dependencies))
+  checks.push(await toolCheck(dependencies, "Graphify", "graphify", ["--version"]))
+
+  const enabledTools: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ["Civet", ["pnpm", "exec", "civet", "--version"]],
+    ["Turbo", ["pnpm", "exec", "turbo", "--version"]],
+    ["Vitest", ["pnpm", "exec", "vitest", "--version"]],
+    ["Playwright", ["pnpm", "exec", "playwright", "--version"]],
+  ]
+  for (const [name, arguments_] of enabledTools) {
+    checks.push(await toolCheck(dependencies, name, "corepack", arguments_))
+  }
+
+  if (options.certificateFallback) {
+    checks.push(await toolCheck(dependencies, "mkcert fallback", "mkcert", ["-version"]))
+  } else {
+    checks.push(check("mkcert fallback", "optional", "Not selected; portless trust is primary"))
+  }
+
+  const classification = manifest.classification ?? {
+    required: [],
+    optional: [],
+    disabled: [],
+  }
+  for (const capability of classification.optional) {
+    checks.push(check(`Capability ${capability}`, "optional", `${capability} is development-scoped`))
+  }
+  for (const capability of classification.disabled) {
+    checks.push(check(`Capability ${capability}`, "disabled", `${capability} is disabled`))
+  }
+
+  return Object.freeze({
+    ok: checks.every(({ status }) => status !== "fail"),
+    checks: Object.freeze(checks),
+    capabilities: Object.freeze({
+      required: classification.required,
+      optional: classification.optional,
+      disabled: classification.disabled,
+    }),
+  })
+}

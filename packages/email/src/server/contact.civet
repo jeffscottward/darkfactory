@@ -1,0 +1,247 @@
+import { Resend } from "resend"
+
+import type {
+  ContactEmailDeliveryResult,
+  ContactEmailFailureCode,
+  ContactEmailInput,
+  ContactEmailPort,
+} from "../index.civet"
+import {
+  createPreviewContactEmailPort,
+  type PreviewContactEmailPortOptions,
+} from "./contact-preview.civet"
+import {
+  renderContactEmail,
+  type RenderedContactEmail,
+} from "./render-contact.civet"
+
+const MAILBOX_PATTERN =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
+const RETRYABLE_RESEND_ERROR_NAMES = new Set([
+  "rate_limit_exceeded",
+  "application_error",
+  "internal_server_error",
+])
+
+export type ContactResendMessage = Readonly<{
+  from: string
+  to: readonly string[]
+  replyTo: string
+  subject: string
+  html: string
+  text: string
+}>
+
+export type ContactResendProviderError = Readonly<{
+  name?: string | undefined
+  statusCode?: number | null | undefined
+}>
+
+export type ContactResendClient = Readonly<{
+  emails: Readonly<{
+    send: (message: ContactResendMessage) => Promise<
+      Readonly<{
+        data: Readonly<{ id: string }> | null
+        error: ContactResendProviderError | null
+      }>
+    >
+  }>
+}>
+
+export type ContactResendClientFactory = (apiKey: string) => ContactResendClient
+
+export type ResendContactEmailPortOptions = Readonly<{
+  recipient: string
+  apiKey?: string | undefined
+  from?: string | undefined
+  clientFactory?: ContactResendClientFactory | undefined
+}>
+
+export type SelectContactEmailPortOptions = Readonly<{
+  environment: "development" | "test" | "production"
+  transport?: "preview" | "resend" | undefined
+  recipient?: string | undefined
+  previewDirectory?: string | undefined
+  previewMaxArtifacts?: number | undefined
+  resendApiKey?: string | undefined
+  from?: string | undefined
+  resendClientFactory?: ContactResendClientFactory | undefined
+}>
+
+const contactFailure = (
+  provider: "preview" | "resend" | "disabled",
+  code: ContactEmailFailureCode,
+  retryable = false,
+): ContactEmailDeliveryResult => ({
+  status: "not-delivered",
+  provider,
+  code,
+  retryable,
+})
+
+const fixedContactPort = (
+  result: ContactEmailDeliveryResult,
+): ContactEmailPort => Object.freeze({
+  sendContact: async (): Promise<ContactEmailDeliveryResult> => result,
+})
+
+const normalizeMailbox = (value: string | undefined): string | null => {
+  if (value === undefined) return null
+  const mailbox = value.trim()
+  if (mailbox.length === 0 || mailbox.length > 254 || !MAILBOX_PATTERN.test(mailbox)) {
+    return null
+  }
+  const separator = mailbox.lastIndexOf("@")
+  return `${mailbox.slice(0, separator)}@${mailbox.slice(separator + 1).toLowerCase()}`
+}
+
+const defaultResendClientFactory: ContactResendClientFactory = (apiKey) => {
+  const client = new Resend(apiKey)
+  return {
+    emails: {
+      send: async (message) => {
+        const response = await client.emails.send({
+          ...message,
+          to: [...message.to],
+        })
+        return { data: response.data, error: response.error }
+      },
+    },
+  }
+}
+
+export const createResendContactEmailPort = (
+  options: ResendContactEmailPortOptions,
+): ContactEmailPort => {
+  const recipient = normalizeMailbox(options.recipient)
+  const apiKey = options.apiKey?.trim()
+  const from = options.from?.trim()
+  if (!recipient) {
+    return fixedContactPort(contactFailure(
+      "disabled",
+      "CONTACT_RECIPIENT_INVALID",
+    ))
+  }
+  if (!apiKey || !from || /[\r\n]/.test(from)) {
+    return fixedContactPort(contactFailure(
+      "disabled",
+      "CONTACT_PROVIDER_NOT_CONFIGURED",
+    ))
+  }
+
+  let client: ContactResendClient
+  try {
+    client = (options.clientFactory ?? defaultResendClientFactory)(apiKey)
+  } catch {
+    return fixedContactPort(contactFailure(
+      "resend",
+      "CONTACT_PROVIDER_UNAVAILABLE",
+      true,
+    ))
+  }
+
+  return Object.freeze({
+    sendContact: async (
+      input: ContactEmailInput,
+    ): Promise<ContactEmailDeliveryResult> => {
+      const replyTo = normalizeMailbox(input.email)
+      if (!replyTo) {
+        return contactFailure("resend", "CONTACT_INPUT_INVALID")
+      }
+
+      let rendered: RenderedContactEmail
+      try {
+        rendered = await renderContactEmail(input)
+      } catch {
+        return contactFailure("resend", "CONTACT_RENDER_FAILED")
+      }
+
+      let response: Awaited<ReturnType<ContactResendClient["emails"]["send"]>>
+      try {
+        response = await client.emails.send({
+          from,
+          to: [recipient],
+          replyTo,
+          subject: rendered.subject,
+          html: rendered.html,
+          text: rendered.text,
+        })
+      } catch {
+        return contactFailure("resend", "CONTACT_PROVIDER_UNAVAILABLE", true)
+      }
+
+      if (response.error) {
+        const retryable = response.error.name !== undefined &&
+          RETRYABLE_RESEND_ERROR_NAMES.has(response.error.name)
+        return contactFailure(
+          "resend",
+          retryable
+            ? "CONTACT_PROVIDER_UNAVAILABLE"
+            : "CONTACT_PROVIDER_REJECTED",
+          retryable,
+        )
+      }
+      if (!response.data?.id) {
+        return contactFailure("resend", "CONTACT_PROVIDER_INVALID_RESPONSE")
+      }
+
+      return {
+        status: "sent",
+        provider: "resend",
+        messageId: response.data.id,
+      }
+    },
+  })
+}
+
+export const selectContactEmailPort = (
+  options: SelectContactEmailPortOptions,
+): ContactEmailPort => {
+  const configuredRecipient = options.recipient?.trim()
+  if (!configuredRecipient) {
+    return fixedContactPort(contactFailure(
+      "disabled",
+      "CONTACT_DELIVERY_DISABLED",
+    ))
+  }
+  if (!normalizeMailbox(configuredRecipient)) {
+    return fixedContactPort(contactFailure(
+      "disabled",
+      "CONTACT_RECIPIENT_INVALID",
+    ))
+  }
+
+  if (options.transport === "resend") {
+    return createResendContactEmailPort({
+      recipient: configuredRecipient,
+      apiKey: options.resendApiKey,
+      from: options.from,
+      clientFactory: options.resendClientFactory,
+    })
+  }
+
+  const isLocal =
+    options.environment === "development" || options.environment === "test"
+  if (isLocal && (options.transport === undefined || options.transport === "preview")) {
+    const previewOptions: PreviewContactEmailPortOptions = {
+      environment: options.environment,
+      directory: options.previewDirectory,
+      maxArtifacts: options.previewMaxArtifacts,
+    }
+    return createPreviewContactEmailPort(previewOptions)
+  }
+
+  return fixedContactPort(contactFailure(
+    "disabled",
+    "CONTACT_DELIVERY_DISABLED",
+  ))
+}
+
+export {
+  createPreviewContactEmailPort,
+  renderContactEmail,
+}
+export type {
+  PreviewContactEmailPortOptions,
+  RenderedContactEmail,
+}

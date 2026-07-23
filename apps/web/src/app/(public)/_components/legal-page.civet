@@ -1,0 +1,134 @@
+import { PublicLink, PublicPage } from "./public-content.civet"
+
+const privacySections = [
+  {
+    title: "Scope and operator identity",
+    body: "Identify the organization operating the deployed product, the services covered by this notice, the effective date, and the legally accountable contact before release.",
+  },
+  {
+    title: "Information collected",
+    body: "Document account details, user-submitted content, device and request data, cookies, support correspondence, and any domain-specific sensitive information. Remove categories the deployed product does not collect.",
+  },
+  {
+    title: "Purpose and legal basis",
+    body: "Map each category to a specific purpose such as account delivery, security, support, legal compliance, or consented analytics. Add the applicable legal basis for every jurisdiction served.",
+  },
+  {
+    title: "Storage, retention, and deletion",
+    body: "State where data is stored, how long each category is retained, what backup limits apply, and how verified deletion requests are processed.",
+  },
+  {
+    title: "Providers and disclosures",
+    body: "List the subprocessors actually configured for the deployment and explain the reason for each disclosure. Do not leave example providers in the final notice when they are not enabled.",
+  },
+  {
+    title: "Rights and choices",
+    body: "Describe access, correction, deletion, portability, objection, appeal, consent withdrawal, and analytics choices that apply to the relevant users, with a real request channel.",
+  },
+  {
+    title: "Security, transfers, and age limits",
+    body: "Describe proportionate safeguards without making absolute guarantees. Add international-transfer mechanisms and a reviewed minimum-age position where applicable.",
+  },
+] as const
+
+const termsSections = [
+  {
+    title: "Operator, service, and acceptance",
+    body: "Name the legal operator, define the deployed service, identify the effective date, and explain how a user accepts these terms. Replace every starter reference with the actual product identity.",
+  },
+  {
+    title: "Accounts and authorized use",
+    body: "State eligibility, account-security duties, permitted access, and any organization administrator responsibilities that the finished product actually supports.",
+  },
+  {
+    title: "User content and licenses",
+    body: "Define ownership, the limited license needed to operate the service, export and deletion behavior, and responsibility for rights in submitted material.",
+  },
+  {
+    title: "Acceptable use",
+    body: "Describe prohibited misuse in language appropriate to the product, risk profile, and law. Avoid copying a generic list that cannot be monitored or enforced.",
+  },
+  {
+    title: "Optional and third-party services",
+    body: "Identify configured providers, external terms, integration boundaries, and what happens when an optional capability becomes unavailable.",
+  },
+  {
+    title: "Fees, suspension, and termination",
+    body: "Add commercial terms only if the product charges fees. Define proportionate suspension, termination, notice, data export, and survival rules.",
+  },
+  {
+    title: "Disclaimers, liability, and disputes",
+    body: "Have qualified counsel draft jurisdiction-appropriate warranty, liability, indemnity, governing-law, venue, arbitration, and consumer-rights provisions.",
+  },
+  {
+    title: "Changes and contact",
+    body: "Explain how material changes are communicated and provide a monitored legal contact. Do not publish with a fictional or unattended address.",
+  },
+] as const
+
+export interface LegalPageProps {
+  readonly kind: "privacy" | "terms"
+}
+
+export const LegalPage = ({ kind }: LegalPageProps) => {
+  const isPrivacy = kind === "privacy"
+  const title = isPrivacy ? "Privacy notice starter" : "Terms of service starter"
+  const description = isPrivacy
+    ? "A useful review structure for documenting how a finished deployment collects, uses, retains, shares, and protects information."
+    : "A useful review structure for defining access, responsibilities, content rights, acceptable use, service changes, and disputes."
+  const sections = isPrivacy ? privacySections : termsSections
+
+  return (
+    <PublicPage
+      actions={<PublicLink href="/" variant="secondary">Return home</PublicLink>}
+      description={description}
+      eyebrow="Legal starter"
+      title={title}
+    >
+      <aside aria-labelledby={`${kind}-legal-status-title`} className="my-12 border-y border-border-strong bg-muted py-8 md:my-16">
+        <div className="max-w-reading">
+          <h2 className="font-heading text-2xl font-semibold tracking-tight text-foreground" id={`${kind}-legal-status-title`}>
+            Starter placeholder — legal review required
+          </h2>
+          <p className="mt-3 text-base leading-7 text-muted-foreground">
+            This page is not legal advice and is not ready for production use. A qualified lawyer must adapt it to the actual operator, product behavior, enabled providers, users, jurisdictions, and risk profile before launch.
+          </p>
+        </div>
+      </aside>
+
+      <article aria-labelledby={`${kind}-review-outline-title`} className="grid gap-10 md:grid-cols-12">
+        <div className="md:col-span-4">
+          <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id={`${kind}-review-outline-title`}>
+            Review outline
+          </h2>
+          <p className="mt-4 text-base leading-7 text-muted-foreground">
+            Keep only provisions that match the deployed system. Confirm the final language against the implementation and capability manifest.
+          </p>
+        </div>
+        <div className="divide-y divide-border border-y border-border md:col-span-7 md:col-start-6">
+          {sections.map((section, index) => (
+            <section aria-labelledby={`${kind}-section-${index + 1}`} className="py-8" key={section.title}>
+              <p className="text-sm font-semibold text-muted-foreground">0{index + 1}</p>
+              <h3 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground" id={`${kind}-section-${index + 1}`}>
+                {section.title}
+              </h3>
+              <p className="mt-3 text-base leading-7 text-muted-foreground">{section.body}</p>
+            </section>
+          ))}
+        </div>
+      </article>
+
+      <section aria-labelledby={`${kind}-before-publishing-title`} className="mt-16 border-t border-border pt-12 md:mt-20">
+        <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id={`${kind}-before-publishing-title`}>
+          Before publishing
+        </h2>
+        <ul className="mt-6 grid gap-4 text-base leading-7 text-muted-foreground md:grid-cols-2">
+          <li className="border-t border-border pt-4">Verify every statement against configured behavior and data flows.</li>
+          <li className="border-t border-border pt-4">Replace starter language, dates, operator details, and contact channels.</li>
+          <li className="border-t border-border pt-4">Review enabled providers, retention, user controls, and jurisdictional duties.</li>
+          <li className="border-t border-border pt-4">Record approval from qualified counsel and schedule periodic review.</li>
+        </ul>
+      </section>
+    </PublicPage>
+  )
+}

@@ -1,0 +1,282 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  betterAuth: vi.fn((options: unknown) => ({ options })),
+  drizzleAdapter: vi.fn(() => ({ id: "drizzle-adapter" })),
+}))
+
+vi.mock("better-auth", () => ({ betterAuth: mocks.betterAuth }))
+vi.mock("@better-auth/drizzle-adapter", () => ({
+  drizzleAdapter: mocks.drizzleAdapter,
+}))
+
+import type { EmailDeliveryResult, EmailPort } from "@darkfactory/email"
+import {
+  EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
+  createAuth,
+} from "./server.civet"
+
+const BASE_URL = "https://darkfactory.localhost"
+const verificationUrl =
+  `${BASE_URL}/api/auth/verify-email?token=header.payload.signature` +
+  `&callbackURL=${encodeURIComponent(`${BASE_URL}/verify-email?verified=1`)}`
+let backgroundTasks: Promise<unknown>[] = []
+
+const createEmail = (
+  result: EmailDeliveryResult = {
+    status: "previewed",
+    provider: "preview",
+    artifactPath: "/tmp/verification.html",
+  },
+) => {
+  const sendEmailVerification = vi.fn().mockResolvedValue(result)
+  const email: EmailPort = {
+    sendPasswordReset: vi.fn(),
+    sendEmailVerification,
+  }
+  return { email, sendEmailVerification }
+}
+
+type VerificationEmailCallback = (input: Readonly<{
+  user: Readonly<{ id: string; email: string; name: string }>
+  url: string
+  token: string
+}>) => Promise<void>
+
+type CapturedAuthOptions = Readonly<{
+  emailAndPassword: Readonly<Record<string, unknown>>
+  emailVerification: Readonly<{
+    sendOnSignUp: boolean
+    sendOnSignIn: boolean
+    autoSignInAfterVerification: boolean
+    expiresIn: number
+    sendVerificationEmail: VerificationEmailCallback
+  }>
+  hooks: Readonly<{ before: unknown }>
+  rateLimit: Readonly<{
+    customRules: Readonly<Record<string, Readonly<{ window: number; max: number }>>>
+  }>
+}>
+
+const createConfiguredAuth = (
+  email: EmailPort,
+  verificationEmailTokenExpiresInSeconds = 60 * 60,
+  verificationRateLimitMax?: number,
+  resetPasswordTokenExpiresInSeconds?: number,
+) =>
+  createAuth({
+    database: {} as never,
+    secret: "auth-test-secret-with-at-least-32-characters",
+    baseURL: BASE_URL,
+    email,
+    scheduleBackgroundTask: (task) => void backgroundTasks.push(task),
+    rateLimitEnabled: false,
+    verificationEmailTokenExpiresInSeconds,
+    ...(verificationRateLimitMax === undefined
+      ? {}
+      : { verificationRateLimitMax }),
+    ...(resetPasswordTokenExpiresInSeconds === undefined
+      ? {}
+      : { resetPasswordTokenExpiresInSeconds }),
+  }) as unknown as { options: CapturedAuthOptions }
+
+describe "Better Auth email verification configuration", ->
+  beforeEach ->
+    mocks.betterAuth.mockClear()
+    mocks.drizzleAdapter.mockClear()
+    backgroundTasks = []
+
+  it "requires verification, sends on signup and signin, and uses a bounded one-hour token", ->
+    const { email } = createEmail()
+    const auth = createConfiguredAuth(email)
+    const options = auth.options
+
+    expect(options.emailAndPassword).toMatchObject({
+      enabled: true,
+      autoSignIn: false,
+      requireEmailVerification: true,
+    })
+    expect(options.emailVerification).toMatchObject({
+      sendOnSignUp: true,
+      sendOnSignIn: false,
+      autoSignInAfterVerification: false,
+      expiresIn: 60 * 60,
+    })
+    expect(options.emailVerification.sendVerificationEmail).toEqual(
+      expect.any(Function),
+    )
+
+  it "throttles public verification resend requests independently of the global limit", ->
+    const { email } = createEmail()
+    const auth = createConfiguredAuth(email)
+
+    expect(
+      auth.options.rateLimit.customRules["/send-verification-email"],
+    ).toEqual({
+      window: 60,
+      max: 5,
+    })
+    expect(
+      auth.options.rateLimit.customRules["/sign-in/email"],
+    ).toEqual({
+      window: 60,
+      max: 10,
+    })
+
+  it "uses a validated verification resend limit and rejects invalid configuration", ->
+    const { email } = createEmail()
+    const configured = createConfiguredAuth(email, 60 * 60, 9)
+    expect(
+      configured.options.rateLimit.customRules["/send-verification-email"],
+    ).toEqual({
+      window: 60,
+      max: 9,
+    })
+
+    for (const invalidMax of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => {
+        createConfiguredAuth(email, 60 * 60, invalidMax)
+      }).toThrowError("verificationRateLimitMax must be a positive integer")
+    }
+
+    const invalidSignInOptions = {
+      database: {} as never,
+      secret: "auth-test-secret-with-at-least-32-characters",
+      baseURL: BASE_URL,
+      email,
+      scheduleBackgroundTask: () => undefined,
+      rateLimitEnabled: false,
+      signInRateLimitMax: 0,
+    }
+    expect(() => createAuth(invalidSignInOptions)).toThrowError(
+      "signInRateLimitMax must be a positive integer",
+    )
+
+  it "delegates the exact trusted Better Auth URL to the operation-specific port", async ->
+    const { email, sendEmailVerification } = createEmail()
+    const auth = createConfiguredAuth(email)
+
+    await auth.options.emailVerification.sendVerificationEmail({
+      user: {
+        id: "user-1",
+        email: "member@domain.test",
+        name: "Member Example",
+      },
+      url: verificationUrl,
+      token: "header.payload.signature",
+    })
+
+    expect(sendEmailVerification).toHaveBeenCalledOnce()
+    expect(sendEmailVerification).toHaveBeenCalledWith({
+      to: "member@domain.test",
+      recipientName: "Member Example",
+      verificationUrl,
+      expiresInMinutes: 60,
+    })
+
+  it "resolves immediately but reports a redacted background delivery failure", async ->
+    let resolveDelivery!: (result: EmailDeliveryResult) => void
+    const pendingDelivery = new Promise<EmailDeliveryResult>((resolve) => {
+      resolveDelivery = resolve
+    })
+    const email: EmailPort = {
+      sendPasswordReset: vi.fn(),
+      sendEmailVerification: vi.fn().mockReturnValue(pendingDelivery),
+    }
+    const auth = createConfiguredAuth(email)
+
+    await expect(
+      auth.options.emailVerification.sendVerificationEmail({
+        user: {
+          id: "user-1",
+          email: "member@domain.test",
+          name: "Member Example",
+        },
+        url: verificationUrl,
+        token: "secret-token-not-for-errors",
+      }),
+    ).resolves.toBeUndefined()
+    expect(backgroundTasks).toHaveLength(1)
+
+    resolveDelivery({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_PROVIDER_UNAVAILABLE",
+      retryable: true,
+    })
+    await expect(backgroundTasks[0]).rejects.toMatchObject({
+      body: {
+        code: EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
+        message: "Email verification delivery is unavailable",
+      },
+    })
+
+  it "redacts thrown provider failures in the scheduled task", async ->
+    const email: EmailPort = {
+      sendPasswordReset: vi.fn(),
+      sendEmailVerification: vi
+        .fn()
+        .mockRejectedValue(new Error("provider-secret-must-not-escape")),
+    }
+    const auth = createConfiguredAuth(email)
+
+    await expect(
+      auth.options.emailVerification.sendVerificationEmail({
+        user: {
+          id: "user-1",
+          email: "member@domain.test",
+          name: "Member Example",
+        },
+        url: verificationUrl,
+        token: "secret-token-not-for-errors",
+      }),
+    ).resolves.toBeUndefined()
+    const backgroundError = await backgroundTasks[0]?.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(backgroundError).toMatchObject({
+      body: {
+        code: EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
+        message: "Email verification delivery is unavailable",
+      },
+    })
+    expect(JSON.stringify(backgroundError)).not.toContain(
+      "provider-secret-must-not-escape",
+    )
+
+  it "resolves a successful scheduled verification delivery", async ->
+    const { email } = createEmail()
+    const auth = createConfiguredAuth(email)
+
+    await expect(
+      auth.options.emailVerification.sendVerificationEmail({
+        user: {
+          id: "user-1",
+          email: "member@domain.test",
+          name: "Member Example",
+        },
+        url: verificationUrl,
+        token: "secret-token-not-for-errors",
+      }),
+    ).resolves.toBeUndefined()
+    await expect(backgroundTasks[0]).resolves.toBeUndefined()
+
+  it "rejects verification expiry below one minute, above one day, or fractional", ->
+    const { email } = createEmail()
+
+    for (const expiresIn of [0, 59, 61, 86_401, 60.5]) {
+      expect(() => createConfiguredAuth(email, expiresIn)).toThrowError(
+        "verificationEmailTokenExpiresInSeconds must be a whole-minute integer from 60 to 86400",
+      )
+    }
+
+    expect(() => createConfiguredAuth(email, 60 * 60, undefined, 61)).toThrowError(
+      "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
+    )
+
+  it "installs the email normalization hook used by manual verification requests", ->
+    const { email } = createEmail()
+    const auth = createConfiguredAuth(email)
+    expect(auth.options.hooks.before).toEqual(expect.any(Function))
+

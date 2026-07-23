@@ -1,0 +1,113 @@
+import type { FeatureItemOutput } from "@darkfactory/api"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+
+import { DashboardContent } from "./dashboard-content.civet"
+
+const recentItem: FeatureItemOutput = {
+  id: "item-1",
+  name: "Example workflow",
+  description: "A clearly labeled starter record.",
+  status: "active",
+  metadata: {},
+  ownerId: "user-1",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+}
+
+describe "DashboardContent", ->
+  it "shows current session truth, feature-derived counts, recent items, and observed capability state", ->
+    const html = renderToStaticMarkup(
+      <DashboardContent
+        session={{
+          userId: "user-1",
+          name: "Example Member",
+          role: "member",
+          status: "active",
+          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        }}
+        summaryState={{
+          type: "ready",
+          summary: {
+            featureItems: {
+              total: 1,
+              draft: 0,
+              active: 1,
+              archived: 0,
+              recent: [recentItem],
+            },
+            capabilities: {
+              ai: true,
+              emailDelivery: false,
+              analytics: true,
+              telemetryExport: false,
+              storage: false,
+              errorTracking: false,
+            },
+          },
+        }}
+      />,
+    )
+
+    expect(html).toContain("Welcome back, Example Member")
+    expect(html).toContain("Member access")
+    expect(html).toContain("1 feature item")
+    expect(html).toContain("Example workflow")
+    expect(html).toContain("Session authority")
+    expect(html).toContain("Verified by Better Auth")
+    expect(html).toContain("AI integration")
+    expect(html).toContain("Email delivery")
+    expect(html).toContain("Available")
+    expect(html).toContain("Unavailable")
+    expect(html).not.toMatch(/revenue|growth|customers|conversion/i)
+  
+  it "renders honest empty and unavailable data without inventing a zero metric", ->
+    const emptyHtml = renderToStaticMarkup(
+      <DashboardContent
+        session={{
+          userId: "user-1",
+          name: "Example Member",
+          role: "member",
+          status: "active",
+          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        }}
+        summaryState={{
+          type: "ready",
+          summary: {
+            featureItems: {
+              total: 0,
+              draft: 0,
+              active: 0,
+              archived: 0,
+              recent: [],
+            },
+            capabilities: {
+              ai: false,
+              emailDelivery: false,
+              analytics: false,
+              telemetryExport: false,
+              storage: false,
+              errorTracking: false,
+            },
+          },
+        }}
+      />,
+    )
+    expect(emptyHtml).toContain("No feature items yet")
+    expect(emptyHtml).toContain("Create the first item")
+
+    const unavailableHtml = renderToStaticMarkup(
+      <DashboardContent
+        session={{
+          userId: "user-1",
+          name: "Example Member",
+          role: "member",
+          status: "active",
+          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        }}
+        summaryState={{ type: "error" }}
+      />,
+    )
+    expect(unavailableHtml).toContain("Feature data unavailable")
+    expect(unavailableHtml).toContain("Unavailable on this request")
+    expect(unavailableHtml).not.toContain("0 feature items")

@@ -1,0 +1,52 @@
+import type { SafePrincipal } from "@darkfactory/auth/types"
+import {
+  DashboardPersistenceError,
+  type DashboardRepository,
+} from "@darkfactory/db/server"
+import type { FeatureItem } from "@darkfactory/db/schema"
+
+import type { CapabilityProjection } from "../contract.civet"
+
+export type DashboardSummaryOutput = Readonly<{
+  featureItems: Readonly<{
+    total: number
+    draft: number
+    active: number
+    archived: number
+    recent: FeatureItem[]
+  }>
+  capabilities: CapabilityProjection
+}>
+
+export type DashboardServiceErrorCode = "STORAGE_ERROR"
+
+export class DashboardServiceError extends Error {
+  readonly code: DashboardServiceErrorCode
+  constructor(code: DashboardServiceErrorCode, message: string) {
+    super(message)
+    this.name = "DashboardServiceError"
+    this.code = code
+  }
+}
+
+export type DashboardService = Readonly<{
+  summary: (principal: SafePrincipal) => Promise<DashboardSummaryOutput>
+}>
+
+export const createDashboardService = (
+  repository: DashboardRepository,
+  capabilities: CapabilityProjection,
+): DashboardService => ({
+  summary: async (principal) => {
+    try {
+      return {
+        featureItems: await repository.getFeatureSummary(principal.userId, 5),
+        capabilities,
+      }
+    } catch (error) {
+      if (error instanceof DashboardPersistenceError)
+        throw new DashboardServiceError("STORAGE_ERROR", "Dashboard storage is unavailable")
+      throw new DashboardServiceError("STORAGE_ERROR", "Dashboard storage is unavailable")
+    }
+  },
+})

@@ -1,8 +1,12 @@
 import {
   createAddressRepository,
+  createAdminUsersRepository,
   createFeatureItemRepository,
+  createDashboardRepository,
   createNodeDatabase,
   createProfileRepository,
+  OptimisticConcurrencyError,
+  InvalidRepositoryInputError,
   createUserPreferencesRepository,
   migrate,
   withTransaction,
@@ -29,6 +33,7 @@ const EXPECTED_TABLES = [
   "account",
   "addresses",
   "audit_records",
+  "contact_rate_limits",
   "feature_items",
   "outbox_events",
   "profiles",
@@ -162,6 +167,13 @@ const AUDIT_COLUMNS = [
   "metadata",
   "request_id",
   "created_at",
+]
+
+const CONTACT_RATE_LIMIT_COLUMNS = [
+  "key_hash",
+  "window_started_at",
+  "request_count",
+  "expires_at",
 ]
 
 let testDatabase: PostgresTestDatabase
@@ -309,6 +321,9 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     expect(await columnNames("feature_items")).toEqual(FEATURE_COLUMNS)
     expect(await columnNames("outbox_events")).toEqual(OUTBOX_COLUMNS)
     expect(await columnNames("audit_records")).toEqual(AUDIT_COLUMNS)
+    expect(await columnNames("contact_rate_limits")).toEqual(
+      CONTACT_RATE_LIMIT_COLUMNS,
+    )
     expect(await columnNames("user_preferences")).not.toEqual(
       expect.arrayContaining(["reduced_motion", "privacy_level"]),
     )
@@ -400,6 +415,11 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "audit_records",
       /\(request_id\)/i,
     )
+    expectIndex(
+      "contact_rate_limits_expires_at_idx",
+      "contact_rate_limits",
+      /\(expires_at\)/i,
+    )
 
   it "DF-033 through DF-039 installs exact primary and unique key matrices", async ->
     const rows = await testDatabase.query<{
@@ -415,12 +435,14 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       })
       .sort()
     const expectedKeys = EXPECTED_TABLES.map((tableName) => {
-      const primaryColumn = [
-        "profiles",
-        "user_preferences",
-      ].includes(tableName)
-        ? "user_id"
-        : "id"
+      const primaryColumn = tableName === "contact_rate_limits"
+        ? "key_hash"
+        : [
+            "profiles",
+            "user_preferences",
+          ].includes(tableName)
+          ? "user_id"
+          : "id"
       return `p:${tableName}:${primaryColumn}`
     })
     expectedKeys.push("u:session:token", "u:user:email")
@@ -485,6 +507,15 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     )
     expect(checks.get("audit_records_request_id_check")?.table_name).toBe(
       "audit_records",
+    )
+    expect(checks.get("contact_rate_limits_key_hash_check")?.table_name).toBe(
+      "contact_rate_limits",
+    )
+    expect(checks.get("contact_rate_limits_request_count_check")?.table_name).toBe(
+      "contact_rate_limits",
+    )
+    expect(checks.get("contact_rate_limits_window_check")?.table_name).toBe(
+      "contact_rate_limits",
     )
 
   it "DF-033 through DF-039 rejects every invalid checked boundary and orphan FK", async ->
@@ -656,6 +687,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       feature_items: FEATURE_COLUMNS,
       outbox_events: OUTBOX_COLUMNS,
       audit_records: AUDIT_COLUMNS,
+      contact_rate_limits: CONTACT_RATE_LIMIT_COLUMNS,
     }
     const nullableColumns = new Set([
       "user.image",
@@ -695,7 +727,10 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "audit_records.metadata",
     ])
     const dateColumns = new Set(["profiles.date_of_birth"])
-    const integerColumns = new Set(["outbox_events.attempt_count"])
+    const integerColumns = new Set([
+      "contact_rate_limits.request_count",
+      "outbox_events.attempt_count",
+    ])
     const timestampColumns = new Set(
       rows
         .filter((row) => {
@@ -909,6 +944,34 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
         (address) => address.isPrimary,
       ),
     ).toHaveLength(1)
+
+  it "bounds concurrent address creation to the atomic per-user quota", async ->
+    const userId = "address-quota-user-01"
+    await createAuthUser(userId, "address-quota-01@example.test")
+    const repository = createAddressRepository(databaseResource.db)
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 25 }, (_, index) => repository.create({
+        id: `address-quota-${index.toString().padStart(2, "0")}`,
+        userId,
+        type: "other",
+        line1: `${index + 1} Quota Way`,
+        city: "Example City",
+        region: "CA",
+        postalCode: "90012",
+        country: "US",
+        isPrimary: index % 2 === 0,
+      })),
+    )
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(20)
+    const rejected = attempts.filter(
+      (attempt): attempt is PromiseRejectedResult => attempt.status === "rejected",
+    )
+    expect(rejected).toHaveLength(5)
+    for (const attempt of rejected)
+      expect(attempt.reason).toBeInstanceOf(InvalidRepositoryInputError)
+    const stored = await repository.listByUserId(userId)
+    expect(stored).toHaveLength(20)
+    expect(stored.filter((address) => address.isPrimary)).toHaveLength(1)
 
   it "DF-036 persists concrete preferences and all ten settled color schemes", async ->
     const userId = "preferences-user-01"
@@ -1245,3 +1308,366 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     expect(rows).toEqual([
       { feature_count: "0", audit_count: "0", outbox_count: "0" },
     ])
+
+  it "searches escaped admin user text with deterministic opaque keyset pages", async ->
+    const directory = createAdminUsersRepository(databaseResource.db)
+    for (const suffix of ["a", "b", "c"]) {
+      await createAuthUser(
+        `zz-directory-${suffix}`,
+        `directory-page-${suffix}@example.test`,
+      )
+    }
+    await createAuthUser("zz-directory-literal", "literal%_match@example.test")
+    await createProfileRepository(databaseResource.db).upsert({
+      userId: "zz-directory-literal",
+      firstName: "Literal",
+      lastName: null,
+      displayName: "Percent %_ Match",
+      avatarUrl: null,
+      phone: null,
+      businessName: null,
+      jobTitle: null,
+      biography: null,
+      timezone: "UTC",
+      locale: "en",
+      dateOfBirth: null,
+    })
+
+    const escaped = await directory.search({ query: "Percent %_", limit: 20 })
+    expect(escaped.items.map((item) => item.id)).toEqual([
+      "zz-directory-literal",
+    ])
+    expect(escaped.items[0]?.profile?.displayName).toBe("Percent %_ Match")
+    expect((await directory.search({ query: "Match", limit: 20 })).items)
+      .toEqual([])
+    const explainConnection = await testDatabase.openConnection()
+    try {
+      await explainConnection.query("BEGIN")
+      await explainConnection.query("SET LOCAL enable_seqscan = off")
+      const planRows = await explainConnection.query<{ "QUERY PLAN": string }>(
+        `EXPLAIN (COSTS OFF)
+         SELECT matched.id
+         FROM (
+           SELECT id
+           FROM "user"
+           WHERE lower(email) LIKE $1 OR lower(name) LIKE $1
+           UNION
+           SELECT user_id AS id
+           FROM profiles
+           WHERE lower(display_name) LIKE $1
+              OR lower(first_name) LIKE $1
+              OR lower(last_name) LIKE $1
+         ) AS matched`,
+        ["directory%"],
+      )
+      const plan = planRows.map((row) => row["QUERY PLAN"]).join("\n")
+      expect(plan).toContain("user_email_prefix_idx")
+      expect(plan).toContain("user_name_prefix_idx")
+      expect(plan).toContain("profiles_display_name_prefix_idx")
+      expect(plan).toContain("profiles_first_name_prefix_idx")
+      expect(plan).toContain("profiles_last_name_prefix_idx")
+    } finally {
+      await explainConnection.query("ROLLBACK")
+      await explainConnection.close()
+    }
+
+    const first = await directory.search({ query: "directory-page", limit: 2 })
+    expect(first.items.map((item) => item.id)).toEqual([
+      "zz-directory-c",
+      "zz-directory-b",
+    ])
+    expect(first.nextCursor).toEqual(expect.any(String))
+    expect(first.nextCursor).not.toContain("zz-directory-b")
+    const second = await directory.search({
+      query: "directory-page",
+      cursor: first.nextCursor!,
+      limit: 2,
+    })
+    expect(second.items.map((item) => item.id)).toEqual(["zz-directory-a"])
+    expect(second.nextCursor).toBeNull()
+
+    for (const [id, micros] of [
+      ["zz-micro-c", 900],
+      ["zz-micro-b", 800],
+      ["zz-micro-a", 700],
+    ] as const) {
+      await createAuthUser(id, `micro-page-${id}@example.test`)
+      await testDatabase.query(
+        `UPDATE "user"
+         SET created_at = ('2026-01-02T03:04:05.123000Z'::timestamptz
+           + ($2::int * interval '1 microsecond'))
+         WHERE id = $1`,
+        [id, micros],
+      )
+    }
+    const microFirst = await directory.search({ query: "micro-page", limit: 1 })
+    const microSecond = await directory.search({
+      query: "micro-page",
+      cursor: microFirst.nextCursor!,
+      limit: 1,
+    })
+    const microThird = await directory.search({
+      query: "micro-page",
+      cursor: microSecond.nextCursor!,
+      limit: 1,
+    })
+    expect([
+      microFirst.items[0]?.id,
+      microSecond.items[0]?.id,
+      microThird.items[0]?.id,
+    ]).toEqual(["zz-micro-c", "zz-micro-b", "zz-micro-a"])
+    expect(microThird.nextCursor).toBeNull()
+
+  it "filters and caps feature lists and computes owner-only dashboard counts/recent order", async ->
+    const ownerId = "dashboard-owner-01"
+    const otherOwnerId = "dashboard-other-01"
+    await createAuthUser(ownerId, "dashboard-owner-01@example.test")
+    await createAuthUser(otherOwnerId, "dashboard-other-01@example.test")
+    const instants = [
+      new Date("2026-02-01T00:00:00.000Z"),
+      new Date("2026-02-02T00:00:00.000Z"),
+      new Date("2026-02-03T00:00:00.000Z"),
+      new Date("2026-02-04T00:00:00.000Z"),
+    ]
+    let instantIndex = 0
+    const repository = createFeatureItemRepository(databaseResource.db, {
+      now: () => instants[instantIndex++]!,
+      generateId: () => `dashboard-generated-${instantIndex}`,
+    })
+    const create = async (
+      id: string,
+      owner: string,
+      name: string,
+      description: string,
+      status: "draft" | "active" | "archived",
+    ) => repository.create(
+      { id, ownerId: owner, name, description, status },
+      { actorUserId: owner, requestId: `request-${id}` },
+    )
+    await create("dashboard-feature-a", ownerId, "Launch alpha", "ordinary", "draft")
+    await create("dashboard-feature-b", ownerId, "Literal %_ token", "launch details", "active")
+    await create("dashboard-feature-c", ownerId, "Launch gamma", "ordinary", "archived")
+    await create("dashboard-feature-other", otherOwnerId, "Launch outsider", "ordinary", "active")
+
+    expect(
+      (await repository.listByOwner(ownerId, {
+        query: "launch",
+        status: "active",
+        limit: 100,
+      })).map((item) => item.id),
+    ).toEqual(["dashboard-feature-b"])
+    expect(
+      (await repository.listByOwner(ownerId, { query: "%_", limit: 50 }))
+        .map((item) => item.id),
+    ).toEqual(["dashboard-feature-b"])
+    expect(
+      (await repository.listByOwner(ownerId, { limit: 2 }))
+        .map((item) => item.id),
+    ).toEqual(["dashboard-feature-c", "dashboard-feature-b"])
+
+    const summary = await createDashboardRepository(
+      databaseResource.db,
+    ).getFeatureSummary(ownerId, 2)
+    expect(summary).toMatchObject({
+      total: 3,
+      draft: 1,
+      active: 1,
+      archived: 1,
+    })
+    expect(summary.recent.map((item) => item.id)).toEqual([
+      "dashboard-feature-c",
+      "dashboard-feature-b",
+    ])
+
+  it "rolls back primary clearing when the selected address update fails", async ->
+    const userId = "address-rollback-user-01"
+    await createAuthUser(userId, "address-rollback-01@example.test")
+    const repository = createAddressRepository(databaseResource.db)
+    const common = {
+      userId,
+      type: "home" as const,
+      line1: "1 Rollback Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90020",
+      country: "US",
+    }
+    await repository.create({ ...common, id: "address-rollback-primary", isPrimary: true })
+    await repository.create({ ...common, id: "address-rollback-target", line1: "2 Rollback Way" })
+    await testDatabase.query(`
+      CREATE FUNCTION fail_address_primary_update() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.id = 'address-rollback-target' AND NEW.is_primary THEN
+          RAISE EXCEPTION 'forced primary update failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await testDatabase.query(`
+      CREATE TRIGGER fail_address_primary_update_trigger
+      BEFORE UPDATE ON addresses
+      FOR EACH ROW EXECUTE FUNCTION fail_address_primary_update()
+    `)
+    try {
+      await expect(
+        repository.setPrimary("address-rollback-target", userId),
+      ).rejects.toThrow()
+    } finally {
+      await testDatabase.query(
+        "DROP TRIGGER fail_address_primary_update_trigger ON addresses",
+      )
+      await testDatabase.query("DROP FUNCTION fail_address_primary_update()")
+    }
+    const addressesAfterFailure = await repository.listByUserId(userId)
+    expect(
+      addressesAfterFailure.filter((address) => address.isPrimary)
+        .map((address) => address.id),
+    ).toEqual(["address-rollback-primary"])
+
+  it "rejects stale account writes from a second session without losing the winner", async ->
+    const userId = "optimistic-account-user-01"
+    await createAuthUser(userId, "optimistic-account-01@example.test")
+    const instant = new Date("2026-03-01T00:00:00.000Z")
+    const profileRepository = createProfileRepository(databaseResource.db, {
+      now: () => instant,
+    })
+    const baseProfile = {
+      userId,
+      firstName: null,
+      lastName: null,
+      displayName: "Initial",
+      avatarUrl: null,
+      phone: null,
+      businessName: null,
+      jobTitle: null,
+      biography: null,
+      timezone: "UTC",
+      locale: "en",
+      dateOfBirth: null,
+    }
+    const createdProfile = await profileRepository.updateOptimistic({
+      ...baseProfile,
+      expectedUpdatedAt: null,
+    })
+    const winnerProfile = await profileRepository.updateOptimistic({
+      ...baseProfile,
+      displayName: "Winner",
+      expectedUpdatedAt: createdProfile.updatedAt,
+    })
+    await expect(profileRepository.updateOptimistic({
+      ...baseProfile,
+      displayName: "Stale loser",
+      expectedUpdatedAt: createdProfile.updatedAt,
+    })).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(await profileRepository.findByUserId(userId)).toMatchObject({
+      displayName: "Winner",
+      updatedAt: winnerProfile.updatedAt,
+    })
+
+    const addressRepository = createAddressRepository(databaseResource.db, {
+      now: () => instant,
+    })
+    const firstAddress = await addressRepository.create({
+      id: "optimistic-address-1",
+      userId,
+      type: "home",
+      line1: "1 Fixed Clock",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75001",
+      country: "FR",
+      isPrimary: true,
+    })
+    const secondAddress = await addressRepository.create({
+      id: "optimistic-address-2",
+      userId,
+      type: "work",
+      line1: "2 Fixed Clock",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75002",
+      country: "FR",
+      isPrimary: false,
+    })
+    const addressWinner = await addressRepository.updateOptimistic({
+      id: firstAddress.id,
+      userId,
+      city: "Lyon",
+      expectedUpdatedAt: firstAddress.updatedAt,
+    })
+    await expect(addressRepository.updateOptimistic({
+      id: firstAddress.id,
+      userId,
+      city: "Stale City",
+      expectedUpdatedAt: firstAddress.updatedAt,
+    })).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(addressWinner?.updatedAt.getTime()).toBeGreaterThan(firstAddress.updatedAt.getTime())
+    const primaryWinner = await addressRepository.setPrimaryOptimistic({
+      id: secondAddress.id,
+      userId,
+      expectedUpdatedAt: secondAddress.updatedAt,
+    })
+    await expect(addressRepository.setPrimaryOptimistic({
+      id: secondAddress.id,
+      userId,
+      expectedUpdatedAt: secondAddress.updatedAt,
+    })).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(primaryWinner?.updatedAt.getTime()).toBeGreaterThan(addressWinner!.updatedAt.getTime())
+    await expect(addressRepository.updateOptimistic({
+      id: firstAddress.id,
+      userId,
+      city: "Stale after primary change",
+      expectedUpdatedAt: addressWinner!.updatedAt,
+    })).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+
+    const preferencesRepository = createUserPreferencesRepository(
+      databaseResource.db,
+      { now: () => instant },
+    )
+    const basePreferences = {
+      userId,
+      emailNotifications: true,
+      productUpdates: true,
+      analyticsConsent: false,
+      personalizationConsent: false,
+      profileVisibility: "private" as const,
+    }
+    const createdPreferences = await preferencesRepository.updateOptimistic({
+      ...basePreferences,
+      expectedUpdatedAt: null,
+    })
+    const themeWinner = await preferencesRepository.upsertTheme({
+      userId,
+      mode: "dark",
+      colorScheme: "violet",
+      expectedUpdatedAt: createdPreferences.updatedAt,
+    })
+    expect(themeWinner.updatedAt.getTime()).toBeGreaterThan(
+      createdPreferences.updatedAt.getTime(),
+    )
+    await expect(preferencesRepository.upsertTheme({
+      userId,
+      mode: "light",
+      colorScheme: "amber",
+      expectedUpdatedAt: createdPreferences.updatedAt,
+    })).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    const themeVersion = (await preferencesRepository.findByUserId(userId))!
+    await preferencesRepository.updateOptimistic({
+      ...basePreferences,
+      analyticsConsent: true,
+      expectedUpdatedAt: themeVersion.updatedAt,
+    })
+    await expect(preferencesRepository.updateOptimistic({
+      ...basePreferences,
+      productUpdates: false,
+      expectedUpdatedAt: createdPreferences.updatedAt,
+    })).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(await preferencesRepository.findByUserId(userId)).toMatchObject({
+      analyticsConsent: true,
+      productUpdates: true,
+      mode: "dark",
+      colorScheme: "violet",
+    })

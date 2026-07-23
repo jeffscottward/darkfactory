@@ -1,0 +1,237 @@
+"use client"
+
+import type { FeatureItemOutput, FeatureItemStatus } from "@darkfactory/api"
+import { Button, Input, Label } from "@darkfactory/ui"
+import { Archive, Search, X } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+
+import {
+  classifyFeatureFailure,
+  createBrowserFeatureItemGateway,
+  restorePortalFocus,
+  withoutFeatureItem,
+  type FeatureFailure,
+  type FeatureItemGateway,
+} from "./feature-items-client.civet"
+import {
+  FeatureItemsCollection,
+  type FeatureItemsCollectionState,
+} from "./feature-items-collection.civet"
+import { FeatureRecoveryAction } from "./feature-recovery-action.civet"
+
+export interface FeatureItemsWorkspaceProps {
+  readonly gateway?: FeatureItemGateway
+}
+
+export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItemsWorkspaceProps) => {
+  const [gateway] = useState(() => suppliedGateway ?? createBrowserFeatureItemGateway())
+  const [state, setState] = useState<FeatureItemsCollectionState>({ type: "loading" })
+  const [query, setQuery] = useState("")
+  const [status, setStatus] = useState<"" | FeatureItemStatus>("")
+  const [appliedQuery, setAppliedQuery] = useState("")
+  const [appliedStatus, setAppliedStatus] = useState<"" | FeatureItemStatus>("")
+  const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [archiveCandidate, setArchiveCandidate] = useState<FeatureItemOutput | null>(null)
+  const [archiveFailure, setArchiveFailure] = useState<FeatureFailure | null>(null)
+  const [failedArchiveItem, setFailedArchiveItem] = useState<FeatureItemOutput | null>(null)
+  const [feedback, setFeedback] = useState("")
+  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const archiveTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const feedbackRef = useRef<HTMLDivElement>(null)
+  const loadRevision = useRef(0)
+  const isFiltered = appliedQuery.length > 0 || appliedStatus.length > 0
+
+  const load = useCallback(async () => {
+    const revision = loadRevision.current + 1
+    loadRevision.current = revision
+    setState({ type: "loading" })
+    try {
+      const items = await gateway.list({
+        limit: 50,
+        ...(appliedQuery.length === 0 ? {} : { query: appliedQuery }),
+        ...(appliedStatus.length === 0 ? {} : { status: appliedStatus as FeatureItemStatus }),
+      })
+      if (loadRevision.current === revision) setState({ type: "ready", items })
+    } catch (error) {
+      if (loadRevision.current === revision) {
+        const failure = classifyFeatureFailure(error)
+        setState({ type: "error", kind: failure.kind, message: failure.message })
+      }
+    }
+  }, [appliedQuery, appliedStatus, gateway])
+
+  useEffect(() => {
+    const pendingLoad = load()
+    void pendingLoad
+    return () => {
+      loadRevision.current += 1
+      return undefined
+    }
+  }, [load])
+
+  useEffect(() => {
+    if (archiveCandidate !== null) confirmButtonRef.current?.focus()
+    return undefined
+  }, [archiveCandidate])
+
+  const requestArchive = (item: FeatureItemOutput, trigger: HTMLButtonElement) => {
+    if (archivingId !== null) return
+    archiveTriggerRef.current = trigger
+    setArchiveFailure(null)
+    setFailedArchiveItem(null)
+    setArchiveCandidate(item)
+  }
+
+  const cancelArchive = () => {
+    setArchiveCandidate(null)
+    restorePortalFocus(archiveTriggerRef.current)
+  }
+
+  const confirmArchive = async () => {
+    if (archiveCandidate === null || archivingId !== null) return
+    const item = archiveCandidate
+    setArchiveCandidate(null)
+    setArchivingId(item.id)
+    setArchiveFailure(null)
+    setFailedArchiveItem(null)
+    setFeedback("")
+
+    try {
+      await gateway.archive(item.id)
+      setState((current) => current.type === "ready"
+        ? { type: "ready", items: withoutFeatureItem(current.items, item.id) }
+        : current)
+      void load()
+      setFeedback(`${item.name} was archived.`)
+      queueMicrotask(() => feedbackRef.current?.focus())
+    } catch (error) {
+      const failure = classifyFeatureFailure(error)
+      setArchiveFailure(failure)
+      setFailedArchiveItem(item)
+      setFeedback(failure.message)
+      restorePortalFocus(archiveTriggerRef.current)
+    } finally {
+      setArchivingId(null)
+    }
+  }
+
+  const applyFilters = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (archivingId !== null) return
+    setAppliedQuery(query.trim())
+    setAppliedStatus(status)
+  }
+
+  const resetFilters = () => {
+    if (archivingId !== null) return
+    setQuery("")
+    setStatus("")
+    setAppliedQuery("")
+    setAppliedStatus("")
+  }
+
+  return (
+    <div className="space-y-6">
+      <form
+        className="grid gap-4 border-b border-border pb-6 sm:grid-cols-[minmax(0,1fr)_12rem_auto]"
+        onSubmit={applyFilters}
+        role="search"
+      >
+        <div className="space-y-2">
+          <Label htmlFor="feature-items-query">Search feature items</Label>
+          <Input
+            id="feature-items-query"
+            disabled={archivingId !== null}
+            maxLength={200}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            placeholder="Example: onboarding"
+            value={query}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="feature-items-status">Status</Label>
+          <select
+            className="min-h-11 w-full rounded-md border border-border-strong bg-surface px-3 font-body text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            disabled={archivingId !== null}
+            id="feature-items-status"
+            onChange={(event) => setStatus(event.currentTarget.value as "" | FeatureItemStatus)}
+            value={status}
+          >
+            <option value="">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <Button disabled={archivingId !== null} type="submit"><Search aria-hidden="true" className="size-4" />Apply</Button>
+          {isFiltered ? <Button disabled={archivingId !== null} onClick={resetFilters} variant="ghost">Reset</Button> : null}
+        </div>
+      </form>
+      <p className="text-xs text-muted-foreground">
+        Showing up to 50 matching owner-scoped records.
+      </p>
+
+      <div
+        aria-atomic="true"
+        aria-live="polite"
+        className="min-h-6 text-sm text-muted-foreground outline-none"
+        ref={feedbackRef}
+        tabIndex={-1}
+      >
+        {feedback}
+      </div>
+
+      {archiveFailure === null ? null : (
+        <FeatureRecoveryAction
+          kind={archiveFailure.kind}
+          onRetry={failedArchiveItem === null ? undefined : () => setArchiveCandidate(failedArchiveItem)}
+          returnHref="/feature-items"
+        />
+      )}
+
+      {archiveCandidate === null ? null : (
+        <section
+          aria-describedby="archive-confirmation-description"
+          aria-labelledby="archive-confirmation-title"
+          className="flex flex-col gap-4 border-y border-warning-border bg-warning-subtle px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") cancelArchive()
+          }}
+          role="region"
+        >
+          <div className="min-w-0">
+            <h2
+              className="font-heading text-base font-semibold text-foreground"
+              id="archive-confirmation-title"
+              style={{ overflowWrap: "anywhere" }}
+            >
+              Archive {archiveCandidate.name}?
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground" id="archive-confirmation-description">
+              It will leave this active list. The server keeps the archived record.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={cancelArchive} size="compact" variant="ghost">
+              <X aria-hidden="true" className="size-4" />Cancel
+            </Button>
+            <Button onClick={confirmArchive} ref={confirmButtonRef} size="compact" variant="destructive">
+              <Archive aria-hidden="true" className="size-4" />Archive item
+            </Button>
+          </div>
+        </section>
+      )}
+
+      <FeatureItemsCollection
+        archiveBusy={archivingId !== null}
+        archivingId={archivingId}
+        isFiltered={isFiltered}
+        onArchive={requestArchive}
+        onResetFilters={resetFilters}
+        onRetry={load}
+        state={state}
+      />
+    </div>
+  )
+}

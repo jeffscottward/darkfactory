@@ -1,0 +1,246 @@
+"use client"
+
+import { useState } from "react"
+import Link from "next/link"
+import { useForm } from "@tanstack/react-form"
+import { Button, Input, Label } from "@darkfactory/ui"
+
+import {
+  browserAuthClient,
+  submitSignUp,
+  validateEmail,
+  validateName,
+  validatePassword,
+  validatePasswordConfirmation,
+  type AuthFlowClient,
+  type AuthFlowResult,
+} from "./auth-flow.civet"
+import { FormStatus } from "./form-status.civet"
+import { PasswordField } from "./password-field.civet"
+
+const firstError = (errors: readonly unknown[]): string | undefined =>
+  errors.find((error): error is string => typeof error === "string")
+
+export const SignUpForm = ({
+  auth = browserAuthClient,
+}: Readonly<{ auth?: AuthFlowClient }>) => {
+  const [result, setResult] = useState<AuthFlowResult | null>(null)
+  const [isPending, setIsPending] = useState(false)
+  const form = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+    onSubmit: async ({ value }) => {
+      setResult(null)
+      setIsPending(true)
+      try {
+        const nextResult = await submitSignUp(auth, {
+          name: value.name,
+          email: value.email,
+          password: value.password,
+        })
+        setResult(nextResult)
+      } finally {
+        setIsPending(false)
+      }
+    },
+  })
+
+  return (
+    <form
+      className="grid gap-6"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault()
+        const formElement = event.currentTarget
+        void form.handleSubmit().then(() => {
+          if (!form.state.isValid) {
+            formElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+          }
+        })
+      }}
+    >
+      <form.Field
+        name="name"
+        validators={{
+          onBlur: ({ value }) => validateName(value),
+          onSubmit: ({ value }) => validateName(value),
+        }}
+      >
+        {(field) => {
+          const error = field.state.meta.isTouched
+            ? firstError(field.state.meta.errors)
+            : undefined
+          const errorId = error ? "sign-up-name-error" : undefined
+          return (
+            <div className="grid gap-2">
+              <Label htmlFor="sign-up-name">Name</Label>
+              <Input
+                aria-describedby={errorId}
+                aria-invalid={error ? true : undefined}
+                aria-required="true"
+                autoComplete="name"
+                className="min-h-11"
+                disabled={isPending}
+                id="sign-up-name"
+                name={field.name}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  setResult(null)
+                  field.handleChange(event.target.value)
+                }}
+                type="text"
+                required
+                value={field.state.value}
+              />
+              {error ? (
+                <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          )
+        }}
+      </form.Field>
+
+      <form.Field
+        name="email"
+        validators={{
+          onBlur: ({ value }) => validateEmail(value),
+          onSubmit: ({ value }) => validateEmail(value),
+        }}
+      >
+        {(field) => {
+          const error = field.state.meta.isTouched
+            ? firstError(field.state.meta.errors)
+            : undefined
+          const errorId = error ? "sign-up-email-error" : undefined
+          return (
+            <div className="grid gap-2">
+              <Label htmlFor="sign-up-email">Email address</Label>
+              <Input
+                aria-describedby={errorId}
+                aria-invalid={error ? true : undefined}
+                aria-required="true"
+                autoComplete="email"
+                className="min-h-11"
+                disabled={isPending}
+                id="sign-up-email"
+                inputMode="email"
+                name={field.name}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  setResult(null)
+                  field.handleChange(event.target.value)
+                }}
+                type="email"
+                required
+                value={field.state.value}
+              />
+              {error ? (
+                <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          )
+        }}
+      </form.Field>
+
+      <form.Field
+        name="password"
+        validators={{
+          onBlur: ({ value }) => validatePassword(value),
+          onSubmit: ({ value }) => validatePassword(value),
+        }}
+      >
+        {(field) => (
+          <PasswordField
+            disabled={isPending}
+            autoComplete="new-password"
+            description="Use 12 to 128 characters."
+            error={
+              field.state.meta.isTouched
+                ? firstError(field.state.meta.errors)
+                : undefined
+            }
+            id="sign-up-password"
+            label="Password"
+            name={field.name}
+            onBlur={field.handleBlur}
+            onChange={(event) => {
+              setResult(null)
+              field.handleChange(event.target.value)
+            }}
+            value={field.state.value}
+          />
+        )}
+      </form.Field>
+
+      <form.Field
+        name="confirmPassword"
+        validators={{
+          onBlur: ({ value }) => {
+            return validatePasswordConfirmation(value, form.state.values.password)
+          },
+          onSubmit: ({ value }) => {
+            return validatePasswordConfirmation(value, form.state.values.password)
+          },
+        }}
+      >
+        {(field) => (
+          <PasswordField
+            disabled={isPending}
+            autoComplete="new-password"
+            error={
+              field.state.meta.isTouched
+                ? firstError(field.state.meta.errors)
+                : undefined
+            }
+            id="sign-up-confirm-password"
+            label="Confirm password"
+            name={field.name}
+            onBlur={field.handleBlur}
+            onChange={(event) => {
+              setResult(null)
+              field.handleChange(event.target.value)
+            }}
+            value={field.state.value}
+          />
+        )}
+      </form.Field>
+
+      <p className="text-sm leading-6 text-muted-foreground">
+        We will send a verification link before you can sign in. The response
+        does not disclose whether an address already has an account.
+      </p>
+
+      <FormStatus result={result} />
+
+      <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
+        {([canSubmit, isSubmitting]) => (
+          <Button
+            className="min-h-11 w-full"
+            disabled={!canSubmit || isSubmitting || isPending}
+            type="submit"
+          >
+            {isSubmitting || isPending ? "Creating account…" : "Create account"}
+          </Button>
+        )}
+      </form.Subscribe>
+
+      <p className="text-center text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link
+          className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href="/sign-in"
+        >
+          Sign in
+        </Link>
+      </p>
+    </form>
+  )
+}

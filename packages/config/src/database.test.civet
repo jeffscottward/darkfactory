@@ -8,12 +8,14 @@ import {
 
 const DATABASE_URL = "postgresql://localhost/darkfactory_test"
 const BETTER_AUTH_SECRET = "a".repeat(32)
+const CONTACT_THROTTLE_SECRET = "c".repeat(32)
 
 const serverEnvFor = (provider: "planetscale" | "postgres" = "planetscale") =>
   parseServerEnv({
     DATABASE_PROVIDER: provider,
     DATABASE_URL,
     BETTER_AUTH_SECRET,
+    CONTACT_THROTTLE_SECRET,
   })
 
 describe "composeDatabaseProfile", ->
@@ -58,6 +60,7 @@ describe "composeDatabaseProfile", ->
         parseServerEnv({
           DATABASE_PROVIDER: "planetscale",
           BETTER_AUTH_SECRET,
+          CONTACT_THROTTLE_SECRET,
         }),
         { connectionString: "postgresql://hyperdrive.internal/darkfactory_test" },
       )
@@ -72,12 +75,14 @@ describe "composeDatabaseProfile", ->
         DATABASE_PROVIDER: "unsupported",
         DATABASE_URL: invalidDatabaseUrl,
         BETTER_AUTH_SECRET,
+        CONTACT_THROTTLE_SECRET,
       })
     const parseUnsupportedProvider = () =>
       parseServerEnv({
         DATABASE_PROVIDER: "unsupported",
         DATABASE_URL,
         BETTER_AUTH_SECRET,
+        CONTACT_THROTTLE_SECRET,
       })
 
     expect(parseInvalidDatabaseUrl).toThrow(

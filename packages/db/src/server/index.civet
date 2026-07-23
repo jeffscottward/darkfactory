@@ -18,17 +18,51 @@ export {
   DatabaseConflictError,
   DatabasePersistenceError,
   InvalidRepositoryInputError,
+  OptimisticConcurrencyError,
   createAddressRepository,
   createFeatureItemRepository,
   createProfileRepository,
   createRepositories,
   createUserPreferencesRepository,
 } from "./repositories.civet"
+export {
+  AdminUsersPersistenceError,
+  InvalidAdminUsersCursorError,
+  createAdminUsersRepository,
+  decodeAdminUsersCursor,
+  encodeAdminUsersCursor,
+} from "./admin-users-repository.civet"
+export type {
+  AdminUserSummary,
+  AdminUsersCursorKey,
+  AdminUsersRepository,
+  AdminUsersSearchInput,
+  AdminUsersSearchResult,
+} from "./admin-users-repository.civet"
+export {
+  DashboardPersistenceError,
+  createDashboardRepository,
+} from "./dashboard-repository.civet"
+export type {
+  DashboardFeatureSummary,
+  DashboardRepository,
+} from "./dashboard-repository.civet"
+export { createContactThrottleRepository } from "./contact-throttle-repository.civet"
+export type {
+  ContactThrottleRepository,
+  ContactThrottleRepositoryOptions,
+  ContactThrottleResult,
+} from "./contact-throttle-repository.civet"
 export type {
   AddressRepository,
   CreateAddressInput,
   CreateFeatureItemInput,
   FeatureItemRepository,
+  FeatureListFilters,
+  OptimisticAddressIdInput,
+  OptimisticAddressUpdateInput,
+  OptimisticProfileInput,
+  OptimisticUserPreferencesInput,
   FeatureMutationContext,
   ProfileRepository,
   Repositories,
@@ -58,6 +92,7 @@ export {
 } from "../seeds/index.civet"
 export type {
   EnsureSeedIdentity,
+  PrepareSeedIdentities,
   DevelopmentEnvironment,
   SeedDevelopmentOptions,
   SeedDevelopmentResult,

@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  compileCivetSnapshot,
+  deriveWorkspaceAliases,
+  rewriteWorkspaceAliases,
+} from "./corpus.civet"
+
+const manifests = [{
+  directory: "packages/api",
+  source: JSON.stringify({
+    name: "@darkfactory/api",
+    exports: {
+      ".": { import: "./src/index.civet" },
+      "./server": { import: "./src/server/index.civet" },
+    },
+  }),
+}, {
+  directory: "packages/db",
+  source: JSON.stringify({
+    name: "@darkfactory/db",
+    exports: {
+      ".": { import: "./src/index.civet" },
+      "./server": { import: "./src/server/index.civet" },
+    },
+  }),
+}]
+
+describe("Civet-aware Graphify corpus", () => {
+  it("derives exact longest-first workspace aliases and rejects traversal", () => {
+    const aliases = deriveWorkspaceAliases(manifests)
+    expect([...aliases]).toEqual([
+      ["@darkfactory/api", "packages/api/src/index.civet"],
+      ["@darkfactory/api/server", "packages/api/src/server/index.civet"],
+      ["@darkfactory/db", "packages/db/src/index.civet"],
+      ["@darkfactory/db/server", "packages/db/src/server/index.civet"],
+    ])
+    expect(() => deriveWorkspaceAliases([{
+      directory: "packages/api",
+      source: JSON.stringify({ name: "@darkfactory/api", exports: { ".": "./../outside.civet" } }),
+    }])).toThrow(/escapes/i)
+  })
+
+  it("rewrites only exact quoted aliases and rejects unknown workspace aliases", () => {
+    const aliases = deriveWorkspaceAliases(manifests)
+    const rewritten = rewriteWorkspaceAliases(
+      "apps/web/src/route.tsx",
+      'import { appContract } from "@darkfactory/api"\nimport { db } from "@darkfactory/db/server"',
+      aliases,
+    )
+    expect(rewritten).toContain('from "../../../packages/api/src/index.tsx"')
+    expect(rewritten).toContain('from "../../../packages/db/src/server/index.tsx"')
+    expect(() => rewriteWorkspaceAliases(
+      "apps/web/src/route.tsx",
+      'import x from "@darkfactory/unknown"',
+      aliases,
+    )).toThrow(/unknown workspace alias/i)
+  })
+
+  it("compiles UTF-8 Civet without executing it and rewrites Civet imports", async () => {
+    const compiled = await compileCivetSnapshot(
+      "packages/api/src/example.civet",
+      'import { db } from "@darkfactory/db/server"\nexport const label = "café"',
+      deriveWorkspaceAliases(manifests),
+    )
+    expect(compiled.path).toBe("packages/api/src/example.tsx")
+    expect(compiled.content).toContain("café")
+    expect(compiled.content).toContain("../../db/src/server/index.tsx")
+  })
+
+  it("rejects generated declarations and compiler errors", async () => {
+    await expect(compileCivetSnapshot(
+      "packages/api/src/index.civet.d.ts",
+      "export {}",
+      new Map(),
+    )).rejects.toThrow(/authored Civet/i)
+    await expect(compileCivetSnapshot(
+      "packages/api/src/broken.civet",
+      "const =",
+      new Map(),
+    )).rejects.toThrow()
+  })
+})

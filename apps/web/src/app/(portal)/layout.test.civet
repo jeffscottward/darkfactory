@@ -1,0 +1,85 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() -> ({
+  getPortalSession: vi.fn(),
+  headers: vi.fn(async -> new Headers({
+    cookie: "better-auth.session_token=opaque",
+    "x-pathname": "/feature-items",
+  })),
+  portalSignInHref: vi.fn(() -> "/sign-in?callbackURL=%2Ffeature-items"),
+  redirect: vi.fn((href: string) -> {
+    throw new Error(`REDIRECT:${href}`)
+  }),
+}))
+
+vi.mock("next/headers", () -> ({ headers: mocks.headers }))
+vi.mock("next/navigation", () -> ({ redirect: mocks.redirect }))
+vi.mock("../../lib/server-session.civet", () -> ({
+  getPortalSession: mocks.getPortalSession,
+  portalSignInHref: mocks.portalSignInHref,
+}))
+vi.mock("../../components/portal-shell.civet", () -> ({
+  PortalShell: "portal-shell",
+}))
+
+import PortalLayout from "./layout.civet"
+
+beforeEach ->
+  vi.clearAllMocks()
+
+describe "PortalLayout", ->
+  it "redirects an anonymous server request before returning protected content", async ->
+    mocks.getPortalSession.mockResolvedValueOnce(null)
+
+    await expect(PortalLayout({ children: "protected" })).rejects.toThrow(
+      "REDIRECT:/sign-in?callbackURL=%2Ffeature-items",
+    )
+    expect(mocks.getPortalSession).toHaveBeenCalledWith({
+      cookieHeader: "better-auth.session_token=opaque",
+    })
+    expect(mocks.redirect).toHaveBeenCalledOnce()
+  
+  it.each([
+    [
+      "member",
+      false,
+      [
+        "/dashboard",
+        "/feature-items",
+        "/account",
+        "/account/profile",
+        "/account/address",
+        "/account/preferences",
+        "/account/security",
+      ],
+    ],
+    [
+      "admin",
+      true,
+      [
+        "/dashboard",
+        "/feature-items",
+        "/account",
+        "/account/profile",
+        "/account/address",
+        "/account/preferences",
+        "/account/security",
+        "/admin/users",
+      ],
+    ],
+  ])("renders role-gated routes for an active %s session", async (role, isAdmin, availableRoutes) ->
+    mocks.getPortalSession.mockResolvedValueOnce({
+      userId: "user-1",
+      name: "Example User",
+      role,
+      status: "active",
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+    })
+
+    const result = await PortalLayout({ children: "protected" })
+
+    expect(result.type).toBe("portal-shell")
+    expect(result.props.children).toBe("protected")
+    expect(result.props.isAdmin).toBe(isAdmin)
+    expect(result.props.availableRoutes).toEqual(availableRoutes)
+  )

@@ -1,0 +1,16 @@
+import { PageHeader, SectionHeader } from "@darkfactory/ui"
+
+import { AdminUsersPageClient } from "../../../../components/admin/admin-users-page-client.civet"
+
+
+export default function AdminUsersPage() {
+  return (
+    <div className="mx-auto w-full max-w-portal space-y-10">
+      <PageHeader description="Find account summaries and review access status." eyebrow="Administration" title="Users" />
+      <section aria-labelledby="user-directory" className="space-y-6">
+        <SectionHeader description="Search text and pagination stay only in this browser view and reset on refresh." id="user-directory" title="User directory" />
+        <AdminUsersPageClient />
+      </section>
+    </div>
+  )
+}

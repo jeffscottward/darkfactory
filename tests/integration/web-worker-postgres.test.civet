@@ -14,9 +14,11 @@ import { join } from "node:path"
 import type { Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
 
+import { ensureDevelopmentSeedIdentity } from "@darkfactory/auth/server"
 import {
   createNodeDatabase,
   migrate,
+  withTransaction,
 } from "@darkfactory/db/server"
 import {
   createPostgresTestDatabase,
@@ -195,6 +197,7 @@ const writeWorkerVars = async (): Promise<void> => {
       "DATABASE_PROVIDER=postgres",
       `DATABASE_URL=${database.databaseUrl}`,
       `BETTER_AUTH_SECRET=${AUTH_SECRET}`,
+      "CONTACT_THROTTLE_SECRET=test-only-contact-throttle-secret-32-characters",
       `BETTER_AUTH_URL=${APP_ORIGIN}`,
       "EMAIL_TRANSPORT=preview",
       "EMAIL_FROM=DarkFactory <noreply@domain.test>",
@@ -357,10 +360,20 @@ const cookieFrom = (response: Response): string => {
   return setCookie.split(";", 1)[0]!
 }
 
+type ThemeRpcPayload = Readonly<{
+  json: Readonly<{
+    themeMode: string
+    palette: string
+    updatedAt: string
+  }>
+  meta: readonly (readonly [1, "updatedAt"])[]
+}>
+
 const rpc = async (
   path: string,
   input: Readonly<Record<string, unknown>>,
   cookie: string,
+  meta: readonly (readonly [1, string])[] = [],
 ): Promise<Response> => fetch(`${baseUrl}/api/orpc/${path}`, {
   method: "POST",
   headers: {
@@ -368,7 +381,10 @@ const rpc = async (
     cookie,
     origin: APP_ORIGIN,
   },
-  body: JSON.stringify({ json: input }),
+  body: JSON.stringify({
+    json: input,
+    ...(meta.length === 0 ? {} : { meta }),
+  }),
 })
 
 describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
@@ -424,16 +440,35 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
     await expect(readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).resolves.toBe(
       `${lockToken}\n`,
     )
-    const signUp = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: APP_ORIGIN },
-      body: JSON.stringify({
-        name: "Worker Runtime Proof",
-        email,
-        password: PASSWORD,
-      }),
+    const identity = {
+      userId: "worker-runtime-user",
+      accountId: "worker-runtime-account",
+      name: "Worker Runtime Proof",
+      email,
+      image: "https://darkfactory.localhost/worker-runtime-avatar.svg",
+      role: "member",
+      password: PASSWORD,
+    } as const
+    const setupIdentity = await ensureDevelopmentSeedIdentity(
+      {
+        environment: "test",
+        secret: AUTH_SECRET,
+        baseURL: APP_ORIGIN,
+        trustedOrigins: [APP_ORIGIN],
+      },
+      [identity],
+    )
+    const setupDatabase = createNodeDatabase({
+      connectionString: database.databaseUrl,
+      maxConnections: 1,
     })
-    expect(signUp.status).toBe(200)
+    try {
+      await withTransaction(setupDatabase.db, async (transaction) => {
+        await setupIdentity(identity, false, transaction)
+      })
+    } finally {
+      await setupDatabase.close()
+    }
 
     const signIn = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
       method: "POST",
@@ -444,26 +479,47 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
     const cookie = cookieFrom(signIn)
 
     const initial = await rpc("preferences/theme/get", {}, cookie)
-    expect(initial.status).toBe(200)
-    await expect(initial.json()).resolves.toEqual({
-      json: { themeMode: "system", palette: "neutral" },
+    const initialBody = await initial.clone().text()
+    expect(initial.status, initialBody).toBe(200)
+    const initialPayload = await initial.json() as ThemeRpcPayload
+    expect(initialPayload).toEqual({
+      json: {
+        themeMode: "system",
+        palette: "neutral",
+        updatedAt: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        ),
+      },
+      meta: [[1, "updatedAt"]],
     })
 
     const updated = await rpc(
       "preferences/theme/update",
-      { themeMode: "dark", palette: "violet" },
+      {
+        themeMode: "dark",
+        palette: "violet",
+        expectedUpdatedAt: initialPayload.json.updatedAt,
+      },
       cookie,
+      [[1, "expectedUpdatedAt"]],
     )
     expect(updated.status).toBe(200)
-    await expect(updated.json()).resolves.toEqual({
-      json: { themeMode: "dark", palette: "violet" },
+    const updatedPayload = await updated.json() as ThemeRpcPayload
+    expect(updatedPayload).toEqual({
+      json: {
+        themeMode: "dark",
+        palette: "violet",
+        updatedAt: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        ),
+      },
+      meta: [[1, "updatedAt"]],
     })
+    expect(updatedPayload.json.updatedAt).not.toBe(initialPayload.json.updatedAt)
 
     const reloaded = await rpc("preferences/theme/get", {}, cookie)
     expect(reloaded.status).toBe(200)
-    await expect(reloaded.json()).resolves.toEqual({
-      json: { themeMode: "dark", palette: "violet" },
-    })
+    await expect(reloaded.json()).resolves.toEqual(updatedPayload)
 
     const stored = await database.query<{
       mode: string

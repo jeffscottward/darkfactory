@@ -70,6 +70,7 @@
   "devDependencies": {
     "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

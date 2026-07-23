@@ -1,0 +1,45 @@
+import { afterEach, describe, expect, it } from "vitest"
+
+import { graphProcessEnvironment } from "./system.civet"
+
+const SENTINELS = {
+  GEMINI_API_KEY: "sentinel-gemini-secret",
+  GOOGLE_API_KEY: "sentinel-google-secret",
+  GRAPHIFY_GEMINI_MODEL: "sentinel-provider-model",
+  DATABASE_URL: "postgres://sentinel-secret",
+}
+
+const previous = Object.fromEntries(
+  Object.keys(SENTINELS).map((name) => [name, process.env[name]]),
+)
+
+afterEach(() => {
+  for (const [name, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
+})
+
+describe("Graphify process environment", () => {
+  it("never forwards provider or application secrets to extract", () => {
+    Object.assign(process.env, SENTINELS)
+
+    const environment = graphProcessEnvironment({})
+
+    for (const name of Object.keys(SENTINELS)) expect(environment[name]).toBeUndefined()
+  })
+
+  it("never forwards provider or application secrets to path and keeps explicit safe additions", () => {
+    Object.assign(process.env, SENTINELS)
+
+    const environment = graphProcessEnvironment({
+      GRAPHIFY_QUERY_LOG_DISABLE: "1",
+      GEMINI_API_KEY: "explicit-sentinel-secret",
+      CUSTOM_SECRET: "explicit-custom-secret",
+    })
+
+    for (const name of Object.keys(SENTINELS)) expect(environment[name]).toBeUndefined()
+    expect(environment.GRAPHIFY_QUERY_LOG_DISABLE).toBe("1")
+    expect(environment.CUSTOM_SECRET).toBeUndefined()
+  })
+})

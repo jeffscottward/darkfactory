@@ -1,0 +1,103 @@
+"use client"
+
+import {
+  createApiClient,
+  type AccountProfileOutput,
+  type AddressCreateInput,
+  type AddressOutput,
+  type AddressUpdateInput,
+  type ApiClient,
+  type PreferencesOutput,
+  type PreferencesUpdateInput,
+  type ProfileUpdateInput,
+} from "@darkfactory/api"
+
+export interface AccountGateway {
+  readonly getProfile: () => Promise<AccountProfileOutput>
+  readonly updateProfile: (input: ProfileUpdateInput) => Promise<AccountProfileOutput>
+  readonly listAddresses: () => Promise<AddressOutput[]>
+  readonly createAddress: (input: AddressCreateInput) => Promise<AddressOutput>
+  readonly updateAddress: (input: AddressUpdateInput) => Promise<AddressOutput>
+  readonly removeAddress: (id: string, expectedUpdatedAt: Date) => Promise<Readonly<{ removed: true }>>
+  readonly setPrimaryAddress: (id: string, expectedUpdatedAt: Date) => Promise<AddressOutput>
+  readonly getPreferences: () => Promise<PreferencesOutput>
+  readonly updatePreferences: (input: PreferencesUpdateInput) => Promise<PreferencesOutput>
+}
+
+export const createAccountGateway = (client: ApiClient): AccountGateway => ({
+  getProfile: () => client.account.profile.get({}),
+  updateProfile: (input) => client.account.profile.update(input),
+  listAddresses: () => client.account.addresses.list({}),
+  createAddress: (input) => client.account.addresses.create(input),
+  updateAddress: (input) => client.account.addresses.update(input),
+  removeAddress: (id, expectedUpdatedAt) => client.account.addresses.remove({ id, expectedUpdatedAt }),
+  setPrimaryAddress: (id, expectedUpdatedAt) => client.account.addresses.setPrimary({ id, expectedUpdatedAt }),
+  getPreferences: () => client.preferences.get({}),
+  updatePreferences: (input) => client.preferences.update(input),
+})
+
+export const createBrowserAccountGateway = (): AccountGateway =>
+  createAccountGateway(createApiClient({ baseUrl: window.location.origin }))
+
+const errorCode = (error: unknown): string | null => {
+  if (typeof error !== "object" || error === null) return null
+  const code = Reflect.get(error, "code")
+  if (typeof code === "string") return code
+  const data = Reflect.get(error, "data")
+  if (typeof data !== "object" || data === null) return null
+  const nestedCode = Reflect.get(data, "code")
+  return typeof nestedCode === "string" ? nestedCode : null
+}
+
+export const isAmbiguousAccountFailure = (error: unknown): boolean =>
+  errorCode(error) === null
+
+export interface LatestRequestGuard {
+  readonly next: () => number
+  readonly isLatest: (generation: number) => boolean
+}
+
+export const createLatestRequestGuard = (): LatestRequestGuard => {
+  let generation = 0
+  return {
+    next: () => ++generation,
+    isLatest: (candidate) => candidate === generation,
+  }
+}
+
+export type AccountFailureKind =
+  | "unauthorized"
+  | "forbidden"
+  | "not-found"
+  | "conflict"
+  | "retryable"
+
+export const accountFailureKind = (error: unknown): AccountFailureKind => {
+  switch (errorCode(error)) {
+    case "UNAUTHORIZED": return "unauthorized"
+    case "FORBIDDEN": return "forbidden"
+    case "NOT_FOUND": return "not-found"
+    case "CONFLICT": return "conflict"
+    default: return "retryable"
+  }
+}
+
+export const safeAccountFeedback = (error: unknown): string => {
+  switch (errorCode(error)) {
+    case "UNAUTHORIZED":
+      return "Your session ended. Sign in again to continue."
+    case "FORBIDDEN":
+      return "You do not have permission to change this account."
+    case "VALIDATION_ERROR":
+    case "BAD_REQUEST":
+      return "Check the highlighted fields and try again."
+    case "NOT_FOUND":
+      return "That account record is no longer available. Reload and try again."
+    case "CONFLICT":
+      return "This account changed elsewhere. Reload before trying again."
+    case "STORAGE_ERROR":
+      return "Account storage is temporarily unavailable. Try again."
+    default:
+      return "The request could not be completed. Try again."
+  }
+}

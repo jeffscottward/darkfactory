@@ -39,6 +39,8 @@ const repositories = (repository = featureItems()): Repositories => ({
   addresses: {} as Repositories["addresses"],
   userPreferences: {} as Repositories["userPreferences"],
   featureItems: repository,
+  adminUsers: {} as Repositories["adminUsers"],
+  dashboard: {} as Repositories["dashboard"],
 })
 
 const session = (role: "member" | "admin"): SafeAuthSession => ({
@@ -77,6 +79,10 @@ const clientFor = (
     const context = createApiContext(request, {
       repositories: repositories(repository),
       requestId: "request-1",
+      capabilities: {
+        ai: false, emailDelivery: false, analytics: false,
+        telemetryExport: false, storage: false, errorTracking: false,
+      },
       requireSession: async () => {
         if (requestSession === null)
           throw new AuthAuthorizationError(
@@ -146,7 +152,7 @@ describe "DF-045/051 production context to middleware to Fetch handler", ->
         featureItems({ listByOwner }),
       ).admin.featureItems.list({ ownerId: "member-1" }),
     ).resolves.toEqual([item])
-    expect(listByOwner).toHaveBeenCalledWith("member-1")
+    expect(listByOwner).toHaveBeenCalledWith("member-1", { limit: 50 })
 
   it "rejects invalid contract input before the service", async ->
     await expectError(
@@ -167,6 +173,10 @@ describe "DF-045/051 production context to middleware to Fetch handler", ->
       createApiContext(request, {
         repositories: repositories(),
         requestId: "request-1",
+        capabilities: {
+          ai: false, emailDelivery: false, analytics: false,
+          telemetryExport: false, storage: false, errorTracking: false,
+        },
         requireSession: async () => session("member"),
         requireRole: async () => session("admin"),
       }),

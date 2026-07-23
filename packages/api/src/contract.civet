@@ -1,5 +1,13 @@
 import { oc } from "@orpc/contract"
 import { z } from "zod"
+import {
+  accountContract,
+  preferencesContract,
+} from "./contracts/account.civet"
+import { adminUsersContract } from "./contracts/admin-users.civet"
+import { createDashboardContract } from "./contracts/dashboard.civet"
+import { contactContract } from "./contracts/contact.civet"
+
 
 export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const
 export const THEME_MODES = ["light", "dark", "system"] as const
@@ -21,8 +29,13 @@ export const ThemePaletteSchema = z.enum(THEME_PALETTES)
 export const ThemePreferenceSchema = z.object({
   themeMode: ThemeModeSchema,
   palette: ThemePaletteSchema,
+  updatedAt: z.date().nullable(),
 })
-export const UpdateThemePreferenceSchema = ThemePreferenceSchema.strict()
+export const UpdateThemePreferenceSchema = z.object({
+  themeMode: ThemeModeSchema,
+  palette: ThemePaletteSchema,
+  expectedUpdatedAt: z.date().nullable(),
+}).strict()
 
 export type JsonValue =
   | string
@@ -78,6 +91,12 @@ export const EXPECTED_API_ERRORS = {
 
 const featureItem = oc.errors(EXPECTED_API_ERRORS)
 
+export const FeatureItemListInputSchema = OwnerScopeSchema.extend({
+  query: z.string().trim().min(1).max(200).optional(),
+  status: FeatureItemStatusSchema.optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+}).strict()
+
 const list = featureItem
   .route({
     method: "GET",
@@ -86,7 +105,7 @@ const list = featureItem
     summary: "List feature items",
     tags: ["Feature items"],
   })
-  .input(OwnerScopeSchema)
+  .input(FeatureItemListInputSchema)
   .output(z.array(FeatureItemSchema))
 
 const get = featureItem
@@ -157,6 +176,10 @@ const archive = featureItem
   .input(ItemScopeSchema)
   .output(FeatureItemSchema)
 
+export const AdminFeatureItemListInputSchema = FeatureItemListInputSchema.extend({
+  ownerId: z.string().min(1),
+})
+
 const adminList = featureItem
   .route({
     method: "GET",
@@ -165,13 +188,14 @@ const adminList = featureItem
     summary: "List feature items for an owner",
     tags: ["Admin"],
   })
-  .input(z.object({ ownerId: z.string().min(1) }))
+  .input(AdminFeatureItemListInputSchema)
   .output(z.array(FeatureItemSchema))
 
 export const THEME_PREFERENCE_ERRORS = {
   BAD_REQUEST: { status: 400, message: "Invalid request" },
   UNAUTHORIZED: { status: 401, message: "Authentication required" },
   FORBIDDEN: { status: 403, message: "Forbidden" },
+  CONFLICT: { status: 409, message: "Theme preference conflict" },
   VALIDATION_ERROR: {
     status: 422,
     message: "Theme preference validation failed",
@@ -206,17 +230,29 @@ const updateThemePreference = themePreference
   .input(UpdateThemePreferenceSchema)
   .output(ThemePreferenceSchema)
 
+const dashboardDefinitions = createDashboardContract(FeatureItemSchema)
+
 export const appContract = {
   featureItems: { list, get, create, update, changeStatus, archive },
-  admin: { featureItems: { list: adminList } },
+  contact: contactContract,
+  account: accountContract,
+  admin: {
+    featureItems: { list: adminList },
+    users: adminUsersContract,
+  },
   preferences: {
+    get: preferencesContract.get,
+    update: preferencesContract.update,
     theme: { get: getThemePreference, update: updateThemePreference },
   },
+  dashboard: dashboardDefinitions.contract,
 }
 
 export type FeatureItemInput = z.input<typeof FeatureItemSchema>
 export type FeatureItemOutput = z.infer<typeof FeatureItemSchema>
 export type FeatureItemStatus = z.infer<typeof FeatureItemStatusSchema>
+export type FeatureItemListInput = z.input<typeof FeatureItemListInputSchema>
+export type AdminFeatureItemListInput = z.input<typeof AdminFeatureItemListInputSchema>
 
 export type ThemeMode = z.infer<typeof ThemeModeSchema>
 export type ThemePalette = z.infer<typeof ThemePaletteSchema>
@@ -224,3 +260,56 @@ export type ThemePreferenceOutput = z.infer<typeof ThemePreferenceSchema>
 export type UpdateThemePreferenceInput = z.input<
   typeof UpdateThemePreferenceSchema
 >
+
+export {
+  ACCOUNT_ERRORS,
+  ADDRESS_TYPES,
+  PROFILE_VISIBILITIES,
+  AccountProfileSchema,
+  AddressCreateSchema,
+  AddressIdSchema,
+  AddressSchema,
+  AddressUpdateSchema,
+  IsoDateSchema,
+  PreferenceFieldsSchema,
+  PreferencesSchema,
+  PreferencesUpdateSchema,
+  ProfileSchema,
+  ProfileFieldsSchema,
+  ProfileUpdateSchema,
+} from "./contracts/account.civet"
+export type {
+  AccountProfileOutput,
+  AddressCreateInput,
+  AddressOutput,
+  AddressUpdateInput,
+  PreferencesOutput,
+  PreferencesUpdateInput,
+  ProfileOutput,
+  ProfileUpdateInput,
+} from "./contracts/account.civet"
+export {
+  ADMIN_USERS_ERRORS,
+  AdminUserSummarySchema,
+  AdminUsersListInputSchema,
+  AdminUsersListOutputSchema,
+} from "./contracts/admin-users.civet"
+export type {
+  AdminUserSummaryOutput,
+  AdminUsersListInput,
+  AdminUsersListOutput,
+} from "./contracts/admin-users.civet"
+export {
+  DASHBOARD_ERRORS,
+  CapabilityProjectionSchema,
+} from "./contracts/dashboard.civet"
+export type { CapabilityProjection } from "./contracts/dashboard.civet"
+export {
+  CONTACT_ERRORS,
+  ContactSubmitInputSchema,
+  ContactSubmitOutputSchema,
+} from "./contracts/contact.civet"
+export type {
+  ContactSubmitInput,
+  ContactSubmitOutput,
+} from "./contracts/contact.civet"

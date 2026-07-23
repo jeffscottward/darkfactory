@@ -1,3 +1,4 @@
+import { SQL } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
 
 export type AuthTableContract = Readonly<{
@@ -30,6 +31,10 @@ export type AuthTableContract = Readonly<{
   }>[];
 }>;
 
+export type AuthTableContractOptions = Readonly<{
+  ignoreExtraIndexExpressions?: boolean;
+}>;
+
 const literalDefault = (value: unknown): string | number | boolean | null =>
   value === null ||
   typeof value === "string" ||
@@ -47,7 +52,8 @@ const indexedColumnName = (column: unknown): string => {
 };
 
 export const tableContract = (
-  table: Parameters<typeof getTableConfig>[0]
+  table: Parameters<typeof getTableConfig>[0],
+  options: AuthTableContractOptions = {}
 ): AuthTableContract => {
   const config = getTableConfig(table);
   return {
@@ -77,10 +83,20 @@ export const tableContract = (
         left.columns.join().localeCompare(right.columns.join())
       ),
     indexes: config.indexes
-      .map((index) => ({
-        columns: index.config.columns.map(indexedColumnName),
-        unique: index.config.unique,
-      }))
+      .flatMap((index) => {
+        if (
+          options.ignoreExtraIndexExpressions === true &&
+          index.config.columns.some((column) => column instanceof SQL)
+        ) {
+          return [];
+        }
+        return [
+          {
+            columns: index.config.columns.map(indexedColumnName),
+            unique: index.config.unique,
+          },
+        ];
+      })
       .sort((left, right) =>
         left.columns.join().localeCompare(right.columns.join())
       ),

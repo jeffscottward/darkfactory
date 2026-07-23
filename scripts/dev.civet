@@ -1,0 +1,9 @@
+import { runDevelopmentCli } from "./dev/cli.civet"
+import { nodeLifecycleFileSystem, nodeProcessAdapter } from "./dev/system.civet"
+
+process.exitCode = await runDevelopmentCli(process.argv.slice(2), {
+  process: nodeProcessAdapter,
+  files: nodeLifecycleFileSystem,
+  writeOutput: (value) => process.stdout.write(value),
+  writeError: (value) => process.stderr.write(value),
+})

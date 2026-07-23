@@ -10,13 +10,17 @@ import {
   requireSession,
 } from "@darkfactory/auth/server"
 import { createNodeDatabase, migrate } from "@darkfactory/db/server"
-import type { EmailDeliveryResult, EmailPort } from "@darkfactory/email"
+import type {
+  EmailDeliveryResult,
+  EmailPort,
+  EmailVerificationEmailInput,
+} from "@darkfactory/email"
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
   type PostgresTestDatabase,
 } from "@darkfactory/testkit/postgres"
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 const BASE_URL = "https://darkfactory.localhost"
 const AUTH_SECRET = "integration-auth-secret-with-at-least-32-characters"
@@ -45,6 +49,7 @@ let testDatabase: PostgresTestDatabase
 let databaseResource: ReturnType<typeof createNodeDatabase>
 let backgroundTasks: Promise<unknown>[]
 let deliveries: ResetDelivery[]
+let verificationDeliveries: EmailVerificationEmailInput[]
 let email: EmailPort
 let auth: AuthInstance
 let handler: (request: Request) => Promise<Response>
@@ -88,8 +93,9 @@ const cookieFrom = (response: Response): string => {
 const signUp = async (
   emailAddress = "member@example.test",
   overrides: Readonly<Record<string, unknown>> = {},
-): Promise<HttpResult> =>
-  call(
+): Promise<HttpResult> => {
+  const deliveryCount = verificationDeliveries.length
+  const result = await call(
     jsonRequest("/sign-up/email", {
       name: "Member Example",
       email: emailAddress,
@@ -97,6 +103,17 @@ const signUp = async (
       ...overrides,
     }),
   )
+  await Promise.all(backgroundTasks)
+  backgroundTasks = []
+  const verification = verificationDeliveries[deliveryCount]
+  if (result.response.status === 200 && verification !== undefined) {
+    const verified = await auth.handler(new Request(verification.verificationUrl, {
+      headers: { origin: BASE_URL },
+    }))
+    expect(verified.status).toBeLessThan(400)
+  }
+  return result
+}
 
 const signIn = async (
   emailAddress = "member@example.test",
@@ -136,6 +153,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     await resetDatabase()
     backgroundTasks = []
     deliveries = []
+    verificationDeliveries = []
     email = {
       sendPasswordReset: async (input) => {
         if (!input.recipientName) {
@@ -146,6 +164,14 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
           status: "previewed",
           provider: "preview",
           artifactPath: `/tmp/reset-${deliveries.length}.html`,
+        }
+      },
+      sendEmailVerification: async (input) => {
+        verificationDeliveries.push(input)
+        return {
+          status: "previewed",
+          provider: "preview",
+          artifactPath: `/tmp/auth-verification-${verificationDeliveries.length}.html`,
         }
       },
     }
@@ -329,6 +355,24 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       )
     }
 
+    const verificationRequested = await call(
+      jsonRequest("/send-verification-email", {
+        email: "repairable@example.test",
+        callbackURL: `${BASE_URL}/dashboard`,
+      }),
+    )
+    expect(verificationRequested.response.status).toBe(200)
+    expect(verificationRequested.body).toEqual({ status: true })
+    await Promise.all(backgroundTasks)
+    backgroundTasks = []
+    const repairVerification = verificationDeliveries.at(-1)!
+    const repairVerified = await auth.handler(
+      new Request(repairVerification.verificationUrl, {
+        headers: { origin: BASE_URL },
+      }),
+    )
+    expect(repairVerified.status).toBeLessThan(400)
+
     const repairedSignIns = await Promise.all([
       signIn("repairable@example.test"),
       signIn("repairable@example.test"),
@@ -372,6 +416,38 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     )
     expect(rows).toEqual([{ role: "member", status: "active" }])
   
+  it "denies unverified sign-in safely and supports a generic resend path", async ->
+    const signup = await call(
+      jsonRequest("/sign-up/email", {
+        name: "Unverified Member",
+        email: "unverified@example.test",
+        password: INITIAL_PASSWORD,
+      }),
+    )
+    expect(signup.response.status).toBe(200)
+    await Promise.all(backgroundTasks)
+    backgroundTasks = []
+    expect(verificationDeliveries).toHaveLength(1)
+    const denied = await call(
+      jsonRequest("/sign-in/email", {
+        email: "unverified@example.test",
+        password: INITIAL_PASSWORD,
+      }),
+    )
+    expect(denied.response.status).toBe(403)
+    expect(denied.body).toMatchObject({ code: "EMAIL_NOT_VERIFIED" })
+    const resent = await call(
+      jsonRequest("/send-verification-email", {
+        email: "unverified@example.test",
+        callbackURL: `${BASE_URL}/dashboard`,
+      }),
+    )
+    expect(resent.response.status).toBe(200)
+    expect(resent.body).toEqual({ status: true })
+    await Promise.all(backgroundTasks)
+    backgroundTasks = []
+    expect(verificationDeliveries).toHaveLength(2)
+
   it "DF-042 signs in, restores a session, signs out, and emits canonical secure cookies", async ->
     await signUp()
     const signedIn = await signIn()
@@ -553,6 +629,11 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
             })
         })
       },
+      sendEmailVerification: async () => ({
+        status: "previewed",
+        provider: "preview",
+        artifactPath: "/tmp/delayed-auth-verification.html",
+      }),
     }
     const delayedAuth = createAuth({
       database: databaseResource.db,
@@ -655,6 +736,12 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
         code: "EMAIL_DELIVERY_DISABLED",
         retryable: false,
       }),
+      sendEmailVerification: async () => ({
+        status: "failed",
+        provider: "disabled",
+        code: "EMAIL_DELIVERY_DISABLED",
+        retryable: false,
+      }),
     }
     const failingAuth = createAuth({
       database: databaseResource.db,
@@ -726,8 +813,12 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     expect(counts).toEqual({ profile_count: 1, preference_count: 1 })
   
   it "creates and closes a request database in the direct auth route", async ->
-    const originalDatabaseUrl = process.env["DATABASE_URL"]
-    process.env["DATABASE_URL"] = testDatabase.databaseUrl
+    vi.stubEnv("DATABASE_URL", testDatabase.databaseUrl)
+    vi.stubEnv("BETTER_AUTH_SECRET", AUTH_SECRET)
+    vi.stubEnv(
+      "CONTACT_THROTTLE_SECRET",
+      "integration-contact-throttle-secret-with-at-least-32-characters",
+    )
     try {
       const [before] = await testDatabase.query<{ connection_count: number }>(
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()",
@@ -746,8 +837,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       expect(response.status).toBe(200)
       expect(after?.connection_count).toBe(before?.connection_count)
     } finally {
-      if (originalDatabaseUrl === undefined) delete process.env["DATABASE_URL"]
-      else process.env["DATABASE_URL"] = originalDatabaseUrl
+      vi.unstubAllEnvs()
     }
 
   it "bridges Better Auth through Web Request/Response and rejects untrusted origins", async ->

@@ -1,0 +1,234 @@
+"use client"
+
+import type {
+  AddressCreateInput,
+  AddressOutput,
+  AddressUpdateInput,
+} from "@darkfactory/api"
+import { Button } from "@darkfactory/ui"
+import { Plus } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+
+import {
+  accountFailureKind,
+  createBrowserAccountGateway,
+  createLatestRequestGuard,
+  isAmbiguousAccountFailure,
+  safeAccountFeedback,
+} from "./account-client.civet"
+import type { AccountFeedback } from "./account-feedback.civet"
+import { AddressBook, type AddressBookState } from "./address-book.civet"
+import { AddressForm } from "./address-form.civet"
+
+type FormTarget = "new" | AddressOutput | null
+const upsertAddress = (
+  addresses: readonly AddressOutput[],
+  result: AddressOutput,
+): AddressOutput[] => {
+  const found = addresses.some((address) => address.id === result.id)
+  return found
+    ? addresses.map((address) => address.id === result.id ? result : address)
+    : [result, ...addresses]
+}
+
+
+export const AddressPageClient = () => {
+  const [gateway] = useState(createBrowserAccountGateway)
+  const [state, setState] = useState<AddressBookState>({ type: "loading" })
+  const [formTarget, setFormTarget] = useState<FormTarget>(null)
+  const [formVersion, setFormVersion] = useState(0)
+  const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<AccountFeedback | null>(null)
+  const [formFeedback, setFormFeedback] = useState<AccountFeedback | null>(null)
+  const [requests] = useState(createLatestRequestGuard)
+  const mutationLock = useRef(false)
+  const focusOrigin = useRef<HTMLElement | null>(null)
+
+  const commitAddresses = useCallback((addresses: readonly AddressOutput[]) => {
+    setState({ type: "ready", addresses })
+    setFormTarget((current) => {
+      if (current === null || current === "new") return current
+      return addresses.find((address) => address.id === current.id) ?? current
+    })
+  }, [])
+
+  const refresh = useCallback(async (warnOnFailure: boolean): Promise<boolean> => {
+    const request = requests.next()
+    try {
+      const addresses = await gateway.listAddresses()
+      if (requests.isLatest(request)) commitAddresses(addresses)
+      return requests.isLatest(request)
+    } catch {
+      if (requests.isLatest(request) && warnOnFailure) {
+        setFeedback({ tone: "info", message: "The change was saved, but the address list could not be refreshed." })
+      }
+      return false
+    }
+  }, [commitAddresses, gateway, requests])
+
+  const load = useCallback(async () => {
+    const request = requests.next()
+    setFeedback(null)
+    setState({ type: "loading" })
+    try {
+      const addresses = await gateway.listAddresses()
+      if (requests.isLatest(request)) commitAddresses(addresses)
+    } catch (error) {
+      if (requests.isLatest(request)) {
+        setState({ type: "error", kind: accountFailureKind(error), message: safeAccountFeedback(error) })
+      }
+    }
+  }, [commitAddresses, gateway, requests])
+
+  useEffect(() => {
+    void load()
+    return undefined
+  }, [load])
+
+  const save = async (input: AddressCreateInput | AddressUpdateInput): Promise<void> => {
+    if (mutationLock.current) return
+    mutationLock.current = true
+    setBusyId("form")
+    setFormFeedback(null)
+    try {
+      const result = "id" in input
+        ? await gateway.updateAddress(input)
+        : await gateway.createAddress(input)
+      setState((current) => current.type === "ready"
+        ? { type: "ready", addresses: upsertAddress(current.addresses, result) }
+        : current)
+      setFormTarget(null)
+      setFormVersion((version) => version + 1)
+      setFeedback({ tone: "success", message: "Address saved." })
+      void refresh(true)
+    } catch (error) {
+      if (!("id" in input) && isAmbiguousAccountFailure(error)) {
+        setFormTarget(null)
+        setFormVersion((version) => version + 1)
+        const refreshed = await refresh(false)
+        if (refreshed) {
+          setFeedback({ tone: "info", message: "The address creation outcome could not be confirmed. Review the refreshed list before creating another." })
+        } else {
+          setState({ type: "error", kind: "retryable", message: "The address creation outcome is unknown. Reload the address list before creating another." })
+        }
+      } else if (accountFailureKind(error) === "conflict") {
+        await refresh(false)
+        setFormFeedback({ tone: "error", message: "This address changed elsewhere. Your entries are preserved; review them and save again." })
+      } else {
+        setFormFeedback({ tone: "error", message: safeAccountFeedback(error) })
+      }
+    } finally {
+      mutationLock.current = false
+      setBusyId(null)
+    }
+  }
+
+  const setPrimary = async (address: AddressOutput): Promise<void> => {
+    if (mutationLock.current) return
+    mutationLock.current = true
+    setBusyId(address.id)
+    setFeedback(null)
+    try {
+      const result = await gateway.setPrimaryAddress(address.id, address.updatedAt)
+      setState((current) => current.type === "ready"
+        ? { type: "ready", addresses: current.addresses.map((entry) => ({ ...entry, isPrimary: entry.id === result.id })) }
+        : current)
+      setFeedback({ tone: "success", message: "Primary address updated." })
+      void refresh(true)
+    } catch (error) {
+      if (accountFailureKind(error) === "conflict") await refresh(false)
+      setFeedback({ tone: "error", message: safeAccountFeedback(error) })
+    } finally {
+      mutationLock.current = false
+      setBusyId(null)
+    }
+  }
+
+  const remove = async (address: AddressOutput): Promise<void> => {
+    if (mutationLock.current || confirmingRemoveId !== address.id) return
+    mutationLock.current = true
+    setBusyId(address.id)
+    setFeedback(null)
+    try {
+      await gateway.removeAddress(address.id, address.updatedAt)
+      setState((current) => current.type === "ready"
+        ? { type: "ready", addresses: current.addresses.filter((entry) => entry.id !== address.id) }
+        : current)
+      setConfirmingRemoveId(null)
+      setFeedback({ tone: "success", message: "Address removed." })
+      window.setTimeout(() => document.getElementById("add-address")?.focus(), 0)
+      void refresh(true)
+    } catch (error) {
+      if (accountFailureKind(error) === "conflict") await refresh(false)
+      setFeedback({ tone: "error", message: safeAccountFeedback(error) })
+    } finally {
+      mutationLock.current = false
+      setBusyId(null)
+    }
+  }
+
+  const rememberFocus = (): void => {
+    focusOrigin.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+  }
+
+  const restoreFocus = (): void => {
+    const target = focusOrigin.current
+    window.setTimeout(() => target?.focus(), 0)
+  }
+
+  const openCreate = () => {
+    rememberFocus()
+    setFormFeedback(null)
+    setFormTarget("new")
+    setFormVersion((version) => version + 1)
+  }
+
+  return (
+    <div className="space-y-6">
+      {state.type === "ready" && state.addresses.length > 0 && formTarget === null ? (
+        <Button disabled={busyId !== null} id="add-address" onClick={openCreate} variant="secondary"><Plus aria-hidden="true" className="size-4" />Add an address</Button>
+      ) : null}
+      {formTarget === null ? null : (
+        <AddressForm
+          disabled={busyId !== null}
+          feedback={formFeedback}
+          initialAddress={formTarget === "new" ? null : formTarget}
+          key={`${formTarget === "new" ? "new" : formTarget.id}-${formVersion}`}
+          onCancel={() => {
+            setFormFeedback(null)
+            setFormTarget(null)
+            restoreFocus()
+          }}
+          onSave={save}
+        />
+      )}
+      <AddressBook
+        busyId={busyId}
+        confirmingRemoveId={confirmingRemoveId}
+        feedback={feedback}
+        onCancelRemove={() => {
+          setConfirmingRemoveId(null)
+          restoreFocus()
+        }}
+        onConfirmRemove={(address) => void remove(address)}
+        onCreate={openCreate}
+        onEdit={(address) => {
+          rememberFocus()
+          setFormFeedback(null)
+          setFormTarget(address)
+          setFormVersion((version) => version + 1)
+        }}
+        onRequestRemove={(address) => {
+          rememberFocus()
+          setConfirmingRemoveId(address.id)
+        }}
+        onRetry={() => void load()}
+        onSetPrimary={(address) => void setPrimary(address)}
+        state={state}
+      />
+    </div>
+  )
+}

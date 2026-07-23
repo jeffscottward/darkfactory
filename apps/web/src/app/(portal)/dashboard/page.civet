@@ -1,0 +1,60 @@
+import { createApiClient } from "@darkfactory/api"
+import { PageHeader } from "@darkfactory/ui"
+import { headers } from "next/headers"
+import { redirect } from "next/navigation"
+
+import {
+  DashboardContent,
+  type DashboardSummaryState,
+} from "../../../components/portal/dashboard-content.civet"
+import {
+  createAuthenticatedDashboardFetch,
+  type DashboardTransportFetch,
+} from "../../../lib/dashboard-transport.civet"
+import {
+  getPortalSession,
+  portalSignInHref,
+  resolvePortalAppUrl,
+} from "../../../lib/server-session.civet"
+
+export const metadata = { title: "Dashboard" }
+
+
+export const loadDashboardSummaryState = async (
+  cookieHeader: string,
+  fetcher: DashboardTransportFetch = globalThis.fetch,
+  timeoutMs?: number,
+): Promise<DashboardSummaryState> => {
+  try {
+    const appUrl = resolvePortalAppUrl()
+    const client = createApiClient({
+      baseUrl: appUrl,
+      fetch: createAuthenticatedDashboardFetch(cookieHeader, appUrl.origin, fetcher, timeoutMs),
+    })
+    return { type: "ready", summary: await client.dashboard.summary({}) }
+  } catch {
+    return { type: "error" }
+  }
+}
+
+export default async function DashboardPage() {
+  const requestHeaders = await headers()
+  const cookieHeader = requestHeaders.get("cookie")
+  const session = await getPortalSession({ cookieHeader })
+  if (session === null) redirect(portalSignInHref(requestHeaders))
+
+  const summaryState = cookieHeader === null
+    ? { type: "error" } as const
+    : await loadDashboardSummaryState(cookieHeader)
+
+  return (
+    <div className="space-y-10">
+      <PageHeader
+        description="Current-user session authority, owner-scoped feature records, and observed request capability state."
+        eyebrow="Overview"
+        title="Dashboard"
+      />
+      <DashboardContent session={session} summaryState={summaryState} />
+    </div>
+  )
+}

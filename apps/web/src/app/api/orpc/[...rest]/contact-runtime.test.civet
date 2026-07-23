@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  CONTACT_REQUEST_MAX_BYTES,
+  bufferContactRequest,
+  createContactThrottleKey,
+} from "./contact-runtime.civet"
+
+const secret = "test-only-contact-hmac-secret-32-characters"
+
+const requestWith = (ip?: string) => new Request(
+  "https://darkfactory.localhost/api/orpc/contact/submit",
+  ip === undefined ? {} : { headers: { "cf-connecting-ip": ip } },
+)
+
+describe "DF-076 contact throttle hashing", ->
+  it "uses Web Crypto HMAC and never returns the raw trusted Cloudflare IP", async ->
+    const key = await createContactThrottleKey(requestWith("203.0.113.42"), secret)
+
+    expect(key).toMatch(/^[a-f0-9]{64}$/)
+    expect(key).not.toContain("203.0.113.42")
+    expect(await createContactThrottleKey(requestWith("203.0.113.42"), secret)).toBe(key)
+    expect(await createContactThrottleKey(requestWith("203.0.113.43"), secret)).not.toBe(key)
+    expect(
+      await createContactThrottleKey(requestWith("203.0.113.42"), secret, "edge"),
+    ).not.toBe(key)
+
+  it "uses one fixed unknown bucket for absent or malformed values", async ->
+    const unknown = await createContactThrottleKey(requestWith(), secret)
+
+    expect(await createContactThrottleKey(requestWith("attacker-controlled-value"), secret)).toBe(unknown)
+    expect(await createContactThrottleKey(requestWith(" "), secret)).toBe(unknown)
+    expect(await createContactThrottleKey(requestWith(":::"), secret)).toBe(unknown)
+    expect(await createContactThrottleKey(requestWith("[2001:db8::1]"), secret)).toBe(unknown)
+
+  it "accepts bounded IPv6 text without exposing it", async ->
+    const address = "2001:db8::1"
+    const key = await createContactThrottleKey(requestWith(address), secret)
+
+    expect(key).toMatch(/^[a-f0-9]{64}$/)
+    expect(key).not.toContain(address)
+
+    expect(
+      await createContactThrottleKey(requestWith("2001:0db8:0:0:0:0:0:1"), secret),
+    ).toBe(key)
+
+describe "DF-076 bounded contact request body", ->
+  it "rebuilds a bounded request when Content-Length is absent", async ->
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        body: JSON.stringify({ message: "bounded" }),
+      },
+    )
+    request.headers.delete("content-length")
+
+    const result = await bufferContactRequest(request)
+
+    expect(result.tooLarge).toBe(false)
+    const maximumValidPayload = JSON.stringify({
+      name: "😀".repeat(100),
+      email: `${"a".repeat(240)}@example.test`,
+      subject: "😀".repeat(200),
+      message: "😀".repeat(5_000),
+      website: "",
+    })
+    expect(new TextEncoder().encode(maximumValidPayload).byteLength).toBeLessThan(
+      CONTACT_REQUEST_MAX_BYTES,
+    )
+    expect(await result.request.text()).toBe('{"message":"bounded"}')
+
+  it "stops an oversized chunked stream before handing it to oRPC", async ->
+    const chunk = new Uint8Array(CONTACT_REQUEST_MAX_BYTES)
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(chunk)
+        controller.enqueue(new Uint8Array([1]))
+        controller.close()
+      },
+    })
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        body: stream,
+        duplex: "half",
+      } as RequestInit,
+    )
+
+    await expect(bufferContactRequest(request)).resolves.toMatchObject({
+      tooLarge: true,
+    })
+
+  it "rejects a declared oversized body without consuming it", async ->
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: { "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1) },
+        body: "small",
+      },
+    )
+
+    await expect(bufferContactRequest(request)).resolves.toMatchObject({
+      tooLarge: true,
+    })

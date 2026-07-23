@@ -5,15 +5,24 @@ import type {
   SpanHandle,
   WaitUntil,
 } from "@darkfactory/observability/port"
+import type { CapabilityProjection } from "../contract.civet"
+import type {
+  ContactDeliveryPort,
+  ContactThrottlePort,
+} from "./contact-service.civet"
 
 export type ApiContext = Readonly<{
   requestId: string
   repositories: Repositories
+  capabilities: CapabilityProjection
   requireSession: () => Promise<SafeAuthSession>
   requireRole: (role: UserRole) => Promise<SafeAuthSession>
   semanticEvents?: SemanticEventPort
   span?: SpanHandle
   waitUntil?: WaitUntil
+  contactDelivery?: ContactDeliveryPort
+  contactThrottle?: ContactThrottlePort
+  contactThrottleKey?: string
 }>
 
 export type ApiRequestIdOptions = Readonly<{
@@ -23,6 +32,7 @@ export type ApiRequestIdOptions = Readonly<{
 
 export type ApiContextDependencies = Readonly<{
   repositories: Repositories
+  capabilities: CapabilityProjection
   requireSession: (headers: Headers) => Promise<SafeAuthSession>
   requireRole: (headers: Headers, role: UserRole) => Promise<SafeAuthSession>
   requestId?: string
@@ -30,6 +40,9 @@ export type ApiContextDependencies = Readonly<{
   semanticEvents?: SemanticEventPort
   span?: SpanHandle
   waitUntil?: WaitUntil
+  contactDelivery?: ContactDeliveryPort
+  contactThrottle?: ContactThrottlePort
+  contactThrottleKey?: string
 }>
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
@@ -57,6 +70,7 @@ export const createApiContext = (
 ): ApiContext => ({
   requestId: resolveApiRequestId(request, dependencies),
   repositories: dependencies.repositories,
+  capabilities: dependencies.capabilities,
   requireSession: () => dependencies.requireSession(request.headers),
   requireRole: (role) => dependencies.requireRole(request.headers, role),
   ...(dependencies.semanticEvents === undefined
@@ -66,4 +80,13 @@ export const createApiContext = (
   ...(dependencies.waitUntil === undefined
     ? {}
     : { waitUntil: dependencies.waitUntil }),
+  ...(dependencies.contactDelivery === undefined
+    ? {}
+    : { contactDelivery: dependencies.contactDelivery }),
+  ...(dependencies.contactThrottle === undefined
+    ? {}
+    : { contactThrottle: dependencies.contactThrottle }),
+  ...(dependencies.contactThrottleKey === undefined
+    ? {}
+    : { contactThrottleKey: dependencies.contactThrottleKey }),
 })

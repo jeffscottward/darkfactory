@@ -346,7 +346,7 @@ describe "root metadata and theme contract", ->
       "/sign-up",
     ])
 describe "shared shell semantics", ->
-  it "renders one skip link, one main target, distinct nav labels, and no guessed SSR active link", ->
+  it "renders exposed public navigation without guessing the active SSR link", ->
     const html = markup(
       createElement(RootDocument, {
         children: createElement(PublicShell, {
@@ -359,15 +359,19 @@ describe "shared shell semantics", ->
     expect(html.match(/href="#main-content"/g)).toHaveLength(1)
     expect(html.match(/id="main-content"/g)).toHaveLength(1)
     expect(html.match(/<main/g)).toHaveLength(1)
-    expect(html).not.toContain('href="/sign-in"')
-
-    expect(html).not.toContain('aria-label="Primary navigation"')
-    expect(html).not.toContain('aria-label="Footer navigation"')
-    expect(html).not.toContain('aria-label="Open navigation"')
+    expect(html).toContain('href="/sign-in"')
+    expect(html).toContain('aria-label="Primary navigation"')
+    expect(html).toContain('aria-label="Footer navigation"')
+    expect(html).toContain('aria-label="Open navigation"')
+    expect(html).toContain('href="/contact"')
+    expect(html).toContain('href="/legal/privacy"')
+    expect(html).toContain('href="/legal/terms"')
     expect(getPublicNavigationModel(["/"]).showNavigation).toBe(false)
     const fanout = getPublicNavigationModel(["/", "/sign-in"])
     expect(fanout.showNavigation).toBe(true)
     expect(fanout.primary.map((item) => item.href)).toEqual(["/"])
+    expect(fanout.support).toEqual([])
+    expect(fanout.all.map((item) => item.href)).toEqual(["/", "/sign-in"])
     expect(fanout.signIn?.href).toBe("/sign-in")
     const fanoutHtml = markup(withUiState(createElement(PublicShell, {
       availableRoutes: ["/", "/sign-in"],
@@ -376,6 +380,9 @@ describe "shared shell semantics", ->
     expect(fanoutHtml).toContain('aria-label="Primary navigation"')
     expect(fanoutHtml).toContain('aria-label="Open navigation"')
     expect(fanoutHtml.match(/href="\/sign-in"/g)).toHaveLength(2)
+    expect(fanoutHtml).not.toContain('href="/contact"')
+    expect(fanoutHtml).not.toContain('href="/legal/privacy"')
+    expect(fanoutHtml).not.toContain('href="/legal/terms"')
   it "links the hero CTA to a substantive, focusable capability section", ->
     const home = markup(createElement(HomePage))
     expect(home).toContain('href="#foundation-capabilities"')
@@ -387,7 +394,7 @@ describe "shared shell semantics", ->
     expect(home).toContain("Replaceable boundaries")
     expect(home).toContain("Observable operations")
 
-  it "renders portal and auth shells with semantic, composable, fail-closed landmarks", ->
+  it "renders portal and auth shells with semantic role-gated landmarks", ->
     const portal = markup(withUiState(createElement(PortalShell, {
       children: createElement("h1", {}, "Portal page"),
     })))
@@ -396,7 +403,8 @@ describe "shared shell semantics", ->
     })))
     expect(portal.match(/id="main-content"/g)).toHaveLength(1)
     expect(portal).toContain("<aside")
-    expect(portal).toContain("Portal destinations appear as their page implementations become available.")
+    expect(portal).toContain('href="/dashboard"')
+    expect(portal).toContain('href="/account/security"')
     expect(portal).not.toContain("authenticated")
     expect(auth.match(/id="main-content"/g)).toHaveLength(1)
     expect(portal).not.toContain('href="/admin/users"')
@@ -406,4 +414,11 @@ describe "shared shell semantics", ->
       isAdmin: true,
     })))
     expect(adminPortal).toContain('href="/admin/users"')
+    expect(adminPortal).not.toContain('href="/dashboard"')
+    expect(adminPortal).not.toContain('href="/account"')
+    expect(adminPortal).not.toContain('href="/feature-items"')
+    expect(adminPortal).not.toContain('href="/account/profile"')
+    expect(adminPortal).not.toContain('href="/account/address"')
+    expect(adminPortal).not.toContain('href="/account/preferences"')
+    expect(adminPortal).not.toContain('href="/account/security"')
     expect(auth).toContain("<main")

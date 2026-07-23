@@ -1,0 +1,157 @@
+"use client"
+
+import {
+  type PreferencesOutput,
+  type PreferencesUpdateInput,
+} from "@darkfactory/api"
+import { useForm } from "@tanstack/react-form"
+import { Button, Label } from "@darkfactory/ui"
+
+import {
+  AccountFeedbackMessage,
+  type AccountFeedback,
+} from "./account-feedback.civet"
+
+const visibilities = ["private", "members", "public"] as const
+
+const labelFor = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1)
+
+const preferenceToggles = [
+  {
+    name: "emailNotifications",
+    label: "Email notifications",
+    help: "Receive account and security notices by email.",
+  },
+  {
+    name: "productUpdates",
+    label: "Product updates",
+    help: "Receive release and starter maintenance updates.",
+  },
+  {
+    name: "analyticsConsent",
+    label: "Analytics consent",
+    help: "Allow privacy-aware product analytics for this account.",
+  },
+  {
+    name: "personalizationConsent",
+    label: "Personalization consent",
+    help: "Allow saved preferences to tailor the portal experience.",
+  },
+] as const
+
+const preferencesDefaults = (preferences: PreferencesOutput) => ({
+  emailNotifications: preferences.emailNotifications,
+  productUpdates: preferences.productUpdates,
+  analyticsConsent: preferences.analyticsConsent,
+  personalizationConsent: preferences.personalizationConsent,
+  profileVisibility: preferences.profileVisibility,
+})
+
+export const changedPreferencesInput = (
+  initial: PreferencesOutput,
+  current: ReturnType<typeof preferencesDefaults>,
+): PreferencesUpdateInput => {
+  const patch: Record<string, unknown> = { expectedUpdatedAt: initial.updatedAt }
+  for (const field of Object.keys(current) as (keyof typeof current)[]) {
+    if (current[field] !== initial[field]) patch[field] = current[field]
+  }
+  return patch as PreferencesUpdateInput
+}
+
+export interface PreferencesFormProps {
+  readonly feedback?: AccountFeedback | null | undefined
+  readonly initialPreferences: PreferencesOutput
+  readonly onSave: (input: PreferencesUpdateInput) => Promise<unknown> | unknown
+}
+
+export const PreferencesForm = ({ feedback, initialPreferences, onSave }: PreferencesFormProps) => {
+  const form = useForm({
+    defaultValues: preferencesDefaults(initialPreferences),
+    onSubmit: async ({ value }) => {
+      await onSave(changedPreferencesInput(initialPreferences, value))
+    },
+  })
+
+  return (
+    <form
+      className="space-y-8"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void form.handleSubmit()
+      }}
+    >
+      <AccountFeedbackMessage feedback={feedback} />
+      <section aria-labelledby="appearance-summary" className="space-y-2">
+        <h2 className="font-heading text-lg font-semibold text-foreground" id="appearance-summary">Appearance</h2>
+        <p className="text-sm text-foreground">
+          Current appearance: {labelFor(initialPreferences.themeMode)} mode with the {labelFor(initialPreferences.palette)} palette.
+        </p>
+        <p className="max-w-reading text-sm text-muted-foreground">
+          Use Theme settings in the top bar to change mode or palette.
+        </p>
+      </section>
+
+      <fieldset className="space-y-3 border-t border-border pt-6">
+        <legend className="font-heading text-lg font-semibold text-foreground">Notifications and consent</legend>
+        {preferenceToggles.map((definition) => (
+          <form.Field key={definition.name} name={definition.name}>
+            {(field) => (
+              <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2" htmlFor={definition.name}>
+                <input
+                  checked={field.state.value}
+                  className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  id={definition.name}
+                  name={definition.name}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-foreground">{definition.label}</span>
+                  <span className="block text-sm text-muted-foreground">{definition.help}</span>
+                </span>
+              </label>
+            )}
+          </form.Field>
+        ))}
+      </fieldset>
+
+      <form.Field name="profileVisibility">
+        {(field) => (
+          <div className="max-w-md space-y-2 border-t border-border pt-6">
+            <Label htmlFor="profileVisibility">Profile visibility</Label>
+            <p className="text-sm text-muted-foreground" id="profileVisibility-help">
+              Choose who may see your non-sensitive profile summary.
+            </p>
+            <select
+              aria-describedby="profileVisibility-help"
+              className="min-h-11 w-full rounded-sm border border-border-strong bg-surface px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              id="profileVisibility"
+              name="profileVisibility"
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value as PreferencesOutput["profileVisibility"])}
+              value={field.state.value}
+            >
+              {visibilities.map((visibility) => <option key={visibility} value={visibility}>{labelFor(visibility)}</option>)}
+            </select>
+          </div>
+        )}
+      </form.Field>
+
+      <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
+        {([canSubmit, isDirty, isSubmitting]) => (
+          <Button
+            disabled={!canSubmit || !isDirty || isSubmitting}
+            loading={isSubmitting}
+            loadingLabel="Saving preferences"
+            type="submit"
+          >
+            Save preferences
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
+  )
+}

@@ -1,0 +1,156 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import { AccountNavigation } from "./account-navigation.civet"
+import {
+  createAccountGateway,
+  createLatestRequestGuard,
+  safeAccountFeedback,
+} from "./account-client.civet"
+import { changedProfileInput, ProfileForm } from "./profile-form.civet"
+import { changedPreferencesInput, PreferencesForm } from "./preferences-form.civet"
+
+const profile = {
+  firstName: "Alice",
+  lastName: "Adams",
+  displayName: "Alice A.",
+  avatarUrl: "https://placehold.co/96x96",
+  phone: "+1 202-555-0100",
+  businessName: "Alice & Co.",
+  jobTitle: "Builder",
+  biography: "Maintains a domain-neutral example profile.",
+  timezone: "America/New_York",
+  locale: "en-US",
+  dateOfBirth: "1990-01-02",
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+}
+
+const preferences = {
+  themeMode: "system" as const,
+  palette: "neutral" as const,
+  emailNotifications: true,
+  productUpdates: false,
+  analyticsConsent: false,
+  personalizationConsent: true,
+  profileVisibility: "private" as const,
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+}
+
+describe "account navigation", ->
+  it "links the summary to every distinct account task", ->
+    const html = renderToStaticMarkup(<AccountNavigation currentPath="/account" />)
+    for (const href of [
+      "/account/profile",
+      "/account/address",
+      "/account/preferences",
+      "/account/security",
+    ]) expect(html).toContain(`href="${href}"`)
+    expect(html).toContain("Profile")
+    expect(html).toContain("Addresses")
+    expect(html).toContain("Preferences")
+    expect(html).toContain("Security")
+
+  it "exposes the active destination without relying on color", ->
+    const html = renderToStaticMarkup(<AccountNavigation currentPath="/account/profile" />)
+    expect(html).toContain("aria-current=\"page\"")
+
+describe "typed account gateway", ->
+  it "uses the real profile and full-preference procedures", async ->
+    const accountProfile = {
+      identity: { email: "alice@domain.test", emailVerified: true },
+      profile,
+    }
+    const account = {
+      profile: {
+        get: vi.fn(async -> accountProfile),
+        update: vi.fn(async -> accountProfile),
+      },
+      addresses: {
+        list: vi.fn(async -> []),
+        create: vi.fn(),
+        update: vi.fn(),
+        remove: vi.fn(),
+        setPrimary: vi.fn(),
+      },
+    }
+    const apiPreferences = {
+      get: vi.fn(async -> preferences),
+      update: vi.fn(async -> preferences),
+    }
+    const gateway = createAccountGateway({
+      account,
+      preferences: apiPreferences,
+    } as never)
+
+    await expect(gateway.getProfile()).resolves.toMatchObject({ profile: { displayName: "Alice A." } })
+    await expect(gateway.updateProfile({ expectedUpdatedAt: profile.updatedAt, jobTitle: profile.jobTitle })).resolves.toMatchObject({ profile: { businessName: "Alice & Co." } })
+    await expect(gateway.getPreferences()).resolves.toMatchObject({ themeMode: "system" })
+    await expect(gateway.updatePreferences({ expectedUpdatedAt: preferences.updatedAt, productUpdates: true })).resolves.toMatchObject({ profileVisibility: "private" })
+    expect(account.profile.get).toHaveBeenCalledWith({})
+    expect(apiPreferences.get).toHaveBeenCalledWith({})
+
+  it.each([
+    ["UNAUTHORIZED", "session ended"],
+    ["FORBIDDEN", "permission"],
+    ["VALIDATION_ERROR", "highlighted fields"],
+    ["STORAGE_ERROR", "temporarily unavailable"],
+  ])("maps %s to safe feedback", (code, expected) ->
+    expect(safeAccountFeedback({ code })).toContain(expected)
+  )
+
+  it "never exposes raw failures", ->
+    expect(safeAccountFeedback(new Error("postgres://user:secret@db.internal/private"))).not.toContain("postgres")
+    expect(safeAccountFeedback(new Error("postgres://user:secret@db.internal/private"))).not.toContain("secret")
+
+  it "suppresses responses from superseded request generations", ->
+    const requests = createLatestRequestGuard()
+    const first = requests.next()
+    const second = requests.next()
+    expect(requests.isLatest(first)).toBe(false)
+    expect(requests.isLatest(second)).toBe(true)
+
+describe "persisted account forms", ->
+  it "initializes every profile field from authoritative state", ->
+    const html = renderToStaticMarkup(<ProfileForm initialProfile={profile} onSave={vi.fn()} />)
+    for (const field of [
+      "firstName",
+      "lastName",
+      "displayName",
+      "avatarUrl",
+      "phone",
+      "businessName",
+      "jobTitle",
+      "biography",
+      "timezone",
+      "locale",
+      "dateOfBirth",
+    ]) expect(html).toContain(`name="${field}"`)
+    expect(html).toContain("Alice &amp; Co.")
+    expect(html).toContain("1990-01-02")
+    expect(html).toContain("Save profile")
+
+  it "submits only changed profile fields to avoid stale-tab clobbering", ->
+    expect(changedProfileInput(profile, { ...profile, jobTitle: "Maintainer" })).toEqual({
+      expectedUpdatedAt: profile.updatedAt,
+      jobTitle: "Maintainer",
+    })
+
+  it "renders complete durable preferences without a reduced-motion setting", ->
+    const html = renderToStaticMarkup(<PreferencesForm initialPreferences={preferences} onSave={vi.fn()} />)
+    for (const field of [
+      "emailNotifications",
+      "productUpdates",
+      "analyticsConsent",
+      "personalizationConsent",
+      "profileVisibility",
+    ]) expect(html).toContain(`name="${field}"`)
+    expect(html).not.toContain("name=\"themeMode\"")
+    expect(html).not.toContain("name=\"palette\"")
+    expect(html).toContain("Use Theme settings in the top bar")
+    expect(html).not.toContain("reducedMotion")
+    expect(html).not.toContain("Reduced motion")
+    expect(html).toContain("Save preferences")
+    expect(changedPreferencesInput(preferences, { ...preferences, productUpdates: true })).toEqual({
+      expectedUpdatedAt: preferences.updatedAt,
+      productUpdates: true,
+    })

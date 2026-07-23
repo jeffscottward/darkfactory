@@ -64,10 +64,50 @@ export const ADMIN_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   { label: "Users", href: "/admin/users", icon: Wrench },
 ])
 
-export const EXPOSED_ROUTE_PATHS = Object.freeze(["/"] as const)
+export const EXPOSED_ROUTE_PATHS = Object.freeze([
+  "/",
+  "/features",
+  "/solutions",
+  "/resources",
+  "/about",
+  "/sign-in",
+  "/contact",
+  "/legal/privacy",
+  "/legal/terms",
+  "/sign-up",
+  "/forgot-password",
+  "/reset-password",
+  "/dashboard",
+  "/feature-items",
+  "/account",
+  "/account/profile",
+  "/account/address",
+  "/account/preferences",
+  "/account/security",
+  "/admin/users",
+] as const)
 
 export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze({
   "/": "(public)/page.civet",
+  "/features": "(public)/features/page.civet",
+  "/solutions": "(public)/solutions/page.civet",
+  "/resources": "(public)/resources/page.civet",
+  "/about": "(public)/about/page.civet",
+  "/sign-in": "(auth)/sign-in/page.civet",
+  "/contact": "(public)/contact/page.civet",
+  "/legal/privacy": "(public)/legal/privacy/page.civet",
+  "/legal/terms": "(public)/legal/terms/page.civet",
+  "/sign-up": "(auth)/sign-up/page.civet",
+  "/forgot-password": "(auth)/forgot-password/page.civet",
+  "/reset-password": "(auth)/reset-password/page.civet",
+  "/dashboard": "(portal)/dashboard/page.civet",
+  "/feature-items": "(portal)/feature-items/page.civet",
+  "/account": "(portal)/account/page.civet",
+  "/account/profile": "(portal)/account/profile/page.civet",
+  "/account/address": "(portal)/account/address/page.civet",
+  "/account/preferences": "(portal)/account/preferences/page.civet",
+  "/account/security": "(portal)/account/security/page.civet",
+  "/admin/users": "(portal)/admin/users/page.civet",
 })
 
 export const ALL_NAVIGATION: readonly NavigationItem[] = Object.freeze([

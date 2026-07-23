@@ -1,0 +1,32 @@
+import Link from "next/link"
+
+import { AuthPanel } from "../../../components/auth/auth-panel.civet"
+import { EmailActionForm } from "../../../components/auth/email-action-form.civet"
+import { SessionRedirect } from "../../../components/auth/session-redirect.civet"
+
+export const metadata = {
+  title: "Forgot password",
+  description: "Request a one-time DarkFactory password reset link.",
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <AuthPanel
+      description="Request a one-time link to choose a new password."
+      eyebrow="Account recovery"
+      footer={
+        <Link
+          className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href="/sign-in"
+        >
+          Return to sign in
+        </Link>
+      }
+      title="Reset access without exposing the account."
+    >
+      <SessionRedirect callbackURL="/dashboard">
+        <EmailActionForm operation="password-reset" />
+      </SessionRedirect>
+    </AuthPanel>
+  )
+}

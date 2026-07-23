@@ -1,0 +1,136 @@
+"use client"
+
+import {
+  createApiClient,
+  type ApiClient,
+  type FeatureItemOutput,
+  type FeatureItemStatus,
+} from "@darkfactory/api"
+
+export interface CreateFeatureItemInput {
+  readonly name: string
+  readonly description: string
+}
+
+export interface UpdateFeatureItemInput {
+  readonly name?: string
+  readonly description?: string
+}
+
+export interface FeatureItemListInput {
+  readonly limit?: number
+  readonly query?: string
+  readonly status?: FeatureItemStatus
+}
+
+export interface FeatureItemGateway {
+  readonly list: (input?: FeatureItemListInput) => Promise<FeatureItemOutput[]>
+  readonly get: (id: string) => Promise<FeatureItemOutput>
+  readonly create: (input: CreateFeatureItemInput) => Promise<FeatureItemOutput>
+  readonly update: (
+    id: string,
+    input: UpdateFeatureItemInput,
+  ) => Promise<FeatureItemOutput>
+  readonly changeStatus: (
+    id: string,
+    status: FeatureItemStatus,
+  ) => Promise<FeatureItemOutput>
+  readonly archive: (id: string) => Promise<FeatureItemOutput>
+}
+
+export const createFeatureItemGateway = (client: ApiClient): FeatureItemGateway => ({
+  list: (input = {}) => client.featureItems.list(input),
+  get: (id) => client.featureItems.get({ id }),
+  create: (input) => client.featureItems.create(input),
+  update: (id, input) => client.featureItems.update({ id, ...input }),
+  changeStatus: (id, status) => client.featureItems.changeStatus({ id, status }),
+  archive: (id) => client.featureItems.archive({ id }),
+})
+
+export const createBrowserFeatureItemGateway = (): FeatureItemGateway =>
+  createFeatureItemGateway(createApiClient({ baseUrl: window.location.origin }))
+
+const errorCode = (error: unknown): string | null => {
+  if (typeof error !== "object" || error === null) return null
+  const code = Reflect.get(error, "code")
+  if (typeof code === "string") return code
+  const data = Reflect.get(error, "data")
+  if (typeof data !== "object" || data === null) return null
+  const nestedCode = Reflect.get(data, "code")
+  return typeof nestedCode === "string" ? nestedCode : null
+}
+
+export type FeatureFailureKind =
+  | "validation"
+  | "unauthorized"
+  | "forbidden"
+  | "not-found"
+  | "conflict"
+  | "transient"
+  | "unknown"
+
+export interface FeatureFailure {
+  readonly kind: FeatureFailureKind
+  readonly message: string
+}
+
+export const classifyFeatureFailure = (error: unknown): FeatureFailure => {
+  switch (errorCode(error)) {
+    case "VALIDATION_ERROR":
+    case "BAD_REQUEST":
+      return { kind: "validation", message: "Check the highlighted fields and try again." }
+    case "UNAUTHORIZED":
+      return { kind: "unauthorized", message: "Your session ended. Sign in again to continue." }
+    case "FORBIDDEN":
+      return { kind: "forbidden", message: "You do not have access to that feature item." }
+    case "NOT_FOUND":
+      return { kind: "not-found", message: "That feature item is no longer available." }
+    case "CONFLICT":
+      return { kind: "conflict", message: "The feature item changed elsewhere. Reload and try again." }
+    case "STORAGE_ERROR":
+      return { kind: "transient", message: "Feature item storage is temporarily unavailable. Try again." }
+    default:
+      return { kind: "unknown", message: "The request could not be completed. Try again." }
+  }
+}
+
+export const safeFeatureFeedback = (error: unknown): string =>
+  classifyFeatureFailure(error).message
+
+export const synchronizeRetainedFeatureItem = async (
+  gateway: FeatureItemGateway,
+  retainedItem: FeatureItemOutput,
+  input: CreateFeatureItemInput,
+): Promise<FeatureItemOutput> => {
+  const name = input.name.trim()
+  if (retainedItem.name === name && retainedItem.description === input.description) {
+    return retainedItem
+  }
+  return gateway.update(retainedItem.id, {
+    name,
+    description: input.description,
+  })
+}
+
+export const restorePortalFocus = (
+  target: Readonly<{ focus: () => void }> | null,
+): void => {
+  if (target === null) return
+  queueMicrotask(() => target.focus())
+}
+
+export const upsertFeatureItem = (
+  items: readonly FeatureItemOutput[],
+  nextItem: FeatureItemOutput,
+): FeatureItemOutput[] => {
+  const index = items.findIndex((item) => item.id === nextItem.id)
+  if (index === -1) return [nextItem, ...items]
+  const nextItems = items.slice()
+  nextItems[index] = nextItem
+  return nextItems
+}
+
+export const withoutFeatureItem = (
+  items: readonly FeatureItemOutput[],
+  id: string,
+): FeatureItemOutput[] => items.filter((item) => item.id !== id)

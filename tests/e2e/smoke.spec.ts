@@ -50,7 +50,7 @@ test("home page exposes its foundation identity and journey", async ({
 
   await page.goto("/");
 
-  await expect(page).toHaveTitle("DarkFactory");
+  await expect(page).toHaveTitle("Application foundation | DarkFactory");
   await expect(
     page
       .getByRole("banner")
@@ -59,7 +59,7 @@ test("home page exposes its foundation identity and journey", async ({
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Production structure without a borrowed business domain.",
+      name: "Build the product. Keep the foundation legible.",
     })
   ).toBeVisible();
 
@@ -73,7 +73,7 @@ test("home page exposes its foundation identity and journey", async ({
   await foundationLink.click();
 
   const capabilities = page.getByRole("region", {
-    name: "Boundaries you can see, test, and replace.",
+    name: "A small core with visible extension points.",
   });
   await expect(page).toHaveURL(
     new URL("/#foundation-capabilities", baseURL).href
@@ -83,17 +83,42 @@ test("home page exposes its foundation identity and journey", async ({
 });
 
 for (const viewport of viewportCases) {
-  test(`sole-route shell works at ${viewport.name} width`, async ({ page }) => {
+  test(`public shell navigation works at ${viewport.name} width`, async ({
+    page,
+  }) => {
     await page.setViewportSize({
       height: viewport.height,
       width: viewport.width,
     });
     await page.goto("/", { waitUntil: "networkidle" });
 
-    await expect(page.getByRole("navigation")).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Open navigation" })
-    ).toHaveCount(0);
+    await expect(page.getByRole("navigation")).toHaveCount(
+      viewport.name === "mobile" ? 1 : 2
+    );
+    const navigationTrigger = page.getByRole("button", {
+      name: "Open navigation",
+    });
+    if (viewport.name === "mobile") {
+      await expect(navigationTrigger).toBeVisible();
+      await navigationTrigger.click();
+      await expect(
+        page.getByRole("navigation", { name: "Mobile navigation" })
+      ).toBeVisible();
+      await expect(
+        page
+          .getByRole("navigation", { name: "Mobile navigation" })
+          .getByRole("link", { name: "Contact" })
+      ).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(
+        page.getByRole("navigation", { name: "Mobile navigation" })
+      ).toBeHidden();
+    } else {
+      await expect(navigationTrigger).toHaveCount(0);
+      await expect(
+        page.getByRole("navigation", { name: "Primary navigation" })
+      ).toBeVisible();
+    }
 
     const themeTrigger = page.getByRole("button", {
       name: THEME_TRIGGER_NAME,

@@ -1,0 +1,22 @@
+import { headers } from "next/headers"
+import { redirect } from "next/navigation"
+import type { ReactNode } from "react"
+
+import {
+  getPortalSession,
+  portalSignInHref,
+} from "../../../lib/server-session.civet"
+
+export default async function AdminLayout({ children }: { readonly children: ReactNode }) {
+  const requestHeaders = await headers()
+  const session = await getPortalSession({
+    cookieHeader: requestHeaders.get("cookie"),
+  })
+  if (session === null) {
+    return redirect(portalSignInHref(requestHeaders))
+  }
+  if (session.role !== "admin") {
+    return redirect("/dashboard")
+  }
+  return <>{children}</>
+}

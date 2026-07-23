@@ -1,0 +1,66 @@
+import { ContactForm } from "../../../components/contact/contact-form.civet"
+import { PublicPage } from "../_components/public-content.civet"
+
+export const metadata = {
+  title: "Contact",
+  description:
+    "Send DarkFactory a bounded contact request and receive a truthful delivery result.",
+}
+
+const expectations = [
+  {
+    title: "A real delivery state",
+    description:
+      "We report whether the message was sent, written to a local preview, or not delivered. Preview and disabled delivery are never presented as sent.",
+  },
+  {
+    title: "A bounded request",
+    description:
+      "Keep the message focused on one question or decision. The form shows each limit before anything leaves the page.",
+  },
+  {
+    title: "A reply, not a subscription",
+    description:
+      "Your contact details are used to handle this request. Submitting the form does not opt you into marketing messages.",
+  },
+] as const
+
+export default function ContactPage() {
+  return (
+    <PublicPage
+      description="Send a focused question about the foundation, its architecture, or how it fits your team. Delivery is reported exactly as it happens—without a fake success state."
+      eyebrow="Contact"
+      title="Talk to the people behind the system."
+    >
+      <section className="grid gap-12 py-16 md:grid-cols-12 md:gap-8 md:py-20">
+        <div className="md:col-span-5">
+          <p className="text-sm font-semibold tracking-wide text-primary">Before you send</p>
+          <h2
+            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            id="contact-expectations-title"
+          >
+            Clear context makes a useful reply possible.
+          </h2>
+          <div
+            aria-labelledby="contact-expectations-title"
+            className="mt-8 divide-y divide-border border-y border-border"
+          >
+            {expectations.map((expectation) => (
+              <div className="py-6" key={expectation.title}>
+                <h3 className="font-heading text-lg font-semibold text-foreground">
+                  {expectation.title}
+                </h3>
+                <p className="mt-2 text-base leading-7 text-muted-foreground">
+                  {expectation.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="md:col-span-6 md:col-start-7">
+          <ContactForm />
+        </div>
+      </section>
+    </PublicPage>
+  )
+}

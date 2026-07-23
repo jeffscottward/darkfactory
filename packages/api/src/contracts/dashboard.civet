@@ -1,0 +1,49 @@
+import { oc } from "@orpc/contract"
+import { z } from "zod"
+
+export const CapabilityProjectionSchema = z.object({
+  ai: z.boolean(),
+  emailDelivery: z.boolean(),
+  analytics: z.boolean(),
+  telemetryExport: z.boolean(),
+  storage: z.boolean(),
+  errorTracking: z.boolean(),
+}).strict()
+
+export const DASHBOARD_ERRORS = {
+  BAD_REQUEST: { status: 400, message: "Invalid request" },
+  UNAUTHORIZED: { status: 401, message: "Authentication required" },
+  FORBIDDEN: { status: 403, message: "Forbidden" },
+  NOT_FOUND: { status: 404, message: "Dashboard resource not found" },
+  CONFLICT: { status: 409, message: "Dashboard conflict" },
+  VALIDATION_ERROR: { status: 422, message: "Dashboard validation failed" },
+  STORAGE_ERROR: { status: 503, message: "Dashboard storage unavailable" },
+} as const
+
+export const createDashboardContract = <Schema extends z.ZodType>(
+  featureItemSchema: Schema,
+) => {
+  const DashboardSummarySchema = z.object({
+    featureItems: z.object({
+      total: z.number().int().nonnegative(),
+      draft: z.number().int().nonnegative(),
+      active: z.number().int().nonnegative(),
+      archived: z.number().int().nonnegative(),
+      recent: z.array(featureItemSchema),
+    }).strict(),
+    capabilities: CapabilityProjectionSchema,
+  }).strict()
+
+  const dashboard = oc.errors(DASHBOARD_ERRORS)
+  const summary = dashboard.route({
+    method: "GET",
+    path: "/dashboard/summary",
+    operationId: "dashboard.summary",
+    summary: "Get the authenticated dashboard summary",
+    tags: ["Dashboard"],
+  }).input(z.object({}).strict()).output(DashboardSummarySchema)
+
+  return { contract: { summary }, schema: DashboardSummarySchema }
+}
+
+export type CapabilityProjection = z.infer<typeof CapabilityProjectionSchema>

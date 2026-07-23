@@ -39,11 +39,16 @@ const email: EmailPort = {
     provider: "preview",
     artifactPath: "/tmp/darkfactory-api-reset.html",
   }),
+  sendEmailVerification: async () => ({
+    status: "previewed",
+    provider: "preview",
+    artifactPath: "/tmp/darkfactory-api-verification.html",
+  }),
 }
 
 const resetDatabase = async (): Promise<void> => {
   await testDatabase.query(
-    'TRUNCATE TABLE "audit_records", "outbox_events", "feature_items", "verification", "session", "account", "profiles", "user_preferences", "user" CASCADE',
+    'TRUNCATE TABLE "audit_records", "outbox_events", "feature_items", "addresses", "verification", "session", "account", "profiles", "user_preferences", "user" CASCADE',
   )
 }
 
@@ -77,6 +82,10 @@ const createIdentity = async (
   expect(signUp.status).toBe(200)
   await Promise.all(backgroundTasks)
   backgroundTasks = []
+  await testDatabase.query(
+    'UPDATE "user" SET email_verified = true WHERE email = $1',
+    [emailAddress],
+  )
 
   if (role === "admin")
     await testDatabase.query('UPDATE "user" SET role = $1 WHERE email = $2', [
@@ -109,6 +118,14 @@ const apiClient = (
       const authenticatedRequest = new Request(request, { headers })
       const context = createApiContext(authenticatedRequest, {
         repositories: createRepositories(databaseResource.db),
+        capabilities: {
+          ai: true,
+          emailDelivery: false,
+          analytics: true,
+          telemetryExport: false,
+          storage: false,
+          errorTracking: false,
+        },
         requireSession: (requestHeaders) => requireSession(auth, requestHeaders),
         requireRole: (requestHeaders, role) => requireRole(auth, requestHeaders, role),
         ...(options.semanticEvents === undefined
@@ -227,6 +244,14 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
       name: "Admin-visible item",
       description: "Still owner-scoped",
     })
+    const excluded = await apiClient(memberCookie).featureItems.create({
+      name: "Different active item",
+      description: "Excluded by admin filters",
+    })
+    await apiClient(memberCookie).featureItems.changeStatus({
+      id: excluded.id,
+      status: "active",
+    })
 
     await expectedError(
       apiClient().admin.featureItems.list({ ownerId }),
@@ -239,9 +264,19 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
       403,
     )
 
-    const visible = await apiClient(adminCookie).admin.featureItems.list({ ownerId })
+    const visible = await apiClient(adminCookie).admin.featureItems.list({
+      ownerId,
+      query: "Admin-visible",
+      status: "draft",
+      limit: 1,
+    })
     expect(visible).toHaveLength(1)
     expect(visible[0]).toMatchObject({ ownerId, name: "Admin-visible item" })
+    await expectedError(
+      apiClient(adminCookie).admin.featureItems.list({ ownerId, limit: 101 }),
+      "BAD_REQUEST",
+      400,
+    )
 
 
   it "persists authenticated theme preferences with defaults, isolation, reload, and one semantic event", async ->
@@ -253,9 +288,12 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
       "UNAUTHORIZED",
       401,
     )
-    await expect(
-      apiClient(memberCookie).preferences.theme.get({}),
-    ).resolves.toEqual({ themeMode: "system", palette: "neutral" })
+    const memberTheme = await apiClient(memberCookie).preferences.theme.get({})
+    expect(memberTheme).toMatchObject({
+      themeMode: "system",
+      palette: "neutral",
+      updatedAt: expect.any(Date),
+    })
 
     const events: SemanticEvent[] = []
     const semanticEvents: SemanticEventPort = {
@@ -275,21 +313,47 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
       }).preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
+        expectedUpdatedAt: memberTheme.updatedAt,
       }),
-    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    ).resolves.toMatchObject({
+      themeMode: "dark",
+      palette: "violet",
+      updatedAt: expect.any(Date),
+    })
+    await expectedError(
+      apiClient(memberCookie).preferences.theme.update({
+        themeMode: "light",
+        palette: "amber",
+        expectedUpdatedAt: memberTheme.updatedAt,
+      }),
+      "CONFLICT",
+      409,
+    )
 
-    await expect(
-      apiClient(memberCookie).preferences.theme.get({}),
-    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    await expect(apiClient(memberCookie).preferences.theme.get({}))
+      .resolves.toMatchObject({
+        themeMode: "dark",
+        palette: "violet",
+        updatedAt: expect.any(Date),
+      })
+    const otherTheme = await apiClient(otherCookie).preferences.theme.get({})
     await expect(
       apiClient(otherCookie).preferences.theme.update({
         themeMode: "light",
         palette: "amber",
+        expectedUpdatedAt: otherTheme.updatedAt,
       }),
-    ).resolves.toEqual({ themeMode: "light", palette: "amber" })
-    await expect(
-      apiClient(memberCookie).preferences.theme.get({}),
-    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    ).resolves.toMatchObject({
+      themeMode: "light",
+      palette: "amber",
+      updatedAt: expect.any(Date),
+    })
+    await expect(apiClient(memberCookie).preferences.theme.get({}))
+      .resolves.toMatchObject({
+        themeMode: "dark",
+        palette: "violet",
+        updatedAt: expect.any(Date),
+      })
 
     const stored = await testDatabase.query<{
       email: string
@@ -343,3 +407,215 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
     expect(events[0]?.eventId).not.toBe("theme-request-1")
     expect(JSON.stringify(events[0])).not.toContain("violet")
     expect(JSON.stringify(events[0])).not.toContain("dark")
+
+  it "persists owner-scoped profile, addresses, and complete preferences with PII-free events", async ->
+    const memberCookie = await createIdentity("account-member@domain.test")
+    const otherCookie = await createIdentity("account-other@domain.test")
+    const events: SemanticEvent[] = []
+    const semanticEvents: SemanticEventPort = {
+      emit: async (event) => {
+        events.push(event)
+        return {
+          structuredEvent: "emitted",
+          span: "skipped",
+          analytics: "skipped",
+        }
+      },
+    }
+    const member = apiClient(memberCookie, {
+      semanticEvents,
+      requestId: "account-integration-request",
+    })
+    const initialProfile = await member.account.profile.get({})
+    expect(initialProfile).toMatchObject({
+      identity: {
+        email: "account-member@domain.test",
+        emailVerified: true,
+      },
+      profile: { timezone: "UTC", locale: "en", dateOfBirth: null },
+    })
+    const profileVersionRows = await testDatabase.query<{ updated_at: Date }>(
+      'SELECT p.updated_at FROM profiles p JOIN "user" u ON u.id = p.user_id WHERE u.email = $1',
+      ["account-member@domain.test"],
+    )
+    expect(initialProfile.profile.updatedAt).toEqual(
+      profileVersionRows[0]!.updated_at,
+    )
+    await expect(member.account.profile.update({
+      expectedUpdatedAt: initialProfile.profile.updatedAt,
+      displayName: "Private Display",
+      biography: "Private biography",
+      timezone: "Europe/Paris",
+      locale: "fr-FR",
+      dateOfBirth: "1990-01-02",
+    })).resolves.toMatchObject({
+      profile: {
+        displayName: "Private Display",
+        timezone: "Europe/Paris",
+        dateOfBirth: "1990-01-02",
+      },
+    })
+    const first = await member.account.addresses.create({
+      type: "home",
+      line1: "1 Private Way",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75001",
+      country: "fr",
+      isPrimary: true,
+    })
+    const second = await member.account.addresses.create({
+      type: "work",
+      line1: "2 Private Way",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75002",
+      country: "FR",
+      isPrimary: false,
+    })
+    expect(first.country).toBe("FR")
+    await member.account.addresses.setPrimary({
+      id: second.id,
+      expectedUpdatedAt: second.updatedAt,
+    })
+    const addresses = await member.account.addresses.list({})
+    expect(addresses.filter((address) => address.isPrimary).map((address) => address.id))
+      .toEqual([second.id])
+    const firstAfterPrimaryChange = addresses.find((address) => address.id === first.id)!
+    await member.account.addresses.remove({
+      id: first.id,
+      expectedUpdatedAt: firstAfterPrimaryChange.updatedAt,
+    })
+    const initialTheme = await member.preferences.theme.get({})
+    await member.preferences.theme.update({
+      themeMode: "dark",
+      palette: "violet",
+      expectedUpdatedAt: initialTheme.updatedAt,
+    })
+    const initialPreferences = await member.preferences.get({})
+    await expect(member.preferences.update({
+      expectedUpdatedAt: initialPreferences.updatedAt,
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+    })).resolves.toMatchObject({
+      themeMode: "dark",
+      palette: "violet",
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+      updatedAt: expect.any(Date),
+    })
+    await expect(apiClient(otherCookie).account.addresses.list({}))
+      .resolves.toEqual([])
+    await expect(apiClient(memberCookie).account.profile.get({}))
+      .resolves.toMatchObject({ profile: { displayName: "Private Display" } })
+
+    expect(events.map((event) => event.name)).toEqual([
+      "account.profile.updated",
+      "account.address.created",
+      "account.address.created",
+      "account.address.primary-set",
+      "account.address.removed",
+      "user-preferences.theme-updated",
+      "user-preferences.updated",
+    ])
+    const serialized = JSON.stringify(events)
+    for (const pii of [
+      "account-member@domain.test",
+      "Private Display",
+      "Private biography",
+      "1 Private Way",
+      "75001",
+      "1990-01-02",
+    ]) expect(serialized).not.toContain(pii)
+
+  it "enforces admin directory policy and serves bounded owner dashboard/search filters", async ->
+    const memberCookie = await createIdentity("directory-member@domain.test")
+    const otherCookie = await createIdentity("directory-other@domain.test")
+    const adminCookie = await createIdentity("directory-admin@domain.test", "admin")
+    const member = apiClient(memberCookie)
+    const draft = await member.featureItems.create({
+      name: "Launch draft",
+      description: "first",
+    })
+    const active = await member.featureItems.create({
+      name: "Literal %_ active",
+      description: "launch second",
+    })
+    await member.featureItems.changeStatus({ id: active.id, status: "active" })
+    const archived = await member.featureItems.create({
+      name: "Launch archived",
+      description: "third",
+    })
+    await member.featureItems.archive({ id: archived.id })
+    await apiClient(otherCookie).featureItems.create({
+      name: "Launch outsider",
+      description: "must not count",
+    })
+
+    await expect(member.featureItems.list({
+      query: "launch",
+      status: "active",
+      limit: 100,
+    })).resolves.toEqual([expect.objectContaining({ id: active.id })])
+    await expect(member.featureItems.list({
+      query: "%_",
+      limit: 50,
+    })).resolves.toEqual([expect.objectContaining({ id: active.id })])
+    await expectedError(
+      member.featureItems.list({ limit: 101 } as never),
+      "BAD_REQUEST",
+      400,
+    )
+    await expect(member.dashboard.summary({})).resolves.toMatchObject({
+      featureItems: {
+        total: 3,
+        draft: 1,
+        active: 1,
+        archived: 1,
+      },
+      capabilities: {
+        ai: true,
+        emailDelivery: false,
+        analytics: true,
+        telemetryExport: false,
+        storage: false,
+        errorTracking: false,
+      },
+    })
+    const dashboard = await member.dashboard.summary({})
+    expect(dashboard.featureItems.recent).toHaveLength(3)
+    expect(dashboard.featureItems.recent.map((item) => item.ownerId))
+      .toEqual([draft.ownerId, draft.ownerId, draft.ownerId])
+
+    await expectedError(
+      apiClient(memberCookie).admin.users.list({ query: "directory-" }),
+      "FORBIDDEN",
+      403,
+    )
+    const page = await apiClient(adminCookie).admin.users.list({
+      query: "directory-",
+      limit: 2,
+    })
+    expect(page.items).toHaveLength(2)
+    expect(page.nextCursor).toEqual(expect.any(String))
+    const next = await apiClient(adminCookie).admin.users.list({
+      query: "directory-",
+      cursor: page.nextCursor!,
+      limit: 2,
+    })
+    expect(next.items.length).toBeGreaterThan(0)
+    expect(new Set([...page.items, ...next.items].map((item) => item.id)).size)
+      .toBe(page.items.length + next.items.length)
+    await expectedError(
+      apiClient(adminCookie).admin.users.list({ cursor: "not-base64" }),
+      "BAD_REQUEST",
+      400,
+    )

@@ -1,0 +1,278 @@
+import type { FeatureNames } from "./types.civet"
+
+type TemplateFile = Readonly<{ path: string; content: string }>
+
+const jsonFile = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
+
+const namesTemplate = (names: FeatureNames): string => `export const ${names.snake.toUpperCase()}_NAMES = Object.freeze({
+  singular: "${names.kebab}",
+  plural: "${names.pluralKebab}",
+  route: "/${names.pluralKebab}",
+  table: "${names.pluralSnake}",
+  contractNamespace: "${names.pluralCamel}",
+})
+`
+
+const schemaTemplate = (names: FeatureNames): string => `import { z } from "zod"
+
+export const ${names.pascal}StatusSchema = z.enum(["draft", "active", "archived"])
+export const ${names.pascal}Schema = z.object({
+  id: z.string().min(1),
+  ownerId: z.string().min(1),
+  name: z.string().trim().min(1).max(200),
+  description: z.string().max(10_000),
+  status: ${names.pascal}StatusSchema,
+  metadata: z.record(z.string(), z.json()),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+})
+export const Create${names.pascal}Schema = ${names.pascal}Schema.pick({
+  name: true,
+  description: true,
+  metadata: true,
+})
+
+export type ${names.pascal} = z.infer<typeof ${names.pascal}Schema>
+export type Create${names.pascal} = z.infer<typeof Create${names.pascal}Schema>
+`
+
+const contractTemplate = (names: FeatureNames): string => `import { oc } from "@orpc/contract"
+import { z } from "zod"
+
+import {
+  Create${names.pascal}Schema,
+  ${names.pascal}Schema,
+  ${names.pascal}StatusSchema,
+} from "./feature.schema.civet"
+
+export const ${names.snake.toUpperCase()}_ERRORS = {
+  UNAUTHORIZED: { status: 401, message: "Authentication required" },
+  FORBIDDEN: { status: 403, message: "Forbidden" },
+  NOT_FOUND: { status: 404, message: "${names.pascal} not found" },
+  VALIDATION_ERROR: { status: 422, message: "${names.pascal} validation failed" },
+  STORAGE_ERROR: { status: 503, message: "${names.pascal} storage unavailable" },
+} as const
+
+const procedure = oc.errors(${names.snake.toUpperCase()}_ERRORS)
+const scope = z.object({ ownerId: z.string().min(1).optional() })
+const itemScope = scope.extend({ id: z.string().min(1) })
+
+export const ${names.camel}Contract = {
+  list: procedure.route({ method: "GET", path: "/${names.pluralKebab}", operationId: "${names.pluralCamel}.list" }).input(scope).output(z.array(${names.pascal}Schema)),
+  get: procedure.route({ method: "GET", path: "/${names.pluralKebab}/{id}", operationId: "${names.pluralCamel}.get" }).input(itemScope).output(${names.pascal}Schema),
+  create: procedure.route({ method: "POST", path: "/${names.pluralKebab}", operationId: "${names.pluralCamel}.create" }).input(scope.extend(Create${names.pascal}Schema.shape)).output(${names.pascal}Schema),
+  changeStatus: procedure.route({ method: "PATCH", path: "/${names.pluralKebab}/{id}/status", operationId: "${names.pluralCamel}.changeStatus" }).input(itemScope.extend({ status: ${names.pascal}StatusSchema })).output(${names.pascal}Schema),
+  archive: procedure.route({ method: "DELETE", path: "/${names.pluralKebab}/{id}", operationId: "${names.pluralCamel}.archive" }).input(itemScope).output(${names.pascal}Schema),
+} as const
+`
+
+const storeTemplate = (names: FeatureNames): string => `import type { Create${names.pascal}, ${names.pascal} } from "./feature.schema.civet"
+
+export type ${names.pascal}MutationContext = Readonly<{
+  actorUserId: string
+  requestId: string
+}>
+
+export type ${names.pascal}Store = Readonly<{
+  listByOwner: (ownerId: string) => Promise<readonly ${names.pascal}[]>
+  findByIdForOwner: (id: string, ownerId: string) => Promise<${names.pascal} | null>
+  create: (
+    input: Create${names.pascal} & Readonly<{ ownerId: string }>,
+    context: ${names.pascal}MutationContext,
+  ) => Promise<${names.pascal}>
+  changeStatus: (
+    input: Readonly<{ id: string; ownerId: string; status: ${names.pascal}["status"] }>,
+    context: ${names.pascal}MutationContext,
+  ) => Promise<${names.pascal} | null>
+  archive: (
+    id: string,
+    ownerId: string,
+    context: ${names.pascal}MutationContext,
+  ) => Promise<${names.pascal} | null>
+}>
+`
+
+const serviceTemplate = (names: FeatureNames): string => `import { Create${names.pascal}Schema } from "./feature.schema.civet"
+import type { ${names.pascal}Store } from "./feature.store.civet"
+
+export type ${names.pascal}Principal = Readonly<{ userId: string; role: "member" | "admin" }>
+
+export const create${names.pascal}Service = (store: ${names.pascal}Store) => ({
+  list: (principal: ${names.pascal}Principal) => store.listByOwner(principal.userId),
+  get: async (principal: ${names.pascal}Principal, id: string) => {
+    const item = await store.findByIdForOwner(id, principal.userId)
+    if (!item) throw new Error("NOT_FOUND")
+    return item
+  },
+  create: (
+    principal: ${names.pascal}Principal,
+    input: unknown,
+    requestId: string,
+  ) => store.create(
+    { ...Create${names.pascal}Schema.parse(input), ownerId: principal.userId },
+    { actorUserId: principal.userId, requestId },
+  ),
+  changeStatus: async (
+    principal: ${names.pascal}Principal,
+    input: Readonly<{ id: string; status: "draft" | "active" | "archived" }>,
+    requestId: string,
+  ) => {
+    const item = await store.changeStatus(
+      { ...input, ownerId: principal.userId },
+      { actorUserId: principal.userId, requestId },
+    )
+    if (!item) throw new Error("NOT_FOUND")
+    return item
+  },
+  archive: async (
+    principal: ${names.pascal}Principal,
+    input: Readonly<{ id: string }>,
+    requestId: string,
+  ) => {
+    const item = await store.archive(
+      input.id,
+      principal.userId,
+      { actorUserId: principal.userId, requestId },
+    )
+    if (!item) throw new Error("NOT_FOUND")
+    return item
+  },
+})
+`
+
+const routerTemplate = (names: FeatureNames): string => `import type { create${names.pascal}Service } from "../feature.service.civet"
+
+type ${names.pascal}Service = ReturnType<typeof create${names.pascal}Service>
+
+export const create${names.pascal}Router = (service: ${names.pascal}Service) => ({
+  list: (principal: Parameters<${names.pascal}Service["list"]>[0]) => service.list(principal),
+  get: (
+    principal: Parameters<${names.pascal}Service["get"]>[0],
+    input: Readonly<{ id: string }>,
+  ) => service.get(principal, input.id),
+  create: (
+    principal: Parameters<${names.pascal}Service["create"]>[0],
+    input: unknown,
+    requestId: string,
+  ) => service.create(principal, input, requestId),
+  changeStatus: (
+    principal: Parameters<${names.pascal}Service["changeStatus"]>[0],
+    input: Parameters<${names.pascal}Service["changeStatus"]>[1],
+    requestId: string,
+  ) => service.changeStatus(principal, input, requestId),
+  archive: (
+    principal: Parameters<${names.pascal}Service["archive"]>[0],
+    input: Readonly<{ id: string }>,
+    requestId: string,
+  ) => service.archive(principal, input, requestId),
+})
+`
+
+const pageTemplate = (names: FeatureNames): string => `import { ${names.snake.toUpperCase()}_NAMES } from "../../names.civet"
+
+const ${names.pascal}Page = () => (
+  <main>
+    <h1>${names.pluralPascal}</h1>
+    <p>
+      Generated starter route for {${names.snake.toUpperCase()}_NAMES.route}. Complete the checked
+      integration handoff before exposing this page in navigation.
+    </p>
+  </main>
+)
+
+export default ${names.pascal}Page
+`
+
+const testTemplate = (names: FeatureNames): string => `import { describe, expect, it } from "vitest"
+
+import { Create${names.pascal}Schema } from "../feature.schema.civet"
+
+// Starter contract tests belong with the capsule and must be expanded during reviewed integration.
+describe "${names.pascal} capsule contract", ->
+  it "rejects an empty name at the boundary", ->
+    expect(() => Create${names.pascal}Schema.parse({
+      name: "",
+      description: "",
+      metadata: {},
+    })).toThrow()
+`
+
+const indexTemplate = (names: FeatureNames): string => `export { ${names.camel}Contract } from "./feature.contract.civet"
+export {
+  Create${names.pascal}Schema,
+  ${names.pascal}Schema,
+  ${names.pascal}StatusSchema,
+} from "./feature.schema.civet"
+export { create${names.pascal}Service } from "./feature.service.civet"
+export type { ${names.pascal}Store } from "./feature.store.civet"
+export { ${names.snake.toUpperCase()}_NAMES } from "./names.civet"
+`
+
+const documentationTemplate = (names: FeatureNames): string => `# ${names.pascal} generated capsule
+
+This capsule is not registered in the running application. It is a bounded, collision-safe starter because DarkFactory currently keeps API and database composition in shared runtime modules that must not be rewritten mechanically.
+
+## Included boundary
+
+- canonical names and route/table identifiers;
+- Zod schema and typed oRPC contract stub;
+- owner-scoped store port, service, and thin router stub;
+- a page-route candidate and focused starter test;
+- Graphify metadata and a checked manual integration handoff.
+
+## Required reviewed integration
+
+Review \`INTEGRATION_HANDOFF.json\`. Add the contract, router, Drizzle schema/migration and repository adapter, app route export, tests, generated OpenAPI, and Graphify update as one contract-first change. Until every handoff item is completed and \`checked\` is deliberately changed during review, this capsule is not a production feature.
+
+The generator never edits shared registries, existing routes, database runtime modules, migrations, package exports, or generated Graphify output, and it never overwrites this directory.
+`
+
+export const createTemplateFiles = (names: FeatureNames): readonly TemplateFile[] => {
+  const graph = {
+    version: 1,
+    feature: names.kebab,
+    source: "generated-capsule",
+    nodes: [
+      { id: `${names.kebab}:contract`, kind: "contract", path: "feature.contract.civet" },
+      { id: `${names.kebab}:service`, kind: "service", path: "feature.service.civet" },
+      { id: `${names.kebab}:store`, kind: "port", path: "feature.store.civet" },
+      { id: `${names.kebab}:route`, kind: "route", path: `app/${names.pluralKebab}/page.civet` },
+    ],
+    edges: [
+      { from: `${names.kebab}:route`, to: `${names.kebab}:contract`, relation: "USES" },
+      { from: `${names.kebab}:contract`, to: `${names.kebab}:service`, relation: "HANDLED_BY" },
+      { from: `${names.kebab}:service`, to: `${names.kebab}:store`, relation: "DEPENDS_ON" },
+    ],
+  }
+  const handoff = {
+    version: 1,
+    feature: names.kebab,
+    checked: false,
+    integrationMode: "manual-reviewed-handoff",
+    reason: "Shared API and database composition roots require semantic review; the generator will not rewrite them.",
+    actions: [
+      { target: "packages/api/src/contract.civet", action: `Register ${names.camel}Contract in the application contract.` },
+      { target: "packages/api/src/server/router.civet", action: `Bind create${names.pascal}Router through authenticated oRPC handlers.` },
+      { target: "packages/db/src/schema/index.civet", action: `Add the ${names.pluralSnake} Drizzle table through a reviewed migration.` },
+      { target: "packages/db/src/server/repositories.civet", action: `Implement ${names.pascal}Store with owner scope, audit, and outbox atomicity.` },
+      { target: `apps/web/src/app/(portal)/${names.pluralKebab}/page.civet`, action: "Expose the page candidate after contract integration." },
+      { target: "packages/api/openapi.json", action: "Regenerate and verify OpenAPI from the integrated oRPC contract." },
+      { target: "graphify-out/graph.json", action: "Run the repository Graphify update/check workflow after integration." },
+    ],
+  }
+
+  return Object.freeze([
+    Object.freeze({ path: "INTEGRATION_HANDOFF.json", content: jsonFile(handoff) }),
+    Object.freeze({ path: `app/${names.pluralKebab}/page.civet`, content: pageTemplate(names) }),
+    Object.freeze({ path: "docs/README.md", content: documentationTemplate(names) }),
+    Object.freeze({ path: "feature.contract.civet", content: contractTemplate(names) }),
+    Object.freeze({ path: "feature.schema.civet", content: schemaTemplate(names) }),
+    Object.freeze({ path: "feature.service.civet", content: serviceTemplate(names) }),
+    Object.freeze({ path: "feature.store.civet", content: storeTemplate(names) }),
+    Object.freeze({ path: "graphify/feature.json", content: jsonFile(graph) }),
+    Object.freeze({ path: "index.civet", content: indexTemplate(names) }),
+    Object.freeze({ path: "names.civet", content: namesTemplate(names) }),
+    Object.freeze({ path: "server/router.civet", content: routerTemplate(names) }),
+    Object.freeze({ path: "tests/feature.test.civet", content: testTemplate(names) }),
+  ])
+}

@@ -1,0 +1,221 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  type SafeAuthSession,
+} from "@darkfactory/auth/server"
+import {
+  InvalidAdminUsersCursorError,
+  OptimisticConcurrencyError,
+  type Repositories,
+} from "@darkfactory/db/server"
+import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema"
+import type { SemanticEvent } from "@darkfactory/observability/port"
+import { ORPCError } from "@orpc/client"
+import { describe, expect, it, vi } from "vitest"
+
+import { createApiClient } from "./client.civet"
+import { createApiContext } from "./server/context.civet"
+import { handleApiRequest } from "./server/handler.civet"
+
+const NOW = new Date("2026-01-02T03:04:05.000Z")
+const memberSession: SafeAuthSession = {
+  user: {
+    id: "member-1", name: "Member", email: "private@example.test", emailVerified: true,
+    image: null, createdAt: NOW, updatedAt: NOW, role: "member", status: "active",
+  },
+  session: {
+    id: "session-1", userId: "member-1", expiresAt: new Date("2026-02-02T03:04:05.000Z"),
+    createdAt: NOW, updatedAt: NOW, ipAddress: null, userAgent: null,
+  },
+  principal: { userId: "member-1", role: "member", status: "active" },
+}
+const adminSession: SafeAuthSession = {
+  ...memberSession,
+  user: { ...memberSession.user, id: "admin-1", email: "admin@example.test", role: "admin" },
+  session: { ...memberSession.session, id: "session-admin", userId: "admin-1" },
+  principal: { userId: "admin-1", role: "admin", status: "active" },
+}
+const storedProfile: Profile = {
+  userId: "member-1", firstName: null, lastName: null, displayName: "Member",
+  avatarUrl: null, phone: "private-phone", businessName: null, jobTitle: null,
+  biography: "private biography", timezone: "UTC", locale: "en", dateOfBirth: "1990-01-02",
+  createdAt: NOW, updatedAt: NOW,
+}
+const storedAddress: Address = {
+  id: "address-1", userId: "member-1", type: "home", line1: "1 Private Way",
+  line2: null, city: "Paris", region: "Ile-de-France", postalCode: "75001",
+  country: "FR", isPrimary: true, createdAt: NOW, updatedAt: NOW,
+}
+const storedPreferences: UserPreferences = {
+  userId: "member-1", mode: "dark", colorScheme: "violet", emailNotifications: false,
+  productUpdates: false, analyticsConsent: true, personalizationConsent: true,
+  profileVisibility: "members", createdAt: NOW, updatedAt: NOW,
+}
+
+const repositories = (): Repositories => ({
+  profiles: {
+    findByUserId: vi.fn(async () => storedProfile),
+    upsert: vi.fn(async (input) => ({ ...storedProfile, ...input })),
+    updateOptimistic: vi.fn(async (input) => ({ ...storedProfile, ...input })),
+  },
+  addresses: {
+    listByUserId: vi.fn(async () => [storedAddress]),
+    findByIdForUser: vi.fn(async () => storedAddress),
+    create: vi.fn(async () => storedAddress),
+    update: vi.fn(async () => storedAddress),
+    updateOptimistic: vi.fn(async () => storedAddress),
+    remove: vi.fn(async () => true),
+    removeOptimistic: vi.fn(async () => true),
+    setPrimary: vi.fn(async () => storedAddress),
+    setPrimaryOptimistic: vi.fn(async () => storedAddress),
+  },
+  userPreferences: {
+    findByUserId: vi.fn(async () => storedPreferences),
+    findThemeByUserId: vi.fn(async () => ({
+      mode: "dark" as const,
+      colorScheme: "violet" as const,
+      updatedAt: storedPreferences.updatedAt,
+    })),
+    upsertTheme: vi.fn(async () => ({
+      mode: "dark" as const,
+      colorScheme: "violet" as const,
+      updatedAt: storedPreferences.updatedAt,
+    })),
+    upsert: vi.fn(async (input) => ({ ...storedPreferences, ...input })),
+    updateOptimistic: vi.fn(async (input) => ({ ...storedPreferences, ...input })),
+  },
+  featureItems: {
+    listByOwner: vi.fn(async () => []),
+    findByIdForOwner: vi.fn(async () => null),
+    create: vi.fn(async () => { throw new Error("not used") }),
+    update: vi.fn(async () => null),
+    archive: vi.fn(async () => null),
+  },
+  adminUsers: { search: vi.fn(async () => ({ items: [], nextCursor: null })) },
+  dashboard: {
+    getFeatureSummary: vi.fn(async () => ({ total: 0, draft: 0, active: 0, archived: 0, recent: [] })),
+  },
+})
+
+const clientFor = (
+  requestSession: SafeAuthSession | null,
+  options: Readonly<{ repositories?: Repositories; events?: SemanticEvent[] }> = {},
+) => {
+  const repos = options.repositories ?? repositories()
+  const fetch = async (request: Request): Promise<Response> => {
+    const context = createApiContext(request, {
+      repositories: repos,
+      requestId: "request-account-1",
+      capabilities: {
+        ai: true, emailDelivery: false, analytics: true, telemetryExport: false,
+        storage: false, errorTracking: false,
+      },
+      ...(options.events === undefined ? {} : {
+        semanticEvents: {
+          emit: async (event: SemanticEvent) => {
+            options.events!.push(event)
+            return {
+              structuredEvent: "emitted" as const,
+              span: "skipped" as const,
+              analytics: "skipped" as const,
+            }
+          },
+        },
+      }),
+      requireSession: async () => {
+        if (requestSession === null)
+          throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED, 401)
+        return requestSession
+      },
+      requireRole: async (_headers, role) => {
+        if (requestSession === null)
+          throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED, 401)
+        if (requestSession.principal.role !== role)
+          throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.FORBIDDEN, 403)
+        return requestSession
+      },
+    })
+    return handleApiRequest(request, context)
+  }
+  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
+}
+
+const expectError = async (promise: Promise<unknown>, code: string, status: number) => {
+  try {
+    await promise
+    throw new Error("Expected failure")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ORPCError)
+    expect(error).toMatchObject({ code, status, defined: true })
+  }
+}
+
+describe "account/admin/dashboard router", ->
+  it "requires an active session for account and full preferences", async ->
+    await expectError(clientFor(null).account.profile.get({}), "UNAUTHORIZED", 401)
+    await expectError(clientFor(null).account.addresses.list({}), "UNAUTHORIZED", 401)
+    await expectError(clientFor(null).preferences.get({}), "UNAUTHORIZED", 401)
+    await expectError(clientFor(null).dashboard.summary({}), "UNAUTHORIZED", 401)
+
+  it "returns identity/profile and strips repository-only owner fields from addresses", async ->
+    const client = clientFor(memberSession)
+    await expect(client.account.profile.get({})).resolves.toMatchObject({
+      identity: { email: "private@example.test", emailVerified: true },
+      profile: { displayName: "Member", dateOfBirth: "1990-01-02" },
+    })
+    const listed = await client.account.addresses.list({})
+    expect(listed[0]).not.toHaveProperty("userId")
+
+  it "emits one correlated PII-free event only after a successful mutation", async ->
+    const events: SemanticEvent[] = []
+    await clientFor(memberSession, { events }).account.profile.update({
+      expectedUpdatedAt: NOW,
+      displayName: "New Name",
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      name: "account.profile.updated", outcome: "success",
+      correlation: { requestId: "request-account-1", actorId: "member-1" },
+    })
+    const serialized = JSON.stringify(events[0])
+    for (const secret of ["private@example.test", "private-phone", "private biography", "New Name"])
+      expect(serialized).not.toContain(secret)
+
+  it "maps stale account writes to typed 409 without emitting success", async ->
+    const repos = repositories()
+    vi.mocked(repos.profiles.updateOptimistic).mockRejectedValue(
+      new OptimisticConcurrencyError("profile"),
+    )
+    const events: SemanticEvent[] = []
+    await expectError(
+      clientFor(memberSession, { repositories: repos, events })
+        .account.profile.update({
+          expectedUpdatedAt: NOW,
+          displayName: "Stale",
+        }),
+      "CONFLICT",
+      409,
+    )
+    expect(events).toEqual([])
+
+  it "requires server-side admin role and maps cursor rejection to safe 400", async ->
+    await expectError(clientFor(memberSession).admin.users.list({}), "FORBIDDEN", 403)
+    const repos = repositories()
+    vi.mocked(repos.adminUsers.search).mockRejectedValue(new InvalidAdminUsersCursorError())
+    await expectError(clientFor(adminSession, { repositories: repos }).admin.users.list({ cursor: "bad" }), "BAD_REQUEST", 400)
+
+  it "rejects a feature list limit above 100 at the API boundary", async ->
+    await expectError(
+      clientFor(memberSession).featureItems.list({ limit: 101 } as never),
+      "BAD_REQUEST",
+      400,
+    )
+
+  it "returns owner summary with exactly the injected capabilities", async ->
+    await expect(clientFor(memberSession).dashboard.summary({})).resolves.toEqual({
+      featureItems: { total: 0, draft: 0, active: 0, archived: 0, recent: [] },
+      capabilities: {
+        ai: true, emailDelivery: false, analytics: true, telemetryExport: false,
+        storage: false, errorTracking: false,
+      },
+    })

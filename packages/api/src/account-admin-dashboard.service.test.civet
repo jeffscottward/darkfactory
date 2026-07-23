@@ -1,0 +1,204 @@
+import type { SafeAuthSession, SafePrincipal } from "@darkfactory/auth/types"
+import {
+  AdminUsersPersistenceError,
+  DashboardPersistenceError,
+  InvalidAdminUsersCursorError,
+  InvalidRepositoryInputError,
+  type AddressRepository,
+  type AdminUsersRepository,
+  type DashboardRepository,
+  type ProfileRepository,
+  type UserPreferencesRepository,
+} from "@darkfactory/db/server"
+import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema"
+import { describe, expect, it, vi } from "vitest"
+
+import { createAccountService } from "./server/account-service.civet"
+import { AdminUsersServiceError, createAdminUsersService } from "./server/admin-users-service.civet"
+import { DashboardServiceError, createDashboardService } from "./server/dashboard-service.civet"
+
+const principal: SafePrincipal = { userId: "member-1", role: "member", status: "active" }
+const session: SafeAuthSession = {
+  principal,
+  user: {
+    id: "member-1", name: "Member", email: "member@example.test", emailVerified: true,
+    image: null, createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"), role: "member", status: "active",
+  },
+  session: {
+    id: "session-1", userId: "member-1", expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+    createdAt: new Date("2026-01-01T00:00:00.000Z"), updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ipAddress: null, userAgent: null,
+  },
+}
+
+const profile = (overrides: Partial<Profile> = {}): Profile => ({
+  userId: "member-1", firstName: null, lastName: null, displayName: null,
+  avatarUrl: null, phone: null, businessName: null, jobTitle: null, biography: null,
+  timezone: "UTC", locale: "en", dateOfBirth: null,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"), updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  ...overrides,
+})
+
+const address = (overrides: Partial<Address> = {}): Address => ({
+  id: "address-1", userId: "member-1", type: "home", line1: "1 Main St", line2: null,
+  city: "Paris", region: "Ile-de-France", postalCode: "75001", country: "FR", isPrimary: false,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"), updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  ...overrides,
+})
+
+const preferences = (overrides: Partial<UserPreferences> = {}): UserPreferences => ({
+  userId: "member-1", mode: "system", colorScheme: "neutral", emailNotifications: true,
+  productUpdates: true, analyticsConsent: false, personalizationConsent: false,
+  profileVisibility: "private", createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"), ...overrides,
+})
+
+const accountRepositories = () => {
+  const profiles: ProfileRepository = {
+    findByUserId: vi.fn(async () => null),
+    upsert: vi.fn(async (input) => profile(input)),
+    updateOptimistic: vi.fn(async (input) => profile(input)),
+  }
+  const addresses: AddressRepository = {
+    listByUserId: vi.fn(async () => []),
+    findByIdForUser: vi.fn(async () => null),
+    create: vi.fn(async (input) => address(input)),
+    update: vi.fn(async () => null),
+    updateOptimistic: vi.fn(async () => null),
+    remove: vi.fn(async () => false),
+    removeOptimistic: vi.fn(async () => false),
+    setPrimary: vi.fn(async () => null),
+    setPrimaryOptimistic: vi.fn(async () => null),
+  }
+  const userPreferences: UserPreferencesRepository = {
+    findByUserId: vi.fn(async () => null),
+    findThemeByUserId: vi.fn(async () => null),
+    upsertTheme: vi.fn(async () => ({
+      mode: "system" as const,
+      colorScheme: "neutral" as const,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    })),
+    upsert: vi.fn(async (input) => preferences(input)),
+    updateOptimistic: vi.fn(async (input) => preferences(input)),
+  }
+  return { profiles, addresses, userPreferences }
+}
+
+describe "account service", ->
+  it "returns safe identity with default profile when the row is missing", async ->
+    const repositories = accountRepositories()
+    await expect(createAccountService(repositories).getProfile(session)).resolves.toEqual({
+      identity: { email: "member@example.test", emailVerified: true },
+      profile: {
+        firstName: null, lastName: null, displayName: null, avatarUrl: null, phone: null,
+        businessName: null, jobTitle: null, biography: null, timezone: "UTC", locale: "en", dateOfBirth: null,
+        updatedAt: null,
+      },
+    })
+
+  it "merges a profile patch with persisted values without accepting identity fields", async ->
+    const repositories = accountRepositories()
+    vi.mocked(repositories.profiles.findByUserId).mockResolvedValue(profile({ displayName: "Before", locale: "fr" }))
+    await createAccountService(repositories).updateProfile(session, {
+      expectedUpdatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      displayName: "After",
+    })
+    expect(repositories.profiles.updateOptimistic).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "member-1", displayName: "After", locale: "fr", timezone: "UTC",
+    }))
+
+  it "keeps every address operation owner scoped and reports missing rows", async ->
+    const repositories = accountRepositories()
+    const service = createAccountService(repositories)
+    await service.createAddress(principal, {
+      type: "home", line1: "1 Main St", line2: null, city: "Paris",
+      region: "Ile-de-France", postalCode: "75001", country: "FR", isPrimary: true,
+    })
+    expect(repositories.addresses.create).toHaveBeenCalledWith(expect.objectContaining({ userId: "member-1" }))
+    const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z")
+    await expect(service.updateAddress(principal, {
+      id: "missing", expectedUpdatedAt, city: "Lyon",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" })
+    await expect(service.removeAddress(principal, {
+      id: "missing", expectedUpdatedAt,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" })
+    await expect(service.setPrimaryAddress(principal, {
+      id: "missing", expectedUpdatedAt,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+  it "returns complete defaults but mutates only non-theme account preferences", async ->
+    const repositories = accountRepositories()
+    const service = createAccountService(repositories)
+    await expect(service.getPreferences(principal)).resolves.toEqual({
+      themeMode: "system", palette: "neutral", emailNotifications: true, productUpdates: true,
+      analyticsConsent: false, personalizationConsent: false, profileVisibility: "private",
+      updatedAt: null,
+    })
+    await service.updatePreferences(principal, {
+      expectedUpdatedAt: null,
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+    })
+    expect(repositories.userPreferences.updateOptimistic).toHaveBeenCalledWith({
+      userId: "member-1",
+      expectedUpdatedAt: null,
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+    })
+
+  it "maps the bounded address quota to a safe validation error", async ->
+    const repositories = accountRepositories()
+    vi.mocked(repositories.addresses.create).mockRejectedValueOnce(
+      new InvalidRepositoryInputError("address limit reached"),
+    )
+    await expect(createAccountService(repositories).createAddress(principal, {
+      type: "home",
+      line1: "21 Quota Way",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75001",
+      country: "FR",
+      isPrimary: false,
+    })).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "Account validation failed",
+    })
+
+describe "admin user and dashboard services", ->
+  it "maps malformed cursors to BAD_REQUEST and storage failures to safe STORAGE_ERROR", async ->
+    const repository: AdminUsersRepository = { search: vi.fn(async () => { throw new InvalidAdminUsersCursorError() }) }
+    await expect(createAdminUsersService(repository).list({ limit: 20 })).rejects.toEqual(
+      expect.objectContaining({ code: "BAD_REQUEST", message: "Invalid user directory cursor" }),
+    )
+    vi.mocked(repository.search).mockRejectedValue(new AdminUsersPersistenceError())
+    await expect(createAdminUsersService(repository).list({ limit: 20 })).rejects.toEqual(
+      expect.objectContaining({ code: "STORAGE_ERROR", message: "User directory is unavailable" }),
+    )
+
+  it "uses only the authenticated owner and injected capability projection", async ->
+    const repository: DashboardRepository = {
+      getFeatureSummary: vi.fn(async () => ({ total: 0, draft: 0, active: 0, archived: 0, recent: [] })),
+    }
+    const capabilities = {
+      ai: true, emailDelivery: false, analytics: true, telemetryExport: false,
+      storage: false, errorTracking: false,
+    }
+    await expect(createDashboardService(repository, capabilities).summary(principal)).resolves.toEqual({
+      featureItems: { total: 0, draft: 0, active: 0, archived: 0, recent: [] },
+      capabilities,
+    })
+    expect(repository.getFeatureSummary).toHaveBeenCalledWith("member-1", 5)
+    vi.mocked(repository.getFeatureSummary).mockRejectedValue(new DashboardPersistenceError())
+    await expect(createDashboardService(repository, capabilities).summary(principal)).rejects.toEqual(
+      expect.objectContaining({ code: "STORAGE_ERROR", message: "Dashboard storage is unavailable" }),
+    )
+    expect(AdminUsersServiceError).toBeDefined()
+    expect(DashboardServiceError).toBeDefined()

@@ -1,0 +1,97 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  createAdminUsersGateway,
+  createAdminRequestGuard,
+  normalizeAdminQuery,
+  safeAdminFeedback,
+} from "./admin-users-client.civet"
+import { AdminUsersDirectory } from "./admin-users-directory.civet"
+
+const user = {
+  id: "user-1",
+  name: "Alice Adams",
+  email: "alice@domain.test",
+  emailVerified: true,
+  image: null,
+  role: "member" as const,
+  status: "active" as const,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  profile: {
+    displayName: "Alice A.",
+    avatarUrl: null,
+    businessName: "Alice & Co.",
+    jobTitle: "Builder",
+  },
+}
+
+describe "typed read-only admin users gateway", ->
+  it "passes bounded search and cursor input to admin.users.list", async ->
+    const list = vi.fn(async -> ({ items: [user], nextCursor: "cursor-2" }))
+    const gateway = createAdminUsersGateway({
+      admin: { users: { list } },
+    } as never)
+
+    await expect(gateway.list({ query: "alice", cursor: "cursor-1", limit: 20 })).resolves.toMatchObject({ nextCursor: "cursor-2" })
+    expect(list).toHaveBeenCalledWith({ query: "alice", cursor: "cursor-1", limit: 20 })
+
+  it "keeps private search text out of URL helpers and normalizes it in memory", ->
+    expect(normalizeAdminQuery("  Alice Adams  ")).toBe("Alice Adams")
+    expect(normalizeAdminQuery("a".repeat(250))).toHaveLength(200)
+    expect(normalizeAdminQuery("  ")).toBe("")
+  
+  it "suppresses stale search and pagination generations", ->
+    const requests = createAdminRequestGuard()
+    const search = requests.next()
+    const pagination = requests.next()
+    expect(requests.isLatest(search)).toBe(false)
+    expect(requests.isLatest(pagination)).toBe(true)
+
+  it.each([
+    ["UNAUTHORIZED", "Sign in"],
+    ["FORBIDDEN", "permission"],
+    ["STORAGE_ERROR", "temporarily unavailable"],
+  ])("maps %s without raw detail", (code, expected) ->
+    expect(safeAdminFeedback({ code })).toContain(expected)
+  )
+
+describe "admin user directory states", ->
+  it "renders a stable loading directory", ->
+    const html = renderToStaticMarkup(<AdminUsersDirectory query="" state={{ type: "loading" }} />)
+    expect(html).toContain("Loading users")
+    expect(html).toContain("aria-busy=\"true\"")
+
+  it "distinguishes unfiltered and filtered empty results", ->
+    const empty = renderToStaticMarkup(<AdminUsersDirectory query="" state={{ type: "ready", items: [], nextCursor: null }} />)
+    expect(empty).toContain("No users are available")
+    const filtered = renderToStaticMarkup(<AdminUsersDirectory query="alice" state={{ type: "ready", items: [], nextCursor: null }} />)
+    expect(filtered).toContain("No users match this search")
+    expect(filtered).toContain("Clear search")
+
+  it "renders safe role, status, and profile summaries without secret or destructive data", ->
+    const html = renderToStaticMarkup(<AdminUsersDirectory query="" state={{ type: "ready", items: [user], nextCursor: "cursor-2" }} />)
+    expect(html).toContain("Alice A.")
+    expect(html).toContain("Alice &amp; Co.")
+    expect(html).toContain("Builder")
+    expect(html).toContain("Member")
+    expect(html).toContain("Active")
+    expect(html).toContain("Load more")
+    expect(html).toContain("Email verified")
+    expect(html).toContain("Jan 1, 2026")
+    expect(html).not.toContain("alice@domain.test")
+    expect(html).not.toContain("Delete")
+    expect(html).not.toContain("Suspend")
+    expect(html).not.toContain("Change role")
+
+  it "preserves context with retryable safe error feedback", ->
+    const html = renderToStaticMarkup(
+      <AdminUsersDirectory
+        onRetry={vi.fn()}
+        query="alice"
+        state={{ type: "error", kind: "retryable", message: "The user directory is temporarily unavailable." }}
+      />,
+    )
+    expect(html).toContain("The user directory is temporarily unavailable")
+    expect(html).toContain("Try again")
+    expect(html).toContain("value=\"alice\"")

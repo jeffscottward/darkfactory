@@ -1,0 +1,150 @@
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { basename, join } from "node:path"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { ContactEmailInput } from "../index.civet"
+import {
+  renderContactEmail,
+  selectContactEmailPort,
+  type ContactResendClient,
+} from "./contact.civet"
+
+const temporaryDirectories: string[] = []
+
+const createTemporaryDirectory = async (): Promise<string> => {
+  const directory = await mkdtemp(join(tmpdir(), "darkfactory-contact-email-"))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
+afterEach async ->
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })))
+
+const contactInput: ContactEmailInput = {
+  name: "Ada Lovelace",
+  email: "ada@example.test",
+  subject: "Architecture review",
+  message: "Please review the deployment boundary.",
+}
+
+describe "renderContactEmail", ->
+  it "renders escaped semantic HTML and plain text with a static header-safe subject", async ->
+    const rendered = await renderContactEmail({
+      ...contactInput,
+      name: "<script>alert('name')</script>",
+      subject: "Question\r\nBcc: attacker@example.test",
+      message: "<img src=x onerror=alert('message')>",
+    })
+
+    expect(rendered.subject).toBe("New DarkFactory contact request")
+    expect(rendered.subject).not.toMatch(/[\r\n]/)
+    expect(rendered.html).not.toContain("<script>alert('name')</script>")
+    expect(rendered.html).not.toContain("<img src=x onerror=alert('message')>")
+    expect(rendered.html).toContain("&lt;script&gt;")
+    expect(rendered.text).toContain("Question")
+    expect(rendered.text).toContain("Bcc: attacker@example.test")
+
+  it.each([
+    { label: "empty name", value: { ...contactInput, name: "" } },
+    { label: "oversized name", value: { ...contactInput, name: "n".repeat(101) } },
+    { label: "invalid email", value: { ...contactInput, email: "not-an-email" } },
+    { label: "oversized email", value: { ...contactInput, email: `${"a".repeat(245)}@test.test` } },
+    { label: "empty subject", value: { ...contactInput, subject: "" } },
+    { label: "oversized subject", value: { ...contactInput, subject: "s".repeat(201) } },
+    { label: "empty message", value: { ...contactInput, message: "" } },
+    { label: "oversized message", value: { ...contactInput, message: "m".repeat(5001) } },
+  ])("rejects $label", async ({ value }) ->
+    await expect(renderContactEmail(value)).rejects.toThrow()
+  )
+
+describe "selectContactEmailPort", ->
+  it "stays disabled and constructs no Resend client when the contact recipient is absent", async ->
+    const clientFactory = vi.fn()
+    const email = selectContactEmailPort({
+      environment: "production",
+      transport: "resend",
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@example.test>",
+      resendClientFactory: clientFactory,
+    })
+
+    expect(await email.sendContact(contactInput)).toEqual({
+      status: "not-delivered",
+      provider: "disabled",
+      code: "CONTACT_DELIVERY_DISABLED",
+      retryable: false,
+    })
+    expect(clientFactory).not.toHaveBeenCalled()
+
+  it "writes a real inspectable preview without exposing contact data in its path", async ->
+    const directory = await createTemporaryDirectory()
+    const canonicalDirectory = await realpath(directory)
+    const clientFactory = vi.fn()
+    const email = selectContactEmailPort({
+      environment: "test",
+      transport: "preview",
+      recipient: "support@example.test",
+      previewDirectory: directory,
+      resendClientFactory: clientFactory,
+    })
+
+    const result = await email.sendContact(contactInput)
+
+    expect(result.status).toBe("previewed")
+    if result.status !== "previewed" then throw new Error("Expected preview")
+    expect(result.artifactPath).toMatch(new RegExp(`^${canonicalDirectory}/contact-[a-f0-9-]+\\.html$`))
+    expect(basename(result.artifactPath)).not.toContain(contactInput.email)
+    const html = await readFile(result.artifactPath, "utf8")
+    const text = await readFile(result.artifactPath.replace(/\.html$/, ".txt"), "utf8")
+    expect(html).toContain("Ada Lovelace")
+    expect(text).toContain("Please review the deployment boundary.")
+    expect(clientFactory).not.toHaveBeenCalled()
+
+  it "sends through Resend only when contact delivery is fully configured", async ->
+    const send = vi.fn().mockResolvedValue({ data: { id: "contact_123" }, error: null })
+    const client: ContactResendClient = { emails: { send } }
+    const clientFactory = vi.fn(() => client)
+    const email = selectContactEmailPort({
+      environment: "production",
+      transport: "resend",
+      recipient: "support@example.test",
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@example.test>",
+      resendClientFactory: clientFactory,
+    })
+
+    await expect(email.sendContact(contactInput)).resolves.toEqual({
+      status: "sent",
+      provider: "resend",
+      messageId: "contact_123",
+    })
+    expect(clientFactory).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      from: "DarkFactory <noreply@example.test>",
+      to: ["support@example.test"],
+      replyTo: "ada@example.test",
+      subject: "New DarkFactory contact request",
+    }))
+
+  it "reports configured provider failure without claiming success or leaking the provider error", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: null,
+      error: { name: "internal_server_error", message: "provider secret detail" },
+    })
+    const email = selectContactEmailPort({
+      environment: "production",
+      transport: "resend",
+      recipient: "support@example.test",
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@example.test>",
+      resendClientFactory: () => ({ emails: { send } }),
+    })
+
+    await expect(email.sendContact(contactInput)).resolves.toEqual({
+      status: "not-delivered",
+      provider: "resend",
+      code: "CONTACT_PROVIDER_UNAVAILABLE",
+      retryable: true,
+    })

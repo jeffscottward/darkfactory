@@ -1,0 +1,179 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  AddressCreateSchema,
+  AddressUpdateSchema,
+  AdminFeatureItemListInputSchema,
+  AdminUsersListInputSchema,
+  FeatureItemListInputSchema,
+  PreferencesSchema,
+  PreferencesUpdateSchema,
+  ProfileUpdateSchema,
+  appContract,
+} from "./contract.civet"
+import { buildOpenApiDocument } from "./openapi.civet"
+
+const route = (procedure: unknown) => {
+  const value = (procedure as { ["~orpc"]: { route: { method: string; path: string } } })["~orpc"].route
+  return { method: value.method, path: value.path }
+}
+
+describe "account, preferences, dashboard, and admin contracts", ->
+  it "publishes every v0.1 procedure at a stable route", ->
+    expect([
+      route(appContract.account.profile.get),
+      route(appContract.account.profile.update),
+      route(appContract.account.addresses.list),
+      route(appContract.account.addresses.create),
+      route(appContract.account.addresses.update),
+      route(appContract.account.addresses.remove),
+      route(appContract.account.addresses.setPrimary),
+      route(appContract.preferences.get),
+      route(appContract.preferences.update),
+      route(appContract.dashboard.summary),
+      route(appContract.admin.users.list),
+    ]).toEqual([
+      { method: "GET", path: "/account/profile" },
+      { method: "PATCH", path: "/account/profile" },
+      { method: "GET", path: "/account/addresses" },
+      { method: "POST", path: "/account/addresses" },
+      { method: "PATCH", path: "/account/addresses/{id}" },
+      { method: "DELETE", path: "/account/addresses/{id}" },
+      { method: "PATCH", path: "/account/addresses/{id}/primary" },
+      { method: "GET", path: "/preferences" },
+      { method: "PATCH", path: "/preferences" },
+      { method: "GET", path: "/dashboard/summary" },
+      { method: "GET", path: "/admin/users" },
+    ])
+
+  it "normalizes profile patches and rejects empty or invalid patches", ->
+    expect(ProfileUpdateSchema.parse({
+      expectedUpdatedAt: null,
+      displayName: "  Ada  ",
+      biography: "",
+      dateOfBirth: "2000-02-29",
+    })).toEqual({
+      expectedUpdatedAt: null,
+      displayName: "Ada",
+      biography: null,
+      dateOfBirth: "2000-02-29",
+    })
+    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null })).toThrow()
+    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, biography: "x".repeat(5001) })).toThrow()
+    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, timezone: "" })).toThrow()
+    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, dateOfBirth: "2023-02-29" })).toThrow()
+    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, email: "victim@example.test" })).toThrow()
+
+  it "normalizes countries and enforces bounded nonempty address patches", ->
+    expect(AddressCreateSchema.parse({
+      type: "home",
+      line1: "  1 Main St  ",
+      line2: "",
+      city: " Paris ",
+      region: " Ile-de-France ",
+      postalCode: " 75001 ",
+      country: " fr ",
+      isPrimary: true,
+    })).toMatchObject({
+      line1: "1 Main St",
+      line2: null,
+      city: "Paris",
+      country: "FR",
+    })
+    expect(() => AddressUpdateSchema.parse({
+      id: "address-1",
+      expectedUpdatedAt: new Date(),
+    })).toThrow()
+    expect(() => AddressCreateSchema.parse({
+      type: "home", line1: "x", city: "x", region: "x", postalCode: "x", country: "USA",
+    })).toThrow()
+    expect(() => AddressUpdateSchema.parse({
+      id: "address-1",
+      expectedUpdatedAt: new Date(),
+      ownerId: "victim",
+    })).toThrow()
+
+  it "requires authoritative versions and strict dirty preference patches", ->
+    const preference = {
+      themeMode: "system",
+      palette: "neutral",
+      emailNotifications: true,
+      productUpdates: true,
+      analyticsConsent: false,
+      personalizationConsent: false,
+      profileVisibility: "private",
+      updatedAt: null,
+    }
+    expect(PreferencesSchema.parse(preference)).toEqual(preference)
+    expect(() => PreferencesSchema.parse({ ...preference, ownerId: "victim" })).toThrow()
+    expect(PreferencesUpdateSchema.parse({
+      expectedUpdatedAt: null,
+      analyticsConsent: true,
+    })).toEqual({ expectedUpdatedAt: null, analyticsConsent: true })
+    expect(() => PreferencesUpdateSchema.parse({ expectedUpdatedAt: null })).toThrow()
+    expect(() => PreferencesUpdateSchema.parse({
+      expectedUpdatedAt: null,
+      themeMode: "dark",
+    })).toThrow()
+    expect(() => PreferencesUpdateSchema.parse({
+      expectedUpdatedAt: null,
+      palette: "violet",
+    })).toThrow()
+
+  it "bounds and normalizes admin search pagination", ->
+    expect(AdminUsersListInputSchema.parse({ query: "  Ada  " })).toEqual({
+      query: "Ada",
+      limit: 20,
+    })
+    expect(() => AdminUsersListInputSchema.parse({ limit: 0 })).toThrow()
+    expect(() => AdminUsersListInputSchema.parse({ limit: 101 })).toThrow()
+    expect(() => AdminUsersListInputSchema.parse({ cursor: "" })).toThrow()
+
+  it "defaults and bounds the owner-scoped feature list limit", ->
+    expect(FeatureItemListInputSchema.parse({})).toEqual({ limit: 50 })
+    expect(FeatureItemListInputSchema.parse({
+      query: "  launch  ",
+      status: "active",
+      limit: 100,
+    })).toEqual({ query: "launch", status: "active", limit: 100 })
+    expect(() => FeatureItemListInputSchema.parse({ limit: 0 })).toThrow()
+    expect(() => FeatureItemListInputSchema.parse({ limit: 101 })).toThrow()
+    expect(AdminFeatureItemListInputSchema.parse({
+      ownerId: "member-1",
+      query: "  launch  ",
+      status: "active",
+      limit: 100,
+    })).toEqual({
+      ownerId: "member-1",
+      query: "launch",
+      status: "active",
+      limit: 100,
+    })
+    expect(() => AdminFeatureItemListInputSchema.parse({
+      ownerId: "member-1",
+      limit: 101,
+    })).toThrow()
+
+  it "represents nullable account response fields explicitly in OpenAPI", async ->
+    const document = await buildOpenApiDocument()
+    const profileResponse = (
+      document.paths!["/account/profile"]!.get!.responses!["200"] as any
+    ).content["application/json"].schema
+    const profile = profileResponse.properties.profile
+    for (const field of ["firstName", "lastName", "displayName", "biography"]) {
+      expect(profile.required).toContain(field)
+      expect(JSON.stringify(profile.properties[field])).toContain('"type":"string"')
+      expect(JSON.stringify(profile.properties[field])).toContain('"type":"null"')
+    }
+    const addressResponse = (
+      document.paths!["/account/addresses/{id}"]!.patch!.responses!["200"] as any
+    ).content["application/json"].schema
+    expect(addressResponse.required).toEqual(
+      expect.arrayContaining(["country", "line2"]),
+    )
+    expect(addressResponse.properties.country).toMatchObject({
+      type: "string",
+      minLength: 2,
+      maxLength: 2,
+    })
+    expect(JSON.stringify(addressResponse.properties.line2)).toContain('"type":"null"')

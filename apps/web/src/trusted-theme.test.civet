@@ -1,14 +1,31 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createUiStore } from "@darkfactory/state/client"
+import type {
+  ApiClient,
+  ApiClientOptions,
+  ThemePreferenceOutput,
+} from "@darkfactory/api"
 
 import {
   consumeInitialThemeBootstrap,
   reconcileThemeAuthorityTransition,
   ThemeController,
 } from "./components/theme-controller.civet"
-import { ThemeMenu } from "./components/theme-menu.civet"
+import {
+  createThemePreferenceClient,
+  selectThemeMenuPreference,
+  ThemeMenu,
+} from "./components/theme-menu.civet"
+
+const deferred = <Value>() => {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
 
 describe "trusted theme controls", ->
   it "keeps trusted and indeterminate ownership controls discoverable", ->
@@ -26,6 +43,190 @@ describe "trusted theme controls", ->
     expect(indeterminate).toContain('aria-label="Theme settings unavailable"')
     expect(trusted).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
     expect(indeterminate).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
+
+  it "keeps anonymous selection local and clears stale account feedback without a client", async ->
+    const store = createUiStore()
+    const createClient = vi.fn()
+    const errors: Array<string | null> = ["stale trusted error"]
+    const pending: boolean[] = [true]
+
+    await selectThemeMenuPreference({
+      authority: "anonymous",
+      authorityEpoch: () => 1,
+      createClient,
+      currentAuthority: () => "anonymous",
+      nextPreference: { themeMode: "dark", palette: "rose" },
+      requestSequence: { current: 1 },
+      setError: (message) => errors.push(message),
+      setPending: (value) => pending.push(value),
+      store,
+    })
+
+    expect(createClient).not.toHaveBeenCalled()
+    expect(errors.at(-1)).toBeNull()
+    expect(pending.at(-1)).toBe(false)
+    expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "rose" })
+
+  it "binds trusted GET then PATCH to the bounded same-origin transport", async ->
+    const store = createUiStore()
+    const requests: Request[] = []
+    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+      requests.push(input instanceof Request ? input : new Request(input, init))
+      return new Response(null, { status: 204 })
+    }
+    const clientFactory = (options: ApiClientOptions): ApiClient => ({
+      preferences: {
+        theme: {
+          get: async () => {
+            await options.fetch!(new Request(
+              new URL("/api/orpc", options.baseUrl).toString(),
+              { method: "GET" },
+            ))
+            return {
+              themeMode: "system",
+              palette: "neutral",
+              updatedAt: new Date("2026-07-23T10:00:00.000Z"),
+            }
+          },
+          update: async () => {
+            await options.fetch!(new Request(
+              new URL("/api/orpc", options.baseUrl).toString(),
+              { method: "PATCH" },
+            ))
+            return {
+              themeMode: "dark",
+              palette: "rose",
+              updatedAt: new Date("2026-07-23T10:00:00.001Z"),
+            }
+          },
+        },
+      },
+    } as unknown as ApiClient)
+    const client = createThemePreferenceClient({
+      baseUrl: "https://darkfactory.example/account",
+      clientFactory,
+      fetchRequest,
+    })
+
+    await selectThemeMenuPreference({
+      authority: "trusted",
+      authorityEpoch: () => 0,
+      createClient: () => client,
+      currentAuthority: () => "trusted",
+      nextPreference: { themeMode: "dark", palette: "rose" },
+      requestSequence: { current: 0 },
+      setError: vi.fn(),
+      setPending: vi.fn(),
+      store,
+    })
+
+    expect(requests.map((request) => [request.method, request.url])).toEqual([
+      ["GET", "https://darkfactory.example/api/orpc"],
+      ["PATCH", "https://darkfactory.example/api/orpc"],
+    ])
+    expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "rose" })
+
+  it "clears trusted failure state before a later anonymous selection", async ->
+    const store = createUiStore()
+    const errors: Array<string | null> = []
+    const pending: boolean[] = []
+    let getCount = 0
+    await selectThemeMenuPreference({
+      authority: "trusted",
+      authorityEpoch: () => 0,
+      createClient: () => ({
+        get: async () => {
+          getCount += 1
+          if (getCount === 1) {
+            return {
+              themeMode: "system",
+              palette: "neutral",
+              updatedAt: new Date("2026-07-23T10:00:00.000Z"),
+            }
+          }
+          throw new Error("reconciliation unavailable")
+        },
+        update: async () => { throw new Error("response lost") },
+      }),
+      currentAuthority: () => "trusted",
+      nextPreference: { themeMode: "dark", palette: "rose" },
+      requestSequence: { current: 0 },
+      setError: (message) => errors.push(message),
+      setPending: (value) => pending.push(value),
+      store,
+    })
+    expect(errors.at(-1)).toBe("Could not confirm theme save. Reload before retrying.")
+
+    const createClient = vi.fn()
+    await selectThemeMenuPreference({
+      authority: "anonymous",
+      authorityEpoch: () => 1,
+      createClient,
+      currentAuthority: () => "anonymous",
+      nextPreference: { themeMode: "light", palette: "blue" },
+      requestSequence: { current: 1 },
+      setError: (message) => errors.push(message),
+      setPending: (value) => pending.push(value),
+      store,
+    })
+
+    expect(createClient).not.toHaveBeenCalled()
+    expect(errors.at(-1)).toBeNull()
+    expect(pending.at(-1)).toBe(false)
+    expect(store.getState()).toMatchObject({ themeMode: "light", palette: "blue" })
+
+  it "keeps pending owned by the newest overlapping trusted selection", async ->
+    const store = createUiStore()
+    const requestSequence = { current: 0 }
+    const pending: boolean[] = []
+    const firstGet = deferred<ThemePreferenceOutput>()
+    const secondGet = deferred<ThemePreferenceOutput>()
+    const selection = (
+      get: () => Promise<ThemePreferenceOutput>,
+      preference: Readonly<{ themeMode: "dark" | "light"; palette: "rose" | "blue" }>,
+    ) => selectThemeMenuPreference({
+      authority: "trusted",
+      authorityEpoch: () => 0,
+      createClient: () => ({
+        get,
+        update: async () => ({
+          themeMode: preference.themeMode,
+          palette: preference.palette,
+          updatedAt: new Date("2026-07-23T10:00:00.001Z"),
+        }),
+      }),
+      currentAuthority: () => "trusted",
+      nextPreference: preference,
+      requestSequence,
+      setError: vi.fn(),
+      setPending: (value) => pending.push(value),
+      store,
+    })
+
+    const first = selection(
+      async () => firstGet.promise,
+      { themeMode: "dark", palette: "rose" },
+    )
+    const second = selection(
+      async () => secondGet.promise,
+      { themeMode: "light", palette: "blue" },
+    )
+    firstGet.resolve({
+      themeMode: "system",
+      palette: "neutral",
+      updatedAt: new Date("2026-07-23T10:00:00.000Z"),
+    })
+
+    await first
+    expect(pending.at(-1)).toBe(true)
+
+    secondGet.resolve({
+      themeMode: "system",
+      palette: "neutral",
+      updatedAt: new Date("2026-07-23T10:00:00.000Z"),
+    })
+    await second
+    expect(pending.at(-1)).toBe(false)
 
   it "neutralizes anonymous subscriptions before a soft transition applies trusted state", ->
     const store = createUiStore()

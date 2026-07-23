@@ -1,0 +1,147 @@
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  getPortalSession,
+  parsePortalSession,
+  portalSignInHref,
+  resolvePortalCallbackPath,
+  resolvePortalAppUrl,
+} from "./server-session.civet"
+
+const activeSession = {
+  user: {
+    id: "user-1",
+    name: "Example Member",
+    role: "member",
+    status: "active",
+  },
+  session: {
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  },
+}
+
+describe "resolvePortalAppUrl", ->
+  it "uses one validated HTTPS application origin", ->
+    expect(resolvePortalAppUrl("https://portal.example.test").href).toBe(
+      "https://portal.example.test/",
+    )
+    expect(() => resolvePortalAppUrl("http://portal.example.test")).toThrow(
+      "Portal application URL must be a clean HTTPS origin",
+    )
+    expect(() => resolvePortalAppUrl("https://user:secret@portal.example.test")).toThrow(
+      "Portal application URL must be a clean HTTPS origin",
+    )
+
+describe "parsePortalSession", ->
+  it "accepts only an active Better Auth session with a known role", ->
+    expect(parsePortalSession(activeSession, new Date("2029-01-01T00:00:00.000Z"))).toEqual({
+      userId: "user-1",
+      name: "Example Member",
+      role: "member",
+      status: "active",
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+    })
+
+  it.each([
+    null,
+    {},
+    { ...activeSession, user: { ...activeSession.user, role: "owner" } },
+    { ...activeSession, user: { ...activeSession.user, status: "suspended" } },
+    { ...activeSession, user: { ...activeSession.user, status: "deactivated" } },
+    { ...activeSession, session: { expiresAt: "not-a-date" } },
+    { ...activeSession, session: { expiresAt: "2028-01-01T00:00:00.000Z" } },
+  ])("rejects malformed, inactive, or expired session data", (value) ->
+    expect(parsePortalSession(value, new Date("2029-01-01T00:00:00.000Z"))).toBeNull()
+  )
+
+describe "portal callback paths", ->
+  it "preserves a safe relative portal path and encodes it for sign in", ->
+    const headers = new Headers({ "x-pathname": "/feature-items/item-1?mode=edit" })
+    expect(resolvePortalCallbackPath(headers)).toBe("/feature-items/item-1?mode=edit")
+    expect(portalSignInHref(headers)).toBe(
+      "/sign-in?callbackURL=%2Ffeature-items%2Fitem-1%3Fmode%3Dedit",
+    )
+
+  it.each([
+    "https://attacker.invalid/steal",
+    "//attacker.invalid/steal",
+    "/sign-in",
+    "/features",
+    "/feature-items/../../sign-in",
+    "\\attacker.invalid\\steal",
+  ])("falls back when the request path is unsafe", (pathname) ->
+    expect(resolvePortalCallbackPath(new Headers({ "x-pathname": pathname }))).toBe("/dashboard")
+  )
+
+describe "getPortalSession", ->
+  it "forwards only the request cookie and validates the response", async ->
+    const fetchSession = vi.fn(async (request: Request) -> {
+      expect(request.url).toBe("https://darkfactory.localhost/api/auth/get-session")
+      expect(request.headers.get("cookie")).toBe("better-auth.session_token=opaque")
+      expect(request.headers.get("accept")).toBe("application/json")
+      return Response.json(activeSession)
+    })
+
+    await expect(getPortalSession({
+      cookieHeader: "better-auth.session_token=opaque",
+      fetch: fetchSession,
+      now: new Date("2029-01-01T00:00:00.000Z"),
+    })).resolves.toMatchObject({ userId: "user-1", role: "member" })
+  
+    expect(fetchSession).toHaveBeenCalledOnce()
+  
+  it.each([
+    new Response(null, { status: 401 }),
+    Response.json({ unexpected: true }),
+  ])("fails closed for missing or invalid session responses", async (response) ->
+    await expect(getPortalSession({
+      cookieHeader: "better-auth.session_token=opaque",
+      fetch: vi.fn(async -> response),
+      now: new Date("2029-01-01T00:00:00.000Z"),
+    })).resolves.toBeNull()
+  )
+
+  it "fails closed when the session endpoint cannot be reached", async ->
+    await expect(getPortalSession({
+      cookieHeader: "better-auth.session_token=opaque",
+      fetch: vi.fn(async -> throw new Error("connection details must stay private")),
+      now: new Date("2029-01-01T00:00:00.000Z"),
+    })).resolves.toBeNull()
+
+  it "bounds a streaming response even when content-length is absent", async ->
+    const oversized = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(10_000))
+        controller.enqueue(new Uint8Array(10_000))
+      },
+    })
+    await expect(getPortalSession({
+      cookieHeader: "better-auth.session_token=opaque",
+      fetch: vi.fn(async -> new Response(oversized)),
+      now: new Date("2029-01-01T00:00:00.000Z"),
+    })).resolves.toBeNull()
+
+  it "cancels a stalled response body at the same deadline", async ->
+    const stalled = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{"))
+      },
+    })
+    await expect(getPortalSession({
+      cookieHeader: "better-auth.session_token=opaque",
+      fetch: vi.fn(async -> new Response(stalled)),
+      now: new Date("2029-01-01T00:00:00.000Z"),
+      timeoutMs: 5,
+    })).resolves.toBeNull()
+
+  it "aborts a hanging session request within the configured deadline", async ->
+    const fetchSession = vi.fn((request: Request) => new Promise<Response>((resolve) => {
+      request.signal.addEventListener("abort", () => resolve(new Response(null, { status: 504 })))
+    }))
+    await expect(getPortalSession({
+      cookieHeader: "better-auth.session_token=opaque",
+      fetch: fetchSession,
+      now: new Date("2029-01-01T00:00:00.000Z"),
+      timeoutMs: 5,
+    })).resolves.toBeNull()
+    expect(fetchSession.mock.calls[0]?.[0].signal.aborted).toBe(true)

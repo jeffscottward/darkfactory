@@ -1,0 +1,40 @@
+import type {
+  GenerationPlan,
+  GenerationReport,
+  GenerationStatus,
+} from "./types.civet"
+
+export const createGenerationReport = (
+  plan: GenerationPlan,
+  status: GenerationStatus,
+  dryRun: boolean,
+  cleanup: GenerationReport["cleanup"] = dryRun ? "not-applicable" : "complete",
+): GenerationReport => Object.freeze({
+  version: 1 as const,
+  status,
+  feature: plan.names.kebab,
+  capsuleRoot: plan.capsuleRoot,
+  dryRun,
+  planId: plan.planId,
+  files: Object.freeze(plan.files.map((file) => file.path)),
+  integration: "manual-reviewed-handoff" as const,
+  cleanup,
+})
+
+export const formatHumanReport = (report: GenerationReport): string => {
+  const heading = report.status === "planned" ? "Feature generation plan" : "Feature capsule generated"
+  const action = report.dryRun ? "No files were written." : "The capsule was atomically promoted and verified."
+  return [
+    `${heading}: ${report.feature}`,
+    `Plan ${report.planId}`,
+    `Capsule: ${report.capsuleRoot}`,
+    `Files: ${report.files.length}`,
+    action,
+    `Cleanup: ${report.cleanup}`,
+    "Integration: manual reviewed handoff required; shared runtime registries were not edited.",
+    ...report.files.map((path) => `  - ${path}`),
+  ].join("\n")
+}
+
+export const serializeGenerationReport = (report: GenerationReport): string =>
+  `${JSON.stringify(report, null, 2)}\n`

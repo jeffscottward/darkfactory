@@ -1,0 +1,225 @@
+import {
+  createContactThrottleRepository,
+  createNodeDatabase,
+  migrate,
+} from "@darkfactory/db/server"
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
+let testDatabase: PostgresTestDatabase
+let databaseResource: ReturnType<typeof createNodeDatabase>
+
+describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
+  beforeAll(async ->
+    testDatabase = await createPostgresTestDatabase()
+    databaseResource = createNodeDatabase({
+      connectionString: testDatabase.databaseUrl,
+      maxConnections: 8,
+    })
+    await migrate(databaseResource.db)
+  , 60_000)
+
+  beforeEach(async ->
+    await testDatabase.query("TRUNCATE TABLE contact_rate_limits")
+  )
+
+  afterAll(async ->
+    try {
+      if (databaseResource !== undefined) await databaseResource.close()
+    } finally {
+      if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
+    }
+  , 60_000)
+
+  it "stores only a 64-character HMAC key and no raw IP column", async ->
+    const repository = createContactThrottleRepository(databaseResource.db)
+    const keyHash = "a".repeat(64)
+
+    await repository.consume(keyHash)
+
+    const columns = await testDatabase.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'contact_rate_limits' ORDER BY ordinal_position",
+    )
+    expect(columns.map(({ column_name }) => column_name)).toEqual([
+      "key_hash",
+      "window_started_at",
+      "request_count",
+      "expires_at",
+    ])
+    const rows = await testDatabase.query<Record<string, unknown>>(
+      "SELECT * FROM contact_rate_limits",
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.["key_hash"]).toBe(keyHash)
+    expect(JSON.stringify(rows)).not.toContain("203.0.113.42")
+
+  it "atomically denies the concurrent sixth request in a fifteen-minute window", async ->
+    const repository = createContactThrottleRepository(databaseResource.db)
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => repository.consume("b".repeat(64))),
+    )
+
+    expect(results.filter(({ allowed }) => allowed)).toHaveLength(5)
+    expect(results.filter(({ allowed }) => !allowed)).toHaveLength(1)
+    expect(results.filter(({ allowed }) => !allowed)[0]).toMatchObject({
+      remaining: 0,
+    })
+    const rows = await testDatabase.query<{ request_count: number }>(
+      "SELECT request_count FROM contact_rate_limits WHERE key_hash = $1",
+      ["b".repeat(64)],
+    )
+    expect(rows).toEqual([{ request_count: 5 }])
+
+  it "opens a fresh window after expiry", async ->
+    const repository = createContactThrottleRepository(databaseResource.db)
+    for (let request = 0; request < 5; request += 1) {
+      expect((await repository.consume("c".repeat(64))).allowed).toBe(true)
+    }
+    expect((await repository.consume("c".repeat(64))).allowed).toBe(false)
+    await testDatabase.query(
+      "UPDATE contact_rate_limits SET window_started_at = clock_timestamp() - interval '16 minutes', expires_at = clock_timestamp() - interval '1 second' WHERE key_hash = $1",
+      ["c".repeat(64)],
+    )
+
+    await expect(repository.consume("c".repeat(64))).resolves.toMatchObject({
+      allowed: true,
+      remaining: 4,
+    })
+
+  it "opportunistically cleans expired rows and enforces a hard row bound", async ->
+    const repository = createContactThrottleRepository(databaseResource.db, {
+      maxRows: 2,
+      cleanupBatchSize: 2,
+    })
+    await expect(repository.consume("d".repeat(64))).resolves.toMatchObject({
+      allowed: true,
+    })
+    await expect(repository.consume("e".repeat(64))).resolves.toMatchObject({
+      allowed: true,
+    })
+    await expect(repository.consume("f".repeat(64))).resolves.toMatchObject({
+      allowed: false,
+    })
+
+    const rows = await testDatabase.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM contact_rate_limits",
+    )
+    expect(rows).toEqual([{ count: 2 }])
+
+    await testDatabase.query(
+      "UPDATE contact_rate_limits SET window_started_at = clock_timestamp() - interval '16 minutes', expires_at = clock_timestamp() - interval '1 second'",
+    )
+    await repository.consume("1".repeat(64))
+    const expired = await testDatabase.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM contact_rate_limits WHERE expires_at <= clock_timestamp()",
+    )
+    expect(expired).toEqual([{ count: 0 }])
+
+  it "cannot reset a denied live bucket when the table is saturated", async ->
+    const repository = createContactThrottleRepository(databaseResource.db, {
+      maxRows: 2,
+    })
+    const firstKey = "7".repeat(64)
+    for (let request = 0; request < 5; request += 1) {
+      expect((await repository.consume(firstKey)).allowed).toBe(true)
+    }
+    expect((await repository.consume(firstKey)).allowed).toBe(false)
+    expect((await repository.consume("8".repeat(64))).allowed).toBe(true)
+    expect((await repository.consume("9".repeat(64))).allowed).toBe(false)
+    expect((await repository.consume(firstKey)).allowed).toBe(false)
+
+  it "supports a higher domain-separated edge-attempt ceiling", async ->
+    const repository = createContactThrottleRepository(databaseResource.db, {
+      maxRequests: 30,
+    })
+    const key = "6".repeat(64)
+    const decisions = []
+    for (let attempt = 0; attempt < 31; attempt += 1) {
+      decisions.push(await repository.consume(key))
+    }
+    expect(decisions.filter(({ allowed }) => allowed)).toHaveLength(30)
+    expect(decisions[30]).toMatchObject({ allowed: false, remaining: 0 })
+
+  it "keeps the hard bound when an expired existing probe races new-key capacity", async ->
+    const repository = createContactThrottleRepository(databaseResource.db, {
+      maxRows: 2,
+    })
+    const expiredKey = "2".repeat(64)
+    const liveKey = "3".repeat(64)
+    const replacementKey = "4".repeat(64)
+    await repository.consume(expiredKey)
+    await repository.consume(liveKey)
+    await testDatabase.query(
+      "UPDATE contact_rate_limits SET window_started_at = clock_timestamp() - interval '16 minutes', expires_at = clock_timestamp() - interval '1 second' WHERE key_hash = $1",
+      [expiredKey],
+    )
+
+    const blocker = await testDatabase.openConnection()
+    try {
+      await blocker.query("BEGIN")
+      await blocker.query(
+        "SELECT key_hash FROM contact_rate_limits WHERE key_hash = $1 FOR UPDATE",
+        [expiredKey],
+      )
+      const expiredDecision = repository.consume(expiredKey)
+
+      let blocked = false
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const rows = await testDatabase.query<{ blocked: boolean }>(
+          `SELECT EXISTS (
+            SELECT 1
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND cardinality(pg_blocking_pids(pid)) > 0
+              AND query ILIKE '%contact_rate_limits%'
+          ) AS blocked`,
+        )
+        if (rows[0]?.blocked) {
+          blocked = true
+          break
+        }
+        await Promise.resolve()
+      }
+      expect(blocked).toBe(true)
+
+      await blocker.query(
+        "DELETE FROM contact_rate_limits WHERE key_hash = $1",
+        [expiredKey],
+      )
+      await blocker.query(
+        `INSERT INTO contact_rate_limits (
+          key_hash, window_started_at, request_count, expires_at
+        ) VALUES ($1, clock_timestamp(), 1, clock_timestamp() + interval '15 minutes')`,
+        [replacementKey],
+      )
+      await blocker.query("COMMIT")
+
+      await expect(expiredDecision).resolves.toMatchObject({
+        allowed: false,
+        remaining: 0,
+      })
+      await expect(repository.consume(replacementKey)).resolves.toMatchObject({
+        allowed: true,
+      })
+      const rows = await testDatabase.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM contact_rate_limits",
+      )
+      expect(rows).toEqual([{ count: 2 }])
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => undefined)
+      await blocker.close()
+    }
+
+  it "rejects non-HMAC keys before touching Postgres", async ->
+    const repository = createContactThrottleRepository(databaseResource.db)
+    await expect(repository.consume("203.0.113.42")).rejects.toThrow(
+      "keyHash must be a lowercase SHA-256 HMAC",
+    )
+    const rows = await testDatabase.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM contact_rate_limits",
+    )
+    expect(rows).toEqual([{ count: 0 }])

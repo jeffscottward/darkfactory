@@ -1,0 +1,92 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  createSecurityGateway,
+  safeSecurityFeedback,
+  toSafeSessions,
+} from "./security-client.civet"
+import { PasswordForm, SecurityPanel } from "./security-panel.civet"
+
+const session = {
+  id: "session-current",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+  userAgent: "Example Browser on Example OS",
+  ipAddress: "192.0.2.1",
+  token: "never-render-this-session-token",
+  userId: "user-1",
+}
+
+describe "supported Better Auth security gateway", ->
+  it "uses typed session, revoke-other, and change-password methods", async ->
+    const auth = {
+      getSession: vi.fn(async -> ({ data: { session, user: {} }, error: null })),
+      listSessions: vi.fn(async -> ({ data: [session], error: null })),
+      revokeOtherSessions: vi.fn(async -> ({ data: { status: true }, error: null })),
+      changePassword: vi.fn(async -> ({ data: { token: null }, error: null })),
+    }
+    const gateway = createSecurityGateway(auth as never)
+
+    await expect(gateway.listSessions()).resolves.toEqual({
+      currentSessionId: "session-current",
+      sessions: expect.arrayContaining([
+        expect.objectContaining({ id: "session-current", isCurrent: true }),
+      ]),
+    })
+    await expect(gateway.revokeOtherSessions()).resolves.toBeUndefined()
+    await expect(gateway.changePassword({
+      currentPassword: "current-password",
+      newPassword: "new-password-long-enough",
+      revokeOtherSessions: true,
+    })).resolves.toBeUndefined()
+    expect(auth.revokeOtherSessions).toHaveBeenCalledOnce()
+    expect(auth.changePassword).toHaveBeenCalledWith({
+      currentPassword: "current-password",
+      newPassword: "new-password-long-enough",
+      revokeOtherSessions: true,
+    })
+
+  it "maps raw session records to metadata that cannot render tokens", ->
+    const safe = toSafeSessions([session], "session-current")
+    expect(safe[0]).toMatchObject({ id: "session-current", isCurrent: true })
+    expect(JSON.stringify(safe)).not.toContain(session.token)
+    expect(JSON.stringify(safe)).not.toContain("token")
+
+  it "sanitizes authentication failures", ->
+    expect(safeSecurityFeedback(new Error("password=secret token=opaque"))).not.toContain("secret")
+    expect(safeSecurityFeedback({ code: "UNAUTHORIZED" })).toContain("Sign in")
+
+describe "security page states and actions", ->
+  it "marks the current session and never offers to revoke it", ->
+    const html = renderToStaticMarkup(
+      <SecurityPanel
+        state={{
+          type: "ready",
+          sessions: toSafeSessions([session], "session-current"),
+        }}
+      />,
+    )
+    expect(html).toContain("Current session")
+    expect(html).toContain("Example Browser on Example OS")
+    expect(html).toContain("Sign out other sessions")
+    expect(html).not.toContain("Revoke current")
+    expect(html).not.toContain(session.token)
+    expect(html).not.toContain("192.0.2.1")
+
+  it.each([
+    [{ type: "loading" } as const, "Loading sessions"],
+    [{ type: "error", kind: "retryable", message: "Sessions could not be loaded." } as const, "Sessions could not be loaded"],
+    [{ type: "ready", sessions: [] } as const, "No active sessions were returned"],
+  ])("renders supported %s state", (state, expected) ->
+    expect(renderToStaticMarkup(<SecurityPanel state={state} />)).toContain(expected)
+  )
+
+  it "renders supported password fields without ever echoing values", ->
+    const html = renderToStaticMarkup(<PasswordForm onSave={vi.fn()} />)
+    expect(html).toContain("name=\"currentPassword\"")
+    expect(html).toContain("name=\"newPassword\"")
+    expect(html).toContain("name=\"confirmPassword\"")
+    expect(html).toContain("type=\"password\"")
+    expect(html).toContain("Change password")

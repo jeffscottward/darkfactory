@@ -1,10 +1,15 @@
-import { createAuth } from "@darkfactory/auth/server"
+import {
+  createAuth,
+  developmentSeedCrypto,
+  ensureDevelopmentSeedIdentity,
+} from "@darkfactory/auth/server"
 import {
   createNodeDatabase,
   migrate,
   resetDevelopment,
   seedDevelopment,
   type EnsureSeedIdentity,
+  type PrepareSeedIdentities,
 } from "@darkfactory/db/server"
 import type { EmailPort } from "@darkfactory/email"
 import {
@@ -41,6 +46,12 @@ const IDS = {
   ],
 } as const
 
+const sendEmailVerification = vi.fn(async () => ({
+  status: "failed",
+  provider: "disabled",
+  code: "EMAIL_DELIVERY_DISABLED",
+  retryable: false,
+} as const))
 const email: EmailPort = {
   sendPasswordReset: async () => ({
     status: "failed",
@@ -48,6 +59,7 @@ const email: EmailPort = {
     code: "EMAIL_DELIVERY_DISABLED",
     retryable: false,
   }),
+  sendEmailVerification,
 }
 
 let testDatabase: PostgresTestDatabase
@@ -59,45 +71,13 @@ const awaitBackgroundTasks = async (): Promise<void> => {
   await Promise.all(tasks)
 }
 
-const ensureIdentity: EnsureSeedIdentity = async (identity, exists) => {
-  const auth = createAuth({
-    database: databaseResource.db,
-    email,
+const prepareIdentity: PrepareSeedIdentities = async (identities) =>
+  await ensureDevelopmentSeedIdentity({
+    environment: "test",
     secret: AUTH_SECRET,
     baseURL: BASE_URL,
     trustedOrigins: [BASE_URL],
-    rateLimitEnabled: false,
-    scheduleBackgroundTask: (task) => backgroundTasks.push(task),
-    generateId: ({ model }) => {
-      if (model === "user") return identity.userId
-      if (model === "account") return identity.accountId
-      throw new Error(`Unexpected seed auth model: ${model}`)
-    },
-  })
-  if (!exists) {
-    await auth.api.signUpEmail({
-      body: {
-        name: identity.name,
-        email: identity.email,
-        password: identity.password,
-      },
-    })
-    return
-  }
-
-  const context = await auth.$context
-  const credential = (
-    await context.internalAdapter.findAccounts(identity.userId)
-  ).find((account) => account.id === identity.accountId)
-  if (!credential?.password) throw new Error("Expected seed credential")
-  if (await context.password.verify({
-    hash: credential.password,
-    password: identity.password,
-  })) return
-  await context.internalAdapter.updateAccount(credential.id, {
-    password: await context.password.hash(identity.password),
-  })
-}
+  }, identities)
 
 const tableCount = async (table: string): Promise<number> => {
   const rows = await testDatabase.query<{ count: string }>(
@@ -116,7 +96,7 @@ const tableCounts = async (tables: readonly string[]): Promise<number[]> => {
 const seed = async () => {
   const result = await seedDevelopment(databaseResource.db, {
     environment: "test",
-    ensureIdentity,
+    prepareIdentity,
   })
   await awaitBackgroundTasks()
   return result
@@ -135,6 +115,7 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
   beforeEach(async () => {
     backgroundTasks = []
     await resetDevelopment(databaseResource.db, { environment: "test" })
+    sendEmailVerification.mockClear()
   })
 
   afterAll(async () => {
@@ -147,6 +128,7 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
 
   it("seeds the three exact personas through Better Auth with hashed credentials and valid sign-in", async () => {
     const result = await seed()
+    expect(sendEmailVerification).not.toHaveBeenCalled()
 
     expect(result).toEqual({
       identitiesCreated: 3,
@@ -455,6 +437,98 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
     ])).resolves.toEqual([beforeAudit + 1, beforeOutbox + 1])
   }, 60_000)
 
+  it("rolls back identity and application resources when provisioning fails", async () => {
+    await testDatabase.query(`
+      CREATE FUNCTION fail_seed_profile_insert() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'Injected profile provisioning failure';
+      END;
+      $$;
+      CREATE TRIGGER fail_seed_profile_insert
+      BEFORE INSERT ON profiles
+      FOR EACH ROW EXECUTE FUNCTION fail_seed_profile_insert();
+    `)
+
+    try {
+      await expect(seed()).rejects.toThrow(/insert into "profiles"/i)
+      await expect(tableCounts([
+        "user", "account", "profiles", "user_preferences",
+      ])).resolves.toEqual([0, 0, 0, 0])
+    } finally {
+      await testDatabase.query(`
+        DROP TRIGGER IF EXISTS fail_seed_profile_insert ON profiles;
+        DROP FUNCTION IF EXISTS fail_seed_profile_insert();
+      `)
+    }
+
+    await expect(seed()).resolves.toMatchObject({ identitiesCreated: 3 })
+    await expect(tableCounts([
+      "user", "account", "profiles", "user_preferences",
+    ])).resolves.toEqual([3, 3, 3, 3])
+  }, 60_000)
+
+  it("serializes concurrent seed callers and converges both", async () => {
+    const results = await Promise.all([seed(), seed()])
+
+    expect(results.map(({ identitiesCreated }) => identitiesCreated).sort())
+      .toEqual([0, 3])
+    await expect(tableCounts([
+      "user", "account", "profiles", "user_preferences", "addresses",
+      "feature_items", "audit_records", "outbox_events",
+    ])).resolves.toEqual([3, 3, 3, 3, 3, 3, 3, 3])
+  }, 60_000)
+
+  it("does not mutate when credential hashing fails", async () => {
+    const hash = vi.spyOn(developmentSeedCrypto, "hashPassword")
+      .mockRejectedValueOnce(new Error("Injected password hash failure"))
+
+    try {
+      await expect(seedDevelopment(databaseResource.db, {
+        environment: "test",
+        prepareIdentity,
+      })).rejects.toThrow(/password hash failure/i)
+      await expect(tableCounts([
+        "user", "account", "profiles", "user_preferences",
+      ])).resolves.toEqual([0, 0, 0, 0])
+    } finally {
+      hash.mockRestore()
+    }
+
+    await expect(seed()).resolves.toMatchObject({ identitiesCreated: 3 })
+    await expect(tableCounts(["user", "account"])).resolves.toEqual([3, 3])
+  }, 60_000)
+
+  it("rejects unsafe setup environments before hashing or mutation", async () => {
+    const identity = {
+      userId: IDS.users[0],
+      accountId: IDS.accounts[0],
+      name: "Admin User",
+      email: "admin@domain.test",
+      image: "https://placehold.co/256x256/png?text=AU",
+      role: "admin" as const,
+      password: DEVELOPMENT_PASSWORD,
+    }
+
+    for (const environment of ["production", "staging", undefined]) {
+      const hash = vi.spyOn(developmentSeedCrypto, "hashPassword")
+      try {
+        await expect(ensureDevelopmentSeedIdentity({
+          environment,
+          secret: AUTH_SECRET,
+          baseURL: BASE_URL,
+          trustedOrigins: [BASE_URL],
+        }, [identity])).rejects.toThrow(/development or test/i)
+        expect(hash).not.toHaveBeenCalled()
+        await expect(tableCounts([
+          "user", "account", "profiles", "user_preferences",
+        ])).resolves.toEqual([0, 0, 0, 0])
+      } finally {
+        hash.mockRestore()
+      }
+    }
+  })
+
   it("preflights a late-persona credential collision before creating any identity", async () => {
     await testDatabase.query(
       `INSERT INTO "user" (id, name, email, email_verified, role, status)
@@ -467,12 +541,15 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       ["collision-account", IDS.users[2], "collision-user"],
     )
     const assurer = vi.fn<EnsureSeedIdentity>()
+    const preparer = vi.fn<PrepareSeedIdentities>()
+      .mockResolvedValue(assurer)
 
     await expect(seedDevelopment(databaseResource.db, {
       environment: "test",
-      ensureIdentity: assurer,
+      prepareIdentity: preparer,
     })).rejects.toThrow(/collision/i)
 
+    expect(preparer).toHaveBeenCalledOnce()
     expect(assurer).not.toHaveBeenCalled()
     await expect(tableCounts([
       "user", "account", "profiles", "user_preferences", "addresses",
@@ -493,7 +570,7 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
 
     await expect(seedDevelopment(databaseResource.db, {
       environment: "test",
-      ensureIdentity: assurer,
+      prepareIdentity: preparer,
     })).rejects.toThrow(/malformed/i)
     expect(assurer).not.toHaveBeenCalled()
     await expect(tableCounts([
@@ -509,13 +586,16 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       ["preserved-user", "Preserved", "preserved@domain.test"],
     )
     const assurer = vi.fn<EnsureSeedIdentity>()
+    const preparer = vi.fn<PrepareSeedIdentities>()
+      .mockResolvedValue(assurer)
 
     for (const environment of ["production", "staging", "", undefined]) {
       await expect(seedDevelopment(databaseResource.db, {
         environment: environment as never,
-        ensureIdentity: assurer,
+        prepareIdentity: preparer,
       })).rejects.toThrow(/development or test/i)
 
+      expect(preparer).not.toHaveBeenCalled()
       expect(assurer).not.toHaveBeenCalled()
       expect(await tableCount("user")).toBe(1)
     }

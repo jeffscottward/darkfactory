@@ -1,0 +1,214 @@
+import type { ApiClient, FeatureItemOutput } from "@darkfactory/api"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  classifyFeatureFailure,
+  createFeatureItemGateway,
+  restorePortalFocus,
+  synchronizeRetainedFeatureItem,
+} from "./feature-items-client.civet"
+import { FeatureRecoveryAction } from "./feature-recovery-action.civet"
+import { FeatureItemsCollection } from "./feature-items-collection.civet"
+import { CreateWorkflowStep } from "./feature-item-create-workflow.civet"
+import {
+  ArchivedFeatureItemDetails,
+  ArchivedFeatureItemNotice,
+  EditorNameField,
+  createEditorMutationGuard,
+  isEditorMutationLocked,
+} from "./feature-item-editor.civet"
+
+const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
+  id: "item-1",
+  name: "Original name",
+  description: "Original description",
+  status: "draft",
+  metadata: {},
+  ownerId: "user-1",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  ...overrides,
+})
+
+describe "partial create recovery", ->
+  it "updates a retained durable draft with current edits before activation retry", async ->
+    const update = vi.fn(async (input) -> item({
+      name: input.name,
+      description: input.description,
+    }))
+    const gateway = createFeatureItemGateway({
+      featureItems: {
+        list: vi.fn(), get: vi.fn(), create: vi.fn(), update,
+        changeStatus: vi.fn(), archive: vi.fn(),
+      },
+    } as unknown as ApiClient)
+
+    await expect(synchronizeRetainedFeatureItem(
+      gateway,
+      item(),
+      { name: "Edited name", description: "Edited description" },
+    )).resolves.toMatchObject({
+      name: "Edited name",
+      description: "Edited description",
+    })
+    expect(update).toHaveBeenCalledWith({
+      id: "item-1",
+      name: "Edited name",
+      description: "Edited description",
+    })
+  
+  it "labels activation failure as a persisted draft and an unknown create outcome as non-retryable", ->
+    const partial = renderToStaticMarkup(
+      <CreateWorkflowStep
+        description="Current description"
+        error="Activation is temporarily unavailable."
+        name="Current name"
+        partialCreated
+        state="failure"
+        status="active"
+      />,
+    )
+    expect(partial).toContain("Draft created; activation failed")
+    expect(partial).toContain("Current description")
+
+    const unknown = renderToStaticMarkup(
+      <CreateWorkflowStep
+        creationOutcomeUnknown
+        description="Current description"
+        error="The creation outcome could not be confirmed."
+        name="Current name"
+        state="failure"
+        status="draft"
+      />,
+    )
+    expect(unknown).toContain("Check the feature item list before trying again")
+
+describe "archive serialization", ->
+  it "keeps the pending row visible and disables every archive action", ->
+    const html = renderToStaticMarkup(
+      <FeatureItemsCollection
+        archiveBusy
+        archivingId="item-1"
+        state={{
+          type: "ready",
+          items: [item(), item({ id: "item-2", name: "Second item" })],
+        }}
+      />,
+    )
+    expect(html).toContain("Original name")
+    expect(html).toContain("Second item")
+    expect(html).toContain("Archiving Original name")
+    expect((html.match(/disabled=""/g) ?? [])).toHaveLength(2)
+
+describe "single editor mutation lock", ->
+  it "locks every editor surface while any mutation is pending", ->
+    expect(isEditorMutationLocked({ saving: true, changingStatus: false, archiving: false })).toBe(true)
+    expect(isEditorMutationLocked({ saving: false, changingStatus: true, archiving: false })).toBe(true)
+    expect(isEditorMutationLocked({ saving: false, changingStatus: false, archiving: true })).toBe(true)
+    expect(isEditorMutationLocked({ saving: false, changingStatus: false, archiving: false })).toBe(false)
+
+  it "rejects a second mutation while a delayed save owns the lock", async ->
+    const guard = createEditorMutationGuard()
+    let releaseSave: (() => void) | undefined
+    const delayedSave = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+
+    expect(guard.acquire()).toBe(true)
+    const first = delayedSave.finally(guard.release)
+    expect(guard.acquire()).toBe(false)
+    releaseSave?.()
+    await first
+    expect(guard.acquire()).toBe(true)
+    guard.release()
+  
+  it "associates the empty-name error with the field and exposes invalid state", ->
+    const html = renderToStaticMarkup(
+      <EditorNameField
+        disabled={false}
+        error="Enter a name before saving."
+        value=""
+      />,
+    )
+    expect(html).toContain("aria-invalid=\"true\"")
+    expect(html).toContain("aria-errormessage=\"edit-feature-name-error\"")
+    expect(html).toContain("Enter a name before saving")
+
+describe "typed recovery actions", ->
+  it "preserves unauthorized, forbidden, not-found, and transient recovery kinds", ->
+    expect(classifyFeatureFailure({ code: "UNAUTHORIZED" }).kind).toBe("unauthorized")
+    expect(classifyFeatureFailure({ code: "FORBIDDEN" }).kind).toBe("forbidden")
+    expect(classifyFeatureFailure({ code: "NOT_FOUND" }).kind).toBe("not-found")
+    expect(classifyFeatureFailure(new Error("private transport detail")).kind).toBe("unknown")
+
+    const unauthorized = renderToStaticMarkup(
+      <FeatureRecoveryAction kind="unauthorized" returnHref="/feature-items" />,
+    )
+    expect(unauthorized).toContain("/sign-in?callbackURL=%2Ffeature-items")
+    expect(unauthorized).toContain("Sign in again")
+
+    const notFound = renderToStaticMarkup(
+      <FeatureRecoveryAction kind="not-found" returnHref="/feature-items" />,
+    )
+    expect(notFound).toContain("Return to feature items")
+    expect(notFound).not.toContain("Try again")
+
+    const transient = renderToStaticMarkup(
+      <FeatureRecoveryAction kind="transient" returnHref="/feature-items" />,
+    )
+    expect(transient).toContain("Try again")
+  
+  it "restores focus to the initiating control after inline confirmation closes", async ->
+    const focus = vi.fn()
+    restorePortalFocus({ focus })
+    await Promise.resolve()
+    expect(focus).toHaveBeenCalledOnce()
+
+describe "archived and session recovery states", ->
+  it "renders archived records as read-only views without a redundant archive action", ->
+    const archived = item({ name: "Archived record", status: "archived" })
+    const collection = renderToStaticMarkup(
+      <FeatureItemsCollection state={{ type: "ready", items: [archived] }} />,
+    )
+    expect(collection).toContain("View Archived record")
+    expect(collection).not.toContain("Archive Archived record")
+
+    const notice = renderToStaticMarkup(<ArchivedFeatureItemNotice />)
+    expect(notice).toContain("read-only")
+    expect(notice).toContain("Archived records cannot be edited")
+    const detail = renderToStaticMarkup(<ArchivedFeatureItemDetails item={archived} />)
+    expect(detail).toContain("<dl")
+    expect(detail).toContain("Archived record")
+    expect(detail).toContain("Original description")
+    expect(detail).toContain("whitespace-pre-wrap")
+    expect(detail).not.toContain("<input")
+    expect(detail).not.toContain("<select")
+    expect(detail).not.toContain("Archive feature item")
+
+  it "returns an expired list session to the fixed feature-items callback", ->
+    const html = renderToStaticMarkup(
+      <FeatureItemsCollection
+        state={{
+          type: "error",
+          kind: "unauthorized",
+          message: "Your session ended.",
+        }}
+      />,
+    )
+    expect(html).toContain("/sign-in?callbackURL=%2Ffeature-items")
+
+describe "mobile content resilience", ->
+  it "wraps long user content and includes description in final review", ->
+    const unbroken = "x".repeat(200)
+    const collection = renderToStaticMarkup(
+      <FeatureItemsCollection state={{ type: "ready", items: [item({ name: unbroken, description: unbroken })] }} />,
+    )
+    expect(collection).toContain("overflow-wrap:anywhere")
+
+    const review = renderToStaticMarkup(
+      <CreateWorkflowStep description="" name={unbroken} state="review" status="draft" />,
+    )
+    expect(review).toContain("Description")
+    expect(review).toContain("None provided")
+    expect(review).toContain("overflow-wrap:anywhere")

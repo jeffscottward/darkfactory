@@ -1,0 +1,52 @@
+import {
+  runDevelopmentAction,
+  type DevelopmentAction,
+  type LifecycleFileSystem,
+  type ProcessAdapter,
+} from "./lifecycle.civet"
+
+const ACTIONS = new Set<DevelopmentAction>([
+  "start",
+  "status",
+  "logs",
+  "stop",
+  "trust",
+  "certs-install",
+  "certs-generate",
+])
+
+export type DevelopmentCliDependencies = Readonly<{
+  process: ProcessAdapter
+  files?: LifecycleFileSystem
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+}>
+
+export const runDevelopmentCli = async (
+  arguments_: readonly string[],
+  dependencies: DevelopmentCliDependencies,
+): Promise<number> => {
+  const [candidate, ...extra] = arguments_
+  if (candidate === undefined || extra.length > 0 || !ACTIONS.has(candidate as DevelopmentAction)) {
+    dependencies.writeError("Usage: dev <start|status|logs|stop|trust|certs-install|certs-generate>\n")
+    return 2
+  }
+
+  try {
+    const report = await runDevelopmentAction(
+      candidate as DevelopmentAction,
+      dependencies.process,
+      dependencies.files,
+    )
+    const { output: commandOutput, ...summary } = report
+    const rendered = `${JSON.stringify(summary, null, 2)}\n`
+    if (report.ok) {
+      if (candidate === "logs" && commandOutput) dependencies.writeOutput(commandOutput)
+      dependencies.writeOutput(rendered)
+    } else dependencies.writeError(rendered)
+    return report.ok ? 0 : 1
+  } catch {
+    dependencies.writeError(`${candidate} failed unexpectedly\n`)
+    return 1
+  }
+}

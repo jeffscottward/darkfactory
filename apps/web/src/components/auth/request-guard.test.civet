@@ -1,0 +1,78 @@
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }))
+vi.mock("next/link", () => ({ default: "a" }))
+
+import {
+  createRequestGuard,
+  runGuardedRequest,
+  type RequestGuard,
+} from "./request-guard.civet"
+import { signInRequestController } from "./sign-in-form.civet"
+import { resetPasswordRequestController } from "./reset-password-form.civet"
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
+
+const run = <T>(
+  guard: RequestGuard,
+  promise: Promise<T>,
+  commit: (value: T) => void,
+  settle = vi.fn(),
+) => ({
+  completion: runGuardedRequest({ guard, request: () => promise, commit, settle }),
+  settle,
+})
+
+describe "auth request guard", ->
+  it "commits and settles the current request", async ->
+    const guard = createRequestGuard()
+    const request = deferred<string>()
+    const commit = vi.fn()
+    const { completion, settle } = run(guard, request.promise, commit)
+
+    request.resolve("current")
+
+    await expect(completion).resolves.toBe(true)
+    expect(commit).toHaveBeenCalledWith("current")
+    expect(settle).toHaveBeenCalledOnce()
+
+  it "prevents completion after disposal from committing or settling state", async ->
+    const guard = createRequestGuard()
+    const request = deferred<string>()
+    const commit = vi.fn()
+    const { completion, settle } = run(guard, request.promise, commit)
+
+    guard.dispose()
+    request.resolve("stale")
+
+    await expect(completion).resolves.toBe(false)
+    expect(commit).not.toHaveBeenCalled()
+    expect(settle).not.toHaveBeenCalled()
+
+  it "allows only the newest request to commit after supersession", async ->
+    const guard = createRequestGuard()
+    const first = deferred<string>()
+    const second = deferred<string>()
+    const commit = vi.fn()
+    const firstRun = run(guard, first.promise, commit)
+    const secondRun = run(guard, second.promise, commit)
+
+    first.resolve("first")
+    second.resolve("second")
+
+    await expect(firstRun.completion).resolves.toBe(false)
+    await expect(secondRun.completion).resolves.toBe(true)
+    expect(commit).toHaveBeenCalledOnce()
+    expect(commit).toHaveBeenCalledWith("second")
+    expect(firstRun.settle).not.toHaveBeenCalled()
+    expect(secondRun.settle).toHaveBeenCalledOnce()
+
+  it "binds both redirecting auth forms to the shared guarded controller", ->
+    expect(signInRequestController).toBe(runGuardedRequest)
+    expect(resetPasswordRequestController).toBe(runGuardedRequest)

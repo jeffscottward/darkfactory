@@ -15,12 +15,31 @@ import {
 } from "@darkfactory/db/schema"
 import { describe, expect, it } from "vitest"
 
+// Admin keyset cursors serialize JavaScript Dates at millisecond precision, so
+// only this physical column may narrow Better Auth's unbounded timestamp.
+const PHYSICAL_SQL_TYPE_COMPATIBILITY: Readonly<
+  Record<
+    string,
+    Readonly<{
+      generated: string
+      production: string
+    }>
+  >
+> = {
+  "user.created_at": {
+    generated: "timestamp",
+    production: "timestamp (3)",
+  },
+}
+
 const compareRequiredContract = (
   generatedTable: Parameters<typeof tableContract>[0],
   productionTable: Parameters<typeof tableContract>[0],
 ) => {
   const generated = tableContract(generatedTable)
-  const production = tableContract(productionTable)
+  const production = tableContract(productionTable, {
+    ignoreExtraIndexExpressions: true,
+  })
 
   expect(production.name).toBe(generated.name)
   expect(production.columns.map(({ name }) => name)).toEqual(
@@ -30,9 +49,17 @@ const compareRequiredContract = (
     const actualColumn = production.columns.find(
       ({ name }) => name === requiredColumn.name,
     )
+    const sqlTypeCompatibility =
+      PHYSICAL_SQL_TYPE_COMPATIBILITY[
+        `${generated.name}.${requiredColumn.name}`
+      ]
+    const requiredSqlType =
+      sqlTypeCompatibility?.generated === requiredColumn.sqlType
+        ? sqlTypeCompatibility.production
+        : requiredColumn.sqlType
     expect(actualColumn).toMatchObject({
       name: requiredColumn.name,
-      sqlType: requiredColumn.sqlType,
+      sqlType: requiredSqlType,
       notNull: requiredColumn.notNull,
       primary: requiredColumn.primary,
       unique: requiredColumn.unique,
@@ -70,7 +97,9 @@ describe "Better Auth 1.6.24 generated schema contract", ->
     compareRequiredContract(generatedVerification, verifications)
 
     const generatedUserContract = tableContract(generatedUser)
-    const productionUser = tableContract(users)
+    const productionUser = tableContract(users, {
+      ignoreExtraIndexExpressions: true,
+    })
     expect(productionUser.checks).toEqual([
       "user_role_check",
       "user_status_check",
@@ -90,3 +119,34 @@ describe "Better Auth 1.6.24 generated schema contract", ->
       columns: ["identifier", "value"],
       unique: true,
     })
+
+  it "allows millisecond precision only for the user creation cursor", ->
+    expect(PHYSICAL_SQL_TYPE_COMPATIBILITY).toEqual({
+      "user.created_at": {
+        generated: "timestamp",
+        production: "timestamp (3)",
+      },
+    })
+    expect(
+      tableContract(generatedUser).columns.find(
+        ({ name }) => name === "created_at",
+      )?.sqlType,
+    ).toBe("timestamp")
+    expect(
+      tableContract(users, {
+        ignoreExtraIndexExpressions: true,
+      }).columns.find(({ name }) => name === "created_at")?.sqlType,
+    ).toBe("timestamp (3)")
+
+  it "requires explicit opt-in before ignoring extra SQL index expressions", ->
+    expect(-> tableContract(users)).toThrowError(
+      "Auth schema indexes must reference named columns",
+    )
+    expect(
+      tableContract(users, { ignoreExtraIndexExpressions: true }).indexes,
+    ).toEqual([
+      {
+        columns: ["created_at", "id"],
+        unique: false,
+      },
+    ])

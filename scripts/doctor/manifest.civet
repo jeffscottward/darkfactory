@@ -1,0 +1,86 @@
+export type CapabilityClassification = Readonly<{
+  required: readonly string[]
+  optional: readonly string[]
+  disabled: readonly string[]
+  values: Readonly<Record<string, string>>
+}>
+
+const parseScalar = (value: string): string => {
+  const trimmed = value.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) return trimmed.slice(1, -1)
+  return trimmed
+}
+
+const manifestError = (message: string): Error => new Error(`Capability manifest ${message}`)
+
+export const parseCapabilityManifest = (source: string): CapabilityClassification => {
+  if (Buffer.byteLength(source, "utf8") > 262_144) throw manifestError("is too large")
+
+  const values: Record<string, string> = {}
+  const stack: string[] = []
+  for (const [index, rawLine] of source.split(/\r?\n/).entries()) {
+    if (rawLine.trim() === "" || rawLine.trimStart().startsWith("#")) continue
+    if (rawLine.includes("\t")) throw manifestError(`uses a tab on line ${index + 1}`)
+    const indentation = rawLine.length - rawLine.trimStart().length
+    if (indentation % 2 !== 0) throw manifestError(`has invalid indentation on line ${index + 1}`)
+
+    const match = rawLine.trim().match(/^([A-Za-z0-9_]+):(?:\s*(.*))?$/)
+    if (!match) throw manifestError(`has invalid syntax on line ${index + 1}`)
+    const key = match[1]!
+    const rawValue = match[2] ?? ""
+    const depth = indentation / 2
+    if (depth > stack.length) throw manifestError(`jumps indentation on line ${index + 1}`)
+    stack.length = depth
+    const path = [...stack, key].join(".")
+
+    if (rawValue === "") {
+      stack.push(key)
+      continue
+    }
+
+    const inlineEnabled = rawValue.match(/^\{\s*enabled:\s*(true|false|development)\s*\}$/)
+    if (inlineEnabled) values[`${path}.enabled`] = inlineEnabled[1]!
+    else values[path] = parseScalar(rawValue)
+  }
+
+  for (const [path, value] of Object.entries(values)) {
+    if (path.endsWith(".enabled") && !["true", "false", "development"].includes(value)) {
+      throw manifestError(`has invalid boolean at ${path}`)
+    }
+  }
+
+  const requiredDeclarations: Readonly<Record<string, string>> = {
+    "database.engine": "postgres",
+    "deployment.web.provider": "cloudflare",
+    "developer_context.code_graph.provider": "graphify",
+    "developer_context.code_graph.enabled": "true",
+    "development.https.provider": "portless",
+    "development.https.process_manager": "pm2",
+    "development.https.canonical_url": "https://darkfactory.localhost",
+  }
+  for (const [path, expected] of Object.entries(requiredDeclarations)) {
+    if (values[path] !== expected) throw manifestError(`must declare ${path} as ${expected}`)
+  }
+
+  const optional = new Set<string>()
+  const disabled = new Set<string>()
+  for (const [path, value] of Object.entries(values)) {
+    if (!path.endsWith(".enabled")) continue
+    if (path.startsWith("developer_tools.") && value === "development") {
+      optional.add(path.split(".")[1]!)
+    }
+    if (path.startsWith("capabilities.") && value === "false") {
+      disabled.add(path.slice("capabilities.".length, -".enabled".length))
+    }
+  }
+
+  return Object.freeze({
+    required: Object.freeze(["postgres", "cloudflare", "graphify", "portless", "pm2"]),
+    optional: Object.freeze([...optional].sort()),
+    disabled: Object.freeze([...disabled].sort()),
+    values: Object.freeze({ ...values }),
+  })
+}

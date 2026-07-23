@@ -1,0 +1,115 @@
+import { createHash } from "node:crypto"
+import { join } from "node:path"
+
+import { GeneratorError } from "./errors.civet"
+import {
+  assertNoSymlinkPath,
+  assertSafeRelativePath,
+  canonicalWorkspaceRoot,
+  pathExists,
+} from "./path-safety.civet"
+import { createTemplateFiles } from "./templates.civet"
+import type { FeatureNames, GenerationPlan, PlannedFile } from "./types.civet"
+import { validateFeatureName } from "./validate.civet"
+
+const issuedPlans = new WeakSet<object>()
+
+export const sha256 = (value: string): string =>
+  createHash("sha256").update(value, "utf8").digest("hex")
+
+const planIdentity = (
+  containerRoot: string,
+  capsuleRoot: string,
+  names: FeatureNames,
+  files: readonly PlannedFile[],
+): string => sha256(JSON.stringify({ version: 1, containerRoot, capsuleRoot, names, files }))
+
+const sameNames = (left: FeatureNames, right: FeatureNames): boolean =>
+  JSON.stringify(left) === JSON.stringify(right)
+
+const canonicalFiles = (
+  capsuleRoot: string,
+  names: FeatureNames,
+): readonly PlannedFile[] => Object.freeze(
+  createTemplateFiles(names)
+    .map((file): PlannedFile => Object.freeze({
+      path: `${capsuleRoot}/${file.path}`,
+      content: file.content,
+      sha256: sha256(file.content),
+    }))
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
+)
+
+export const assertGenerationPlanIntegrity = (plan: GenerationPlan): void => {
+  if (!issuedPlans.has(plan)) {
+    throw new GeneratorError("PLAN_INVALID", "Generation plan capability was not issued")
+  }
+  if (plan.version !== 1 || plan.files.length !== 12) {
+    throw new GeneratorError("PLAN_INVALID", "Generation plan manifest is invalid")
+  }
+  const canonicalNames = validateFeatureName(plan.names.kebab)
+  if (!sameNames(plan.names, canonicalNames)) {
+    throw new GeneratorError("PLAN_INVALID", "Generation plan names are inconsistent")
+  }
+  const expectedContainerRoot = `apps/web/src/features/${canonicalNames.kebab}`
+  const expectedCapsuleRoot = `${expectedContainerRoot}/capsule`
+  assertSafeRelativePath(plan.containerRoot)
+  assertSafeRelativePath(plan.capsuleRoot)
+  if (
+    plan.containerRoot !== expectedContainerRoot ||
+    plan.capsuleRoot !== expectedCapsuleRoot
+  ) {
+    throw new GeneratorError("PLAN_INVALID", "Generation plan destination is inconsistent")
+  }
+
+  const expectedFiles = canonicalFiles(plan.capsuleRoot, plan.names)
+  for (let index = 0; index < expectedFiles.length; index += 1) {
+    const expected = expectedFiles[index]!
+    const actual = plan.files[index]
+    if (
+      !actual ||
+      actual.path !== expected.path ||
+      actual.content !== expected.content ||
+      actual.sha256 !== expected.sha256
+    ) {
+      throw new GeneratorError("PLAN_INVALID", "Generation plan manifest is not canonical")
+    }
+  }
+  if (
+    planIdentity(plan.containerRoot, plan.capsuleRoot, plan.names, plan.files) !==
+    plan.planId
+  ) {
+    throw new GeneratorError("PLAN_INVALID", "Generation plan identity is invalid")
+  }
+}
+
+export const createGenerationPlan = async (
+  targetRoot: string,
+  names: FeatureNames,
+): Promise<GenerationPlan> => {
+  const canonicalNames = validateFeatureName(names.kebab)
+  if (!sameNames(names, canonicalNames)) {
+    throw new GeneratorError("PLAN_INVALID", "Feature name forms are inconsistent")
+  }
+  const root = await canonicalWorkspaceRoot(targetRoot)
+  const containerRoot = `apps/web/src/features/${canonicalNames.kebab}`
+  const capsuleRoot = `${containerRoot}/capsule`
+  await assertNoSymlinkPath(root, containerRoot)
+  if (await pathExists(join(root, ...containerRoot.split("/")))) {
+    throw new GeneratorError("TARGET_COLLISION", "Feature target collision")
+  }
+
+  const files = canonicalFiles(capsuleRoot, canonicalNames)
+  const planId = planIdentity(containerRoot, capsuleRoot, canonicalNames, files)
+  const plan = Object.freeze({
+    version: 1 as const,
+    targetRoot: root,
+    containerRoot,
+    capsuleRoot,
+    names: canonicalNames,
+    files,
+    planId,
+  }) as GenerationPlan
+  issuedPlans.add(plan)
+  return plan
+}

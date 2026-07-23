@@ -1,0 +1,198 @@
+import { sql } from "drizzle-orm"
+
+import type { DatabaseExecutor } from "./client.civet"
+import { withTransaction } from "./client.civet"
+
+const DEFAULT_MAX_ROWS = 100_000
+const DEFAULT_CLEANUP_BATCH_SIZE = 100
+const DEFAULT_MAX_REQUESTS = 5
+const HMAC_KEY_PATTERN = /^[a-f0-9]{64}$/
+
+export type ContactThrottleResult = Readonly<{
+  allowed: boolean
+  remaining: number
+  retryAfterSeconds: number
+}>
+
+export interface ContactThrottleRepository {
+  readonly consume: (keyHash: string) => Promise<ContactThrottleResult>
+}
+
+export type ContactThrottleRepositoryOptions = Readonly<{
+  maxRows?: number | undefined
+  cleanupBatchSize?: number | undefined
+  maxRequests?: number | undefined
+}>
+
+type ContactThrottleRow = Readonly<{
+  allowed: boolean
+  remaining: number
+  retry_after_seconds: number
+}>
+
+type ContactThrottleCapacityRow = Readonly<{
+  row_count: number
+  retry_after_seconds: number | null
+}>
+
+type QueryRows<Row> = Readonly<{ rows: Row[] }>
+
+const positiveBoundedInteger = (
+  value: number,
+  maximum: number,
+  name: string,
+): number => {
+  if (!Number.isInteger(value) || value <= 0 || value > maximum) {
+    throw new RangeError(`${name} must be an integer between 1 and ${maximum}`)
+  }
+  return value
+}
+
+export const createContactThrottleRepository = (
+  database: DatabaseExecutor,
+  options: ContactThrottleRepositoryOptions = {},
+): ContactThrottleRepository => {
+  const maxRows = positiveBoundedInteger(
+    options.maxRows ?? DEFAULT_MAX_ROWS,
+    DEFAULT_MAX_ROWS,
+    "maxRows",
+  )
+  const cleanupBatchSize = positiveBoundedInteger(
+    options.cleanupBatchSize ?? DEFAULT_CLEANUP_BATCH_SIZE,
+    1_000,
+    "cleanupBatchSize",
+  )
+  const maxRequests = positiveBoundedInteger(
+    options.maxRequests ?? DEFAULT_MAX_REQUESTS,
+    1_000,
+    "maxRequests",
+  )
+
+  return Object.freeze({
+    consume: async (keyHash: string): Promise<ContactThrottleResult> => {
+      if (!HMAC_KEY_PATTERN.test(keyHash)) {
+        throw new TypeError("keyHash must be a lowercase SHA-256 HMAC")
+      }
+
+      return await withTransaction(database, async (transaction) => {
+        await transaction.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${keyHash}, 0))`,
+        )
+
+        const existingResult = await transaction.execute(sql`
+          select key_hash
+          from contact_rate_limits
+          where key_hash = ${keyHash}
+          for update
+        `)
+        const existing = (
+          existingResult as unknown as QueryRows<Readonly<{ key_hash: string }>>
+        ).rows.length > 0
+
+        if (!existing) {
+          await transaction.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended('darkfactory.contact-rate-limit.capacity', 0))`,
+          )
+          await transaction.execute(sql`
+            delete from contact_rate_limits
+            where key_hash in (
+              select key_hash
+              from contact_rate_limits
+              where expires_at <= clock_timestamp()
+              order by expires_at, key_hash
+              limit ${cleanupBatchSize}
+              for update skip locked
+            )
+          `)
+          const capacityResult = await transaction.execute(sql`
+            select
+              count(*)::integer as row_count,
+              greatest(
+                1,
+                ceil(extract(epoch from (min(expires_at) - clock_timestamp())))
+              )::integer as retry_after_seconds
+            from contact_rate_limits
+          `)
+          const capacity = (
+            capacityResult as unknown as QueryRows<ContactThrottleCapacityRow>
+          ).rows[0]
+          if (capacity === undefined) {
+            throw new Error("Contact throttle did not return table capacity")
+          }
+          if (capacity.row_count >= maxRows) {
+            return {
+              allowed: false,
+              remaining: 0,
+              retryAfterSeconds: capacity.retry_after_seconds ?? 1,
+            }
+          }
+        }
+
+        const queryResult = await transaction.execute(sql`
+          with attempted as (
+            insert into contact_rate_limits (
+              key_hash,
+              window_started_at,
+              request_count,
+              expires_at
+            ) values (
+              ${keyHash},
+              clock_timestamp(),
+              1,
+              clock_timestamp() + interval '15 minutes'
+            )
+            on conflict (key_hash) do update set
+              window_started_at = case
+                when contact_rate_limits.expires_at <= clock_timestamp()
+                  then clock_timestamp()
+                else contact_rate_limits.window_started_at
+              end,
+              request_count = case
+                when contact_rate_limits.expires_at <= clock_timestamp()
+                  then 1
+                else contact_rate_limits.request_count + 1
+              end,
+              expires_at = case
+                when contact_rate_limits.expires_at <= clock_timestamp()
+                  then clock_timestamp() + interval '15 minutes'
+                else contact_rate_limits.expires_at
+              end
+            where
+              contact_rate_limits.expires_at <= clock_timestamp()
+              or contact_rate_limits.request_count < ${maxRequests}
+            returning request_count, expires_at
+          )
+          select
+            true as allowed,
+            greatest(0, ${maxRequests} - request_count)::integer as remaining,
+            0::integer as retry_after_seconds
+          from attempted
+          union all
+          select
+            false as allowed,
+            0::integer as remaining,
+            greatest(
+              1,
+              ceil(extract(epoch from (expires_at - clock_timestamp())))
+            )::integer as retry_after_seconds
+          from contact_rate_limits
+          where key_hash = ${keyHash}
+            and not exists (select 1 from attempted)
+          limit 1
+        `)
+        const rows = (
+          queryResult as unknown as QueryRows<ContactThrottleRow>
+        ).rows
+        const result = rows[0]
+        if (result === undefined) {
+          throw new Error("Contact throttle did not return a decision")
+        }
+        return {
+          allowed: result.allowed,
+          remaining: result.remaining,
+          retryAfterSeconds: result.retry_after_seconds,
+        }
+      })
+    },
+  })
+}

@@ -33,7 +33,7 @@ Use domain-neutral names in the foundation. Do not encode a sample company, indu
 
 Author `.civet` for application logic, features, React UI, contracts, schemas, services, adapters, scripts, and tests.
 
-Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication target, or exact filename convention, including `vite.config.ts`, Vitest/Playwright configuration, `alchemy.run.ts`, `drizzle.config.ts`, environment declarations, generated OpenAPI clients, generated Cloudflare bindings, and migration artifacts. Keep compatibility files thin and delegate into Civet when possible.
+Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication target, or exact filename convention, including `vite.config.ts`, Vitest/Playwright configuration, `drizzle.config.ts`, environment declarations, generated OpenAPI clients, generated Cloudflare bindings, and migration artifacts. Add `alchemy.run.ts` only when a real supported ancillary Cloudflare resource is enabled; while none is enabled, no Alchemy program or dependency belongs in the repository. Keep compatibility files thin and delegate into Civet when possible.
 
 - Register `@danielx/civet/vite` in the Vite compatibility configuration and include `civet` in vinext/Next route `pageExtensions`; vinext does not discover `.civet` routes by default.
 - Pin and verify a mutually compatible Node, Vite, React/RSC, vinext, and Civet toolchain during implementation. Exact versions are Implementation, not architectural invariants.

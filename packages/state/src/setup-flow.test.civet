@@ -1,13 +1,31 @@
 import { createActor } from "xstate"
-import { describe, expect, expectTypeOf, it } from "vitest"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import {
+  createSetupFlowActor,
   setupFlowMachine,
   type SetupFlowContext,
   type SetupFlowEvent,
 } from "./setup-flow.civet"
 
 const startFlow = -> createActor(setupFlowMachine).start()
+
+describe "createSetupFlowActor", ->
+  it "owns actor construction and releases subscribers when stopped", ->
+    const actor = createSetupFlowActor()
+    const completed = vi.fn()
+    const subscription = actor.subscribe({ complete: completed })
+
+    actor.start()
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
+    actor.send({ type: "NEXT" })
+    expect(actor.getSnapshot().value).toBe("preferences")
+
+    actor.stop()
+    subscription.unsubscribe()
+
+    expect(completed).toHaveBeenCalledOnce()
+    expect(actor.getSnapshot().status).toBe("stopped")
 
 describe "setupFlowMachine", ->
   it "moves through details, preferences, review, submitting, and success", ->

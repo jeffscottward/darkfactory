@@ -25,6 +25,8 @@ import {
   createThemePreferenceService,
 } from "./server/service.civet"
 
+const THEME_VERSION = new Date("2026-01-02T03:04:05.000Z")
+
 const memberSession: SafeAuthSession = {
   user: {
     id: "member-1",
@@ -57,9 +59,13 @@ const themeRepository = (
   upsert: vi.fn(async () => {
     throw new Error("Legacy full-preference upsert must not be called")
   }),
+  updateOptimistic: vi.fn(async () => {
+    throw new Error("Full preference update must not be called")
+  }),
   upsertTheme: vi.fn(async (input) => ({
     mode: input.mode,
     colorScheme: input.colorScheme,
+    updatedAt: THEME_VERSION,
   })),
   ...overrides,
 })
@@ -69,6 +75,8 @@ const repositories = (userPreferences: UserPreferencesRepository): Repositories 
   addresses: {} as Repositories["addresses"],
   userPreferences,
   featureItems: {} as FeatureItemRepository,
+  adminUsers: {} as Repositories["adminUsers"],
+  dashboard: {} as Repositories["dashboard"],
 })
 
 const clientFor = (
@@ -80,6 +88,10 @@ const clientFor = (
     const context = createApiContext(request, {
       repositories: repositories(userPreferences),
       requestId: "request-theme-1",
+      capabilities: {
+        ai: false, emailDelivery: false, analytics: false,
+        telemetryExport: false, storage: false, errorTracking: false,
+      },
       requireSession: async () => {
         if (requestSession === null)
           throw new AuthAuthorizationError(
@@ -146,6 +158,7 @@ describe "DF-088 theme preference service", ->
     await expect(service.get(memberSession.principal)).resolves.toEqual({
       themeMode: "system",
       palette: "neutral",
+      updatedAt: null,
     })
     expect(findThemeByUserId).toHaveBeenCalledWith("member-1")
 
@@ -153,11 +166,13 @@ describe "DF-088 theme preference service", ->
     const stored: UserThemePreference = {
       mode: "light",
       colorScheme: "cyan",
+      updatedAt: THEME_VERSION,
     }
     const findThemeByUserId = vi.fn(async () => stored)
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
+      updatedAt: THEME_VERSION,
     }))
     const service = createThemePreferenceService(
       themeRepository({ findThemeByUserId, upsertTheme }),
@@ -166,17 +181,24 @@ describe "DF-088 theme preference service", ->
     await expect(service.get(memberSession.principal)).resolves.toEqual({
       themeMode: "light",
       palette: "cyan",
+      updatedAt: THEME_VERSION,
     })
     await expect(
       service.update(memberSession.principal, {
         themeMode: "dark",
         palette: "rose",
+        expectedUpdatedAt: THEME_VERSION,
       }),
-    ).resolves.toEqual({ themeMode: "dark", palette: "rose" })
+    ).resolves.toEqual({
+      themeMode: "dark",
+      palette: "rose",
+      updatedAt: THEME_VERSION,
+    })
     expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
       mode: "dark",
       colorScheme: "rose",
+      expectedUpdatedAt: THEME_VERSION,
     })
 
   it "sanitizes expected storage failures", async ->
@@ -208,6 +230,7 @@ describe "DF-088 authenticated theme preference router", ->
       clientFor(null).preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
+        expectedUpdatedAt: null,
       }),
       "UNAUTHORIZED",
       401,
@@ -217,6 +240,7 @@ describe "DF-088 authenticated theme preference router", ->
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
+      updatedAt: THEME_VERSION,
     }))
     const client = clientFor(
       memberSession,
@@ -226,23 +250,31 @@ describe "DF-088 authenticated theme preference router", ->
     await expect(client.preferences.theme.get({})).resolves.toEqual({
       themeMode: "system",
       palette: "neutral",
+      updatedAt: null,
     })
     await expect(
       client.preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
+        expectedUpdatedAt: null,
       }),
-    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    ).resolves.toEqual({
+      themeMode: "dark",
+      palette: "violet",
+      updatedAt: THEME_VERSION,
+    })
     expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
       mode: "dark",
       colorScheme: "violet",
+      expectedUpdatedAt: null,
     })
 
   it "rejects non-canonical and owner-bearing update payloads before persistence", async ->
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
+      updatedAt: THEME_VERSION,
     }))
     const client = clientFor(
       memberSession,
@@ -253,6 +285,7 @@ describe "DF-088 authenticated theme preference router", ->
       client.preferences.theme.update({
         themeMode: "sepia",
         palette: "violet",
+        expectedUpdatedAt: null,
       } as never),
       "BAD_REQUEST",
       400,
@@ -261,6 +294,7 @@ describe "DF-088 authenticated theme preference router", ->
       client.preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
+        expectedUpdatedAt: null,
         ownerId: "victim-user",
       } as never),
       "BAD_REQUEST",
@@ -278,8 +312,13 @@ describe "DF-088 authenticated theme preference router", ->
       ).preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
+        expectedUpdatedAt: null,
       }),
-    ).resolves.toEqual({ themeMode: "dark", palette: "violet" })
+    ).resolves.toEqual({
+      themeMode: "dark",
+      palette: "violet",
+      updatedAt: THEME_VERSION,
+    })
 
     expect(recording.events).toHaveLength(1)
     expect(recording.events[0]).toMatchObject({
@@ -314,7 +353,11 @@ describe "DF-088 authenticated theme preference router", ->
         memberSession,
         themeRepository({ upsertTheme }),
         recording.port,
-      ).preferences.theme.update({ themeMode: "light", palette: "amber" }),
+      ).preferences.theme.update({
+        themeMode: "light",
+        palette: "amber",
+        expectedUpdatedAt: null,
+      }),
       "STORAGE_ERROR",
       503,
     )
@@ -332,6 +375,7 @@ describe "DF-088 authenticated theme preference router", ->
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
+      updatedAt: THEME_VERSION,
     }))
     const semanticEvents: SemanticEventPort = {
       emit: vi.fn(async () => {
@@ -344,7 +388,15 @@ describe "DF-088 authenticated theme preference router", ->
         memberSession,
         themeRepository({ upsertTheme }),
         semanticEvents,
-      ).preferences.theme.update({ themeMode: "system", palette: "green" }),
-    ).resolves.toEqual({ themeMode: "system", palette: "green" })
+      ).preferences.theme.update({
+        themeMode: "system",
+        palette: "green",
+        expectedUpdatedAt: null,
+      }),
+    ).resolves.toEqual({
+      themeMode: "system",
+      palette: "green",
+      updatedAt: THEME_VERSION,
+    })
     expect(upsertTheme).toHaveBeenCalledOnce()
     expect(semanticEvents.emit).toHaveBeenCalledOnce()

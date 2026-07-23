@@ -21,6 +21,45 @@ export {
   createFeatureItemService,
   createThemePreferenceService,
 } from "./service.civet"
+export {
+  AccountServiceError,
+  createAccountService,
+} from "./account-service.civet"
+export type {
+  AccountRepositories,
+  AccountService,
+  AccountServiceErrorCode,
+  AddressIdInput,
+  RemoveAddressResult,
+} from "./account-service.civet"
+export {
+  AdminUsersServiceError,
+  createAdminUsersService,
+} from "./admin-users-service.civet"
+export type {
+  AdminUsersService,
+  AdminUsersServiceErrorCode,
+} from "./admin-users-service.civet"
+export {
+  ContactServiceError,
+  createContactService,
+} from "./contact-service.civet"
+export type {
+  ContactDeliveryPort,
+  ContactDeliveryResult,
+  ContactServiceErrorCode,
+  ContactThrottlePort,
+  ContactThrottleResult,
+} from "./contact-service.civet"
+export {
+  DashboardServiceError,
+  createDashboardService,
+} from "./dashboard-service.civet"
+export type {
+  DashboardService,
+  DashboardServiceErrorCode,
+  DashboardSummaryOutput,
+} from "./dashboard-service.civet"
 export type {
   ChangeFeatureStatusInput,
   CreateFeatureInput,

@@ -1,0 +1,143 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { EmailVerificationEmailInput } from "../index.civet"
+import {
+  createResendEmailPort,
+  selectEmailPort,
+} from "./provider.civet"
+
+const verificationUrl =
+  "https://darkfactory.localhost/api/auth/verify-email" +
+  "?token=provider.verification.token" +
+  "&callbackURL=https%3A%2F%2Fdarkfactory.localhost%2Fverify-email%3Fverified%3D1"
+const verificationInput: EmailVerificationEmailInput = {
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  verificationUrl,
+  expiresInMinutes: 60,
+}
+const temporaryDirectories: string[] = []
+
+const createTemporaryDirectory = async (): Promise<string> => {
+  const directory = await mkdtemp(join(tmpdir(), "darkfactory-verification-"))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
+afterEach async ->
+  vi.restoreAllMocks()
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true })
+    )
+  )
+
+describe "verification email provider operation", ->
+  it "writes a real local preview without exposing a token in its artifact path", async ->
+    const directory = await createTemporaryDirectory()
+    const email = selectEmailPort({
+      environment: "test",
+      previewDirectory: directory,
+    })
+
+    const result = await email.sendEmailVerification(verificationInput)
+
+    expect(result.status).toBe("previewed")
+    if (result.status !== "previewed") throw new Error("Expected preview artifact")
+    expect(result.artifactPath).not.toContain("provider.verification.token")
+    expect(await readFile(result.artifactPath, "utf8")).toContain(
+      "Verify your email",
+    )
+
+  it "sends the verification template through explicitly configured Resend", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: { id: "email_verification_123" },
+      error: null,
+    })
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    const result = await email.sendEmailVerification(verificationInput)
+
+    expect(result).toEqual({
+      status: "sent",
+      provider: "resend",
+      messageId: "email_verification_123",
+    })
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "DarkFactory <noreply@domain.test>",
+        to: ["member@domain.test"],
+        subject: "Verify your DarkFactory email",
+      }),
+    )
+
+  it "returns the same redacted disabled failure shape for each explicit operation", async ->
+    const email = selectEmailPort({ environment: "production" })
+
+    expect(await email.sendEmailVerification(verificationInput)).toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_DELIVERY_DISABLED",
+      retryable: false,
+    })
+
+  it "rejects recipient injection before rendering or calling the provider", async ->
+    const send = vi.fn()
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    const result = await email.sendEmailVerification({
+      ...verificationInput,
+      to: "victim@domain.test\\r\\nBcc: attacker@domain.test",
+    })
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_RECIPIENT_INVALID",
+      retryable: false,
+    })
+    expect(send).not.toHaveBeenCalled()
+
+  it "never logs provider errors, verification URLs, or tokens", async ->
+    const secretToken = "provider.verification.token"
+    const send = vi.fn().mockRejectedValue(
+      new Error(`Provider rejected ${secretToken}`),
+    )
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_secret-do-not-log",
+      from: "DarkFactory <noreply@domain.test>",
+      client: { emails: { send } },
+    })
+
+    const result = await email.sendEmailVerification(verificationInput)
+
+    expect(result).toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_PROVIDER_UNAVAILABLE",
+      retryable: true,
+    })
+    const logged = [consoleLog, consoleWarn, consoleError]
+      .flatMap((spy) => spy.mock.calls)
+      .flat()
+      .join(" ")
+    expect(logged).not.toContain(secretToken)
+    expect(logged).not.toContain(verificationUrl)
+    expect(logged).not.toContain("re_secret-do-not-log")

@@ -4,13 +4,17 @@ import type {
   EmailDeliveryFailureCode,
   EmailDeliveryResult,
   EmailPort,
+  EmailVerificationEmailInput,
   PasswordResetEmailInput,
 } from "../index.civet"
 import {
   createPreviewEmailPort,
+  renderEmailVerificationEmail,
   renderPasswordResetEmail,
   type PreviewEmailPortOptions,
+  type RenderedEmailVerificationEmail,
   type RenderedPasswordResetEmail,
+  type RenderEmailVerificationEmailOptions,
   type RenderPasswordResetEmailOptions,
 } from "./preview.civet"
 
@@ -69,6 +73,12 @@ const createDisabledEmailPort = (
 ): EmailPort =>
   Object.freeze({
     sendPasswordReset: async (): Promise<EmailDeliveryResult> => ({
+      status: "failed",
+      provider: "disabled",
+      code,
+      retryable: false,
+    }),
+    sendEmailVerification: async (): Promise<EmailDeliveryResult> => ({
       status: "failed",
       provider: "disabled",
       code,
@@ -133,54 +143,76 @@ export const createResendEmailPort = (
         }
       }
 
+  const deliver = async (
+    recipientValue: string,
+    renderEmail: () => Promise<{
+      subject: string
+      html: string
+      text: string
+    }>,
+  ): Promise<EmailDeliveryResult> => {
+    const recipient = normalizeRecipient(recipientValue)
+    if (!recipient) {
+      return resendFailure("EMAIL_RECIPIENT_INVALID", false)
+    }
+
+    let rendered
+    try {
+      rendered = await renderEmail()
+    } catch {
+      return resendFailure("EMAIL_RENDER_FAILED", false)
+    }
+
+    let response
+    try {
+      response = await send({
+        from,
+        to: [recipient],
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+      })
+    } catch {
+      return resendFailure("EMAIL_PROVIDER_UNAVAILABLE", true)
+    }
+
+    if (response.error) {
+      const retryable = isRetryableProviderError(response.error)
+      return resendFailure(
+        retryable ? "EMAIL_PROVIDER_UNAVAILABLE" : "EMAIL_PROVIDER_REJECTED",
+        retryable,
+      )
+    }
+
+    if (!response.data?.id) {
+      return resendFailure("EMAIL_PROVIDER_INVALID_RESPONSE", false)
+    }
+
+    return {
+      status: "sent",
+      provider: "resend",
+      messageId: response.data.id,
+    }
+  }
+
   return Object.freeze({
     sendPasswordReset: async (
       input: PasswordResetEmailInput,
     ): Promise<EmailDeliveryResult> => {
-      const recipient = normalizeRecipient(input.to)
-      if (!recipient) {
-        return resendFailure("EMAIL_RECIPIENT_INVALID", false)
-      }
-
-      let rendered
-      try {
-        rendered = await renderPasswordResetEmail(input, {
+      const renderEmail = () =>
+        renderPasswordResetEmail(input, {
           trustedAppOrigin: options.trustedAppOrigin,
         })
-      } catch {
-        return resendFailure("EMAIL_RENDER_FAILED", false)
-      }
-
-      let response
-      try {
-        response = await send({
-          from,
-          to: [recipient],
-          subject: rendered.subject,
-          html: rendered.html,
-          text: rendered.text,
+      return await deliver(input.to, renderEmail)
+    },
+    sendEmailVerification: async (
+      input: EmailVerificationEmailInput,
+    ): Promise<EmailDeliveryResult> => {
+      const renderEmail = () =>
+        renderEmailVerificationEmail(input, {
+          trustedAppOrigin: options.trustedAppOrigin,
         })
-      } catch {
-        return resendFailure("EMAIL_PROVIDER_UNAVAILABLE", true)
-      }
-
-      if (response.error) {
-        const retryable = isRetryableProviderError(response.error)
-        return resendFailure(
-          retryable ? "EMAIL_PROVIDER_UNAVAILABLE" : "EMAIL_PROVIDER_REJECTED",
-          retryable,
-        )
-      }
-
-      if (!response.data?.id) {
-        return resendFailure("EMAIL_PROVIDER_INVALID_RESPONSE", false)
-      }
-
-      return {
-        status: "sent",
-        provider: "resend",
-        messageId: response.data.id,
-      }
+      return await deliver(input.to, renderEmail)
     },
   })
 }
@@ -216,9 +248,12 @@ export const selectEmailPort = (
 export {
   createPreviewEmailPort,
   renderPasswordResetEmail,
+  renderEmailVerificationEmail,
 }
 export type {
   PreviewEmailPortOptions,
   RenderedPasswordResetEmail,
   RenderPasswordResetEmailOptions,
+  RenderedEmailVerificationEmail,
+  RenderEmailVerificationEmailOptions,
 }

@@ -1,0 +1,111 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  contactFeedbackForOutput,
+  createContactGateway,
+  safeContactFailure,
+  validateContactField,
+} from "./contact-client.civet"
+import { ContactForm, ContactStatus } from "./contact-form.civet"
+
+const validValues = {
+  name: "Ada Lovelace",
+  email: "ada@example.test",
+  subject: "Architecture review",
+  message: "Please review the deployment boundary.",
+  website: "",
+} as const
+
+describe "contact field validation", ->
+  it.each([
+    { field: "name", value: "", message: "Enter your name." },
+    { field: "name", value: "n".repeat(101), message: "Name must be 100 characters or fewer." },
+    { field: "email", value: "not-an-email", message: "Enter a valid email address." },
+    { field: "email", value: `${"a".repeat(245)}@test.test`, message: "Email must be 254 characters or fewer." },
+    { field: "subject", value: "", message: "Enter a subject." },
+    { field: "subject", value: "s".repeat(201), message: "Subject must be 200 characters or fewer." },
+    { field: "message", value: "", message: "Enter a message." },
+    { field: "message", value: "m".repeat(5001), message: "Message must be 5,000 characters or fewer." },
+    { field: "name", value: "Ada\u0000Lovelace", message: "Name contains unsupported control characters." },
+    { field: "subject", value: "Review\u001frequest", message: "Subject contains unsupported control characters." },
+    { field: "message", value: "Details\u0000hidden", message: "Message contains unsupported control characters." },
+  ] as const)("rejects $field boundary", ({ field, value, message }) ->
+    expect(validateContactField(field, value)).toBe(message)
+  )
+
+  it "accepts strict boundary values and Unicode", ->
+    expect(validateContactField("name", "名".repeat(100))).toBeUndefined()
+    expect(validateContactField("email", "person+tag@example.test")).toBeUndefined()
+    expect(validateContactField("subject", "ø".repeat(200))).toBeUndefined()
+    expect(validateContactField("message", "界".repeat(5000))).toBeUndefined()
+    expect(validateContactField("name", ` ${"n".repeat(100)} `)).toBeUndefined()
+    expect(validateContactField("email", " person+tag@example.test ")).toBeUndefined()
+
+describe "contact gateway and safe feedback", ->
+  it "uses the typed contact operation without inventing a fallback endpoint", async ->
+    const submit = vi.fn().mockResolvedValue({ status: "sent" })
+    const gateway = createContactGateway({ contact: { submit } } as never)
+
+    await expect(gateway.submit(validValues)).resolves.toEqual({ status: "sent" })
+    expect(submit).toHaveBeenCalledWith(validValues)
+
+  it.each([
+    { output: { status: "sent" }, tone: "success", text: "Your message was sent." },
+    { output: { status: "previewed" }, tone: "info", text: "Your message was saved to the local email preview. It was not sent." },
+    { output: { status: "not-delivered" }, tone: "warning", text: "Contact delivery is not configured. Your message was not sent." },
+  ] as const)("reports $output.status truthfully", ({ output, tone, text }) ->
+    expect(contactFeedbackForOutput(output)).toEqual({ tone, message: text })
+  )
+
+  it "maps rate limits and provider failures without exposing exception details", ->
+    expect(safeContactFailure({ code: "TOO_MANY_REQUESTS", message: "raw ip and secret" })).toEqual({
+      tone: "error",
+      message: "Too many messages were submitted. Try again in 15 minutes.",
+    })
+    expect(safeContactFailure({ data: { code: "SERVICE_UNAVAILABLE" }, message: "provider secret" })).toEqual({
+      tone: "error",
+      message: "Email delivery is temporarily unavailable. Your message was not sent. Try again later.",
+    })
+    expect(safeContactFailure({ code: "PAYLOAD_TOO_LARGE" })).toEqual({
+      tone: "error",
+      message: "Your message is too large to submit. Reduce it and try again.",
+    })
+    expect(JSON.stringify(safeContactFailure(new Error("PII provider detail")))).not.toContain("PII provider detail")
+
+describe "ContactForm", ->
+  it "renders a mobile-safe accessible form with bounded fields and an inert honeypot", ->
+    const html = renderToStaticMarkup(<ContactForm gateway={{ submit: vi.fn() }} />)
+
+    expect(html).toContain('id="contact-form"')
+    expect(html).toContain('role="form"')
+    expect(html).toContain('aria-labelledby="contact-form-title"')
+    expect(html).toContain('id="contact-form-title"')
+    expect(html).toContain('aria-required="true"')
+    expect(html).toContain('autoComplete="name"')
+    expect(html).toContain('autoComplete="email"')
+    expect(html).toContain('type="email"')
+    expect(html).toContain('inputMode="email"')
+    expect(html).not.toContain('maxLength="100"')
+    expect(html).not.toContain('maxLength="254"')
+    expect(html).not.toContain('maxLength="5000"')
+    expect(html).toContain("Maximum 100 characters.")
+    expect(html).toContain("Maximum 254 characters.")
+    expect(html).toContain("Maximum 200 characters.")
+    expect(html).toContain('name="website"')
+    expect(html).toContain('maxLength="200"')
+    expect(html).toContain('tabindex="-1"')
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).toContain("min-h-11")
+    expect(html).toContain("Send message")
+
+  it.each([
+    { tone: "success", role: "status", text: "Your message was sent." },
+    { tone: "info", role: "status", text: "Your message was saved to the local email preview. It was not sent." },
+    { tone: "warning", role: "status", text: "Contact delivery is not configured. Your message was not sent." },
+    { tone: "error", role: "alert", text: "Email delivery is temporarily unavailable. Your message was not sent. Try again later." },
+  ] as const)("announces $tone feedback", ({ tone, role, text }) ->
+    const html = renderToStaticMarkup(<ContactStatus feedback={{ tone, message: text }} />)
+    expect(html).toContain(`role="${role}"`)
+    expect(html).toContain(text)
+  )

@@ -461,17 +461,19 @@ describe "feature item mutation repository", ->
     expect(select).toHaveBeenCalledWith({
       mode: userPreferences.mode,
       colorScheme: userPreferences.colorScheme,
+      updatedAt: userPreferences.updatedAt,
     })
     expect(from).toHaveBeenCalledWith(userPreferences)
     expect(limit).toHaveBeenCalledWith(1)
 
-  it "upserts only validated theme fields while preserving unrelated preferences", async ->
+  it "creates versioned theme fields without touching unrelated preferences", async ->
     const returning = vi.fn(async () => [{
       mode: "dark" as const,
       colorScheme: "violet" as const,
+      updatedAt: FIXED_NOW,
     }])
-    const onConflictDoUpdate = vi.fn(() => ({ returning }))
-    const values = vi.fn(() => ({ onConflictDoUpdate }))
+    const onConflictDoNothing = vi.fn(() => ({ returning }))
+    const values = vi.fn(() => ({ onConflictDoNothing }))
     const insert = vi.fn(() => ({ values }))
     const database = { insert } as unknown as Database
     const repository = createUserPreferencesRepository(database, {
@@ -483,25 +485,25 @@ describe "feature item mutation repository", ->
         userId: "user_alice",
         mode: "dark",
         colorScheme: "violet",
+        expectedUpdatedAt: null,
       }),
-    ).resolves.toEqual({ mode: "dark", colorScheme: "violet" })
+    ).resolves.toEqual({
+      mode: "dark",
+      colorScheme: "violet",
+      updatedAt: FIXED_NOW,
+    })
     expect(insert).toHaveBeenCalledWith(userPreferences)
     expect(values).toHaveBeenCalledWith({
       userId: "user_alice",
       mode: "dark",
       colorScheme: "violet",
+      updatedAt: FIXED_NOW,
     })
-    expect(onConflictDoUpdate).toHaveBeenCalledWith({
-      target: userPreferences.userId,
-      set: {
-        mode: "dark",
-        colorScheme: "violet",
-        updatedAt: FIXED_NOW,
-      },
-    })
+    expect(onConflictDoNothing).toHaveBeenCalledOnce()
     expect(returning).toHaveBeenCalledWith({
       mode: userPreferences.mode,
       colorScheme: userPreferences.colorScheme,
+      updatedAt: userPreferences.updatedAt,
     })
 
   it "rejects blank owners and non-canonical theme values before persistence", async ->
@@ -543,4 +545,6 @@ describe "feature item mutation repository", ->
       "addresses",
       "userPreferences",
       "featureItems",
+      "adminUsers",
+      "dashboard",
     ])

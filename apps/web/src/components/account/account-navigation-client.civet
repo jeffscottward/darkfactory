@@ -1,0 +1,9 @@
+"use client"
+
+import { usePathname } from "next/navigation"
+
+import { AccountNavigation } from "./account-navigation.civet"
+
+export const AccountNavigationClient = () => (
+  <AccountNavigation currentPath={usePathname()} />
+)

@@ -1,0 +1,227 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  CANONICAL_URL,
+  PROCESS_NAME,
+  ROUTE_NAME,
+  inspectDevelopmentState,
+  parsePm2ProcessList,
+  runDevelopmentAction,
+  type CommandResult,
+  type ProcessAdapter,
+} from "./lifecycle.civet"
+import { runDevelopmentCli } from "./cli.civet"
+
+const result = (stdout = "", exitCode = 0, stderr = ""): CommandResult => ({
+  exitCode,
+  stdout,
+  stderr,
+})
+
+const TEST_CWD = "/workspace/darkfactory"
+const pm2Process = (status: "online" | "stopped", overrides: Record<string, unknown> = {}) => ({
+  name: PROCESS_NAME,
+  pm_id: 7,
+  pm2_env: {
+    status,
+    pm_exec_path: `${TEST_CWD}/node_modules/.bin/portless`,
+    pm_cwd: TEST_CWD,
+    args: [ROUTE_NAME, "pnpm", "dev"],
+    ...overrides,
+  },
+})
+const onlinePm2 = JSON.stringify([pm2Process("online")])
+const stoppedPm2 = JSON.stringify([pm2Process("stopped")])
+
+const adapter = (
+  respond: (command: string, arguments_: readonly string[]) => CommandResult | Promise<CommandResult>,
+  probeHealthy = true,
+  daemonAvailable: () => boolean | Promise<boolean> = () => true,
+) => {
+  const calls: Array<readonly [string, readonly string[]]> = []
+  const options: unknown[] = []
+  const interactiveCalls: Array<readonly [string, readonly string[]]> = []
+  const process: ProcessAdapter = {
+    workingDirectory: TEST_CWD,
+    pm2DaemonAvailable: async () => daemonAvailable(),
+    probeHttps: async () => probeHealthy,
+    run: async (command, arguments_, commandOptions) => {
+      calls.push([command, [...arguments_]])
+      options.push(commandOptions)
+      return respond(command, arguments_)
+    },
+    runInteractive: async (command, arguments_, commandOptions) => {
+      interactiveCalls.push([command, [...arguments_]])
+      options.push(commandOptions)
+      return respond(command, arguments_)
+    },
+  }
+  return { calls, interactiveCalls, options, process }
+}
+
+const healthyResponse = (command: string, arguments_: readonly string[]): CommandResult => {
+  if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+  if (command === "portless" && arguments_[0] === "list") {
+    return result(`Active routes:\n  ${CANONICAL_URL} -> localhost:4775\n`)
+  }
+  if (command === "portless" && arguments_[0] === "get") return result(`${CANONICAL_URL}\n`)
+  if (command === "pm2" && arguments_[0] === "logs") return result("safe application log\n")
+  return result()
+}
+
+describe("PM2 and portless lifecycle", () => {
+  it("parses only the stable PM2 process from bounded JSON", () => {
+    expect(parsePm2ProcessList(onlinePm2, TEST_CWD)).toEqual({ status: "online", processId: 7 })
+    expect(parsePm2ProcessList("[]", TEST_CWD)).toEqual({ status: "absent" })
+    expect(() => parsePm2ProcessList(JSON.stringify([
+      pm2Process("online", { args: [ROUTE_NAME, "pnpm", "other"] }),
+    ]), TEST_CWD)).toThrow(/unexpected command/i)
+    expect(() => parsePm2ProcessList("not-json", TEST_CWD)).toThrow(/PM2 status/)
+    expect(() => parsePm2ProcessList(" ".repeat(1_048_577), TEST_CWD)).toThrow(/too large/)
+  })
+
+  it("is idempotent when the stable process and route are healthy", async () => {
+    const fixture = adapter(healthyResponse)
+
+    const first = await runDevelopmentAction("start", fixture.process)
+    const second = await runDevelopmentAction("start", fixture.process)
+
+    expect(first).toMatchObject({ ok: true, changed: false, processStatus: "online" })
+    expect(second).toMatchObject({ ok: true, changed: false, processStatus: "online" })
+    expect(fixture.calls.filter(([command, args]) => command === "pm2" && args[0] === "start")).toHaveLength(0)
+    expect(JSON.stringify(first)).not.toContain(":1355")
+  })
+
+  it("rejects a raw implementation port even when the route name is registered", async () => {
+    const fixture = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      if (command === "portless" && arguments_[0] === "list") {
+        return result(`Active routes:\n  ${CANONICAL_URL}:1355 -> localhost:4775\n`)
+      }
+      if (command === "portless" && arguments_[0] === "get") return result(`${CANONICAL_URL}:1355\n`)
+      return result()
+    })
+
+    await expect(inspectDevelopmentState(fixture.process)).resolves.toMatchObject({
+      ok: false,
+      routeHealthy: false,
+    })
+  })
+
+  it("starts an absent process once without observationally starting PM2 first", async () => {
+    let daemon = false
+    const fixture = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "start") daemon = true
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      return healthyResponse(command, arguments_)
+    }, true, () => daemon)
+
+    const report = await runDevelopmentAction("start", fixture.process)
+
+    expect(report).toMatchObject({ ok: true, changed: true, processStatus: "online" })
+    expect(fixture.interactiveCalls).toEqual([
+      ["portless", ["proxy", "start", "-p", "443"]],
+    ])
+    expect(fixture.calls).toContainEqual([
+      "pm2",
+      ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "pnpm", "dev"],
+    ])
+    expect(fixture.options.some((value) =>
+      (value as { environment?: Record<string, string> })?.environment?.["PORTLESS_PORT"] === "443"
+    )).toBe(true)
+    expect(fixture.calls).toContainEqual(["pm2", ["save"]])
+  })
+
+  it("resumes a stopped stable process instead of creating a duplicate", async () => {
+    let pm2Reads = 0
+    const fixture = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") {
+        pm2Reads += 1
+        return result(pm2Reads === 1 ? stoppedPm2 : onlinePm2)
+      }
+      return healthyResponse(command, arguments_)
+    })
+
+    await expect(runDevelopmentAction("start", fixture.process)).resolves.toMatchObject({
+      ok: true,
+      changed: true,
+    })
+    expect(fixture.calls).toContainEqual(["pm2", ["start", "7"]])
+    expect(fixture.calls.filter(([command, args]) => command === "pm2" && args.includes("portless"))).toHaveLength(0)
+  })
+
+  it("reports an unhealthy online route without starting a duplicate", async () => {
+    const fixture = adapter(healthyResponse, false)
+
+    await expect(runDevelopmentAction("start", fixture.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      processStatus: "online",
+      routeHealthy: false,
+    })
+    expect(fixture.calls.filter(([command, args]) => command === "pm2" && args[0] === "start")).toHaveLength(0)
+  })
+
+  it("uses validated PM2 ids, saves stop state, exposes bounded logs, and keeps fallback args safe", async () => {
+    const fixture = adapter(healthyResponse)
+    const certificateChecks: string[][] = []
+    let certificatesCommitted = false
+    const files = {
+      prepareCertificateOutputs: async (directory: string, paths: readonly string[]) => {
+        certificateChecks.push([directory, ...paths])
+        return {
+          certificatePath: ".certs/.private/certificate.pem",
+          keyPath: ".certs/.private/key.pem",
+          commit: async () => { certificatesCommitted = true },
+          cleanup: async () => undefined,
+        }
+      },
+    }
+
+    await inspectDevelopmentState(fixture.process)
+    const logs = await runDevelopmentAction("logs", fixture.process)
+    await runDevelopmentAction("stop", fixture.process)
+    await runDevelopmentAction("trust", fixture.process)
+    await runDevelopmentAction("certs-install", fixture.process)
+    await runDevelopmentAction("certs-generate", fixture.process, files)
+
+    expect(logs).toMatchObject({ ok: true, output: "safe application log\n" })
+    expect(fixture.calls).toContainEqual(["pm2", ["logs", "7", "--lines", "200", "--nostream"]])
+    expect(fixture.calls).toContainEqual(["pm2", ["stop", "7"]])
+    expect(fixture.calls.filter(([command, args]) => command === "pm2" && args[0] === "save")).toHaveLength(1)
+    expect(fixture.interactiveCalls).toContainEqual(["portless", ["trust"]])
+    expect(fixture.interactiveCalls).toContainEqual(["mkcert", ["-install"]])
+    expect(certificateChecks).toEqual([[
+      ".certs",
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ]])
+    expect(certificatesCommitted).toBe(true)
+    expect(fixture.calls).toContainEqual([
+      "mkcert",
+      ["-cert-file", ".certs/.private/certificate.pem", "-key-file", ".certs/.private/key.pem", "localhost", "*.localhost", "127.0.0.1", "::1"],
+    ])
+  })
+
+  it("returns a nonzero CLI exit code for unknown actions and failed health", async () => {
+    const output: string[] = []
+    const errors: string[] = []
+    const fixture = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      if (command === "portless") return result("", 1, "unhealthy")
+      return result()
+    })
+
+    await expect(runDevelopmentCli(["unknown"], {
+      process: fixture.process,
+      writeOutput: (value) => output.push(value),
+      writeError: (value) => errors.push(value),
+    })).resolves.toBe(2)
+    await expect(runDevelopmentCli(["start"], {
+      process: fixture.process,
+      writeOutput: (value) => output.push(value),
+      writeError: (value) => errors.push(value),
+    })).resolves.toBe(1)
+    expect(errors.join(" ")).toMatch(/unknown|unhealthy/i)
+  })
+})

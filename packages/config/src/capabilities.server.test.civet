@@ -193,6 +193,7 @@ describe("capability readiness", () => {
     const parsedEnvironment = parseServerEnv({
       DATABASE_URL: "postgresql://localhost/darkfactory_test",
       BETTER_AUTH_SECRET: "a".repeat(32),
+      CONTACT_THROTTLE_SECRET: "c".repeat(32),
       STORAGE_ENABLED: "true",
       R2_ACCOUNT_ID: "account-reference",
       R2_ACCESS_KEY_ID: "access-reference",

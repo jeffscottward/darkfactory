@@ -1,0 +1,48 @@
+export type RequestGuard = Readonly<{
+  start: () => number
+  isCurrent: (requestId: number) => boolean
+  invalidate: () => void
+  dispose: () => void
+}>
+
+export const createRequestGuard = (): RequestGuard => {
+  let generation = 0
+  let isDisposed = false
+
+  return Object.freeze({
+    start: () => {
+      generation += 1
+      return generation
+    },
+    isCurrent: (requestId: number) => !isDisposed && requestId === generation,
+    invalidate: () => {
+      generation += 1
+    },
+    dispose: () => {
+      isDisposed = true
+      generation += 1
+    },
+  })
+}
+
+export const runGuardedRequest = async <T>({
+  guard,
+  request,
+  commit,
+  settle,
+}: Readonly<{
+  guard: RequestGuard
+  request: () => Promise<T>
+  commit: (value: T) => void
+  settle?: () => void
+}>): Promise<boolean> => {
+  const requestId = guard.start()
+  try {
+    const value = await request()
+    if (!guard.isCurrent(requestId)) return false
+    commit(value)
+    return true
+  } finally {
+    if (guard.isCurrent(requestId)) settle?.()
+  }
+}

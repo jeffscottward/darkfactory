@@ -1,0 +1,106 @@
+"use client"
+
+import type { PreferencesOutput, PreferencesUpdateInput } from "@darkfactory/api"
+import { Button, EmptyState, Skeleton, buttonVariants } from "@darkfactory/ui"
+import { RotateCcw } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+
+import { useUiStoreApi } from "../../lib/ui-store.civet"
+import {
+  accountFailureKind,
+  type AccountFailureKind,
+  createBrowserAccountGateway,
+  safeAccountFeedback,
+} from "./account-client.civet"
+import type { AccountFeedback } from "./account-feedback.civet"
+import { PreferencesForm } from "./preferences-form.civet"
+
+type PreferencesState =
+  | Readonly<{ type: "loading" }>
+  | Readonly<{ type: "error"; kind: AccountFailureKind }>
+  | Readonly<{ type: "ready"; preferences: PreferencesOutput; version: number }>
+
+export const PreferencesPageClient = () => {
+  const [gateway] = useState(createBrowserAccountGateway)
+  const store = useUiStoreApi()
+  const [state, setState] = useState<PreferencesState>({ type: "loading" })
+  const [feedback, setFeedback] = useState<AccountFeedback | null>(null)
+
+  const load = useCallback(async () => {
+    setFeedback(null)
+    setState({ type: "loading" })
+    try {
+      const preferences = await gateway.getPreferences()
+      setState({ type: "ready", preferences, version: 0 })
+    } catch (error) {
+      setState({ type: "error", kind: accountFailureKind(error) })
+    }
+  }, [gateway])
+
+  useEffect(() => {
+    void load()
+    return undefined
+  }, [load])
+
+  if (state.type === "loading") {
+    return (
+      <div aria-busy="true" aria-live="polite" className="space-y-5" role="status">
+        <span className="sr-only">Loading preferences</span>
+        <Skeleton className="h-11 w-full max-w-xl" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    )
+  }
+  if (state.type === "error") {
+    const action = state.kind === "unauthorized"
+      ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fpreferences">Sign in</a>
+      : state.kind === "forbidden" || state.kind === "not-found"
+        ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account</a>
+        : <Button onClick={() => void load()} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again</Button>
+    return (
+      <div aria-live="assertive" role="alert">
+        <EmptyState
+          action={action}
+          description={state.kind === "not-found" ? "No saved preferences were found for this account." : "Your preferences could not be loaded. Existing settings remain unchanged."}
+          icon={<RotateCcw />}
+          title="Preferences unavailable"
+        />
+      </div>
+    )
+  }
+
+  const save = async (input: PreferencesUpdateInput): Promise<void> => {
+    setFeedback(null)
+    try {
+      const preferences = await gateway.updatePreferences(input)
+      setState((current) => current.type === "ready"
+        ? { type: "ready", preferences, version: current.version + 1 }
+        : current)
+      setFeedback({ tone: "success", message: "Preferences saved." })
+    } catch (error) {
+      if (accountFailureKind(error) === "conflict") {
+        try {
+          const preferences = await gateway.getPreferences()
+          const ui = store.getState()
+          if (ui.themeMode !== preferences.themeMode) ui.setThemeMode(preferences.themeMode)
+          if (ui.palette !== preferences.palette) ui.setPalette(preferences.palette)
+          setState((current) => current.type === "ready" ? { ...current, preferences } : current)
+        } catch {
+          // The mounted form keeps its unsaved values when reconciliation is unavailable.
+        }
+        setFeedback({ tone: "error", message: "Preferences changed elsewhere. Your choices are preserved; review them and save again." })
+      } else {
+        setFeedback({ tone: "error", message: safeAccountFeedback(error) })
+      }
+    }
+  }
+
+  return (
+    <PreferencesForm
+      feedback={feedback}
+      initialPreferences={state.preferences}
+      key={state.version}
+      onSave={save}
+    />
+  )
+}

@@ -1,4 +1,12 @@
-import { and as andWhere, asc, desc, eq } from "drizzle-orm"
+import {
+  and as andWhere,
+  asc,
+  desc,
+  eq,
+  ilike,
+  or as orWhere,
+  sql,
+} from "drizzle-orm"
 import {
   COLOR_SCHEMES,
   PREFERENCE_MODES,
@@ -25,13 +33,31 @@ import {
   type DatabaseExecutor,
   type Transaction,
 } from "./client.civet"
+import {
+  createAdminUsersRepository,
+  type AdminUsersRepository,
+} from "./admin-users-repository.civet"
+import {
+  createDashboardRepository,
+  type DashboardRepository,
+} from "./dashboard-repository.civet"
 
 const FEATURE_METADATA_LIMIT_BYTES = 16 * 1024
+const nextOptimisticVersion = (candidate: Date, expected: Date): Date =>
+  new Date(Math.max(candidate.getTime(), expected.getTime() + 1))
+const MAX_ADDRESSES_PER_USER = 20
 
 export class DatabaseConflictError extends Error {
   constructor(entity: string) {
     super(`${entity} conflicts with an existing record`)
     this.name = "DatabaseConflictError"
+  }
+}
+
+export class OptimisticConcurrencyError extends DatabaseConflictError {
+  constructor(entity: string) {
+    super(entity)
+    this.name = "OptimisticConcurrencyError"
   }
 }
 
@@ -276,10 +302,13 @@ export type UpsertProfileInput = Readonly<{
   locale: string
   dateOfBirth: string | null
 }>
+export type OptimisticProfileInput = UpsertProfileInput &
+  Readonly<{ expectedUpdatedAt: Date | null }>
 
 export type ProfileRepository = Readonly<{
   findByUserId: (userId: string) => Promise<Profile | null>
   upsert: (input: UpsertProfileInput) => Promise<Profile>
+  updateOptimistic: (input: OptimisticProfileInput) => Promise<Profile>
 }>
 
 export const createProfileRepository = (
@@ -326,6 +355,47 @@ export const createProfileRepository = (
         .returning()
       return profile!
     },
+
+    updateOptimistic: async (input) => {
+      requireNonBlank(input.userId, "userId")
+      requireNonBlank(input.timezone, "timezone")
+      requireNonBlank(input.locale, "locale")
+      const updatedAt = input.expectedUpdatedAt === null
+        ? now()
+        : nextOptimisticVersion(now(), input.expectedUpdatedAt)
+      const values = {
+        userId: input.userId,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        displayName: input.displayName,
+        avatarUrl: input.avatarUrl,
+        phone: input.phone,
+        businessName: input.businessName,
+        jobTitle: input.jobTitle,
+        biography: input.biography,
+        timezone: input.timezone,
+        locale: input.locale,
+        dateOfBirth: input.dateOfBirth,
+        updatedAt,
+      }
+      const [profile] = input.expectedUpdatedAt === null
+        ? await database
+            .insert(profiles)
+            .values(values)
+            .onConflictDoNothing()
+            .returning()
+        : await database
+            .update(profiles)
+            .set(values)
+            .where(andWhere(
+              eq(profiles.userId, input.userId),
+              sql`date_trunc('milliseconds', ${profiles.updatedAt}) = ${input.expectedUpdatedAt}`,
+            ))
+            .returning()
+      if (profile === undefined)
+        throw new OptimisticConcurrencyError("profile")
+      return profile
+    },
   }
 }
 
@@ -354,14 +424,24 @@ export type UpdateAddressInput = Readonly<{
   country?: string
   isPrimary?: boolean
 }>
+export type OptimisticAddressUpdateInput = UpdateAddressInput &
+  Readonly<{ expectedUpdatedAt: Date }>
+export type OptimisticAddressIdInput = Readonly<{
+  id: string
+  userId: string
+  expectedUpdatedAt: Date
+}>
 
 export type AddressRepository = Readonly<{
   listByUserId: (userId: string) => Promise<Address[]>
   findByIdForUser: (id: string, userId: string) => Promise<Address | null>
   create: (input: CreateAddressInput) => Promise<Address>
   update: (input: UpdateAddressInput) => Promise<Address | null>
+  updateOptimistic: (input: OptimisticAddressUpdateInput) => Promise<Address | null>
   remove: (id: string, userId: string) => Promise<boolean>
+  removeOptimistic: (input: OptimisticAddressIdInput) => Promise<boolean>
   setPrimary: (id: string, userId: string) => Promise<Address | null>
+  setPrimaryOptimistic: (input: OptimisticAddressIdInput) => Promise<Address | null>
 }>
 
 const findAddress = async (
@@ -376,6 +456,38 @@ const findAddress = async (
     .limit(1)
   return address ?? null
 }
+
+const lockAddressOwner = async (
+  transaction: Transaction,
+  userId: string,
+): Promise<void> => {
+  await transaction.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`,
+  )
+}
+const nextPrimaryMutationVersion = async (
+  transaction: Transaction,
+  userId: string,
+  candidate: Date,
+  targetVersion?: Date,
+): Promise<Date> => {
+  const [primary] = await transaction
+    .select({ updatedAt: addresses.updatedAt })
+    .from(addresses)
+    .where(andWhere(
+      eq(addresses.userId, userId),
+      eq(addresses.isPrimary, true),
+    ))
+    .limit(1)
+  const priorMilliseconds = Math.max(
+    targetVersion?.getTime() ?? Number.NEGATIVE_INFINITY,
+    primary?.updatedAt.getTime() ?? Number.NEGATIVE_INFINITY,
+  )
+  return Number.isFinite(priorMilliseconds)
+    ? nextOptimisticVersion(candidate, new Date(priorMilliseconds))
+    : candidate
+}
+
 
 const clearPrimaryAddress = async (
   transaction: Transaction,
@@ -405,6 +517,7 @@ export const createAddressRepository = (
           asc(addresses.createdAt),
           asc(addresses.id),
         )
+        .limit(MAX_ADDRESSES_PER_USER)
     },
 
     findByIdForUser: async (id, userId) => {
@@ -419,7 +532,16 @@ export const createAddressRepository = (
 
       try {
         return await withTransaction(database, async (transaction) => {
-          const timestamp = now()
+          await lockAddressOwner(transaction, input.userId)
+          const [addressCount] = await transaction
+            .select({ value: sql<number>`count(*)::int` })
+            .from(addresses)
+            .where(eq(addresses.userId, input.userId))
+          if ((addressCount?.value ?? 0) >= MAX_ADDRESSES_PER_USER)
+            throw new InvalidRepositoryInputError("address limit reached")
+          const timestamp = input.isPrimary
+            ? await nextPrimaryMutationVersion(transaction, input.userId, now())
+            : now()
           if (input.isPrimary)
             await clearPrimaryAddress(transaction, input.userId, timestamp)
 
@@ -456,12 +578,18 @@ export const createAddressRepository = (
 
       try {
         return await withTransaction(database, async (transaction) => {
+          await lockAddressOwner(transaction, input.userId)
           const existing = await findAddress(transaction, input.id, input.userId)
           if (!existing) return null
 
-          const updatedAt = now()
-          if (input.isPrimary === true)
-            await clearPrimaryAddress(transaction, input.userId, updatedAt)
+          const updatedAt = input.isPrimary === true
+            ? await nextPrimaryMutationVersion(
+                transaction,
+                input.userId,
+                now(),
+                existing.updatedAt,
+              )
+            : now()
 
           const [address] = await transaction
             .update(addresses)
@@ -491,6 +619,32 @@ export const createAddressRepository = (
       }
     },
 
+    updateOptimistic: async (input) => {
+      requireNonBlank(input.id, "id")
+      requireNonBlank(input.userId, "userId")
+      const [address] = await database
+        .update(addresses)
+        .set({
+          ...(input.type === undefined ? {} : { type: input.type }),
+          ...(input.line1 === undefined ? {} : { line1: input.line1 }),
+          ...(input.line2 === undefined ? {} : { line2: input.line2 }),
+          ...(input.city === undefined ? {} : { city: input.city }),
+          ...(input.region === undefined ? {} : { region: input.region }),
+          ...(input.postalCode === undefined ? {} : { postalCode: input.postalCode }),
+          ...(input.country === undefined ? {} : { country: input.country.toUpperCase() }),
+          updatedAt: nextOptimisticVersion(now(), input.expectedUpdatedAt),
+        })
+        .where(andWhere(
+          eq(addresses.id, input.id),
+          eq(addresses.userId, input.userId),
+          sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
+        ))
+        .returning()
+      if (address !== undefined) return address
+      if (await findAddress(database, input.id, input.userId) === null) return null
+      throw new OptimisticConcurrencyError("address")
+    },
+
     remove: async (id, userId) => {
       const removed = await database
         .delete(addresses)
@@ -499,13 +653,32 @@ export const createAddressRepository = (
       return removed.length > 0
     },
 
+    removeOptimistic: async (input) => {
+      const removed = await database
+        .delete(addresses)
+        .where(andWhere(
+          eq(addresses.id, input.id),
+          eq(addresses.userId, input.userId),
+          sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
+        ))
+        .returning({ id: addresses.id })
+      if (removed.length > 0) return true
+      if (await findAddress(database, input.id, input.userId) === null) return false
+      throw new OptimisticConcurrencyError("address")
+    },
+
     setPrimary: async (id, userId) => {
       try {
         return await withTransaction(database, async (transaction) => {
+          await lockAddressOwner(transaction, userId)
           const existing = await findAddress(transaction, id, userId)
           if (!existing) return null
-
-          const updatedAt = now()
+          const updatedAt = await nextPrimaryMutationVersion(
+            transaction,
+            userId,
+            now(),
+            existing.updatedAt,
+          )
           await clearPrimaryAddress(transaction, userId, updatedAt)
           const [address] = await transaction
             .update(addresses)
@@ -517,6 +690,35 @@ export const createAddressRepository = (
       } catch (error) {
         return mapConflict(error, "address")
       }
+    },
+
+    setPrimaryOptimistic: async (input) => {
+      return withTransaction(database, async (transaction) => {
+        await lockAddressOwner(transaction, input.userId)
+        const existing = await findAddress(transaction, input.id, input.userId)
+        if (existing === null) return null
+        if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
+          throw new OptimisticConcurrencyError("address")
+        const updatedAt = await nextPrimaryMutationVersion(
+          transaction,
+          input.userId,
+          now(),
+          existing.updatedAt,
+        )
+        await clearPrimaryAddress(transaction, input.userId, updatedAt)
+        const [address] = await transaction
+          .update(addresses)
+          .set({ isPrimary: true, updatedAt })
+          .where(andWhere(
+            eq(addresses.id, input.id),
+            eq(addresses.userId, input.userId),
+            sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
+          ))
+          .returning()
+        if (address === undefined)
+          throw new OptimisticConcurrencyError("address")
+        return address
+      })
     },
   }
 }
@@ -531,15 +733,25 @@ export type UpsertUserPreferencesInput = Readonly<{
   personalizationConsent: boolean
   profileVisibility: ProfileVisibility
 }>
+export type OptimisticUserPreferencesInput = Readonly<{
+  userId: string
+  emailNotifications: boolean
+  productUpdates: boolean
+  analyticsConsent: boolean
+  personalizationConsent: boolean
+  profileVisibility: ProfileVisibility
+  expectedUpdatedAt: Date | null
+}>
 
 export type UpsertUserThemeInput = Readonly<{
   userId: string
   mode: PreferenceMode
+  expectedUpdatedAt: Date | null
   colorScheme: ColorScheme
 }>
 
 export type UserThemePreference = Readonly<
-  Pick<UserPreferences, "mode" | "colorScheme">
+  Pick<UserPreferences, "mode" | "colorScheme" | "updatedAt">
 >
 
 export type UserPreferencesRepository = Readonly<{
@@ -547,6 +759,9 @@ export type UserPreferencesRepository = Readonly<{
   findThemeByUserId: (userId: string) => Promise<UserThemePreference | null>
   upsertTheme: (input: UpsertUserThemeInput) => Promise<UserThemePreference>
   upsert: (input: UpsertUserPreferencesInput) => Promise<UserPreferences>
+  updateOptimistic: (
+    input: OptimisticUserPreferencesInput,
+  ) => Promise<UserPreferences>
 }>
 
 export const createUserPreferencesRepository = (
@@ -563,6 +778,7 @@ export const createUserPreferencesRepository = (
           .select({
             mode: userPreferences.mode,
             colorScheme: userPreferences.colorScheme,
+            updatedAt: userPreferences.updatedAt,
           })
           .from(userPreferences)
           .where(eq(userPreferences.userId, userId))
@@ -590,32 +806,47 @@ export const createUserPreferencesRepository = (
         throw new InvalidRepositoryInputError("colorScheme must be canonical")
 
       try {
-        const [preference] = await database
-          .insert(userPreferences)
-          .values({
-            userId: input.userId,
-            mode: input.mode,
-            colorScheme: input.colorScheme,
-          })
-          .onConflictDoUpdate({
-            target: userPreferences.userId,
-            set: {
-              mode: input.mode,
-              colorScheme: input.colorScheme,
-              updatedAt: now(),
-            },
-          })
-          .returning({
-            mode: userPreferences.mode,
-            colorScheme: userPreferences.colorScheme,
-          })
+        const updatedAt = input.expectedUpdatedAt === null
+          ? now()
+          : nextOptimisticVersion(now(), input.expectedUpdatedAt)
+        const [preference] = input.expectedUpdatedAt === null
+          ? await database
+              .insert(userPreferences)
+              .values({
+                userId: input.userId,
+                mode: input.mode,
+                colorScheme: input.colorScheme,
+                updatedAt,
+              })
+              .onConflictDoNothing()
+              .returning({
+                mode: userPreferences.mode,
+                colorScheme: userPreferences.colorScheme,
+                updatedAt: userPreferences.updatedAt,
+              })
+          : await database
+              .update(userPreferences)
+              .set({
+                mode: input.mode,
+                colorScheme: input.colorScheme,
+                updatedAt,
+              })
+              .where(andWhere(
+                eq(userPreferences.userId, input.userId),
+                sql`date_trunc('milliseconds', ${userPreferences.updatedAt}) = ${input.expectedUpdatedAt}`,
+              ))
+              .returning({
+                mode: userPreferences.mode,
+                colorScheme: userPreferences.colorScheme,
+                updatedAt: userPreferences.updatedAt,
+              })
         if (preference === undefined)
-          throw new DatabasePersistenceError("theme preference upsert")
+          throw new OptimisticConcurrencyError("theme preference")
         return preference
       } catch (error) {
         if (
           error instanceof InvalidRepositoryInputError ||
-          error instanceof DatabasePersistenceError
+          error instanceof OptimisticConcurrencyError
         )
           throw error
         throw new DatabasePersistenceError("theme preference upsert")
@@ -643,6 +874,38 @@ export const createUserPreferencesRepository = (
         .returning()
       return preferences!
     },
+
+    updateOptimistic: async (input) => {
+      requireNonBlank(input.userId, "userId")
+      const updatedAt = input.expectedUpdatedAt === null
+        ? now()
+        : nextOptimisticVersion(now(), input.expectedUpdatedAt)
+      const values = {
+        emailNotifications: input.emailNotifications,
+        productUpdates: input.productUpdates,
+        analyticsConsent: input.analyticsConsent,
+        personalizationConsent: input.personalizationConsent,
+        profileVisibility: input.profileVisibility,
+        updatedAt,
+      }
+      const [preferences] = input.expectedUpdatedAt === null
+        ? await database
+            .insert(userPreferences)
+            .values({ userId: input.userId, ...values })
+            .onConflictDoNothing()
+            .returning()
+        : await database
+            .update(userPreferences)
+            .set(values)
+            .where(andWhere(
+              eq(userPreferences.userId, input.userId),
+              sql`date_trunc('milliseconds', ${userPreferences.updatedAt}) = ${input.expectedUpdatedAt}`,
+            ))
+            .returning()
+      if (preferences === undefined)
+        throw new OptimisticConcurrencyError("user preferences")
+      return preferences
+    },
   }
 }
 
@@ -669,8 +932,14 @@ export type UpdateFeatureItemInput = Readonly<{
   metadata?: FeatureItemMetadata
 }>
 
+export type FeatureListFilters = Readonly<{
+  query?: string
+  status?: FeatureItemStatus
+  limit?: number
+}>
+
 export type FeatureItemRepository = Readonly<{
-  listByOwner: (ownerId: string) => Promise<FeatureItem[]>
+  listByOwner: (ownerId: string, filters?: FeatureListFilters) => Promise<FeatureItem[]>
   findByIdForOwner: (id: string, ownerId: string) => Promise<FeatureItem | null>
   create: (
     input: CreateFeatureItemInput,
@@ -753,12 +1022,35 @@ export const createFeatureItemRepository = (
   const dependencies = resolveDependencies(repositoryDependencies)
 
   return {
-    listByOwner: async (ownerId) => {
+    listByOwner: async (ownerId, filters = {}) => {
+      const limit = filters.limit ?? 50
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+        throw new InvalidRepositoryInputError("feature list limit must be 1-100")
+      if (filters.query !== undefined) {
+        requireNonBlank(filters.query, "query")
+        if (filters.query.length > 200)
+          throw new InvalidRepositoryInputError("query must not exceed 200 characters")
+      }
+      const conditions = [eq(featureItems.ownerId, ownerId)]
+      if (filters.query !== undefined) {
+        const escaped = filters.query
+          .replaceAll("\\", "\\\\")
+          .replaceAll("%", "\\%")
+          .replaceAll("_", "\\_")
+        const pattern = `%${escaped}%`
+        conditions.push(orWhere(
+          ilike(featureItems.name, pattern),
+          ilike(featureItems.description, pattern),
+        )!)
+      }
+      if (filters.status !== undefined)
+        conditions.push(eq(featureItems.status, filters.status))
       return database
         .select()
         .from(featureItems)
-        .where(eq(featureItems.ownerId, ownerId))
+        .where(andWhere(...conditions))
         .orderBy(desc(featureItems.updatedAt), desc(featureItems.id))
+        .limit(limit)
     },
 
     findByIdForOwner: async (id, ownerId) => {
@@ -905,6 +1197,8 @@ export type Repositories = Readonly<{
   addresses: AddressRepository
   userPreferences: UserPreferencesRepository
   featureItems: FeatureItemRepository
+  adminUsers: AdminUsersRepository
+  dashboard: DashboardRepository
 }>
 
 export const createRepositories = (
@@ -915,4 +1209,6 @@ export const createRepositories = (
   addresses: createAddressRepository(database, dependencies),
   userPreferences: createUserPreferencesRepository(database, dependencies),
   featureItems: createFeatureItemRepository(database, dependencies),
+  adminUsers: createAdminUsersRepository(database),
+  dashboard: createDashboardRepository(database),
 })

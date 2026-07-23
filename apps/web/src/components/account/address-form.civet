@@ -1,0 +1,235 @@
+"use client"
+
+import type {
+  AddressCreateInput,
+  AddressOutput,
+  AddressUpdateInput,
+} from "@darkfactory/api"
+import { useForm } from "@tanstack/react-form"
+import { Button, Input, Label } from "@darkfactory/ui"
+
+import {
+  AccountFeedbackMessage,
+  type AccountFeedback,
+} from "./account-feedback.civet"
+
+const emptyAddress = {
+  type: "home" as const,
+  line1: "",
+  line2: "",
+  city: "",
+  region: "",
+  postalCode: "",
+  country: "",
+  isPrimary: false,
+}
+type AddressTextFieldName =
+  | "line1"
+  | "line2"
+  | "city"
+  | "region"
+  | "postalCode"
+  | "country"
+
+interface AddressTextFieldDefinition {
+  readonly name: AddressTextFieldName
+  readonly label: string
+  readonly maximum: number
+  readonly optional?: boolean
+  readonly autoComplete: string
+}
+
+const textFields: readonly AddressTextFieldDefinition[] = [
+  { name: "line1", label: "Address line 1", maximum: 200, autoComplete: "address-line1" },
+  { name: "line2", label: "Address line 2", maximum: 200, optional: true, autoComplete: "address-line2" },
+  { name: "city", label: "City", maximum: 100, autoComplete: "address-level2" },
+  { name: "region", label: "State or region", maximum: 100, autoComplete: "address-level1" },
+  { name: "postalCode", label: "Postal code", maximum: 32, autoComplete: "postal-code" },
+  { name: "country", label: "Country code", maximum: 2, autoComplete: "country" },
+]
+
+
+const defaultsFor = (address?: AddressOutput | null) => address === undefined || address === null
+  ? emptyAddress
+  : {
+      type: address.type,
+      line1: address.line1,
+      line2: address.line2 ?? "",
+      city: address.city,
+      region: address.region,
+      postalCode: address.postalCode,
+      country: address.country,
+      isPrimary: address.isPrimary,
+    }
+
+const requiredError = (label: string, value: string, maximum: number): string | undefined => {
+  if (value.trim().length === 0) return `${label} is required.`
+  if (value.length > maximum) return `${label} must be ${maximum} characters or fewer.`
+  return undefined
+}
+
+export const changedAddressUpdateInput = (
+  initial: AddressOutput,
+  current: ReturnType<typeof defaultsFor> | AddressOutput,
+): AddressUpdateInput => {
+  const patch: Record<string, unknown> = {
+    id: initial.id,
+    expectedUpdatedAt: initial.updatedAt,
+  }
+  const fields = ["type", "line1", "line2", "city", "region", "postalCode", "country"] as const
+  for (const field of fields) {
+    const raw = current[field]
+    const value = field === "line2"
+      ? (raw === null || raw.trim().length === 0 ? null : raw.trim())
+      : typeof raw === "string" ? raw.trim() : raw
+    if (value !== initial[field]) patch[field] = value
+  }
+  return patch as AddressUpdateInput
+}
+
+export interface AddressFormProps {
+  readonly feedback?: AccountFeedback | null | undefined
+  readonly disabled?: boolean | undefined
+  readonly initialAddress?: AddressOutput | null
+  readonly onCancel: () => void
+  readonly onSave: (input: AddressCreateInput | AddressUpdateInput) => Promise<unknown> | unknown
+}
+
+export const AddressForm = ({ disabled = false, feedback, initialAddress, onCancel, onSave }: AddressFormProps) => {
+  const isEditing = initialAddress !== undefined && initialAddress !== null
+  const form = useForm({
+    defaultValues: defaultsFor(initialAddress),
+    onSubmit: async ({ value }) => {
+      const fields: AddressCreateInput = {
+        type: value.type,
+        line1: value.line1.trim(),
+        line2: value.line2.trim().length === 0 ? null : value.line2.trim(),
+        city: value.city.trim(),
+        region: value.region.trim(),
+        postalCode: value.postalCode.trim(),
+        country: value.country.trim().toUpperCase(),
+        isPrimary: value.isPrimary,
+      }
+      if (isEditing) {
+        await onSave(changedAddressUpdateInput(initialAddress, value))
+      } else {
+        await onSave(fields)
+      }
+    },
+  })
+
+
+  return (
+    <form
+      className="space-y-6 border-y border-border py-6"
+      id="address-form"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void form.handleSubmit().then(() => {
+          document.querySelector<HTMLElement>("#address-form [aria-invalid=\"true\"]")?.focus()
+        })
+      }}
+    >
+      <div>
+        <h2 className="font-heading text-lg font-semibold text-foreground">{isEditing ? "Edit address" : "Add an address"}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Required fields are marked in their labels.</p>
+      </div>
+      <AccountFeedbackMessage feedback={feedback} />
+      <div className="grid gap-5 sm:grid-cols-2">
+        <form.Field name="type">
+          {(field) => (
+            <div className="space-y-2">
+              <Label htmlFor="type">Address type (required)</Label>
+              <select
+                aria-required="true"
+                autoFocus
+                disabled={disabled}
+                className="min-h-11 w-full rounded-sm border border-border-strong bg-surface px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                id="type"
+                name="type"
+                required
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value as "home" | "work" | "other")}
+                value={field.state.value}
+              >
+                <option value="home">Home</option>
+                <option value="work">Work</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          )}
+        </form.Field>
+        {textFields.map((definition) => (
+          <form.Field
+            key={definition.name}
+            name={definition.name}
+            validators={{
+              onBlur: ({ value }) => definition.optional === true && value.length === 0
+                ? undefined
+                : requiredError(definition.label, value, definition.maximum),
+              onSubmit: ({ value }) => definition.optional === true && value.length === 0
+                ? undefined
+                : requiredError(definition.label, value, definition.maximum),
+            }}
+          >
+            {(field) => {
+              const error = field.state.meta.errors[0]
+              const errorId = `${field.name}-error`
+              return (
+                <div className={definition.name === "line1" || definition.name === "line2" ? "space-y-2 sm:col-span-2" : "space-y-2"}>
+                  <Label htmlFor={field.name}>{definition.label}{definition.optional === true ? " (optional)" : " (required)"}</Label>
+                  <Input
+                    aria-describedby={error === undefined ? undefined : errorId}
+                    aria-required={definition.optional !== true}
+                    autoComplete={definition.autoComplete}
+                    disabled={disabled}
+                    aria-invalid={error !== undefined}
+                    id={field.name}
+                    maxLength={definition.maximum}
+                    name={field.name}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    required={definition.optional !== true}
+                    value={field.state.value}
+                  />
+                  {error === undefined ? null : <p aria-live="assertive" className="text-sm text-destructive" id={errorId} role="alert">{String(error)}</p>}
+                </div>
+              )
+            }}
+          </form.Field>
+        ))}
+      </div>
+      {isEditing ? null : (
+        <form.Field name="isPrimary">
+          {(field) => (
+            <label className="flex min-h-11 cursor-pointer items-center gap-3" htmlFor="isPrimary">
+              <input
+                checked={field.state.value}
+                disabled={disabled}
+                className="size-5 accent-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                id="isPrimary"
+                name="isPrimary"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.checked)}
+                type="checkbox"
+              />
+              <span className="text-sm font-medium text-foreground">Make this the primary address</span>
+            </label>
+          )}
+        </form.Field>
+      )}
+      <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
+        {([canSubmit, isDirty, isSubmitting]) => (
+          <div className="flex flex-wrap gap-3">
+            <Button disabled={disabled || !canSubmit || !isDirty || isSubmitting} loading={isSubmitting} loadingLabel="Saving address" type="submit">
+              {isEditing ? "Save address" : "Create address"}
+            </Button>
+            <Button disabled={disabled || isSubmitting} onClick={onCancel} type="button" variant="secondary">Cancel</Button>
+          </div>
+        )}
+      </form.Subscribe>
+    </form>
+  )
+}

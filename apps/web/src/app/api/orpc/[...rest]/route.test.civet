@@ -15,12 +15,18 @@ const mocks = vi.hoisted(->
     recordMetric: vi.fn(),
   }
   const withSpan = vi.fn(async (_input, run) => run(span))
+  const consumeContactThrottle = vi.fn(async () => ({
+    allowed: true,
+    remaining: 4,
+    retryAfterSeconds: 0,
+  }))
   return {
     waitUntil,
     close,
     forceFlush,
     span,
     withSpan,
+    consumeContactThrottle,
     initializeTelemetry: vi.fn(() => ({
       state: { status: "in-memory" },
       withSpan,
@@ -44,6 +50,7 @@ const mocks = vi.hoisted(->
     resolveApiRequestId: vi.fn(() => "request-stable"),
     createRequestDatabase: vi.fn(async () => ({ db: { request: true }, close })),
     createRepositories: vi.fn(() => ({ featureItems: {} })),
+    createContactThrottleRepository: vi.fn(() => ({ consume: consumeContactThrottle })),
     composeDatabaseProfile: vi.fn(() => ({
       connection: { connectionString: "postgres://configured.invalid/db" },
     })),
@@ -53,7 +60,9 @@ const mocks = vi.hoisted(->
       EMAIL_TRANSPORT: "preview",
       EMAIL_FROM: "DarkFactory <noreply@domain.test>",
       RESEND_API_KEY: undefined,
-      BETTER_AUTH_SECRET: "configured-secret",
+      CONTACT_EMAIL_TO: "support@domain.test",
+      BETTER_AUTH_SECRET: "configured-secret".repeat(2),
+      CONTACT_THROTTLE_SECRET: "contact-throttle-secret".repeat(2),
       BETTER_AUTH_URL: "https://darkfactory.localhost",
       OTEL_ENABLED: true,
       OTEL_SERVICE_NAME: "darkfactory-web",
@@ -65,6 +74,7 @@ const mocks = vi.hoisted(->
     requireSession: vi.fn(),
     requireRole: vi.fn(),
     selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
+    selectContactEmailPort: vi.fn(() => ({ sendContact: vi.fn() })),
     handleOrpcRequest: vi.fn(async () => new Response("handled", { status: 202 })),
   }
 )
@@ -85,12 +95,26 @@ vi.mock("@darkfactory/auth/server", -> ({
 vi.mock("@darkfactory/config/database", -> ({
   composeDatabaseProfile: mocks.composeDatabaseProfile,
 }))
-vi.mock("@darkfactory/config/server", -> ({ parseServerEnv: mocks.parseServerEnv }))
+vi.mock("@darkfactory/config/server", -> ({
+  parseServerEnv: mocks.parseServerEnv,
+  getProviderCapabilities: () => ({
+    ai: false,
+    emailDelivery: false,
+    analytics: false,
+    telemetryExport: false,
+    storage: false,
+    errorTracking: false,
+  }),
+}))
 vi.mock("@darkfactory/db/server", -> ({
   createRepositories: mocks.createRepositories,
   createRequestDatabase: mocks.createRequestDatabase,
+  createContactThrottleRepository: mocks.createContactThrottleRepository,
 }))
-vi.mock("@darkfactory/email/server", -> ({ selectEmailPort: mocks.selectEmailPort }))
+vi.mock("@darkfactory/email/server", -> ({
+  selectEmailPort: mocks.selectEmailPort,
+  selectContactEmailPort: mocks.selectContactEmailPort,
+}))
 vi.mock("@darkfactory/observability/server/evlog", -> ({
   createEvlogSink: mocks.createEvlogSink,
   initializeEvlog: mocks.initializeEvlog,
@@ -103,6 +127,7 @@ vi.mock("@darkfactory/observability/server/otel", -> ({
 }))
 vi.mock("./handler.civet", -> ({ handleOrpcRequest: mocks.handleOrpcRequest }))
 
+import { CONTACT_REQUEST_MAX_BYTES } from "./contact-runtime.civet"
 import { POST } from "./route.civet"
 
 describe "oRPC Worker route provider composition", ->
@@ -114,16 +139,28 @@ describe "oRPC Worker route provider composition", ->
     mocks.createSemanticEventFanout.mockClear()
     mocks.createApiContext.mockClear()
     mocks.createRequestDatabase.mockClear()
+    mocks.createContactThrottleRepository.mockClear()
+    mocks.consumeContactThrottle.mockReset()
+    mocks.consumeContactThrottle.mockResolvedValue({
+      allowed: true,
+      remaining: 4,
+      retryAfterSeconds: 0,
+    })
+    mocks.selectContactEmailPort.mockClear()
     mocks.handleOrpcRequest.mockClear()
   
   it "uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async ->
     const firstRequest = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create?endpoint=https://attacker.invalid",
-      { method: "POST", headers: { "x-analytics-consent": "granted" } },
+      { method: "POST", headers: {
+        origin: "https://darkfactory.localhost",
+        "sec-fetch-site": "same-origin",
+        "x-analytics-consent": "granted",
+      } },
     )
     const secondRequest = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/update",
-      { method: "POST" },
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
     )
 
     const firstResponse = await POST(firstRequest)
@@ -171,7 +208,7 @@ describe "oRPC Worker route provider composition", ->
     mocks.close.mockRejectedValueOnce(new Error("private close failure"))
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST" },
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
     )
 
     await expect(POST(request)).resolves.toMatchObject({ status: 202 })
@@ -184,9 +221,136 @@ describe "oRPC Worker route provider composition", ->
     mocks.close.mockRejectedValueOnce(new Error("private close failure"))
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST" },
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
     )
 
     await expect(POST(request)).rejects.toBe(applicationError)
     expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "rejects unsafe cross-origin requests before opening the database", async ->
+    for (const headers of [
+      {},
+      { origin: "https://attacker.invalid" },
+      {
+        origin: "https://darkfactory.localhost",
+        "sec-fetch-site": "cross-site",
+      },
+    ]) {
+      const response = await POST(new Request(
+        "https://darkfactory.localhost/api/orpc/preferences/update",
+        { method: "POST", headers },
+      ))
+      expect(response.status).toBe(403)
+    }
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
+
+  it "counts malformed contact requests in a separate pre-parse bucket", async ->
+    mocks.handleOrpcRequest.mockResolvedValue(
+      new Response("invalid", { status: 400 }),
+    )
+    const responses: Response[] = []
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (attempt === 5) {
+        mocks.consumeContactThrottle.mockResolvedValueOnce({
+          allowed: false,
+          remaining: 0,
+          retryAfterSeconds: 600,
+        })
+      }
+      responses.push(await POST(new Request(
+        "https://darkfactory.localhost/api/orpc/contact/submit",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "https://darkfactory.localhost",
+          },
+          body: "{",
+        },
+      )))
+    }
+
+    expect(responses.map(({ status }) => status)).toEqual([
+      400, 400, 400, 400, 400, 429,
+    ])
+    expect(await responses[5]?.json()).toMatchObject({
+      json: {
+        defined: true,
+        code: "TOO_MANY_REQUESTS",
+        status: 429,
+      },
+    })
+    expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(6)
+    expect(mocks.createContactThrottleRepository).toHaveBeenCalledWith(
+      { request: true },
+      { maxRequests: 30 },
+    )
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(5)
+
+  it "returns 413 for an oversized declared or chunked contact payload after edge throttling", async ->
+    const declared = await POST(new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: {
+          "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
+          origin: "https://darkfactory.localhost",
+        },
+        body: "small",
+      },
+    ))
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(CONTACT_REQUEST_MAX_BYTES))
+        controller.enqueue(new Uint8Array([1]))
+        controller.close()
+      },
+    })
+    const chunked = await POST(new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: { origin: "https://darkfactory.localhost" },
+        body: stream,
+        duplex: "half",
+      } as RequestInit,
+    ))
+
+    expect(declared.status).toBe(413)
+    expect(chunked.status).toBe(413)
+    expect(await declared.json()).toMatchObject({
+      json: {
+        defined: true,
+        code: "PAYLOAD_TOO_LARGE",
+        status: 413,
+      },
+    })
+    expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(2)
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
+    expect(mocks.close).toHaveBeenCalledTimes(2)
+
+  it "returns a typed 503 and closes the database when edge throttle storage fails", async ->
+    mocks.consumeContactThrottle.mockRejectedValueOnce(
+      new Error("private database detail"),
+    )
+    const response = await POST(new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: { origin: "https://darkfactory.localhost" },
+        body: "{}",
+      },
+    ))
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({
+      json: {
+        defined: true,
+        code: "SERVICE_UNAVAILABLE",
+        status: 503,
+      },
+    })
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
     expect(mocks.close).toHaveBeenCalledOnce()

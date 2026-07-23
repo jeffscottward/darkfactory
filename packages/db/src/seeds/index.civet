@@ -13,6 +13,7 @@ import {
   DEVELOPMENT_PERSONAS,
   seedIdentityInput,
   type EnsureSeedIdentity,
+  type PrepareSeedIdentities,
   type DevelopmentPersona,
 } from "./users.civet"
 
@@ -20,7 +21,7 @@ export type DevelopmentEnvironment = "development" | "test" | "production"
 
 export type SeedDevelopmentOptions = Readonly<{
   environment: DevelopmentEnvironment
-  ensureIdentity: EnsureSeedIdentity
+  prepareIdentity: PrepareSeedIdentities
 }>
 
 export type SeedDevelopmentResult = Readonly<{
@@ -129,62 +130,26 @@ const inspectIdentity = async (
   return { persona, exists: true }
 }
 
-const convergeUser = async (
-  database: DatabaseExecutor,
-  persona: DevelopmentPersona,
-): Promise<void> => {
-  const [current] = await database
-    .select()
-    .from(users)
-    .where(eq(users.id, persona.userId))
-    .limit(1)
-
-  if (!current) {
-    throw new DevelopmentSeedError(
-      `Seed identity ${persona.name} disappeared before application convergence`,
-    )
-  }
-
-  if (
-    current.name === persona.name &&
-    current.email === persona.email &&
-    current.emailVerified === true &&
-    current.image === persona.image &&
-    current.role === persona.role &&
-    current.status === "active"
-  ) return
-
-  const repaired = await database
-    .update(users)
-    .set({
-      name: persona.name,
-      email: persona.email,
-      emailVerified: true,
-      image: persona.image,
-      role: persona.role,
-      status: "active",
-    })
-    .where(eq(users.id, persona.userId))
-    .returning({ id: users.id })
-
-  if (repaired.length !== 1) {
-    throw new DevelopmentSeedError(
-      `Seed identity ${persona.name} could not be converged`,
-    )
-  }
-}
 
 const convergeApplicationRows = async (
-  database: Database,
+  database: DatabaseExecutor,
 ): Promise<void> => {
-  await withTransaction(database, async (transaction) => {
-    for (const persona of DEVELOPMENT_PERSONAS) {
-      await convergeUser(transaction, persona)
-    }
-    await convergeDevelopmentProfiles(transaction)
-    await convergeDevelopmentPreferences(transaction)
-    await convergeDevelopmentContent(transaction)
-  })
+  await convergeDevelopmentProfiles(database)
+  await convergeDevelopmentPreferences(database)
+  await convergeDevelopmentContent(database)
+}
+
+const lockDevelopmentIdentities = async (
+  database: DatabaseExecutor,
+): Promise<void> => {
+  const personas = [...DEVELOPMENT_PERSONAS].sort((left, right) =>
+    left.userId.localeCompare(right.userId)
+  )
+  for (const persona of personas) {
+    await database.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${persona.userId}, 0))`,
+    )
+  }
 }
 
 export const seedDevelopment = async (
@@ -200,39 +165,49 @@ export const seedDevelopment = async (
     )
   }
 
-  const initialStates: IdentityState[] = []
-  for (const persona of DEVELOPMENT_PERSONAS) {
-    initialStates.push(await inspectIdentity(database, persona))
-  }
+  const identities = DEVELOPMENT_PERSONAS.map(seedIdentityInput)
+  const ensureIdentity = await options.prepareIdentity(identities)
 
-  let identitiesCreated = 0
-  for (const state of initialStates) {
-    await options.ensureIdentity(
-      seedIdentityInput(state.persona),
-      state.exists,
-    )
-    const ensured = await inspectIdentity(database, state.persona)
-    if (!ensured.exists) {
-      throw new DevelopmentSeedError(
-        `Identity assurer did not persist ${state.persona.name}`,
-      )
+  return await withTransaction(database, async (transaction) => {
+    await lockDevelopmentIdentities(transaction)
+
+    const initialStates: IdentityState[] = []
+    for (const persona of DEVELOPMENT_PERSONAS) {
+      initialStates.push(await inspectIdentity(transaction, persona))
     }
-    if (!state.exists) identitiesCreated += 1
-  }
 
-  await convergeApplicationRows(database)
+    let identitiesCreated = 0
+    for (const state of initialStates) {
+      await ensureIdentity(
+        seedIdentityInput(state.persona),
+        state.exists,
+        transaction,
+      )
+      const ensured = await inspectIdentity(transaction, state.persona)
+      if (!ensured.exists) {
+        throw new DevelopmentSeedError(
+          `Identity assurer did not persist ${state.persona.name}`,
+        )
+      }
+      if (!state.exists) identitiesCreated += 1
+    }
 
-  return Object.freeze({
-    identitiesCreated,
-    usersConverged: DEVELOPMENT_PERSONAS.length,
-    profilesConverged: DEVELOPMENT_PERSONAS.length,
-    preferencesConverged: DEVELOPMENT_PERSONAS.length,
-    addressesConverged: DEVELOPMENT_PERSONAS.length,
-    featureItemsConverged: DEVELOPMENT_PERSONAS.length,
+    await convergeApplicationRows(transaction)
+
+
+    return Object.freeze({
+      identitiesCreated,
+      usersConverged: DEVELOPMENT_PERSONAS.length,
+      profilesConverged: DEVELOPMENT_PERSONAS.length,
+      preferencesConverged: DEVELOPMENT_PERSONAS.length,
+      addressesConverged: DEVELOPMENT_PERSONAS.length,
+      featureItemsConverged: DEVELOPMENT_PERSONAS.length,
+    })
   })
 }
 
 export type {
   EnsureSeedIdentity,
+  PrepareSeedIdentities,
   SeedIdentityInput,
 } from "./users.civet"

@@ -8,6 +8,20 @@
       "when": 1784778536731,
       "tag": "0000_misty_lockheed",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784820000000,
+      "tag": "0001_bounded_admin_directory",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784836800000,
+      "tag": "0002_contact_rate_limits",
+      "breakpoints": true
     }
   ]
 }

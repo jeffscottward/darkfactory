@@ -34,7 +34,12 @@ export class FeatureServiceError extends Error {
   }
 }
 
-export type OwnerScopeInput = Readonly<{ ownerId?: string | undefined }>
+export type OwnerScopeInput = Readonly<{
+  ownerId?: string | undefined
+  query?: string | undefined
+  status?: FeatureItemStatus | undefined
+  limit?: number | undefined
+}>
 export type ItemScopeInput = Readonly<{
   id: string
   ownerId?: string | undefined
@@ -134,7 +139,16 @@ export const createFeatureItemService = (
 ): FeatureItemService => ({
   list: async (principal, input) => {
     const ownerId = ownerFor(principal, input.ownerId)
-    return runRepository(() => repository.listByOwner(ownerId))
+    if (
+      input.query === undefined &&
+      input.status === undefined &&
+      input.limit === undefined
+    ) return runRepository(() => repository.listByOwner(ownerId))
+    return runRepository(() => repository.listByOwner(ownerId, {
+      ...(input.query === undefined ? {} : { query: input.query }),
+      ...(input.status === undefined ? {} : { status: input.status }),
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+    }))
   },
 
   get: async (principal, input) => {
@@ -222,6 +236,7 @@ export const createFeatureItemService = (
 })
 
 export type ThemePreferenceServiceErrorCode =
+  | "CONFLICT"
   | "VALIDATION_ERROR"
   | "STORAGE_ERROR"
 
@@ -246,6 +261,7 @@ export type ThemePreferenceService = Readonly<{
 const DEFAULT_THEME_PREFERENCE: ThemePreferenceOutput = {
   themeMode: "system",
   palette: "neutral",
+  updatedAt: null,
 }
 
 const toThemePreferenceOutput = (
@@ -253,6 +269,7 @@ const toThemePreferenceOutput = (
 ): ThemePreferenceOutput => ({
   themeMode: preference.mode,
   palette: preference.colorScheme,
+  updatedAt: preference.updatedAt,
 })
 
 const mapThemeRepositoryError = (error: unknown): never => {
@@ -261,6 +278,11 @@ const mapThemeRepositoryError = (error: unknown): never => {
     throw new ThemePreferenceServiceError(
       "VALIDATION_ERROR",
       "Theme preference validation failed",
+    )
+  if (error instanceof DatabaseConflictError)
+    throw new ThemePreferenceServiceError(
+      "CONFLICT",
+      "Theme preference conflict",
     )
   if (error instanceof DatabasePersistenceError)
     throw new ThemePreferenceServiceError(
@@ -298,6 +320,7 @@ export const createThemePreferenceService = (
         userId: principal.userId,
         mode: input.themeMode,
         colorScheme: input.palette,
+        expectedUpdatedAt: input.expectedUpdatedAt,
       })
     return toThemePreferenceOutput(await runThemeRepository(operation))
   },

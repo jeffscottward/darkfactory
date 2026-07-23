@@ -1,0 +1,431 @@
+export const PROCESS_NAME = "darkfactory-web-dev"
+export const ROUTE_NAME = "darkfactory"
+export const CANONICAL_URL = "https://darkfactory.localhost"
+export const MAX_COMMAND_OUTPUT_BYTES = 1_048_576
+
+export type CommandResult = Readonly<{
+  exitCode: number
+  stdout: string
+  stderr: string
+}>
+
+export type CommandOptions = Readonly<{
+  timeoutMs?: number
+  maxOutputBytes?: number
+  environment?: Readonly<Record<string, string>>
+}>
+
+export type ProcessAdapter = Readonly<{
+  workingDirectory: string
+  pm2DaemonAvailable: () => Promise<boolean>
+  probeHttps: (url: string) => Promise<boolean>
+  run: (
+    command: string,
+    arguments_: readonly string[],
+    options?: CommandOptions,
+  ) => Promise<CommandResult>
+  runInteractive: (
+    command: string,
+    arguments_: readonly string[],
+    options?: CommandOptions,
+  ) => Promise<CommandResult>
+}>
+
+export type PreparedCertificateOutputs = Readonly<{
+  certificatePath: string
+  keyPath: string
+  commit: () => Promise<void>
+  cleanup: () => Promise<void>
+}>
+
+export type LifecycleFileSystem = Readonly<{
+  prepareCertificateOutputs: (
+    directory: string,
+    paths: readonly string[],
+  ) => Promise<PreparedCertificateOutputs>
+}>
+
+export type ProcessStatus = "absent" | "stopped" | "online" | "errored" | "unknown"
+
+export type DevelopmentReport = Readonly<{
+  action: DevelopmentAction
+  ok: boolean
+  changed: boolean
+  processStatus?: ProcessStatus
+  processId?: number
+  routeHealthy?: boolean
+  canonicalUrl?: string
+  output?: string
+  reason: string
+}>
+
+export type DevelopmentAction =
+  | "start"
+  | "status"
+  | "logs"
+  | "stop"
+  | "trust"
+  | "certs-install"
+  | "certs-generate"
+
+const commandOptions = Object.freeze({
+  timeoutMs: 15_000,
+  maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
+})
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+
+export const parsePm2ProcessList = (
+  source: string,
+  expectedWorkingDirectory: string,
+): Readonly<{ status: ProcessStatus; processId?: number }> => {
+  if (Buffer.byteLength(source, "utf8") > MAX_COMMAND_OUTPUT_BYTES) {
+    throw new Error("PM2 status output is too large")
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(source)
+  } catch {
+    throw new Error("PM2 status output is malformed")
+  }
+  if (!Array.isArray(parsed)) throw new Error("PM2 status output must be a process list")
+
+  const matches = parsed.filter((entry) => asRecord(entry)?.["name"] === PROCESS_NAME)
+  if (matches.length > 1) throw new Error(`PM2 has duplicate ${PROCESS_NAME} processes`)
+  if (matches.length === 0) return Object.freeze({ status: "absent" })
+
+  const process = asRecord(matches[0])
+  const environment = asRecord(process?.["pm2_env"])
+  const processId = process?.["pm_id"]
+  const executable = environment?.["pm_exec_path"]
+  const workingDirectory = environment?.["pm_cwd"]
+  const arguments_ = environment?.["args"]
+  const executableName = typeof executable === "string"
+    ? executable.replaceAll("\\", "/").split("/").at(-1)
+    : undefined
+  const validArguments = Array.isArray(arguments_) &&
+    arguments_.length === 3 &&
+    arguments_[0] === ROUTE_NAME &&
+    arguments_[1] === "pnpm" &&
+    arguments_[2] === "dev"
+  if (
+    !Number.isSafeInteger(processId) ||
+    Number(processId) < 0 ||
+    executableName !== "portless" ||
+    workingDirectory !== expectedWorkingDirectory ||
+    !validArguments
+  ) throw new Error(`${PROCESS_NAME} is owned by an unexpected command`)
+
+  const status = environment?.["status"]
+  if (status === "online" || status === "stopped" || status === "errored") {
+    return Object.freeze({ status, processId: processId as number })
+  }
+  return Object.freeze({ status: "unknown", processId: processId as number })
+}
+
+const containsExactCanonicalUrl = (source: string): boolean =>
+  source.split(/\s+/).some((value) => {
+    try {
+      const route = new URL(value)
+      return route.protocol === "https:" &&
+        route.hostname === `${ROUTE_NAME}.localhost` &&
+        route.port === "" &&
+        route.pathname === "/" &&
+        route.search === "" &&
+        route.hash === "" &&
+        route.username === "" &&
+        route.password === ""
+    } catch {
+      return false
+    }
+  })
+
+export const isCanonicalRouteOutput = (result: CommandResult): boolean =>
+  result.exitCode === 0 && containsExactCanonicalUrl(result.stdout)
+
+export const inspectDevelopmentState = async (
+  process: ProcessAdapter,
+): Promise<DevelopmentReport> => {
+  if (!await process.pm2DaemonAvailable()) {
+    return Object.freeze({
+      action: "status",
+      ok: false,
+      changed: false,
+      processStatus: "absent",
+      routeHealthy: false,
+      canonicalUrl: CANONICAL_URL,
+      reason: `${PROCESS_NAME} is absent`,
+    })
+  }
+
+  const pm2 = await process.run("pm2", ["jlist"], {
+    ...commandOptions,
+    environment: { PM2_SILENT: "true" },
+  })
+  if (pm2.exitCode !== 0) {
+    return Object.freeze({
+      action: "status",
+      ok: false,
+      changed: false,
+      reason: "PM2 status inspection failed",
+    })
+  }
+
+  let parsed: Readonly<{ status: ProcessStatus; processId?: number }>
+  try {
+    parsed = parsePm2ProcessList(pm2.stdout, process.workingDirectory)
+  } catch (error) {
+    return Object.freeze({
+      action: "status",
+      ok: false,
+      changed: false,
+      reason: error instanceof Error ? error.message : "PM2 status inspection failed",
+    })
+  }
+
+  if (parsed.status !== "online") {
+    return Object.freeze({
+      action: "status",
+      ok: false,
+      changed: false,
+      processStatus: parsed.status,
+      ...(parsed.processId === undefined ? {} : { processId: parsed.processId }),
+      routeHealthy: false,
+      canonicalUrl: CANONICAL_URL,
+      reason: parsed.status === "absent"
+        ? `${PROCESS_NAME} is absent`
+        : `${PROCESS_NAME} is ${parsed.status}`,
+    })
+  }
+
+  const routes = await process.run("portless", ["list"], commandOptions)
+  const route = await process.run("portless", ["get", ROUTE_NAME], commandOptions)
+  const healthy = isCanonicalRouteOutput(routes) &&
+    isCanonicalRouteOutput(route) &&
+    await process.probeHttps(CANONICAL_URL).catch(() => false)
+  return Object.freeze({
+    action: "status",
+    ok: healthy,
+    changed: false,
+    processStatus: parsed.status,
+    processId: parsed.processId!,
+    routeHealthy: healthy,
+    canonicalUrl: CANONICAL_URL,
+    reason: healthy
+      ? `${PROCESS_NAME} is online at ${CANONICAL_URL}`
+      : `${PROCESS_NAME} is online but its portless route is unhealthy`,
+  })
+}
+
+const runSimpleAction = async (
+  action: DevelopmentAction,
+  process: ProcessAdapter,
+  command: string,
+  arguments_: readonly string[],
+  success: string,
+  interactive = false,
+  options: CommandOptions = commandOptions,
+): Promise<DevelopmentReport> => {
+  const result = interactive
+    ? await process.runInteractive(command, arguments_, options)
+    : await process.run(command, arguments_, options)
+  return Object.freeze({
+    action,
+    ok: result.exitCode === 0,
+    changed: result.exitCode === 0,
+    reason: result.exitCode === 0 ? success : `${action} failed`,
+  })
+}
+
+const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | null> => {
+  const routes = await process.run("portless", ["list"], commandOptions)
+  if (/https:\/\/[^\s]+\.localhost:\d+/i.test(routes.stdout)) {
+    return "A noncanonical portless proxy is active; stop it and run dev:trust before retrying"
+  }
+  const proxy = await process.runInteractive("portless", ["proxy", "start", "-p", "443"], {
+    ...commandOptions,
+    timeoutMs: 120_000,
+    environment: { PORTLESS_PORT: "443" },
+  })
+  return proxy.exitCode === 0
+    ? null
+    : "Canonical HTTPS proxy failed; run pnpm dev:trust and retry"
+}
+
+const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
+  const initial = await inspectDevelopmentState(process)
+  if (initial.processStatus === "online") {
+    return Object.freeze({ ...initial, action: "start" })
+  }
+  if (initial.processStatus !== "absent" && initial.processStatus !== "stopped") {
+    return Object.freeze({ ...initial, action: "start" })
+  }
+
+  const proxyFailure = await ensureCanonicalProxy(process)
+  if (proxyFailure) {
+    return Object.freeze({
+      action: "start",
+      ok: false,
+      changed: false,
+      processStatus: initial.processStatus,
+      routeHealthy: false,
+      canonicalUrl: CANONICAL_URL,
+      reason: proxyFailure,
+    })
+  }
+
+  const startArguments = initial.processStatus === "absent"
+    ? ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "pnpm", "dev"]
+    : ["start", String(initial.processId)]
+  const started = await process.run("pm2", startArguments, {
+    ...commandOptions,
+    timeoutMs: 30_000,
+    environment: { PORTLESS_PORT: "443" },
+  })
+  if (started.exitCode !== 0) {
+    return Object.freeze({
+      action: "start",
+      ok: false,
+      changed: false,
+      processStatus: initial.processStatus,
+      routeHealthy: false,
+      canonicalUrl: CANONICAL_URL,
+      reason: `PM2 could not start ${PROCESS_NAME}`,
+    })
+  }
+
+  const saved = await process.run("pm2", ["save"], commandOptions)
+  if (saved.exitCode !== 0) {
+    return Object.freeze({
+      action: "start",
+      ok: false,
+      changed: true,
+      reason: "PM2 started the process but could not save its process list",
+    })
+  }
+
+  const current = await inspectDevelopmentState(process)
+  return Object.freeze({ ...current, action: "start", changed: true })
+}
+
+const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
+  const current = await inspectDevelopmentState(process)
+  if (current.processStatus === "absent" || current.processStatus === "stopped") {
+    return Object.freeze({
+      action: "stop",
+      ok: true,
+      changed: false,
+      processStatus: current.processStatus,
+      reason: `${PROCESS_NAME} is already stopped`,
+    })
+  }
+  if (current.processStatus !== "online" || current.processId === undefined) {
+    return Object.freeze({ ...current, action: "stop" })
+  }
+  const stopped = await process.run("pm2", ["stop", String(current.processId)], commandOptions)
+  if (stopped.exitCode !== 0) {
+    return Object.freeze({
+      action: "stop",
+      ok: false,
+      changed: false,
+      reason: `${PROCESS_NAME} could not be stopped`,
+    })
+  }
+  const saved = await process.run("pm2", ["save"], commandOptions)
+  return Object.freeze({
+    action: "stop",
+    ok: saved.exitCode === 0,
+    changed: true,
+    reason: saved.exitCode === 0
+      ? `${PROCESS_NAME} stopped and PM2 state saved`
+      : `${PROCESS_NAME} stopped but PM2 state could not be saved`,
+  })
+}
+
+const readDevelopmentLogs = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
+  const current = await inspectDevelopmentState(process)
+  if (current.processStatus !== "online" || current.processId === undefined) {
+    return Object.freeze({ ...current, action: "logs" })
+  }
+  const logs = await process.run(
+    "pm2",
+    ["logs", String(current.processId), "--lines", "200", "--nostream"],
+    commandOptions,
+  )
+  return Object.freeze({
+    action: "logs",
+    ok: logs.exitCode === 0,
+    changed: false,
+    processStatus: current.processStatus,
+    processId: current.processId,
+    ...(logs.exitCode === 0 ? { output: logs.stdout } : {}),
+    reason: logs.exitCode === 0 ? `Read logs for ${PROCESS_NAME}` : "logs failed",
+  })
+}
+
+export const runDevelopmentAction = async (
+  action: DevelopmentAction,
+  process: ProcessAdapter,
+  files?: LifecycleFileSystem,
+): Promise<DevelopmentReport> => {
+  if (action === "start") return startDevelopment(process)
+  if (action === "status") return inspectDevelopmentState(process)
+  if (action === "stop") return stopDevelopment(process)
+  if (action === "logs") return readDevelopmentLogs(process)
+  if (action === "trust") {
+    return runSimpleAction(
+      action,
+      process,
+      "portless",
+      ["trust"],
+      "portless trust configured",
+      true,
+      { ...commandOptions, environment: { PORTLESS_PORT: "443" } },
+    )
+  }
+  if (action === "certs-install") {
+    return runSimpleAction(action, process, "mkcert", ["-install"], "mkcert fallback trust configured", true)
+  }
+
+  if (!files) {
+    return Object.freeze({
+      action,
+      ok: false,
+      changed: false,
+      reason: "Certificate filesystem adapter is unavailable",
+    })
+  }
+  const prepared = await files.prepareCertificateOutputs(".certs", [
+    ".certs/localhost.pem",
+    ".certs/localhost-key.pem",
+  ])
+  const generated = await process.run(
+    "mkcert",
+    [
+      "-cert-file",
+      prepared.certificatePath,
+      "-key-file",
+      prepared.keyPath,
+      "localhost",
+      "*.localhost",
+      "127.0.0.1",
+      "::1",
+    ],
+    commandOptions,
+  )
+  if (generated.exitCode !== 0) {
+    await prepared.cleanup()
+    return Object.freeze({ action, ok: false, changed: false, reason: "certs-generate failed" })
+  }
+  await prepared.commit()
+  return Object.freeze({
+    action,
+    ok: true,
+    changed: true,
+    reason: "mkcert fallback certificates generated",
+  })
+}

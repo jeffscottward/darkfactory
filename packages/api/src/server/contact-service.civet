@@ -1,0 +1,100 @@
+import type {
+  ContactSubmitInput,
+  ContactSubmitOutput,
+} from "../contracts/contact.civet"
+
+export type ContactDeliveryResult =
+  | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
+  | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
+  | Readonly<{
+      status: "not-delivered"
+      provider: "preview" | "resend" | "disabled"
+      code: string
+      retryable: boolean
+    }>
+
+export interface ContactDeliveryPort {
+  readonly sendContact: (
+    input: Omit<ContactSubmitInput, "website">,
+  ) => Promise<ContactDeliveryResult>
+}
+
+export type ContactThrottleResult = Readonly<{
+  allowed: boolean
+  remaining: number
+  retryAfterSeconds: number
+}>
+
+export interface ContactThrottlePort {
+  readonly consume: (keyHash: string) => Promise<ContactThrottleResult>
+}
+
+export type ContactServiceErrorCode =
+  | "TOO_MANY_REQUESTS"
+  | "SERVICE_UNAVAILABLE"
+
+const CONTACT_SERVICE_ERROR_MESSAGES: Record<ContactServiceErrorCode, string> = {
+  TOO_MANY_REQUESTS: "Too many contact requests",
+  SERVICE_UNAVAILABLE: "Contact delivery unavailable",
+}
+
+export class ContactServiceError extends Error {
+  readonly code: ContactServiceErrorCode
+
+  constructor(code: ContactServiceErrorCode) {
+    super(CONTACT_SERVICE_ERROR_MESSAGES[code])
+    this.name = "ContactServiceError"
+    this.code = code
+  }
+}
+
+export type ContactServiceDependencies = Readonly<{
+  delivery: ContactDeliveryPort
+  throttle: ContactThrottlePort
+  throttleKey: string
+}>
+
+export const createContactService = (
+  dependencies: ContactServiceDependencies,
+) => ({
+  submit: async (
+    input: ContactSubmitInput,
+  ): Promise<ContactSubmitOutput> => {
+    if (input.website?.trim()) return { status: "not-delivered" }
+
+    let throttleResult: ContactThrottleResult
+    try {
+      throttleResult = await dependencies.throttle.consume(
+        dependencies.throttleKey,
+      )
+    } catch {
+      throw new ContactServiceError("SERVICE_UNAVAILABLE")
+    }
+    if (!throttleResult.allowed) {
+      throw new ContactServiceError("TOO_MANY_REQUESTS")
+    }
+
+    const deliveryInput = {
+      name: input.name,
+      email: input.email,
+      subject: input.subject,
+      message: input.message,
+    }
+    let deliveryResult: ContactDeliveryResult
+    try {
+      deliveryResult = await dependencies.delivery.sendContact(deliveryInput)
+    } catch {
+      throw new ContactServiceError("SERVICE_UNAVAILABLE")
+    }
+
+    switch deliveryResult.status
+      when "sent"
+        return { status: "sent" }
+      when "previewed"
+        return { status: "previewed" }
+      when "not-delivered"
+        if deliveryResult.code === "CONTACT_DELIVERY_DISABLED"
+          return { status: "not-delivered" }
+        throw new ContactServiceError("SERVICE_UNAVAILABLE")
+  },
+})

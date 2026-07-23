@@ -1,0 +1,13 @@
+{
+  "tsConfig": {
+    "rootDir": ".",
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+      "lib": ["ES2023", "DOM"],
+      "types": ["node"],
+      "typeRoots": ["./node_modules/@types"]
+    },
+    "include": ["scripts/dev.civet", "scripts/dev/**/*.civet"],
+    "exclude": ["scripts/dev/**/*.test.civet"]
+  }
+}

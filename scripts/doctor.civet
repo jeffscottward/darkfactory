@@ -1,0 +1,8 @@
+import { runDoctorCli } from "./doctor/cli.civet"
+import { nodeDoctorDependencies } from "./doctor/system.civet"
+
+process.exitCode = await runDoctorCli(process.argv.slice(2), {
+  doctor: nodeDoctorDependencies(),
+  writeOutput: (value) => process.stdout.write(value),
+  writeError: (value) => process.stderr.write(value),
+})
