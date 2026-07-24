@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -159,6 +160,19 @@ export const verifications = pgTable(
       table.identifier,
       table.value,
     ),
+  ],
+)
+
+export const rateLimit = pgTable(
+  "rate_limit",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull().unique(),
+    count: integer("count").notNull(),
+    lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("rate_limit_last_request_idx").on(table.lastRequest),
   ],
 )
 

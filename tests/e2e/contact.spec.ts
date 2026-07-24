@@ -1,24 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
-
-const runtimeErrors = new WeakMap<Page, string[]>();
-const expectedRuntimeErrors = new WeakMap<Page, string[]>();
+import { expect, test } from "./fixtures";
 
 test.describe("DF-076 public contact form", () => {
-  test.beforeEach(({ page }) => {
-    const errors: string[] = [];
-    runtimeErrors.set(page, errors);
-    expectedRuntimeErrors.set(page, []);
-    page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
-    page.on("console", (message) => {
-      if (message.type() === "error") {
-        errors.push(`console: ${message.text()}`);
-      }
-    });
-  });
-
-  test.afterEach(({ page }) => {
-    expect(runtimeErrors.get(page)).toEqual(expectedRuntimeErrors.get(page));
-  });
   test("validates, focuses, prevents duplicate submission, and preserves values on failure", async ({
     page,
   }) => {
@@ -50,8 +32,12 @@ test.describe("DF-076 public contact form", () => {
     await expect(page.getByText("Enter a message.")).toBeVisible();
     await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
     await expect(name).toBeFocused();
-    await expect(page.getByRole("alert")).toHaveCount(1);
-    await expect(page.getByRole("alert")).toContainText(
+    const validationSummary = page
+      .getByRole("alert")
+      .and(page.locator("#contact-validation-summary"));
+    await expect(validationSummary).toHaveCount(1);
+    await expect(validationSummary).toBeVisible();
+    await expect(validationSummary).toContainText(
       "Review the highlighted fields. Your message was not submitted."
     );
 
@@ -158,6 +144,7 @@ test.describe("DF-076 public contact form", () => {
   });
 
   test("preserves input for typed 429 and 503 errors and permits retry", async ({
+    browserErrors,
     page,
   }) => {
     const values = {
@@ -168,10 +155,16 @@ test.describe("DF-076 public contact form", () => {
     };
     let code: "TOO_MANY_REQUESTS" | "SERVICE_UNAVAILABLE" | "sent" =
       "TOO_MANY_REQUESTS";
-    expectedRuntimeErrors.set(page, [
-      "console: Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
-      "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-    ]);
+    browserErrors.allowHttpError({
+      method: "POST",
+      pathname: "/api/orpc/contact/submit",
+      status: 429,
+    });
+    browserErrors.allowHttpError({
+      method: "POST",
+      pathname: "/api/orpc/contact/submit",
+      status: 503,
+    });
     await page.route("**/api/orpc/contact/submit", (route) => {
       if (code === "sent") {
         return route.fulfill({

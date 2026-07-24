@@ -179,6 +179,7 @@ describe "archived and session recovery states", ->
     expect(notice).toContain("Archived records cannot be edited")
     const detail = renderToStaticMarkup(<ArchivedFeatureItemDetails item={archived} />)
     expect(detail).toContain("<dl")
+    expect(detail).not.toMatch(/<div><dt/u)
     expect(detail).toContain("Archived record")
     expect(detail).toContain("Original description")
     expect(detail).toContain("whitespace-pre-wrap")

@@ -1,16 +1,21 @@
 import { randomBytes } from "node:crypto";
+import { accessSync, constants, type Stats, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
-
+import { E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS } from "./tests/e2e/helpers/lifecycle-budgets";
+import {
+  assertOwnedE2ERunRootsReady,
+  createE2ERunId,
+  createE2ERunPaths,
+} from "./tests/e2e/helpers/run-artifacts";
 import {
   canonicalBaseURL,
   parsePortlessPort,
 } from "./tests/e2e/helpers/runtime";
-import { createE2ERunId } from "./tests/e2e/helpers/run-artifacts";
-import { E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS } from "./tests/e2e/helpers/lifecycle-budgets";
-import {
-  assertOwnedE2ERunRootsReady,
-  createE2ERunPaths,
-} from "./tests/e2e/helpers/run-artifacts";
+export const E2E_LIFECYCLE_GLOBAL_SETUP =
+  "./tests/e2e/helpers/server-readiness.ts";
+
 export const parseMaintenanceDatabaseUrl = (
   value: string | undefined,
   required: boolean
@@ -44,6 +49,62 @@ export const parseMaintenanceDatabaseUrl = (
   }
   return value;
 };
+
+const validateExtraCaCertificatePath = (
+  candidate: string,
+  required: boolean
+): string | undefined => {
+  if (candidate.length === 0 || !isAbsolute(candidate)) {
+    throw new Error("Canonical E2E extra CA certificate path is unsafe");
+  }
+  let certificate: Stats;
+  try {
+    certificate = statSync(candidate);
+    accessSync(candidate, constants.R_OK);
+  } catch (error) {
+    if (
+      !required &&
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return undefined;
+    }
+    throw new Error("Canonical E2E extra CA certificate is unavailable");
+  }
+  if (!certificate.isFile()) {
+    throw new Error("Canonical E2E extra CA certificate path is unsafe");
+  }
+  return candidate;
+};
+
+export const resolveNodeExtraCaCertificates = ({
+  explicitPath,
+  homeDirectory,
+  required,
+}: Readonly<{
+  explicitPath: string | undefined;
+  homeDirectory: string | undefined;
+  required: boolean;
+}>): string | undefined => {
+  if (explicitPath !== undefined) {
+    return validateExtraCaCertificatePath(explicitPath, true);
+  }
+  if (homeDirectory === undefined || homeDirectory.length === 0) {
+    if (required) {
+      throw new Error("Canonical E2E extra CA certificate is unavailable");
+    }
+    return undefined;
+  }
+  if (!isAbsolute(homeDirectory)) {
+    throw new Error("Canonical E2E extra CA certificate path is unsafe");
+  }
+  return validateExtraCaCertificatePath(
+    join(homeDirectory, ".portless", "ca.pem"),
+    required
+  );
+};
+
 export const createCanonicalWebServerConfig = ({
   appUrl,
   databaseUrl,
@@ -126,7 +187,11 @@ const maintenanceDatabaseUrl = parseMaintenanceDatabaseUrl(
 if (!discoveryOnly && portlessPort === undefined) {
   throw new Error("Canonical E2E Portless port is unavailable");
 }
-const extraCaCertificates = process.env["NODE_EXTRA_CA_CERTS"];
+const extraCaCertificates = resolveNodeExtraCaCertificates({
+  explicitPath: process.env["NODE_EXTRA_CA_CERTS"],
+  homeDirectory: process.env["HOME"] ?? homedir(),
+  required: !discoveryOnly,
+});
 const isCI = Boolean(process.env["CI"]);
 
 export default defineConfig({
@@ -144,6 +209,7 @@ export default defineConfig({
   ],
   use: {
     baseURL,
+    ignoreHTTPSErrors: true,
     screenshot: "off",
     trace: "off",
     video: "off",
@@ -157,6 +223,7 @@ export default defineConfig({
   ...(discoveryOnly
     ? {}
     : {
+        globalSetup: E2E_LIFECYCLE_GLOBAL_SETUP,
         webServer: createCanonicalWebServerConfig({
           appUrl: baseURL,
           databaseUrl: maintenanceDatabaseUrl,

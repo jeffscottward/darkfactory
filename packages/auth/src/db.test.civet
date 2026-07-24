@@ -73,6 +73,27 @@ describe "confirmed Better Auth session revocation", ->
       expect(currentSession).not.toHaveBeenCalled()
       expect(revokeCurrentSession).not.toHaveBeenCalled()
 
+  it "accepts a framework-internal request URL with the canonical browser origin", async ->
+    const revokeCurrentSession = vi.fn().mockResolvedValue("revoked")
+    const handler = createConfirmedSignOutHandler(dependencies({
+      revokeCurrentSession,
+    }))
+    const internalRequest = new Request(
+      "http://127.0.0.1:43123/api/auth/strict-sign-out",
+      {
+        method: "POST",
+        headers: {
+          cookie: ACTIVE_COOKIE,
+          origin: TRUSTED_ORIGIN,
+        },
+      },
+    )
+
+    const response = await handler(internalRequest)
+
+    expect(response.status).toBe(200)
+    expect(revokeCurrentSession).toHaveBeenCalledOnce()
+
   it "expires a valid signed stale cookie after another tab already revoked the row", async ->
     const revokeCurrentSession = vi.fn()
     const expireSessionCookie = vi.fn().mockResolvedValue(Response.json(

@@ -13,6 +13,10 @@ export interface PublicErrorContentProps {
   readonly reset: () => void
 }
 
+const focusErrorActions = (element: HTMLElement | null): void => {
+  element?.focus()
+}
+
 export const PublicErrorContent = ({
   reset,
 }: PublicErrorContentProps) => (
@@ -30,6 +34,7 @@ export const PublicErrorContent = ({
       autoFocus
       className="grid gap-8 py-16 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background md:grid-cols-12 md:py-20"
       tabIndex={-1}
+      ref={focusErrorActions}
     >
       <div className="md:col-span-7">
         <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id="public-error-actions-title">

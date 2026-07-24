@@ -14,6 +14,7 @@ import {
   featureItems,
   outboxEvents,
   profiles,
+  rateLimit,
   sessions,
   userPreferences,
   users,
@@ -65,6 +66,7 @@ describe "Better Auth 1.6.24 schema", ->
     expect(getTableConfig(sessions).name).toBe("session")
     expect(getTableConfig(accounts).name).toBe("account")
     expect(getTableConfig(verifications).name).toBe("verification")
+    expect(getTableConfig(rateLimit).name).toBe("rate_limit")
 
     expect(columnNames(users)).toEqual([
       "id",
@@ -111,6 +113,18 @@ describe "Better Auth 1.6.24 schema", ->
       "updated_at",
     ])
 
+
+    expect(columnNames(rateLimit)).toEqual([
+      "id",
+      "key",
+      "count",
+      "last_request",
+    ])
+    expect(column(rateLimit, "id").primary).toBe(true)
+    expect(column(rateLimit, "key").isUnique).toBe(true)
+    expect(column(rateLimit, "count").getSQLType()).toBe("integer")
+    expect(column(rateLimit, "last_request").getSQLType()).toBe("bigint")
+    expect(indexNames(rateLimit)).toContain("rate_limit_last_request_idx")
     expect(USER_ROLES).toEqual(["member", "admin"])
     expect(USER_STATUSES).toEqual(["active", "suspended", "deactivated"])
     expect(checkNames(users)).toEqual(

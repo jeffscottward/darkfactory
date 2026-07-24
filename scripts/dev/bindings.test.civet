@@ -1,0 +1,74 @@
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+
+import {
+  listTemporaryBindingFiles,
+  writeWorkerBindings,
+} from "./bindings.civet"
+
+const directories: string[] = []
+const validBindings = [
+  "APP_ENV=development",
+  "DATABASE_URL=postgresql://local.invalid/database",
+  "BETTER_AUTH_SECRET=development-auth-secret-at-least-32",
+  "CONTACT_THROTTLE_SECRET=development-contact-secret-at-least-32",
+  "",
+].join("\n")
+
+const directory = async (): Promise<string> => {
+  const path = await mkdtemp(join(tmpdir(), "darkfactory-bindings-"))
+  directories.push(path)
+  return path
+}
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((path) => (
+    rm(path, { force: true, recursive: true })
+  )))
+})
+
+describe "development Worker bindings", ->
+  it "atomically replaces a regular file and enforces mode 0600", async ->
+    const root = await directory()
+    const target = join(root, ".dev.vars")
+    await writeFile(target, "stale", { mode: 0o644 })
+    await chmod(target, 0o644)
+
+    await writeWorkerBindings(target, validBindings)
+
+    expect(await readFile(target, "utf8")).toBe(validBindings)
+    expect((await lstat(target)).mode & 0o777).toBe(0o600)
+    expect(await listTemporaryBindingFiles(root)).toEqual([])
+
+  it "rejects symlink targets without changing their destination", async ->
+    const root = await directory()
+    const destination = join(root, "destination")
+    const target = join(root, ".dev.vars")
+    await writeFile(destination, "do-not-replace")
+    await symlink(destination, target)
+
+    await expect(writeWorkerBindings(target, validBindings)).rejects.toThrow(
+      "Existing Worker bindings path is unsafe",
+    )
+    expect(await readFile(destination, "utf8")).toBe("do-not-replace")
+    expect(await listTemporaryBindingFiles(root)).toEqual([])
+
+  it "rejects malformed output before creating a file", async ->
+    const root = await directory()
+    const target = join(root, ".dev.vars")
+
+    await expect(writeWorkerBindings(
+      target,
+      "DATABASE_URL=postgresql://local.invalid/database\n",
+    )).rejects.toThrow("malformed or incomplete")
+    await expect(lstat(target)).rejects.toMatchObject({ code: "ENOENT" })

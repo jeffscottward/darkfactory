@@ -96,16 +96,19 @@ describe "ContactForm", ->
     expect(html).toContain('maxLength="200"')
     expect(html).toContain('tabindex="-1"')
     expect(html).toContain('aria-hidden="true"')
+    expect(html).toContain('class="hidden"')
     expect(html).toContain("min-h-11")
     expect(html).toContain("Send message")
 
   it.each([
-    { tone: "success", role: "status", text: "Your message was sent." },
-    { tone: "info", role: "status", text: "Your message was saved to the local email preview. It was not sent." },
-    { tone: "warning", role: "status", text: "Contact delivery is not configured. Your message was not sent." },
-    { tone: "error", role: "alert", text: "Email delivery is temporarily unavailable. Your message was not sent. Try again later." },
-  ] as const)("announces $tone feedback", ({ tone, role, text }) ->
+    { tone: "success", role: "status", surface: "bg-success-subtle", text: "Your message was sent." },
+    { tone: "info", role: "status", surface: "bg-info-subtle", text: "Your message was saved to the local email preview. It was not sent." },
+    { tone: "warning", role: "status", surface: "bg-warning-subtle", text: "Contact delivery is not configured. Your message was not sent." },
+    { tone: "error", role: "alert", surface: "bg-destructive-subtle", text: "Email delivery is temporarily unavailable. Your message was not sent. Try again later." },
+  ] as const)("announces $tone feedback", ({ tone, role, surface, text }) ->
     const html = renderToStaticMarkup(<ContactStatus feedback={{ tone, message: text }} />)
     expect(html).toContain(`role="${role}"`)
+    expect(html).not.toContain("aria-live")
+    expect(html).toContain(surface)
     expect(html).toContain(text)
   )

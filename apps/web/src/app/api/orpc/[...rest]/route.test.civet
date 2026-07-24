@@ -346,6 +346,10 @@ describe "oRPC Worker route provider composition", ->
     vi.stubEnv("E2E_FIXTURES", "1")
     vi.stubEnv("E2E_RUN_ID", runId)
     vi.stubEnv("E2E_EMAIL_PREVIEW_HMAC_KEY", "a".repeat(43))
+    vi.stubEnv(
+      "E2E_EMAIL_PREVIEW_ENDPOINT",
+      "http://127.0.0.1:43123/v1/capture",
+    )
     vi.stubEnv("E2E_EMAIL_PREVIEW_DIRECTORY", authDirectory)
 
     const response = await POST(new Request(
@@ -361,6 +365,7 @@ describe "oRPC Worker route provider composition", ->
     expect(mocks.selectEmailPort).toHaveBeenCalledWith(
       expect.objectContaining({
         previewDirectory: authDirectory,
+        previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
         previewBinding: {
           runId,
           hmacKey: "a".repeat(43),
@@ -371,6 +376,11 @@ describe "oRPC Worker route provider composition", ->
       expect.objectContaining({
         previewDirectory:
           `/repo/test-results/e2e-runs/${runId}/previews/contact`,
+        previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
+        previewBinding: {
+          runId,
+          hmacKey: "a".repeat(43),
+        },
       }),
     )
 

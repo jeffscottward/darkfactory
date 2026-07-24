@@ -34,6 +34,17 @@ import {
 import { publishEvidenceManifest } from "./evidence";
 import { createE2ERunPaths } from "./run-artifacts";
 
+const executedPlaywrightReport = (title: string): string =>
+  JSON.stringify({
+    suites: [
+      {
+        title,
+        specs: [{ tests: [{ results: [{ status: "passed" }] }] }],
+      },
+    ],
+    stats: { expected: 1, skipped: 0, unexpected: 0, flaky: 0 },
+  });
+
 let evidenceDirectory: string | undefined;
 
 afterEach(async () => {
@@ -146,10 +157,7 @@ describe("structured E2E evidence", () => {
       collectEntries: async () => [
         {
           path: `test-results/e2e-runs/${runId}/playwright-report.json`,
-          content: JSON.stringify({
-            suites: [{ title: "structured" }],
-            stats: {},
-          }),
+          content: executedPlaywrightReport("structured"),
         },
         {
           path: `test-results/evidence/${runId}/manifests/${manifestName}`,
@@ -240,7 +248,7 @@ describe("structured E2E evidence", () => {
       collectEntries: async () => [
         {
           path: `test-results/e2e-runs/${runId}/playwright-report.json`,
-          content: JSON.stringify({ suites: [{ title: "visual" }], stats: {} }),
+          content: executedPlaywrightReport("visual"),
         },
         {
           path: `test-results/evidence/${runId}/manifests/${manifestName}`,

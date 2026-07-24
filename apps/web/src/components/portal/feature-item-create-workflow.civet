@@ -156,10 +156,12 @@ const useSetupFlow = (): readonly [SetupFlowActor, SetupFlowSnapshot] => {
     }
   }, [actor])
 
+  const getSnapshot = useCallback(() => actor.getSnapshot(), [actor])
+
   const snapshot = useSyncExternalStore(
     subscribe,
-    actor.getSnapshot,
-    actor.getSnapshot,
+    getSnapshot,
+    getSnapshot,
   )
   return [actor, snapshot]
 }

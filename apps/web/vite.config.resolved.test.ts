@@ -62,6 +62,7 @@ describe("resolved Vite environment optimizer contract", () => {
         "react/jsx-dev-runtime",
         "@tanstack/react-form",
         "@darkfactory/state > zustand/vanilla",
+        "@darkfactory/state > xstate",
         "@darkfactory/ui > radix-ui",
         "@darkfactory/auth > better-auth/client",
         "@darkfactory/auth > better-auth/client/plugins",

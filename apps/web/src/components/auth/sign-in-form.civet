@@ -80,7 +80,7 @@ export const SignInForm = ({
       <form.Field
         name="email"
         validators={{
-          onBlur: ({ value }) => validateEmail(value),
+          onChange: ({ value }) => validateEmail(value),
           onSubmit: ({ value }) => validateEmail(value),
         }}
       >

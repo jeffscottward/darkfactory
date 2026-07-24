@@ -2,6 +2,23 @@ export const PROCESS_NAME = "darkfactory-web-dev"
 export const ROUTE_NAME = "darkfactory"
 export const CANONICAL_URL = "https://darkfactory.localhost"
 export const MAX_COMMAND_OUTPUT_BYTES = 1_048_576
+export const PM2_ENVIRONMENT_VERSION = "1"
+
+export const PM2_ENVIRONMENT_VERSION_KEY = "DARKFACTORY_PM2_ENVIRONMENT_VERSION"
+const SENSITIVE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
+  "DATABASE_URL",
+  "BETTER_AUTH_SECRET",
+  "CONTACT_THROTTLE_SECRET",
+  "CONTACT_EMAIL_TO",
+  "GROQ_API_KEY",
+  "RESEND_API_KEY",
+  "POSTHOG_KEY",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "R2_ACCOUNT_ID",
+  "R2_ACCESS_KEY_ID",
+  "R2_SECRET_ACCESS_KEY",
+  "ERROR_TRACKING_DSN",
+])
 
 export type CommandResult = Readonly<{
   exitCode: number
@@ -45,7 +62,7 @@ export type LifecycleFileSystem = Readonly<{
   ) => Promise<PreparedCertificateOutputs>
 }>
 
-export type ProcessStatus = "absent" | "stopped" | "online" | "errored" | "unknown"
+export type ProcessStatus = "absent" | "stopped" | "online" | "errored" | "stale" | "unknown"
 
 export type DevelopmentReport = Readonly<{
   action: DevelopmentAction
@@ -120,6 +137,12 @@ export const parsePm2ProcessList = (
     !validArguments
   ) throw new Error(`${PROCESS_NAME} is owned by an unexpected command`)
 
+  if (
+    environment?.[PM2_ENVIRONMENT_VERSION_KEY] !== PM2_ENVIRONMENT_VERSION ||
+    SENSITIVE_PROCESS_ENVIRONMENT_KEYS.some((key) => Object.hasOwn(environment, key))
+  ) {
+    return Object.freeze({ status: "stale", processId: processId as number })
+  }
   const status = environment?.["status"]
   if (status === "online" || status === "stopped" || status === "errored") {
     return Object.freeze({ status, processId: processId as number })
@@ -257,7 +280,41 @@ const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | n
 }
 
 const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
-  const initial = await inspectDevelopmentState(process)
+  let initial = await inspectDevelopmentState(process)
+  let replacedStaleProcess = false
+  if (initial.processStatus === "stale" && initial.processId !== undefined) {
+    const deleted = await process.run(
+      "pm2",
+      ["delete", String(initial.processId)],
+      commandOptions,
+    )
+    if (deleted.exitCode !== 0) {
+      return Object.freeze({
+        ...initial,
+        action: "start",
+        reason: `PM2 could not remove stale ${PROCESS_NAME}`,
+      })
+    }
+    const cleaned = await process.run("pm2", ["save"], commandOptions)
+    if (cleaned.exitCode !== 0) {
+      return Object.freeze({
+        ...initial,
+        action: "start",
+        changed: true,
+        reason: `PM2 removed stale ${PROCESS_NAME} but could not save its process list`,
+      })
+    }
+    replacedStaleProcess = true
+    initial = Object.freeze({
+      action: "status",
+      ok: false,
+      changed: true,
+      processStatus: "absent",
+      routeHealthy: false,
+      canonicalUrl: CANONICAL_URL,
+      reason: `${PROCESS_NAME} stale process environment was removed`,
+    })
+  }
   if (initial.processStatus === "online") {
     return Object.freeze({ ...initial, action: "start" })
   }
@@ -270,7 +327,7 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
     return Object.freeze({
       action: "start",
       ok: false,
-      changed: false,
+      changed: replacedStaleProcess,
       processStatus: initial.processStatus,
       routeHealthy: false,
       canonicalUrl: CANONICAL_URL,
@@ -284,13 +341,16 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
   const started = await process.run("pm2", startArguments, {
     ...commandOptions,
     timeoutMs: 30_000,
-    environment: { PORTLESS_PORT: "443" },
+    environment: {
+      PORTLESS_PORT: "443",
+      [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
+    },
   })
   if (started.exitCode !== 0) {
     return Object.freeze({
       action: "start",
       ok: false,
-      changed: false,
+      changed: replacedStaleProcess,
       processStatus: initial.processStatus,
       routeHealthy: false,
       canonicalUrl: CANONICAL_URL,
@@ -314,6 +374,30 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
 
 const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
   const current = await inspectDevelopmentState(process)
+  if (current.processStatus === "stale" && current.processId !== undefined) {
+    const deleted = await process.run(
+      "pm2",
+      ["delete", String(current.processId)],
+      commandOptions,
+    )
+    if (deleted.exitCode !== 0) {
+      return Object.freeze({
+        ...current,
+        action: "stop",
+        reason: `PM2 could not remove stale ${PROCESS_NAME}`,
+      })
+    }
+    const saved = await process.run("pm2", ["save"], commandOptions)
+    return Object.freeze({
+      action: "stop",
+      ok: saved.exitCode === 0,
+      changed: true,
+      processStatus: "absent",
+      reason: saved.exitCode === 0
+        ? `${PROCESS_NAME} stale process environment removed and PM2 state saved`
+        : `${PROCESS_NAME} stale process environment removed but PM2 state could not be saved`,
+    })
+  }
   if (current.processStatus === "absent" || current.processStatus === "stopped") {
     return Object.freeze({
       action: "stop",

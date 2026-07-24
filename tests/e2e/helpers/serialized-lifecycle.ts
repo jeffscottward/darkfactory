@@ -4,6 +4,13 @@ export class LifecycleShutdownRequestedError extends Error {
     this.name = "LifecycleShutdownRequestedError";
   }
 }
+export const isIntentionalLifecycleShutdownInterruption = ({
+  error,
+  intentional,
+}: {
+  readonly error: unknown;
+  readonly intentional: boolean;
+}): boolean => intentional && error instanceof LifecycleShutdownRequestedError;
 
 export type LifecycleOutcome = Readonly<{
   cleanupError?: unknown;

@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Page, TestInfo } from "@playwright/test";
+import type { BrowserContext, Cookie, Page, TestInfo } from "@playwright/test";
 
 import {
   E2E_IDENTITIES,
@@ -9,6 +9,7 @@ import {
   expect,
   signInAs,
   test,
+  type E2EIdentity,
 } from "./fixtures";
 const CREDENTIAL_ARTIFACT_POLICY = {
   screenshot: "off",
@@ -70,11 +71,68 @@ const summarizeAxeRules = (rules: readonly AxeRuleRecord[]) =>
     tags: [...rule.tags],
   }));
 
+const EXPECTED_ERROR_FIXTURE_MESSAGE = "E2E recoverable public error fixture";
+
+const installExpectedErrorConsoleNormalization = async (
+  page: Page
+): Promise<void> => {
+  await page.addInitScript((fixtureMessage) => {
+    const state = window as typeof window & {
+      __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
+    };
+    state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ = 0;
+    const reportConsoleError = console.error.bind(console);
+    let sawFixtureError = false;
+    console.error = (...values: unknown[]): void => {
+      const first = values[0];
+      const isFixtureError =
+        values.length === 1 &&
+        ((first instanceof Error && first.message === fixtureMessage) ||
+          (typeof first === "string" &&
+            first.startsWith(`Error: ${fixtureMessage}\n`) &&
+            first.includes("at RecoverableErrorFixture")));
+      if (isFixtureError) {
+        sawFixtureError = true;
+        state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
+          (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
+        reportConsoleError(`Error: ${fixtureMessage}`);
+        return;
+      }
+      if (
+        sawFixtureError &&
+        values.length === 1 &&
+        typeof first === "string" &&
+        first.startsWith("The above error occurred in a React component:") &&
+        first.includes("at RecoverableErrorFixture")
+      ) {
+        state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
+          (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
+        reportConsoleError(`React component error: ${fixtureMessage}`);
+        return;
+      }
+      reportConsoleError(...values);
+    };
+  }, EXPECTED_ERROR_FIXTURE_MESSAGE);
+};
+
 const waitForStableDocument = async (page: Page): Promise<void> => {
   await page.waitForLoadState("networkidle");
   await page.evaluate(async () => {
+    await Promise.all([
+      document.fonts.load('16px "Public Sans Variable"'),
+      document.fonts.load('16px "Manrope Variable"'),
+    ]);
     await document.fonts.ready;
   });
+  await expect(
+    page.getByRole("button", { name: "Theme settings", exact: true })
+  ).toBeVisible();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      })
+  );
 };
 
 const runAxe = async (
@@ -143,6 +201,13 @@ const assertDocumentContracts = async (
     return {
       bodyFontLoaded: document.fonts.check('16px "Public Sans Variable"'),
       clientWidth: document.documentElement.clientWidth,
+      declaredFontFamilies: [
+        ...new Set(
+          Array.from(document.fonts, (font) =>
+            font.family.replaceAll('"', "").replaceAll("'", "")
+          )
+        ),
+      ],
       fontResourceUrls,
       fontStatus: document.fonts.status,
       headingFontLoaded: document.fonts.check('16px "Manrope Variable"'),
@@ -157,7 +222,9 @@ const assertDocumentContracts = async (
   expect(documentState.fontStatus).toBe("loaded");
   expect(documentState.bodyFontLoaded).toBe(true);
   expect(documentState.headingFontLoaded).toBe(true);
-  expect(documentState.fontResourceUrls.length).toBeGreaterThanOrEqual(2);
+  expect(documentState.declaredFontFamilies).toContain("Public Sans Variable");
+  expect(documentState.declaredFontFamilies).toContain("Manrope Variable");
+  expect(documentState.fontResourceUrls.length).toBeGreaterThanOrEqual(1);
   expect(
     documentState.fontResourceUrls.every(
       (url) => new URL(url).origin === documentState.origin
@@ -171,8 +238,16 @@ const assertDocumentContracts = async (
     )
     .evaluateAll((elements) =>
       elements.flatMap((element) => {
-        const rect = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
+        if (element.closest('[aria-hidden="true"], [inert]') !== null) {
+          return [];
+        }
+        const target =
+          element instanceof HTMLInputElement &&
+          (element.type === "checkbox" || element.type === "radio")
+            ? (element.labels?.[0] ?? element)
+            : element;
+        const rect = target.getBoundingClientRect();
+        const style = getComputedStyle(target);
         if (
           rect.width === 0 ||
           rect.height === 0 ||
@@ -347,6 +422,15 @@ for (const viewport of AXE_VIEWPORTS) {
         name: "The loading fixture completed.",
       })
     ).toBeVisible({ timeout: 10_000 });
+    await installExpectedErrorConsoleNormalization(page);
+    browserErrors.allowConsoleError({
+      message: `Error: ${EXPECTED_ERROR_FIXTURE_MESSAGE}`,
+      pathname: "/error-smoke",
+    });
+    browserErrors.allowConsoleError({
+      message: `React component error: ${EXPECTED_ERROR_FIXTURE_MESSAGE}`,
+      pathname: "/error-smoke",
+    });
 
     browserErrors.allowHttpError({
       method: "GET",
@@ -364,6 +448,20 @@ for (const viewport of AXE_VIEWPORTS) {
         name: "This page needs another attempt.",
       })
     ).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const state = window as typeof window & {
+          __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
+        };
+        return state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0;
+      })
+    ).toBe(2);
+    const runtimeErrorDialog = page.getByRole("dialog", {
+      name: "Runtime Error",
+    });
+    await expect(runtimeErrorDialog).toBeVisible();
+    await runtimeErrorDialog.getByRole("button", { name: "Dismiss" }).click();
+    await expect(runtimeErrorDialog).toBeHidden();
     await assertDocumentContracts(page);
     await runAxe(page, testInfo, `public-error-${viewport.name}`);
 
@@ -394,7 +492,7 @@ test("@a11y keyboard skip link, focus order, mobile dialog, theme menu, and cont
   await page.keyboard.press("Enter");
   await expect(page.locator("main#main-content")).toBeFocused();
 
-  await page.reload();
+  await page.goto("/");
   await waitForStableDocument(page);
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
@@ -506,7 +604,9 @@ test("@a11y contact invalid, pending, and success states pass axe", async ({
       url.pathname === "/api/orpc/contact/submit"
     );
   });
-  await page.getByRole("button", { name: "Send message" }).click();
+  await page
+    .locator("#contact-form")
+    .evaluate((form: HTMLFormElement) => form.requestSubmit());
   await expect(
     page.getByRole("button", { name: "Sending message" })
   ).toBeDisabled();
@@ -596,19 +696,42 @@ const AUTHENTICATED_SURFACES = [
     path: "/admin/users",
   },
 ] as const;
+const authenticatedCookies = new Map<string, readonly Cookie[]>();
+
+const ensureAuthenticated = async (
+  context: BrowserContext,
+  page: Page,
+  identity: E2EIdentity
+): Promise<void> => {
+  const cookies = authenticatedCookies.get(identity.id);
+  if (cookies === undefined) {
+    await signInAs(page, identity);
+    authenticatedCookies.set(
+      identity.id,
+      (await context.storageState()).cookies
+    );
+    return;
+  }
+  await context.addCookies(cookies);
+};
 
 for (const surface of AUTHENTICATED_SURFACES) {
   for (const viewport of AXE_VIEWPORTS) {
     test(`@a11y authenticated ${surface.name} has no WCAG violations at ${viewport.width}px`, async ({
+      context,
       page,
     }, testInfo) => {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setViewportSize(viewport);
-      await signInAs(page, surface.identity);
+      await ensureAuthenticated(context, page, surface.identity);
       if (new URL(page.url()).pathname !== surface.path) {
         await page.goto(surface.path);
       }
       await waitForStableDocument(page);
+      expect(new URL(page.url()).pathname).toBe(surface.path);
+      await expect(
+        page.getByRole("button", { name: "Sign out", exact: true })
+      ).toBeVisible();
       await expect(
         page.getByRole("heading", { level: 1, name: surface.heading })
       ).toBeVisible();

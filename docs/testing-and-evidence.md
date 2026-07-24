@@ -27,7 +27,7 @@ The integration and browser suites must use controlled local dependencies, never
 
 ```bash
 pnpm db:test:up
-varlock load -- pnpm db:migrate
+varlock run -- pnpm db:migrate
 ```
 
 Use an ignored test environment with `APP_ENV=test`, the local runner `DATABASE_URL`, a non-production Better Auth secret of at least 32 characters, and the canonical local URL. Optional live provider credentials are not needed for core deterministic tests.
@@ -41,15 +41,15 @@ pnpm exec playwright install chromium
 ## Repository commands
 
 ```bash
-varlock load -- pnpm test:unit
-varlock load -- pnpm test:integration
-varlock load -- pnpm test:e2e
+varlock run -- pnpm test:unit
+varlock run -- pnpm test:integration
+varlock run -- pnpm test:e2e
 ```
 
 The aggregate test script runs unit, contract, operations, integration, E2E, and accessibility suites:
 
 ```bash
-varlock load -- pnpm test
+varlock run -- pnpm test
 ```
 
 The broad deterministic pre-push lifecycle is:
@@ -61,16 +61,16 @@ pnpm verify:core
 Environment-heavy verification remains explicit:
 
 ```bash
-varlock load -- pnpm verify:integration
+varlock run -- pnpm verify:integration
 pnpm verify:graph
-varlock load -- pnpm verify:browser
+varlock run -- pnpm verify:browser
 ```
 
 The complete sequential local lifecycle and its CI alias are:
 
 ```bash
-varlock load -- pnpm verify
-varlock load -- pnpm run ci
+varlock run -- pnpm verify
+varlock run -- pnpm run ci
 ```
 
 `verify` composes all four lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. Never substitute bare `pnpm ci`; that is pnpm's clean-install command.
@@ -107,6 +107,8 @@ pnpm graph:update
 pnpm graph:check
 pnpm graph:verify
 ```
+
+Both refresh commands clear only Graphify's known generated graph, cache, analysis, and tool-manifest entries before extraction. This prevents absolute snapshot roots from mixing stale and current node identities while preserving unrelated files. A failed refresh leaves freshness and query gates closed.
 
 Record the Graphify version, graph digest/manifest, source fingerprint, source file count, and representative query output. At minimum, the final evidence should trace a route or oRPC procedure through contract, service, repository, schema, and adapter. Query before broad exploration when the graph exists.
 

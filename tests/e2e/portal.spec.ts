@@ -17,9 +17,11 @@ const ADMIN_SEED_ITEM = "Admin example item";
 const BOB_SEED_ITEM_ID = "30000000-0000-4000-8000-000000000003";
 const MOBILE_VIEWPORT = { height: 812, width: 375 } as const;
 const FEATURE_LIST_PATH = "/api/orpc/featureItems/list";
+const FEATURE_GET_PATH = "/api/orpc/featureItems/get";
 const FEATURE_ITEM_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const FEATURE_ITEMS_URL_PATTERN = /\/feature-items$/u;
+const OVERVIEW_CURRENT_PAGE_NAME_PATTERN = /^Overview\s*, current page$/u;
 
 interface CreatedItemEvidence {
   id: string;
@@ -234,7 +236,7 @@ test.describe
         await postOrpc(page, appURL, "featureItems/list", { limit: 50 }),
         {
           code: "UNAUTHORIZED",
-          message: "AUTH_REQUIRED",
+          message: "Authentication required",
           status: 401,
         }
       );
@@ -321,10 +323,7 @@ test.describe
       const mobileNavigation = page.getByRole("navigation", {
         name: "Mobile portal navigation",
       });
-      const dashboardLink = mobileNavigation.getByRole("link", {
-        name: "Dashboard",
-        exact: true,
-      });
+      const overviewLink = mobileNavigation.locator('a[href="/dashboard"]');
       const featureItemsLink = mobileNavigation.getByRole("link", {
         name: "Feature items",
         exact: true,
@@ -333,18 +332,22 @@ test.describe
         name: "Close dialog",
       });
       await expect(mobileNavigation).toBeVisible();
-      await expect(dashboardLink).toBeFocused();
+      await expect(overviewLink).toHaveAccessibleName(
+        OVERVIEW_CURRENT_PAGE_NAME_PATTERN
+      );
+      await expect(overviewLink).toHaveAttribute("aria-current", "page");
+      await expect(overviewLink).toBeFocused();
       await expectNoHorizontalOverflow(page);
       await page.keyboard.press("Shift+Tab");
       await expect(closeNavigation).toBeFocused();
       await page.keyboard.press("Tab");
-      await expect(dashboardLink).toBeFocused();
+      await expect(overviewLink).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(mobileNavigation).toBeHidden();
       await expect(navigationTrigger).toBeFocused();
 
       await navigationTrigger.press("Enter");
-      await expect(dashboardLink).toBeFocused();
+      await expect(overviewLink).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(featureItemsLink).toBeFocused();
       await page.keyboard.press("Enter");
@@ -406,6 +409,11 @@ test.describe
         }
       );
 
+      browserErrors.allowHttpError({
+        method: "POST",
+        pathname: FEATURE_GET_PATH,
+        status: 404,
+      });
       const bobDetailPath = `/feature-items/${BOB_SEED_ITEM_ID}`;
       for (const message of [
         "Failed to load resource: the server responded with a status of 404 ()",
@@ -431,7 +439,13 @@ test.describe
         page.getByText(ALICE_SEED_ITEM, { exact: true })
       ).toBeVisible();
 
-      await page.getByRole("link", { name: "Create feature item" }).click();
+      const createLink = page.getByRole("link", {
+        name: "Create feature item",
+      });
+      await expect(createLink).toHaveAttribute("href", "/feature-items/new");
+      const createURL = new URL("/feature-items/new", appURL).href;
+      await Promise.all([page.waitForURL(createURL), createLink.click()]);
+      await expect(page).toHaveURL(createURL);
       await expect(
         page.getByRole("heading", { level: 1, name: "Create feature item" })
       ).toBeVisible();
@@ -512,7 +526,9 @@ test.describe
 
       await editName.fill("   ");
       await page.getByRole("button", { name: "Save changes" }).click();
-      await expect(page.getByText("Enter a name before saving.")).toBeVisible();
+      await expect(page.locator("#edit-feature-name-error")).toHaveText(
+        "Enter a name before saving."
+      );
       await expect(editName).toBeFocused();
 
       await editName.fill(updatedName);

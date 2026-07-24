@@ -1,6 +1,14 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { constants, type Stats } from "node:fs";
-import { lstat, open, realpath, rename, rm, unlink } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rename,
+  rm,
+  unlink,
+} from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -48,8 +56,14 @@ export type E2ELifecycleState = Readonly<{
   status: E2ELifecycleStatus;
   stage: E2ELifecycleStage;
 }>;
+export type E2ELifecycleStateWriteOptions = Readonly<{
+  signal?: AbortSignal;
+}>;
 export type E2ELifecycleStateWriter = Readonly<{
-  write: (state: E2ELifecycleState) => Promise<void>;
+  write: (
+    state: E2ELifecycleState,
+    options?: E2ELifecycleStateWriteOptions
+  ) => Promise<void>;
 }>;
 
 export type E2EArtifactProfile = "anonymous-public-visual" | "no-binary";
@@ -344,6 +358,35 @@ const assertLifecycleRoot = async (
   }
 };
 
+export const prepareOwnedE2EPreviewDirectories = async (
+  paths: E2ERunPaths
+): Promise<void> => {
+  if (!ownedRunPaths.has(paths)) {
+    throw new Error("Refusing to prepare previews for an unowned E2E run.");
+  }
+  const expectedRoot = adoptedRunRoots.get(paths);
+  if (expectedRoot === undefined) {
+    throw new Error("E2E preview directories require an adopted run root.");
+  }
+  await assertLifecycleRoot(paths, expectedRoot);
+  try {
+    await mkdir(paths.previews, { mode: 0o700 });
+    await mkdir(paths.authPreviews, { mode: 0o700 });
+    await mkdir(paths.contactPreviews, { mode: 0o700 });
+    await Promise.all([
+      assertCanonicalDirectory(paths.previews, true),
+      assertCanonicalDirectory(paths.authPreviews, true),
+      assertCanonicalDirectory(paths.contactPreviews, true),
+    ]);
+    await assertLifecycleRoot(paths, expectedRoot);
+  } catch (error) {
+    await rm(paths.previews, { force: true, recursive: true }).catch(
+      () => undefined
+    );
+    throw error;
+  }
+};
+
 const lifecycleStateValue = (value: unknown): E2ELifecycleState => {
   if (
     !(isRecord(value) && hasExactKeys(value, ["stage", "status", "version"])) ||
@@ -368,7 +411,11 @@ const lifecycleTransitionAllowed = (
     return next.status === "starting" && next.stage === "artifact-isolation";
   }
   if (previous.status === "starting") {
-    if (next.status === "startup-failed" || next.status === "cleanup-failed") {
+    if (
+      next.status === "startup-failed" ||
+      next.status === "cleanup-failed" ||
+      next.status === "stopped"
+    ) {
       return next.stage === previous.stage;
     }
     if (next.status === "ready") {
@@ -483,73 +530,90 @@ export const createOwnedE2ELifecycleStateWriter = async (
   }
   let previous: E2ELifecycleState | undefined;
   let previousIdentity: PathIdentity | undefined;
+  let writeBarrier = Promise.resolve();
   return Object.freeze({
-    write: async (candidate: E2ELifecycleState): Promise<void> => {
-      const state = lifecycleStateValue(candidate);
-      if (!lifecycleTransitionAllowed(previous, state)) {
-        throw new Error("E2E lifecycle state transition is invalid.");
-      }
-      const existing = await readLifecycleStateFile(paths, expectedRoot);
-      if (
-        (previousIdentity === undefined && existing !== undefined) ||
-        (previousIdentity !== undefined &&
-          (existing === undefined ||
-            !sameIdentity(previousIdentity, existing.identity) ||
-            existing.state.status !== previous?.status ||
-            existing.state.stage !== previous.stage))
-      ) {
-        throw new Error("E2E lifecycle state was replaced or changed.");
-      }
-      const path = join(paths.root, E2E_LIFECYCLE_STATE_FILE_NAME);
-      const temporaryPath = join(
-        paths.root,
-        `.${E2E_LIFECYCLE_STATE_FILE_NAME}.${randomUUID()}.tmp`
-      );
-      let handle: Awaited<ReturnType<typeof open>> | undefined;
+    write: async (
+      candidate: E2ELifecycleState,
+      options?: E2ELifecycleStateWriteOptions
+    ): Promise<void> => {
+      const previousWrite = writeBarrier;
+      let releaseWrite!: () => void;
+      const writeCompleted = new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      writeBarrier = previousWrite.then(async () => await writeCompleted);
+      await previousWrite;
       try {
-        handle = await open(
-          temporaryPath,
-          constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_WRONLY |
-            (constants.O_NOFOLLOW ?? 0),
-          0o600
-        );
-        await handle.writeFile(`${JSON.stringify(state)}\n`, "utf8");
-        await handle.sync();
-        await handle.close();
-        handle = undefined;
-        await assertLifecycleRoot(paths, expectedRoot);
-        await rename(temporaryPath, path);
-        const directory = await open(
-          paths.root,
-          constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
-        );
-        try {
-          await directory.sync();
-        } finally {
-          await directory.close();
+        options?.signal?.throwIfAborted();
+        const state = lifecycleStateValue(candidate);
+        if (!lifecycleTransitionAllowed(previous, state)) {
+          throw new Error("E2E lifecycle state transition is invalid.");
         }
-        const persisted = await readLifecycleStateFile(paths, expectedRoot);
+        const existing = await readLifecycleStateFile(paths, expectedRoot);
         if (
-          persisted === undefined ||
-          persisted.state.status !== state.status ||
-          persisted.state.stage !== state.stage
+          (previousIdentity === undefined && existing !== undefined) ||
+          (previousIdentity !== undefined &&
+            (existing === undefined ||
+              !sameIdentity(previousIdentity, existing.identity) ||
+              existing.state.status !== previous?.status ||
+              existing.state.stage !== previous.stage))
         ) {
-          throw new Error("E2E lifecycle state persistence failed.");
+          throw new Error("E2E lifecycle state was replaced or changed.");
         }
-        previous = state;
-        previousIdentity = persisted.identity;
-      } catch (error) {
-        if (handle !== undefined) {
-          await handle.close().catch(() => undefined);
-        }
-        await unlink(temporaryPath).catch((cleanupError: unknown) => {
-          if (!isErrno(cleanupError, "ENOENT")) {
-            throw new Error("E2E lifecycle state cleanup failed.");
+        const path = join(paths.root, E2E_LIFECYCLE_STATE_FILE_NAME);
+        const temporaryPath = join(
+          paths.root,
+          `.${E2E_LIFECYCLE_STATE_FILE_NAME}.${randomUUID()}.tmp`
+        );
+        let handle: Awaited<ReturnType<typeof open>> | undefined;
+        try {
+          handle = await open(
+            temporaryPath,
+            constants.O_CREAT |
+              constants.O_EXCL |
+              constants.O_WRONLY |
+              (constants.O_NOFOLLOW ?? 0),
+            0o600
+          );
+          await handle.writeFile(`${JSON.stringify(state)}\n`, "utf8");
+          await handle.sync();
+          await handle.close();
+          handle = undefined;
+          await assertLifecycleRoot(paths, expectedRoot);
+          options?.signal?.throwIfAborted();
+          await rename(temporaryPath, path);
+          const directory = await open(
+            paths.root,
+            constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+          );
+          try {
+            await directory.sync();
+          } finally {
+            await directory.close();
           }
-        });
-        throw error;
+          const persisted = await readLifecycleStateFile(paths, expectedRoot);
+          if (
+            persisted === undefined ||
+            persisted.state.status !== state.status ||
+            persisted.state.stage !== state.stage
+          ) {
+            throw new Error("E2E lifecycle state persistence failed.");
+          }
+          previous = state;
+          previousIdentity = persisted.identity;
+        } catch (error) {
+          if (handle !== undefined) {
+            await handle.close().catch(() => undefined);
+          }
+          await unlink(temporaryPath).catch((cleanupError: unknown) => {
+            if (!isErrno(cleanupError, "ENOENT")) {
+              throw new Error("E2E lifecycle state cleanup failed.");
+            }
+          });
+          throw error;
+        }
+      } finally {
+        releaseWrite();
       }
     },
   });

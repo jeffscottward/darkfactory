@@ -52,7 +52,7 @@ export const RootDocument = ({
   initialTheme,
   themeAuthority = "anonymous",
 }: RootDocumentProps) => (
-  <html {...themeRootAttributes(initialTheme, themeAuthority, cookieStatus)} lang="en">
+  <html {...themeRootAttributes(initialTheme, themeAuthority, cookieStatus)} lang="en" suppressHydrationWarning>
     <head>
       <script src={THEME_BOOTSTRAP_PATH} />
     </head>

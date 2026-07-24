@@ -45,7 +45,7 @@ export const bufferContactRequest = async (
   const headers = new Headers(request.headers)
   headers.set("content-length", String(totalBytes))
   return {
-    request: new Request(request, { body, headers }),
+    request: new Request(request.url, { body, headers, method: request.method }),
     tooLarge: false,
   }
 }

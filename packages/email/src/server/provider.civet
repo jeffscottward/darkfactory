@@ -19,6 +19,7 @@ import {
   type RenderEmailVerificationEmailOptions,
   type RenderPasswordResetEmailOptions,
 } from "./preview.civet"
+import { createRemotePreviewEmailPort } from "./remote-preview.civet"
 
 export type ResendMessage = Readonly<{
   from: string
@@ -59,6 +60,7 @@ export type SelectEmailPortOptions = Readonly<{
   previewMaxArtifacts?: number | undefined
   previewMaxBytes?: number | undefined
   previewBinding?: PreviewEmailBinding | undefined
+  previewCaptureEndpoint?: string | undefined
   resendApiKey?: string | undefined
   from?: string | undefined
   trustedAppOrigin?: string | undefined
@@ -220,6 +222,16 @@ export const selectEmailPort = (
   const isLocal =
     options.environment === "development" || options.environment === "test"
   if (isLocal && (options.transport === undefined || options.transport === "preview")) {
+    if (options.previewCaptureEndpoint !== undefined) {
+      if (options.previewBinding === undefined) {
+        throw new Error("Remote preview transport requires a binding")
+      }
+      return createRemotePreviewEmailPort({
+        environment: options.environment,
+        endpoint: options.previewCaptureEndpoint,
+        binding: options.previewBinding,
+      })
+    }
     const previewOptions: PreviewEmailPortOptions = {
       environment: options.environment,
       directory: options.previewDirectory,

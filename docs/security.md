@@ -32,7 +32,7 @@ Keep authorization on the server. Route groups, navigation visibility, client st
 Use Varlock to validate/inject values without treating `.env` as shell code:
 
 ```bash
-varlock load -- pnpm doctor
+varlock run -- pnpm doctor
 ```
 
 When sharing diagnostic output, redact values and retain only variable names/state.

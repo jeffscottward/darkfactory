@@ -17,6 +17,7 @@ import {
   collectProcessDiagnostics,
   createPlaywrightEnvironment,
   discoverJourneySpecs,
+  finalizeAndObserveE2ELifecycle,
   observeE2ELifecycle,
   observeWebServerLifecycleFailure,
   parseScannerReport,
@@ -285,7 +286,7 @@ describe("E2E lifecycle CLIs", () => {
       )
       await writeFile(
         join(root, "test-results", "e2e-runs", "clean_run", "playwright-report.json"),
-        '{"suites":[{"title":"clean"}],"stats":{}}',
+        '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}',
       )
       const cleanManifests = join(
         root,
@@ -655,7 +656,60 @@ describe("E2E lifecycle CLIs", () => {
       await rm(paths.evidence, { force: true, recursive: true })
     }
   })
-  it("finalizes post-probe teardown through the actual Civet CLI loader boundary", async () => {
+  it("observes a passing Playwright SIGTERM race as stopped", async () => {
+    const root = fileURLToPath(new URL("../../", import.meta.url))
+    const runId = `clean_signal_reader_${process.pid}_${Date.now()}`
+    const proof = await prepareOwnedRun(root, runId, "no-binary")
+    const paths = createE2ERunPaths(runId)
+    try {
+      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
+      const writer = await createOwnedE2ELifecycleStateWriter(paths)
+      for (const stage of [
+        "artifact-isolation",
+        "module-loading",
+        "database-create",
+        "database-migrate",
+        "database-reset",
+        "database-seed",
+        "server-spawn",
+      ] as const) {
+        await writer.write({ version: 1, status: "starting", stage })
+      }
+      await writer.write({
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await writeFile(
+        join(paths.root, "playwright-report.json"),
+        JSON.stringify({
+          suites: [{ specs: [{ tests: [{ results: [{ status: "passed" }] }] }] }],
+        }),
+        { mode: 0o600 },
+      )
+
+      await expect(finalizeAndObserveE2ELifecycle({
+        E2E_RUN_ID: runId,
+        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+      }, {
+        exitCode: 0,
+        treeTerminated: true,
+      }, root)).resolves.toEqual({
+        finalizationFailed: false,
+        lifecycle: {
+          lifecycleStatus: "stopped",
+          lifecycleStage: "server-ready",
+          lifecycleObservation: "state",
+          lifecycleObservationReason: "observed-state",
+        },
+      })
+    } finally {
+      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
+      await rm(paths.evidence, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves post-probe startup failure through the actual Civet CLI loader boundary", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `subprocess_reader_${process.pid}_${Date.now()}`
     const proof = await prepareOwnedRun(root, runId, "no-binary")
@@ -726,7 +780,7 @@ describe("E2E lifecycle CLIs", () => {
       expect(JSON.parse(observationLine ?? "null")).toEqual({
         finalizationFailed: false,
         lifecycle: {
-          lifecycleStatus: "runtime-failed",
+          lifecycleStatus: "startup-failed",
           lifecycleStage: "server-probed",
           lifecycleObservation: "state",
           lifecycleObservationReason: "observed-state",

@@ -17,7 +17,12 @@ import { join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { inflateSync } from "node:zlib"
 
-import { ArtifactScannerCleanupError, type ArtifactEntry, type ArtifactScannerDependencies } from "./scanner.civet"
+import {
+  ArtifactScannerCleanupError,
+  playwrightReportHasExecutedResult,
+  type ArtifactEntry,
+  type ArtifactScannerDependencies,
+} from "./scanner.civet"
 
 export type ArtifactScanLimits = Readonly<{
   maxEntries: number
@@ -830,31 +835,6 @@ export const assertOwnedLifecycleRoots = async (
     assertAdoptedLifecycleRoot(paths.evidence, adoption.evidence, adoption),
   ])
 }
-const isRecordValue = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value)
-
-const suiteHasExecutedResult = (value: unknown, depth = 0): boolean => {
-  if (!isRecordValue(value) || depth > 32) return false
-  const specs = value["specs"]
-  const hasExecutedSpec = Array.isArray(specs) && specs.some((spec) =>
-    isRecordValue(spec) &&
-    Array.isArray(spec["tests"]) &&
-    spec["tests"].some((test) =>
-      isRecordValue(test) &&
-      Array.isArray(test["results"]) &&
-      test["results"].some((result) =>
-        isRecordValue(result) &&
-        ["failed", "interrupted", "passed", "timedOut"].includes(
-          String(result["status"]),
-        )
-      )
-    )
-  )
-  if (hasExecutedSpec) return true
-  const suites = value["suites"]
-  return Array.isArray(suites) &&
-    suites.some((suite) => suiteHasExecutedResult(suite, depth + 1))
-}
 
 const playwrightReportExecuted = async (
   paths: OwnedLifecyclePaths,
@@ -888,9 +868,7 @@ const playwrightReportExecuted = async (
       Buffer.byteLength(content, "utf8") !== after.size
     ) throw new Error("Owned Playwright report changed while reading")
     const parsed = JSON.parse(content) as unknown
-    return isRecordValue(parsed) &&
-      Array.isArray(parsed["suites"]) &&
-      parsed["suites"].some((suite) => suiteHasExecutedResult(suite))
+    return playwrightReportHasExecutedResult(parsed)
   } finally {
     await handle.close()
   }
@@ -916,23 +894,25 @@ export const finalizeOwnedLifecycleAfterPlaywright = async ({
   const adoption = decodeOwnedRunAdoption(encodedAdoption, runId)
   await assertOwnedLifecycleRoots(paths, adoption)
   const current = await readOwnedLifecycleState(paths, adoption)
+  if (!treeTerminated || !await playwrightReportExecuted(paths)) return current
+  if (current?.status !== "stopped") return current
   if (
-    !treeTerminated ||
-    exitCode === 0 ||
-    !await playwrightReportExecuted(paths)
+    current.stage !== "server-spawn" &&
+    current.stage !== "server-probed" &&
+    current.stage !== "server-ready"
   ) return current
-  const finalState = Object.freeze({
-    version: 1 as const,
-    status: "runtime-failed",
-    stage: current?.stage === "server-probed"
-      ? "server-probed"
-      : "server-ready",
-  })
-  if (
-    current?.status === "startup-failed" && current.stage !== "server-probed" ||
-    current?.status === "runtime-failed" ||
-    current?.status === "cleanup-failed"
-  ) return current
+  if (exitCode === 0 && current.stage === "server-ready") return current
+  const finalState = exitCode === 0
+    ? Object.freeze({
+        version: 1 as const,
+        status: "stopped",
+        stage: "server-ready",
+      })
+    : Object.freeze({
+        version: 1 as const,
+        status: "runtime-failed",
+        stage: current.stage,
+      })
   const temporaryPath = join(
     paths.e2e,
     `.${LIFECYCLE_STATE_FILE}.parent-${randomUUID()}.tmp`,
@@ -1018,10 +998,9 @@ export const readOwnedLifecycleState = async (
     ) throw new Error("Owned lifecycle state schema is invalid")
     const stageStatusInvalid =
       (parsed.status === "starting" && parsed.stage === "server-ready") ||
-      (["ready", "stopped"].includes(parsed.status) &&
-        parsed.stage !== "server-ready") ||
+      (parsed.status === "ready" && parsed.stage !== "server-ready") ||
       (parsed.status === "runtime-failed" &&
-        !["server-probed", "server-ready"].includes(parsed.stage))
+        !["server-spawn", "server-probed", "server-ready"].includes(parsed.stage))
     if (stageStatusInvalid) {
       throw new Error("Owned lifecycle state status and stage are invalid")
     }

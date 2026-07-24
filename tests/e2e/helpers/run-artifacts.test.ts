@@ -28,6 +28,7 @@ const { encodeOwnedRunAdoption, prepareOwnedRun } = (await import(
 import {
   assertOwnedE2ERunRootsReady,
   createE2ERunPaths,
+  prepareOwnedE2EPreviewDirectories,
   removeOwnedE2EPreviewArtifacts,
   removeOwnedE2ERunArtifacts,
   type E2ERunAdoption,
@@ -108,7 +109,9 @@ describe("E2E run artifact ownership", () => {
       await expect(
         assertOwnedE2ERunRootsReady(paths, proof.encoded)
       ).resolves.toBe(true);
-      await mkdir(paths.authPreviews, { recursive: true });
+      await prepareOwnedE2EPreviewDirectories(paths);
+      await expect(access(paths.authPreviews)).resolves.toBeUndefined();
+      await expect(access(paths.contactPreviews)).resolves.toBeUndefined();
       await writeFile(join(paths.authPreviews, "sensitive.txt"), "private");
 
       await removeOwnedE2EPreviewArtifacts(paths);

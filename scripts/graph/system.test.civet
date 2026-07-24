@@ -1,6 +1,10 @@
+import { randomUUID } from "node:crypto"
+import { access, mkdir, rm, symlink, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
 
-import { graphProcessEnvironment } from "./system.civet"
+import { graphProcessEnvironment, nodeGraphFileSystem } from "./system.civet"
 
 const SENTINELS = {
   GEMINI_API_KEY: "sentinel-gemini-secret",
@@ -18,6 +22,57 @@ afterEach(() => {
     if (value === undefined) delete process.env[name]
     else process.env[name] = value
   }
+})
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+describe("Graphify generated output reset", () => {
+  it("removes only known generated entries and preserves unrelated files", async () => {
+    const root = join(".graphify", `system-reset-${randomUUID()}`)
+    await mkdir(join(root, "cache"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "graph.json"), "{}"),
+      writeFile(join(root, "cache", "stat-index.json"), "{}"),
+      writeFile(join(root, ".graphify_analysis.json"), "{}"),
+      writeFile(join(root, "manifest.json"), "{}"),
+      writeFile(join(root, "keep.txt"), "keep"),
+    ])
+
+    try {
+      await nodeGraphFileSystem.resetGraphOutput(join(root, "graph.json"))
+
+      await expect(exists(join(root, "graph.json"))).resolves.toBe(false)
+      await expect(exists(join(root, "cache"))).resolves.toBe(false)
+      await expect(exists(join(root, ".graphify_analysis.json"))).resolves.toBe(false)
+      await expect(exists(join(root, "manifest.json"))).resolves.toBe(false)
+      await expect(exists(join(root, "keep.txt"))).resolves.toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects generated output symlinks without deleting their target", async () => {
+    const root = join(".graphify", `system-reset-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "target.txt"), "keep")
+    await symlink("target.txt", join(root, "manifest.json"))
+
+    try {
+      await expect(
+        nodeGraphFileSystem.resetGraphOutput(join(root, "graph.json")),
+      ).rejects.toThrow(/unsafe generated path/i)
+      await expect(exists(join(root, "target.txt"))).resolves.toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 })
 
 describe("Graphify process environment", () => {

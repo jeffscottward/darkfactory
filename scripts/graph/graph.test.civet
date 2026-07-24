@@ -61,6 +61,7 @@ const fixture = (options: {
   const writes: Array<readonly [string, string]> = []
   const calls: Array<readonly [string, readonly string[]]> = []
   const processCalls: Array<Readonly<{ arguments_: readonly string[]; options?: unknown }>> = []
+  const resets: string[] = []
   const fileSystem: GraphFileSystem = {
     exists: async (path) => files.has(path),
     inspect: async (path) => {
@@ -80,6 +81,10 @@ const fixture = (options: {
       return undefined
     },
     listSourceFiles: async () => [...sourceFiles.keys()].reverse(),
+    resetGraphOutput: async (path) => {
+      resets.push(path)
+      files.delete(path)
+    },
     createSourceSnapshot: async () => ({
       path: "/tmp/darkfactory-graphify-test",
       cleanup: async () => undefined,
@@ -112,7 +117,7 @@ const fixture = (options: {
       },
     },
   }
-  return { calls, dependencies, files, processCalls, sourceFiles, writes }
+  return { calls, dependencies, files, processCalls, resets, sourceFiles, writes }
 }
 
 describe("Graphify workflow", () => {
@@ -126,6 +131,11 @@ describe("Graphify workflow", () => {
     const unsafeConfig = JSON.parse(CONFIG)
     unsafeConfig.source.roots = ["C:/outside"]
     expect(() => parseGraphConfig(JSON.stringify(unsafeConfig))).toThrow(/unsafe path/i)
+    const unsupportedOutput = JSON.parse(CONFIG)
+    unsupportedOutput.graphPath = "generated/graph.json"
+    expect(() => parseGraphConfig(JSON.stringify(unsupportedOutput))).toThrow(
+      /supported graph output path/i,
+    )
   })
 
   it("builds with a supported argument array and records source, config, and graph digests", async () => {
@@ -136,6 +146,7 @@ describe("Graphify workflow", () => {
     expect(report).toMatchObject({ ok: true, action: "build", fresh: true })
     expect(state.calls).toContainEqual(["graphify", ["--version"]])
     expect(state.calls).toContainEqual(["graphify", ["extract", "/tmp/darkfactory-graphify-test", "--out", "."]])
+    expect(state.resets).toEqual(["graphify-out/graph.json"])
     expect(state.writes).toEqual([[".graphify/manifest.json", manifestFor()]])
   })
 
@@ -144,6 +155,7 @@ describe("Graphify workflow", () => {
 
     await expect(runGraphAction("update", state.dependencies)).resolves.toMatchObject({ ok: true })
     expect(state.calls).toContainEqual(["graphify", ["extract", "/tmp/darkfactory-graphify-test", "--out", "."]])
+    expect(state.resets).toEqual(["graphify-out/graph.json"])
     expect(state.calls.some(([, arguments_]) => arguments_.includes("--update"))).toBe(false)
   })
 
@@ -194,7 +206,7 @@ describe("Graphify workflow", () => {
     expect(missing.writes).toHaveLength(0)
   })
 
-  it("verifies route to adapter paths without query-log mutation", async () => {
+  it("verifies route-to-adapter paths without query-log mutation", async () => {
     const state = fixture({ graphExists: true, manifest: manifestFor() })
 
     await expect(runGraphAction("verify", state.dependencies)).resolves.toMatchObject({

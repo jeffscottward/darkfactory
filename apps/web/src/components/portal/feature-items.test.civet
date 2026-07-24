@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createSetupFlowActor } from "@darkfactory/state/flow"
 import {
   createFeatureItemGateway,
+  createBrowserFeatureItemGateway,
   safeFeatureFeedback,
   upsertFeatureItem,
   withoutFeatureItem,
@@ -12,7 +13,7 @@ import {
 } from "./feature-items-client.civet"
 import { FeatureItemsCollection } from "./feature-items-collection.civet"
 import { FeatureItemsWorkspace } from "./feature-items-workspace.civet"
-import { CreateWorkflowStep } from "./feature-item-create-workflow.civet"
+import { CreateWorkflowStep, FeatureItemCreateWorkflow } from "./feature-item-create-workflow.civet"
 
 const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
   id: "item-1",
@@ -58,6 +59,13 @@ describe "typed feature item gateway", ->
     expect(featureItems.changeStatus).toHaveBeenCalledWith({ id: "item-1", status: "active" })
     expect(featureItems.archive).toHaveBeenCalledWith({ id: "item-1" })
   
+  it "constructs and server-renders loading state without a browser window", ->
+    expect("window" in globalThis).toBe(false)
+    expect(() => createBrowserFeatureItemGateway()).not.toThrow()
+    expect(renderToStaticMarkup(<FeatureItemsWorkspace />)).toContain(
+      "Loading feature items",
+    )
+
   it "maps failures to safe actionable feedback without exposing raw details", ->
     expect(safeFeatureFeedback({ code: "VALIDATION_ERROR" })).toBe(
       "Check the highlighted fields and try again.",
@@ -122,6 +130,14 @@ describe "feature item collection states", ->
     expect(html).toContain("Edit Starter checklist")
 
 describe "feature item setup workflow", ->
+  it "server-renders the initial workflow with the actor snapshot bound", ->
+    const gateway = {
+      list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+      changeStatus: vi.fn(), archive: vi.fn(),
+    } as unknown as FeatureItemGateway
+    const html = renderToStaticMarkup(<FeatureItemCreateWorkflow gateway={gateway} />)
+    expect(html).toContain("Describe the item")
+
   it "changes the visible task across details, options, review, and failure recovery", ->
     const actor = createSetupFlowActor().start()
     let html = renderToStaticMarkup(<CreateWorkflowStep state={actor.getSnapshot().value} name="Example item" status="draft" />)

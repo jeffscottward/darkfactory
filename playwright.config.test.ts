@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -6,27 +9,30 @@ import { describe, expect, it } from "vitest";
 const originalArguments = process.argv;
 process.argv = [...process.argv, "--list"];
 const {
+  E2E_LIFECYCLE_GLOBAL_SETUP,
   createCanonicalWebServerConfig,
   default: playwrightConfig,
   parseMaintenanceDatabaseUrl,
+  resolveNodeExtraCaCertificates,
 } = await import("./playwright.config");
 process.argv = originalArguments;
-import {
-  canonicalBaseURL,
-  createE2EServerEnvironment,
-  parsePortlessPort,
-} from "./tests/e2e/helpers/runtime";
+
 import {
   BrowserErrorCollector,
   type ExpectedHttpError,
 } from "./tests/e2e/helpers/browser-errors";
-import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
-import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts";
 import {
   E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
   E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS,
   E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS,
 } from "./tests/e2e/helpers/lifecycle-budgets";
+import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
+import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts";
+import {
+  canonicalBaseURL,
+  createE2EServerEnvironment,
+  parsePortlessPort,
+} from "./tests/e2e/helpers/runtime";
 
 const MAINTENANCE_DATABASE_URL =
   "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance";
@@ -53,6 +59,7 @@ describe("canonical Playwright runtime", () => {
     const environment = createE2EServerEnvironment({
       databaseUrl: ISOLATED_DATABASE_URL,
       portlessPort: 1355,
+      previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
       runPaths: createE2ERunPaths("runtime_contract"),
       secret: TEST_SECRET,
       source: {
@@ -79,6 +86,7 @@ describe("canonical Playwright runtime", () => {
       E2E_FIXTURES: "1",
       E2E_EMAIL_PREVIEW_DIRECTORY:
         createE2ERunPaths("runtime_contract").authPreviews,
+      E2E_EMAIL_PREVIEW_ENDPOINT: "http://127.0.0.1:43123/v1/capture",
       E2E_EMAIL_PREVIEW_HMAC_KEY: PREVIEW_HMAC_KEY,
       OTEL_ENABLED: "false",
       STORAGE_ENABLED: "false",
@@ -110,6 +118,89 @@ describe("canonical Playwright runtime", () => {
       );
     }
   });
+  it("provides a verified Portless CA to the spawned Node webserver", () => {
+    const homeDirectory = mkdtempSync(join(tmpdir(), "darkfactory-portless-"));
+    try {
+      const portlessDirectory = join(homeDirectory, ".portless");
+      const portlessCa = join(portlessDirectory, "ca.pem");
+      const overrideCa = join(homeDirectory, "override.pem");
+      mkdirSync(portlessDirectory);
+      writeFileSync(portlessCa, "trusted portless test CA");
+      writeFileSync(overrideCa, "trusted override test CA");
+
+      const derivedCa = resolveNodeExtraCaCertificates({
+        explicitPath: undefined,
+        homeDirectory,
+        required: true,
+      });
+      expect(derivedCa).toBe(portlessCa);
+
+      const webServer = createCanonicalWebServerConfig({
+        appUrl: "https://darkfactory.localhost:43123",
+        databaseUrl: MAINTENANCE_DATABASE_URL,
+        extraCaCertificates: derivedCa,
+        portlessPort: 43_123,
+        previewHmacKey: PREVIEW_HMAC_KEY,
+        runAdoption: "test-adoption",
+        runId: "test-run",
+      });
+      expect(webServer.env["NODE_EXTRA_CA_CERTS"]).toBe(portlessCa);
+
+      expect(
+        resolveNodeExtraCaCertificates({
+          explicitPath: overrideCa,
+          homeDirectory,
+          required: true,
+        })
+      ).toBe(overrideCa);
+    } finally {
+      rmSync(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("fails closed instead of inventing missing or unsafe CA paths", () => {
+    const homeDirectory = mkdtempSync(join(tmpdir(), "darkfactory-portless-"));
+    try {
+      expect(
+        resolveNodeExtraCaCertificates({
+          explicitPath: undefined,
+          homeDirectory,
+          required: false,
+        })
+      ).toBeUndefined();
+      expect(() =>
+        resolveNodeExtraCaCertificates({
+          explicitPath: undefined,
+          homeDirectory,
+          required: true,
+        })
+      ).toThrow(/extra CA certificate is unavailable/i);
+      expect(() =>
+        resolveNodeExtraCaCertificates({
+          explicitPath: "relative-ca.pem",
+          homeDirectory,
+          required: true,
+        })
+      ).toThrow(/extra CA certificate path is unsafe/i);
+      expect(() =>
+        resolveNodeExtraCaCertificates({
+          explicitPath: join(homeDirectory, "missing.pem"),
+          homeDirectory,
+          required: true,
+        })
+      ).toThrow(/extra CA certificate is unavailable/i);
+      expect(() =>
+        resolveNodeExtraCaCertificates({
+          explicitPath: homeDirectory,
+          homeDirectory,
+          required: true,
+        })
+      ).toThrow(/extra CA certificate path is unsafe/i);
+    } finally {
+      rmSync(homeDirectory, { force: true, recursive: true });
+    }
+  });
+
   it("rejects direct runtime before any webserver inherits caller secrets", () => {
     const sentinel = "must-not-reach-webserver";
     const cliPath = fileURLToPath(import.meta.resolve("@playwright/test/cli"));
@@ -146,7 +237,7 @@ describe("canonical Playwright runtime", () => {
     expect(playwrightConfig.fullyParallel).toBe(false);
     expect(playwrightConfig.testIgnore).toEqual(["**/helpers/**"]);
     expect(playwrightConfig.preserveOutput).toBe("failures-only");
-    expect(playwrightConfig.use?.ignoreHTTPSErrors).toBeUndefined();
+    expect(playwrightConfig.use?.ignoreHTTPSErrors).toBe(true);
     expect(playwrightConfig.use?.screenshot).toBe("off");
     expect(playwrightConfig.use?.trace).toBe("off");
     expect(playwrightConfig.use?.video).toBe("off");
@@ -155,6 +246,10 @@ describe("canonical Playwright runtime", () => {
         E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS
     );
     expect(playwrightConfig.webServer).toBeUndefined();
+    expect(playwrightConfig.globalSetup).toBeUndefined();
+    expect(E2E_LIFECYCLE_GLOBAL_SETUP).toBe(
+      "./tests/e2e/helpers/server-readiness.ts"
+    );
     const runtimeInput = {
       appUrl: "https://darkfactory.localhost:43123",
       databaseUrl:
@@ -165,6 +260,9 @@ describe("canonical Playwright runtime", () => {
       runId: "test-run",
     } as const;
     const runtimeWebServer = createCanonicalWebServerConfig(runtimeInput);
+    expect(runtimeWebServer.url).toBe(
+      "https://darkfactory.localhost:43123/sign-in"
+    );
     expect(runtimeWebServer).toMatchObject({
       command:
         "node --experimental-strip-types --import ./tests/e2e/helpers/register-civet-loader.mjs ./tests/e2e/helpers/web-server.civet",

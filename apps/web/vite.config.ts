@@ -37,6 +37,7 @@ const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/auth > better-auth/client",
   "@darkfactory/auth > better-auth/client/plugins",
   "@darkfactory/state > zustand/vanilla",
+  "@darkfactory/state > xstate",
   "@darkfactory/ui > radix-ui",
   "@darkfactory/ui > sonner",
   "next/router",

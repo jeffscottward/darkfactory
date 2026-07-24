@@ -47,8 +47,26 @@ export const createFeatureItemGateway = (client: ApiClient): FeatureItemGateway 
   archive: (id) => client.featureItems.archive({ id }),
 })
 
-export const createBrowserFeatureItemGateway = (): FeatureItemGateway =>
-  createFeatureItemGateway(createApiClient({ baseUrl: window.location.origin }))
+export const createBrowserFeatureItemGateway = (): FeatureItemGateway => {
+  let gateway: FeatureItemGateway | undefined
+  const current = (): FeatureItemGateway => {
+    gateway ??= createFeatureItemGateway(
+      createApiClient({ baseUrl: window.location.origin }),
+    )
+    return gateway
+  }
+
+  const lazyGateway: FeatureItemGateway = {
+    list: (input = {}) => current().list(input),
+    get: (id) => current().get(id),
+    create: (input) => current().create(input),
+    update: (id, input) => current().update(id, input),
+    changeStatus: (id, status) => current().changeStatus(id, status),
+    archive: (id) => current().archive(id),
+  }
+
+  return Object.freeze(lazyGateway)
+}
 
 const errorCode = (error: unknown): string | null => {
   if (typeof error !== "object" || error === null) return null

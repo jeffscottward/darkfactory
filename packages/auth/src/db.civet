@@ -63,14 +63,9 @@ const isSameOriginPost = (
   trustedOrigin: string,
 ): "allowed" | "method" | "origin" => {
   if (request.method !== "POST") return "method"
-  try {
-    return new URL(request.url).origin === trustedOrigin
-      && request.headers.get("origin") === trustedOrigin
-      ? "allowed"
-      : "origin"
-  } catch {
-    return "origin"
-  }
+  return request.headers.get("origin") === trustedOrigin
+    ? "allowed"
+    : "origin"
 }
 
 export const createConfirmedSignOutHandler = (

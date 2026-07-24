@@ -22,6 +22,20 @@
       "when": 1784836800000,
       "tag": "0002_contact_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784903006802,
+      "tag": "0003_groovy_klaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784903632482,
+      "tag": "0004_amused_hitman",
+      "breakpoints": true
     }
   ]
 }

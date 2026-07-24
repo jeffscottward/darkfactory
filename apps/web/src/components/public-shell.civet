@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { type ReactNode, useEffect, useRef } from "react"
 import { Menu } from "lucide-react"
 import { IconButton, buttonVariants, cn } from "@darkfactory/ui"
 import {
@@ -48,9 +48,20 @@ export const PublicHeader = ({
   const store = useUiStoreApi()
   const mobileNavigationOpen = useUiState((state) => state.mobileNavigationOpen)
   const navigation = getPublicNavigationModel(availableRoutes)
+  const headerRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const shell = headerRef.current?.parentElement
+    if (!mobileNavigationOpen || shell === null || shell === undefined) return
+    const wasInert = shell.inert
+    shell.inert = true
+    return () => {
+      shell.inert = wasInert
+      return undefined
+    }
+  }, [mobileNavigationOpen])
 
   return (
-    <header className="sticky top-0 z-overlay border-b border-border bg-background">
+    <header className="sticky top-0 z-overlay border-b border-border bg-background" ref={headerRef}>
       <div className="df-container flex min-h-18 items-center justify-between gap-4">
         <BrandLink />
         {navigation.showNavigation ? (
@@ -70,6 +81,7 @@ export const PublicHeader = ({
           ) : null}
           {navigation.showNavigation ? (
             <Dialog
+              modal={false}
               onOpenChange={(open) => store.getState().setMobileNavigationOpen(open)}
               open={mobileNavigationOpen}
             >
@@ -79,6 +91,7 @@ export const PublicHeader = ({
                 </IconButton>
               </DialogTrigger>
               <DialogContent
+                aria-modal="true"
                 className="left-auto right-0 top-0 h-dvh max-h-dvh w-full max-w-sm translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0"
                 description="Navigate the public DarkFactory site."
                 title="Navigation"

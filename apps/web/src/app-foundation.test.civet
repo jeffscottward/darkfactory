@@ -196,7 +196,11 @@ describe "root metadata and theme contract", ->
     })).preference).toEqual({ themeMode: "dark", palette: "rose" })
     expect(await resolveRequestTheme({
       cookieHeader: "darkfactory-theme=dark%3Arose",
-      loadTrustedPreference: async () => ({ themeMode: "light", palette: "blue" }),
+      loadTrustedPreference: async () => ({
+        themeMode: "light",
+        palette: "blue",
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      }),
     })).toMatchObject({
       authority: "trusted",
       preference: { themeMode: "light", palette: "blue" },
@@ -205,6 +209,40 @@ describe "root metadata and theme contract", ->
       cookieHeader: "darkfactory-theme=dark%3Arose",
       loadTrustedPreference: async () => ({ themeMode: "night", palette: "blue" }),
     })).preference).toEqual(DEFAULT_ANONYMOUS_THEME)
+    expect((await resolveRequestTheme({
+      cookieHeader: null,
+      loadTrustedPreference: async () => ({
+        themeMode: "light",
+        palette: "blue",
+        updatedAt: null,
+        unexpected: true,
+      }),
+    })).preference).toEqual(DEFAULT_ANONYMOUS_THEME)
+    for (const malformedTrustedPreference of [
+      {
+        themeMode: { toString: () => { throw new Error("must not coerce") } },
+        palette: "blue",
+        updatedAt: null,
+      },
+      {
+        themeMode: Symbol("dark"),
+        palette: "blue",
+        updatedAt: null,
+      },
+      {
+        themeMode: "dark",
+        palette: { valueOf: null },
+        updatedAt: null,
+      },
+    ]) {
+      await expect(resolveRequestTheme({
+        cookieHeader: "darkfactory-theme=dark%3Arose",
+        loadTrustedPreference: async () => malformedTrustedPreference,
+      })).resolves.toMatchObject({
+        authority: "trusted",
+        preference: DEFAULT_ANONYMOUS_THEME,
+      })
+    }
     expect(await resolveRequestTheme({
       cookieHeader: "darkfactory-theme=dark%3Arose",
       loadTrustedPreference: async () => INDETERMINATE_THEME,

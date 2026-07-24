@@ -1,3 +1,4 @@
+import { createAtomicAuthRateLimitStorage } from "@darkfactory/auth/server"
 import {
   createAddressRepository,
   createAdminUsersRepository,
@@ -37,6 +38,7 @@ const EXPECTED_TABLES = [
   "feature_items",
   "outbox_events",
   "profiles",
+  "rate_limit",
   "session",
   "user",
   "user_preferences",
@@ -89,6 +91,13 @@ const VERIFICATION_COLUMNS = [
   "expires_at",
   "created_at",
   "updated_at",
+]
+
+const RATE_LIMIT_COLUMNS = [
+  "id",
+  "key",
+  "count",
+  "last_request",
 ]
 
 const PROFILE_COLUMNS = [
@@ -248,8 +257,71 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     expect(await columnNames("session")).toEqual(SESSION_COLUMNS)
     expect(await columnNames("account")).toEqual(ACCOUNT_COLUMNS)
     expect(await columnNames("verification")).toEqual(VERIFICATION_COLUMNS)
+    expect(await columnNames("rate_limit")).toEqual(RATE_LIMIT_COLUMNS)
     expect(await columnNames("user")).not.toContain("password")
     expect(tableNames).not.toContain("passwords")
+
+  it "atomically admits only one simultaneous request at a max-one auth threshold", async ->
+    const key = "integration-atomic-auth-rate-limit"
+    await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key])
+    const storage = createAtomicAuthRateLimitStorage(databaseResource.db)
+
+    const decisions = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        storage.consume(key, { window: 60, max: 1 })
+      ),
+    )
+    expect(decisions.filter((decision) => decision.allowed)).toHaveLength(1)
+    expect(decisions.filter((decision) => !decision.allowed)).toHaveLength(11)
+    const rows = await testDatabase.query<{ count: number }>(
+      "SELECT count FROM rate_limit WHERE key = $1",
+      [key],
+    )
+    expect(rows).toEqual([{ count: 1 }])
+
+  it "returns a denial after a first-use uniqueness wait crosses its statement snapshot", async ->
+    const key = "integration-first-use-auth-rate-limit"
+    await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key])
+    const storage = createAtomicAuthRateLimitStorage(databaseResource.db)
+    const blocker = await testDatabase.openConnection()
+
+    try {
+      await blocker.query("BEGIN")
+      await blocker.query(
+        "INSERT INTO rate_limit (id, key, count, last_request) VALUES ($1, $2, $3, $4)",
+        ["integration-rate-limit-blocker", key, 1, Date.now()],
+      )
+      const pendingDecision = storage.consume(key, { window: 60, max: 1 })
+      const deadline = Date.now() + 2_000
+      let blocked = false
+      while (!blocked && Date.now() < deadline) {
+        const [activity] = await testDatabase.query<{ blocked: boolean }>(`
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND state = 'active'
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%insert into rate_limit%'
+          ) AS blocked
+        `)
+        blocked = activity?.blocked ?? false
+        if (!blocked) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10))
+        }
+      }
+
+      await blocker.query("COMMIT")
+      expect(blocked).toBe(true)
+      await expect(pendingDecision).resolves.toMatchObject({
+        allowed: false,
+      })
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => undefined)
+      await blocker.close()
+      await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key])
+    }
 
 
   it "DF-033/039 rejects duplicate auth identities, tokens, and provider keys", async ->
@@ -420,6 +492,11 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "contact_rate_limits",
       /\(expires_at\)/i,
     )
+    expectIndex(
+      "rate_limit_last_request_idx",
+      "rate_limit",
+      /\(last_request\)/i,
+    )
 
   it "DF-033 through DF-039 installs exact primary and unique key matrices", async ->
     const rows = await testDatabase.query<{
@@ -445,7 +522,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
           : "id"
       return `p:${tableName}:${primaryColumn}`
     })
-    expectedKeys.push("u:session:token", "u:user:email")
+    expectedKeys.push("u:rate_limit:key", "u:session:token", "u:user:email")
     expectedKeys.sort()
 
     expect(actualKeys).toEqual(expectedKeys)

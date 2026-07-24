@@ -38,14 +38,11 @@
     "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/server/"
   },
   "dependencies": {
-    "react": "catalog:",
-    "react-email": "catalog:",
     "resend": "catalog:"
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
-    "@types/react": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

@@ -59,6 +59,7 @@ describe "DashboardContent", ->
     expect(html).toContain("Email delivery")
     expect(html).toContain("Available")
     expect(html).toContain("Unavailable")
+    expect(html).not.toMatch(/<div><dt/u)
     expect(html).not.toMatch(/revenue|growth|customers|conversion/i)
   
   it "renders honest empty and unavailable data without inventing a zero metric", ->

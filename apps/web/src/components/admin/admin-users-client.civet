@@ -15,8 +15,17 @@ export const createAdminUsersGateway = (client: ApiClient): AdminUsersGateway =>
   list: (input) => client.admin.users.list(input),
 })
 
-export const createBrowserAdminUsersGateway = (): AdminUsersGateway =>
-  createAdminUsersGateway(createApiClient({ baseUrl: window.location.origin }))
+export const createBrowserAdminUsersGateway = (): AdminUsersGateway => {
+  let gateway: AdminUsersGateway | undefined
+  return {
+    list: (input) => {
+      gateway ??= createAdminUsersGateway(
+        createApiClient({ baseUrl: window.location.origin }),
+      )
+      return gateway.list(input)
+    },
+  }
+}
 
 export const normalizeAdminQuery = (query: string): string =>
   query.trim().slice(0, 200)

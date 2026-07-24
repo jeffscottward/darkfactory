@@ -19,6 +19,8 @@ describe "server theme API forwarding", ->
     const request = new Request("https://darkfactory.example/api/orpc", {
       method: "POST",
       headers: {
+        authorization: "Bearer untrusted",
+        cookie: "session=untrusted",
         "content-type": "application/json",
         "x-orpc-procedure": "preferences.theme.get",
       },
@@ -30,6 +32,7 @@ describe "server theme API forwarding", ->
       fetchRequest,
       request,
       requestId: "request-123",
+      trustedOrigin: "https://darkfactory.example",
     })
 
     const forwarded = requests[0]!
@@ -38,7 +41,42 @@ describe "server theme API forwarding", ->
     expect(forwarded?.headers.get("cookie")).toBe("session=trusted")
     expect(forwarded?.headers.get("x-request-id")).toBe("request-123")
     expect(forwarded?.headers.get("content-type")).toBe("application/json")
+    expect(forwarded?.headers.get("origin")).toBe("https://darkfactory.example")
+    expect(forwarded?.headers.get("sec-fetch-site")).toBe("same-origin")
     expect(forwarded?.headers.get("authorization")).toBeNull()
+    expect(forwarded.redirect).toBe("manual")
+
+  it "rebuilds structurally compatible Worker requests from their URL", async ->
+    let forwarded: Request | undefined
+    const source = new Request("https://darkfactory.example/api/orpc", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-orpc-procedure": "preferences.theme.set",
+      },
+      body: '{"json":{"themeMode":"dark"}}',
+    })
+    const workerRequest = {
+      body: source.body,
+      headers: source.headers,
+      method: source.method,
+      url: source.url,
+    } as Request
+
+    await forwardThemeApiRequest({
+      cookieHeader: "session=trusted",
+      fetchRequest: async (input) => {
+        forwarded = input as Request
+        return new Response(null, { status: 204 })
+      },
+      request: workerRequest,
+      requestId: null,
+      trustedOrigin: "https://darkfactory.example",
+    })
+
+    expect(forwarded?.url).toBe(source.url)
+    expect(forwarded?.method).toBe("POST")
+    expect(await forwarded?.text()).toBe('{"json":{"themeMode":"dark"}}')
 
   it "aborts a stalled request and clears its timeout", async ->
     vi.useFakeTimers()
@@ -57,6 +95,7 @@ describe "server theme API forwarding", ->
       fetchRequest,
       request: new Request("https://darkfactory.example/api/orpc"),
       requestId: null,
+      trustedOrigin: "https://darkfactory.example",
       timeoutMs: 25,
     })
     const rejection = expect(pending).rejects.toMatchObject({ name: "TimeoutError" })
@@ -64,6 +103,40 @@ describe "server theme API forwarding", ->
     await rejection
     expect(aborted).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
+
+  it "rejects cross-origin requests before forwarding credentials", async ->
+    const fetchRequest = vi.fn(async () => new Response("{}"))
+    await expect(forwardThemeApiRequest({
+      cookieHeader: "session=trusted",
+      fetchRequest,
+      request: new Request("https://attacker.invalid/api/orpc", {
+        headers: {
+          authorization: "Bearer untrusted",
+          cookie: "session=untrusted",
+        },
+      }),
+      requestId: null,
+      trustedOrigin: "https://darkfactory.example",
+    })).rejects.toThrow("Theme request origin did not match")
+    expect(fetchRequest).not.toHaveBeenCalled()
+
+  it "cancels an oversized chunked theme response", async ->
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) =>
+        controller.enqueue(new Uint8Array(10_000))
+        controller.enqueue(new Uint8Array(10_000))
+      cancel,
+    })
+    const fetchRequest = vi.fn(async () => new Response(body))
+    await expect(forwardThemeApiRequest({
+      cookieHeader: null,
+      fetchRequest,
+      request: new Request("https://darkfactory.example/api/orpc"),
+      requestId: null,
+      trustedOrigin: "https://darkfactory.example",
+    })).rejects.toThrow("Theme response exceeded the safe size limit")
+    expect(cancel).toHaveBeenCalledOnce()
 
   it "maps unauthorized, trusted, and infrastructure outcomes to distinct authorities", async ->
     const load = async (get: () => Promise<unknown>) => (

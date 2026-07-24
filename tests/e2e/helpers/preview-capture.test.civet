@@ -1,0 +1,136 @@
+import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it } from "vitest"
+
+import {
+  startPreviewCaptureServer,
+  type PreviewCaptureServer,
+} from "./preview-capture.civet"
+
+const temporaryDirectories = new Set<string>()
+const servers = new Set<PreviewCaptureServer>()
+
+const createFixture = async () => {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "darkfactory-preview-capture-")),
+  )
+  temporaryDirectories.add(root)
+  const binding = {
+    runId: "run_capture_test",
+    hmacKey: Buffer.alloc(32, 7).toString("base64url"),
+  }
+  const server = await startPreviewCaptureServer({
+    appOrigin: "https://darkfactory.localhost:43123",
+    authDirectory: join(root, "auth"),
+    contactDirectory: join(root, "contact"),
+    binding,
+  })
+  servers.add(server)
+  return { root, binding, server }
+}
+
+afterEach async ->
+  await Promise.all([...servers].map((server) => server.close()))
+  servers.clear()
+  await Promise.all([...temporaryDirectories].map((root) => rm(root, {
+    force: true,
+    recursive: true,
+  })))
+  temporaryDirectories.clear()
+
+describe "preview capture server", ->
+  it "accepts one authenticated loopback capture and persists signed artifacts", async ->
+    const { root, binding, server } = await createFixture()
+    const response = await fetch(server.endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${binding.hmacKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        version: 1,
+        runId: binding.runId,
+        operation: "verify-email",
+        input: {
+          to: "member@domain.test",
+          recipientName: "Member Example",
+          verificationUrl: "https://darkfactory.localhost:43123/api/auth/verify-email?token=header.payload.signature&callbackURL=%2Fverify-email%3Fverified%3D1",
+          expiresInMinutes: 60,
+        },
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    const names = await readdir(join(root, "auth"))
+    expect(names.filter((name) => name.endsWith(".html"))).toHaveLength(1)
+    expect(names.filter((name) => name.endsWith(".txt"))).toHaveLength(1)
+    const metadataName = names.find((name) => name.endsWith(".metadata.json"))
+    expect(metadataName).toBeDefined()
+    const metadata = JSON.parse(await readFile(
+      join(root, "auth", metadataName!),
+      "utf8",
+    ))
+    expect(metadata).toMatchObject({
+      version: 1,
+      runId: binding.runId,
+      operation: "verify-email",
+    })
+    expect(metadata.binding).toEqual({
+      algorithm: "hmac-sha256",
+      hmac: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+
+  it "rejects a wrong bearer, run, path, and content type without writing files", async ->
+    const { root, binding, server } = await createFixture()
+    const payload = JSON.stringify({
+      version: 1,
+      runId: "another_run",
+      operation: "contact",
+      input: {
+        name: "Ada Lovelace",
+        email: "ada@example.test",
+        subject: "Question",
+        message: "Hello",
+      },
+    })
+    const responses = await Promise.all([
+      fetch(server.endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${"x".repeat(binding.hmacKey.length)}`,
+          "content-type": "application/json",
+        },
+        body: payload,
+      }),
+      fetch(server.endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${binding.hmacKey}`,
+          "content-type": "application/json",
+        },
+        body: payload,
+      }),
+      fetch(server.endpoint.replace("/v1/capture", "/wrong"), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${binding.hmacKey}`,
+          "content-type": "application/json",
+        },
+        body: payload,
+      }),
+      fetch(server.endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${binding.hmacKey}`,
+          "content-type": "text/plain",
+        },
+        body: payload,
+      }),
+    ])
+
+    expect(responses.map((response) => response.status)).toEqual([404, 400, 404, 404])
+    await expect(readdir(join(root, "auth"))).rejects.toThrow()
+    await expect(readdir(join(root, "contact"))).rejects.toThrow()

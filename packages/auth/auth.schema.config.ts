@@ -21,6 +21,12 @@ export const auth = betterAuth({
     useSecureCookies: true,
     disableCSRFCheck: false,
     disableOriginCheck: false,
+    ipAddress: {
+      ipAddressHeaders: ["cf-connecting-ip"],
+    },
+  },
+  rateLimit: {
+    storage: "database",
   },
   emailAndPassword: {
     enabled: true,

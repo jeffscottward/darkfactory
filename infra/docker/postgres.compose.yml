@@ -34,6 +34,17 @@ configs:
         NOINHERIT
         NOREPLICATION
         PASSWORD 'darkfactory-test-only';
+      CREATE ROLE darkfactory_app
+        LOGIN
+        NOCREATEDB
+        NOSUPERUSER
+        NOCREATEROLE
+        NOINHERIT
+        NOREPLICATION
+        PASSWORD 'darkfactory-app-local-only';
+      CREATE DATABASE darkfactory_dev OWNER darkfactory_app;
+      REVOKE CONNECT ON DATABASE darkfactory_dev FROM PUBLIC;
+      GRANT CONNECT ON DATABASE darkfactory_dev TO darkfactory_app;
       ALTER ROLE postgres NOLOGIN;
       REVOKE CONNECT ON DATABASE darkfactory_test_maintenance FROM PUBLIC;
       GRANT CONNECT ON DATABASE darkfactory_test_maintenance TO darkfactory_test_runner;

@@ -9,7 +9,7 @@
   "tasks": {
     "dev": {
       "cache": false,
-      "passThroughEnv": ["HOST", "PORT", "PORTLESS_*"],
+      "passThroughEnv": ["HOST", "PORT", "NODE_EXTRA_CA_CERTS", "PORTLESS_*"],
       "persistent": true
     },
     "build": {

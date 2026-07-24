@@ -1,0 +1,133 @@
+import { constants } from "node:fs"
+import { lstat, open } from "node:fs/promises"
+
+const MAX_PLAYWRIGHT_REPORT_BYTES = 16 * 1024 * 1024
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+
+const sameIdentity = (
+  left: Readonly<{ dev: number | bigint, ino: number | bigint }>,
+  right: Readonly<{ dev: number | bigint, ino: number | bigint }>,
+): boolean => left.dev === right.dev && left.ino === right.ino
+
+const removeWebServerEnvironment = (config: Record<string, unknown>): void => {
+  const webServer = config["webServer"]
+  const entries = Array.isArray(webServer) ? webServer : [webServer]
+  if (entries.length === 0 || entries.some((entry) => !isRecord(entry))) {
+    throw new Error("Playwright report web server configuration is invalid")
+  }
+  for (const entry of entries as Record<string, unknown>[]) {
+    Reflect.deleteProperty(entry, "env")
+  }
+}
+
+const redactSensitiveString = (
+  value: string,
+  sensitiveValues: readonly string[],
+): string => {
+  let redacted = value
+  for (const sensitiveValue of sensitiveValues) {
+    if (sensitiveValue.length > 0) {
+      redacted = redacted.split(sensitiveValue).join("[REDACTED]")
+    }
+  }
+  return redacted
+}
+
+const redactSensitiveValues = (
+  value: unknown,
+  sensitiveValues: readonly string[],
+): unknown => {
+  if (typeof value === "string") {
+    return redactSensitiveString(value, sensitiveValues)
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      value[index] = redactSensitiveValues(value[index], sensitiveValues)
+    }
+    return value
+  }
+  if (isRecord(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      value[key] = redactSensitiveValues(entry, sensitiveValues)
+    }
+  }
+  return value
+}
+
+const canonicalSensitiveValues = (
+  values: readonly string[],
+): readonly string[] =>
+  Object.freeze(
+    [...new Set(values.filter((value) => value.length > 0))]
+      .sort((left, right) => right.length - left.length),
+  )
+
+
+export const sanitizePlaywrightJsonReport = async (
+  path: string,
+  sensitiveValues: readonly string[],
+): Promise<void> => {
+  const before = await lstat(path)
+  if (
+    !before.isFile()
+    || before.isSymbolicLink()
+    || before.size < 1
+    || before.size > MAX_PLAYWRIGHT_REPORT_BYTES
+  ) throw new Error("Playwright report file is invalid")
+
+  const handle = await open(
+    path,
+    constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+  )
+  try {
+    const opened = await handle.stat()
+    if (!opened.isFile() || !sameIdentity(before, opened)) {
+      throw new Error("Playwright report identity changed before redaction")
+    }
+    const content = await handle.readFile("utf8")
+    if (Buffer.byteLength(content, "utf8") > MAX_PLAYWRIGHT_REPORT_BYTES) {
+      throw new Error("Playwright report exceeds its redaction bound")
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(content) as unknown
+    } catch {
+      throw new Error("Playwright report is malformed")
+    }
+    if (!isRecord(parsed) || !isRecord(parsed["config"])) {
+      throw new Error("Playwright report configuration is malformed")
+    }
+    removeWebServerEnvironment(parsed["config"])
+    redactSensitiveValues(parsed, canonicalSensitiveValues(sensitiveValues))
+    const rendered = Buffer.from(`${JSON.stringify(parsed)}\n`, "utf8")
+    if (rendered.byteLength > MAX_PLAYWRIGHT_REPORT_BYTES) {
+      throw new Error("Redacted Playwright report exceeds its bound")
+    }
+    let offset = 0
+    while (offset < rendered.byteLength) {
+      const result = await handle.write(
+        rendered,
+        offset,
+        rendered.byteLength - offset,
+        offset,
+      )
+      if (result.bytesWritten < 1) {
+        throw new Error("Playwright report redaction made no progress")
+      }
+      offset += result.bytesWritten
+    }
+    await handle.truncate(rendered.byteLength)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+
+  const after = await lstat(path)
+  if (
+    !after.isFile()
+    || after.isSymbolicLink()
+    || !sameIdentity(before, after)
+  ) throw new Error("Playwright report identity changed during redaction")
+}

@@ -3,7 +3,7 @@
     "rootDir": ".",
     "extends": "../../tsconfig.base.json",
     "compilerOptions": {
-      "types": ["node", "react"]
+      "types": ["node"]
     },
     "include": ["src/**/*.civet"]
   }

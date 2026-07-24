@@ -10,7 +10,7 @@ const workspace = await readFile(new URL("../../pnpm-workspace.yaml", import.met
 const workflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
 const turboConfig = JSON.parse(
   await readFile(new URL("../../turbo.json", import.meta.url), "utf8"),
-) as { globalDependencies: string[] }
+) as { globalDependencies: string[]; tasks: Record<string, { passThroughEnv?: string[] }> }
 const vitestConfig = await readFile(new URL("../../vitest.config.ts", import.meta.url), "utf8")
 const packageUnitScripts = await Promise.all(
   ["ai", "analytics", "api", "db", "ui"].map(async (name) => {
@@ -21,6 +21,12 @@ const packageUnitScripts = await Promise.all(
     return [name, manifest.scripts["test:unit"]] as const
   }),
 )
+const EXPECTED_DEV_ENV = [
+  "HOST",
+  "PORT",
+  "NODE_EXTRA_CA_CERTS",
+  "PORTLESS_*",
+] as const
 
 const runScriptNames = (script: string): readonly string[] =>
   script.split(" && ").map((command) =>
@@ -63,6 +69,10 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["api:openapi:check"]).toContain("@darkfactory/api")
   })
 
+  it("forwards only non-secret development process controls", () => {
+    expect(turboConfig.tasks.dev?.passThroughEnv).toEqual(EXPECTED_DEV_ENV)
+  })
+
   it("composes the complete lifecycle from exact, unique verification lanes", () => {
     const laneNames = Object.keys(EXPECTED_LANES)
     expect(rootPackage.scripts.ci).toBe("corepack pnpm run verify")
@@ -96,7 +106,7 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["test:a11y"]).toBe("civet scripts/e2e/run.civet a11y")
   })
 
-  it("runs isolated CI lanes concurrently while preserving browser evidence", () => {
+  it("runs isolated CI lanes concurrently while preserving only verified browser evidence", () => {
     expect(rootPackage.devDependencies["@axe-core/playwright"]).toBe("catalog:")
     expect(workspace).toContain('"@axe-core/playwright": 4.12.1')
     expect(workflow).toContain("matrix:")
@@ -113,7 +123,7 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toMatch(/Start trusted local HTTPS proxy\n\s+if: matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Trust portless CA in Chromium\n\s+if: matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Build Graphify output[\s\S]*matrix\.lane == 'graph'[\s\S]*graph:build[\s\S]*git diff --exit-code/)
-    expect(workflow).toMatch(/Preserve Playwright evidence[\s\S]*matrix\.lane == 'browser' && always\(\)[\s\S]*playwright-report\/[\s\S]*test-results\//)
+    expect(workflow).toMatch(/Preserve externally scanned Playwright evidence[\s\S]*matrix\.lane == 'browser' && success\(\)[\s\S]*playwright-report\/[\s\S]*test-results\//)
     expect(workflow).toMatch(/Stop PostgreSQL integration service\n\s+if: \(matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'\) && always\(\)/)
     expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1)
     expect(workflow).toContain("persist-credentials: false")

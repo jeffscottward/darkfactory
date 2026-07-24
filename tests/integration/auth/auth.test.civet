@@ -30,6 +30,10 @@ const SAFE_RESET_RESPONSE = {
   status: true,
   message: "If this email exists in our system, check your email for the reset link",
 }
+const SAFE_SIGN_UP_RESPONSE = {
+  status: true,
+  message: "If this email can be registered, check your email for a verification link",
+}
 
 type ResetDelivery = Readonly<{
   to: string
@@ -209,13 +213,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
 
     expect(response.status).toBe(200)
     expect(response.headers.get("set-cookie")).toBeNull()
-    expect(body).toMatchObject({
-      user: {
-        email: "member@example.test",
-        role: "member",
-        status: "active",
-      },
-    })
+    expect(body).toEqual(SAFE_SIGN_UP_RESPONSE)
 
     const [account] = await testDatabase.query<{
       provider_id: string
@@ -391,7 +389,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     )
     expect(repaired).toEqual({ profile_count: 1, preference_count: 1 })
 
-  it "DF-041 normalizes duplicate email and never accepts role or status input", async ->
+  it "DF-041 makes accepted and duplicate signup responses enumeration-safe", async ->
     const first = await signUp("Mixed.Member@Example.Test", {
       role: "admin",
       status: "suspended",
@@ -399,17 +397,15 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     const duplicate = await signUp("mixed.member@example.test")
 
     expect(first.response.status).toBe(200)
-    expect(first.body).toMatchObject({
-      user: {
-        email: "mixed.member@example.test",
-        role: "member",
-        status: "active",
-      },
-    })
     expect(duplicate.response.status).toBe(200)
-    expect(duplicate.body).toMatchObject({
-      user: { email: "mixed.member@example.test" },
-    })
+    expect(first.body).toEqual(SAFE_SIGN_UP_RESPONSE)
+    expect(duplicate.body).toEqual(SAFE_SIGN_UP_RESPONSE)
+    expect(duplicate.body).toEqual(first.body)
+    expect(first.response.headers.get("cache-control")).toBe("no-store")
+    expect(duplicate.response.headers.get("cache-control")).toBe("no-store")
+    expect(first.response.headers.get("content-type")).toBe(
+      duplicate.response.headers.get("content-type"),
+    )
 
     const rows = await testDatabase.query<{ role: string; status: string }>(
       'SELECT role, status FROM "user"',
@@ -472,6 +468,10 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       user: { email: "member@example.test", role: "member", status: "active" },
     })
     expect(restored.body).not.toHaveProperty("session.token")
+    const currentSessionId = (
+      restored.body as { session?: { id?: unknown } }
+    ).session?.id
+    expect(typeof currentSessionId).toBe("string")
 
     const listed = await call(
       new Request(`${BASE_URL}/api/auth/list-sessions`, {
@@ -480,7 +480,11 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     )
     expect(listed.response.status).toBe(200)
     expect(Array.isArray(listed.body)).toBe(true)
-    for (const session of listed.body as Array<Record<string, unknown>>) {
+    const listedSessions = listed.body as Array<Record<string, unknown>>
+    expect(listedSessions.map((session) => session["id"])).toContain(
+      currentSessionId,
+    )
+    for (const session of listedSessions) {
       expect(session).not.toHaveProperty("token")
     }
 
@@ -728,7 +732,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     expect(oldSession.body).toBeNull()
   
   it "DF-043 treats typed delivery failure as a hook error while the Fetch bridge stays enumeration-safe", async ->
-    const signup = await signUp()
+    await signUp()
     const failingEmail: EmailPort = {
       sendPasswordReset: async () => ({
         status: "failed",
@@ -759,11 +763,21 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
 
     const resetHook = failingAuth.options.emailAndPassword?.sendResetPassword
     if (!resetHook) throw new Error("Expected reset delivery hook")
-    const signedUpUser = (
-      signup.body as {
-        user: Parameters<typeof resetHook>[0]["user"]
-      }
-    ).user
+    const [storedUser] = await testDatabase.query<{
+      id: string
+      name: string
+      email: string
+      email_verified: boolean
+    }>('SELECT id, name, email, email_verified FROM "user" LIMIT 1')
+    if (!storedUser) throw new Error("Expected signed-up user")
+    const signedUpUser = {
+      id: storedUser.id,
+      name: storedUser.name,
+      email: storedUser.email,
+      emailVerified: storedUser.email_verified,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Parameters<typeof resetHook>[0]["user"]
     await expect(
       resetHook({
         user: signedUpUser,

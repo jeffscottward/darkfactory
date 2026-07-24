@@ -52,6 +52,21 @@ const evidenceRecord = {
   path: "journey/axe.json",
   sha256: createHash("sha256").update("image", "utf8").digest("hex"),
 } as const
+const playwrightReport = Object.freeze({
+  suites: [{
+    title: "journey",
+    specs: [{
+      title: "browser journey",
+      tests: [{ results: [{ status: "passed" }] }],
+    }],
+  }],
+  stats: {
+    expected: 1,
+    skipped: 0,
+    unexpected: 0,
+    flaky: 0,
+  },
+})
 const pngEvidencePath = "journey/screenshots/page.png"
 const pngCrcTable = Uint32Array.from({ length: 256 }, (_unused, index) => {
   let value = index
@@ -117,7 +132,7 @@ const writePngEvidence = async (
 const writeRequiredReports = async (root: string, runId: string) => {
   await writeFile(
     join(root, "test-results/e2e-runs", runId, "playwright-report.json"),
-    JSON.stringify({ suites: [{ title: "journey" }], stats: {} }),
+    JSON.stringify(playwrightReport),
   )
   const evidence = join(root, "test-results/evidence", runId)
   const manifests = join(evidence, "manifests")
@@ -131,7 +146,7 @@ const writeRequiredReports = async (root: string, runId: string) => {
 }
 
 const requiredEntries = (runId: string) => [
-  entry(`test-results/e2e-runs/${runId}/playwright-report.json`, JSON.stringify({ suites: [{ title: "journey" }], stats: {} })),
+  entry(`test-results/e2e-runs/${runId}/playwright-report.json`, JSON.stringify(playwrightReport)),
   entry(`test-results/evidence/${runId}/manifests/journey.json`, JSON.stringify({ version: 1, runId, artifacts: [evidenceRecord] })),
   entry(`test-results/evidence/${runId}/${evidenceRecord.path}`, "image"),
 ]
@@ -222,6 +237,23 @@ describe("external E2E artifact scanner", () => {
       ],
       [
         entry("test-results/e2e-runs/run_safe/playwright-report.json", JSON.stringify({ suites: [], stats: {} })),
+        ...requiredEntries("run_safe").slice(1),
+      ],
+      [
+        entry(
+          "test-results/e2e-runs/run_safe/playwright-report.json",
+          JSON.stringify({ ...playwrightReport, stats: {} }),
+        ),
+        ...requiredEntries("run_safe").slice(1),
+      ],
+      [
+        entry(
+          "test-results/e2e-runs/run_safe/playwright-report.json",
+          JSON.stringify({
+            suites: [{ title: "placeholder" }],
+            stats: playwrightReport.stats,
+          }),
+        ),
         ...requiredEntries("run_safe").slice(1),
       ],
       [

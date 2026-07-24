@@ -95,9 +95,12 @@ export const DashboardContent = ({ session, summaryState }: DashboardContentProp
           </p>
         </div>
         <dl className="divide-y divide-border border-y border-border">
-          <div className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><dt className="font-medium text-foreground">Session authority</dt><dd className="mt-1 text-sm text-muted-foreground">Verified by Better Auth</dd></div>
-            <StatusBadge status="success">Active</StatusBadge>
+          <div className="py-4">
+            <dt className="font-medium text-foreground">Session authority</dt>
+            <dd className="mt-1 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>Verified by Better Auth</span>
+              <StatusBadge status="success">Active</StatusBadge>
+            </dd>
           </div>
           {summary === null ? (
             <div className="py-4">
@@ -107,9 +110,11 @@ export const DashboardContent = ({ session, summaryState }: DashboardContentProp
           ) : CAPABILITIES.map(({ key, label }) => {
             const available = summary.capabilities[key]
             return (
-              <div className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between" key={key}>
-                <div><dt className="font-medium text-foreground">{label}</dt><dd className="mt-1 text-sm text-muted-foreground">{available ? "Available" : "Unavailable"}</dd></div>
-                <StatusBadge status={available ? "success" : "neutral"}>{available ? "Available" : "Unavailable"}</StatusBadge>
+              <div className="py-4" key={key}>
+                <dt className="font-medium text-foreground">{label}</dt>
+                <dd className="mt-1 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                  <StatusBadge status={available ? "success" : "neutral"}>{available ? "Available" : "Unavailable"}</StatusBadge>
+                </dd>
               </div>
             )
           })}

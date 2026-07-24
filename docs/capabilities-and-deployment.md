@@ -46,7 +46,7 @@ Disabled capabilities must remain removable and must not leave provider dependen
 Run the manifest and prerequisite inspection with:
 
 ```bash
-varlock load -- pnpm doctor
+varlock run -- pnpm doctor
 ```
 
 The doctor reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.

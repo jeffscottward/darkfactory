@@ -1,7 +1,6 @@
-import { render } from "react-email"
+import { renderTransactionalEmailHtml } from "./render-email-html.civet"
 
 import type { EmailVerificationEmailInput } from "../index.civet"
-import { EmailVerificationEmail } from "./email-verification-template.civet"
 
 const DEFAULT_TRUSTED_APP_ORIGIN = "https://darkfactory.localhost"
 const VERIFICATION_PATH = "/api/auth/verify-email"
@@ -114,11 +113,29 @@ export const renderEmailVerificationEmail = async (
   options: RenderEmailVerificationEmailOptions = {},
 ): Promise<RenderedEmailVerificationEmail> => {
   assertValidVerificationInput(input, options)
-  const template = <EmailVerificationEmail {...input} />
-  const [html, text] = await Promise.all([
-    render(template),
-    render(template, { plainText: true }),
-  ])
+  const greeting = input.recipientName ? `Hello ${input.recipientName},` : "Hello,"
+  const expiryUnit = input.expiresInMinutes === 1 ? "minute" : "minutes"
+  const html = renderTransactionalEmailHtml({
+    actionAriaLabel: "Verify your DarkFactory email",
+    actionLabel: "Verify email",
+    actionUrl: input.verificationUrl,
+    backgroundColor: "#f6f2ea",
+    body: "Confirm this email address to finish setting up your DarkFactory account.",
+    containerColor: "#fbf9f4",
+    expiry: `This link expires in ${input.expiresInMinutes} ${expiryUnit} and can be used only once.`,
+    footer: "If you did not create or request access to this account, you can ignore this email.",
+    greeting,
+    heading: "Verify your email",
+    title: "Verify your DarkFactory email",
+  })
+  const text = [
+    "Verify your email",
+    greeting,
+    "Confirm this email address to finish setting up your DarkFactory account.",
+    `Verify email: ${input.verificationUrl}`,
+    `This link expires in ${input.expiresInMinutes} ${expiryUnit} and can be used only once.`,
+    "If you did not create or request access to this account, you can ignore this email.",
+  ].join("\n\n")
 
   return Object.freeze({
     subject: "Verify your DarkFactory email",

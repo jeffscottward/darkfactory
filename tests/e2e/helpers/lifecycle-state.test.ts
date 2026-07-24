@@ -99,7 +99,7 @@ const advanceLifecycleToReady = async (
 
 const writePlaywrightReport = async (
   paths: E2ERunPaths,
-  status: "failed" | "interrupted" | "skipped"
+  status: "failed" | "interrupted" | "passed" | "skipped"
 ): Promise<void> => {
   await writeFile(
     join(paths.root, "playwright-report.json"),
@@ -152,6 +152,127 @@ describe("adopted E2E lifecycle state", () => {
         version: 1,
         status: "stopped",
         stage: "server-ready",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("serializes concurrent lifecycle state writes in call order", async () => {
+    const paths = await prepareAdoptedPaths("lifecycle_serialized_writes");
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      const artifactIsolation = writer.write({
+        version: 1,
+        status: "starting",
+        stage: "artifact-isolation",
+      });
+      const moduleLoading = writer.write({
+        version: 1,
+        status: "starting",
+        stage: "module-loading",
+      });
+
+      await expect(
+        Promise.all([artifactIsolation, moduleLoading])
+      ).resolves.toEqual([undefined, undefined]);
+      await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "starting",
+        stage: "module-loading",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("does not publish ready after its state commit is cancelled", async () => {
+    const paths = await prepareAdoptedPaths("lifecycle_cancelled_ready");
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      const cancellation = new AbortController();
+      cancellation.abort(new Error("Readiness cancelled."));
+
+      await expect(
+        writer.write(
+          { version: 1, status: "ready", stage: "server-ready" },
+          { signal: cancellation.signal }
+        )
+      ).rejects.toThrow(/readiness cancelled/i);
+      await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "starting",
+        stage: "server-probed",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("cancels readiness at the final pre-publication check", async () => {
+    const paths = await prepareAdoptedPaths("lifecycle_pre_publish_cancel");
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      let checks = 0;
+      const cancellation = {
+        throwIfAborted() {
+          checks += 1;
+          if (checks === 2) {
+            throw new Error("Readiness cancelled before publication.");
+          }
+        },
+      } as AbortSignal;
+
+      await expect(
+        writer.write(
+          { version: 1, status: "ready", stage: "server-ready" },
+          { signal: cancellation }
+        )
+      ).rejects.toThrow(/cancelled before publication/i);
+      expect(checks).toBe(2);
+      await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "starting",
+        stage: "server-probed",
+      });
+      expect(
+        (await readdir(paths.root)).some(
+          (entry) =>
+            entry.startsWith(`.${E2E_LIFECYCLE_STATE_FILE_NAME}.`) &&
+            entry.endsWith(".tmp")
+        )
+      ).toBe(false);
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("does not publish a probe observation after its commit is cancelled", async () => {
+    const paths = await prepareAdoptedPaths("lifecycle_cancelled_probe");
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages.filter((stage) => stage !== "server-probed")) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      const cancellation = new AbortController();
+      cancellation.abort(new Error("Probe observation cancelled."));
+
+      await expect(
+        writer.write(
+          { version: 1, status: "starting", stage: "server-probed" },
+          { signal: cancellation.signal }
+        )
+      ).rejects.toThrow(/probe observation cancelled/i);
+      await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "starting",
+        stage: "server-spawn",
       });
     } finally {
       await cleanPaths(paths);
@@ -231,7 +352,7 @@ describe("adopted E2E lifecycle state", () => {
     }
   });
 
-  it("finalizes an executed test failure after readiness without lifecycle regression", async () => {
+  it("preserves an unproven ready state after executed Playwright failure", async () => {
     const { adoption, paths } = await prepareFinalizerFixture(
       "lifecycle_parent_failure"
     );
@@ -248,10 +369,195 @@ describe("adopted E2E lifecycle state", () => {
         })
       ).resolves.toEqual({
         version: 1,
-        status: "runtime-failed",
+        status: "ready",
         stage: "server-ready",
       });
       await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "ready",
+        stage: "server-ready",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("repairs the post-ready Playwright SIGTERM race after a passing run", async () => {
+    const { adoption, paths } = await prepareFinalizerFixture(
+      "lifecycle_parent_clean_signal"
+    );
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages.filter((stage) => stage !== "server-probed")) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      await writer.write({
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      });
+      await writePlaywrightReport(paths, "passed");
+
+      await expect(
+        finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: adoption,
+          exitCode: 0,
+          repositoryPath: repositoryRoot,
+          runId: paths.runId,
+          treeTerminated: true,
+        })
+      ).resolves.toEqual({
+        version: 1,
+        status: "stopped",
+        stage: "server-ready",
+      });
+      await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "stopped",
+        stage: "server-ready",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("records parent failure from clean spawn-stage shutdown at the same stage", async () => {
+    const { adoption, paths } = await prepareFinalizerFixture(
+      "lifecycle_parent_clean_failure"
+    );
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages.filter((stage) => stage !== "server-probed")) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      await writer.write({
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      });
+      await writePlaywrightReport(paths, "failed");
+
+      await expect(
+        finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: adoption,
+          exitCode: 1,
+          repositoryPath: repositoryRoot,
+          runId: paths.runId,
+          treeTerminated: true,
+        })
+      ).resolves.toEqual({
+        version: 1,
+        status: "runtime-failed",
+        stage: "server-spawn",
+      });
+      await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
+        version: 1,
+        status: "runtime-failed",
+        stage: "server-spawn",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("preserves an unproven hard-kill starting state for every exit", async () => {
+    const { adoption, paths } = await prepareFinalizerFixture(
+      "lifecycle_parent_unproven_signal"
+    );
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages.filter((stage) => stage !== "server-probed")) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      await writePlaywrightReport(paths, "passed");
+
+      await expect(
+        finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: adoption,
+          exitCode: 0,
+          repositoryPath: repositoryRoot,
+          runId: paths.runId,
+          treeTerminated: true,
+        })
+      ).resolves.toEqual({
+        version: 1,
+        status: "starting",
+        stage: "server-spawn",
+      });
+      await expect(
+        finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: adoption,
+          exitCode: 1,
+          repositoryPath: repositoryRoot,
+          runId: paths.runId,
+          treeTerminated: true,
+        })
+      ).resolves.toEqual({
+        version: 1,
+        status: "starting",
+        stage: "server-spawn",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("preserves a true startup crash despite a zero Playwright exit", async () => {
+    const { adoption, paths } = await prepareFinalizerFixture(
+      "lifecycle_parent_true_startup_failure"
+    );
+    try {
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
+      for (const stage of stages.filter((stage) => stage !== "server-probed")) {
+        await writer.write({ version: 1, status: "starting", stage });
+      }
+      await writer.write({
+        version: 1,
+        status: "startup-failed",
+        stage: "server-spawn",
+      });
+      await writePlaywrightReport(paths, "passed");
+
+      await expect(
+        finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: adoption,
+          exitCode: 0,
+          repositoryPath: repositoryRoot,
+          runId: paths.runId,
+          treeTerminated: true,
+        })
+      ).resolves.toEqual({
+        version: 1,
+        status: "startup-failed",
+        stage: "server-spawn",
+      });
+    } finally {
+      await cleanPaths(paths);
+    }
+  });
+
+  it("preserves a recorded runtime crash despite a zero Playwright exit", async () => {
+    const { adoption, paths } = await prepareFinalizerFixture(
+      "lifecycle_parent_true_runtime_failure"
+    );
+    try {
+      const writer = await advanceLifecycleToReady(paths);
+      await writer.write({
+        version: 1,
+        status: "runtime-failed",
+        stage: "server-ready",
+      });
+      await writePlaywrightReport(paths, "passed");
+
+      await expect(
+        finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: adoption,
+          exitCode: 0,
+          repositoryPath: repositoryRoot,
+          runId: paths.runId,
+          treeTerminated: true,
+        })
+      ).resolves.toEqual({
         version: 1,
         status: "runtime-failed",
         stage: "server-ready",
@@ -291,7 +597,7 @@ describe("adopted E2E lifecycle state", () => {
     }
   });
 
-  it("preserves a genuine pre-readiness startup failure", async () => {
+  it("preserves a spawn-stage startup failure after executed Playwright failure", async () => {
     const { adoption, paths } = await prepareFinalizerFixture(
       "lifecycle_parent_startup"
     );
@@ -324,7 +630,7 @@ describe("adopted E2E lifecycle state", () => {
     }
   });
 
-  it("promotes a post-probe teardown startup state after executed Playwright failure", async () => {
+  it("preserves a post-probe startup failure after executed Playwright failure", async () => {
     const { adoption, paths } = await prepareFinalizerFixture(
       "lifecycle_parent_post_probe"
     );
@@ -349,12 +655,12 @@ describe("adopted E2E lifecycle state", () => {
         })
       ).resolves.toEqual({
         version: 1,
-        status: "runtime-failed",
+        status: "startup-failed",
         stage: "server-probed",
       });
       await expect(readOwnedE2ELifecycleState(paths)).resolves.toEqual({
         version: 1,
-        status: "runtime-failed",
+        status: "startup-failed",
         stage: "server-probed",
       });
     } finally {

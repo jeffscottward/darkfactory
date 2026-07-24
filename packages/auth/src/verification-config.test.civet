@@ -44,6 +44,9 @@ type VerificationEmailCallback = (input: Readonly<{
 }>) => Promise<void>
 
 type CapturedAuthOptions = Readonly<{
+  advanced: Readonly<{
+    ipAddress: Readonly<{ ipAddressHeaders: readonly string[] }>
+  }>
   emailAndPassword: Readonly<Record<string, unknown>>
   emailVerification: Readonly<{
     sendOnSignUp: boolean
@@ -54,6 +57,7 @@ type CapturedAuthOptions = Readonly<{
   }>
   hooks: Readonly<{ before: unknown }>
   rateLimit: Readonly<{
+    storage: string
     customRules: Readonly<Record<string, Readonly<{ window: number; max: number }>>>
   }>
 }>
@@ -106,6 +110,10 @@ describe "Better Auth email verification configuration", ->
       expect.any(Function),
     )
 
+    expect(options.advanced.ipAddress.ipAddressHeaders).toEqual([
+      "cf-connecting-ip",
+    ])
+    expect(options.rateLimit.storage).toBe("database")
   it "throttles public verification resend requests independently of the global limit", ->
     const { email } = createEmail()
     const auth = createConfiguredAuth(email)
@@ -174,7 +182,7 @@ describe "Better Auth email verification configuration", ->
       expiresInMinutes: 60,
     })
 
-  it "resolves immediately but reports a redacted background delivery failure", async ->
+  it "awaits delivery and reports a redacted failure to Better Auth's scheduler", async ->
     let resolveDelivery!: (result: EmailDeliveryResult) => void
     const pendingDelivery = new Promise<EmailDeliveryResult>((resolve) => {
       resolveDelivery = resolve
@@ -185,18 +193,16 @@ describe "Better Auth email verification configuration", ->
     }
     const auth = createConfiguredAuth(email)
 
-    await expect(
-      auth.options.emailVerification.sendVerificationEmail({
-        user: {
-          id: "user-1",
-          email: "member@domain.test",
-          name: "Member Example",
-        },
-        url: verificationUrl,
-        token: "secret-token-not-for-errors",
-      }),
-    ).resolves.toBeUndefined()
-    expect(backgroundTasks).toHaveLength(1)
+    const delivery = auth.options.emailVerification.sendVerificationEmail({
+      user: {
+        id: "user-1",
+        email: "member@domain.test",
+        name: "Member Example",
+      },
+      url: verificationUrl,
+      token: "secret-token-not-for-errors",
+    })
+    expect(backgroundTasks).toHaveLength(0)
 
     resolveDelivery({
       status: "failed",
@@ -204,14 +210,14 @@ describe "Better Auth email verification configuration", ->
       code: "EMAIL_PROVIDER_UNAVAILABLE",
       retryable: true,
     })
-    await expect(backgroundTasks[0]).rejects.toMatchObject({
+    await expect(delivery).rejects.toMatchObject({
       body: {
         code: EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
         message: "Email verification delivery is unavailable",
       },
     })
 
-  it "redacts thrown provider failures in the scheduled task", async ->
+  it "redacts thrown provider failures before Better Auth schedules them", async ->
     const email: EmailPort = {
       sendPasswordReset: vi.fn(),
       sendEmailVerification: vi
@@ -220,8 +226,8 @@ describe "Better Auth email verification configuration", ->
     }
     const auth = createConfiguredAuth(email)
 
-    await expect(
-      auth.options.emailVerification.sendVerificationEmail({
+    const backgroundError = await auth.options.emailVerification
+      .sendVerificationEmail({
         user: {
           id: "user-1",
           email: "member@domain.test",
@@ -229,12 +235,11 @@ describe "Better Auth email verification configuration", ->
         },
         url: verificationUrl,
         token: "secret-token-not-for-errors",
-      }),
-    ).resolves.toBeUndefined()
-    const backgroundError = await backgroundTasks[0]?.then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
     expect(backgroundError).toMatchObject({
       body: {
         code: EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
@@ -245,7 +250,7 @@ describe "Better Auth email verification configuration", ->
       "provider-secret-must-not-escape",
     )
 
-  it "resolves a successful scheduled verification delivery", async ->
+  it "resolves a successful verification delivery without nesting a background task", async ->
     const { email } = createEmail()
     const auth = createConfiguredAuth(email)
 
@@ -260,7 +265,7 @@ describe "Better Auth email verification configuration", ->
         token: "secret-token-not-for-errors",
       }),
     ).resolves.toBeUndefined()
-    await expect(backgroundTasks[0]).resolves.toBeUndefined()
+    expect(backgroundTasks).toHaveLength(0)
 
   it "rejects verification expiry below one minute, above one day, or fractional", ->
     const { email } = createEmail()

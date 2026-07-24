@@ -5,13 +5,13 @@ const packageLoaderSource = (
   civetLoaderUrl,
   resolverUrl,
   typescriptUrl,
-  allowedSourceRoot
+  allowedSourceRoots
 ) => `
 import { load as civetLoad, resolve as civetResolve } from ${JSON.stringify(civetLoaderUrl)};
 import { createCivetResolve } from ${JSON.stringify(resolverUrl)};
 import ts from ${JSON.stringify(typescriptUrl)};
 const resolveWithTypeScriptFallback = await createCivetResolve({
-  allowedSourceRoots: [${JSON.stringify(allowedSourceRoot)}],
+  allowedSourceRoots: ${JSON.stringify(allowedSourceRoots)},
   resolve: civetResolve,
 });
 export const resolve = async (specifier, context, nextResolve) => {
@@ -46,7 +46,10 @@ register(
       import.meta.resolve("@danielx/civet/esm"),
       import.meta.resolve("./civet-loader-resolver.mjs"),
       import.meta.resolve("typescript"),
-      fileURLToPath(new URL("./", import.meta.url))
+      [
+        fileURLToPath(new URL("./", import.meta.url)),
+        fileURLToPath(new URL("../../../packages/email/src/", import.meta.url)),
+      ]
     )
   )}`,
   import.meta.url

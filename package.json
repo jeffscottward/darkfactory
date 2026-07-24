@@ -16,6 +16,7 @@
     "dev:logs": "civet scripts/dev.civet logs",
     "dev:stop": "civet scripts/dev.civet stop",
     "dev:trust": "civet scripts/dev.civet trust",
+    "dev:bindings": "civet scripts/dev-bindings.civet",
     "certs:install": "civet scripts/dev.civet certs-install",
     "certs:generate": "civet scripts/dev.civet certs-generate",
     "build": "turbo run build",

@@ -14,6 +14,10 @@ import {
   renderContactEmail,
   type RenderedContactEmail,
 } from "./render-contact.civet"
+import {
+  createRemotePreviewContactEmailPort,
+  type RemotePreviewPortOptions,
+} from "./remote-preview.civet"
 
 const MAILBOX_PATTERN =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
@@ -63,6 +67,8 @@ export type SelectContactEmailPortOptions = Readonly<{
   recipient?: string | undefined
   previewDirectory?: string | undefined
   previewMaxArtifacts?: number | undefined
+  previewCaptureEndpoint?: string | undefined
+  previewBinding?: RemotePreviewPortOptions["binding"] | undefined
   resendApiKey?: string | undefined
   from?: string | undefined
   resendClientFactory?: ContactResendClientFactory | undefined
@@ -223,6 +229,16 @@ export const selectContactEmailPort = (
   const isLocal =
     options.environment === "development" || options.environment === "test"
   if (isLocal && (options.transport === undefined || options.transport === "preview")) {
+    if (options.previewCaptureEndpoint !== undefined) {
+      if (options.previewBinding === undefined) {
+        throw new Error("Remote preview transport requires a binding")
+      }
+      return createRemotePreviewContactEmailPort({
+        environment: options.environment,
+        endpoint: options.previewCaptureEndpoint,
+        binding: options.previewBinding,
+      })
+    }
     const previewOptions: PreviewContactEmailPortOptions = {
       environment: options.environment,
       directory: options.previewDirectory,

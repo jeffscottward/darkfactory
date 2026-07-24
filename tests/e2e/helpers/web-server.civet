@@ -27,12 +27,14 @@ import {
 import { E2E_PROCESS_TERMINATION_OPTIONS } from "./lifecycle-budgets.ts"
 import {
   createSerializedLifecycle,
+  isIntentionalLifecycleShutdownInterruption,
   type LifecycleControl,
 } from "./serialized-lifecycle.ts"
 import {
   assertOwnedE2ERunRootsReady,
   createOwnedE2ELifecycleStateWriter,
   e2eRunPathsFromEnvironment,
+  prepareOwnedE2EPreviewDirectories,
   removeOwnedE2EPreviewArtifacts,
   removeOwnedE2ERunArtifacts,
   type E2ERunPaths,
@@ -53,10 +55,13 @@ import {
   probeE2EServerRoutes,
   waitForE2EServerReady,
   type E2EServerExitState,
+  type E2EReadinessProbeContext,
 } from "./server-readiness.ts"
+import type { PreviewCaptureServer } from "./preview-capture.civet"
 const WEB_DIRECTORY = fileURLToPath(new URL("../../../apps/web/", import.meta.url))
 
 const EXPECTED_SEED_IDENTITIES = 3
+const readinessShutdownController = new AbortController()
 
 let server: OwnedProcess | undefined
 let database: PostgresTestDatabase | undefined
@@ -64,12 +69,14 @@ let dropDatabase: ((database: PostgresTestDatabase) => Promise<void>) | undefine
 let routeOwnerLock: RouteOwnerLock | undefined
 let runPaths: E2ERunPaths | undefined
 let workerBindings: OwnedDevVarsLease | undefined
+let previewCaptureServer: PreviewCaptureServer | undefined
 let runRootAdopted = false
 let lifecycleStateWriter: E2ELifecycleStateWriter | undefined
 let lifecycleStage: E2ELifecycleStage | undefined
 let startupStage: E2ELifecycleDiagnosticStage = "validation"
 let startupFailed = false
 let intentionalShutdown = false
+let intentionalStartupInterrupted = false
 let runtimeFailed = false
 let serverReady = false
 
@@ -84,9 +91,18 @@ const cleanup = async (): Promise<void> => {
   const currentDropDatabase = dropDatabase
   const currentRouteOwnerLock = routeOwnerLock
   const currentWorkerBindings = workerBindings
+  const currentPreviewCaptureServer = previewCaptureServer
+  let previewCaptureCleanupError: unknown
+  let previewCaptureCloseAttempted = false
   try {
     await cleanupE2ELifecycle({
       cleanPreviewArtifacts: cleanRunArtifacts,
+      closePreviewCaptureServer: currentPreviewCaptureServer === undefined
+        ? undefined
+        : async () => {
+            previewCaptureCloseAttempted = true
+            await currentPreviewCaptureServer.close()
+          },
       cleanWorkerBindings: currentWorkerBindings === undefined
         ? undefined
         : async () => removeOwnedDevVarsFile(currentWorkerBindings),
@@ -108,9 +124,9 @@ const cleanup = async (): Promise<void> => {
     })
     if (
       lifecycleStateWriter !== undefined &&
-      lifecycleStage === "server-ready" &&
+      lifecycleStage !== undefined &&
       intentionalShutdown &&
-      serverReady &&
+      (serverReady || intentionalStartupInterrupted) &&
       !runtimeFailed &&
       !startupFailed
     ) {
@@ -121,6 +137,25 @@ const cleanup = async (): Promise<void> => {
       })
     }
   } catch (error) {
+    if (
+      !previewCaptureCloseAttempted
+      && currentPreviewCaptureServer !== undefined
+    ) {
+      previewCaptureCloseAttempted = true
+      try {
+        await currentPreviewCaptureServer.close()
+      } catch (captureError) {
+        previewCaptureCleanupError = captureError
+      }
+    }
+    const lifecycleError =
+      previewCaptureCleanupError === undefined
+      || error === previewCaptureCleanupError
+        ? error
+        : new AggregateError(
+            [previewCaptureCleanupError, error],
+            "Preview capture and E2E lifecycle cleanup failed",
+          )
     if (lifecycleStateWriter !== undefined && lifecycleStage !== undefined) {
       try {
         await lifecycleStateWriter.write({
@@ -130,12 +165,12 @@ const cleanup = async (): Promise<void> => {
         })
       } catch (stateError) {
         throw new AggregateError(
-          [error, stateError],
+          [lifecycleError, stateError],
           "E2E lifecycle cleanup and state persistence failed",
         )
       }
     }
-    throw error
+    throw lifecycleError
   }
   database = undefined
   server = undefined
@@ -143,10 +178,12 @@ const cleanup = async (): Promise<void> => {
   runPaths = undefined
   runRootAdopted = false
   workerBindings = undefined
+  previewCaptureServer = undefined
   lifecycleStateWriter = undefined
   lifecycleStage = undefined
   startupFailed = false
   intentionalShutdown = false
+  intentionalStartupInterrupted = false
   runtimeFailed = false
   serverReady = false
 }
@@ -188,15 +225,18 @@ const start = async (control: LifecycleControl): Promise<void> => {
     lifecycleStateWriter = await createOwnedE2ELifecycleStateWriter(candidateRunPaths)
     await enterLifecycleStage("artifact-isolation")
   }
+  await prepareOwnedE2EPreviewDirectories(candidateRunPaths)
   control.checkpoint()
 
   await enterLifecycleStage("module-loading")
   // Dynamic imports are intentional: resolution failures must enter the sanitized cleanup path.
-  const [authModule, databaseModule, testkitModule] = await Promise.all([
-    import("@darkfactory/auth/server"),
-    import("@darkfactory/db/server"),
-    import("@darkfactory/testkit/postgres"),
-  ])
+  const [authModule, databaseModule, testkitModule, previewCaptureModule] =
+    await Promise.all([
+      import("@darkfactory/auth/server"),
+      import("@darkfactory/db/server"),
+      import("@darkfactory/testkit/postgres"),
+      import("./preview-capture.civet"),
+    ])
   dropDatabase = testkitModule.dropPostgresTestDatabase
   control.checkpoint()
 
@@ -247,14 +287,29 @@ const start = async (control: LifecycleControl): Promise<void> => {
   }
   control.checkpoint()
 
+  const previewHmacKey = process.env["E2E_EMAIL_PREVIEW_HMAC_KEY"]
+  if (previewHmacKey === undefined) {
+    throw new Error("E2E preview capture requires an HMAC key")
+  }
+  await enterLifecycleStage("server-spawn")
+  previewCaptureServer = await previewCaptureModule.startPreviewCaptureServer({
+    authDirectory: runPaths.authPreviews,
+    appOrigin: appUrl,
+    contactDirectory: runPaths.contactPreviews,
+    binding: {
+      runId: runPaths.runId,
+      hmacKey: previewHmacKey,
+    },
+  })
+
   const environment = createE2EServerEnvironment({
     databaseUrl: database.databaseUrl,
     portlessPort,
     runPaths,
+    previewCaptureEndpoint: previewCaptureServer.endpoint,
     secret,
     source: process.env,
   })
-  await enterLifecycleStage("server-spawn")
   await removeE2EOptimizerCache()
   control.checkpoint()
   workerBindings = await acquireOwnedDevVars({
@@ -295,7 +350,13 @@ const start = async (control: LifecycleControl): Promise<void> => {
     resolve: resolveProbeObservationCommitted,
   } = createPromiseResolvers<void>()
   let probeObservationStarted = false
-  const commitServerProbeObserved = async (): Promise<void> => {
+  const commitServerProbeObserved = async (
+    context: E2EReadinessProbeContext,
+  ): Promise<void> => {
+    context.signal.throwIfAborted()
+    if (Date.now() >= context.deadlineMillis) {
+      throw new Error("E2E server readiness timed out before probe state commit")
+    }
     if (probeObservationStarted) {
       await probeObservationCommitted
       return
@@ -307,7 +368,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
           version: 1,
           status: "starting",
           stage: "server-probed",
-        })
+        }, { signal: context.signal })
       }
       lifecycleStage = "server-probed"
       startupStage = "server-probed"
@@ -315,7 +376,13 @@ const start = async (control: LifecycleControl): Promise<void> => {
       resolveProbeObservationCommitted()
     }
   }
-  const commitServerReady = async (): Promise<void> => {
+  const commitServerReady = async (
+    context: E2EReadinessProbeContext,
+  ): Promise<void> => {
+    context.signal.throwIfAborted()
+    if (Date.now() >= context.deadlineMillis) {
+      throw new Error("E2E server readiness timed out before state commit")
+    }
     if (readinessCommitStarted) {
       await readinessCommitted
       return
@@ -327,7 +394,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
           version: 1,
           status: "ready",
           stage: "server-ready",
-        })
+        }, { signal: context.signal })
       }
       lifecycleStage = "server-ready"
       startupStage = "server-ready"
@@ -372,25 +439,41 @@ const start = async (control: LifecycleControl): Promise<void> => {
       () => void control.requestShutdown(1),
     )
   })
-  await waitForE2EServerReady({
-    child: server,
-    consecutiveSuccessfulProbes: 2,
-    onReady: commitServerReady,
-    probe: async () => {
-      control.checkpoint()
-      const ready = await probeE2EServerRoutes({ appUrl })
-      if (ready) await commitServerProbeObserved()
-      return ready
-    },
-  })
+  try {
+    await waitForE2EServerReady({
+      child: server,
+      consecutiveSuccessfulProbes: 2,
+      onReady: commitServerReady,
+      probe: async (context) => {
+        control.checkpoint()
+        const ready = await probeE2EServerRoutes({
+          appUrl,
+          deadlineMillis: context.deadlineMillis,
+          signal: context.signal,
+        })
+        if (ready) await commitServerProbeObserved(context)
+        return ready
+      },
+      signal: readinessShutdownController.signal,
+    })
+  } catch (error) {
+    if (readinessShutdownController.signal.aborted) control.checkpoint()
+    throw error
+  }
   control.checkpoint()
-  await commitServerReady()
 }
 
 const main = async (control: LifecycleControl): Promise<void> => {
   try {
     await start(control)
   } catch (error) {
+    if (isIntentionalLifecycleShutdownInterruption({
+      error,
+      intentional: intentionalShutdown,
+    })) {
+      intentionalStartupInterrupted = true
+      return
+    }
     startupFailed = true
     if (lifecycleStateWriter !== undefined && lifecycleStage !== undefined) {
       try {
@@ -413,11 +496,15 @@ const main = async (control: LifecycleControl): Promise<void> => {
 const lifecycle = createSerializedLifecycle({ cleanup, startup: main })
 process.once("SIGINT", () => {
   intentionalShutdown = true
-  void lifecycle.control.requestShutdown(130)
+  const shutdown = lifecycle.control.requestShutdown(130)
+  readinessShutdownController.abort()
+  void shutdown
 })
 process.once("SIGTERM", () => {
   intentionalShutdown = true
-  void lifecycle.control.requestShutdown(143)
+  const shutdown = lifecycle.control.requestShutdown(143)
+  readinessShutdownController.abort()
+  void shutdown
 })
 void lifecycle.completion.then((outcome) => {
   if (outcome.cleanupError !== undefined) {

@@ -1,0 +1,1 @@
+CREATE INDEX "rate_limit_last_request_idx" ON "rate_limit" USING btree ("last_request");

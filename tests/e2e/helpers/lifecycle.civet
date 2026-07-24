@@ -8,6 +8,7 @@ import {
 
 export type E2ELifecycleResources = Readonly<{
   cleanPreviewArtifacts: () => Promise<void>
+  closePreviewCaptureServer?: (() => Promise<void>) | undefined
   cleanWorkerBindings?: (() => Promise<void>) | undefined
   database?: PostgresTestDatabase | undefined
   dropDatabase: (database: PostgresTestDatabase) => Promise<void>
@@ -20,10 +21,12 @@ export type E2ELifecycleResources = Readonly<{
 const cleanResources = async ({
   cleanPreviewArtifacts,
   cleanWorkerBindings,
+  closePreviewCaptureServer,
   database,
   dropDatabase,
 }: E2ELifecycleResources): Promise<void> => {
   await cleanWorkerBindings?.()
+  await closePreviewCaptureServer?.()
   const errors: unknown[] = []
   if (database !== undefined) {
     try {

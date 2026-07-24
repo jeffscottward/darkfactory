@@ -14,4 +14,5 @@ describe "ContactPage", ->
     expect(html).toContain("Talk to the people behind the system.")
     expect(html).toContain("Delivery is reported exactly as it happens")
     expect(html).toContain('aria-labelledby="contact-expectations-title"')
+    expect(html).toContain('<section aria-labelledby="contact-expectations-title"')
     expect(html).toContain('id="contact-form"')

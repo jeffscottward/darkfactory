@@ -81,17 +81,19 @@ cp .env.example .env
 
 Treat [`.env.schema`](.env.schema) as the public variable contract and [`.env.example`](.env.example) as safe starter values. Put real values only in an ignored environment file, Varlock/1Password reference, CI secret store, or deployment secret store. Never commit `.env`, resolved secrets, private keys, or raw environment dumps. Client variables remain an explicit allowlist; a server variable is not safe for a browser bundle merely because it exists in the schema.
 
-For the repository's disposable local database, set `DATABASE_URL` in the ignored environment to:
+Before startup, set `DATABASE_PROVIDER=postgres` and provide distinct development-only values of at least 32 characters for both `BETTER_AUTH_SECRET` and `CONTACT_THROTTLE_SECRET`. All three are required; never reuse either secret outside this disposable environment.
+
+For the repository's disposable local application database, set `DATABASE_URL` in the ignored environment to:
 
 ```text
-postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance
+postgresql://darkfactory_app:darkfactory-app-local-only@127.0.0.1:5432/darkfactory_dev
 ```
 
 Then start PostgreSQL and apply the checked-in migrations with Varlock loading the ignored values:
 
 ```bash
 pnpm db:test:up
-varlock load -- pnpm db:migrate
+varlock run -- pnpm db:migrate
 ```
 
 ### Development seed warning
@@ -99,7 +101,7 @@ varlock load -- pnpm db:migrate
 `pnpm db:seed` creates predictable development identities (`admin@domain.test`, `alice@domain.test`, and `bob@domain.test`) with the shared password `Development123!`. These accounts and credentials are deliberately unsafe outside a disposable development or test database. The command requires `APP_ENV=development` or `APP_ENV=test`, but you must still inspect `DATABASE_URL` before running it. Never seed a shared, staging, customer, or production database.
 
 ```bash
-varlock load -- pnpm db:seed
+varlock run -- pnpm db:seed
 ```
 
 `pnpm db:reset` is destructive and has the same environment restriction. Use it only against a disposable local/test target.
@@ -110,7 +112,8 @@ The only canonical human-facing local URL is <https://darkfactory.localhost>. Po
 
 ```bash
 pnpm dev:trust
-varlock load -- pnpm dev:https
+pnpm dev:bindings
+pnpm dev:https
 pnpm dev:status
 pnpm dev:logs
 pnpm dev:stop
@@ -118,10 +121,12 @@ pnpm dev:stop
 
 `pnpm dev:https` is idempotent and starts `portless darkfactory pnpm dev` through PM2. Run `pnpm dev:trust` first. Use `pnpm certs:install` and `pnpm certs:generate` only as the documented mkcert fallback when portless trust cannot work; generated certificates and keys stay ignored.
 
+The Cloudflare Worker runtime reads server bindings from the ignored `apps/web/.dev.vars` file rather than inheriting them from PM2. `pnpm dev:bindings` validates `.env`, writes a same-directory temporary file with mode `0600`, and atomically replaces the binding file without printing its contents. Regenerate it after changing `.env`; never commit it.
+
 After PostgreSQL, environment values, trust, and the PM2 route are ready, inspect the complete prerequisite report:
 
 ```bash
-varlock load -- pnpm doctor
+varlock run -- pnpm doctor
 ```
 
 See [Local development](docs/local-development.md) for installation details, lifecycle recovery, and cleanup.
@@ -161,10 +166,10 @@ Start the isolated PostgreSQL service and load the test environment before datab
 
 ```bash
 pnpm db:test:up
-varlock load -- pnpm test:unit
-varlock load -- pnpm test:integration
-varlock load -- pnpm test:e2e
-varlock load -- pnpm verify
+varlock run -- pnpm test:unit
+varlock run -- pnpm test:integration
+varlock run -- pnpm test:e2e
+varlock run -- pnpm verify
 pnpm db:test:down
 ```
 
@@ -188,7 +193,7 @@ pnpm graph:check
 pnpm graph:verify
 ```
 
-`graphify-out/` is generated output and is not hand-edited.
+`graphify-out/` is generated output and is not hand-edited. Build and update replace only Graphify's known generated entries before extraction so stale snapshot-root node identities cannot survive a refresh.
 
 ## Capabilities and deployment boundary
 

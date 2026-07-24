@@ -152,6 +152,10 @@ describe("E2E lifecycle cleanup", () => {
           expect(processExists(address.pid)).toBe(false)
           cleanupOrder.push("worker-bindings")
         },
+        closePreviewCaptureServer: async () => {
+          expect(processExists(address.pid)).toBe(false)
+          cleanupOrder.push("preview-server")
+        },
         database: fakeDatabase,
         dropDatabase: async () => {
           expect(processExists(child.pid!)).toBe(false)
@@ -169,6 +173,7 @@ describe("E2E lifecycle cleanup", () => {
       })
       expect(cleanupOrder).toEqual([
         "worker-bindings",
+        "preview-server",
         "database",
         "preview",
         "route-lock",
@@ -178,4 +183,38 @@ describe("E2E lifecycle cleanup", () => {
       await terminateOwnedProcessTree(child).catch(() => undefined)
     }
   }, 15_000)
+
+  it("drains an in-flight preview capture before deleting its artifacts", async () => {
+    const cleanupOrder: string[] = []
+    let releaseCapture!: () => void
+    let captureCloseStarted!: () => void
+    const captureCloseStartedPromise = new Promise<void>((resolve) => {
+      captureCloseStarted = resolve
+    })
+    const captureReleased = new Promise<void>((resolve) => {
+      releaseCapture = resolve
+    })
+    const cleanupPromise = cleanupE2ELifecycle({
+      cleanPreviewArtifacts: async () => {
+        cleanupOrder.push("preview")
+      },
+      closePreviewCaptureServer: async () => {
+        cleanupOrder.push("preview-server:start")
+        captureCloseStarted()
+        await captureReleased
+        cleanupOrder.push("preview-server:drained")
+      },
+      dropDatabase: async () => undefined,
+    })
+
+    await captureCloseStartedPromise
+    expect(cleanupOrder).toEqual(["preview-server:start"])
+    releaseCapture()
+    await cleanupPromise
+    expect(cleanupOrder).toEqual([
+      "preview-server:start",
+      "preview-server:drained",
+      "preview",
+    ])
+  })
 })

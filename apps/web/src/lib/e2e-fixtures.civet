@@ -4,6 +4,7 @@ export interface E2eFixtureEnvironment {
   readonly APP_ENV?: string
   readonly E2E_FIXTURES?: string
   readonly E2E_EMAIL_PREVIEW_DIRECTORY?: string
+  readonly E2E_EMAIL_PREVIEW_ENDPOINT?: string
   readonly E2E_EMAIL_PREVIEW_HMAC_KEY?: string
   readonly E2E_RUN_ID?: string
   readonly NODE_ENV?: string
@@ -20,6 +21,7 @@ export const isE2eFixtureEnabled = (
 export type E2eEmailPreviewOptions = Readonly<{
   authDirectory: string
   contactDirectory: string
+  captureEndpoint: string
   binding: Readonly<{
     runId: string
     hmacKey: string
@@ -45,6 +47,25 @@ export const resolveE2eEmailPreviewOptions = (
   if (!hmacKey || !/^[A-Za-z0-9_-]{43}$/.test(hmacKey)) {
     throw new Error("E2E_EMAIL_PREVIEW_HMAC_KEY must be 32-byte base64url")
   }
+  const captureEndpointValue = environment.E2E_EMAIL_PREVIEW_ENDPOINT?.trim()
+  let captureEndpoint: URL
+  try {
+    captureEndpoint = new URL(captureEndpointValue ?? "")
+  } catch {
+    throw new Error("E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL")
+  }
+  if (
+    captureEndpoint.protocol !== "http:"
+    || captureEndpoint.hostname !== "127.0.0.1"
+    || captureEndpoint.port.length === 0
+    || captureEndpoint.pathname !== "/v1/capture"
+    || captureEndpoint.username !== ""
+    || captureEndpoint.password !== ""
+    || captureEndpoint.search !== ""
+    || captureEndpoint.hash !== ""
+  ) {
+    throw new Error("E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL")
+  }
 
   const authDirectory = resolve(directory)
   const previewsDirectory = dirname(authDirectory)
@@ -63,6 +84,7 @@ export const resolveE2eEmailPreviewOptions = (
   }
 
   return {
+    captureEndpoint: captureEndpoint.href,
     authDirectory,
     contactDirectory: join(previewsDirectory, "contact"),
     binding: { runId, hmacKey },

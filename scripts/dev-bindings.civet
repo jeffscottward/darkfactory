@@ -1,0 +1,14 @@
+import { materializeWorkerBindings } from "./dev/bindings.civet"
+
+try {
+  await materializeWorkerBindings()
+  process.stdout.write(JSON.stringify({
+    action: "dev:bindings",
+    ok: true,
+    target: "apps/web/.dev.vars",
+    mode: "0600",
+  }) + "\n")
+} catch {
+  process.stderr.write("Unable to materialize validated Worker bindings safely.\n")
+  process.exitCode = 1
+}

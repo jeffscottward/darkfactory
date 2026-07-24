@@ -35,6 +35,7 @@ import {
   sanitizeE2ERunnerReport,
   type E2ERunnerState,
 } from "./state.civet"
+import { sanitizePlaywrightJsonReport } from "./playwright-report.civet"
 
 export type CliStreams = Readonly<{
   writeOutput: (value: string) => void
@@ -221,7 +222,7 @@ export const finalizeAndObserveE2ELifecycle = async (
   repositoryPath = process.cwd(),
 ): Promise<FinalizedLifecycleObservation> => {
   let finalizationFailed = false
-  if (processResult.exitCode !== 0 && processResult.treeTerminated) {
+  if (processResult.treeTerminated) {
     try {
       await finalizeOwnedLifecycleAfterPlaywright({
         encodedAdoption: environment["E2E_RUN_ADOPTION"] ?? "",
@@ -600,10 +601,24 @@ export const runJourneyCli = async (
     isolatedEnvironment,
   ) => {
     const environment = createPlaywrightEnvironment(process.env, isolatedEnvironment)
+    const knownSecrets = [
+      ...databaseUrlSensitiveValues(environment["DATABASE_URL"] ?? ""),
+      isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
+    ]
     const result = await runOwnedCommand(corepack, playwrightArguments, {
       cwd: repositoryPath,
       env: environment,
     })
+    let reportSanitized = false
+    const reportPath = environment["PLAYWRIGHT_JSON_OUTPUT_NAME"]
+    if (reportPath !== undefined) {
+      try {
+        await sanitizePlaywrightJsonReport(reportPath, knownSecrets)
+        reportSanitized = true
+      } catch {
+        // The command fails closed. CI uploads artifacts only after a green browser lane.
+      }
+    }
     const finalizedLifecycle = await finalizeAndObserveE2ELifecycle(
       isolatedEnvironment,
       result,
@@ -617,10 +632,6 @@ export const runJourneyCli = async (
       result.stdout,
       result.stderr,
     )
-    const knownSecrets = [
-      ...databaseUrlSensitiveValues(environment["DATABASE_URL"] ?? ""),
-      isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
-    ]
     const safeStdout = redactProcessOutput(result.stdout, knownSecrets)
     const safeStderr = redactProcessOutput(result.stderr, knownSecrets)
     if (safeStdout) streams.writeOutput(safeStdout)
@@ -630,6 +641,9 @@ export const runJourneyCli = async (
         ...(result.exitCode === 0 && result.treeTerminated
           ? []
           : collectProcessDiagnostics(result.stdout, result.stderr, knownSecrets)),
+        ...(!reportSanitized
+          ? ["Owned Playwright JSON report redaction failed safely"]
+          : []),
         ...(lifecycleFinalizationFailed
           ? ["Owned Playwright lifecycle finalization failed safely"]
           : []),
@@ -638,7 +652,7 @@ export const runJourneyCli = async (
       lifecycleStage: lifecycle.lifecycleStage,
       lifecycleObservation: lifecycle.lifecycleObservation,
       lifecycleObservationReason: lifecycle.lifecycleObservationReason,
-      exitCode: result.exitCode,
+      exitCode: reportSanitized ? result.exitCode : 1,
       treeTerminated: result.treeTerminated,
     }
   }

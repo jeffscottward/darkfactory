@@ -13,7 +13,10 @@ import { SessionRedirect, destinationForSession } from "./session-redirect.civet
 import { SignInForm } from "./sign-in-form.civet"
 import { SignUpForm } from "./sign-up-form.civet"
 import { ResetPasswordForm } from "./reset-password-form.civet"
-import { captureAndScrubResetToken } from "./reset-password-entry.civet"
+import {
+  captureAndScrubResetToken,
+  scrubResetTokenMarkup,
+} from "./reset-password-entry.civet"
 import { EmailActionForm } from "./email-action-form.civet"
 
 const client: AuthFlowClient = {
@@ -127,6 +130,20 @@ describe "auth form surface", ->
         history,
       ),
     ).toBeUndefined()
+
+  it "removes hydrated route scripts that retain the captured reset token", ->
+    const sensitiveScript = {
+      textContent: 'self.__next_f.push(["one-time-reset-token"])',
+      remove: vi.fn(),
+    }
+    const safeScript = { textContent: "bootstrap()", remove: vi.fn() }
+
+    scrubResetTokenMarkup("one-time-reset-token", {
+      querySelectorAll: () => [sensitiveScript, safeScript],
+    })
+
+    expect(sensitiveScript.remove).toHaveBeenCalledOnce()
+    expect(safeScript.remove).not.toHaveBeenCalled()
 
 describe "signed-in auth route redirect", ->
   it "gates interactive auth children behind an initial session check", ->

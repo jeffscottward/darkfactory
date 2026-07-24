@@ -32,12 +32,12 @@ Install PM2 and Graphify through your managed global-tool workflow if they are a
 cp .env.example .env
 ```
 
-Keep `.env` ignored. Resolve real values with Varlock and, where available, secret-manager references rather than copying secrets between files. `DATABASE_URL` and `BETTER_AUTH_SECRET` are required. Provider groups remain unavailable until all values needed by that provider are configured. Never expose server variables to client code without adding them to the explicit client allowlist and reviewing the bundle boundary.
+Keep `.env` ignored. Resolve real values with Varlock and, where available, secret-manager references rather than copying secrets between files. `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `CONTACT_THROTTLE_SECRET` are required; the two secrets must be distinct development-only values of at least 32 characters. Set `DATABASE_PROVIDER=postgres` for the local Compose service. Provider groups remain unavailable until all values needed by that provider are configured. Never expose server variables to client code without adding them to the explicit client allowlist and reviewing the bundle boundary.
 
 For a local command that needs environment values, use:
 
 ```bash
-varlock load -- pnpm <script>
+varlock run -- pnpm <script>
 ```
 
 Do not source `.env` as a shell script: environment-file syntax and shell syntax are not interchangeable, and the example contains values with spaces and angle brackets.
@@ -52,16 +52,18 @@ The checked-in Compose service is isolated to loopback and uses tmpfs storage. I
 pnpm db:test:up
 ```
 
-The local runner URL is:
+The disposable local application URL is:
 
 ```text
-postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance
+postgresql://darkfactory_app:darkfactory-app-local-only@127.0.0.1:5432/darkfactory_dev
 ```
+
+The unprivileged `darkfactory_app` role owns only the disposable application database. The separate `darkfactory_test_runner` role and `darkfactory_test_maintenance` database are reserved for the isolated test harness to create and drop per-run databases; do not run the application with that database-creation role.
 
 Put that value in the ignored `.env`, then apply migrations:
 
 ```bash
-varlock load -- pnpm db:migrate
+varlock run -- pnpm db:migrate
 ```
 
 Useful database commands:
@@ -99,13 +101,16 @@ First establish portless trust:
 pnpm dev:trust
 ```
 
-Then start the long-lived process with the resolved environment:
+Then materialize the validated values into the ignored Worker binding file and start the long-lived process:
 
 ```bash
-varlock load -- pnpm dev:https
+pnpm dev:bindings
+pnpm dev:https
 ```
 
 The lifecycle owns exactly one PM2 process, `darkfactory-web-dev`, running `portless darkfactory pnpm dev`. Starting again inspects and reuses the expected process instead of creating a duplicate. A process with the same PM2 name but a different executable, working directory, or arguments is rejected rather than adopted.
+
+Vinext's Cloudflare Worker runtime reads server bindings from `apps/web/.dev.vars`; the parent PM2 environment is deliberately restricted to non-secret process controls. `pnpm dev:bindings` writes a mode-`0600` temporary file and atomically replaces the destination without printing its contents. Regenerate it after `.env` changes and never commit it.
 
 ```bash
 pnpm dev:status
@@ -124,7 +129,7 @@ Portless trust is primary. Use mkcert only when it is installed and portless tru
 ```bash
 pnpm certs:install
 pnpm certs:generate
-varlock load -- pnpm doctor -- --cert-fallback
+varlock run -- pnpm doctor -- --cert-fallback
 ```
 
 The fallback generates `.certs/localhost.pem` and `.certs/localhost-key.pem` for `localhost`, `*.localhost`, `127.0.0.1`, and `::1`. `.certs/`, PEM files, and keys are ignored. Never commit, attach, or paste the private key.
@@ -134,7 +139,7 @@ The fallback generates `.certs/localhost.pem` and `.certs/localhost-key.pem` for
 Run the doctor only after dependencies, environment, PostgreSQL, trust, route, and PM2 process are ready:
 
 ```bash
-varlock load -- pnpm doctor
+varlock run -- pnpm doctor
 ```
 
 It checks the capability manifest, Node and pnpm versions, the pinned toolchain, vinext, Docker and PostgreSQL, Wrangler and Cloudflare configuration, required/provider environment status, portless, HTTPS trust, PM2, Graphify, enabled development tools, and mkcert only when the fallback flag is selected. A reported failure is a prerequisite to repair, not a reason to weaken the check.
@@ -142,7 +147,7 @@ It checks the capability manifest, Node and pnpm versions, the pinned toolchain,
 Machine-readable output is available with:
 
 ```bash
-varlock load -- pnpm doctor -- --json
+varlock run -- pnpm doctor -- --json
 ```
 
 ## Common recovery
@@ -152,7 +157,7 @@ varlock load -- pnpm doctor -- --json
 1. Run `pnpm dev:status` and `pnpm dev:logs`.
 2. Stop the owned process with `pnpm dev:stop`.
 3. Run `pnpm dev:trust`.
-4. Start again with `varlock load -- pnpm dev:https`.
+4. Regenerate bindings with `pnpm dev:bindings`, then start with `pnpm dev:https`.
 5. Confirm `portless get darkfactory` returns the canonical HTTPS URL.
 
 If another noncanonical portless proxy is active, stop that proxy before retrying. Do not change DarkFactory to a raw port to work around the conflict.
@@ -162,7 +167,7 @@ If another noncanonical portless proxy is active, stop that proxy before retryin
 ```bash
 pnpm db:test:down
 pnpm db:test:up
-varlock load -- pnpm db:migrate
+varlock run -- pnpm db:migrate
 ```
 
 This destroys the disposable local database. Seed again only after rechecking `APP_ENV` and `DATABASE_URL`.

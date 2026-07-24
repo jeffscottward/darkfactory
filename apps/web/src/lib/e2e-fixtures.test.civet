@@ -40,9 +40,11 @@ describe "E2E-only route fixtures", ->
       E2E_FIXTURES: "1",
       E2E_RUN_ID: "run_123",
       E2E_EMAIL_PREVIEW_HMAC_KEY: hmacKey,
+      E2E_EMAIL_PREVIEW_ENDPOINT: "http://127.0.0.1:43123/v1/capture",
       E2E_EMAIL_PREVIEW_DIRECTORY:
         "  /repo/test-results/e2e-runs/run_123/previews/auth  ",
     })).toEqual({
+      captureEndpoint: "http://127.0.0.1:43123/v1/capture",
       authDirectory: "/repo/test-results/e2e-runs/run_123/previews/auth",
       contactDirectory: "/repo/test-results/e2e-runs/run_123/previews/contact",
       binding: { runId: "run_123", hmacKey },
@@ -58,6 +60,7 @@ describe "E2E-only route fixtures", ->
       E2E_FIXTURES: "1",
       E2E_RUN_ID: "run_123",
       E2E_EMAIL_PREVIEW_HMAC_KEY: "a".repeat(43),
+      E2E_EMAIL_PREVIEW_ENDPOINT: "http://127.0.0.1:43123/v1/capture",
     }
     expect(() => resolveE2eEmailPreviewOptions(valid)).toThrowError(
       "E2E_EMAIL_PREVIEW_DIRECTORY is required when E2E fixtures are enabled",
@@ -73,3 +76,9 @@ describe "E2E-only route fixtures", ->
       E2E_EMAIL_PREVIEW_DIRECTORY:
         "/repo/test-results/e2e-runs/run_123/previews/auth",
     })).toThrowError("E2E_EMAIL_PREVIEW_HMAC_KEY must be 32-byte base64url")
+    expect(() => resolveE2eEmailPreviewOptions({
+      ...valid,
+      E2E_EMAIL_PREVIEW_ENDPOINT: "http://localhost:43123/v1/capture",
+      E2E_EMAIL_PREVIEW_DIRECTORY:
+        "/repo/test-results/e2e-runs/run_123/previews/auth",
+    })).toThrowError("E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL")

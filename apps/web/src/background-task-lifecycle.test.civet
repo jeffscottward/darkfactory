@@ -1,0 +1,50 @@
+import { describe, expect, it, vi } from "vitest"
+
+import { createBackgroundTaskLifecycle } from "./lib/background-task-lifecycle.civet"
+
+describe "request background task lifecycle", ->
+  it "closes immediately when no task was scheduled", async ->
+    const close = vi.fn(async () => undefined)
+    const scheduleExternal = vi.fn()
+    const lifecycle = createBackgroundTaskLifecycle(scheduleExternal, close)
+
+    await lifecycle.finalize()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(scheduleExternal).not.toHaveBeenCalled()
+
+  it "keeps the request database open until every scheduled task settles", async ->
+    let releaseTask!: () => void
+    const task = new Promise<void>((resolve) => {
+      releaseTask = resolve
+    })
+    const close = vi.fn(async () => undefined)
+    const scheduled: Promise<unknown>[] = []
+    const lifecycle = createBackgroundTaskLifecycle(
+      (promise) => scheduled.push(promise),
+      close,
+    )
+
+    lifecycle.schedule(task)
+    await lifecycle.finalize()
+
+    expect(close).not.toHaveBeenCalled()
+    expect(scheduled).toHaveLength(2)
+    releaseTask()
+    await Promise.allSettled(scheduled)
+    expect(close).toHaveBeenCalledOnce()
+
+  it "closes synchronously when waitUntil rejects the close task", async ->
+    let calls = 0
+    const close = vi.fn(async () => undefined)
+    const lifecycle = createBackgroundTaskLifecycle(
+      () => {
+        calls += 1
+        if (calls === 2) throw new Error("waitUntil unavailable")
+      },
+      close,
+    )
+    lifecycle.schedule(Promise.resolve())
+
+    await expect(lifecycle.finalize()).rejects.toThrow("waitUntil unavailable")
+    expect(close).toHaveBeenCalledOnce()

@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { useRef } from "react"
 import { ExternalLink, Menu } from "lucide-react"
 import { IconButton } from "@darkfactory/ui"
 import {
@@ -117,6 +118,7 @@ export const PortalTopbar = ({
   isAdmin = false,
 }: PortalNavigationProps) => {
   const store = useUiStoreApi()
+  const mobileNavigationContentRef = useRef<HTMLDivElement>(null)
   const mobileNavigationOpen = useUiState((state) => state.mobileNavigationOpen)
 
   return (
@@ -135,6 +137,13 @@ export const PortalTopbar = ({
             <DialogContent
               className="left-0 right-auto top-0 h-dvh max-h-dvh w-full max-w-sm translate-x-0 translate-y-0 rounded-none border-y-0 border-l-0"
               description="Open portal and account destinations."
+              onOpenAutoFocus={(event) => {
+                const firstDestination = mobileNavigationContentRef.current?.querySelector<HTMLElement>("a[href]")
+                if (!firstDestination) return
+                event.preventDefault()
+                firstDestination.focus()
+              }}
+              ref={mobileNavigationContentRef}
               title="Portal navigation"
             >
               <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} mobile />

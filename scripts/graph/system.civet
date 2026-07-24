@@ -142,6 +142,26 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
   inspect: inspectPath,
   readText: readBounded,
   writeText: writeAtomic,
+  resetGraphOutput: async (graphPath) => {
+    const outputDirectory = dirname(graphPath)
+    const targets = [
+      graphPath,
+      join(outputDirectory, "cache"),
+      join(outputDirectory, ".graphify_analysis.json"),
+      join(outputDirectory, "manifest.json"),
+    ]
+    for (const target of targets) {
+      const info = await inspectPath(target)
+      if (info.kind === "missing") continue
+      if (info.kind !== "file" && info.kind !== "directory") {
+        throw new Error("Graph output contains an unsafe generated path")
+      }
+      await rm(containedPath(target), {
+        force: true,
+        recursive: info.kind === "directory",
+      })
+    }
+  },
   listSourceFiles: listConfiguredSourceFiles,
   createSourceSnapshot: async (config) => {
     const snapshotRoot = await mkdtemp(join(tmpdir(), "darkfactory-graphify-"))

@@ -115,19 +115,30 @@ const expectError = async (
   promise: Promise<unknown>,
   code: string,
   status: number,
+  message?: string,
 ): Promise<void> => {
   try {
     await promise
     throw new Error("Expected the oRPC call to fail")
   } catch (error) {
     expect(error).toBeInstanceOf(ORPCError)
-    expect(error).toMatchObject({ code, status, defined: true })
+    expect(error).toMatchObject({
+      code,
+      status,
+      defined: true,
+      ...(message === undefined ? {} : { message }),
+    })
   }
 }
 
 describe "DF-045/051 production context to middleware to Fetch handler", ->
   it "denies an anonymous feature request", async ->
-    await expectError(clientFor(null).featureItems.list({}), "UNAUTHORIZED", 401)
+    await expectError(
+      clientFor(null).featureItems.list({}),
+      "UNAUTHORIZED",
+      401,
+      "Authentication required",
+    )
 
   it "allows an authenticated member within their owner scope", async ->
     await expect(clientFor(session("member")).featureItems.list({})).resolves.toEqual([
@@ -141,6 +152,7 @@ describe "DF-045/051 production context to middleware to Fetch handler", ->
       }),
       "FORBIDDEN",
       403,
+      "Forbidden",
     )
 
   it "allows an admin through the real admin application procedure", async ->

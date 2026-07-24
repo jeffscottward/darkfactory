@@ -176,6 +176,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
           transport: env.EMAIL_TRANSPORT,
           previewDirectory: previewOptions?.authDirectory,
           previewBinding: previewOptions?.binding,
+          previewCaptureEndpoint: previewOptions?.captureEndpoint,
           resendApiKey: env.RESEND_API_KEY,
           from: env.EMAIL_FROM,
           trustedAppOrigin: env.APP_URL,
@@ -186,6 +187,8 @@ const handleOrpc = async (request: Request): Promise<Response> => {
               transport: env.EMAIL_TRANSPORT,
               recipient: env.CONTACT_EMAIL_TO,
               previewDirectory: previewOptions?.contactDirectory,
+              previewCaptureEndpoint: previewOptions?.captureEndpoint,
+              previewBinding: previewOptions?.binding,
               resendApiKey: env.RESEND_API_KEY,
               from: env.EMAIL_FROM,
             })

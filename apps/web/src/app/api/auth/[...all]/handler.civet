@@ -5,8 +5,12 @@ import { createRequestDatabase } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
 
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
+import {
+  createBackgroundTaskLifecycle,
+  type BackgroundTaskScheduler,
+} from "../../../../lib/background-task-lifecycle.civet"
+export type { BackgroundTaskScheduler } from "../../../../lib/background-task-lifecycle.civet"
 
-export type BackgroundTaskScheduler = (task: Promise<unknown>) => void
 
 export const handleAuthRequest = async (
   request: Request,
@@ -18,6 +22,10 @@ export const handleAuthRequest = async (
   const database = await createRequestDatabase({
     connectionString: databaseProfile.connection.connectionString,
   })
+  const backgroundTasks = createBackgroundTaskLifecycle(
+    scheduleBackgroundTask,
+    database.close,
+  )
 
   try {
     const email = selectEmailPort({
@@ -25,6 +33,7 @@ export const handleAuthRequest = async (
       transport: env.EMAIL_TRANSPORT,
       previewDirectory: previewOptions?.authDirectory,
       previewBinding: previewOptions?.binding,
+      previewCaptureEndpoint: previewOptions?.captureEndpoint,
       resendApiKey: env.RESEND_API_KEY,
       from: env.EMAIL_FROM,
       trustedAppOrigin: env.APP_URL,
@@ -35,10 +44,10 @@ export const handleAuthRequest = async (
       secret: env.BETTER_AUTH_SECRET,
       baseURL: env.BETTER_AUTH_URL,
       trustedOrigins: [env.APP_URL],
-      scheduleBackgroundTask,
+      scheduleBackgroundTask: backgroundTasks.schedule,
     })
     return await createAuthHandler(auth)(request)
   } finally {
-    await database.close()
+    await backgroundTasks.finalize()
   }
 }

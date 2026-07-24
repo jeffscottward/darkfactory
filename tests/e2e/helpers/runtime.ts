@@ -32,9 +32,11 @@ export const E2E_WORKER_BINDING_KEYS = [
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
   "CONTACT_THROTTLE_SECRET",
+  "CONTACT_EMAIL_TO",
   "EMAIL_TRANSPORT",
   "E2E_FIXTURES",
   "E2E_EMAIL_PREVIEW_DIRECTORY",
+  "E2E_EMAIL_PREVIEW_ENDPOINT",
   "E2E_EMAIL_PREVIEW_HMAC_KEY",
   "E2E_RUN_ID",
   "PORTLESS_PORT",
@@ -173,17 +175,34 @@ export const createE2EServerEnvironment = ({
   databaseUrl,
   portlessPort,
   runPaths,
+  previewCaptureEndpoint,
   secret,
   source,
 }: {
   readonly databaseUrl: string;
   readonly portlessPort: number | undefined;
+  readonly previewCaptureEndpoint: string;
   readonly runPaths: E2ERunPaths;
   readonly secret: string;
   readonly source: E2EProcessEnvironment;
 }): E2EProcessEnvironment => {
   assertRuntimeInput({ databaseUrl, secret, source });
   const appUrl = canonicalBaseURL(portlessPort);
+  const captureEndpoint = new URL(previewCaptureEndpoint);
+  if (
+    captureEndpoint.protocol !== "http:" ||
+    captureEndpoint.hostname !== "127.0.0.1" ||
+    captureEndpoint.port.length === 0 ||
+    captureEndpoint.pathname !== "/v1/capture" ||
+    captureEndpoint.username !== "" ||
+    captureEndpoint.password !== "" ||
+    captureEndpoint.search !== "" ||
+    captureEndpoint.hash !== ""
+  ) {
+    throw new Error(
+      "E2E preview capture endpoint must be an exact loopback URL."
+    );
+  }
 
   return {
     ...createE2EExecutionEnvironment(source),
@@ -195,9 +214,11 @@ export const createE2EServerEnvironment = ({
     BETTER_AUTH_SECRET: secret,
     BETTER_AUTH_URL: appUrl,
     CONTACT_THROTTLE_SECRET: secret,
+    CONTACT_EMAIL_TO: "contact@darkfactory.test",
     EMAIL_TRANSPORT: "preview",
     E2E_FIXTURES: "1",
     E2E_EMAIL_PREVIEW_DIRECTORY: runPaths.authPreviews,
+    E2E_EMAIL_PREVIEW_ENDPOINT: captureEndpoint.href,
     E2E_EMAIL_PREVIEW_HMAC_KEY: source["E2E_EMAIL_PREVIEW_HMAC_KEY"],
     E2E_RUN_ID: runPaths.runId,
     PORTLESS_PORT: portlessPort?.toString() ?? "",

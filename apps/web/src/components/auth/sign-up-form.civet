@@ -183,7 +183,7 @@ export const SignUpForm = ({
       <form.Field
         name="confirmPassword"
         validators={{
-          onBlur: ({ value }) => {
+          onChange: ({ value }) => {
             return validatePasswordConfirmation(value, form.state.values.password)
           },
           onSubmit: ({ value }) => {
@@ -220,11 +220,11 @@ export const SignUpForm = ({
 
       <FormStatus result={result} />
 
-      <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
-        {([canSubmit, isSubmitting]) => (
+      <form.Subscribe selector={(state) => state.isSubmitting}>
+        {(isSubmitting) => (
           <Button
             className="min-h-11 w-full"
-            disabled={!canSubmit || isSubmitting || isPending}
+            disabled={isSubmitting || isPending}
             type="submit"
           >
             {isSubmitting || isPending ? "Creating account…" : "Create account"}

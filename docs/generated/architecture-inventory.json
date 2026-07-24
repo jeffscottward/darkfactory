@@ -20,6 +20,7 @@
     "deploy:web:check",
     "deploy:web:preview",
     "dev",
+    "dev:bindings",
     "dev:https",
     "dev:logs",
     "dev:status",

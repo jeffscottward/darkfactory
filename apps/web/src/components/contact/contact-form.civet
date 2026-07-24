@@ -50,16 +50,15 @@ export const ContactStatus = ({
   const isError = feedback.tone === "error"
   return (
     <p
-      aria-live={isError ? "assertive" : "polite"}
       className={
-        `border-l-2 py-3 pl-4 text-sm leading-6 ${
+        `border-l-2 py-3 pl-4 pr-4 text-sm leading-6 ${
           feedback.tone === "error"
-            ? "border-destructive text-destructive"
+            ? "border-destructive bg-destructive-subtle text-destructive"
             : feedback.tone === "warning"
-              ? "border-warning-border text-warning-foreground"
+              ? "border-warning-border bg-warning-subtle text-warning-foreground"
               : feedback.tone === "success"
-                ? "border-success-border text-success-foreground"
-                : "border-info-border text-info-foreground"
+                ? "border-success-border bg-success-subtle text-success-foreground"
+                : "border-info-border bg-info-subtle text-info-foreground"
         }`
       }
       id="contact-status"
@@ -74,7 +73,6 @@ export const ContactStatus = ({
 export const ContactForm = ({ gateway }: ContactFormProps) => {
   const [feedback, setFeedback] = useState<ContactFeedback | null>(null)
   const [validationSummary, setValidationSummary] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
   const submissionInFlight = useRef(false)
   const form = useForm({
     defaultValues: {
@@ -87,7 +85,6 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
     onSubmit: async ({ value }) => {
       if (submissionInFlight.current) return
       submissionInFlight.current = true
-      setSubmitting(true)
       setFeedback(null)
       try {
         const output = await (gateway ?? createBrowserContactGateway()).submit({
@@ -102,7 +99,6 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
       } catch (error) {
         setFeedback(safeContactFailure(error))
       } finally {
-        setSubmitting(false)
         submissionInFlight.current = false
         window.setTimeout(() => document.getElementById("contact-status")?.focus(), 0)
       }
@@ -143,7 +139,6 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
 
       {validationSummary === null ? null : (
         <p
-          aria-live="assertive"
           className="border-l-2 border-destructive py-3 pl-4 text-sm leading-6 text-destructive"
           id="contact-validation-summary"
           role="alert"
@@ -244,7 +239,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
 
       <form.Field name="website">
         {(field) => (
-          <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
+          <div aria-hidden="true" className="hidden">
             <label htmlFor="website">Website</label>
             <input
               autoComplete="off"
@@ -260,12 +255,12 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
         )}
       </form.Field>
 
-      <form.Subscribe selector={(state) => state.canSubmit}>
-        {(canSubmit) => (
+      <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
+        {([canSubmit, isSubmitting]) => (
           <Button
             className="min-h-11 w-full sm:w-auto"
-            disabled={!canSubmit || submitting}
-            loading={submitting}
+            disabled={!canSubmit || isSubmitting}
+            loading={isSubmitting}
             loadingLabel="Sending message"
             type="submit"
           >

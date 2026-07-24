@@ -7,6 +7,7 @@ import {
 } from "./doctor.civet"
 import { parseCapabilityManifest } from "./manifest.civet"
 import { runDoctorCli } from "./cli.civet"
+import { PM2_ENVIRONMENT_VERSION_KEY, PM2_ENVIRONMENT_VERSION } from "../dev/lifecycle.civet"
 
 const MANIFEST = `
 project:
@@ -93,6 +94,7 @@ const healthyDependencies = (
             name: "darkfactory-web-dev",
             pm_id: 7,
             pm2_env: {
+              [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
               status: "online",
               pm_exec_path: `${TEST_CWD}/node_modules/.bin/portless`,
               pm_cwd: TEST_CWD,

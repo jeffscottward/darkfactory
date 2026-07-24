@@ -250,6 +250,13 @@ test("captures sanitized invalid contact state and exercises pending/previewed o
     requestGate = new Promise<void>((resolve) => {
       releaseRequest = resolve;
     });
+    const requestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        request.method() === "POST" &&
+        url.pathname === "/api/orpc/contact/submit"
+      );
+    });
     const responsePromise = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
@@ -257,7 +264,10 @@ test("captures sanitized invalid contact state and exercises pending/previewed o
         url.pathname === "/api/orpc/contact/submit"
       );
     });
-    await page.getByRole("button", { name: "Send message" }).click();
+    await page
+      .locator("#contact-form")
+      .evaluate((form: HTMLFormElement) => form.requestSubmit());
+    await requestPromise;
     await expect(
       page.getByRole("button", { name: "Sending message" })
     ).toBeDisabled();
@@ -310,8 +320,42 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.addInitScript(() => {
       const state = window as typeof window & {
         __DARKFACTORY_E2E_FALSE_ERROR_SUCCESS__?: boolean;
+        __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
       };
       state.__DARKFACTORY_E2E_FALSE_ERROR_SUCCESS__ = false;
+      state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ = 0;
+      const fixtureMessage = "E2E recoverable public error fixture";
+      const reportConsoleError = console.error.bind(console);
+      let sawFixtureError = false;
+      console.error = (...values: unknown[]): void => {
+        const first = values[0];
+        const isFixtureError =
+          values.length === 1 &&
+          ((first instanceof Error && first.message === fixtureMessage) ||
+            (typeof first === "string" &&
+              first.startsWith(`Error: ${fixtureMessage}\n`) &&
+              first.includes("at RecoverableErrorFixture")));
+        if (isFixtureError) {
+          sawFixtureError = true;
+          state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
+            (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
+          reportConsoleError(`Error: ${fixtureMessage}`);
+          return;
+        }
+        if (
+          sawFixtureError &&
+          values.length === 1 &&
+          typeof first === "string" &&
+          first.startsWith("The above error occurred in a React component:") &&
+          first.includes("at RecoverableErrorFixture")
+        ) {
+          state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
+            (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
+          reportConsoleError(`React component error: ${fixtureMessage}`);
+          return;
+        }
+        reportConsoleError(...values);
+      };
       document.addEventListener(
         "DOMContentLoaded",
         () => {
@@ -334,22 +378,31 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
         { once: true }
       );
     });
-    browserErrors.allowHttpError({
-      method: "GET",
-      pathname: "/error-smoke",
-      status: 500,
-    });
-    browserErrors.allowPageError({
-      message: "E2E recoverable public error fixture",
+    browserErrors.allowConsoleError({
+      message: "Error: E2E recoverable public error fixture",
       pathname: "/error-smoke",
     });
-    await page.goto("/error-smoke");
+    browserErrors.allowConsoleError({
+      message: "React component error: E2E recoverable public error fixture",
+      pathname: "/error-smoke",
+    });
+    const errorResponse = await page.goto("/error-smoke");
+    expect(errorResponse?.status()).toBe(200);
+    await waitForStableDocument(page);
     await expect(
       page.getByRole("heading", {
         level: 1,
         name: "This page needs another attempt.",
       })
     ).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const state = window as typeof window & {
+          __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
+        };
+        return state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0;
+      })
+    ).toBe(2);
     expect(
       await page.evaluate(() => {
         const state = window as typeof window & {
@@ -362,6 +415,11 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
       page.locator('section[aria-labelledby="public-error-actions-title"]')
     ).toBeFocused();
     await expectResponsiveDocument(page);
+    expect(
+      await page.evaluate(() =>
+        window.sessionStorage.getItem("darkfactory:e2e:public-error-recovered")
+      )
+    ).toBe("1");
     await captureEvidence(page, testInfo, `public-error-${viewport.width}`);
     await page.evaluate(() => {
       window.sessionStorage.setItem(
@@ -369,7 +427,10 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
         "1"
       );
     });
-    await page.getByRole("button", { name: "Try again" }).click();
+    const recoveryButton = page.getByRole("button", { name: "Try again" });
+    await recoveryButton.focus();
+    await expect(recoveryButton).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(
       page.getByRole("heading", {
         level: 1,

@@ -1,7 +1,6 @@
-import { render } from "react-email"
+import { renderContactEmailHtml } from "./render-email-html.civet"
 
 import type { ContactEmailInput } from "../index.civet"
-import { ContactEmail } from "./contact-template.civet"
 
 const MAILBOX_PATTERN =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
@@ -53,11 +52,15 @@ const normalizeContactInput = (input: ContactEmailInput): ContactEmailInput => {
 export const renderContactEmail = async (
   input: ContactEmailInput,
 ): Promise<RenderedContactEmail> => {
-  const template = <ContactEmail {...normalizeContactInput(input)} />
-  const [html, text] = await Promise.all([
-    render(template),
-    render(template, { plainText: true }),
-  ])
+  const normalized = normalizeContactInput(input)
+  const html = renderContactEmailHtml(normalized)
+  const text = [
+    "New contact request",
+    `From: ${normalized.name}`,
+    normalized.email,
+    `Subject: ${normalized.subject}`,
+    `Message: ${normalized.message}`,
+  ].join("\n\n")
 
   return Object.freeze({
     subject: "New DarkFactory contact request",

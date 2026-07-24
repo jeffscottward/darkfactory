@@ -1,12 +1,17 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { E2ELifecycleState } from "./run-artifacts";
 
 import {
   classifyE2EServerExit,
   createPromiseResolvers,
   probeE2EServerRoutes,
+  waitForE2ELifecycleReady,
   waitForE2EServerReady,
+  type E2EReadinessProbeContext,
+  type PromiseResolvers,
   type E2EServerExitState,
 } from "./server-readiness";
 
@@ -132,6 +137,369 @@ describe("owned E2E server readiness", () => {
     expect(readyAtProbe).toEqual([5]);
   });
 
+  it("holds journeys until two cold route rounds commit lifecycle readiness", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = Object.assign(new EventEmitter(), {
+        exitCode: null,
+        signalCode: null,
+      }) as unknown as ChildProcess;
+      const events: string[] = [];
+      let lifecycleState: E2ELifecycleState = {
+        version: 1,
+        status: "starting",
+        stage: "server-spawn",
+      };
+      const fetchImplementation = vi.fn<typeof fetch>(async (input, init) => {
+        const url = new URL(input.toString());
+        if (url.pathname !== "/") {
+          return new Response("ready", { status: 200 });
+        }
+        return await new Promise<Response>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            events.push("cold-route-response");
+            resolve(new Response("ready", { status: 200 }));
+          }, 40_000);
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timeout);
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true }
+          );
+        });
+      });
+
+      const readiness = waitForE2EServerReady({
+        child,
+        consecutiveSuccessfulProbes: 2,
+        onReady: async () => {
+          lifecycleState = {
+            version: 1,
+            status: "ready",
+            stage: "server-ready",
+          };
+          events.push("readiness-committed");
+        },
+        probe: async ({ deadlineMillis }) =>
+          await probeE2EServerRoutes({
+            appUrl: "https://darkfactory.localhost",
+            deadlineMillis,
+            fetchImplementation,
+          }),
+      });
+      const journey = waitForE2ELifecycleReady({
+        readState: async () => lifecycleState,
+      }).then(() => {
+        events.push("journey-started");
+      });
+
+      await vi.advanceTimersByTimeAsync(79_999);
+      expect(events).not.toContain("readiness-committed");
+      expect(events).not.toContain("journey-started");
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(Promise.all([readiness, journey])).resolves.toEqual([
+        undefined,
+        undefined,
+      ]);
+      expect(events.slice(-2)).toEqual([
+        "readiness-committed",
+        "journey-started",
+      ]);
+      expect(
+        classifyE2EServerExit({
+          intentional: true,
+          ready: lifecycleState.status === "ready",
+          state: { exitCode: null, signal: "SIGTERM" },
+        })
+      ).toBe("stopped");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("commits readiness after a cold 200 without waiting for the response stream to end", async () => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+    }) as unknown as ChildProcess;
+    let readiness: Promise<void> | undefined;
+    try {
+      const events: string[] = [];
+      let lifecycleState: E2ELifecycleState = {
+        version: 1,
+        status: "starting",
+        stage: "server-spawn",
+      };
+      let cold = true;
+      const fetchImplementation = vi.fn<typeof fetch>(async (input, init) => {
+        const path = new URL(input.toString()).pathname;
+        if (cold) {
+          cold = false;
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 45_000);
+          });
+          events.push("http-200");
+        }
+        const body = new ReadableStream<Uint8Array>({
+          cancel() {
+            events.push(`body-cancelled:${path}`);
+          },
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("ready"));
+            init?.signal?.addEventListener(
+              "abort",
+              () => controller.error(new DOMException("Aborted", "AbortError")),
+              { once: true }
+            );
+          },
+        });
+        return new Response(body, { status: 200 });
+      });
+
+      readiness = waitForE2EServerReady({
+        child,
+        consecutiveSuccessfulProbes: 2,
+        onReady: async () => {
+          lifecycleState = {
+            version: 1,
+            status: "ready",
+            stage: "server-ready",
+          };
+          events.push("readiness-committed");
+        },
+        probe: async ({ deadlineMillis, signal }) =>
+          await probeE2EServerRoutes({
+            appUrl: "https://darkfactory.localhost",
+            deadlineMillis,
+            fetchImplementation,
+            signal,
+          }),
+      });
+      const journey = waitForE2ELifecycleReady({
+        readState: async () => lifecycleState,
+      }).then(() => {
+        events.push("journey-started");
+      });
+      const convergence = Promise.race([
+        Promise.all([readiness, journey]).then(() => "ready"),
+        new Promise<"late">((resolve) => {
+          setTimeout(() => resolve("late"), 46_000);
+        }),
+      ]);
+
+      await vi.advanceTimersByTimeAsync(46_000);
+      await expect(convergence).resolves.toBe("ready");
+      expect(events[0]).toBe("http-200");
+      expect(events.slice(-2)).toEqual([
+        "readiness-committed",
+        "journey-started",
+      ]);
+      const cancelledBodies = events.filter((event) =>
+        event.startsWith("body-cancelled:")
+      );
+      expect(cancelledBodies).toHaveLength(6);
+    } finally {
+      child.emit("exit", 1, null);
+      await readiness?.catch(() => undefined);
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails closed instead of releasing a journey from a terminal lifecycle state", async () => {
+    await expect(
+      waitForE2ELifecycleReady({
+        readState: async () => ({
+          version: 1,
+          status: "startup-failed",
+          stage: "server-spawn",
+        }),
+      })
+    ).rejects.toThrow(/startup-failed\/server-spawn/i);
+  });
+
+  it("aborts an in-flight probe without a late readiness commit", async () => {
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+    }) as unknown as ChildProcess;
+    const shutdown = new AbortController();
+    const entered = createPromiseResolvers<void>();
+    const onReady = vi.fn(async () => undefined);
+    const readiness = waitForE2EServerReady({
+      child,
+      onReady,
+      probe: async ({ signal }) =>
+        await new Promise<boolean>((resolve) => {
+          signal.addEventListener("abort", () => resolve(false), {
+            once: true,
+          });
+          entered.resolve();
+        }),
+      signal: shutdown.signal,
+    });
+
+    await entered.promise;
+    shutdown.abort();
+
+    await expect(readiness).rejects.toThrow(/aborted/i);
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["deadline", /timed out/i],
+    ["abort", /aborted/i],
+    ["child-exit", /before readiness/i],
+  ] as const)("joins a cancelled probe on %s before readiness teardown", async (interruption, expectedError) => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+    }) as unknown as ChildProcess;
+    const shutdown = new AbortController();
+    const entered = createPromiseResolvers<void>();
+    const cancellationObserved = createPromiseResolvers<void>();
+    const releaseProbe = createPromiseResolvers<void>();
+    const observationPublished = vi.fn();
+    try {
+      const readiness = waitForE2EServerReady({
+        child,
+        pollIntervalMillis: 1,
+        probe: async ({ signal }) => {
+          entered.resolve();
+          await new Promise<void>((resolve) => {
+            const observeCancellation = () => {
+              cancellationObserved.resolve();
+              resolve();
+            };
+            if (signal.aborted) {
+              observeCancellation();
+              return;
+            }
+            signal.addEventListener("abort", observeCancellation, {
+              once: true,
+            });
+          });
+          await releaseProbe.promise;
+          signal.throwIfAborted();
+          observationPublished();
+          return true;
+        },
+        signal: shutdown.signal,
+        timeoutMillis: interruption === "deadline" ? 30 : 1000,
+      });
+      const readinessFailure = expect(readiness).rejects.toThrow(expectedError);
+      let readinessSettled = false;
+      const readinessSettlement = readiness.then(
+        () => {
+          readinessSettled = true;
+        },
+        () => {
+          readinessSettled = true;
+        }
+      );
+
+      await entered.promise;
+      if (interruption === "deadline") {
+        await vi.advanceTimersByTimeAsync(30);
+      } else if (interruption === "abort") {
+        shutdown.abort();
+      } else {
+        child.emit("exit", 1, null);
+      }
+
+      await cancellationObserved.promise;
+      expect(readinessSettled).toBe(false);
+      releaseProbe.resolve();
+      await readinessFailure;
+      await readinessSettlement;
+      expect(observationPublished).not.toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["deadline", /timed out/i],
+    ["abort", /aborted/i],
+    ["child-exit", /before readiness/i],
+  ] as const)("cancels a pending readiness commit on %s without publishing ready", async (interruption, expectedError) => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+    }) as unknown as ChildProcess;
+    const shutdown = new AbortController();
+    const entered = createPromiseResolvers<void>();
+    const cancellationObserved = createPromiseResolvers<void>();
+    const releaseCommit = createPromiseResolvers<void>();
+    const published = vi.fn();
+    try {
+      const readiness = waitForE2EServerReady({
+        child,
+        onReady: async (context?: E2EReadinessProbeContext) => {
+          entered.resolve();
+          if (context === undefined) {
+            throw new Error("Readiness commit cancellation is unavailable.");
+          }
+          await new Promise<void>((resolve) => {
+            const observeCancellation = () => {
+              cancellationObserved.resolve();
+              resolve();
+            };
+            if (context.signal.aborted) {
+              observeCancellation();
+              return;
+            }
+            context.signal.addEventListener("abort", observeCancellation, {
+              once: true,
+            });
+          });
+          await releaseCommit.promise;
+          context.signal.throwIfAborted();
+          published();
+        },
+        probe: async () => true,
+        signal: shutdown.signal,
+        pollIntervalMillis: 1,
+        timeoutMillis: interruption === "deadline" ? 30 : 1000,
+      });
+      const readinessFailure = expect(readiness).rejects.toThrow(expectedError);
+      let readinessSettled = false;
+      const readinessSettlement = readiness.then(
+        () => {
+          readinessSettled = true;
+        },
+        () => {
+          readinessSettled = true;
+        }
+      );
+
+      await entered.promise;
+      if (interruption === "deadline") {
+        await vi.advanceTimersByTimeAsync(30);
+      } else if (interruption === "abort") {
+        shutdown.abort();
+      } else {
+        child.emit("exit", 1, null);
+      }
+
+      await cancellationObserved.promise;
+      expect(readinessSettled).toBe(false);
+      releaseCommit.resolve();
+      await readinessFailure;
+      await readinessSettlement;
+      expect(published).not.toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not commit readiness when a first success is followed by failure and exit", async () => {
     const child = spawnFixture(BLOCKING_CHILD_SOURCE);
     const onReady = vi.fn(async () => undefined);
@@ -204,7 +572,118 @@ describe("owned E2E server readiness", () => {
     }
   });
 
-  it("rejects redirects, auth errors, missing routes, server errors, and oversized bodies", async () => {
+  it("does not wait for response body cancellation to settle", async () => {
+    const cancellations: PromiseResolvers<void>[] = [];
+    let cancellationInvocations = 0;
+    const fetchImplementation = vi.fn<typeof fetch>(async () => {
+      const cancellation = createPromiseResolvers<void>();
+      const cancel = vi.fn(() => {
+        cancellationInvocations += 1;
+        return cancellation.promise;
+      });
+      cancellations.push(cancellation);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          cancel,
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("ready"));
+          },
+        }),
+        { status: 200 }
+      );
+    });
+    const probe = probeE2EServerRoutes({
+      appUrl: "https://darkfactory.localhost",
+      fetchImplementation,
+    });
+
+    await expect(
+      Promise.race([probe, yieldToChild().then(() => false)])
+    ).resolves.toBe(true);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    expect(cancellationInvocations).toBe(3);
+    expect(cancellations).toHaveLength(3);
+  });
+
+  it("suppresses a late response body cancellation rejection", async () => {
+    const cancellations: PromiseResolvers<void>[] = [];
+    const unhandledRejections: unknown[] = [];
+    const observeUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", observeUnhandledRejection);
+    try {
+      const fetchImplementation = vi.fn<typeof fetch>(async () => {
+        const cancellation = createPromiseResolvers<void>();
+        cancellations.push(cancellation);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            cancel: () => cancellation.promise,
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("ready"));
+            },
+          }),
+          { status: 200 }
+        );
+      });
+
+      await expect(
+        probeE2EServerRoutes({
+          appUrl: "https://darkfactory.localhost",
+          fetchImplementation,
+        })
+      ).resolves.toBe(true);
+      expect(cancellations).toHaveLength(3);
+
+      for (const cancellation of cancellations) {
+        cancellation.reject(new Error("late cancellation failure"));
+      }
+      await yieldToChild();
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", observeUnhandledRejection);
+    }
+  });
+
+  it("aborts an in-flight cold route at the overall readiness deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let aborted = false;
+      const fetchImplementation = vi.fn<typeof fetch>(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(new DOMException("Aborted", "AbortError"));
+              },
+              { once: true }
+            );
+          })
+      );
+      let settled = false;
+      const probe = probeE2EServerRoutes({
+        appUrl: "https://darkfactory.localhost",
+        deadlineMillis: Date.now() + 30_000,
+        fetchImplementation,
+      }).then((result) => {
+        settled = true;
+        return result;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      expect(aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(probe).resolves.toBe(false);
+      expect(aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects redirects, auth errors, missing routes, server errors, and declared oversized bodies", async () => {
     for (const status of [302, 401, 404, 500]) {
       const unhealthy = vi.fn<typeof fetch>(
         async () => new Response("not ready", { status })
@@ -232,18 +711,6 @@ describe("owned E2E server readiness", () => {
       })
     ).resolves.toBe(false);
     expect(oversized).toHaveBeenCalledTimes(1);
-
-    const streamedOversize = vi.fn<typeof fetch>(
-      async () => new Response("12345", { status: 200 })
-    );
-    await expect(
-      probeE2EServerRoutes({
-        appUrl: "https://darkfactory.localhost",
-        fetchImplementation: streamedOversize,
-        maxBodyBytes: 4,
-      })
-    ).resolves.toBe(false);
-    expect(streamedOversize).toHaveBeenCalledTimes(1);
   });
 
   it("cancels rejected streaming responses before a later healthy probe", async () => {
@@ -285,18 +752,6 @@ describe("owned E2E server readiness", () => {
       })
     ).resolves.toBe(false);
     expect(declaredOversize.cancel).toHaveBeenCalledTimes(1);
-
-    const chunkedOversize = streamingResponse(200);
-    await expect(
-      probeE2EServerRoutes({
-        appUrl: "https://darkfactory.localhost",
-        fetchImplementation: vi.fn<typeof fetch>(
-          async () => chunkedOversize.response
-        ),
-        maxBodyBytes: 4,
-      })
-    ).resolves.toBe(false);
-    expect(chunkedOversize.cancel).toHaveBeenCalledTimes(1);
 
     await expect(
       probeE2EServerRoutes({

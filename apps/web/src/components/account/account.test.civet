@@ -72,9 +72,12 @@ describe "account navigation", ->
     expect(html).toContain("Preferences")
     expect(html).toContain("Security")
 
-  it "exposes the active destination without relying on color", ->
+  it "keeps every touch-sized destination visible and exposes the active destination without relying on color", ->
     const html = renderToStaticMarkup(<AccountNavigation currentPath="/account/profile" />)
     expect(html).toContain("aria-current=\"page\"")
+    expect(html).toContain("flex-wrap")
+    expect(html).not.toContain("overflow-x-auto")
+    expect(html).not.toContain("min-w-max")
 
 describe "typed account gateway", ->
   it "constructs and server-renders loading state without a browser window", ->

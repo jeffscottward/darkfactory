@@ -70,6 +70,26 @@ describe "DF-076 bounded contact request body", ->
     )
     expect(await result.request.text()).toBe('{"message":"bounded"}')
 
+  it "rebuilds structurally compatible Worker requests from their URL", async ->
+    const source = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      { method: "POST", body: '{"message":"worker"}' },
+    )
+    source.headers.delete("content-length")
+    const workerRequest = {
+      body: source.body,
+      headers: source.headers,
+      method: source.method,
+      url: source.url,
+    } as Request
+
+    const result = await bufferContactRequest(workerRequest)
+
+    expect(result.tooLarge).toBe(false)
+    expect(result.request.url).toBe(source.url)
+    expect(result.request.method).toBe("POST")
+    expect(await result.request.text()).toBe('{"message":"worker"}')
+
   it "stops an oversized chunked stream before handing it to oRPC", async ->
     const chunk = new Uint8Array(CONTACT_REQUEST_MAX_BYTES)
     const stream = new ReadableStream<Uint8Array>({

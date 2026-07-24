@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   createAdminUsersGateway,
+  createBrowserAdminUsersGateway,
   createAdminRequestGuard,
   normalizeAdminQuery,
   safeAdminFeedback,
 } from "./admin-users-client.civet"
 import { AdminUsersDirectory } from "./admin-users-directory.civet"
+import { AdminUsersPageClient } from "./admin-users-page-client.civet"
 
 const user = {
   id: "user-1",
@@ -35,6 +37,10 @@ describe "typed read-only admin users gateway", ->
 
     await expect(gateway.list({ query: "alice", cursor: "cursor-1", limit: 20 })).resolves.toMatchObject({ nextCursor: "cursor-2" })
     expect(list).toHaveBeenCalledWith({ query: "alice", cursor: "cursor-1", limit: 20 })
+
+  it "constructs the browser gateway lazily during server rendering", ->
+    expect(() => createBrowserAdminUsersGateway()).not.toThrow()
+    expect(() => renderToStaticMarkup(<AdminUsersPageClient />)).not.toThrow()
 
   it "keeps private search text out of URL helpers and normalizes it in memory", ->
     expect(normalizeAdminQuery("  Alice Adams  ")).toBe("Alice Adams")

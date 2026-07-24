@@ -65,26 +65,24 @@ export const ArchivedFeatureItemNotice = () => (
 export const ArchivedFeatureItemDetails = ({ item }: Readonly<{ item: FeatureItemOutput }>) => (
   <div className="max-w-reading space-y-6">
     <ArchivedFeatureItemNotice />
-    <dl className="divide-y divide-border border-y border-border">
-      <div className="py-4">
+    <dl className="grid divide-y divide-border border-y border-border sm:grid-cols-2">
+      <div className="py-4 sm:col-span-2">
         <dt className="text-sm font-medium text-muted-foreground">Name</dt>
         <dd className="mt-1 text-base text-foreground" style={{ overflowWrap: "anywhere" }}>{item.name}</dd>
       </div>
-      <div className="py-4">
+      <div className="py-4 sm:col-span-2">
         <dt className="text-sm font-medium text-muted-foreground">Description</dt>
         <dd className="mt-1 whitespace-pre-wrap text-base leading-7 text-foreground" style={{ overflowWrap: "anywhere" }}>
           {item.description.length > 0 ? item.description : "No description provided."}
         </dd>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">Status</dt>
-          <dd className="mt-1"><StatusBadge status="warning">Archived</StatusBadge></dd>
-        </div>
-        <div className="sm:text-right">
-          <dt className="text-sm font-medium text-muted-foreground">Last updated</dt>
-          <dd className="mt-1 text-sm text-foreground">{item.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}</dd>
-        </div>
+      <div className="py-4">
+        <dt className="text-sm font-medium text-muted-foreground">Status</dt>
+        <dd className="mt-1"><StatusBadge status="warning">Archived</StatusBadge></dd>
+      </div>
+      <div className="py-4 sm:text-right">
+        <dt className="text-sm font-medium text-muted-foreground">Last updated</dt>
+        <dd className="mt-1 text-sm text-foreground">{item.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}</dd>
       </div>
     </dl>
   </div>

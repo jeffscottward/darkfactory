@@ -1,3 +1,4 @@
+import { createAuthClient } from "@darkfactory/auth/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 
@@ -35,9 +36,6 @@ describe "supported Better Auth security gateway", ->
         expect.objectContaining({ id: "session-current", isCurrent: true }),
       ]),
     })
-    expect(auth.getSession).toHaveBeenCalledWith({
-      query: { disableCookieCache: true },
-    })
     await expect(gateway.revokeOtherSessions()).resolves.toBeUndefined()
     await expect(gateway.changePassword({
       currentPassword: "current-password",
@@ -50,6 +48,45 @@ describe "supported Better Auth security gateway", ->
       newPassword: "new-password-long-enough",
       revokeOtherSessions: true,
     })
+
+  it "correlates current identity through the real Better Auth browser client", async ->
+    const observedUrls: URL[] = []
+    const fetchRequest = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input
+            : input.url,
+      )
+      observedUrls.push(url)
+      const body = url.pathname.endsWith("/get-session")
+        ? { session, user: { id: "user-1" } }
+        : url.pathname.endsWith("/list-sessions")
+          ? [session]
+          : null
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+        status: body === null ? 404 : 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchRequest)
+    try {
+      const gateway = createSecurityGateway(
+        createAuthClient("https://darkfactory.localhost/api/auth"),
+      )
+      await expect(gateway.listSessions()).resolves.toMatchObject({
+        currentSessionId: "session-current",
+        sessions: [expect.objectContaining({ isCurrent: true })],
+      })
+      expect(fetchRequest).toHaveBeenCalledTimes(2)
+      const getSessionUrl = observedUrls.find((url) =>
+        url.pathname.endsWith("/get-session")
+      )
+      expect(getSessionUrl?.searchParams.get("disableCookieCache")).toBe("true")
+    } finally {
+      vi.unstubAllGlobals()
+    }
 
   it "maps raw session records to metadata that cannot render tokens", ->
     const safe = toSafeSessions([session], "session-current")
@@ -74,6 +111,7 @@ describe "security page states and actions", ->
     expect(html).toContain("Current session")
     expect(html).toContain("Example Browser on Example OS")
     expect(html).toContain("Sign out other sessions")
+    expect(html).toContain("<span>Current session</span>")
     expect(html).not.toContain("Revoke current")
     expect(html).not.toContain(session.token)
     expect(html).not.toContain("192.0.2.1")

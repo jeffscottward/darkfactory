@@ -212,6 +212,21 @@ describe "parseServerEnv", ->
       message: "BETTER_AUTH_URL must match APP_URL",
     },
     {
+      label: "an APP_URL with a path",
+      overrides: { APP_URL: `${CANONICAL_APP_URL}/callback` },
+      path: "APP_URL",
+      message: "APP_URL must be a clean HTTPS origin",
+    },
+    {
+      label: "an authentication URL with a query",
+      overrides: {
+        APP_URL: `${CANONICAL_APP_URL}?return=dashboard`,
+        BETTER_AUTH_URL: `${CANONICAL_APP_URL}?return=dashboard`,
+      },
+      path: "BETTER_AUTH_URL",
+      message: "BETTER_AUTH_URL must be a clean HTTPS origin",
+    },
+    {
       label: "remote email without its provider key",
       overrides: { EMAIL_TRANSPORT: "resend" },
       path: "RESEND_API_KEY",
@@ -251,8 +266,35 @@ describe "parseServerEnv", ->
     expect(error.issues).toContainEqual({ path, message })
   )
 
+  it.each([
+    "https://darkfactory.localhost",
+    "https://localhost",
+    "https://127.0.0.1",
+    "https://127.10.20.30",
+    "https://0.0.0.0",
+    "https://[::1]",
+    "https://[::]",
+    "https://localhost.",
+    "https://app.darkfactory.localhost.",
+    "https://[::ffff:127.0.0.1]",
+  ])("rejects the local production origin %s", (applicationUrl) ->
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      APP_ENV: "production",
+      APP_URL: applicationUrl,
+      BETTER_AUTH_URL: applicationUrl,
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "r".repeat(32),
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "APP_URL",
+      message: "APP_URL cannot use a local origin in production",
+    })
+  )
+
   it "accepts complete configurations for every conditional capability", ->
-    const applicationUrl = "https://app.darkfactory.localhost"
+    const applicationUrl = "https://app.darkfactory.example"
     const env = parseServerEnv({
       ...validCoreEnv(),
       APP_ENV: "production",

@@ -390,8 +390,8 @@ const requireAuthenticated = api.middleware(
     } catch (error) {
       if (!(error instanceof AuthAuthorizationError)) throw error
       if (error.status === 401)
-        throw authErrors.UNAUTHORIZED({ message: error.message })
-      throw authErrors.FORBIDDEN({ message: error.message })
+        throw authErrors.UNAUTHORIZED()
+      throw authErrors.FORBIDDEN()
     }
   },
 )
@@ -404,8 +404,8 @@ const requireAdmin = api.middleware(async ({ context, next, errors }) => {
   } catch (error) {
     if (!(error instanceof AuthAuthorizationError)) throw error
     if (error.status === 401)
-      throw authErrors.UNAUTHORIZED({ message: error.message })
-    throw authErrors.FORBIDDEN({ message: error.message })
+      throw authErrors.UNAUTHORIZED()
+    throw authErrors.FORBIDDEN()
   }
 })
 

@@ -1,0 +1,89 @@
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it } from "vitest"
+
+import { sanitizePlaywrightJsonReport } from "./playwright-report.civet"
+
+const report = (environment: Record<string, string>) => ({
+  config: {
+    projects: [{ name: "chromium" }],
+    webServer: {
+      command: "pnpm dev",
+      env: environment,
+      url: "https://darkfactory.localhost/sign-in",
+    },
+  },
+  suites: [{ title: "account journey" }],
+  stats: { expected: 1 },
+})
+
+const temporaryDirectories = new Set<string>()
+
+afterEach(async () => {
+  await Promise.all(
+    [...temporaryDirectories].map((directory) =>
+      rm(directory, { force: true, recursive: true })
+    ),
+  )
+  temporaryDirectories.clear()
+})
+
+describe "Playwright JSON report redaction", ->
+  it "removes configuration secrets and redacts known values recursively", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const databaseUrl = "postgresql://runner:private-value@127.0.0.1/test"
+    const hmacKey = "private-hmac-value-that-must-not-survive"
+    const fixture: Record<string, unknown> = report({
+      DATABASE_URL: databaseUrl,
+      E2E_EMAIL_PREVIEW_HMAC_KEY: hmacKey,
+    })
+    fixture["errors"] = [{ message: `failure: ${hmacKey}` }]
+    fixture["suites"] = [{
+      title: "account journey",
+      specs: [{
+        tests: [{
+          results: [{
+            status: "failed",
+            errors: [{ message: `expected ${databaseUrl}` }],
+            stdout: [`prefix-${hmacKey}-suffix`],
+            stderr: [databaseUrl],
+          }],
+        }],
+      }],
+    }]
+    await writeFile(path, JSON.stringify(fixture))
+
+    await sanitizePlaywrightJsonReport(path, [databaseUrl, hmacKey])
+
+    const content = await readFile(path, "utf8")
+    const sanitized = JSON.parse(content) as {
+      config: { webServer: Record<string, unknown> }
+    }
+    expect(sanitized.config.webServer).toEqual({
+      command: "pnpm dev",
+      url: "https://darkfactory.localhost/sign-in",
+    })
+    expect(content).toContain("[REDACTED]")
+    expect(content).toContain("account journey")
+    expect(content).not.toContain(databaseUrl)
+    expect(content).not.toContain(hmacKey)
+  it "fails closed for malformed reports and symbolic links", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-invalid-"))
+    temporaryDirectories.add(directory)
+    const malformed = join(directory, "malformed.json")
+    await writeFile(malformed, "not-json")
+    await expect(sanitizePlaywrightJsonReport(malformed, [])).rejects.toThrow(
+      "Playwright report is malformed",
+    )
+
+    const target = join(directory, "target.json")
+    const linked = join(directory, "linked.json")
+    await writeFile(target, JSON.stringify(report({})))
+    await symlink(target, linked)
+    await expect(sanitizePlaywrightJsonReport(linked, [])).rejects.toThrow(
+      "Playwright report file is invalid",
+    )

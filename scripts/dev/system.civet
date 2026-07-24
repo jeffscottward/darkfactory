@@ -31,15 +31,10 @@ const minimalEnvironment = (additions: Readonly<Record<string, string>> = {}): N
   return { ...environment, ...additions }
 }
 const environmentFor = (
-  command: string,
-  arguments_: readonly string[],
+  _command: string,
+  _arguments: readonly string[],
   options: CommandOptions,
-): NodeJS.ProcessEnv => {
-  const startsApplication = command === "pm2" && arguments_[0] === "start" && arguments_.includes("portless")
-  return startsApplication
-    ? { ...process.env, ...options.environment }
-    : minimalEnvironment(options.environment)
-}
+): NodeJS.ProcessEnv => minimalEnvironment(options.environment)
 
 const readLivePid = async (pm2Home: string): Promise<number | null> => {
   try {

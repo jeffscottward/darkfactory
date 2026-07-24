@@ -23,6 +23,7 @@ const CANONICAL_ADMIN_ORDER = [
   E2E_IDENTITIES.admin,
 ] as const;
 const DASHBOARD_URL = /\/dashboard$/;
+const API_REQUEST_TIMEOUT_MILLISECONDS = 10_000;
 
 const themeModes = ["light", "dark", "system"] as const;
 const palettes = [
@@ -460,10 +461,11 @@ const selectThemeOption = async (
   groupName: "Color mode" | "Color palette",
   optionName: string
 ): Promise<void> => {
-  const trigger = page.getByRole("button", {
-    name: "Theme settings",
-    exact: true,
-  });
+  const trigger = page.locator("#application-theme-trigger");
+  const closedTrigger = page
+    .getByRole("button", { name: "Theme settings", exact: true })
+    .and(trigger);
+  await expect(closedTrigger).toHaveCount(1);
   expect(await trigger.getAttribute("aria-controls")).toBeNull();
   await trigger.click();
   const group = page.getByRole("group", { name: groupName });
@@ -549,6 +551,14 @@ const restoreAliceAccount = async (page: Page): Promise<void> => {
   }
 };
 
+const sameOriginRequestHeaders = (
+  request: Request
+): Record<string, string> => ({
+  ...Object.fromEntries(request.headers.entries()),
+  origin: new URL(request.url).origin,
+  "sec-fetch-site": "same-origin",
+});
+
 const playwrightFetch =
   (requestContext: APIRequestContext) =>
   async (request: Request): Promise<Response> => {
@@ -559,8 +569,9 @@ const playwrightFetch =
           ? undefined
           : Buffer.from(await request.arrayBuffer()),
       failOnStatusCode: false,
-      headers: Object.fromEntries(request.headers.entries()),
+      headers: sameOriginRequestHeaders(request),
       method,
+      timeout: API_REQUEST_TIMEOUT_MILLISECONDS,
     });
     return new Response(Uint8Array.from(await response.body()), {
       headers: response.headers(),
@@ -615,8 +626,9 @@ const executeRawRequest = async (
         ? undefined
         : Buffer.from(await request.arrayBuffer()),
     failOnStatusCode: false,
-    headers: Object.fromEntries(request.headers.entries()),
+    headers: sameOriginRequestHeaders(request),
     method,
+    timeout: API_REQUEST_TIMEOUT_MILLISECONDS,
   });
   return { body: await response.json(), status: response.status() };
 };
@@ -788,6 +800,7 @@ test.describe
     test("member denial hides administration while admin UI, search, typed cursor, and raw cursor return canonical users", async ({
       baseURL,
       browser,
+      page,
     }) => {
       const resolvedBaseURL = requireBaseURL(baseURL);
       const memberContext = await newConfiguredContext(
@@ -820,163 +833,168 @@ test.describe
         await memberContext.close();
       }
 
-      const adminContext = await newConfiguredContext(browser, resolvedBaseURL);
-      const adminPage = await adminContext.newPage();
+      const adminContext = page.context();
+      const adminPage = page;
       const assertAdminRuntime = monitorSecondaryPage(adminPage);
-      try {
-        await signInAs(adminPage, E2E_IDENTITIES.admin);
-        await adminPage.goto("/admin/users");
+      await signInAs(adminPage, E2E_IDENTITIES.admin);
+      await adminPage.goto("/admin/users");
+      await expect(
+        adminPage.getByRole("heading", { level: 1, name: "Users" })
+      ).toBeVisible();
+      const directoryList = adminPage.locator("main").getByRole("list");
+      const directoryItems = directoryList.getByRole("listitem");
+      await expect(directoryItems).toHaveCount(CANONICAL_ADMIN_ORDER.length);
+      for (const identity of Object.values(E2E_IDENTITIES)) {
+        const canonicalItem = directoryItems.filter({
+          hasText: identity.name,
+        });
+        await expect(canonicalItem).toBeVisible();
         await expect(
-          adminPage.getByRole("heading", { level: 1, name: "Users" })
+          canonicalItem.getByText(titleCase(identity.role), { exact: true })
         ).toBeVisible();
-        await adminPage.waitForLoadState("networkidle");
-        const directoryList = adminPage.locator("main").getByRole("list");
-        const directoryItems = directoryList.getByRole("listitem");
-        expect(await directoryItems.count()).toBeGreaterThanOrEqual(3);
-        for (const identity of Object.values(E2E_IDENTITIES)) {
-          const canonicalItem = directoryItems.filter({
-            hasText: identity.name,
-          });
-          await expect(canonicalItem).toBeVisible();
-          await expect(
-            canonicalItem.getByText(titleCase(identity.role), { exact: true })
-          ).toBeVisible();
-        }
-
-        await adminPage.locator("#admin-user-query").fill("Alice");
-        await adminPage
-          .getByRole("button", { name: "Search", exact: true })
-          .click();
-        await expect(directoryItems).toHaveCount(1);
-        await expect(
-          directoryList.getByText(E2E_IDENTITIES.alice.name, { exact: true })
-        ).toBeVisible();
-        await adminPage.getByRole("button", { name: "Clear search" }).click();
-        expect(await directoryItems.count()).toBeGreaterThanOrEqual(3);
-
-        const adminApi = apiFor(adminContext, resolvedBaseURL);
-        const completeDirectory = await adminApi.admin.users.list({
-          limit: 100,
-        });
-        const canonicalUsers = completeDirectory.items.filter(
-          (user: AdminUserSummaryOutput) =>
-            CANONICAL_ADMIN_ORDER.some((identity) => identity.id === user.id)
-        ) as AdminUserSummaryOutput[];
-        expect(canonicalUsers.map((user) => user.id)).toEqual(
-          CANONICAL_ADMIN_ORDER.map((identity) => identity.id)
-        );
-        expect(canonicalUsers.map((user) => user.role)).toEqual(
-          CANONICAL_ADMIN_ORDER.map((identity) => identity.role)
-        );
-        const firstPage = await adminApi.admin.users.list({ limit: 1 });
-        expect(firstPage.items).toHaveLength(1);
-        expect(firstPage.nextCursor).toEqual(expect.any(String));
-        const rawRequest = await serializeAdminListRequest(resolvedBaseURL, {
-          cursor: firstPage.nextCursor ?? "missing-cursor",
-          limit: 1,
-        });
-        expect(new URL(rawRequest.url).pathname).toBe(
-          "/api/orpc/admin/users/list"
-        );
-        const rawPage = await executeRawRequest(
-          adminContext.request,
-          rawRequest
-        );
-        expect(rawPage.status).toBe(200);
-        expect(rawPage.body).toMatchObject({
-          json: {
-            items: [expect.objectContaining({ id: expect.any(String) })],
-          },
-        });
-        const rawSecondPage = rawPage.body as {
-          json: { items: readonly { id: string }[] };
-        };
-        expect(rawSecondPage.json.items[0]?.id).not.toBe(
-          firstPage.items[0]?.id
-        );
-
-        const typedSecondPage = await adminApi.admin.users.list({
-          cursor: firstPage.nextCursor ?? undefined,
-          limit: 1,
-        });
-        expect(typedSecondPage.items).toHaveLength(1);
-        expect(typedSecondPage.items[0]?.id).not.toBe(firstPage.items[0]?.id);
-        expect(rawSecondPage.json.items[0]?.id).toBe(
-          typedSecondPage.items[0]?.id
-        );
-        await assertNoHorizontalOverflow(adminPage, "admin-desktop");
-        assertAdminRuntime();
-      } finally {
-        await adminContext.close();
       }
+
+      const searchInput = adminPage.getByRole("searchbox", {
+        name: "Search users",
+      });
+      await expect(searchInput).toBeVisible();
+      await searchInput.fill("Alice", { timeout: 5000 });
+      await adminPage
+        .getByRole("button", { name: "Search", exact: true })
+        .click({ timeout: 5000 });
+      await expect(directoryItems).toHaveCount(1);
+      await expect(
+        directoryList.getByText(E2E_IDENTITIES.alice.name, { exact: true })
+      ).toBeVisible();
+      await adminPage.getByRole("button", { name: "Clear search" }).click();
+      await expect(directoryItems).toHaveCount(CANONICAL_ADMIN_ORDER.length);
+
+      const adminSessionResponse = await adminContext.request.get(
+        "/api/auth/get-session"
+      );
+      const adminSessionBody = (await adminSessionResponse.json()) as {
+        user?: { id?: unknown; role?: unknown };
+      };
+      expect({
+        id: adminSessionBody.user?.id,
+        role: adminSessionBody.user?.role,
+      }).toEqual({
+        id: E2E_IDENTITIES.admin.id,
+        role: E2E_IDENTITIES.admin.role,
+      });
+
+      const adminApi = apiFor(adminContext, resolvedBaseURL);
+      const completeDirectory = await adminApi.admin.users.list({
+        limit: 100,
+      });
+      const canonicalUsers = completeDirectory.items.filter(
+        (user: AdminUserSummaryOutput) =>
+          CANONICAL_ADMIN_ORDER.some((identity) => identity.id === user.id)
+      ) as AdminUserSummaryOutput[];
+      expect(canonicalUsers.map((user) => user.id)).toEqual(
+        CANONICAL_ADMIN_ORDER.map((identity) => identity.id)
+      );
+      expect(canonicalUsers.map((user) => user.role)).toEqual(
+        CANONICAL_ADMIN_ORDER.map((identity) => identity.role)
+      );
+      const firstPage = await adminApi.admin.users.list({ limit: 1 });
+      expect(firstPage.items).toHaveLength(1);
+      expect(firstPage.nextCursor).toEqual(expect.any(String));
+      const rawRequest = await serializeAdminListRequest(resolvedBaseURL, {
+        cursor: firstPage.nextCursor ?? "missing-cursor",
+        limit: 1,
+      });
+      expect(new URL(rawRequest.url).pathname).toBe(
+        "/api/orpc/admin/users/list"
+      );
+      const rawPage = await executeRawRequest(adminContext.request, rawRequest);
+      expect(rawPage.status).toBe(200);
+      expect(rawPage.body).toMatchObject({
+        json: {
+          items: [expect.objectContaining({ id: expect.any(String) })],
+        },
+      });
+      const rawSecondPage = rawPage.body as {
+        json: { items: readonly { id: string }[] };
+      };
+      expect(rawSecondPage.json.items[0]?.id).not.toBe(firstPage.items[0]?.id);
+
+      const typedSecondPage = await adminApi.admin.users.list({
+        cursor: firstPage.nextCursor ?? undefined,
+        limit: 1,
+      });
+      expect(typedSecondPage.items).toHaveLength(1);
+      expect(typedSecondPage.items[0]?.id).not.toBe(firstPage.items[0]?.id);
+      expect(rawSecondPage.json.items[0]?.id).toBe(
+        typedSecondPage.items[0]?.id
+      );
+      await assertNoHorizontalOverflow(adminPage, "admin-desktop");
+      assertAdminRuntime();
     });
 
     test("mobile account and admin navigation remains complete and width-safe at 375px", async ({
       baseURL,
       browser,
+      page,
     }) => {
       const resolvedBaseURL = requireBaseURL(baseURL);
-      const memberContext = await newConfiguredContext(
-        browser,
-        resolvedBaseURL,
-        {
-          viewport: { height: 812, width: 375 },
-        }
-      );
-      const memberPage = await memberContext.newPage();
+      await page.setViewportSize({ height: 812, width: 375 });
+      const memberPage = page;
       const assertMemberRuntime = monitorSecondaryPage(memberPage);
-      try {
-        await signInAs(memberPage, E2E_IDENTITIES.alice);
-        await memberPage.goto("/account/profile");
-        await waitForAccountPage(memberPage, "Profile");
-        const memberTrigger = memberPage.getByRole("button", {
-          name: "Open portal navigation",
-        });
-        await assertTouchTarget(memberTrigger);
-        await memberTrigger.focus();
-        await memberTrigger.press("Enter");
-        const accountNavigation = memberPage.getByRole("navigation", {
-          name: "Mobile account navigation",
-        });
-        await expect(accountNavigation).toBeVisible();
-        const memberDialog = memberPage.getByRole("dialog", {
-          name: "Portal navigation",
-        });
-        await memberPage.keyboard.press("Tab");
-        expect(
-          await memberDialog.evaluate((dialog) =>
-            dialog.contains(document.activeElement)
-          )
-        ).toBe(true);
-        await memberPage.keyboard.press("Shift+Tab");
-        expect(
-          await memberDialog.evaluate((dialog) =>
-            dialog.contains(document.activeElement)
-          )
-        ).toBe(true);
-        for (const label of ["Profile", "Address", "Preferences", "Security"]) {
-          const accountLink = accountNavigation.getByRole("link", {
-            name: label,
-            exact: true,
-          });
-          await expect(accountLink).toBeVisible();
-          await assertTouchTarget(accountLink);
-        }
-        await expect(
-          memberPage.getByRole("navigation", {
-            name: "Mobile administration navigation",
-          })
-        ).toHaveCount(0);
-        await memberPage.keyboard.press("Escape");
-        await expect(memberDialog).toBeHidden();
-        await expect(memberTrigger).toBeFocused();
-        await memberTrigger.press("Enter");
-        await expect(accountNavigation).toBeVisible();
-        await assertNoHorizontalOverflow(memberPage, "account-mobile-375");
-        assertMemberRuntime();
-      } finally {
-        await memberContext.close();
+      await signInAs(memberPage, E2E_IDENTITIES.alice);
+      await memberPage.goto("/account/profile");
+      await waitForAccountPage(memberPage, "Profile");
+      const memberTrigger = memberPage.getByRole("button", {
+        name: "Open portal navigation",
+      });
+      await assertTouchTarget(memberTrigger);
+      await memberTrigger.focus();
+      await memberTrigger.press("Enter");
+      const accountNavigation = memberPage.getByRole("navigation", {
+        name: "Mobile account navigation",
+      });
+      await expect(accountNavigation).toBeVisible();
+      const memberDialog = memberPage.getByRole("dialog", {
+        name: "Portal navigation",
+      });
+      await memberPage.keyboard.press("Tab");
+      expect(
+        await memberDialog.evaluate((dialog) =>
+          dialog.contains(document.activeElement)
+        )
+      ).toBe(true);
+      await memberPage.keyboard.press("Shift+Tab");
+      expect(
+        await memberDialog.evaluate((dialog) =>
+          dialog.contains(document.activeElement)
+        )
+      ).toBe(true);
+      for (const [label, href] of [
+        ["Profile", "/account/profile"],
+        ["Address", "/account/address"],
+        ["Preferences", "/account/preferences"],
+        ["Security", "/account/security"],
+      ] as const) {
+        const accountLink = accountNavigation.locator(`a[href="${href}"]`);
+        await expect(accountLink).toBeVisible();
+        await expect(accountLink).toContainText(label);
+        await assertTouchTarget(accountLink);
       }
+      await expect(
+        accountNavigation.locator('a[href="/account/profile"]')
+      ).toHaveAttribute("aria-current", "page");
+      await expect(
+        memberPage.getByRole("navigation", {
+          name: "Mobile administration navigation",
+        })
+      ).toHaveCount(0);
+      await memberPage.keyboard.press("Escape");
+      await expect(memberDialog).toBeHidden();
+      await expect(memberTrigger).toBeFocused();
+      await memberTrigger.press("Enter");
+      await expect(accountNavigation).toBeVisible();
+      await assertNoHorizontalOverflow(memberPage, "account-mobile-375");
+      assertMemberRuntime();
 
       const adminContext = await newConfiguredContext(
         browser,
@@ -1000,11 +1018,10 @@ test.describe
         const adminNavigation = adminPage.getByRole("navigation", {
           name: "Mobile administration navigation",
         });
-        const usersLink = adminNavigation.getByRole("link", {
-          name: "Users",
-          exact: true,
-        });
+        const usersLink = adminNavigation.locator('a[href="/admin/users"]');
         await expect(usersLink).toBeVisible();
+        await expect(usersLink).toContainText("Users");
+        await expect(usersLink).toHaveAttribute("aria-current", "page");
         await assertTouchTarget(usersLink);
         const adminAccountNavigation = adminPage.getByRole("navigation", {
           name: "Mobile account navigation",
@@ -1045,38 +1062,94 @@ test.describe
     test("anonymous theme precedence and every 3 mode by 10 palette combination persist without flash", async ({
       baseURL,
       browser,
+      page,
     }) => {
+      test.setTimeout(120_000);
       const resolvedBaseURL = requireBaseURL(baseURL);
       const localDarkRose = JSON.stringify({
         version: 1,
         themeMode: "dark",
         palette: "rose",
       });
+      const waitForAnonymousThemeReady = async (
+        targetPage: Page
+      ): Promise<void> => {
+        await expect(
+          targetPage.locator("#application-theme-trigger")
+        ).toHaveAccessibleName("Theme settings", { timeout: 5000 });
+        await expect(targetPage.locator("html")).toHaveAttribute(
+          "data-theme-authority",
+          "anonymous",
+          { timeout: 5000 }
+        );
+      };
+      const gotoAnonymousThemeRoot = async (
+        targetPage: Page
+      ): Promise<void> => {
+        await targetPage.goto("/", { waitUntil: "domcontentloaded" });
+        await waitForAnonymousThemeReady(targetPage);
+      };
+      const reloadAnonymousTheme = async (targetPage: Page): Promise<void> => {
+        await targetPage.reload({ waitUntil: "domcontentloaded" });
+        await waitForAnonymousThemeReady(targetPage);
+      };
+      const closeContextBounded = async (
+        context: BrowserContext,
+        label: string
+      ): Promise<void> => {
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          await Promise.race([
+            context.close(),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(`${label} context close exceeded 2 seconds.`)
+                  ),
+                2000
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      const throwContextFailures = (
+        failures: readonly unknown[],
+        label: string
+      ): void => {
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(
+            failures,
+            `${label} journey and context cleanup both failed.`
+          );
+        }
+      };
 
-      const localContext = await newConfiguredContext(browser, resolvedBaseURL);
+      const localContext = page.context();
+      await installThemeProbe(localContext);
       await localContext.addInitScript(
         ({ key, value }) => localStorage.setItem(key, value),
         { key: THEME_STORAGE_KEY, value: localDarkRose }
       );
-      const localPage = await localContext.newPage();
+      const localPage = page;
       const assertLocalRuntime = monitorSecondaryPage(localPage);
-      try {
-        await localPage.goto("/");
-        await localPage.waitForLoadState("networkidle");
-        await assertTheme(
-          localPage,
-          { themeMode: "dark", palette: "rose" },
-          {
-            authority: "anonymous",
-            case: "missing-cookie-uses-local-storage",
-            cookieStatus: "missing",
-            localStorage: localDarkRose,
-          }
-        );
-        assertLocalRuntime();
-      } finally {
-        await localContext.close();
-      }
+      await gotoAnonymousThemeRoot(localPage);
+      await assertTheme(
+        localPage,
+        { themeMode: "dark", palette: "rose" },
+        {
+          authority: "anonymous",
+          case: "missing-cookie-uses-local-storage",
+          cookieStatus: "missing",
+          localStorage: localDarkRose,
+        }
+      );
+      assertLocalRuntime();
 
       const cookieContext = await newConfiguredContext(
         browser,
@@ -1095,9 +1168,9 @@ test.describe
       );
       const cookiePage = await cookieContext.newPage();
       const assertCookieRuntime = monitorSecondaryPage(cookiePage);
+      const cookieFailures: unknown[] = [];
       try {
-        await cookiePage.goto("/");
-        await cookiePage.waitForLoadState("networkidle");
+        await gotoAnonymousThemeRoot(cookiePage);
         await assertTheme(
           cookiePage,
           { themeMode: "light", palette: "blue" },
@@ -1113,9 +1186,15 @@ test.describe
           }
         );
         assertCookieRuntime();
-      } finally {
-        await cookieContext.close();
+      } catch (error) {
+        cookieFailures.push(error);
       }
+      try {
+        await closeContextBounded(cookieContext, "Cookie precedence");
+      } catch (error) {
+        cookieFailures.push(error);
+      }
+      throwContextFailures(cookieFailures, "Cookie precedence");
 
       const invalidContext = await newConfiguredContext(
         browser,
@@ -1130,9 +1209,9 @@ test.describe
       );
       const invalidPage = await invalidContext.newPage();
       const assertInvalidRuntime = monitorSecondaryPage(invalidPage);
+      const invalidFailures: unknown[] = [];
       try {
-        await invalidPage.goto("/");
-        await invalidPage.waitForLoadState("networkidle");
+        await gotoAnonymousThemeRoot(invalidPage);
         const defaultStorage = JSON.stringify({
           version: 1,
           themeMode: "system",
@@ -1149,9 +1228,15 @@ test.describe
           }
         );
         assertInvalidRuntime();
-      } finally {
-        await invalidContext.close();
+      } catch (error) {
+        invalidFailures.push(error);
       }
+      try {
+        await closeContextBounded(invalidContext, "Invalid cookie");
+      } catch (error) {
+        invalidFailures.push(error);
+      }
+      throwContextFailures(invalidFailures, "Invalid cookie");
 
       const matrixContext = await newConfiguredContext(
         browser,
@@ -1159,10 +1244,10 @@ test.describe
       );
       const matrixPage = await matrixContext.newPage();
       const assertMatrixRuntime = monitorSecondaryPage(matrixPage);
+      const matrixFailures: unknown[] = [];
       try {
         await matrixPage.emulateMedia({ colorScheme: "light" });
-        await matrixPage.goto("/");
-        await matrixPage.waitForLoadState("networkidle");
+        await gotoAnonymousThemeRoot(matrixPage);
         const initialPreference = {
           themeMode: "system" as const,
           palette: "neutral" as const,
@@ -1225,7 +1310,7 @@ test.describe
               version: 1,
               ...preference,
             });
-            await matrixPage.reload({ waitUntil: "networkidle" });
+            await reloadAnonymousTheme(matrixPage);
             await assertTheme(matrixPage, preference, {
               authority: "anonymous",
               case: `matrix-${mode}-${palette}`,
@@ -1234,7 +1319,7 @@ test.describe
             });
             if (mode === "system") {
               await matrixPage.emulateMedia({ colorScheme: "dark" });
-              await matrixPage.reload({ waitUntil: "networkidle" });
+              await reloadAnonymousTheme(matrixPage);
               await assertTheme(matrixPage, preference, {
                 authority: "anonymous",
                 case: `system-effective-dark-${palette}`,
@@ -1251,7 +1336,7 @@ test.describe
         };
         await selectThemeOption(matrixPage, "Color mode", "Dark");
         await selectThemeOption(matrixPage, "Color palette", "Violet");
-        await matrixPage.reload({ waitUntil: "networkidle" });
+        await reloadAnonymousTheme(matrixPage);
         await assertTheme(matrixPage, darkUnderLight, {
           authority: "anonymous",
           case: "explicit-dark-under-system-light",
@@ -1264,7 +1349,7 @@ test.describe
         };
         await selectThemeOption(matrixPage, "Color mode", "Light");
         await matrixPage.emulateMedia({ colorScheme: "dark" });
-        await matrixPage.reload({ waitUntil: "networkidle" });
+        await reloadAnonymousTheme(matrixPage);
         await assertTheme(matrixPage, lightUnderDark, {
           authority: "anonymous",
           case: "explicit-light-under-system-dark",
@@ -1282,152 +1367,176 @@ test.describe
         });
         await assertNoHorizontalOverflow(matrixPage, "theme-desktop");
         assertMatrixRuntime();
-      } finally {
-        await matrixContext.close();
+      } catch (error) {
+        matrixFailures.push(error);
       }
+      try {
+        await closeContextBounded(matrixContext, "Theme matrix");
+      } catch (error) {
+        matrixFailures.push(error);
+      }
+      throwContextFailures(matrixFailures, "Theme matrix");
     });
 
     test("trusted Alice DB theme beats anonymous state on login and reload, persists through DB, and restores", async ({
       baseURL,
       browser,
+      page,
     }, testInfo) => {
       const resolvedBaseURL = requireBaseURL(baseURL);
-      const loginContext = await newConfiguredContext(browser, resolvedBaseURL);
-      const loginPage = await loginContext.newPage();
+      const loginContext = page.context();
+      await installThemeProbe(loginContext);
+      const loginPage = page;
       const assertLoginRuntime = monitorSecondaryPage(loginPage);
-      try {
-        await signInAs(loginPage, E2E_IDENTITIES.alice);
-        await expect(loginPage.locator("html")).toHaveAttribute(
-          "data-theme-authority",
-          "trusted"
-        );
-        await expect(loginPage.locator("html")).toHaveAttribute(
-          "data-mode",
-          "dark"
-        );
-        await expect(loginPage.locator("html")).toHaveAttribute(
-          "data-palette",
-          "violet"
-        );
-        const authenticatedState = await loginContext.storageState();
-        const trustedContext = await newConfiguredContext(
-          browser,
-          resolvedBaseURL,
-          {
-            storageState: authenticatedState,
-          }
-        );
-        await trustedContext.addCookies([
-          {
-            name: THEME_COOKIE_NAME,
-            url: resolvedBaseURL,
-            value: "light%3Ablue",
-          },
-        ]);
-        const anonymousStorage = JSON.stringify({
-          version: 1,
-          themeMode: "light",
-          palette: "blue",
-        });
-        await trustedContext.addInitScript(
-          ({ key, value }) => localStorage.setItem(key, value),
-          { key: THEME_STORAGE_KEY, value: anonymousStorage }
-        );
-        const trustedPage = await trustedContext.newPage();
-        const assertTrustedRuntime = monitorSecondaryPage(trustedPage);
-        const trustedApi = apiFor(trustedContext, resolvedBaseURL);
-        try {
-          await trustedPage.goto("/dashboard");
-          await trustedPage.waitForLoadState("networkidle");
-          await assertTheme(
-            trustedPage,
-            { themeMode: "dark", palette: "violet" },
-            {
-              authority: "trusted",
-              case: "trusted-db-beats-cookie-and-local-storage",
-              cookieStatus: "valid",
-              localStorage: anonymousStorage,
-            }
-          );
-
-          await selectThemeOption(trustedPage, "Color mode", "Light");
-          await selectThemeOption(trustedPage, "Color palette", "Cyan");
-          await expect(trustedPage.locator("html")).toHaveAttribute(
-            "data-palette",
-            "cyan"
-          );
-          await expect
-            .poll(async () => trustedApi.preferences.theme.get({}))
-            .toMatchObject({ themeMode: "light", palette: "cyan" });
-          await expect
-            .poll(() => cookieValue(trustedPage))
-            .toBe("light%3Acyan");
-          await expect
-            .poll(() => localTheme(trustedPage))
-            .toBe(anonymousStorage);
-
-          await trustedPage.reload({ waitUntil: "networkidle" });
-          await assertTheme(
-            trustedPage,
-            { themeMode: "light", palette: "cyan" },
-            {
-              authority: "trusted",
-              case: "trusted-db-persists-reload",
-              cookieStatus: "valid",
-              localStorage: anonymousStorage,
-            }
-          );
-          await selectThemeOption(trustedPage, "Color mode", "Dark");
-          await selectThemeOption(trustedPage, "Color palette", "Violet");
-          await expect
-            .poll(async () => trustedApi.preferences.theme.get({}))
-            .toMatchObject({ themeMode: "dark", palette: "violet" });
-          await trustedPage.reload({ waitUntil: "networkidle" });
-          await assertTheme(
-            trustedPage,
-            { themeMode: "dark", palette: "violet" },
-            {
-              authority: "trusted",
-              case: "trusted-seed-restored",
-              cookieStatus: "valid",
-              localStorage: anonymousStorage,
-            }
-          );
-          await trustedPage.goto("/");
-          await trustedPage.waitForLoadState("networkidle");
-          await assertTheme(
-            trustedPage,
-            { themeMode: "dark", palette: "violet" },
-            {
-              authority: "trusted",
-              case: "trusted-public-restored",
-              cookieStatus: "valid",
-              localStorage: anonymousStorage,
-            }
-          );
-          await assertNoHorizontalOverflow(
-            trustedPage,
-            "trusted-public-desktop"
-          );
-          assertTrustedRuntime();
-        } finally {
-          try {
-            const current = await trustedApi.preferences.theme.get({});
-            if (current.themeMode !== "dark" || current.palette !== "violet") {
-              await trustedApi.preferences.theme.update({
-                expectedUpdatedAt: current.updatedAt,
-                themeMode: "dark",
-                palette: "violet",
-              });
-            }
-          } finally {
-            await trustedContext.close();
-          }
+      await signInAs(loginPage, E2E_IDENTITIES.alice);
+      await expect(loginPage.locator("html")).toHaveAttribute(
+        "data-theme-authority",
+        "trusted"
+      );
+      await expect(loginPage.locator("html")).toHaveAttribute(
+        "data-mode",
+        "dark"
+      );
+      await expect(loginPage.locator("html")).toHaveAttribute(
+        "data-palette",
+        "violet"
+      );
+      const authenticatedState = await loginContext.storageState();
+      const trustedContext = await newConfiguredContext(
+        browser,
+        resolvedBaseURL,
+        {
+          storageState: authenticatedState,
         }
-        assertLoginRuntime();
-      } finally {
-        await loginContext.close();
+      );
+      await trustedContext.addCookies([
+        {
+          name: THEME_COOKIE_NAME,
+          url: resolvedBaseURL,
+          value: "light%3Ablue",
+        },
+      ]);
+      const anonymousStorage = JSON.stringify({
+        version: 1,
+        themeMode: "light",
+        palette: "blue",
+      });
+      await trustedContext.addInitScript(
+        ({ key, value }) => localStorage.setItem(key, value),
+        { key: THEME_STORAGE_KEY, value: anonymousStorage }
+      );
+      const trustedPage = await trustedContext.newPage();
+      const assertTrustedRuntime = monitorSecondaryPage(trustedPage);
+      const trustedApi = apiFor(trustedContext, resolvedBaseURL);
+      const cleanupApi = apiFor(loginContext, resolvedBaseURL);
+      const waitForTrustedThemeReady = async (): Promise<void> => {
+        await expect(
+          trustedPage.locator("#application-theme-trigger")
+        ).toHaveAccessibleName("Theme settings");
+      };
+      let themeRestored = true;
+      const failures: unknown[] = [];
+      try {
+        await trustedPage.goto("/dashboard", {
+          waitUntil: "load",
+        });
+        await assertTheme(
+          trustedPage,
+          { themeMode: "dark", palette: "violet" },
+          {
+            authority: "trusted",
+            case: "trusted-db-beats-cookie-and-local-storage",
+            cookieStatus: "valid",
+            localStorage: anonymousStorage,
+          }
+        );
+
+        themeRestored = false;
+        await selectThemeOption(trustedPage, "Color mode", "Light");
+        await selectThemeOption(trustedPage, "Color palette", "Cyan");
+        await waitForTrustedThemeReady();
+        await expect
+          .poll(async () => trustedApi.preferences.theme.get({}))
+          .toMatchObject({ themeMode: "light", palette: "cyan" });
+
+        await trustedPage.reload({ waitUntil: "load" });
+        await assertTheme(
+          trustedPage,
+          { themeMode: "light", palette: "cyan" },
+          {
+            authority: "trusted",
+            case: "trusted-db-persists-reload",
+            cookieStatus: "valid",
+            localStorage: anonymousStorage,
+          }
+        );
+        await selectThemeOption(trustedPage, "Color mode", "Dark");
+        await selectThemeOption(trustedPage, "Color palette", "Violet");
+        await waitForTrustedThemeReady();
+        await expect
+          .poll(async () => trustedApi.preferences.theme.get({}))
+          .toMatchObject({ themeMode: "dark", palette: "violet" });
+        themeRestored = true;
+        await trustedPage.reload({ waitUntil: "load" });
+        await assertTheme(
+          trustedPage,
+          { themeMode: "dark", palette: "violet" },
+          {
+            authority: "trusted",
+            case: "trusted-seed-restored",
+            cookieStatus: "valid",
+            localStorage: anonymousStorage,
+          }
+        );
+        await trustedPage.goto("/", { waitUntil: "load" });
+        await assertTheme(
+          trustedPage,
+          { themeMode: "dark", palette: "violet" },
+          {
+            authority: "trusted",
+            case: "trusted-public-restored",
+            cookieStatus: "valid",
+            localStorage: anonymousStorage,
+          }
+        );
+        await assertNoHorizontalOverflow(trustedPage, "trusted-public-desktop");
+      } catch (error) {
+        failures.push(error);
       }
+      if (!themeRestored) {
+        try {
+          const current = await cleanupApi.preferences.theme.get({});
+          if (current.themeMode !== "dark" || current.palette !== "violet") {
+            await cleanupApi.preferences.theme.update({
+              expectedUpdatedAt: current.updatedAt,
+              themeMode: "dark",
+              palette: "violet",
+            });
+          }
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        assertTrustedRuntime();
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await trustedContext.close();
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          "Trusted theme journey and cleanup both failed."
+        );
+      }
+      assertLoginRuntime();
       expect(
         runtimeEvidence.filter((record) => record.case.startsWith("matrix-"))
       ).toHaveLength(themeModes.length * palettes.length);

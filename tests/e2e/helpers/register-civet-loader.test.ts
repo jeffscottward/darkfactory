@@ -42,4 +42,33 @@ describe("Civet E2E loader boundary", () => {
       /ERR_MODULE_NOT_FOUND|owner-lock\.js|APP_ENV=test|DATABASE_URL/iu
     );
   });
+  it("loads the Node preview capture boundary with confined TypeScript fallbacks", () => {
+    // Dynamic import is intentional: this test exercises the registered loader boundary.
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "--import",
+        "./tests/e2e/helpers/register-civet-loader.mjs",
+        "--input-type=module",
+        "--eval",
+        'await import("./tests/e2e/helpers/preview-capture.civet"); process.stdout.write("loaded\\n");',
+      ],
+      {
+        cwd: repositoryPath,
+        encoding: "utf8",
+        env: {
+          HOME: process.env["HOME"] ?? "",
+          NODE_ENV: "test",
+          NODE_NO_WARNINGS: "1",
+          PATH: process.env["PATH"] ?? "",
+        },
+        timeout: 30_000,
+      }
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("loaded\n");
+    expect(result.stderr).toBe("");
+  });
 });

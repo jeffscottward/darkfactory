@@ -21,6 +21,8 @@ import { betterAuth } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { hashPassword, verifyPassword } from "better-auth/crypto"
 
+import { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.civet"
+export { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.civet"
 import {
   AUTH_BASE_URL,
   AUTHORIZATION_ERROR_CODES,
@@ -38,6 +40,12 @@ const SAFE_RESET_RESPONSE = {
   status: true,
   message: "If this email exists in our system, check your email for the reset link",
 } as const
+const SAFE_SIGN_UP_RESPONSE = {
+  status: true,
+  message: "If this email can be registered, check your email for a verification link",
+} as const
+const SIGN_UP_RESPONSE_FLOOR_MILLISECONDS = 250
+const DUPLICATE_SIGN_UP_ERROR_CODE = "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"
 
 export const PASSWORD_RESET_DELIVERY_ERROR_CODE =
   "PASSWORD_RESET_DELIVERY_FAILED" as const
@@ -198,6 +206,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
   const verificationEmailTokenExpiresInSeconds = verificationExpiry(options)
   const verificationResendRateLimitMax = verificationRateLimitMax(options)
   const emailSignInRateLimitMax = signInRateLimitMax(options)
+  const rateLimitStorage = createAtomicAuthRateLimitStorage(options.database)
 
   return betterAuth({
     baseURL,
@@ -212,6 +221,9 @@ export const createAuth = (options: AuthFactoryOptions) => {
       useSecureCookies: true,
       disableCSRFCheck: false,
       disableOriginCheck: false,
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip"],
+      },
       backgroundTasks: {
         handler: options.scheduleBackgroundTask,
       },
@@ -261,6 +273,8 @@ export const createAuth = (options: AuthFactoryOptions) => {
     },
     rateLimit: {
       enabled: options.rateLimitEnabled ?? true,
+      storage: "database",
+      customStorage: rateLimitStorage,
       window: 60,
       max: 1_000,
       customRules: {
@@ -284,21 +298,19 @@ export const createAuth = (options: AuthFactoryOptions) => {
       sendOnSignIn: false,
       autoSignInAfterVerification: false,
       sendVerificationEmail: async ({ user, url }) => {
-        const deliveryTask = options.email
-          .sendEmailVerification({
+        try {
+          const result = await options.email.sendEmailVerification({
             to: user.email,
             recipientName: user.name,
             verificationUrl: url,
             expiresInMinutes: verificationEmailTokenExpiresInSeconds / 60,
           })
-          .then((result) => {
-            if (result.status === "failed") throw emailVerificationDeliveryError()
-            return undefined
-          })
-          .catch(() => {
+          if (result.status === "failed") {
             throw emailVerificationDeliveryError()
-          })
-        options.scheduleBackgroundTask(deliveryTask)
+          }
+        } catch {
+          throw emailVerificationDeliveryError()
+        }
       },
     },
     emailAndPassword: {
@@ -688,7 +700,15 @@ const sanitizeJsonTokens = (value: unknown): SanitizedJson => {
 const sanitizeTokenResponse = async (response: Response): Promise<Response> => {
   const contentType = response.headers.get("content-type") ?? ""
   if (!contentType.includes("application/json")) return response
-  const result = sanitizeJsonTokens(await response.clone().json())
+  const body = await response.clone().text()
+  if (body.trim().length === 0) return response
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body) as unknown
+  } catch {
+    throw new Error("Authentication JSON response is malformed")
+  }
+  const result = sanitizeJsonTokens(parsed)
   if (!result.changed) return response
 
   const headers = new Headers(response.headers)
@@ -734,6 +754,45 @@ const isResetRequest = (request: Request): boolean =>
   request.method === "POST" &&
   new URL(request.url).pathname.endsWith("/api/auth/request-password-reset")
 
+const isSignUpRequest = (request: Request): boolean =>
+  request.method === "POST" &&
+  new URL(request.url).pathname.endsWith("/api/auth/sign-up/email")
+
+const hasJsonErrorCode = async (
+  response: Response,
+  code: string,
+): Promise<boolean> => {
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) return false
+  try {
+    const body = (await response.clone().json()) as { code?: unknown }
+    return body.code === code
+  } catch {
+    return false
+  }
+}
+
+const normalizeSignUpResponse = async (
+  response: Response,
+  startedAt: number,
+): Promise<Response> => {
+  const accepted = response.status === 200 ||
+    (
+      response.status === 422 &&
+      await hasJsonErrorCode(response, DUPLICATE_SIGN_UP_ERROR_CODE)
+    )
+  if (!accepted) return response
+
+  const remaining = SIGN_UP_RESPONSE_FLOOR_MILLISECONDS - (Date.now() - startedAt)
+  if (remaining > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, remaining))
+  }
+  return Response.json(SAFE_SIGN_UP_RESPONSE, {
+    status: 200,
+    headers: { "cache-control": "no-store" },
+  })
+}
+
 const isDeliveryFailure = async (
   response: Response,
   code: string,
@@ -778,16 +837,20 @@ const inactiveSessionResponse = async (
   )
 }
 
-/** Fetch-native route bridge. It masks reset delivery availability so reset
- * requests do not become account-existence oracles. Verification delivery is
- * scheduled independently and its public endpoint returns uniformly. */
+/** Fetch-native route bridge. It normalizes signup and reset responses so
+ * public requests do not become account-existence or provider-availability
+ * oracles. Verification delivery is scheduled independently. */
 export const createAuthHandler = (
   auth: DarkFactoryAuth,
 ): ((request: Request) => Promise<Response>) =>
   async (request) => {
+    const signUpStartedAt = isSignUpRequest(request) ? Date.now() : undefined
     const inactiveResponse = await inactiveSessionResponse(auth, request)
     if (inactiveResponse) return inactiveResponse
     let response = await auth.handler(request)
+    if (signUpStartedAt !== undefined) {
+      response = await normalizeSignUpResponse(response, signUpStartedAt)
+    }
     if (
       isResetRequest(request) &&
       (await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE))

@@ -1,7 +1,6 @@
 "use client"
 
 import { cn } from "@darkfactory/ui"
-import { useEffect, useRef } from "react"
 
 const accountRoutes = [
   { href: "/account", label: "Summary" },
@@ -16,14 +15,9 @@ export interface AccountNavigationProps {
 }
 
 export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
-  const activeLink = useRef<HTMLAnchorElement | null>(null)
-  useEffect(() => {
-    activeLink.current?.scrollIntoView({ block: "nearest", inline: "center" })
-    return undefined
-  }, [currentPath])
   return (
-    <nav aria-label="Account settings" className="overflow-x-auto border-b border-border">
-      <ul className="flex min-w-max gap-1" role="list">
+    <nav aria-label="Account settings" className="border-b border-border">
+      <ul className="flex flex-wrap gap-1" role="list">
         {accountRoutes.map((route) => {
           const isCurrent = currentPath === route.href
           return (
@@ -37,7 +31,6 @@ export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
                     : "border-transparent text-muted-foreground hover:border-border-strong hover:text-foreground",
                 )}
                 href={route.href}
-                ref={isCurrent ? activeLink : undefined}
               >
                 {route.label}
               </a>

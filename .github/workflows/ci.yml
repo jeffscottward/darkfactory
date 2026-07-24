@@ -108,8 +108,8 @@ jobs:
       - name: Run verification lane
         run: corepack pnpm run "verify:${{ matrix.lane }}"
 
-      - name: Preserve Playwright evidence and failure diagnostics
-        if: matrix.lane == 'browser' && always()
+      - name: Preserve externally scanned Playwright evidence
+        if: matrix.lane == 'browser' && success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-evidence-${{ github.run_id }}-${{ github.run_attempt }}

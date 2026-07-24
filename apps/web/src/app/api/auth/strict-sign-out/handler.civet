@@ -8,8 +8,11 @@ import { createRequestDatabase } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
 
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
+import {
+  createBackgroundTaskLifecycle,
+  type BackgroundTaskScheduler,
+} from "../../../../lib/background-task-lifecycle.civet"
 
-import type { BackgroundTaskScheduler } from "../[...all]/handler.civet"
 
 export const handleStrictSignOutRequest = async (
   request: Request,
@@ -21,6 +24,10 @@ export const handleStrictSignOutRequest = async (
   const database = await createRequestDatabase({
     connectionString: databaseProfile.connection.connectionString,
   })
+  const backgroundTasks = createBackgroundTaskLifecycle(
+    scheduleBackgroundTask,
+    database.close,
+  )
 
   try {
     const email = selectEmailPort({
@@ -38,7 +45,7 @@ export const handleStrictSignOutRequest = async (
       secret: env.BETTER_AUTH_SECRET,
       baseURL: env.BETTER_AUTH_URL,
       trustedOrigins: [env.APP_URL],
-      scheduleBackgroundTask,
+      scheduleBackgroundTask: backgroundTasks.schedule,
     })
     return await createDatabaseConfirmedSignOutHandler({
       auth,
@@ -47,6 +54,6 @@ export const handleStrictSignOutRequest = async (
       trustedOrigin: env.APP_URL,
     })(request)
   } finally {
-    await database.close()
+    await backgroundTasks.finalize()
   }
 }

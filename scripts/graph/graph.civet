@@ -6,6 +6,7 @@ const MAX_SOURCE_FILE_BYTES = 8_388_608
 const MAX_SOURCE_TOTAL_BYTES = 134_217_728
 const MAX_SOURCE_FILES = 20_000
 const COMMAND_OPTIONS = Object.freeze({ timeoutMs: 120_000, maxOutputBytes: 1_048_576 })
+const SUPPORTED_GRAPH_PATH = "graphify-out/graph.json"
 
 export type GraphAction = "build" | "update" | "check" | "verify"
 
@@ -41,6 +42,7 @@ export type GraphFileSystem = Readonly<{
   inspect: (path: string) => Promise<GraphFileInfo>
   readText: (path: string, maximumBytes?: number) => Promise<string>
   writeText: (path: string, content: string) => Promise<void>
+  resetGraphOutput: (graphPath: string) => Promise<void>
   listSourceFiles: (config: GraphConfig) => Promise<readonly string[]>
   createSourceSnapshot: (
     config: GraphConfig,
@@ -118,6 +120,9 @@ export const parseGraphConfig = (source: string): GraphConfig => {
   const manifestPath = root["manifestPath"]
   if (typeof graphPath !== "string" || typeof manifestPath !== "string") {
     throw new Error("Graph config output paths are invalid")
+  }
+  if (graphPath !== SUPPORTED_GRAPH_PATH) {
+    throw new Error("Graph config must use the supported graph output path")
   }
   const roots = stringArray(sourceConfig["roots"], "source.roots")
   const files = stringArray(sourceConfig["files"], "source.files")
@@ -368,6 +373,14 @@ const buildOrUpdate = async (
   }
   let execution: Readonly<{ exitCode: number }>
   try {
+    try {
+      await dependencies.files.resetGraphOutput(config.graphPath)
+    } catch (error) {
+      const detail = error instanceof Error
+        ? error.message
+        : "unknown output reset failure"
+      return failure(action, `Graph output reset failed: ${detail}`)
+    }
     execution = await dependencies.process.run(
       "graphify",
       ["extract", snapshot.path, "--out", "."],

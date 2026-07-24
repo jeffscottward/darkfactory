@@ -41,7 +41,7 @@ export default function ContactPage() {
           >
             Clear context makes a useful reply possible.
           </h2>
-          <div
+          <section
             aria-labelledby="contact-expectations-title"
             className="mt-8 divide-y divide-border border-y border-border"
           >
@@ -55,7 +55,7 @@ export default function ContactPage() {
                 </p>
               </div>
             ))}
-          </div>
+          </section>
         </div>
         <div className="md:col-span-6 md:col-start-7">
           <ContactForm />

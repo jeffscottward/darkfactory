@@ -38,6 +38,6 @@ export const StatusBadge = ({
     {...props}
   >
     <span className="sr-only">Status: </span>
-    {children}
+    <span>{children}</span>
   </span>
 )
