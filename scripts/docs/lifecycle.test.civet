@@ -1,0 +1,88 @@
+import { readFile } from "node:fs/promises"
+import { describe, expect, it } from "vitest"
+
+const rootPackage = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
+  scripts: Record<string, string>
+  devDependencies: Record<string, string>
+}
+const workspace = await readFile(new URL("../../pnpm-workspace.yaml", import.meta.url), "utf8")
+const workflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
+const vitestConfig = await readFile(new URL("../../vitest.config.ts", import.meta.url), "utf8")
+const packageUnitScripts = await Promise.all(
+  ["ai", "analytics", "api", "db", "ui"].map(async (name) => {
+    const manifest = JSON.parse(await readFile(
+      new URL(`../../packages/${name}/package.json`, import.meta.url),
+      "utf8",
+    )) as { scripts: Record<string, string> }
+    return [name, manifest.scripts["test:unit"]] as const
+  }),
+)
+
+describe("DF-101/106 lifecycle contract", () => {
+  it("exposes every required root command while preserving API aliases", () => {
+    for (const name of [
+      "test:contract",
+      "test:operations",
+      "test:a11y",
+      "docs:generate",
+      "docs:check",
+      "openapi:generate",
+      "openapi:check",
+      "capability:add",
+    ]) expect(rootPackage.scripts[name]).toEqual(expect.any(String))
+    expect(rootPackage.scripts["openapi:generate"]).toContain("api:openapi:generate")
+    expect(rootPackage.scripts["openapi:check"]).toContain("api:openapi:check")
+    expect(rootPackage.scripts["api:openapi:generate"]).toContain("@darkfactory/api")
+    expect(rootPackage.scripts["api:openapi:check"]).toContain("@darkfactory/api")
+  })
+
+  it("keeps CI and verify identical and explicitly complete without duplicate E2E selection", () => {
+    const lifecycle = rootPackage.scripts.verify
+    expect(rootPackage.scripts.ci).toBe(lifecycle)
+    expect(rootPackage.scripts["test:unit"]).toBe("turbo run test:unit --concurrency=50%")
+    expect(rootPackage.scripts["test:contract"]).toContain("--project contract")
+    expect(rootPackage.scripts["test:operations"]).toContain("--project operations")
+    expect(rootPackage.scripts["test:operations"]).toContain("--project e2e-helpers")
+    expect(rootPackage.scripts["test:operations"]).toContain("--maxWorkers=1")
+    expect(rootPackage.scripts["test:operations"]).toContain("--no-file-parallelism")
+    expect(vitestConfig).toContain('"**/*contract.test.civet"')
+    expect(vitestConfig).toContain('name: "contract"')
+    expect(vitestConfig).toContain('name: "operations"')
+    expect(vitestConfig).toContain('name: "e2e-helpers"')
+    expect(vitestConfig).toContain('"playwright.config.test.ts"')
+    expect(vitestConfig).toContain('"tests/e2e/helpers/*.test.civet"')
+    expect(vitestConfig).toContain('"tests/e2e/helpers/*.test.ts"')
+    for (const [, script] of packageUnitScripts) {
+      expect(script).toContain('--exclude "**/*contract.test.civet"')
+    }
+    for (const command of [
+      "test:contract",
+      "test:operations",
+      "docs:check",
+      "graph:check",
+      "graph:verify",
+      "test:e2e",
+      "test:a11y",
+    ]) expect(lifecycle).toContain(`pnpm run ${command}`)
+    expect(rootPackage.scripts["test:e2e"]).toBe("civet scripts/e2e/run.civet e2e")
+    expect(rootPackage.scripts["test:a11y"]).toBe("civet scripts/e2e/run.civet a11y")
+  })
+
+  it("pins Axe and Graphify and always preserves browser evidence", () => {
+    expect(rootPackage.devDependencies["@axe-core/playwright"]).toBe("catalog:")
+    expect(workspace).toContain('"@axe-core/playwright": 4.12.1')
+    expect(workflow).toContain("scripts/graph/requirements.lock")
+    expect(workflow).toContain("--require-hashes")
+    expect(workflow).toContain('python-version: "3.12.11"')
+    expect(workflow.indexOf("scripts/graph/requirements.lock")).toBeLessThan(workflow.indexOf("corepack pnpm run ci"))
+    expect(workflow).toMatch(/Preserve Playwright evidence and failure diagnostics[\s\S]*if: always\(\)[\s\S]*playwright-report\/[\s\S]*test-results\//)
+    expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1)
+    expect(workflow).toContain("persist-credentials: false")
+    for (const action of workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g)) {
+      expect(action[1]).toMatch(/^[0-9a-f]{40}$/)
+    }
+    expect(workflow).toContain("corepack pnpm run graph:build")
+    expect(workflow).toContain("git diff --exit-code -- .graphify/manifest.json")
+    expect(workflow.indexOf("corepack pnpm run graph:build")).toBeLessThan(workflow.indexOf("corepack pnpm run ci"))
+  })
+})

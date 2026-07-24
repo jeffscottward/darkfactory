@@ -1,0 +1,202 @@
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { describe, expect, it } from "vitest"
+
+import type { JourneyResult, JourneySuiteReport } from "./runner.civet"
+import { persistE2ERunnerState } from "./state.civet"
+
+const result = (
+  spec = "tests/e2e/auth.spec.ts",
+  diagnostics: readonly string[] = [],
+): JourneyResult => Object.freeze({
+  spec,
+  runId: "safe_state_run",
+  playwrightExitCode: 1,
+  diagnostics,
+  lifecycleStatus: "startup-failed",
+  lifecycleStage: "database-migrate",
+  lifecycleObservation: "state",
+  lifecycleObservationReason: "observed-state",
+  processState: "terminated",
+  stage: "execute",
+  processTreeTerminated: true,
+  scan: Object.freeze({
+    ok: true,
+    scannedEntries: 1,
+    findings: [],
+    purged: true,
+    reason: "private scan reason",
+  }),
+})
+
+const report = (results: readonly JourneyResult[]): JourneySuiteReport =>
+  Object.freeze({
+    ok: false,
+    mode: "e2e",
+    completed: results.length,
+    results,
+    reason: "private suite reason",
+  })
+
+const fixture = async (): Promise<string> =>
+  await mkdtemp(join(tmpdir(), "darkfactory-runner-state-"))
+
+const statePath = (root: string): string =>
+  join(root, "test-results", "e2e-runner-state.json")
+
+describe("atomic E2E runner state", () => {
+  it("atomically overwrites progress and final sanitized result at mode 0600", async () => {
+    const root = await fixture()
+    try {
+      persistE2ERunnerState(root, {
+        version: 1,
+        phase: "progress",
+        progress: {
+          spec: "tests/e2e/auth.spec.ts",
+          runId: "safe_state_run",
+          stage: "playwright-finished",
+          playwrightOk: false,
+          processTreeTerminated: true,
+          lifecycleStatus: "startup-failed",
+          lifecycleStage: "database-migrate",
+          lifecycleObservation: "state",
+          lifecycleObservationReason: "observed-state",
+        },
+      })
+      expect(JSON.parse(await readFile(statePath(root), "utf8"))).toMatchObject({
+        phase: "progress",
+        progress: { stage: "playwright-finished", playwrightOk: false },
+      })
+
+      persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report([result("tests/e2e/auth.spec.ts", [
+          "stderr: E2E lifecycle startup failed during database-migrate. private@example.test",
+          "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
+          "stderr: ELIFECYCLE Command failed with token=private",
+          "private@example.test https://domain.test/?token=private Password123!",
+        ])]),
+      })
+      const content = await readFile(statePath(root), "utf8")
+      expect(JSON.parse(content)).toMatchObject({
+        version: 1,
+        phase: "result",
+        report: {
+          ok: false,
+          completed: 1,
+          results: [{
+            stage: "execute",
+            diagnostics: [
+              "E2E lifecycle startup failed during database-migrate",
+              "Playwright webServer process failed before tests",
+              "Package lifecycle exited nonzero",
+            ],
+            scan: { ok: true, purged: true, reason: "scan-complete" },
+          }],
+          reason: "journey-suite-failed",
+        },
+      })
+      expect(content).not.toMatch(
+        /private@example|domain\.test|token=|Password123|private scan|private suite/iu,
+      )
+      expect((await lstat(statePath(root))).mode & 0o777).toBe(0o600)
+      expect((await readdir(join(root, "test-results"))).filter((name) =>
+        name.endsWith(".tmp")
+      )).toEqual([])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an unknown runtime progress stage", async () => {
+    const root = await fixture()
+    try {
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "progress",
+        progress: {
+          spec: "tests/e2e/auth.spec.ts",
+          runId: "safe_state_run",
+          stage: "unknown",
+        } as never,
+      })).toThrow(/progress stage is invalid/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves the finite post-readiness runtime failure enums", async () => {
+    const root = await fixture()
+    try {
+      persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report([Object.freeze({
+          ...result(),
+          lifecycleStatus: "runtime-failed",
+          lifecycleStage: "server-ready",
+        })]),
+      })
+      expect(JSON.parse(await readFile(statePath(root), "utf8"))).toMatchObject({
+        phase: "result",
+        report: {
+          results: [{
+            lifecycleStatus: "runtime-failed",
+            lifecycleStage: "server-ready",
+          }],
+        },
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a malicious fixed-target symlink without touching its referent", async () => {
+    const root = await fixture()
+    const outside = join(root, "outside.json")
+    try {
+      await mkdir(join(root, "test-results"))
+      await writeFile(outside, "outside-safe")
+      await symlink(outside, statePath(root))
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report([result()]),
+      })).toThrow(/target is unsafe/i)
+      await expect(readFile(outside, "utf8")).resolves.toBe("outside-safe")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an oversized sanitized report and leaves no temporary file", async () => {
+    const root = await fixture()
+    const results = Array.from({ length: 256 }, (_, index) => result(
+      `tests/e2e/${"a".repeat(190)}-${index}.spec.ts`,
+    ))
+    try {
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report(results),
+      })).toThrow(/fixed bound/i)
+      expect((await readdir(join(root, "test-results"))).filter((name) =>
+        name.endsWith(".tmp")
+      )).toEqual([])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})

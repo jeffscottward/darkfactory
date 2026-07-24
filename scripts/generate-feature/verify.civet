@@ -1,95 +1,39 @@
 import { constants } from "node:fs"
-import { lstat, open, readdir } from "node:fs/promises"
+import { open } from "node:fs/promises"
 import { join } from "node:path"
 
 import { GeneratorError } from "./errors.civet"
-import {
-  assertDirectoryChain,
-  assertNoSymlinkPath,
-  captureDirectoryChain,
-} from "./path-safety.civet"
+import { assertNoSymlinkPath } from "./path-safety.civet"
 import { assertGenerationPlanIntegrity, sha256 } from "./plan.civet"
 import type { GenerationPlan, VerificationResult } from "./types.civet"
-
-const collectFiles = async (
-  directory: string,
-  prefix = "",
-): Promise<readonly string[]> => {
-  const paths: string[] = []
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`
-    const absolutePath = join(directory, entry.name)
-    if (entry.isSymbolicLink()) {
-      throw new GeneratorError("VERIFICATION_FAILED", "Generated capsule contains a symbolic link")
-    }
-    if (entry.isDirectory()) {
-      paths.push(...await collectFiles(absolutePath, relativePath))
-    } else if (entry.isFile()) {
-      paths.push(relativePath)
-    } else {
-      throw new GeneratorError("VERIFICATION_FAILED", "Generated capsule contains an unsupported entry")
-    }
-  }
-  return paths.sort()
-}
 
 export const verifyGeneration = async (
   plan: GenerationPlan,
 ): Promise<VerificationResult> => {
   assertGenerationPlanIntegrity(plan)
   try {
-    await assertNoSymlinkPath(plan.targetRoot, plan.capsuleRoot)
-    const capsulePath = join(plan.targetRoot, ...plan.capsuleRoot.split("/"))
-    const capsuleStats = await lstat(capsulePath)
-    if (!capsuleStats.isDirectory() || capsuleStats.isSymbolicLink()) {
-      throw new GeneratorError("VERIFICATION_FAILED", "Generated capsule is not a regular directory")
-    }
-    const identities = await captureDirectoryChain(plan.targetRoot, plan.capsuleRoot)
-
-    await assertDirectoryChain(identities)
-    const actual = await collectFiles(capsulePath)
-    await assertDirectoryChain(identities)
-    const expected = plan.files.map((file) => file.path.slice(plan.capsuleRoot.length + 1))
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      throw new GeneratorError("VERIFICATION_FAILED", "Generated capsule file set is invalid")
-    }
-
     for (const file of plan.files) {
-      await assertDirectoryChain(identities)
+      await assertNoSymlinkPath(plan.targetRoot, file.path)
       const absolutePath = join(plan.targetRoot, ...file.path.split("/"))
-      const handle = await open(
-        absolutePath,
-        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
-      )
+      const handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
       try {
         const stats = await handle.stat()
-        await assertDirectoryChain(identities)
-        if (!stats.isFile()) {
-          throw new GeneratorError("VERIFICATION_FAILED", "Generated capsule file is invalid")
-        }
+        if (!stats.isFile())
+          throw new GeneratorError("VERIFICATION_FAILED", "Generated artifact is not a regular file")
         const content = await handle.readFile({ encoding: "utf8" })
-        await assertDirectoryChain(identities)
-        if (sha256(content) !== file.sha256) {
-          throw new GeneratorError("VERIFICATION_FAILED", "Generated capsule content is invalid")
-        }
+        if (sha256(content) !== file.sha256)
+          throw new GeneratorError("VERIFICATION_FAILED", "Generated artifact is stale")
       } finally {
         await handle.close()
       }
     }
-
     return Object.freeze({
       isValid: true as const,
       filesChecked: plan.files.length,
       planId: plan.planId,
     })
   } catch (error) {
-    if (error instanceof GeneratorError && error.code === "VERIFICATION_FAILED") {
-      throw error
-    }
-    throw new GeneratorError(
-      "VERIFICATION_FAILED",
-      "Generation verification failed",
-      { cause: error },
-    )
+    if (error instanceof GeneratorError && error.code === "VERIFICATION_FAILED") throw error
+    throw new GeneratorError("VERIFICATION_FAILED", "Generation verification failed", { cause: error })
   }
 }

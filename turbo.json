@@ -20,7 +20,7 @@
       "outputs": ["src/**/*.civet.d.ts"]
     },
     "typecheck": {
-      "dependsOn": ["types", "^typecheck"],
+      "dependsOn": ["^typecheck"],
       "outputs": []
     },
     "lint": {

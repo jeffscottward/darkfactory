@@ -1,0 +1,119 @@
+import { constants } from "node:fs"
+import { lstat, open, realpath } from "node:fs/promises"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+
+import {
+  RELATIVE_CIVET_DECLARATION_SPECIFIER,
+  normalizeRelativeCivetDeclarationSpecifiers,
+} from "./type-declaration-specifiers.civet"
+
+const packageRoot = await realpath(resolve("."))
+const sourcePath = resolve("src")
+const sourceStats = await lstat(sourcePath)
+const sourceRoot = await realpath(sourcePath)
+const declarationPaths = [
+  "src/index.civet.d.ts"
+  "src/contract.civet.d.ts"
+  "src/client.civet.d.ts"
+  "src/openapi.civet.d.ts"
+  "src/contracts/account.civet.d.ts"
+  "src/contracts/admin-users.civet.d.ts"
+  "src/contracts/contact.civet.d.ts"
+  "src/contracts/dashboard.civet.d.ts"
+  "src/generated/contract-registry.civet.d.ts"
+  "src/generated/public-registry.civet.d.ts"
+  "src/generated/router-registry.civet.d.ts"
+  "src/server/index.civet.d.ts"
+  "src/server/context.civet.d.ts"
+  "src/server/handler.civet.d.ts"
+  "src/server/router.civet.d.ts"
+  "src/server/service.civet.d.ts"
+  "src/server/account-service.civet.d.ts"
+  "src/server/admin-users-service.civet.d.ts"
+  "src/server/contact-service.civet.d.ts"
+  "src/server/dashboard-service.civet.d.ts"
+] as const
+
+const isWithin = (root: string, path: string): boolean => {
+  const fromRoot = relative(root, path)
+  return (
+    fromRoot.length > 0 &&
+    !isAbsolute(fromRoot) &&
+    fromRoot !== ".." &&
+    !fromRoot.startsWith(`..${sep}`)
+  )
+}
+
+if (
+  sourceStats.isSymbolicLink() ||
+  !sourceStats.isDirectory() ||
+  !isWithin(packageRoot, sourceRoot)
+) {
+  throw new Error("API declaration source root is unsafe")
+}
+
+const isInsideSourceRoot = (path: string): boolean =>
+  isWithin(sourceRoot, path)
+
+for (const relativeDeclarationPath of declarationPaths) {
+  const declarationPath = resolve(relativeDeclarationPath)
+  const handle = await open(
+    declarationPath,
+    constants.O_RDWR | constants.O_NOFOLLOW,
+  )
+  try {
+    const handleStats = await handle.stat()
+    const canonicalDeclarationPath = await realpath(declarationPath)
+    const pathStats = await lstat(declarationPath)
+    if (
+      !handleStats.isFile() ||
+      pathStats.isSymbolicLink() ||
+      !pathStats.isFile() ||
+      handleStats.dev !== pathStats.dev ||
+      handleStats.ino !== pathStats.ino ||
+      !isInsideSourceRoot(canonicalDeclarationPath)
+    ) {
+      throw new Error("Generated declaration path is unsafe")
+    }
+
+    const source = await handle.readFile({ encoding: "utf8" })
+    for (const match of source.matchAll(RELATIVE_CIVET_DECLARATION_SPECIFIER)) {
+      const specifier = match[3]!
+      const target = resolve(dirname(declarationPath), `${specifier}.d.ts`)
+      const targetStats = await lstat(target).catch(() => undefined)
+      const canonicalTarget = await realpath(target).catch(() => undefined)
+      if (
+        targetStats === undefined ||
+        canonicalTarget === undefined ||
+        targetStats.isSymbolicLink() ||
+        !targetStats.isFile() ||
+        !isInsideSourceRoot(canonicalTarget)
+      ) {
+        throw new Error(
+          `Missing or unsafe generated declaration imported by ${relative(sourceRoot, canonicalDeclarationPath)}`,
+        )
+      }
+    }
+
+    const normalized = normalizeRelativeCivetDeclarationSpecifiers(source)
+    if (normalized !== source) {
+      const content = Buffer.from(normalized, "utf8")
+      let offset = 0
+      while offset < content.length {
+        const { bytesWritten } = await handle.write(
+          content,
+          offset,
+          content.length - offset,
+          offset,
+        )
+        if bytesWritten <= 0
+          throw new Error("Generated declaration write made no progress")
+        offset += bytesWritten
+      }
+      await handle.truncate(content.length)
+      await handle.sync()
+    }
+  } finally {
+    await handle.close()
+  }
+}

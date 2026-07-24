@@ -1,13 +1,4 @@
-import { randomUUID } from "node:crypto"
-import { readFileSync } from "node:fs"
-import {
-  mkdir,
-  open,
-  readFile,
-  rm,
-  unlink,
-  writeFile,
-} from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -30,7 +21,18 @@ import {
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
   type OwnedProcess,
-} from "./helpers/owned-process-tree.civet"
+} from "../../scripts/e2e/owned-process-tree.civet"
+import {
+  acquireOwnedDevVars,
+  releaseOwnedDevVarsLock,
+  removeOwnedDevVarsFile,
+  type OwnedDevVarsLease,
+} from "../e2e/helpers/dev-vars.ts"
+import {
+  createE2EExecutionEnvironment,
+  redactSensitiveBindingValues,
+  type E2EProcessEnvironment,
+} from "../e2e/helpers/runtime.ts"
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const WEB_DIRECTORY = join(REPOSITORY_ROOT, "apps/web")
@@ -38,22 +40,9 @@ const VINEXT_CLI_PATH = join(
   WEB_DIRECTORY,
   "node_modules/vinext/dist/cli.js",
 )
-const DEV_VARS_PATH = join(WEB_DIRECTORY, ".dev.vars")
-const DEV_VARS_LOCK_PATH = join(
-  WEB_DIRECTORY,
-  ".wrangler/worker-postgres-test.lock",
-)
-const DEV_VARS_LOCK_OWNER_PATH = join(DEV_VARS_LOCK_PATH, "owner")
-const DEV_VARS_MARKER = "# darkfactory-worker-postgres-test"
 const AUTH_SECRET = "worker-runtime-test-secret-at-least-32-chars"
 const PASSWORD = "CorrectHorseBatteryStaple!42"
 const APP_ORIGIN = "https://darkfactory-worker-test.localhost"
-const WORKER_BINDING_NAMES = Array.from(
-  readFileSync(join(REPOSITORY_ROOT, ".env.schema"), "utf8").matchAll(
-    /^([A-Z][A-Z0-9_]*)=/gmu,
-  ),
-  (match) => match[1]!,
-)
 const READINESS_ATTEMPT_TIMEOUT_MILLIS = 5_000
 const READINESS_TIMEOUT_MILLIS = 150_000
 const WORKER_TERMINATION_OPTIONS = {
@@ -65,8 +54,8 @@ const WORKER_TERMINATION_OPTIONS = {
 let database: PostgresTestDatabase
 let devServer: OwnedProcess | undefined
 let baseUrl = ""
-let createdDevVars = false
-let devVarsLockToken: string | undefined
+let devVarsLease: OwnedDevVarsLease | undefined
+let workerBindingEnvironment: E2EProcessEnvironment = {}
 let serverOutput = ""
 
 const availablePort = async (): Promise<number> => {
@@ -86,54 +75,6 @@ const availablePort = async (): Promise<number> => {
   return address.port
 }
 
-const isFileSystemError = (error: unknown, code: string): boolean =>
-  error !== null &&
-  typeof error === "object" &&
-  "code" in error &&
-  error.code === code
-
-const acquireDevVarsLock = async (): Promise<void> => {
-  await mkdir(join(WEB_DIRECTORY, ".wrangler"), { recursive: true })
-  try {
-    await mkdir(DEV_VARS_LOCK_PATH, { mode: 0o700 })
-  } catch (error) {
-    if (!isFileSystemError(error, "EEXIST")) throw error
-    const owner = await readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")
-      .then((value) => value.trim())
-      .catch(() => "unavailable")
-    throw new Error(
-      `Worker .dev.vars lock already exists at ${DEV_VARS_LOCK_PATH} (${owner}). ` +
-        "Another suite may be running; if no test process remains, remove the lock directory manually.",
-    )
-  }
-
-  const token = `${process.pid}:${randomUUID()}`
-  try {
-    await writeFile(DEV_VARS_LOCK_OWNER_PATH, `${token}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600,
-    })
-  } catch (error) {
-    await rm(DEV_VARS_LOCK_PATH, { recursive: true, force: true })
-    throw error
-  }
-  devVarsLockToken = token
-}
-
-const releaseDevVarsLock = async (): Promise<void> => {
-  const token = devVarsLockToken
-  if (token === undefined) return
-
-  const owner = (await readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).trim()
-  if (owner !== token) {
-    throw new Error("Refusing to release a Worker .dev.vars lock owned elsewhere")
-  }
-
-  await rm(DEV_VARS_LOCK_PATH, { recursive: true })
-  devVarsLockToken = undefined
-}
-
 type LockContenderResult = Readonly<{
   exitCode: number | null
   signal: NodeJS.Signals | null
@@ -141,10 +82,10 @@ type LockContenderResult = Readonly<{
   stdout: string
 }>
 
-const runLockContender = async (): Promise<LockContenderResult> => {
+const runLockContender = async (lockPath: string): Promise<LockContenderResult> => {
   const script = `
     import { mkdir, rm } from "node:fs/promises";
-    const lockPath = ${JSON.stringify(DEV_VARS_LOCK_PATH)};
+    const lockPath = ${JSON.stringify(lockPath)};
     try {
       await mkdir(lockPath);
       await rm(lockPath, { recursive: true, force: true });
@@ -177,87 +118,60 @@ const runLockContender = async (): Promise<LockContenderResult> => {
   })
 }
 
-const removeStaleTestVars = async (): Promise<void> => {
-  try {
-    const current = await readFile(DEV_VARS_PATH, "utf8")
-    if (!current.startsWith(DEV_VARS_MARKER)) {
-      throw new Error("Refusing to overwrite an existing apps/web/.dev.vars")
-    }
-    await unlink(DEV_VARS_PATH)
-  } catch (error) {
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) return
-    throw error
-  }
-}
-
 const writeWorkerVars = async (): Promise<void> => {
-  await removeStaleTestVars()
-  const file = await open(DEV_VARS_PATH, "wx", 0o600)
-  createdDevVars = true
-  try {
-    await file.writeFile([
-      DEV_VARS_MARKER,
-      "APP_ENV=test",
-      `APP_URL=${APP_ORIGIN}`,
-      "APP_NAME=DarkFactory",
-      "DATABASE_PROVIDER=postgres",
-      `DATABASE_URL=${database.databaseUrl}`,
-      `BETTER_AUTH_SECRET=${AUTH_SECRET}`,
-      "CONTACT_THROTTLE_SECRET=test-only-contact-throttle-secret-32-characters",
-      `BETTER_AUTH_URL=${APP_ORIGIN}`,
-      "EMAIL_TRANSPORT=preview",
-      "EMAIL_FROM=DarkFactory <noreply@domain.test>",
-      "OTEL_ENABLED=false",
-      "OTEL_SERVICE_NAME=darkfactory-web-worker-test",
-      "STORAGE_ENABLED=false",
-      "DOCS_ENABLED=false",
-      "DOCS_PUBLIC=false",
-      "JOBS_ENABLED=false",
-      "FLOWER_ENABLED=false",
-      "UPTIME_KUMA_ENABLED=false",
-      "ERROR_TRACKING_ENABLED=false",
-      "MEMORI_ENABLED=false",
-      "",
-    ].join("\n"))
-  } finally {
-    await file.close()
-  }
+  const environment = {
+    APP_ENV: "test",
+    APP_URL: APP_ORIGIN,
+    APP_NAME: "DarkFactory",
+    DATABASE_PROVIDER: "postgres",
+    DATABASE_URL: database.databaseUrl,
+    BETTER_AUTH_SECRET: AUTH_SECRET,
+    CONTACT_THROTTLE_SECRET: "test-only-contact-throttle-secret-32-characters",
+    BETTER_AUTH_URL: APP_ORIGIN,
+    EMAIL_TRANSPORT: "preview",
+    EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+    OTEL_ENABLED: "false",
+    OTEL_SERVICE_NAME: "darkfactory-web-worker-test",
+    STORAGE_ENABLED: "false",
+    DOCS_ENABLED: "false",
+    DOCS_PUBLIC: "false",
+    JOBS_ENABLED: "false",
+    FLOWER_ENABLED: "false",
+    UPTIME_KUMA_ENABLED: "false",
+    ERROR_TRACKING_ENABLED: "false",
+    MEMORI_ENABLED: "false",
+  } as const
+  workerBindingEnvironment = environment
+  devVarsLease = await acquireOwnedDevVars({
+    bindingNames: Object.keys(environment),
+    environment,
+    webDirectory: WEB_DIRECTORY,
+  })
 }
 
-const safeDiagnostic = (value: string): string => {
-  let safe = value
-    .replaceAll(AUTH_SECRET, "[AUTH_SECRET]")
+const safeDiagnostic = (value: string): string =>
+  redactSensitiveBindingValues(value, workerBindingEnvironment)
     .replaceAll(PASSWORD, "[PASSWORD]")
     .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/giu, "[DATABASE_URL]")
-  if (database !== undefined) {
-    safe = safe.replaceAll(database.databaseUrl, "[DATABASE_URL]")
-  }
-  return safe.slice(-24_000)
-}
+    .slice(-24_000)
+
+const createWorkerProcessEnvironment = (port: number): NodeJS.ProcessEnv => ({
+  ...createE2EExecutionEnvironment(process.env),
+  NODE_ENV: "development",
+  FORCE_COLOR: "0",
+  HOST: "127.0.0.1",
+  PORT: port.toString(),
+})
+
 
 const startWorker = (port: number): OwnedProcess => {
-  const workerEnvironment = { ...process.env }
-  for (const name of WORKER_BINDING_NAMES) {
-    delete workerEnvironment[name]
-  }
-
   serverOutput = ""
   const server = spawnOwnedProcess(
     process.execPath,
     [VINEXT_CLI_PATH, "dev"],
     {
       cwd: WEB_DIRECTORY,
-      env: {
-        ...workerEnvironment,
-        FORCE_COLOR: "0",
-        HOST: "127.0.0.1",
-        PORT: port.toString(),
-      },
+      env: createWorkerProcessEnvironment(port),
     },
   )
   const consume = (chunk: Buffer): void => {
@@ -344,12 +258,13 @@ const stopWorker = async (): Promise<void> => {
 }
 
 const cleanupWorkerResources = async (): Promise<void> => {
-  if (createdDevVars) {
-    await unlink(DEV_VARS_PATH)
-    createdDevVars = false
-  }
+  const lease = devVarsLease
+  if (lease !== undefined) await removeOwnedDevVarsFile(lease)
   if (database !== undefined) await dropPostgresTestDatabase(database)
-  await releaseDevVarsLock()
+  if (lease !== undefined) {
+    await releaseOwnedDevVarsLock(lease)
+    if (devVarsLease === lease) devVarsLease = undefined
+  }
 }
 
 const cookieFrom = (response: Response): string => {
@@ -387,7 +302,6 @@ const rpc = async (
 
 describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
   beforeAll(async () => {
-    await acquireDevVarsLock()
     database = await createPostgresTestDatabase({ runId: "vinext_worker_pg" })
     const migrationDatabase = createNodeDatabase({
       connectionString: database.databaseUrl,
@@ -440,20 +354,26 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
 
   it("runs authenticated typed theme reads and writes through real PostgreSQL", async () => {
     const email = `worker-${database.runId}@domain.test`
-    const lockToken = devVarsLockToken
-    if (lockToken === undefined) throw new Error("Worker lock was not acquired")
-    await expect(readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).resolves.toBe(
-      `${lockToken}\n`,
+    const lease = devVarsLease
+    if (lease === undefined) throw new Error("Worker lock was not acquired")
+    await expect(readFile(lease.ownerPath, "utf8")).resolves.toContain(
+      lease.ownerToken,
     )
-    await expect(runLockContender()).resolves.toEqual({
+    await expect(runLockContender(lease.lockPath)).resolves.toEqual({
       exitCode: 0,
       signal: null,
       stderr: "",
       stdout: "blocked",
     })
-    await expect(readFile(DEV_VARS_LOCK_OWNER_PATH, "utf8")).resolves.toBe(
-      `${lockToken}\n`,
+    await expect(readFile(lease.ownerPath, "utf8")).resolves.toContain(
+      lease.ownerToken,
     )
+    const anonymousSession = await fetch(`${baseUrl}/api/auth/get-session`, {
+      headers: { origin: APP_ORIGIN },
+    })
+    expect(anonymousSession.status).toBe(200)
+    await expect(anonymousSession.json()).resolves.toBeNull()
+
     const identity = {
       userId: "worker-runtime-user",
       accountId: "worker-runtime-account",
@@ -549,6 +469,26 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
     )
     expect(openWorkerConnections).toEqual([{ count: 0 }])
   }, 60_000)
+
+  it("does not forward unrelated host secrets to the Worker process", () => {
+    const previousUnrelated = process.env["UNRELATED_SECRET"]
+    const previousProvider = process.env["AWS_SECRET_ACCESS_KEY"]
+    process.env["UNRELATED_SECRET"] = "must-not-reach-worker"
+    process.env["AWS_SECRET_ACCESS_KEY"] = "must-not-reach-worker-provider"
+    try {
+      const environment = createWorkerProcessEnvironment(43_123)
+      expect(environment["UNRELATED_SECRET"]).toBeUndefined()
+      expect(environment["AWS_SECRET_ACCESS_KEY"]).toBeUndefined()
+      expect(environment["PATH"]).toBe(process.env["PATH"])
+      expect(environment["HOST"]).toBe("127.0.0.1")
+      expect(environment["PORT"]).toBe("43123")
+    } finally {
+      if (previousUnrelated === undefined) delete process.env["UNRELATED_SECRET"]
+      else process.env["UNRELATED_SECRET"] = previousUnrelated
+      if (previousProvider === undefined) delete process.env["AWS_SECRET_ACCESS_KEY"]
+      else process.env["AWS_SECRET_ACCESS_KEY"] = previousProvider
+    }
+  })
 
   it("stops the exact Vinext process tree before teardown resolves", async () => {
     const server = devServer

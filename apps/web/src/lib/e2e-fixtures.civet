@@ -1,0 +1,70 @@
+import { basename, dirname, join, resolve } from "node:path"
+
+export interface E2eFixtureEnvironment {
+  readonly APP_ENV?: string
+  readonly E2E_FIXTURES?: string
+  readonly E2E_EMAIL_PREVIEW_DIRECTORY?: string
+  readonly E2E_EMAIL_PREVIEW_HMAC_KEY?: string
+  readonly E2E_RUN_ID?: string
+  readonly NODE_ENV?: string
+}
+
+export const isE2eFixtureEnabled = (
+  environment: E2eFixtureEnvironment = process.env,
+): boolean => (
+  environment.APP_ENV === "test"
+  && environment.E2E_FIXTURES === "1"
+  && environment.NODE_ENV !== "production"
+)
+
+export type E2eEmailPreviewOptions = Readonly<{
+  authDirectory: string
+  contactDirectory: string
+  binding: Readonly<{
+    runId: string
+    hmacKey: string
+  }>
+}>
+
+export const resolveE2eEmailPreviewOptions = (
+  environment: E2eFixtureEnvironment = process.env,
+): E2eEmailPreviewOptions | undefined => {
+  if (!isE2eFixtureEnabled(environment)) return undefined
+
+  const directory = environment.E2E_EMAIL_PREVIEW_DIRECTORY?.trim()
+  if (!directory) {
+    throw new Error(
+      "E2E_EMAIL_PREVIEW_DIRECTORY is required when E2E fixtures are enabled",
+    )
+  }
+  const runId = environment.E2E_RUN_ID?.trim()
+  if (!runId || !/^[A-Za-z0-9_-]{1,128}$/.test(runId)) {
+    throw new Error("E2E_RUN_ID is required for E2E email previews")
+  }
+  const hmacKey = environment.E2E_EMAIL_PREVIEW_HMAC_KEY?.trim()
+  if (!hmacKey || !/^[A-Za-z0-9_-]{43}$/.test(hmacKey)) {
+    throw new Error("E2E_EMAIL_PREVIEW_HMAC_KEY must be 32-byte base64url")
+  }
+
+  const authDirectory = resolve(directory)
+  const previewsDirectory = dirname(authDirectory)
+  const runDirectory = dirname(previewsDirectory)
+  const e2eRunsDirectory = dirname(runDirectory)
+  const testResultsDirectory = dirname(e2eRunsDirectory)
+  if (
+    authDirectory !== directory ||
+    basename(authDirectory) !== "auth" ||
+    basename(previewsDirectory) !== "previews" ||
+    basename(runDirectory) !== runId ||
+    basename(e2eRunsDirectory) !== "e2e-runs" ||
+    basename(testResultsDirectory) !== "test-results"
+  ) {
+    throw new Error("E2E email preview directory must belong to E2E_RUN_ID")
+  }
+
+  return {
+    authDirectory,
+    contactDirectory: join(previewsDirectory, "contact"),
+    binding: { runId, hmacKey },
+  }
+}

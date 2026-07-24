@@ -3,6 +3,7 @@
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,7 @@ import {
 } from "react"
 import { isPalette, isThemeMode } from "@darkfactory/state"
 import type { UiStore } from "@darkfactory/state/client"
+import { ThemeProvider } from "@darkfactory/ui/client/theme"
 import { Toaster } from "@darkfactory/ui/client/toaster"
 
 import {
@@ -78,6 +80,7 @@ export const reconcileThemeAuthorityTransition = ({
   bootstrapPreference,
   initialPreference,
   onAuthorityChange,
+  previousAuthority,
   store,
   unsubscribe,
 }: {
@@ -85,18 +88,25 @@ export const reconcileThemeAuthorityTransition = ({
   readonly bootstrapPreference?: unknown
   readonly initialPreference: Readonly<AnonymousThemePreference>
   readonly onAuthorityChange: (authority: ThemeAuthority) => void
+  readonly previousAuthority?: ThemeAuthority | undefined
   readonly store: UiStore
   readonly unsubscribe?: (() => void) | undefined
 }): void => {
   onAuthorityChange(authority)
   unsubscribe?.()
   const bootstrap = authority === "anonymous" ? bootstrapPreference : undefined
-  const preference = bootstrap
+  const validatedBootstrap = bootstrap
     && typeof bootstrap === "object"
     && isThemeMode((bootstrap as { themeMode?: unknown }).themeMode)
     && isPalette((bootstrap as { palette?: unknown }).palette)
     ? bootstrap as Readonly<AnonymousThemePreference>
-    : initialPreference
+    : undefined
+  if (
+    authority === "anonymous"
+    && previousAuthority === "anonymous"
+    && validatedBootstrap === undefined
+  ) return
+  const preference = validatedBootstrap ?? initialPreference
   const state = store.getState()
   if (state.themeMode !== preference.themeMode) state.setThemeMode(preference.themeMode)
   if (state.palette !== preference.palette) state.setPalette(preference.palette)
@@ -113,6 +123,7 @@ const ThemeEffects = ({
   const themeMode = useUiState((state) => state.themeMode)
   const [reconciliationVersion, setReconciliationVersion] = useState(0)
   const authorityRef = useRef(themeAuthority)
+  const reconciledAuthorityRef = useRef<ThemeAuthority | undefined>(undefined)
   const unsubscribeRef = useRef<(() => void) | undefined>(undefined)
   const bootstrapConsumption = useRef<ThemeBootstrapConsumption>({ consumed: false })
 
@@ -123,13 +134,16 @@ const ThemeEffects = ({
       window.__DARKFACTORY_THEME__,
     )
     delete window.__DARKFACTORY_THEME__
+    const previousAuthority = reconciledAuthorityRef.current
     reconcileThemeAuthorityTransition({
       authority: themeAuthority,
       bootstrapPreference,
       initialPreference,
       onAuthorityChange: (authority) => {
         authorityRef.current = authority
+        reconciledAuthorityRef.current = authority
       },
+      previousAuthority,
       store,
       unsubscribe: unsubscribeRef.current,
     })
@@ -158,6 +172,31 @@ const ThemeEffects = ({
   return <Toaster theme={themeMode} />
 }
 
+const SemanticThemeProvider = ({
+  children,
+  themeAuthority,
+}: {
+  readonly children: ReactNode
+  readonly themeAuthority: ThemeAuthority
+}) => {
+  const store = useUiStoreApi()
+  const palette = useUiState((state) => state.palette)
+  const themeMode = useUiState((state) => state.themeMode)
+  const onPreferenceChange = useCallback((preference: AnonymousThemePreference) => {
+    if (themeAuthority !== "anonymous") return
+    store.setState(preference)
+  }, [store, themeAuthority])
+
+  return (
+    <ThemeProvider
+      onPreferenceChange={onPreferenceChange}
+      preference={{ palette, themeMode }}
+    >
+      {children}
+    </ThemeProvider>
+  )
+}
+
 const ThemeAuthorityContext = createContext<ThemeAuthority>("indeterminate")
 const ThemeAuthorityProvider = ThemeAuthorityContext.Provider
 
@@ -178,11 +217,13 @@ export const ThemeController = ({
 }: ThemeControllerProps) => (
   <ThemeAuthorityProvider value={themeAuthority}>
     <UiStateProvider initialPreference={initialPreference}>
-      {children}
-      <ThemeEffects
-        initialPreference={initialPreference}
-        themeAuthority={themeAuthority}
-      />
+      <SemanticThemeProvider themeAuthority={themeAuthority}>
+        {children}
+        <ThemeEffects
+          initialPreference={initialPreference}
+          themeAuthority={themeAuthority}
+        />
+      </SemanticThemeProvider>
     </UiStateProvider>
   </ThemeAuthorityProvider>
 )

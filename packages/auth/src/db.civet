@@ -1,0 +1,190 @@
+import { and as andWhere, eq } from "drizzle-orm"
+
+import { sessions } from "@darkfactory/db/schema"
+import type { DatabaseExecutor } from "@darkfactory/db/server"
+
+import type { DarkFactoryAuth } from "./server.civet"
+import { hasValidBetterAuthSessionCookie } from "./cookie-signature.ts"
+
+export { hasValidBetterAuthSessionCookie } from "./cookie-signature.ts"
+
+export const CONFIRMED_SIGN_OUT_ERROR_CODE =
+  "SESSION_REVOCATION_UNCONFIRMED" as const
+
+export type CurrentSessionIdentity = Readonly<{
+  sessionId: string
+  userId: string
+}>
+
+export type CurrentSessionRevocation =
+  | "revoked"
+  | "missing"
+  | "mismatch"
+
+export interface ConfirmedSignOutDependencies {
+  readonly trustedOrigin: string
+  readonly currentSession: (headers: Headers) => Promise<CurrentSessionIdentity | null>
+  readonly hasValidSessionCookie: (headers: Headers) => Promise<boolean>
+  readonly revokeCurrentSession: (
+    session: CurrentSessionIdentity,
+  ) => Promise<CurrentSessionRevocation>
+  readonly expireSessionCookie: (request: Request) => Promise<Response>
+}
+
+const genericFailure = (): Response => Response.json(
+  {
+    success: false,
+    code: CONFIRMED_SIGN_OUT_ERROR_CODE,
+    message: "Sign out could not be confirmed.",
+  },
+  { status: 503, headers: { "cache-control": "no-store" } },
+)
+
+const unauthenticated = (): Response => Response.json(
+  { success: false, code: "AUTH_REQUIRED", message: "Authentication required." },
+  { status: 401, headers: { "cache-control": "no-store" } },
+)
+
+const isConfirmedCookieExpiry = async (response: Response): Promise<boolean> => {
+  if (!response.ok || !response.headers.get("set-cookie")) return false
+  try {
+    const body = await response.clone().json() as unknown
+    return typeof body === "object"
+      && body !== null
+      && !Array.isArray(body)
+      && (body as Record<string, unknown>)["success"] === true
+  } catch {
+    return false
+  }
+}
+
+const isSameOriginPost = (
+  request: Request,
+  trustedOrigin: string,
+): "allowed" | "method" | "origin" => {
+  if (request.method !== "POST") return "method"
+  try {
+    return new URL(request.url).origin === trustedOrigin
+      && request.headers.get("origin") === trustedOrigin
+      ? "allowed"
+      : "origin"
+  } catch {
+    return "origin"
+  }
+}
+
+export const createConfirmedSignOutHandler = (
+  dependencies: ConfirmedSignOutDependencies,
+): ((request: Request) => Promise<Response>) => {
+  const trustedOrigin = new URL(dependencies.trustedOrigin).origin
+
+  return async (request) => {
+    const requestKind = isSameOriginPost(request, trustedOrigin)
+    if (requestKind === "method") {
+      return Response.json(
+        { success: false, message: "Method not allowed." },
+        { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
+      )
+    }
+    if (requestKind === "origin") {
+      return Response.json(
+        { success: false, message: "Request origin is not allowed." },
+        { status: 403, headers: { "cache-control": "no-store" } },
+      )
+    }
+
+    const expireCookie = async (): Promise<Response> => {
+      try {
+        const response = await dependencies.expireSessionCookie(request)
+        if (await isConfirmedCookieExpiry(response)) return response
+        return genericFailure()
+      } catch {
+        return genericFailure()
+      }
+    }
+
+    let session: CurrentSessionIdentity | null
+    try {
+      session = await dependencies.currentSession(request.headers)
+    } catch {
+      return genericFailure()
+    }
+
+    if (session === null) {
+      try {
+        const hasValidCookie = await dependencies.hasValidSessionCookie(request.headers)
+        if (!hasValidCookie) return unauthenticated()
+        return expireCookie()
+      } catch {
+        return genericFailure()
+      }
+    }
+
+    try {
+      const revocation = await dependencies.revokeCurrentSession(session)
+      if (revocation === "mismatch") return genericFailure()
+    } catch {
+      return genericFailure()
+    }
+    return expireCookie()
+  }
+}
+
+export const createRawSessionIdentityReader = (
+  auth: DarkFactoryAuth,
+): ((headers: Headers) => Promise<CurrentSessionIdentity | null>) =>
+  async (headers) => {
+    const value: unknown = await auth.api.getSession({ headers })
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null
+    const record = value as Record<string, unknown>
+    const session = record["session"]
+    const user = record["user"]
+    if (typeof session !== "object" || session === null || Array.isArray(session)) return null
+    if (typeof user !== "object" || user === null || Array.isArray(user)) return null
+    const sessionId = (session as Record<string, unknown>)["id"]
+    const userId = (user as Record<string, unknown>)["id"]
+    if (typeof sessionId !== "string" || typeof userId !== "string") return null
+    return { sessionId, userId }
+  }
+
+export const createCurrentSessionRevoker = (
+  database: DatabaseExecutor,
+): ((session: CurrentSessionIdentity) => Promise<CurrentSessionRevocation>) =>
+  async ({ sessionId, userId }) => {
+    const deleted = await database
+      .delete(sessions)
+      .where(andWhere(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+      .returning({ id: sessions.id })
+    if (deleted.length === 1 && deleted[0]?.id === sessionId) return "revoked"
+
+    const existing = await database
+      .select({ userId: sessions.userId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+    return existing.length === 0 ? "missing" : "mismatch"
+  }
+
+export const createDatabaseConfirmedSignOutHandler = ({
+  auth,
+  database,
+  secret,
+  trustedOrigin,
+}: Readonly<{
+  auth: DarkFactoryAuth
+  database: DatabaseExecutor
+  secret: string
+  trustedOrigin: string
+}>): ((request: Request) => Promise<Response>) => {
+  const authSignOutUrl = new URL("/api/auth/sign-out", trustedOrigin)
+  return createConfirmedSignOutHandler({
+    trustedOrigin,
+    currentSession: createRawSessionIdentityReader(auth),
+    hasValidSessionCookie: (headers) => hasValidBetterAuthSessionCookie(headers, secret),
+    revokeCurrentSession: createCurrentSessionRevoker(database),
+    expireSessionCookie: (request) => auth.handler(new Request(authSignOutUrl, {
+      method: "POST",
+      headers: request.headers,
+    })),
+  })
+}

@@ -16,6 +16,7 @@ playwright-report/
 test-results/
 graphify-out/
 *.civet.d.ts
+*.civet.tsx
 
 # Environment and local credentials
 .env

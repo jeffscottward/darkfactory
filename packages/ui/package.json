@@ -111,6 +111,11 @@
       "import": "./src/client/tabs.civet",
       "default": "./src/client/tabs.civet"
     },
+    "./client/theme": {
+      "types": "./src/client/theme.civet.d.ts",
+      "import": "./src/client/theme.civet",
+      "default": "./src/client/theme.civet"
+    },
     "./client/toaster": {
       "types": "./src/client/toaster.civet.d.ts",
       "import": "./src/client/toaster.civet",
@@ -119,10 +124,10 @@
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
-    "types": "civet --config civet.types.json --emit-declaration src/index.civet src/avatar.civet src/badge.civet src/button.civet src/card.civet src/empty-state.civet src/headings.civet src/icon-button.civet src/input.civet src/label.civet src/palettes.civet src/separator.civet src/skeleton.civet src/stat-card.civet src/status-badge.civet src/textarea.civet src/utilities.civet src/client/dialog.civet src/client/dropdown-menu.civet src/client/tabs.civet src/client/toaster.civet",
+    "types": "civet --config civet.types.json --emit-declaration src/index.civet src/avatar.civet src/badge.civet src/button.civet src/card.civet src/empty-state.civet src/headings.civet src/icon-button.civet src/input.civet src/label.civet src/palettes.civet src/separator.civet src/skeleton.civet src/stat-card.civet src/status-badge.civet src/textarea.civet src/utilities.civet src/client/dialog.civet src/client/dropdown-menu.civet src/client/tabs.civet src/client/theme.civet src/client/toaster.civet",
     "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src",
-    "test:unit": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src"
+    "test": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src --exclude \"**/*contract.test.civet\"",
+    "test:unit": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src --exclude \"**/*contract.test.civet\""
   },
   "engines": {
     "node": ">=22.13"

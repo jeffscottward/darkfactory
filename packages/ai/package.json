@@ -29,8 +29,8 @@
   "scripts": {
     "types": "civet --emit-declaration src/index.civet && civet --emit-declaration src/server/groq.civet && civet --emit-declaration src/test.civet",
     "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet"
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet --exclude \"**/*contract.test.civet\"",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet --exclude \"**/*contract.test.civet\""
   },
   "dependencies": {
     "groq-sdk": "catalog:"

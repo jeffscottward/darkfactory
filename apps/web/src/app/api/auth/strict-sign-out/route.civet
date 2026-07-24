@@ -1,0 +1,6 @@
+import { waitUntil } from "cloudflare:workers"
+
+import { handleStrictSignOutRequest } from "./handler.civet"
+
+export const POST = (request: Request): Promise<Response> =>
+  handleStrictSignOutRequest(request, (task) => waitUntil(task))

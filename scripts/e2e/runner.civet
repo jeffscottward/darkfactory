@@ -1,0 +1,547 @@
+import { resolve } from "node:path"
+
+import type { ArtifactScanReport } from "./scanner.civet"
+
+export type E2eMode = "e2e" | "a11y"
+export type JourneyLifecycleStatus =
+  | "unavailable"
+  | "starting"
+  | "ready"
+  | "stopped"
+  | "startup-failed"
+  | "cleanup-failed"
+  | "runtime-failed"
+export type JourneyLifecycleStage =
+  | "unavailable"
+  | "validation"
+  | "owner-lock"
+  | "artifact-isolation"
+  | "module-loading"
+  | "database-create"
+  | "database-migrate"
+  | "database-reset"
+  | "database-seed"
+  | "server-spawn"
+  | "server-probed"
+  | "server-ready"
+export type JourneyLifecycleObservation =
+  | "missing"
+  | "invalid"
+  | "state"
+  | "stderr"
+export type JourneyLifecycleObservationReason =
+  | "inputs-missing"
+  | "module-load-failed"
+  | "paths-failed"
+  | "adoption-invalid"
+  | "state-missing"
+  | "state-invalid"
+  | "observed-state"
+  | "observed-stderr"
+export type JourneyProcessResult = Readonly<{
+  exitCode: number
+  diagnostics?: readonly string[]
+  lifecycleStatus?: JourneyLifecycleStatus
+  lifecycleStage?: JourneyLifecycleStage
+  lifecycleObservation?: JourneyLifecycleObservation
+  lifecycleObservationReason?: JourneyLifecycleObservationReason
+  treeTerminated: boolean
+}>
+export type JourneyStage = "complete" | "execute" | "prepare" | "scan"
+export type JourneyProcessState = "not-started" | "terminated" | "unproven"
+export type JourneyProgressStage =
+  | "created"
+  | "prepared"
+  | "playwright-start"
+  | "playwright-finished"
+  | "scan-start"
+  | "scan-finished"
+  | "result"
+export type JourneyProgress = Readonly<{
+  spec: string
+  runId: string
+  stage: JourneyProgressStage
+  playwrightOk?: boolean
+  processTreeTerminated?: boolean
+  lifecycleStatus?: JourneyLifecycleStatus
+  lifecycleStage?: JourneyLifecycleStage
+  lifecycleObservation?: JourneyLifecycleObservation
+  lifecycleObservationReason?: JourneyLifecycleObservationReason
+  scanOk?: boolean
+  purged?: boolean
+  ok?: boolean
+}>
+export type JourneyResult = Readonly<{
+  spec: string
+  runId: string
+  playwrightExitCode: number
+  diagnostics: readonly string[]
+  lifecycleStatus: JourneyLifecycleStatus
+  lifecycleStage: JourneyLifecycleStage
+  lifecycleObservation: JourneyLifecycleObservation
+  lifecycleObservationReason: JourneyLifecycleObservationReason
+  processState: JourneyProcessState
+  stage: JourneyStage
+  processTreeTerminated: boolean
+  scan: ArtifactScanReport
+}>
+export type JourneySuiteReport = Readonly<{
+  ok: boolean
+  mode: E2eMode
+  completed: number
+  results: readonly JourneyResult[]
+  reason: string
+}>
+export type JourneyArtifactProfile = "anonymous-public-visual" | "no-binary"
+export type PreparedJourneyRun = Readonly<{
+  adoption: string
+  ownership: string
+}>
+
+
+export type JourneyDependencies = Readonly<{
+  createRunId: () => string
+  createHmacKey: () => string
+  repositoryPath: string
+  listSpecs: () => Promise<readonly string[]>
+  prepareRun: (
+    runId: string,
+    artifactProfile: JourneyArtifactProfile,
+  ) => Promise<PreparedJourneyRun>
+  reportProgress?: (progress: JourneyProgress) => void
+  runPlaywright: (
+    arguments_: readonly string[],
+    environment: Readonly<Record<string, string>>,
+  ) => Promise<JourneyProcessResult>
+  scanArtifacts: (
+    runId: string,
+    purgeOwned: boolean,
+    ownership: string,
+  ) => Promise<ArtifactScanReport>
+}>
+
+export type JourneyClassification = Readonly<{
+  e2e: readonly string[]
+  a11y: readonly string[]
+}>
+
+const SPEC_PATH = /^tests\/e2e\/[A-Za-z0-9][A-Za-z0-9._-]*\.spec\.ts$/u
+
+export const classifyJourneySpecs = (
+  discovered: readonly string[],
+): JourneyClassification => {
+  if (new Set(discovered).size !== discovered.length) {
+    throw new Error("Duplicate E2E journey path")
+  }
+  const sorted = [...discovered].sort()
+  if (sorted.length === 0 || sorted.some((spec) => !SPEC_PATH.test(spec))) {
+    throw new Error("Invalid E2E journey path")
+  }
+  return Object.freeze({
+    e2e: Object.freeze(sorted.filter((spec) => !spec.endsWith(".a11y.spec.ts"))),
+    a11y: Object.freeze(sorted.filter((spec) => spec.endsWith(".a11y.spec.ts"))),
+  })
+}
+
+const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/
+const PUBLIC_VISUAL_SPEC = "tests/e2e/public-visual.spec.ts"
+
+export const artifactProfileForSpec = (spec: string): JourneyArtifactProfile =>
+  spec === PUBLIC_VISUAL_SPEC ? "anonymous-public-visual" : "no-binary"
+const HMAC_KEY = /^[A-Za-z0-9_-]{43}$/
+
+const LIFECYCLE_STATUSES = new Set<JourneyLifecycleStatus>([
+  "starting",
+  "ready",
+  "stopped",
+  "startup-failed",
+  "cleanup-failed",
+  "runtime-failed",
+])
+const LIFECYCLE_STAGES = new Set<JourneyLifecycleStage>([
+  "artifact-isolation",
+  "module-loading",
+  "validation",
+  "owner-lock",
+  "database-create",
+  "database-migrate",
+  "database-reset",
+  "database-seed",
+  "server-spawn",
+  "server-probed",
+  "server-ready",
+])
+const LIFECYCLE_OBSERVATIONS = new Set<JourneyLifecycleObservation>([
+  "missing",
+  "invalid",
+  "state",
+  "stderr",
+])
+const LIFECYCLE_OBSERVATION_REASONS =
+  new Set<JourneyLifecycleObservationReason>([
+    "inputs-missing",
+    "module-load-failed",
+    "paths-failed",
+    "adoption-invalid",
+    "state-missing",
+    "state-invalid",
+    "observed-state",
+    "observed-stderr",
+  ])
+const lifecycleStatus = (
+  value: JourneyLifecycleStatus | undefined,
+): JourneyLifecycleStatus =>
+  value !== undefined && LIFECYCLE_STATUSES.has(value) ? value : "unavailable"
+const lifecycleStage = (
+  value: JourneyLifecycleStage | undefined,
+): JourneyLifecycleStage =>
+  value !== undefined && LIFECYCLE_STAGES.has(value) ? value : "unavailable"
+const lifecycleObservation = (
+  value: JourneyLifecycleObservation | undefined,
+): JourneyLifecycleObservation =>
+  value !== undefined && LIFECYCLE_OBSERVATIONS.has(value) ? value : "missing"
+const lifecycleObservationReason = (
+  value: JourneyLifecycleObservationReason | undefined,
+): JourneyLifecycleObservationReason =>
+  value !== undefined && LIFECYCLE_OBSERVATION_REASONS.has(value)
+    ? value
+    : "inputs-missing"
+
+const argumentsFor = (
+  mode: E2eMode,
+  spec: string,
+  runId: string,
+): readonly string[] => Object.freeze([
+  "pnpm",
+  "exec",
+  "playwright",
+  "test",
+  spec,
+  mode === "e2e" ? "--grep-invert" : "--grep",
+  "@a11y",
+  "--output",
+  `test-results/e2e-runs/${runId}/artifacts`,
+  "--reporter=list,json",
+])
+const unavailableScan = (reason: string): ArtifactScanReport => Object.freeze({
+  ok: false,
+  scannedEntries: 0,
+  findings: [],
+  purged: false,
+  reason,
+})
+const reportProgress = (
+  dependencies: JourneyDependencies,
+  progress: JourneyProgress,
+): void => {
+  try {
+    dependencies.reportProgress?.(Object.freeze(progress))
+  } catch {
+    // Progress is best-effort diagnostics and cannot alter lifecycle ownership.
+  }
+}
+
+
+export const runJourneySuite = async (
+  mode: E2eMode,
+  dependencies: JourneyDependencies,
+): Promise<JourneySuiteReport> => {
+  let specs: readonly string[]
+  try {
+    const classified = classifyJourneySpecs(await dependencies.listSpecs())
+    specs = classified[mode]
+    if (specs.length === 0) throw new Error("No E2E journeys discovered")
+  } catch {
+    return Object.freeze({
+      ok: false,
+      mode,
+      completed: 0,
+      results: [],
+      reason: "Unable to classify the exact E2E journey set",
+    })
+  }
+  const results: JourneyResult[] = []
+  for (const spec of specs) {
+    let runId = "not-started"
+    let hmacKey = ""
+    try {
+      const candidateRunId = dependencies.createRunId()
+      const candidateHmacKey = dependencies.createHmacKey()
+      if (!RUN_ID.test(candidateRunId) || !HMAC_KEY.test(candidateHmacKey)) {
+        throw new Error("Unsafe generated E2E credentials")
+      }
+      runId = candidateRunId
+      hmacKey = candidateHmacKey
+    } catch {
+      const scan = unavailableScan(
+        "Artifact scanning was not started because safe run credentials were unavailable",
+      )
+      results.push(Object.freeze({
+        spec,
+        runId,
+        playwrightExitCode: 1,
+        diagnostics: ["E2E run credential creation failed before child execution"],
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "missing",
+        lifecycleObservationReason: "inputs-missing",
+        processState: "not-started",
+        stage: "prepare",
+        processTreeTerminated: false,
+        scan,
+      }))
+      reportProgress(dependencies, {
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "missing",
+        lifecycleObservationReason: "inputs-missing",
+        spec,
+        runId,
+        stage: "result",
+        ok: false,
+      })
+      return Object.freeze({
+        ok: false,
+        mode,
+        completed: results.length,
+        results: Object.freeze(results),
+        reason: "Unable to create safe isolated E2E credentials",
+      })
+    }
+    reportProgress(dependencies, { spec, runId, stage: "created" })
+    let prepared: PreparedJourneyRun
+    try {
+      prepared = await dependencies.prepareRun(runId, artifactProfileForSpec(spec))
+      if (
+        prepared.adoption.length === 0 ||
+        prepared.adoption.length > 8_192 ||
+        prepared.ownership.length === 0 ||
+        prepared.ownership.length > 8_192
+      ) throw new Error("Invalid prepared run capability")
+    } catch {
+      const scan = unavailableScan(
+        "Artifact scanning was not started because owned run preparation failed",
+      )
+      results.push(Object.freeze({
+        spec,
+        runId,
+        playwrightExitCode: 1,
+        diagnostics: ["Owned E2E run preparation failed before child execution"],
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "missing",
+        lifecycleObservationReason: "inputs-missing",
+        processState: "not-started",
+        stage: "prepare",
+        processTreeTerminated: false,
+        scan,
+      }))
+      reportProgress(dependencies, {
+        spec,
+        runId,
+        stage: "result",
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "missing",
+        lifecycleObservationReason: "inputs-missing",
+        ok: false,
+      })
+      return Object.freeze({
+        ok: false,
+        mode,
+        completed: results.length,
+        results: Object.freeze(results),
+        reason: "Unable to prepare isolated owned E2E output roots",
+      })
+    }
+    reportProgress(dependencies, { spec, runId, stage: "prepared" })
+    const runRoot = resolve(
+      dependencies.repositoryPath,
+      "test-results",
+      "e2e-runs",
+      runId,
+    )
+    const environment = Object.freeze({
+      E2E_RUN_ID: runId,
+      E2E_EMAIL_PREVIEW_DIRECTORY: `${runRoot}/previews/auth`,
+      E2E_EMAIL_PREVIEW_HMAC_KEY: hmacKey,
+      PLAYWRIGHT_JSON_OUTPUT_NAME: `${runRoot}/playwright-report.json`,
+      E2E_RUN_ADOPTION: prepared.adoption,
+    })
+    reportProgress(dependencies, { spec, runId, stage: "playwright-start" })
+    const processResult = await Promise.resolve().then(
+      () => dependencies.runPlaywright(
+        argumentsFor(mode, spec, runId),
+        environment,
+      ),
+    ).then(
+      (result) => result,
+      () => Object.freeze({
+        diagnostics: ["Playwright child execution failed before returning a result"],
+        exitCode: 1,
+        treeTerminated: false,
+        lifecycleStatus: "unavailable" as const,
+        lifecycleStage: "unavailable" as const,
+        lifecycleObservation: "missing" as const,
+        lifecycleObservationReason: "inputs-missing" as const,
+      }),
+    )
+    const observedLifecycleStatus = lifecycleStatus(processResult.lifecycleStatus)
+    const observedLifecycleStage = lifecycleStage(processResult.lifecycleStage)
+    const observedLifecycleObservation = lifecycleObservation(
+      processResult.lifecycleObservation,
+    )
+    const observedLifecycleObservationReason = lifecycleObservationReason(
+      processResult.lifecycleObservationReason,
+    )
+    reportProgress(dependencies, {
+      spec,
+      runId,
+      stage: "playwright-finished",
+      playwrightOk: processResult.exitCode === 0,
+      processTreeTerminated: processResult.treeTerminated,
+      lifecycleStatus: observedLifecycleStatus,
+      lifecycleStage: observedLifecycleStage,
+      lifecycleObservation: observedLifecycleObservation,
+      lifecycleObservationReason: observedLifecycleObservationReason,
+    })
+    const lifecycleMatchesSuccessfulExecution =
+      observedLifecycleStatus === "stopped" &&
+      observedLifecycleStage === "server-ready" &&
+      observedLifecycleObservation === "state" &&
+      observedLifecycleObservationReason === "observed-state"
+    const executionFailed =
+      processResult.exitCode !== 0 || !lifecycleMatchesSuccessfulExecution
+    const resultDiagnostics = Object.freeze([
+      ...(processResult.diagnostics ?? []),
+      ...(processResult.exitCode === 0 && !lifecycleMatchesSuccessfulExecution
+        ? [
+            observedLifecycleStatus === "cleanup-failed"
+              ? "E2E lifecycle cleanup failed; resources retained"
+              : "Successful Playwright exit lacked a stopped server-ready lifecycle",
+          ]
+        : []),
+    ])
+    if (!processResult.treeTerminated) {
+      const scan = Object.freeze({
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: false,
+        reason: "Artifact scanning withheld because process-tree termination was not proven",
+      })
+      results.push(Object.freeze({
+        spec,
+        runId,
+        playwrightExitCode: processResult.exitCode,
+        diagnostics: resultDiagnostics,
+        lifecycleStatus: observedLifecycleStatus,
+        lifecycleStage: observedLifecycleStage,
+        lifecycleObservation: observedLifecycleObservation,
+        lifecycleObservationReason: observedLifecycleObservationReason,
+        processState: "unproven",
+        stage: "execute",
+        processTreeTerminated: false,
+        scan,
+      }))
+      reportProgress(dependencies, {
+        spec,
+        runId,
+        stage: "result",
+        lifecycleStatus: observedLifecycleStatus,
+        lifecycleStage: observedLifecycleStage,
+        lifecycleObservation: observedLifecycleObservation,
+        lifecycleObservationReason: observedLifecycleObservationReason,
+        ok: false,
+      })
+      return Object.freeze({
+        ok: false,
+        mode,
+        completed: results.length,
+        results: Object.freeze(results),
+        reason: "Unable to prove serialized Playwright process-tree termination",
+      })
+    }
+    reportProgress(dependencies, {
+      spec,
+      runId,
+      stage: "scan-start",
+      lifecycleStatus: observedLifecycleStatus,
+      lifecycleStage: observedLifecycleStage,
+      lifecycleObservation: observedLifecycleObservation,
+      lifecycleObservationReason: observedLifecycleObservationReason,
+    })
+    const scan = await Promise.resolve().then(
+      () => dependencies.scanArtifacts(
+        runId,
+        executionFailed,
+        prepared.ownership,
+      ),
+    ).then(
+      (result) => result,
+      () => unavailableScan(
+        "Artifact scanner failed before returning a bounded status",
+      ),
+    )
+    reportProgress(dependencies, {
+      spec,
+      runId,
+      stage: "scan-finished",
+      lifecycleStatus: observedLifecycleStatus,
+      lifecycleStage: observedLifecycleStage,
+      lifecycleObservation: observedLifecycleObservation,
+      lifecycleObservationReason: observedLifecycleObservationReason,
+      scanOk: scan.ok,
+      purged: scan.purged,
+    })
+    results.push(Object.freeze({
+      spec,
+      runId,
+      playwrightExitCode: processResult.exitCode,
+      diagnostics: resultDiagnostics,
+      lifecycleStatus: observedLifecycleStatus,
+      lifecycleStage: observedLifecycleStage,
+      lifecycleObservation: observedLifecycleObservation,
+      lifecycleObservationReason: observedLifecycleObservationReason,
+      processState: "terminated",
+      stage: !scan.ok
+        ? "scan"
+        : executionFailed ? "execute" : "complete",
+      processTreeTerminated: true,
+      scan,
+    }))
+    reportProgress(dependencies, {
+      spec,
+      runId,
+      stage: "result",
+      lifecycleStatus: observedLifecycleStatus,
+      lifecycleStage: observedLifecycleStage,
+      lifecycleObservation: observedLifecycleObservation,
+      lifecycleObservationReason: observedLifecycleObservationReason,
+      ok: !executionFailed && scan.ok,
+    })
+    if (!scan.ok) return Object.freeze({
+      ok: false,
+      mode,
+      completed: results.length,
+      results: Object.freeze(results),
+      reason: "E2E artifacts failed external secret scanning",
+    })
+  }
+  const ok = results.every((result) =>
+    result.playwrightExitCode === 0 &&
+    result.lifecycleStatus === "stopped" &&
+    result.lifecycleStage === "server-ready" &&
+    result.lifecycleObservation === "state" &&
+    result.lifecycleObservationReason === "observed-state"
+  )
+  return Object.freeze({
+    ok,
+    mode,
+    completed: results.length,
+    results: Object.freeze(results),
+    reason: ok
+      ? "Every isolated Playwright journey and artifact scan passed"
+      : "One or more serialized Playwright journeys failed with clean purged artifacts",
+  })
+}

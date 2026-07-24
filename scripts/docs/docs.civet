@@ -1,0 +1,113 @@
+import { dirname } from "node:path"
+
+export const GENERATED_INVENTORY_PATH = "docs/generated/architecture-inventory.json"
+
+export type PackageManifestSource = Readonly<{ path: string; source: string }>
+export type ArchitecturePackage = Readonly<{
+  name: string
+  version: string
+  directory: string
+  publicExports: readonly string[]
+  workspaceDependencies: readonly string[]
+}>
+export type ArchitectureInventory = Readonly<{
+  version: 1
+  rootScripts: readonly string[]
+  packages: readonly ArchitecturePackage[]
+}>
+export type DocsFileSystem = Readonly<{
+  discoverPackageManifests: () => Promise<readonly PackageManifestSource[]>
+  readGenerated: (path: string) => Promise<string | undefined>
+  writeGenerated: (path: string, content: string) => Promise<void>
+}>
+export type DocsDependencies = Readonly<{ files: DocsFileSystem }>
+export type DocsReport = Readonly<{
+  action: "generate" | "check"
+  ok: boolean
+  changed: boolean
+  reason: string
+  packageCount: number | undefined
+}>
+
+type JsonRecord = Record<string, unknown>
+const asRecord = (value: unknown): JsonRecord | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as JsonRecord
+    : null
+
+const stringRecord = (value: unknown): Record<string, unknown> => asRecord(value) ?? {}
+
+export const buildArchitectureInventory = (
+  manifests: readonly PackageManifestSource[],
+): ArchitectureInventory => {
+  const names = new Set<string>()
+  let rootScripts: readonly string[] = []
+  const packages = manifests.map(({ path, source }) => {
+    let parsed: JsonRecord
+    try {
+      parsed = asRecord(JSON.parse(source)) ?? (() => { throw new Error("invalid") })()
+    } catch {
+      throw new Error(`Invalid package manifest: ${path}`)
+    }
+    const name = parsed["name"]
+    const version = parsed["version"]
+    if (typeof name !== "string" || name.length === 0 || typeof version !== "string" || version.length === 0) {
+      throw new Error(`Invalid package manifest: ${path}`)
+    }
+    if (names.has(name)) throw new Error(`Duplicate package name: ${name}`)
+    names.add(name)
+    const exports_ = stringRecord(parsed["exports"])
+    const dependencies = {
+      ...stringRecord(parsed["dependencies"]),
+      ...stringRecord(parsed["peerDependencies"]),
+      ...stringRecord(parsed["optionalDependencies"]),
+    }
+    if (path === "package.json") rootScripts = Object.keys(stringRecord(parsed["scripts"])).sort()
+    return Object.freeze({
+      name,
+      version,
+      directory: dirname(path).replaceAll("\\", "/") === "." ? "." : dirname(path).replaceAll("\\", "/"),
+      publicExports: Object.keys(exports_).sort(),
+      workspaceDependencies: Object.entries(dependencies)
+        .filter(([dependency, range]) => dependency.startsWith("@darkfactory/") && typeof range === "string")
+        .map(([dependency]) => dependency)
+        .sort(),
+    })
+  }).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+  return Object.freeze({ version: 1, rootScripts: Object.freeze(rootScripts), packages: Object.freeze(packages) })
+}
+
+export const serializeArchitectureInventory = (inventory: ArchitectureInventory): string =>
+  `${JSON.stringify(inventory, null, 2)}\n`
+
+const report = (
+  action: "generate" | "check",
+  ok: boolean,
+  changed: boolean,
+  reason: string,
+  packageCount?: number,
+): DocsReport => Object.freeze({ action, ok, changed, reason, packageCount })
+
+export const runDocsAction = async (
+  action: "generate" | "check",
+  dependencies: DocsDependencies,
+): Promise<DocsReport> => {
+  try {
+    const manifests = await dependencies.files.discoverPackageManifests()
+    const inventory = buildArchitectureInventory(manifests)
+    const expected = serializeArchitectureInventory(inventory)
+    const current = await dependencies.files.readGenerated(GENERATED_INVENTORY_PATH)
+    if (action === "check") {
+      return current === expected
+        ? report(action, true, false, "Generated architecture inventory is current", inventory.packages.length)
+        : report(action, false, false, "Generated architecture inventory is stale or missing", inventory.packages.length)
+    }
+    if (current === expected) {
+      return report(action, true, false, "Generated architecture inventory is already current", inventory.packages.length)
+    }
+    await dependencies.files.writeGenerated(GENERATED_INVENTORY_PATH, expected)
+    return report(action, true, true, "Generated architecture inventory was updated", inventory.packages.length)
+  } catch (error) {
+    return report(action, false, false, error instanceof Error ? error.message : "Documentation generation failed")
+  }
+}

@@ -1,0 +1,11 @@
+import { runDocsCli } from "./docs/cli.civet"
+import { nodeDocsFileSystem } from "./docs/system.civet"
+
+process.exitCode = await runDocsCli(
+  process.argv.slice(2),
+  { files: nodeDocsFileSystem },
+  {
+    writeOutput: (value) => process.stdout.write(value),
+    writeError: (value) => process.stderr.write(value),
+  },
+)

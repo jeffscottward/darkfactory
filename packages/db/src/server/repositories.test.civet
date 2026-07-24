@@ -547,4 +547,6 @@ describe "feature item mutation repository", ->
       "featureItems",
       "adminUsers",
       "dashboard",
+      "generated",
     ])
+    expect(repositories.generated).toEqual({})

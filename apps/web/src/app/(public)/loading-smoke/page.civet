@@ -1,0 +1,24 @@
+import { notFound } from "next/navigation"
+
+import { isE2eFixtureEnabled } from "../../../lib/e2e-fixtures.civet"
+import { PublicPage } from "../_components/public-content.civet"
+
+const fixtureDelayMilliseconds = 1_500
+
+export default async function LoadingSmokePage() {
+  if (!isE2eFixtureEnabled()) notFound()
+
+  await new Promise((resolve) => setTimeout(resolve, fixtureDelayMilliseconds))
+
+  return (
+    <PublicPage
+      description="The guarded loading boundary completed its deterministic delay."
+      eyebrow="E2E fixture"
+      title="The loading fixture completed."
+    >
+      <p className="py-16 text-base leading-7 text-muted-foreground">
+        This route is available only to the isolated end-to-end server.
+      </p>
+    </PublicPage>
+  )
+}

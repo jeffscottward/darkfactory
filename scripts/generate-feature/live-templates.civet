@@ -1,0 +1,233 @@
+import type { FeatureNames } from "./types.civet"
+
+export type RegisteredFeature = Readonly<{
+  name: string
+  route: string
+  apiNamespace: string
+  table: string
+  migration: string
+  docs: string
+  graph: string
+}>
+
+export type FeatureRegistry = Readonly<{
+  version: 1
+  builtIn: Readonly<{
+    name: "feature-item"
+    route: "/feature-items"
+    apiNamespace: "featureItems"
+    table: "feature_items"
+    status: "canonical-reference"
+  }>
+  generated: readonly RegisteredFeature[]
+}>
+
+export type TemplateFile = Readonly<{ path: string; content: string }>
+
+const header = "// Generator-owned. Edit through `pnpm generate:feature` only.\n"
+const jsonFile = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
+const upperSnake = (names: FeatureNames): string => names.snake.toUpperCase()
+
+export const descriptorFor = (
+  names: FeatureNames,
+  migration: string,
+): RegisteredFeature => Object.freeze({
+  name: names.kebab,
+  route: `/${names.pluralKebab}`,
+  apiNamespace: names.pluralCamel,
+  table: names.pluralSnake,
+  migration,
+  docs: `docs/features/${names.kebab}.md`,
+  graph: `apps/web/src/features/${names.kebab}/graphify.json`,
+})
+
+export const renderFeatureRegistry = (registry: FeatureRegistry): string =>
+  jsonFile(registry)
+
+const contractTemplate = (names: FeatureNames): string => `import { oc } from "@orpc/contract"
+import { z } from "zod"
+
+export const ${upperSnake(names)}_STATUSES = ["draft", "active", "archived"] as const
+export const ${names.pascal}StatusSchema = z.enum(${upperSnake(names)}_STATUSES)
+export const ${names.pascal}Schema = z.object({
+  id: z.string().min(1), ownerId: z.string().min(1),
+  name: z.string().trim().min(1).max(200), description: z.string().max(10_000),
+  status: ${names.pascal}StatusSchema, metadata: z.record(z.string(), z.json()),
+  createdAt: z.date(), updatedAt: z.date(),
+})
+const scope = z.object({ ownerId: z.string().min(1).optional() })
+const itemScope = scope.extend({ id: z.string().min(1) })
+const mutation = z.object({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().max(10_000),
+  metadata: z.record(z.string(), z.json()).default({}),
+})
+export const ${upperSnake(names)}_ERRORS = {
+  UNAUTHORIZED: { status: 401, message: "Authentication required" },
+  FORBIDDEN: { status: 403, message: "Forbidden" },
+  NOT_FOUND: { status: 404, message: "${names.pascal} not found" },
+  VALIDATION_ERROR: { status: 422, message: "${names.pascal} validation failed" },
+  STORAGE_ERROR: { status: 503, message: "${names.pascal} storage unavailable" },
+} as const
+const procedure = oc.errors(${upperSnake(names)}_ERRORS)
+export const ${names.camel}Contract = {
+  list: procedure.route({ method: "GET", path: "/${names.pluralKebab}", operationId: "${names.pluralCamel}.list" }).input(scope).output(z.array(${names.pascal}Schema)),
+  get: procedure.route({ method: "GET", path: "/${names.pluralKebab}/{id}", operationId: "${names.pluralCamel}.get" }).input(itemScope).output(${names.pascal}Schema),
+  create: procedure.route({ method: "POST", path: "/${names.pluralKebab}", operationId: "${names.pluralCamel}.create" }).input(scope.extend(mutation.shape)).output(${names.pascal}Schema),
+  update: procedure.route({ method: "PATCH", path: "/${names.pluralKebab}/{id}", operationId: "${names.pluralCamel}.update" }).input(itemScope.extend({ name: mutation.shape.name.optional(), description: mutation.shape.description.optional(), metadata: mutation.shape.metadata.optional() })).output(${names.pascal}Schema),
+  changeStatus: procedure.route({ method: "PATCH", path: "/${names.pluralKebab}/{id}/status", operationId: "${names.pluralCamel}.changeStatus" }).input(itemScope.extend({ status: ${names.pascal}StatusSchema })).output(${names.pascal}Schema),
+  archive: procedure.route({ method: "DELETE", path: "/${names.pluralKebab}/{id}", operationId: "${names.pluralCamel}.archive" }).input(itemScope).output(${names.pascal}Schema),
+} as const
+export type ${names.pascal}Output = z.infer<typeof ${names.pascal}Schema>
+`
+
+const schemaTemplate = (names: FeatureNames): string => `import { sql } from "drizzle-orm"
+import { check, index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { users } from "../../schema/index.civet"
+
+const utcTimestamp = (name: string) => timestamp(name, { mode: "date", withTimezone: true })
+export const ${names.pluralCamel} = pgTable(
+  "${names.pluralSnake}",
+  {
+    id: text("id").primaryKey(), ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(), description: text("description").notNull(),
+    status: text("status").$type<"draft" | "active" | "archived">().default("draft").notNull(),
+    metadata: jsonb("metadata").$type<Readonly<Record<string, unknown>>>().default({}).notNull(),
+    createdAt: utcTimestamp("created_at").defaultNow().notNull(),
+    updatedAt: utcTimestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("${names.pluralSnake}_owner_id_idx").on(table.ownerId, table.updatedAt.desc(), table.id.desc()),
+    check("${names.pluralSnake}_status_check", sql\`\${table.status} in ('draft', 'active', 'archived')\`),
+    check("${names.pluralSnake}_name_check", sql\`length(trim(\${table.name})) > 0\`),
+  ],
+)
+export type ${names.pascal} = typeof ${names.pluralCamel}.$inferSelect
+export type New${names.pascal} = typeof ${names.pluralCamel}.$inferInsert
+`
+
+const repositoryTemplate = (names: FeatureNames): string => `import { and as andWhere, desc, eq } from "drizzle-orm"
+import { ${names.pluralCamel}, type ${names.pascal}, type New${names.pascal} } from "./schema.civet"
+import type { DatabaseExecutor } from "../../server/client.civet"
+
+export type ${names.pascal}Repository = Readonly<{
+  listByOwner: (ownerId: string) => Promise<readonly ${names.pascal}[]>
+  findByIdForOwner: (id: string, ownerId: string) => Promise<${names.pascal} | null>
+  create: (input: New${names.pascal}) => Promise<${names.pascal}>
+  update: (input: Readonly<{ id: string; ownerId: string; name?: string; description?: string; metadata?: Readonly<Record<string, unknown>>; status?: ${names.pascal}["status"] }>) => Promise<${names.pascal} | null>
+  archive: (id: string, ownerId: string) => Promise<${names.pascal} | null>
+}>
+export const create${names.pascal}Repository = (database: DatabaseExecutor): ${names.pascal}Repository => ({
+  listByOwner: (ownerId) => database.select().from(${names.pluralCamel}).where(eq(${names.pluralCamel}.ownerId, ownerId)).orderBy(desc(${names.pluralCamel}.updatedAt), desc(${names.pluralCamel}.id)),
+  findByIdForOwner: async (id, ownerId) => (await database.select().from(${names.pluralCamel}).where(andWhere(eq(${names.pluralCamel}.id, id), eq(${names.pluralCamel}.ownerId, ownerId))).limit(1))[0] ?? null,
+  create: async (input) => (await database.insert(${names.pluralCamel}).values(input).returning())[0]!,
+  update: async ({ id, ownerId, ...changes }) => (await database.update(${names.pluralCamel}).set({ ...changes, updatedAt: new Date() }).where(andWhere(eq(${names.pluralCamel}.id, id), eq(${names.pluralCamel}.ownerId, ownerId))).returning())[0] ?? null,
+  archive: async (id, ownerId) => (await database.update(${names.pluralCamel}).set({ status: "archived", updatedAt: new Date() }).where(andWhere(eq(${names.pluralCamel}.id, id), eq(${names.pluralCamel}.ownerId, ownerId))).returning())[0] ?? null,
+})
+`
+
+const serviceTemplate = (names: FeatureNames): string => `import type { ${names.pascal}Output } from "./contract.civet"
+
+export type ${names.pascal}Store = Readonly<{
+  listByOwner: (ownerId: string) => Promise<${names.pascal}Output[]>
+  findByIdForOwner: (id: string, ownerId: string) => Promise<${names.pascal}Output | null>
+  create: (input: Readonly<{ id: string; ownerId: string; name: string; description: string; metadata: ${names.pascal}Output["metadata"] }>) => Promise<${names.pascal}Output>
+  update: (input: Readonly<{ id: string; ownerId: string; name?: string | undefined; description?: string | undefined; metadata?: ${names.pascal}Output["metadata"] | undefined; status?: ${names.pascal}Output["status"] | undefined }>) => Promise<${names.pascal}Output | null>
+  archive: (id: string, ownerId: string) => Promise<${names.pascal}Output | null>
+}>
+export class ${names.pascal}ServiceError extends Error {
+  readonly code: "NOT_FOUND" | "STORAGE_ERROR"
+  constructor(code: "NOT_FOUND" | "STORAGE_ERROR") { super(code); this.name = "${names.pascal}ServiceError"; this.code = code }
+}
+export type ${names.pascal}Principal = Readonly<{ userId: string }>
+export const create${names.pascal}Service = (repository: ${names.pascal}Store) => ({
+  list: (principal: ${names.pascal}Principal) => repository.listByOwner(principal.userId),
+  get: async (principal: ${names.pascal}Principal, id: string) => { const item = await repository.findByIdForOwner(id, principal.userId); if (!item) throw new ${names.pascal}ServiceError("NOT_FOUND"); return item },
+  create: (principal: ${names.pascal}Principal, input: Readonly<{ name: string; description: string; metadata?: ${names.pascal}Output["metadata"] | undefined }>) => repository.create({ id: crypto.randomUUID(), ownerId: principal.userId, metadata: input.metadata ?? {}, name: input.name, description: input.description }),
+  update: async (principal: ${names.pascal}Principal, input: Readonly<{ id: string; name?: string | undefined; description?: string | undefined; metadata?: ${names.pascal}Output["metadata"] | undefined }>) => { const item = await repository.update({ ...input, ownerId: principal.userId }); if (!item) throw new ${names.pascal}ServiceError("NOT_FOUND"); return item },
+  changeStatus: async (principal: ${names.pascal}Principal, input: Readonly<{ id: string; status: "draft" | "active" | "archived" }>) => { const item = await repository.update({ ...input, ownerId: principal.userId }); if (!item) throw new ${names.pascal}ServiceError("NOT_FOUND"); return item },
+  archive: async (principal: ${names.pascal}Principal, id: string) => { const item = await repository.archive(id, principal.userId); if (!item) throw new ${names.pascal}ServiceError("NOT_FOUND"); return item },
+})
+`
+
+const namesTemplate = (names: FeatureNames): string => `export const ${upperSnake(names)}_NAMES = Object.freeze({
+  singular: "${names.kebab}", plural: "${names.pluralKebab}", route: "/${names.pluralKebab}", table: "${names.pluralSnake}", apiNamespace: "${names.pluralCamel}",
+})
+`
+
+const featureIndexTemplate = (names: FeatureNames): string => `export { ${upperSnake(names)}_NAMES } from "./names.civet"
+`
+const pageTemplate = (names: FeatureNames): string => `import { ${upperSnake(names)}_NAMES } from "../../../features/${names.kebab}/names.civet"
+const ${names.pascal}Page = () => <main><h1>${names.pluralPascal}</h1><p>Live generated route at {${upperSnake(names)}_NAMES.route}.</p></main>
+export default ${names.pascal}Page
+`
+const testTemplate = (names: FeatureNames): string => `import { describe, expect, it } from "vitest"
+import { ${upperSnake(names)}_NAMES } from "./names.civet"
+describe "${names.pascal} live registration", ->
+  it "keeps route and table names canonical", ->
+    expect(${upperSnake(names)}_NAMES).toMatchObject({ route: "/${names.pluralKebab}", table: "${names.pluralSnake}" })
+`
+const docsTemplate = (names: FeatureNames): string => `# ${names.pascal}
+
+Generated live feature vertical. Runtime ownership: typed oRPC contract and service, owner-scoped Drizzle repository/table, migration, authenticated portal route, tests, and Graphify metadata.
+
+Generated files and registries are owned by \`pnpm generate:feature\`; never edit them manually. Removal requires a reviewed reverse migration and registry update.
+`
+
+export const createLiveLeafFiles = (
+  names: FeatureNames,
+  migrationTag: string,
+): readonly TemplateFile[] => Object.freeze([
+  Object.freeze({ path: `apps/web/src/app/(portal)/${names.pluralKebab}/page.civet`, content: pageTemplate(names) }),
+  Object.freeze({ path: `apps/web/src/features/${names.kebab}/feature.test.civet`, content: testTemplate(names) }),
+  Object.freeze({ path: `apps/web/src/features/${names.kebab}/graphify.json`, content: jsonFile({ version: 1, feature: names.kebab, route: `/${names.pluralKebab}`, contract: `${names.pluralCamel}`, table: names.pluralSnake, source: "live-generated-feature" }) }),
+  Object.freeze({ path: `apps/web/src/features/${names.kebab}/index.civet`, content: featureIndexTemplate(names) }),
+  Object.freeze({ path: `apps/web/src/features/${names.kebab}/names.civet`, content: namesTemplate(names) }),
+  Object.freeze({ path: `docs/features/${names.kebab}.md`, content: docsTemplate(names) }),
+  Object.freeze({ path: `packages/api/src/generated/${names.kebab}/contract.civet`, content: contractTemplate(names) }),
+  Object.freeze({ path: `packages/api/src/generated/${names.kebab}/service.civet`, content: serviceTemplate(names) }),
+  Object.freeze({ path: `packages/db/migrations/${migrationTag}.sql`, content: `CREATE TABLE "${names.pluralSnake}" (\n  "id" text PRIMARY KEY, "owner_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,\n  "name" text NOT NULL, "description" text NOT NULL, "status" text DEFAULT 'draft' NOT NULL,\n  "metadata" jsonb DEFAULT '{}'::jsonb NOT NULL, "created_at" timestamptz DEFAULT now() NOT NULL, "updated_at" timestamptz DEFAULT now() NOT NULL,\n  CONSTRAINT "${names.pluralSnake}_status_check" CHECK ("status" in ('draft', 'active', 'archived'))\n);\nCREATE INDEX "${names.pluralSnake}_owner_id_idx" ON "${names.pluralSnake}" ("owner_id", "updated_at" DESC, "id" DESC);\n` }),
+  Object.freeze({ path: `packages/db/src/generated/${names.kebab}/repository.civet`, content: repositoryTemplate(names) }),
+  Object.freeze({ path: `packages/db/src/generated/${names.kebab}/schema.civet`, content: schemaTemplate(names) }),
+])
+
+const namesFor = (feature: RegisteredFeature): FeatureNames => {
+  const words = feature.name.split("-")
+  const pascal = words.map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`).join("")
+  const camel = `${words[0]}${words.slice(1).map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`).join("")}`
+  const pluralWords = feature.route.slice(1).split("-")
+  return Object.freeze({
+    kebab: feature.name, pluralKebab: feature.route.slice(1), camel,
+    pluralCamel: feature.apiNamespace, pascal,
+    pluralPascal: pluralWords.map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`).join(""),
+    snake: feature.name.replaceAll("-", "_"), pluralSnake: feature.table,
+  })
+}
+
+export const renderContractRegistry = (features: readonly RegisteredFeature[]): string => `${header}${features.map((feature) => `import { ${namesFor(feature).camel}Contract } from "./${feature.name}/contract.civet"`).join("\n")}${features.length ? "\n\n" : ""}export const generatedFeatureContracts = Object.freeze({${features.map((feature) => `\n  ${feature.apiNamespace}: ${namesFor(feature).camel}Contract,`).join("")}\n})\n`
+
+export const renderPublicRegistry = (features: readonly RegisteredFeature[]): string => `${header}${features.map((feature) => `export * from "./${feature.name}/contract.civet"`).join("\n")}${features.length ? "\n" : ""}export const GENERATED_API_FEATURES = Object.freeze(${JSON.stringify(features.map((feature) => feature.name))} as const)\n`
+
+export const renderSchemaRegistry = (features: readonly RegisteredFeature[]): string => `${header}${features.map((feature) => { const names = namesFor(feature); return `import { ${names.pluralCamel} } from "./${feature.name}/schema.civet"\nexport * from "./${feature.name}/schema.civet"` }).join("\n")}${features.length ? "\n" : ""}export const generatedFeatureTables = Object.freeze({${features.map((feature) => `\n  ${feature.apiNamespace}: ${namesFor(feature).pluralCamel},`).join("")}\n})\n`
+
+export const renderRepositoryRegistry = (features: readonly RegisteredFeature[]): string => {
+  const imports = features.map((feature) => {
+    const names = namesFor(feature)
+    return `import { create${names.pascal}Repository, type ${names.pascal}Repository } from "./${feature.name}/repository.civet"\nexport type { ${names.pascal}Repository } from "./${feature.name}/repository.civet"`
+  }).join("\n")
+  return `import type { DatabaseExecutor } from "../server/client.civet"\n${imports}\n${header}export type GeneratedFeatureRepositories = Readonly<{${features.map((feature) => `\n  ${feature.apiNamespace}: ${namesFor(feature).pascal}Repository`).join("")}\n}>\nexport const createGeneratedFeatureRepositories = (database: DatabaseExecutor): GeneratedFeatureRepositories => Object.freeze({${features.map((feature) => `\n  ${feature.apiNamespace}: create${namesFor(feature).pascal}Repository(database),`).join("")}\n})\n`
+}
+
+export const renderNavigationRegistry = (features: readonly RegisteredFeature[]): string => `export type GeneratedNavigationItem = Readonly<{ label: string; href: \`/\${string}\` }>\n${header}export const GENERATED_FEATURE_NAVIGATION: readonly GeneratedNavigationItem[] = Object.freeze([${features.map((feature) => `\n  { label: "${namesFor(feature).pluralPascal}", href: "${feature.route}" },`).join("")}\n])\nexport const GENERATED_FEATURE_ROUTE_PATHS: readonly \`/\${string}\`[] = Object.freeze([${features.map((feature) => `\n  "${feature.route}",`).join("")}\n])\nexport const GENERATED_FEATURE_ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze({${features.map((feature) => `\n  "${feature.route}": "(portal)/${feature.route.slice(1)}/page.civet",`).join("")}\n})\n`
+
+export const renderRouterRegistry = (features: readonly RegisteredFeature[]): string => {
+  if (features.length === 0) return `${header}export const generatedFeatureRouters = Object.freeze({})\n`
+  const imports = features.map((feature) => { const names = namesFor(feature); return `import { ${names.pascal}ServiceError, create${names.pascal}Service, type ${names.pascal}Store } from "./${feature.name}/service.civet"` }).join("\n")
+  const handlers = features.map((feature) => {
+    const names = namesFor(feature)
+    const repository = `(context.repositories.generated as unknown as Readonly<Record<string, ${names.pascal}Store>> | undefined)?.["${feature.apiNamespace}"]`
+    const map = `if (error instanceof ${names.pascal}ServiceError) { const failure = errors[error.code]; if (!failure) throw error; throw failure({ message: error.message }) }; throw error`
+    return `const ${names.camel}Repository = (context: ApiContext, errors: Record<string, (options?: { message?: string }) => Error>) => { const repository = ${repository}; if (!repository) { const failure = errors["STORAGE_ERROR"]; if (!failure) throw new Error("Generated feature storage is unavailable"); throw failure() }; return repository }\nconst ${names.camel} = {\n  list: api.${feature.apiNamespace}.list.use(requireAuthenticated).handler(async ({ context, errors }) => { try { return await create${names.pascal}Service(${names.camel}Repository(context, errors)).list(context.principal) } catch (error) { ${map} } }),\n  get: api.${feature.apiNamespace}.get.use(requireAuthenticated).handler(async ({ context, input, errors }) => { try { return await create${names.pascal}Service(${names.camel}Repository(context, errors)).get(context.principal, input.id) } catch (error) { ${map} } }),\n  create: api.${feature.apiNamespace}.create.use(requireAuthenticated).handler(async ({ context, input, errors }) => { try { return await create${names.pascal}Service(${names.camel}Repository(context, errors)).create(context.principal, input) } catch (error) { ${map} } }),\n  update: api.${feature.apiNamespace}.update.use(requireAuthenticated).handler(async ({ context, input, errors }) => { try { return await create${names.pascal}Service(${names.camel}Repository(context, errors)).update(context.principal, input) } catch (error) { ${map} } }),\n  changeStatus: api.${feature.apiNamespace}.changeStatus.use(requireAuthenticated).handler(async ({ context, input, errors }) => { try { return await create${names.pascal}Service(${names.camel}Repository(context, errors)).changeStatus(context.principal, input) } catch (error) { ${map} } }),\n  archive: api.${feature.apiNamespace}.archive.use(requireAuthenticated).handler(async ({ context, input, errors }) => { try { return await create${names.pascal}Service(${names.camel}Repository(context, errors)).archive(context.principal, input.id) } catch (error) { ${map} } }),\n}`
+  }).join("\n")
+  return `import { AuthAuthorizationError } from "@darkfactory/auth/server"\nimport { implement } from "@orpc/server"\nimport { generatedFeatureContracts } from "./contract-registry.civet"\nimport type { ApiContext } from "../server/context.civet"\n${imports}\n\nconst api = implement(generatedFeatureContracts).$context<ApiContext>()\nconst requireAuthenticated = api.middleware(async ({ context, next, errors }) => { try { const session = await context.requireSession(); return next({ context: { principal: session.principal, authSession: session } }) } catch (error) { if (!(error instanceof AuthAuthorizationError)) throw error; if (error.status === 401) throw errors.UNAUTHORIZED({ message: error.message }); throw errors.FORBIDDEN({ message: error.message }) } })\n${handlers}\nexport const generatedFeatureRouters = Object.freeze({${features.map((feature) => `\n  ${feature.apiNamespace}: ${namesFor(feature).camel},`).join("")}\n})\n`
+}

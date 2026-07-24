@@ -1,0 +1,181 @@
+import { createConnection } from "node:net"
+import { describe, expect, it, vi } from "vitest"
+
+import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres"
+import { cleanupE2ELifecycle } from "./lifecycle.civet"
+import {
+  processExists,
+  spawnOwnedProcess,
+  terminateOwnedProcessTree,
+} from "../../../scripts/e2e/owned-process-tree.civet"
+
+const pause = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds))
+
+const portAcceptsConnections = async (port: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port })
+    const finish = (connected: boolean): void => {
+      socket.destroy()
+      resolve(connected)
+    }
+    socket.setTimeout(500, () => finish(false))
+    socket.once("connect", () => finish(true))
+    socket.once("error", () => finish(false))
+  })
+
+const grandchildScript = `
+  import { createServer } from "node:net";
+  const server = createServer();
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    process.stdout.write(JSON.stringify({ pid: process.pid, port: address.port }) + "\\n");
+  });
+  setInterval(() => undefined, 1000);
+`
+const parentScript = `
+  import { spawn } from "node:child_process";
+  const grandchild = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", ${JSON.stringify(grandchildScript)}],
+    { shell: false, stdio: ["ignore", "pipe", "inherit"] },
+  );
+  grandchild.stdout.once("data", (chunk) => process.stdout.write(chunk));
+  setInterval(() => undefined, 1000);
+`
+
+type FixtureAddress = Readonly<{ pid: number; port: number }>
+
+const fixtureAddress = async (
+  fixture: ReturnType<typeof spawnOwnedProcess>,
+): Promise<FixtureAddress> => new Promise((resolve, reject) => {
+  const timeout = setTimeout(
+    () => reject(new Error("Timed out waiting for E2E process-tree fixture")),
+    5_000,
+  )
+  let output = ""
+  fixture.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString()
+    const lineEnd = output.indexOf("\n")
+    if (lineEnd < 0) return
+    clearTimeout(timeout)
+    resolve(JSON.parse(output.slice(0, lineEnd)) as FixtureAddress)
+  })
+  fixture.once("error", (error) => {
+    clearTimeout(timeout)
+    reject(error)
+  })
+})
+
+const fakeDatabase = {} as PostgresTestDatabase
+
+describe("E2E lifecycle cleanup", () => {
+  it("cleans an empty pre-resource lifecycle without error", async () => {
+    const cleanPreviewArtifacts = vi.fn(async () => undefined)
+    const dropDatabase = vi.fn(async () => undefined)
+
+    await expect(cleanupE2ELifecycle({
+      cleanPreviewArtifacts,
+      dropDatabase,
+    })).resolves.toBeUndefined()
+    expect(cleanPreviewArtifacts).toHaveBeenCalledOnce()
+    expect(dropDatabase).not.toHaveBeenCalled()
+  })
+
+  it("retains databases and locks when Worker binding cleanup fails closed", async () => {
+    const dropDatabase = vi.fn(async () => undefined)
+    const cleanPreviewArtifacts = vi.fn(async () => undefined)
+    const releaseOwnerLock = vi.fn(async () => undefined)
+    const releaseWorkerBindingsLock = vi.fn(async () => undefined)
+
+    await expect(cleanupE2ELifecycle({
+      cleanPreviewArtifacts,
+      cleanWorkerBindings: async () => {
+        throw new Error("binding ownership mismatch")
+      },
+      database: fakeDatabase,
+      dropDatabase,
+      releaseOwnerLock,
+      releaseWorkerBindingsLock,
+    })).rejects.toThrow("binding ownership mismatch")
+    expect(dropDatabase).not.toHaveBeenCalled()
+    expect(cleanPreviewArtifacts).not.toHaveBeenCalled()
+    expect(releaseOwnerLock).not.toHaveBeenCalled()
+    expect(releaseWorkerBindingsLock).not.toHaveBeenCalled()
+  })
+
+  it("does not retain a timer that can signal a reused process group after early exit", async () => {
+    const child = spawnOwnedProcess(
+      process.execPath,
+      ["--input-type=module", "--eval", "setTimeout(() => undefined, 25);"],
+    )
+    const kill = vi.spyOn(process, "kill")
+    try {
+      await cleanupE2ELifecycle({
+        cleanPreviewArtifacts: async () => undefined,
+        dropDatabase: async () => undefined,
+        server: child,
+        termination: {
+          forceTimeoutMillis: 50,
+          gracefulTimeoutMillis: 50,
+        },
+      })
+      const callsAfterCleanup = kill.mock.calls.length
+      await pause(100)
+      expect(kill.mock.calls).toHaveLength(callsAfterCleanup)
+      expect(
+        kill.mock.calls.some(([, signal]) => signal === "SIGKILL"),
+      ).toBe(false)
+    } finally {
+      kill.mockRestore()
+      await terminateOwnedProcessTree(child).catch(() => undefined)
+    }
+  })
+
+  it("proves descendants and their port are gone before DB and preview cleanup", async () => {
+    const child = spawnOwnedProcess(
+      process.execPath,
+      ["--input-type=module", "--eval", parentScript],
+    )
+    const address = await fixtureAddress(child)
+    const cleanupOrder: string[] = []
+    try {
+      expect(await portAcceptsConnections(address.port)).toBe(true)
+      await cleanupE2ELifecycle({
+        cleanPreviewArtifacts: async () => {
+          expect(processExists(address.pid)).toBe(false)
+          expect(await portAcceptsConnections(address.port)).toBe(false)
+          cleanupOrder.push("preview")
+        },
+        cleanWorkerBindings: async () => {
+          expect(processExists(child.pid!)).toBe(false)
+          expect(processExists(address.pid)).toBe(false)
+          cleanupOrder.push("worker-bindings")
+        },
+        database: fakeDatabase,
+        dropDatabase: async () => {
+          expect(processExists(child.pid!)).toBe(false)
+          expect(processExists(address.pid)).toBe(false)
+          expect(await portAcceptsConnections(address.port)).toBe(false)
+          cleanupOrder.push("database")
+        },
+        releaseOwnerLock: async () => {
+          cleanupOrder.push("route-lock")
+        },
+        releaseWorkerBindingsLock: async () => {
+          cleanupOrder.push("worker-bindings-lock")
+        },
+        server: child,
+      })
+      expect(cleanupOrder).toEqual([
+        "worker-bindings",
+        "database",
+        "preview",
+        "route-lock",
+        "worker-bindings-lock",
+      ])
+    } finally {
+      await terminateOwnedProcessTree(child).catch(() => undefined)
+    }
+  }, 15_000)
+})

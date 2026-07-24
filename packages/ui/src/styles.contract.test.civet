@@ -158,3 +158,16 @@ describe "CSS theme contract", ->
         }
       }
     }
+
+  it "owns mode-aware palette swatch presentation", async ->
+    const css = await readFile(stylesheetUrl, "utf8")
+
+    expect(css).toMatch(
+      /\.theme-palette-swatch \{[\s\S]*?background-color: var\(--palette-primary-light\);[\s\S]*?border: 1px solid var\(--palette-primary-border-light\);[\s\S]*?\}/,
+    )
+    expect(css).toMatch(
+      /\[data-mode="dark"\] \.theme-palette-swatch \{[\s\S]*?background-color: var\(--palette-primary-dark\);[\s\S]*?border-color: var\(--palette-primary-border-dark\);[\s\S]*?\}/,
+    )
+    expect(css).toMatch(
+      /@media \(prefers-color-scheme: dark\) \{[\s\S]*?\[data-mode="system"\] \.theme-palette-swatch \{[\s\S]*?background-color: var\(--palette-primary-dark\);[\s\S]*?border-color: var\(--palette-primary-border-dark\);/,
+    )

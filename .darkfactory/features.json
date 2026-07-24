@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "builtIn": {
+    "name": "feature-item",
+    "route": "/feature-items",
+    "apiNamespace": "featureItems",
+    "table": "feature_items",
+    "status": "canonical-reference"
+  },
+  "generated": []
+}

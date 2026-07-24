@@ -18,7 +18,7 @@ describe "UI package boundaries", ->
       return []
     })
 
-    expect(typedTargets).toHaveLength(21)
+    expect(typedTargets).toHaveLength(22)
     await Promise.all(
       typedTargets.map(async (typesTarget) => {
         await expect(
@@ -27,8 +27,18 @@ describe "UI package boundaries", ->
       }),
     )
 
+  it "publishes the semantic theme client boundary", async ->
+    const manifest = JSON.parse(await readFile(packageUrl, "utf8")) as {
+      exports: Record<string, unknown>
+    }
+
+    expect(manifest.exports).toHaveProperty("./client/theme")
+
   it "keeps client-only wrappers out of the server-safe root", ->
     expect(serverSafeUi).not.toHaveProperty("Dialog")
     expect(serverSafeUi).not.toHaveProperty("DropdownMenu")
     expect(serverSafeUi).not.toHaveProperty("Tabs")
+    expect(serverSafeUi).not.toHaveProperty("ThemePicker")
+    expect(serverSafeUi).not.toHaveProperty("ThemeProvider")
+    expect(serverSafeUi).not.toHaveProperty("useTheme")
     expect(serverSafeUi).not.toHaveProperty("Toaster")

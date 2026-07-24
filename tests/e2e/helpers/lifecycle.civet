@@ -1,0 +1,65 @@
+import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres"
+
+import {
+  terminateOwnedProcessTreeThen,
+  type OwnedProcess,
+  type TerminateOwnedProcessOptions,
+} from "../../../scripts/e2e/owned-process-tree.civet"
+
+export type E2ELifecycleResources = Readonly<{
+  cleanPreviewArtifacts: () => Promise<void>
+  cleanWorkerBindings?: (() => Promise<void>) | undefined
+  database?: PostgresTestDatabase | undefined
+  dropDatabase: (database: PostgresTestDatabase) => Promise<void>
+  releaseOwnerLock?: (() => Promise<void>) | undefined
+  releaseWorkerBindingsLock?: (() => Promise<void>) | undefined
+  server?: OwnedProcess | undefined
+  termination?: TerminateOwnedProcessOptions | undefined
+}>
+
+const cleanResources = async ({
+  cleanPreviewArtifacts,
+  cleanWorkerBindings,
+  database,
+  dropDatabase,
+}: E2ELifecycleResources): Promise<void> => {
+  await cleanWorkerBindings?.()
+  const errors: unknown[] = []
+  if (database !== undefined) {
+    try {
+      await dropDatabase(database)
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  try {
+    await cleanPreviewArtifacts()
+  } catch (error) {
+    errors.push(error)
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "E2E resource cleanup failed")
+  }
+}
+
+const cleanResourcesThenReleaseOwner = async (
+  resources: E2ELifecycleResources,
+): Promise<void> => {
+  await cleanResources(resources)
+  await resources.releaseOwnerLock?.()
+  await resources.releaseWorkerBindingsLock?.()
+}
+
+export const cleanupE2ELifecycle = async (
+  resources: E2ELifecycleResources,
+): Promise<void> => {
+  if (resources.server === undefined) {
+    await cleanResourcesThenReleaseOwner(resources)
+    return
+  }
+  await terminateOwnedProcessTreeThen(
+    resources.server,
+    async () => cleanResourcesThenReleaseOwner(resources),
+    resources.termination,
+  )
+}

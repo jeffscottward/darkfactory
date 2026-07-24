@@ -1,0 +1,34 @@
+import {
+  parseCapabilityArguments,
+  runCapabilityAddition,
+  type CapabilityDependencies,
+} from "./capability.civet"
+
+export type CapabilityCliOutput = Readonly<{
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+}>
+
+const HELP = `Usage: pnpm capability:add <name> --provider <provider> [--apply]\n\nSupported descriptors: uptime, error-tracking, storage.\nPlans a supported disabled capability descriptor by default. --apply publishes one descriptor only after validating that the existing strict v0.1 manifest entry is disabled; manifest bytes are unchanged and existing descriptors are never overwritten.\n`
+
+export const runCapabilityCli = async (
+  arguments_: readonly string[],
+  dependencies: CapabilityDependencies,
+  output: CapabilityCliOutput,
+): Promise<number> => {
+  if (arguments_.length === 1 && (arguments_[0] === "--help" || arguments_[0] === "-h")) {
+    output.writeOutput(HELP)
+    return 0
+  }
+  try {
+    const parsed = parseCapabilityArguments(arguments_)
+    const report = await runCapabilityAddition(parsed, dependencies)
+    const rendered = `${JSON.stringify(report, null, 2)}\n`
+    if (report.ok) output.writeOutput(rendered)
+    else output.writeError(rendered)
+    return report.ok ? 0 : 1
+  } catch (error) {
+    output.writeError(`${error instanceof Error ? error.message : "Invalid capability arguments"}\n${HELP}`)
+    return 2
+  }
+}

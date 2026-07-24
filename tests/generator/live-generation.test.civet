@@ -1,0 +1,162 @@
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import { compile } from "@danielx/civet"
+import { afterEach, describe, expect, it } from "vitest"
+
+import {
+  applyGenerationPlan,
+  type ApplyGenerationOptions,
+} from "../../scripts/generate-feature/apply.civet"
+import { createGenerationPlan } from "../../scripts/generate-feature/plan.civet"
+import type { GenerationPlan, PlannedFile } from "../../scripts/generate-feature/types.civet"
+import { validateFeatureName } from "../../scripts/generate-feature/validate.civet"
+import { verifyGeneration } from "../../scripts/generate-feature/verify.civet"
+import {
+  createGeneratorFixture,
+  listFixtureEntries,
+  readGeneratedFiles,
+} from "./fixture.civet"
+
+const cleanups: Array<() => Promise<void>> = []
+afterEach(async () => {
+  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
+})
+
+const fixture = async () => {
+  const created = await createGeneratorFixture()
+  cleanups.push(created.cleanup)
+  return created
+}
+
+const registryPaths = [
+  ".darkfactory/features.json",
+  "apps/web/src/features/generated-navigation.civet",
+  "packages/api/src/generated/contract-registry.civet",
+  "packages/api/src/generated/public-registry.civet",
+  "packages/api/src/generated/router-registry.civet",
+  "packages/db/migrations/meta/_journal.json",
+  "packages/db/src/generated/repository-registry.civet",
+  "packages/db/src/generated/schema-registry.civet",
+] as const
+
+const liveCreatePaths = [
+  "apps/web/src/app/(portal)/order-items/page.civet",
+  "apps/web/src/features/order-item/feature.test.civet",
+  "apps/web/src/features/order-item/graphify.json",
+  "apps/web/src/features/order-item/index.civet",
+  "apps/web/src/features/order-item/names.civet",
+  "docs/features/order-item.md",
+  "packages/api/src/generated/order-item/contract.civet",
+  "packages/api/src/generated/order-item/service.civet",
+  "packages/db/migrations/0000_order_items.sql",
+  "packages/db/src/generated/order-item/repository.civet",
+  "packages/db/src/generated/order-item/schema.civet",
+] as const
+
+type LivePlannedFile = PlannedFile & Readonly<{
+  operation: "create" | "replace"
+  previousSha256?: string
+}>
+
+const liveFiles = (plan: GenerationPlan): readonly LivePlannedFile[] =>
+  plan.files as readonly LivePlannedFile[]
+
+describe "DF-069 live feature registration", ->
+  it "plans exact live leaves and generator-owned registry replacements", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const files = liveFiles(plan)
+
+    expect(files.filter((file) => file.operation === "create").map((file) => file.path)).toEqual(
+      liveCreatePaths,
+    )
+    expect(files.filter((file) => file.operation === "replace").map((file) => file.path)).toEqual(
+      registryPaths,
+    )
+    expect(files.filter((file) => file.operation === "replace").every(
+      (file) => file.previousSha256?.match(/^[a-f0-9]{64}$/),
+    )).toBe(true)
+
+  it "applies a consumer-visible contract, repository, migration, route, docs, and graph entry", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+
+    await applyGenerationPlan(plan)
+    await expect(verifyGeneration(plan)).resolves.toMatchObject({
+      isValid: true,
+      filesChecked: liveCreatePaths.length + registryPaths.length,
+    })
+
+    const registries = await readGeneratedFiles(root, registryPaths)
+    expect(registries["packages/api/src/generated/contract-registry.civet"]).toContain(
+      "orderItemContract",
+    )
+    expect(registries["packages/api/src/generated/router-registry.civet"]).toContain(
+      "createOrderItemService",
+    )
+    expect(registries["packages/db/src/generated/schema-registry.civet"]).toContain(
+      "orderItems",
+    )
+    expect(registries["packages/db/src/generated/repository-registry.civet"]).toContain(
+      "createOrderItemRepository",
+    )
+    expect(registries["apps/web/src/features/generated-navigation.civet"]).toContain(
+      'href: "/order-items"',
+    )
+    expect(JSON.parse(registries[".darkfactory/features.json"]!)).toMatchObject({
+      generated: [{ name: "order-item", route: "/order-items", table: "order_items" }],
+    })
+    expect(JSON.parse(registries["packages/db/migrations/meta/_journal.json"]!)).toMatchObject({
+      entries: [{ idx: 0, tag: "0000_order_items" }],
+    })
+
+  it "emits generated Civet consumers that the pinned compiler parses", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const sources = liveFiles(plan).filter(
+      (file) => file.operation === "create" && file.path.endsWith(".civet"),
+    )
+
+    await expect(Promise.all(
+      sources.map((file) => compile(file.content, { filename: file.path })),
+    )).resolves.toHaveLength(sources.length)
+
+  it "restores every registry and removes every leaf on mid-registration failure", async ->
+    const { root } = await fixture()
+    const beforeEntries = await listFixtureEntries(root)
+    const beforeRegistries = await readGeneratedFiles(root, registryPaths)
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+
+    await expect(applyGenerationPlan(plan, {
+      afterFilePromotion: async (_file, index) => {
+        if (index === 5) throw new Error("injected registration failure")
+      },
+    } as ApplyGenerationOptions)).rejects.toThrow("injected registration failure")
+
+    expect(await listFixtureEntries(root)).toEqual(beforeEntries)
+    expect(await readGeneratedFiles(root, registryPaths)).toEqual(beforeRegistries)
+
+  it "refuses a duplicate without changing registered consumers", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    await applyGenerationPlan(plan)
+    const before = await listFixtureEntries(root)
+
+    await expect(
+      createGenerationPlan(root, validateFeatureName("order-item")),
+    ).rejects.toThrow(/collision/i)
+    expect(await listFixtureEntries(root)).toEqual(before)
+
+  it.each([
+    "docs/features/order-item.md",
+    "apps/web/src/features/order-item/graphify.json",
+  ])("detects stale generated metadata at %s", async (path) ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    await applyGenerationPlan(plan)
+    await writeFile(join(root, path), "stale", "utf8")
+
+    await expect(verifyGeneration(plan)).rejects.toMatchObject({
+      code: "VERIFICATION_FAILED",
+    })
+  )

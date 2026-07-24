@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { isAbsolute, win32 } from "node:path"
 import { GeneratorError } from "./errors.civet"
 
@@ -54,6 +55,14 @@ export const validateFeatureName = (name: string): FeatureNames => {
   }
   const singular = formsFor(words, false)
   const plural = formsFor(words, true)
+  const postgresIdentifiers = [
+    plural.snake,
+    `${plural.snake}_owner_id_idx`,
+    `${plural.snake}_status_check`,
+    `${plural.snake}_name_check`,
+  ]
+  if (postgresIdentifiers.some((identifier) => Buffer.byteLength(identifier, "utf8") > 63))
+    throw new GeneratorError("NAME_INVALID", "Feature name produces an unsafe database identifier")
   return Object.freeze({
     kebab: singular.kebab,
     pluralKebab: plural.kebab,

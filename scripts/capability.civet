@@ -1,0 +1,15 @@
+import { loadCapabilityManifest } from "../packages/config/src/server/capabilities.civet"
+import { runCapabilityCli } from "./capability/cli.civet"
+import { nodeCapabilityFileSystem } from "./capability/system.civet"
+
+process.exitCode = await runCapabilityCli(
+  process.argv.slice(2),
+  {
+    files: nodeCapabilityFileSystem,
+    validateManifest: (source) => { loadCapabilityManifest(source) },
+  },
+  {
+    writeOutput: (value) => process.stdout.write(value),
+    writeError: (value) => process.stderr.write(value),
+  },
+)

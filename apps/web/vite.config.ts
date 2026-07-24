@@ -2,7 +2,7 @@ import { isIP } from "node:net";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import civetVitePlugin from "@danielx/civet/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import vinext from "vinext";
 
 // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
@@ -32,6 +32,68 @@ if (isIP(host) === 0 && !isHostname) {
   );
 }
 
+const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
+  "@tanstack/react-form",
+  "@darkfactory/state > zustand/vanilla",
+  "@darkfactory/ui > radix-ui",
+  "@darkfactory/ui > sonner",
+  "next/router",
+] as const;
+const CLIENT_OPTIMIZE_DEPS_EXCLUDE = ["lucide-react", "next/link"] as const;
+const SERVER_OPTIMIZE_DEPS_INCLUDE = [
+  "@darkfactory/auth > @better-auth/drizzle-adapter",
+  "@darkfactory/auth > better-auth",
+  "@darkfactory/auth > better-auth/cookies",
+  "@darkfactory/auth > better-auth/api",
+  "@darkfactory/auth > better-auth/crypto",
+  "@darkfactory/auth > drizzle-orm",
+  "@darkfactory/db > drizzle-orm",
+  "@darkfactory/db > drizzle-orm/pg-core",
+  "@darkfactory/db > drizzle-orm/node-postgres",
+  "@darkfactory/db > pg",
+  "zod",
+] as const;
+
+const mergeOptimizerEntries = (
+  existing: readonly string[] | undefined,
+  required: readonly string[]
+): string[] => [...new Set([...(existing ?? []), ...required])];
+
+const environmentOptimizerPolicy = (): Plugin => ({
+  name: "darkfactory:environment-optimizer-policy",
+  enforce: "post",
+  configEnvironment: {
+    order: "post",
+    handler(name, environment) {
+      if (name === "client") {
+        environment.optimizeDeps = {
+          ...environment.optimizeDeps,
+          exclude: mergeOptimizerEntries(
+            environment.optimizeDeps?.exclude,
+            CLIENT_OPTIMIZE_DEPS_EXCLUDE
+          ),
+          include: mergeOptimizerEntries(
+            environment.optimizeDeps?.include,
+            CLIENT_OPTIMIZE_DEPS_INCLUDE
+          ),
+        };
+        return;
+      }
+      if (name !== "rsc" && name !== "ssr") {
+        return;
+      }
+      environment.optimizeDeps = {
+        ...environment.optimizeDeps,
+        include: mergeOptimizerEntries(
+          environment.optimizeDeps?.include,
+          SERVER_OPTIMIZE_DEPS_INCLUDE
+        ),
+        noDiscovery: true,
+      };
+    },
+  },
+});
+
 export default defineConfig({
   resolve: {
     dedupe: [
@@ -45,25 +107,6 @@ export default defineConfig({
     host,
     ...(port === undefined ? {} : { port }),
     strictPort: true,
-  },
-  environments: {
-    client: {
-      optimizeDeps: {
-        exclude: ["lucide-react", "next/link"],
-        include: [
-          "@tanstack/react-form",
-          "@darkfactory/state > zustand/vanilla",
-          "@darkfactory/ui > radix-ui",
-          "@darkfactory/ui > sonner",
-          "next/router",
-        ],
-      },
-    },
-    rsc: {
-      optimizeDeps: {
-        include: ["@darkfactory/db > pg"],
-      },
-    },
   },
   plugins: [
     civetVitePlugin({
@@ -84,5 +127,6 @@ export default defineConfig({
         childEnvironments: ["ssr"],
       },
     }),
+    environmentOptimizerPolicy(),
   ],
 });

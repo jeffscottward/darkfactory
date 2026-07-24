@@ -8,6 +8,7 @@ allowBuilds:
   workerd: true
 
 catalog:
+  "@axe-core/playwright": 4.12.1
   "@better-auth/drizzle-adapter": 1.6.24
   "@biomejs/biome": 2.3.10
   "@cloudflare/vite-plugin": 1.46.0

@@ -1,0 +1,342 @@
+import { randomUUID } from "node:crypto"
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeSync,
+} from "node:fs"
+import { join } from "node:path"
+
+import type {
+  JourneyProgress,
+  JourneyResult,
+  JourneySuiteReport,
+} from "./runner.civet"
+
+const MAX_STATE_BYTES = 64 * 1024
+const LIFECYCLE_STAGES = new Set([
+  "validation",
+  "owner-lock",
+  "artifact-isolation",
+  "module-loading",
+  "database-create",
+  "database-migrate",
+  "database-reset",
+  "database-seed",
+  "server-spawn",
+  "server-probed",
+  "server-ready",
+])
+const LIFECYCLE_STATUSES = new Set([
+  "unavailable",
+  "starting",
+  "ready",
+  "stopped",
+  "startup-failed",
+  "cleanup-failed",
+  "runtime-failed",
+])
+const LIFECYCLE_OBSERVATIONS = new Set([
+  "missing",
+  "invalid",
+  "state",
+  "stderr",
+])
+const LIFECYCLE_OBSERVATION_REASONS = new Set([
+  "inputs-missing",
+  "module-load-failed",
+  "paths-failed",
+  "adoption-invalid",
+  "state-missing",
+  "state-invalid",
+  "observed-state",
+  "observed-stderr",
+])
+LIFECYCLE_STAGES.add("unavailable")
+const LIFECYCLE_FAILURE =
+  /E2E lifecycle (startup|cleanup) failed during ([a-z-]+)/u
+const MAX_RESULTS = 256
+const SPEC_PATH = /^tests\/e2e\/[A-Za-z0-9][A-Za-z0-9._-]*\.spec\.ts$/u
+const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/u
+const STAGES = new Set(["complete", "execute", "prepare", "scan"])
+const PROCESS_STATES = new Set(["not-started", "terminated", "unproven"])
+
+export type E2ERunnerState =
+  | Readonly<{ version: 1; phase: "progress"; progress: JourneyProgress }>
+  | Readonly<{ version: 1; phase: "result"; report: JourneySuiteReport }>
+
+const safeIdentity = (spec: string, runId: string): void => {
+  if (!SPEC_PATH.test(spec) || !RUN_ID.test(runId)) {
+    throw new Error("E2E runner state identity is invalid")
+  }
+}
+
+const lifecycleFields = (value: JourneyProgress): Readonly<{
+  lifecycleStatus: NonNullable<JourneyProgress["lifecycleStatus"]>
+  lifecycleStage: NonNullable<JourneyProgress["lifecycleStage"]>
+  lifecycleObservation: NonNullable<JourneyProgress["lifecycleObservation"]>
+  lifecycleObservationReason: NonNullable<
+    JourneyProgress["lifecycleObservationReason"]
+  >
+}> => {
+  if (
+    value.lifecycleStatus === undefined ||
+    value.lifecycleStage === undefined ||
+    value.lifecycleObservation === undefined ||
+    value.lifecycleObservationReason === undefined ||
+    !LIFECYCLE_STATUSES.has(value.lifecycleStatus) ||
+    !LIFECYCLE_STAGES.has(value.lifecycleStage) ||
+    !LIFECYCLE_OBSERVATIONS.has(value.lifecycleObservation) ||
+    !LIFECYCLE_OBSERVATION_REASONS.has(value.lifecycleObservationReason)
+  ) throw new Error("E2E runner lifecycle progress is invalid")
+  return Object.freeze({
+    lifecycleStatus: value.lifecycleStatus,
+    lifecycleStage: value.lifecycleStage,
+    lifecycleObservation: value.lifecycleObservation,
+    lifecycleObservationReason: value.lifecycleObservationReason,
+  })
+}
+
+const sanitizedProgress = (progress: JourneyProgress): JourneyProgress => {
+  safeIdentity(progress.spec, progress.runId)
+  const base = { spec: progress.spec, runId: progress.runId, stage: progress.stage }
+  switch (progress.stage) {
+    case "playwright-finished":
+      if (
+        typeof progress.playwrightOk !== "boolean" ||
+        typeof progress.processTreeTerminated !== "boolean"
+      ) throw new Error("E2E runner progress is invalid")
+      return Object.freeze({
+        ...base,
+        playwrightOk: progress.playwrightOk,
+        processTreeTerminated: progress.processTreeTerminated,
+        ...lifecycleFields(progress),
+      })
+    case "scan-finished":
+      if (typeof progress.scanOk !== "boolean" || typeof progress.purged !== "boolean") {
+        throw new Error("E2E runner progress is invalid")
+      }
+      return Object.freeze({
+        ...base,
+        ...lifecycleFields(progress),
+        scanOk: progress.scanOk,
+        purged: progress.purged,
+      })
+    case "result":
+      if (typeof progress.ok !== "boolean") throw new Error("E2E runner progress is invalid")
+      return Object.freeze({
+        ...base,
+        ...lifecycleFields(progress),
+        ok: progress.ok,
+      })
+    case "scan-start":
+      return Object.freeze({ ...base, ...lifecycleFields(progress) })
+    case "created":
+    case "prepared":
+    case "playwright-start":
+      return Object.freeze(base)
+    default:
+      throw new Error("E2E runner progress stage is invalid")
+  }
+}
+
+const sanitizedDiagnostics = (
+  diagnostics: readonly string[],
+): readonly string[] => {
+  const safe: string[] = []
+  for (const diagnostic of diagnostics.slice(-4)) {
+    const lifecycle = LIFECYCLE_FAILURE.exec(diagnostic)
+    if (
+      lifecycle !== null &&
+      LIFECYCLE_STAGES.has(lifecycle[2] ?? "")
+    ) {
+      safe.push(
+        `E2E lifecycle ${lifecycle[1]} failed during ${lifecycle[2]}`,
+      )
+      continue
+    }
+    if (diagnostic.includes("Process from config.webServer was not able to start")) {
+      safe.push("Playwright webServer process failed before tests")
+      continue
+    }
+    if (diagnostic.includes("ELIFECYCLE")) {
+      safe.push("Package lifecycle exited nonzero")
+    }
+  }
+  return Object.freeze([...new Set(safe)])
+}
+
+const sanitizedResult = (result: JourneyResult): JourneyResult => {
+  safeIdentity(result.spec, result.runId)
+  if (
+    !Number.isSafeInteger(result.playwrightExitCode) ||
+    !STAGES.has(result.stage) ||
+    !PROCESS_STATES.has(result.processState) ||
+    !LIFECYCLE_STATUSES.has(result.lifecycleStatus) ||
+    !LIFECYCLE_STAGES.has(result.lifecycleStage) ||
+    !LIFECYCLE_OBSERVATIONS.has(result.lifecycleObservation) ||
+    !LIFECYCLE_OBSERVATION_REASONS.has(result.lifecycleObservationReason) ||
+    typeof result.processTreeTerminated !== "boolean" ||
+    typeof result.scan.ok !== "boolean" ||
+    typeof result.scan.purged !== "boolean" ||
+    !Number.isSafeInteger(result.scan.scannedEntries) ||
+    result.scan.scannedEntries < 0 ||
+    result.scan.scannedEntries > 1_000_000
+  ) throw new Error("E2E runner result is invalid")
+  return Object.freeze({
+    spec: result.spec,
+    runId: result.runId,
+    playwrightExitCode: result.playwrightExitCode,
+    diagnostics: sanitizedDiagnostics(result.diagnostics),
+    lifecycleStatus: result.lifecycleStatus,
+    lifecycleStage: result.lifecycleStage,
+    lifecycleObservation: result.lifecycleObservation,
+    lifecycleObservationReason: result.lifecycleObservationReason,
+    processState: result.processState,
+    stage: result.stage,
+    processTreeTerminated: result.processTreeTerminated,
+    scan: Object.freeze({
+      ok: result.scan.ok,
+      scannedEntries: result.scan.scannedEntries,
+      findings: [],
+      purged: result.scan.purged,
+      reason: result.scan.ok ? "scan-complete" : "scan-failed",
+    }),
+  })
+}
+
+export const sanitizeE2ERunnerReport = (
+  report: JourneySuiteReport,
+): JourneySuiteReport => {
+  if (
+    typeof report.ok !== "boolean" ||
+    (report.mode !== "e2e" && report.mode !== "a11y") ||
+    report.results.length > MAX_RESULTS ||
+    report.completed !== report.results.length
+  ) throw new Error("E2E runner report is invalid")
+  const results = Object.freeze(report.results.map(sanitizedResult))
+  return Object.freeze({
+    ok: report.ok,
+    mode: report.mode,
+    completed: results.length,
+    results,
+    reason: report.ok ? "journey-suite-complete" : "journey-suite-failed",
+  })
+}
+
+const sanitizedState = (state: E2ERunnerState): E2ERunnerState => {
+  if (state.version !== 1) throw new Error("E2E runner state version is invalid")
+  if (state.phase === "progress") return Object.freeze({
+    version: 1,
+    phase: "progress",
+    progress: sanitizedProgress(state.progress),
+  })
+  if (state.phase === "result") return Object.freeze({
+    version: 1,
+    phase: "result",
+    report: sanitizeE2ERunnerReport(state.report),
+  })
+  throw new Error("E2E runner state phase is invalid")
+}
+
+const isNodeError = (error: unknown, code: string): boolean =>
+  error !== null &&
+  typeof error === "object" &&
+  "code" in error &&
+  error.code === code
+
+export const persistE2ERunnerState = (
+  repositoryPath: string,
+  state: E2ERunnerState,
+): void => {
+  const root = realpathSync(repositoryPath)
+  const parent = join(root, "test-results")
+  try {
+    mkdirSync(parent, { mode: 0o700 })
+  } catch (error) {
+    if (!isNodeError(error, "EEXIST")) throw error
+  }
+  const parentStats = lstatSync(parent)
+  if (
+    parentStats.isSymbolicLink() ||
+    !parentStats.isDirectory() ||
+    realpathSync(parent) !== parent
+  ) throw new Error("E2E runner state parent is unsafe")
+
+  const target = join(parent, "e2e-runner-state.json")
+  try {
+    const targetStats = lstatSync(target)
+    if (targetStats.isSymbolicLink() || !targetStats.isFile()) {
+      throw new Error("E2E runner state target is unsafe")
+    }
+  } catch (error) {
+    if (!isNodeError(error, "ENOENT")) throw error
+  }
+
+  const encoded = `${JSON.stringify(sanitizedState(state))}\n`
+  if (Buffer.byteLength(encoded, "utf8") > MAX_STATE_BYTES) {
+    throw new Error("E2E runner state exceeds its fixed bound")
+  }
+  const temporary = join(
+    parent,
+    `.e2e-runner-state.${process.pid}-${randomUUID()}.tmp`,
+  )
+  let descriptor: number | undefined
+  try {
+    descriptor = openSync(
+      temporary,
+      constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_WRONLY |
+        (constants.O_NOFOLLOW ?? 0),
+      0o600,
+    )
+    const opened = fstatSync(descriptor)
+    if (!opened.isFile() || (opened.mode & 0o777) !== 0o600) {
+      throw new Error("E2E runner state temporary is unsafe")
+    }
+    const content = Buffer.from(encoded, "utf8")
+    let offset = 0
+    while (offset < content.byteLength) {
+      const written = writeSync(
+        descriptor,
+        content,
+        offset,
+        content.byteLength - offset,
+      )
+      if (written <= 0) throw new Error("E2E runner state write made no progress")
+      offset += written
+    }
+    fsyncSync(descriptor)
+    closeSync(descriptor)
+    descriptor = undefined
+    const parentBeforePublish = lstatSync(parent)
+    if (
+      parentBeforePublish.isSymbolicLink() ||
+      !parentBeforePublish.isDirectory() ||
+      parentBeforePublish.dev !== parentStats.dev ||
+      parentBeforePublish.ino !== parentStats.ino ||
+      realpathSync(parent) !== parent
+    ) throw new Error("E2E runner state parent identity changed")
+    renameSync(temporary, target)
+    const directory = openSync(parent, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    try {
+      fsyncSync(directory)
+    } finally {
+      closeSync(directory)
+    }
+  } catch (error) {
+    if (descriptor !== undefined) {
+      try { closeSync(descriptor) } catch { /* best-effort close */ }
+    }
+    rmSync(temporary, { force: true })
+    throw error
+  }
+}

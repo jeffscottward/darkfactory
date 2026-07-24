@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -22,7 +22,9 @@ const resetInput: PasswordResetEmailInput = {
 const temporaryDirectories: string[] = []
 
 const createTemporaryDirectory = async (): Promise<string> => {
-  const directory = await mkdtemp(join(tmpdir(), "darkfactory-provider-"))
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), "darkfactory-provider-")),
+  )
   temporaryDirectories.push(directory)
   return directory
 }

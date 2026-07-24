@@ -1,0 +1,356 @@
+import { createHash } from "node:crypto"
+
+export type ArtifactEntry = Readonly<{
+  path: string
+  content: string
+  sha256?: string
+  binary?: "png" | "unsupported"
+}>
+export type ArtifactFindingCategory =
+  | "browser-password"
+  | "token-url"
+  | "session-cookie"
+  | "authorization-header"
+  | "secret-assignment"
+export type ArtifactFinding = Readonly<{ category: ArtifactFindingCategory; path: string }>
+export type ArtifactScannerDependencies = Readonly<{
+  artifactProfile: "no-binary" | "anonymous-public-visual"
+  deadlineMs: number
+  collectEntries: (paths: readonly string[]) => Promise<readonly ArtifactEntry[]>
+  purgeOwnedRun: (runId: string) => Promise<void>
+}>
+export type ArtifactScanReport = Readonly<{
+  ok: boolean
+  scannedEntries: number
+  findings: readonly ArtifactFinding[]
+  purged: boolean
+  reason: string
+}>
+export class ArtifactScannerCleanupError extends Error {
+  constructor() {
+    super("Artifact scanner temporary cleanup failed")
+    this.name = "ArtifactScannerCleanupError"
+  }
+}
+
+const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/
+const MAX_FINDINGS = 10_000
+const MAX_MANIFEST_ARTIFACTS = 20_000
+const assertWithinDeadline = (deadline: number): void => {
+  if (Date.now() >= deadline) throw new Error("Artifact scan deadline exceeded")
+}
+const PATTERNS: readonly Readonly<{
+  category: ArtifactFindingCategory
+  expression: RegExp
+}>[] = Object.freeze([
+  Object.freeze({
+    category: "browser-password",
+    expression: /\b(?:Browser(?:Auth|Reset)[A-Za-z0-9_-]*\d{3,}[!@#$%^&*]|Browser[A-Za-z0-9_-]*Password\s*["']?\s*[:=]\s*["']?[^"',}\s]{8,})/i,
+  }),
+  Object.freeze({
+    category: "token-url",
+    expression: /\/api\/auth\/reset-password\/(?!\[REDACTED\])[^/?#\s<>"']+|\/api\/auth\/verify-email(?:\/(?!\[REDACTED\])[^/?#\s<>"']+|[?&](?:amp;)?[^<>"'\s]*token(?:=|%3D)(?!\[REDACTED\])[^&<>"'\s]+)/i,
+  }),
+  Object.freeze({
+    category: "token-url",
+    expression: /https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email)(?:\/(?!\[REDACTED\])[^/?#\s<>"']+|[^<>"'\s]*(?:[?&](?:amp;)?token(?:=|%3D)(?!\[REDACTED\])[^&<>"'\s]+))/i,
+  }),
+  Object.freeze({
+    category: "session-cookie",
+    expression: /(?:(?:__Secure-)?better-auth\.session[_-]?token(?:(?!\r?\n).){0,512}(?:value|[:=])\s*["']?(?!\[REDACTED\])[^"',;\s}]+|(?:cookie|set-cookie)\s*[:=][^\r\n]*(?:__Secure-)?better-auth\.session[_-]?token=(?!\[REDACTED\])[^;\s"']+|["']?value["']?\s*[:=]\s*["'](?!\[REDACTED\])[^"']{4,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["'](?:__Secure-)?better-auth\.session[_-]?token["'])/i,
+  }),
+  Object.freeze({
+    category: "authorization-header",
+    expression: /(?:authorization\s*[:=]\s*(?:bearer|basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+\/-]{8,}|["']authorization["']\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}|["']?name["']?\s*:\s*["']authorization["'](?:(?!\r?\n).){0,512}["']?value["']?\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}|["']?value["']?\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*:\s*["']authorization["'])/i,
+  }),
+  Object.freeze({
+    category: "secret-assignment",
+    expression: /(?:(?:hmac[_-]?key|(?:access[_-]?)?token|access[_-]?key|api[_-]?key|client[_-]?secret|private[_ -]?key|secret)\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i,
+  }),
+  Object.freeze({
+    category: "browser-password",
+    expression: /(?:postgres(?:ql)?:\/\/[^\s"'<>]+|password\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{8,})/i,
+  }),
+])
+
+const normalizeInspection = (value: string): string => value
+  .replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "")
+  .replace(/&(?:amp;)?quot;|&#34;|&#x22;/giu, '"')
+  .replace(/\\+(["'\\])/gu, "$1")
+
+export const inspectArtifactEntries = (
+  entries: readonly ArtifactEntry[],
+  deadline = Number.POSITIVE_INFINITY,
+): readonly ArtifactFinding[] => {
+  const findings: ArtifactFinding[] = []
+  const recorded = new Set<string>()
+  for (const entry of entries) {
+    assertWithinDeadline(deadline)
+    const inspected = normalizeInspection(`${entry.path}\n${entry.content}`)
+    const opaquePath = `artifact-${createHash("sha256")
+      .update(entry.path, "utf8")
+      .digest("hex")
+      .slice(0, 16)}`
+    for (const pattern of PATTERNS) {
+      assertWithinDeadline(deadline)
+      const key = `${pattern.category}\u0000${opaquePath}`
+      if (pattern.expression.test(inspected) && !recorded.has(key)) {
+        recorded.add(key)
+        findings.push(Object.freeze({ category: pattern.category, path: opaquePath }))
+        if (findings.length >= MAX_FINDINGS) {
+          return Object.freeze(findings.sort((left, right) =>
+            left.path < right.path ? -1 : left.path > right.path ? 1 : left.category.localeCompare(right.category)))
+        }
+      }
+    }
+  }
+  return Object.freeze(findings.sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : left.category.localeCompare(right.category)))
+}
+
+const parseJsonObject = (entry: ArtifactEntry, message: string): Record<string, unknown> => {
+  try {
+    const parsed = JSON.parse(entry.content) as unknown
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(message)
+    return parsed as Record<string, unknown>
+  } catch {
+    throw new Error(message)
+  }
+}
+const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort())
+
+const recordValue = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+
+const boundedInteger = (value: unknown, minimum: number, maximum: number): boolean =>
+  Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum
+
+const assertStructuredEvidence = (entry: ArtifactEntry): void => {
+  if (
+    entry.binary !== undefined ||
+    !entry.path.endsWith(".json") ||
+    Buffer.byteLength(entry.content, "utf8") > 16 * 1024
+  ) throw new Error("Structured evidence encoding is invalid")
+  const value = parseJsonObject(entry, "Structured evidence is malformed")
+  const test = recordValue(value["test"])
+  const context = recordValue(value["context"])
+  const route = recordValue(value["route"])
+  const viewport = recordValue(value["viewport"])
+  const document = recordValue(value["document"])
+  const counts = recordValue(value["counts"])
+  const focus = recordValue(value["focus"])
+  if (
+    !exactKeys(value, ["version", "status", "test", "context", "route", "viewport", "document", "counts", "focus"]) ||
+    value["version"] !== 1 ||
+    value["status"] !== "passed" ||
+    test === undefined ||
+    !exactKeys(test, ["title"]) ||
+    typeof test["title"] !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9 .,:;!?()'/_-]{0,159}$/u.test(test["title"]) ||
+    context === undefined ||
+    !exactKeys(context, ["persona", "state"]) ||
+    !["anonymous", "member", "admin"].includes(String(context["persona"])) ||
+    context["state"] !== "ready" ||
+    route === undefined ||
+    !exactKeys(route, ["pathname"]) ||
+    typeof route["pathname"] !== "string" ||
+    viewport === undefined ||
+    !exactKeys(viewport, ["width", "height"]) ||
+    !boundedInteger(viewport["width"], 1, 16_384) ||
+    !boundedInteger(viewport["height"], 1, 16_384) ||
+    document === undefined ||
+    !exactKeys(document, ["clientWidth", "clientHeight", "scrollWidth", "scrollHeight"]) ||
+    !boundedInteger(document["clientWidth"], 0, 16_384) ||
+    !boundedInteger(document["clientHeight"], 0, 16_384) ||
+    !boundedInteger(document["scrollWidth"], 0, 16_384) ||
+    !boundedInteger(document["scrollHeight"], 0, 16_384) ||
+    counts === undefined ||
+    !exactKeys(counts, ["headings", "landmarks", "controls"]) ||
+    !boundedInteger(counts["headings"], 0, 10_000) ||
+    !boundedInteger(counts["landmarks"], 0, 10_000) ||
+    !boundedInteger(counts["controls"], 0, 10_000) ||
+    focus === undefined ||
+    !exactKeys(focus, ["tag", "role"]) ||
+    !["body", "a", "button", "input", "select", "textarea", "other"].includes(String(focus["tag"])) ||
+    !(focus["role"] === null || ["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "tab", "other"].includes(String(focus["role"])))
+  ) throw new Error("Structured evidence schema is invalid")
+  const pathname = route["pathname"] as string
+  let decodedPathname: string
+  try {
+    decodedPathname = decodeURIComponent(pathname)
+  } catch {
+    throw new Error("Structured evidence route is invalid")
+  }
+  if (
+    pathname.length > 512 ||
+    !/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/\[\]-]*$/u.test(pathname) ||
+    /[\\?#\u0000-\u001f\u007f]/u.test(decodedPathname) ||
+    decodedPathname.split("/").some((segment) => segment === "." || segment === "..") ||
+    /^\/api\/auth\/(?:reset-password|verify-email)\/(?!\[redacted\](?:\/|$))/iu.test(decodedPathname)
+  ) throw new Error("Structured evidence route is invalid")
+}
+
+
+const assertExpectedReports = (
+  entries: readonly ArtifactEntry[],
+  runId: string,
+  artifactProfile: ArtifactScannerDependencies["artifactProfile"],
+  deadline: number,
+): void => {
+  const entryByPath = new Map<string, ArtifactEntry>()
+  for (const entry of entries) {
+    assertWithinDeadline(deadline)
+    if (entryByPath.has(entry.path)) throw new Error("Duplicate owned artifact path")
+    entryByPath.set(entry.path, entry)
+  }
+  const reportPath = `test-results/e2e-runs/${runId}/playwright-report.json`
+  const reportEntry = entryByPath.get(reportPath)
+  if (reportEntry === undefined || reportEntry.content.length === 0) {
+    throw new Error("Expected owned Playwright JSON report is missing")
+  }
+  const report = parseJsonObject(reportEntry, "Expected owned Playwright JSON report is malformed")
+  if (!Array.isArray(report["suites"]) || report["suites"].length === 0 || report["stats"] === null || typeof report["stats"] !== "object" || Array.isArray(report["stats"])) {
+    throw new Error("Expected owned Playwright JSON report is malformed")
+  }
+
+  const evidencePrefix = `test-results/evidence/${runId}/`
+  const manifests = entries.filter((entry) => {
+    if (!entry.path.startsWith(`${evidencePrefix}manifests/`)) return false
+    const name = entry.path.slice(`${evidencePrefix}manifests/`.length)
+    return name.length > 5 && !name.includes("/") && name.endsWith(".json")
+  })
+  if (manifests.length === 0) throw new Error("Expected owned evidence manifest is missing")
+  const referencedArtifacts = new Set<string>()
+  let artifactCount = 0
+  for (const manifestEntry of manifests) {
+    assertWithinDeadline(deadline)
+    const manifest = parseJsonObject(manifestEntry, "Expected owned evidence manifest is malformed")
+    const artifacts = manifest["artifacts"]
+    if (manifest["version"] !== 1 || manifest["runId"] !== runId || !Array.isArray(artifacts) || artifacts.length === 0) {
+      throw new Error("Expected owned evidence manifest is malformed")
+    }
+    artifactCount += artifacts.length
+    if (artifactCount > MAX_MANIFEST_ARTIFACTS) {
+      throw new Error("Evidence manifest artifact count exceeds scan bound")
+    }
+    for (const artifact of artifacts) {
+      assertWithinDeadline(deadline)
+      if (artifact === null || typeof artifact !== "object" || Array.isArray(artifact)) {
+        throw new Error("Expected owned evidence manifest is malformed")
+      }
+      const record = artifact as Record<string, unknown>
+      const kind = record["kind"]
+      const path = record["path"]
+      if (!exactKeys(record, ["kind", "path", "sha256"])) {
+        throw new Error("Expected owned evidence manifest is malformed")
+      }
+      if (
+        !["axe", "screenshots", "structured"].includes(String(kind)) ||
+        typeof path !== "string" ||
+        path.length === 0 ||
+        path.startsWith("/") ||
+        path.includes("\\") ||
+        path.split("/").some((segment) => segment === "" || segment === "." || segment === "..") ||
+        /[\u0000-\u001f\u007f]/u.test(path) ||
+        typeof record["sha256"] !== "string" ||
+        !/^[a-f0-9]{64}$/u.test(record["sha256"])
+      ) throw new Error("Expected owned evidence manifest is malformed")
+      const ownedPath = `${evidencePrefix}${path}`
+      if (referencedArtifacts.has(ownedPath)) throw new Error("Duplicate evidence artifact reference")
+      referencedArtifacts.add(ownedPath)
+      const actual = entryByPath.get(ownedPath)
+      const actualDigest = actual?.sha256 ??
+        (actual === undefined ? undefined : createHash("sha256").update(actual.content, "utf8").digest("hex"))
+      if (actual === undefined || actualDigest !== record["sha256"]) {
+        throw new Error("Expected owned evidence manifest digest does not match")
+      }
+      if (kind === "screenshots") {
+        if (
+          artifactProfile !== "anonymous-public-visual" ||
+          actual.binary !== "png"
+        ) throw new Error("Screenshot evidence is not a permitted PNG for this run")
+      } else if (kind === "structured") {
+        assertStructuredEvidence(actual)
+      } else if (actual.binary !== undefined) {
+        throw new Error("Accessibility evidence must be text")
+      }
+    }
+  }
+  if (entries.some((entry) => entry.binary !== undefined && !referencedArtifacts.has(entry.path))) {
+    throw new Error("Unreferenced or unsupported binary E2E evidence was detected")
+  }
+}
+
+export const scanArtifactPaths = async (
+  runId: string,
+  paths: readonly string[],
+  dependencies: ArtifactScannerDependencies,
+  purgeOwnedAfterScan = false,
+): Promise<ArtifactScanReport> => {
+  if (!RUN_ID.test(runId)) return Object.freeze({
+    ok: false,
+    scannedEntries: 0,
+    findings: [],
+    purged: false,
+    reason: "E2E run identifier is invalid",
+  })
+  const scanDeadline = Date.now() + dependencies.deadlineMs
+  try {
+    if (
+      !Number.isSafeInteger(dependencies.deadlineMs) ||
+      dependencies.deadlineMs < 0 ||
+      dependencies.deadlineMs > 30_000
+    ) throw new Error("Artifact scan deadline is invalid")
+    assertWithinDeadline(scanDeadline)
+    const collected = await dependencies.collectEntries(paths)
+    assertWithinDeadline(scanDeadline)
+    const entries = Object.freeze([...collected].sort((left, right) =>
+      left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+    const findings = inspectArtifactEntries(entries, scanDeadline)
+    if (findings.length === 0) {
+      assertExpectedReports(entries, runId, dependencies.artifactProfile, scanDeadline)
+      assertWithinDeadline(scanDeadline)
+      if (purgeOwnedAfterScan) await dependencies.purgeOwnedRun(runId)
+      return Object.freeze({
+        ok: true,
+        scannedEntries: entries.length,
+        findings,
+        purged: purgeOwnedAfterScan,
+        reason: purgeOwnedAfterScan
+          ? "Artifacts were clean; failed-run evidence was purged"
+          : "E2E artifacts passed external secret scanning",
+      })
+    }
+    await dependencies.purgeOwnedRun(runId)
+    return Object.freeze({
+      ok: false,
+      scannedEntries: entries.length,
+      findings,
+      purged: true,
+      reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+    })
+  } catch (error) {
+    const cleanupUnsafe = error instanceof ArtifactScannerCleanupError
+    let purged = false
+    try {
+      await dependencies.purgeOwnedRun(runId)
+      purged = !cleanupUnsafe
+    } catch {
+      purged = false
+    }
+    return Object.freeze({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged,
+      reason: cleanupUnsafe
+        ? "E2E artifact scanning failed and temporary scanner cleanup was incomplete"
+        : purged
+          ? "E2E artifact scanning failed; owned run outputs were purged"
+          : "E2E artifact scanning and owned-run purge failed safely",
+    })
+  }
+}

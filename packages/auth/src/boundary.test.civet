@@ -76,14 +76,16 @@ describe "auth package boundaries", ->
     return undefined
 
   it "keeps normal server imports and client/type subpaths operational", async ->
-    const [server, client, types] = await Promise.all([
+    const [server, databaseAuth, client, types] = await Promise.all([
       import("@darkfactory/auth/server"),
+      import("@darkfactory/auth/db"),
       import("@darkfactory/auth/client"),
       import("@darkfactory/auth/types"),
     ])
 
     expect(server.createAuth).toBeTypeOf("function")
     expect(server.createAuthHandler).toBeTypeOf("function")
+    expect(databaseAuth.createDatabaseConfirmedSignOutHandler).toBeTypeOf("function")
     expect(client.createAuthClient).toBeTypeOf("function")
     expect(Object.keys(types)).toEqual([
       "AUTH_BASE_URL",

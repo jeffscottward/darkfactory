@@ -7,6 +7,7 @@ import {
 import { adminUsersContract } from "./contracts/admin-users.civet"
 import { createDashboardContract } from "./contracts/dashboard.civet"
 import { contactContract } from "./contracts/contact.civet"
+import { generatedFeatureContracts } from "./generated/contract-registry.civet"
 
 
 export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const
@@ -234,6 +235,7 @@ const dashboardDefinitions = createDashboardContract(FeatureItemSchema)
 
 export const appContract = {
   featureItems: { list, get, create, update, changeStatus, archive },
+  ...generatedFeatureContracts,
   contact: contactContract,
   account: accountContract,
   admin: {

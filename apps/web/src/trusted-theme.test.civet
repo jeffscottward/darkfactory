@@ -7,6 +7,7 @@ import type {
   ApiClientOptions,
   ThemePreferenceOutput,
 } from "@darkfactory/api"
+import { useTheme } from "@darkfactory/ui/client/theme"
 
 import {
   consumeInitialThemeBootstrap,
@@ -18,6 +19,7 @@ import {
   selectThemeMenuPreference,
   ThemeMenu,
 } from "./components/theme-menu.civet"
+import { useUiStoreApi } from "./lib/ui-store.civet"
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void
@@ -25,6 +27,14 @@ const deferred = <Value>() => {
     resolve = settle
   })
   return { promise, resolve }
+}
+
+const ThemeProbe = () => {
+  const { preference } = useTheme()
+  return createElement("output", {
+    "data-mode": preference.themeMode,
+    "data-palette": preference.palette,
+  })
 }
 
 describe "trusted theme controls", ->
@@ -43,6 +53,38 @@ describe "trusted theme controls", ->
     expect(indeterminate).toContain('aria-label="Theme settings unavailable"')
     expect(trusted).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
     expect(indeterminate).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
+
+  it "composes the app store through the public semantic theme provider", ->
+    const markup = renderToStaticMarkup(createElement(ThemeController, {
+      children: createElement(ThemeProbe),
+      initialPreference: { themeMode: "dark", palette: "cyan" },
+      themeAuthority: "anonymous",
+    }))
+
+    expect(markup).toContain('data-mode="dark"')
+    expect(markup).toContain('data-palette="cyan"')
+
+  it "fails closed when the semantic callback lacks anonymous authority", ->
+    for authority of ["trusted", "indeterminate"] as const
+      let store: ReturnType<typeof useUiStoreApi> | undefined
+      let selectPreference: ReturnType<typeof useTheme>["onPreferenceChange"] | undefined
+      const CaptureTheme = () => {
+        store = useUiStoreApi()
+        selectPreference = useTheme().onPreferenceChange
+        return null
+      }
+      renderToStaticMarkup(createElement(ThemeController, {
+        children: createElement(CaptureTheme),
+        initialPreference: { themeMode: "dark", palette: "rose" },
+        themeAuthority: authority,
+      }))
+
+      selectPreference?.({ themeMode: "light", palette: "blue" })
+
+      expect(store?.getState()).toMatchObject({
+        themeMode: "dark",
+        palette: "rose",
+      })
 
   it "keeps anonymous selection local and clears stale account feedback without a client", async ->
     const store = createUiStore()
@@ -252,7 +294,12 @@ describe "trusted theme controls", ->
     const consumption = { consumed: false }
     const bootstrapA = { themeMode: "dark", palette: "blue" } as const
     const preferenceB = { themeMode: "light", palette: "rose" } as const
-    const apply = (authority: "anonymous" | "trusted", initialPreference: typeof preferenceB | typeof bootstrapA) => {
+    let previousAuthority: "anonymous" | "trusted" | undefined
+    const apply = (
+      authority: "anonymous" | "trusted",
+      initialPreference: typeof preferenceB | typeof bootstrapA,
+    ) => {
+      const priorAuthority = previousAuthority
       reconcileThemeAuthorityTransition({
         authority,
         bootstrapPreference: consumeInitialThemeBootstrap(
@@ -261,7 +308,10 @@ describe "trusted theme controls", ->
           bootstrapA,
         ),
         initialPreference,
-        onAuthorityChange: () => undefined,
+        onAuthorityChange: (nextAuthority) => {
+          previousAuthority = nextAuthority as "anonymous" | "trusted"
+        },
+        previousAuthority: priorAuthority,
         store,
       })
     }
@@ -269,7 +319,8 @@ describe "trusted theme controls", ->
     apply("anonymous", preferenceB)
     expect(store.getState()).toMatchObject(bootstrapA)
     store.setState(preferenceB)
-    apply("anonymous", preferenceB)
+    apply("anonymous", bootstrapA)
+    expect(store.getState()).toMatchObject(preferenceB)
     apply("trusted", preferenceB)
     apply("anonymous", preferenceB)
     expect(consumption.consumed).toBe(true)

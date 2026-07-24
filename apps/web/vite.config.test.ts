@@ -66,7 +66,7 @@ describe("Civet build type-check isolation", () => {
 });
 
 describe("Vite application plugin contract", () => {
-  it("keeps Civet before Tailwind, Vinext, and Cloudflare", () => {
+  it("keeps the environment policy after Civet, Tailwind, Vinext, and Cloudflare", () => {
     const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : [];
     expect(
       plugins.map((plugin) => (plugin && "name" in plugin ? plugin.name : null))
@@ -75,6 +75,7 @@ describe("Vite application plugin contract", () => {
       "test-tailwind",
       "test-vinext",
       "test-cloudflare",
+      "darkfactory:environment-optimizer-policy",
     ]);
   });
 
@@ -101,24 +102,88 @@ describe("Vite application plugin contract", () => {
     });
   });
 
-  it("prebundles Civet-discovered client hooks while leaving Lucide and the Link shim unoptimized", () => {
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for Vite environment index-signature keys.
-    expect(viteConfig.environments?.["client"]?.optimizeDeps).toEqual({
-      exclude: ["lucide-react", "next/link"],
-      include: [
-        "@tanstack/react-form",
-        "@darkfactory/state > zustand/vanilla",
-        "@darkfactory/ui > radix-ui",
-        "@darkfactory/ui > sonner",
-        "next/router",
-      ],
-    });
-  });
+  it("runs the environment policy last and isolates known and unknown environments", () => {
+    expect(viteConfig.environments).toBeUndefined();
+    const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : [];
+    const policy = plugins.at(-1);
+    expect(policy && "enforce" in policy ? policy.enforce : undefined).toBe(
+      "post"
+    );
+    const hook =
+      policy && "configEnvironment" in policy
+        ? (policy.configEnvironment as {
+            handler: (
+              name: string,
+              environment: {
+                optimizeDeps?: {
+                  exclude?: string[];
+                  include?: string[];
+                  noDiscovery?: boolean;
+                };
+              }
+            ) => void;
+            order: string;
+          })
+        : undefined;
+    expect(hook?.order).toBe("post");
+    const rscEnvironment = {
+      optimizeDeps: {
+        exclude: ["vinext", "vinext"],
+        include: ["zod", "zod"],
+        noDiscovery: false,
+      },
+    };
+    hook?.handler("rsc", rscEnvironment);
+    expect(rscEnvironment.optimizeDeps.noDiscovery).toBe(true);
+    expect(rscEnvironment.optimizeDeps.include).toContain(
+      "@darkfactory/auth > better-auth"
+    );
+    expect(
+      rscEnvironment.optimizeDeps.include.filter((entry) => entry === "zod")
+    ).toHaveLength(1);
 
-  it("prebundles node-postgres for Worker-compatible CommonJS interop", () => {
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for Vite environment index-signature keys.
-    expect(viteConfig.environments?.["rsc"]?.optimizeDeps).toEqual({
-      include: ["@darkfactory/db > pg"],
+    expect(
+      rscEnvironment.optimizeDeps.include.some((entry) =>
+        [
+          "react",
+          "react-dom",
+          "react/jsx-runtime",
+          "react/jsx-dev-runtime",
+        ].includes(entry)
+      )
+    ).toBe(false);
+    const clientEnvironment = {
+      optimizeDeps: {
+        exclude: ["next/link", "next/link"],
+        include: ["react", "react"],
+        noDiscovery: false,
+      },
+    };
+    hook?.handler("client", clientEnvironment);
+    expect(clientEnvironment.optimizeDeps.noDiscovery).toBe(false);
+    expect(clientEnvironment.optimizeDeps.include).toContain(
+      "@tanstack/react-form"
+    );
+    expect(clientEnvironment.optimizeDeps.exclude).toContain("lucide-react");
+    expect(new Set(clientEnvironment.optimizeDeps.include).size).toBe(
+      clientEnvironment.optimizeDeps.include.length
+    );
+    expect(new Set(clientEnvironment.optimizeDeps.exclude).size).toBe(
+      clientEnvironment.optimizeDeps.exclude.length
+    );
+
+    const unknownEnvironment = {
+      optimizeDeps: {
+        exclude: ["custom-exclude"],
+        include: ["custom-include"],
+      },
+    };
+    hook?.handler("custom", unknownEnvironment);
+    expect(unknownEnvironment).toEqual({
+      optimizeDeps: {
+        exclude: ["custom-exclude"],
+        include: ["custom-include"],
+      },
     });
   });
 

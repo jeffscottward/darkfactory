@@ -17,6 +17,7 @@ import {
   isRouteExposed,
 } from "../lib/navigation.civet"
 import { useUiState, useUiStoreApi } from "../lib/ui-store.civet"
+import { SignOutAction } from "./account/sign-out-action.civet"
 import { BrandLink } from "./brand-mark.civet"
 import { NavigationLinks } from "./navigation-links.civet"
 import { ThemeMenu } from "./theme-menu.civet"
@@ -143,7 +144,10 @@ export const PortalTopbar = ({
             Application portal
           </span>
         </div>
-        <ThemeMenu />
+        <div className="flex items-center gap-1">
+          <ThemeMenu />
+          <SignOutAction />
+        </div>
       </div>
     </header>
   )

@@ -405,6 +405,7 @@ describe "shared shell semantics", ->
     expect(portal).toContain("<aside")
     expect(portal).toContain('href="/dashboard"')
     expect(portal).toContain('href="/account/security"')
+    expect(portal).toContain("<span>Sign out</span>")
     expect(portal).not.toContain("authenticated")
     expect(auth.match(/id="main-content"/g)).toHaveLength(1)
     expect(portal).not.toContain('href="/admin/users"')

@@ -1,0 +1,280 @@
+import { type AddressInfo, createConnection, createServer } from "node:net"
+
+import { describe, expect, it } from "vitest"
+
+import { runOwnedCommand, type ProcessSignals } from "./process.civet"
+
+const commandOptions = Object.freeze({
+  cwd: process.cwd(),
+  env: process.env,
+})
+
+const reservePort = async (): Promise<number> => {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const port = (server.address() as AddressInfo).port
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error === undefined ? resolve() : reject(error))
+  })
+  return port
+}
+
+const portAcceptsConnections = async (port: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port })
+    let settled = false
+    const finish = (connected: boolean): void => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      resolve(connected)
+    }
+    socket.setTimeout(100, () => finish(false))
+    socket.once("connect", () => finish(true))
+    socket.once("error", () => finish(false))
+  })
+
+const waitForListeningPort = async (port: number): Promise<void> => {
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    if (await portAcceptsConnections(port)) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error("Timed out waiting for descendant TCP fixture")
+}
+
+const processTreeScript = (port: number, overflow: boolean): string => {
+  const descendant = `
+    import { createServer } from "node:net";
+    const server = createServer();
+    server.listen(${port}, "127.0.0.1", () => process.stdout.write("ready\\n"));
+    setInterval(() => undefined, 1000);
+  `
+  const overflowAction = overflow
+    ? "setTimeout(() => process.stdout.write('x'.repeat(4096)), 500);"
+    : ""
+  return `
+    import { spawn } from "node:child_process";
+    const child = spawn(
+      process.execPath,
+      ["--input-type=module", "--eval", ${JSON.stringify(descendant)}],
+      { shell: false, stdio: ["ignore", "pipe", "inherit"] },
+    );
+    child.stdout.once("data", (chunk) => {
+      process.stdout.write(chunk);
+      ${overflowAction}
+    });
+    setInterval(() => undefined, 1000);
+  `
+}
+
+const expectTreeAndPortStopped = async (
+  result: Awaited<ReturnType<typeof runOwnedCommand>>,
+  port: number,
+  reason: "interrupted" | "output-limit" | "timeout",
+): Promise<void> => {
+  expect(result).toMatchObject({ exitCode: 1, reason, treeTerminated: true })
+  expect(await portAcceptsConnections(port)).toBe(false)
+}
+
+describe("owned E2E command lifecycle", () => {
+  it("captures bounded output and proves the completed process tree is dead", async () => {
+    const result = await runOwnedCommand(
+      process.execPath,
+      ["-e", "process.stdout.write('ready'); process.stderr.write('notice')"],
+      commandOptions,
+    )
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: "ready",
+      stderr: "notice",
+      treeTerminated: true,
+      reason: "completed",
+    })
+  })
+
+  it("survives completed Playwright-like and scanner-like detached process groups", async () => {
+    const parentPid = process.pid
+    const completed = await runOwnedCommand(
+      process.execPath,
+      ["-e", "process.stdout.write('prepared')"],
+      commandOptions,
+    )
+    const playwright = await runOwnedCommand(
+      process.execPath,
+      [
+        "-e",
+        "process.stderr.write('webServer failed safely'); process.exitCode = 1",
+      ],
+      commandOptions,
+    )
+    let afterScan = false
+    const scanner = await runOwnedCommand(
+      process.execPath,
+      [
+        "-e",
+        "process.stdout.write(JSON.stringify({ok:true,purged:false}))",
+      ],
+      commandOptions,
+    )
+    afterScan = true
+
+    expect(process.pid).toBe(parentPid)
+    expect(completed).toMatchObject({
+      exitCode: 0,
+      reason: "completed",
+      treeTerminated: true,
+    })
+    expect(playwright).toMatchObject({
+      exitCode: 1,
+      reason: "completed",
+      stderr: "webServer failed safely",
+      treeTerminated: true,
+    })
+    expect(scanner).toMatchObject({
+      exitCode: 0,
+      reason: "completed",
+      stdout: "{\"ok\":true,\"purged\":false}",
+      treeTerminated: true,
+    })
+    expect(afterScan).toBe(true)
+  })
+
+  it("loads auth, database, and testkit modules through the exact Civet loader", async () => {
+    const result = await runOwnedCommand(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "--import",
+        "./tests/e2e/helpers/register-civet-loader.mjs",
+        "--input-type=module",
+        "--eval",
+        [
+          "await Promise.all([",
+          "import('@darkfactory/auth/server'),",
+          "import('@darkfactory/db/server'),",
+          "import('@darkfactory/testkit/postgres')",
+          "]);",
+          "process.stdout.write('module-imports-ready');",
+        ].join(""),
+      ],
+      { ...commandOptions, timeoutMillis: 30_000 },
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      reason: "completed",
+      stdout: "module-imports-ready",
+      treeTerminated: true,
+    })
+    expect(result.stderr).not.toMatch(/Error|ERR_|Cannot find|failed/iu)
+  })
+
+  it("kills a listening descendant when output exceeds its bound", async () => {
+    const port = await reservePort()
+    const resultPromise = runOwnedCommand(
+      process.execPath,
+      ["--input-type=module", "--eval", processTreeScript(port, true)],
+      { ...commandOptions, maxOutputBytes: 256, timeoutMillis: 5_000 },
+    )
+    await waitForListeningPort(port)
+    const result = await resultPromise
+
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(256)
+    await expectTreeAndPortStopped(result, port, "output-limit")
+  })
+
+  it("kills a listening descendant at the command deadline", async () => {
+    const port = await reservePort()
+    const resultPromise = runOwnedCommand(
+      process.execPath,
+      ["--input-type=module", "--eval", processTreeScript(port, false)],
+      { ...commandOptions, timeoutMillis: 1_000 },
+    )
+    await waitForListeningPort(port)
+    await expectTreeAndPortStopped(await resultPromise, port, "timeout")
+  })
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    it(`kills a listening descendant and unregisters handlers after ${signal}`, async () => {
+      const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+      const signals: ProcessSignals = {
+        on: (name, listener) => listeners.set(name, listener),
+        off: (name, listener) => {
+          if (listeners.get(name) === listener) listeners.delete(name)
+        },
+      }
+      const port = await reservePort()
+      const resultPromise = runOwnedCommand(
+        process.execPath,
+        ["--input-type=module", "--eval", processTreeScript(port, false)],
+        { ...commandOptions, signals, timeoutMillis: 5_000 },
+      )
+      await waitForListeningPort(port)
+      listeners.get(signal)?.()
+      await expectTreeAndPortStopped(await resultPromise, port, "interrupted")
+      expect(listeners.size).toBe(0)
+    })
+  }
+  it("cannot miss an immediate termination-unproven signal before awaiting exit", async () => {
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const signals: ProcessSignals = {
+      on: (name, listener) => {
+        listeners.set(name, listener)
+        if (name === "SIGINT") listener()
+      },
+      off: (name, listener) => {
+        if (listeners.get(name) === listener) listeners.delete(name)
+      },
+    }
+    const result = await runOwnedCommand(
+      process.execPath,
+      ["-e", "setTimeout(() => undefined, 250)"],
+      {
+        ...commandOptions,
+        signals,
+        terminateTree: async () => false,
+        timeoutMillis: 5_000,
+      },
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      reason: "termination-unproven",
+      treeTerminated: false,
+    })
+    expect(listeners.size).toBe(0)
+  })
+
+  it("returns a distinct fail-closed result and detaches listeners when death is unproven", async () => {
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const signals: ProcessSignals = {
+      on: (name, listener) => listeners.set(name, listener),
+      off: (name, listener) => {
+        if (listeners.get(name) === listener) listeners.delete(name)
+      },
+    }
+    const result = await runOwnedCommand(
+      process.execPath,
+      ["-e", "setTimeout(() => undefined, 250)"],
+      {
+        ...commandOptions,
+        signals,
+        terminateTree: async () => false,
+        timeoutMillis: 25,
+      },
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      reason: "termination-unproven",
+      treeTerminated: false,
+    })
+    expect(listeners.size).toBe(0)
+  })
+
+})

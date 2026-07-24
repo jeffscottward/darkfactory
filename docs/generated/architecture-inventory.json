@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "rootScripts": [
+    "api:openapi:check",
+    "api:openapi:generate",
+    "auth:schema:check",
+    "build",
+    "capability:add",
+    "certs:generate",
+    "certs:install",
+    "ci",
+    "db:check",
+    "db:generate",
+    "db:migrate",
+    "db:reset",
+    "db:seed",
+    "db:test:down",
+    "db:test:up",
+    "deploy:web",
+    "deploy:web:check",
+    "deploy:web:preview",
+    "dev",
+    "dev:https",
+    "dev:logs",
+    "dev:status",
+    "dev:stop",
+    "dev:trust",
+    "docs:check",
+    "docs:generate",
+    "doctor",
+    "format",
+    "format:check",
+    "format:staged",
+    "generate:feature",
+    "graph:build",
+    "graph:check",
+    "graph:update",
+    "graph:verify",
+    "lint",
+    "lint:markdown",
+    "lint:markdown:staged",
+    "lint:staged",
+    "openapi:check",
+    "openapi:generate",
+    "prepare",
+    "test",
+    "test:a11y",
+    "test:contract",
+    "test:e2e",
+    "test:integration",
+    "test:operations",
+    "test:unit",
+    "typecheck",
+    "typecheck:database-integration",
+    "types",
+    "types:check",
+    "verify"
+  ],
+  "packages": [
+    {
+      "name": "@darkfactory/ai",
+      "version": "0.1.0",
+      "directory": "packages/ai",
+      "publicExports": [
+        ".",
+        "./server/groq",
+        "./test"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/analytics",
+      "version": "0.1.0",
+      "directory": "packages/analytics",
+      "publicExports": [
+        ".",
+        "./server/posthog",
+        "./test"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/api",
+      "version": "0.1.0",
+      "directory": "packages/api",
+      "publicExports": [
+        ".",
+        "./server"
+      ],
+      "workspaceDependencies": [
+        "@darkfactory/auth",
+        "@darkfactory/db",
+        "@darkfactory/observability"
+      ]
+    },
+    {
+      "name": "@darkfactory/auth",
+      "version": "0.1.0",
+      "directory": "packages/auth",
+      "publicExports": [
+        "./client",
+        "./db",
+        "./server",
+        "./types"
+      ],
+      "workspaceDependencies": [
+        "@darkfactory/db",
+        "@darkfactory/email"
+      ]
+    },
+    {
+      "name": "@darkfactory/config",
+      "version": "0.1.0",
+      "directory": "packages/config",
+      "publicExports": [
+        ".",
+        "./database",
+        "./server",
+        "./server/capabilities"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/db",
+      "version": "0.1.0",
+      "directory": "packages/db",
+      "publicExports": [
+        "./schema",
+        "./server"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/email",
+      "version": "0.1.0",
+      "directory": "packages/email",
+      "publicExports": [
+        ".",
+        "./recipient",
+        "./server",
+        "./test"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/jobs",
+      "version": "0.1.0",
+      "directory": "packages/jobs",
+      "publicExports": [
+        ".",
+        "./server/inline",
+        "./test"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/observability",
+      "version": "0.1.0",
+      "directory": "packages/observability",
+      "publicExports": [
+        ".",
+        "./port",
+        "./redaction",
+        "./server/evlog",
+        "./server/fanout",
+        "./server/otel",
+        "./test"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/root",
+      "version": "0.1.0",
+      "directory": ".",
+      "publicExports": [],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/shared",
+      "version": "0.1.0",
+      "directory": "packages/shared",
+      "publicExports": [
+        "."
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/state",
+      "version": "0.1.0",
+      "directory": "packages/state",
+      "publicExports": [
+        ".",
+        "./client",
+        "./flow"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/storage",
+      "version": "0.1.0",
+      "directory": "packages/storage",
+      "publicExports": [
+        ".",
+        "./test"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/testkit",
+      "version": "0.1.0",
+      "directory": "packages/testkit",
+      "publicExports": [
+        ".",
+        "./postgres"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/ui",
+      "version": "0.1.0",
+      "directory": "packages/ui",
+      "publicExports": [
+        ".",
+        "./avatar",
+        "./badge",
+        "./button",
+        "./card",
+        "./client/dialog",
+        "./client/dropdown-menu",
+        "./client/tabs",
+        "./client/theme",
+        "./client/toaster",
+        "./empty-state",
+        "./headings",
+        "./icon-button",
+        "./input",
+        "./label",
+        "./palettes",
+        "./separator",
+        "./skeleton",
+        "./stat-card",
+        "./status-badge",
+        "./styles.css",
+        "./textarea",
+        "./utilities"
+      ],
+      "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/web",
+      "version": "0.1.0",
+      "directory": "apps/web",
+      "publicExports": [],
+      "workspaceDependencies": [
+        "@darkfactory/analytics",
+        "@darkfactory/api",
+        "@darkfactory/auth",
+        "@darkfactory/config",
+        "@darkfactory/db",
+        "@darkfactory/email",
+        "@darkfactory/observability",
+        "@darkfactory/state",
+        "@darkfactory/ui"
+      ]
+    }
+  ]
+}

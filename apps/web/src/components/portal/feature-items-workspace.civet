@@ -209,7 +209,7 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
               Archive {archiveCandidate.name}?
             </h2>
             <p className="mt-1 text-sm text-muted-foreground" id="archive-confirmation-description">
-              It will leave this active list. The server keeps the archived record.
+              The record remains available in archived views.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

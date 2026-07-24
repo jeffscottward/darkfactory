@@ -11,7 +11,8 @@ const clientBoundarySource = [
   'import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@darkfactory/ui/client/dropdown-menu";',
   'import { Tabs, TabsContent, TabsList, TabsTrigger } from "@darkfactory/ui/client/tabs";',
   'import { Toaster, toast } from "@darkfactory/ui/client/toaster";',
-  "export const clientReferences = [Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogTrigger, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, Tabs, TabsContent, TabsList, TabsTrigger, Toaster, toast];",
+  'import { ThemePicker, ThemeProvider, useTheme } from "@darkfactory/ui/client/theme";',
+  "export const clientReferences = [Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogTrigger, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, Tabs, TabsContent, TabsList, TabsTrigger, ThemePicker, ThemeProvider, Toaster, toast, useTheme];",
 ].join("\n")
 
 const runRscScanBuild = () => {
@@ -89,5 +90,6 @@ describe "UI client Vinext compatibility", ->
       "dialog.civet",
       "dropdown-menu.civet",
       "tabs.civet",
+      "theme.civet",
       "toaster.civet",
     ])

@@ -1,0 +1,134 @@
+"use client"
+
+import { type Ref, useEffect, useRef, useState } from "react"
+import { LogOut } from "lucide-react"
+import { Button } from "@darkfactory/ui"
+
+import {
+  browserCurrentSessionGateway,
+  type CurrentSessionGateway,
+  type CurrentSessionSignOutResult,
+} from "./sign-out-client.civet"
+
+export const SIGNED_OUT_DESTINATION = "/sign-in" as const
+
+export type SignOutActionState =
+  | Readonly<{ type: "idle" }>
+  | Readonly<{ type: "pending" }>
+  | Readonly<{ type: "error"; message: string }>
+
+
+export const restoreSignOutFocusAfterCommit = (
+  state: SignOutActionState,
+  button: Pick<HTMLButtonElement, "focus"> | null,
+): void => {
+  if (state.type === "error") button?.focus()
+}
+type ReplaceLocation = (destination: typeof SIGNED_OUT_DESTINATION) => void
+
+const replaceBrowserLocation: ReplaceLocation = (destination) => {
+  window.location.replace(destination)
+}
+
+export const completeCurrentSessionSignOut = async (
+  gateway: CurrentSessionGateway,
+  replace: ReplaceLocation,
+): Promise<CurrentSessionSignOutResult> => {
+  const result = await gateway.signOut()
+  if (result.ok) replace(SIGNED_OUT_DESTINATION)
+  return result
+}
+
+export interface SignOutActionController {
+  readonly activate: (
+    setState: (state: SignOutActionState) => void,
+  ) => Promise<void>
+}
+
+export const createSignOutActionController = (
+  gateway: CurrentSessionGateway,
+  replace: ReplaceLocation,
+): SignOutActionController => {
+  let inFlight = false
+
+  return {
+    activate: async (setState) => {
+      if (inFlight) return
+      inFlight = true
+      setState({ type: "pending" })
+
+      const result = await completeCurrentSessionSignOut(gateway, replace)
+      if (!result.ok) {
+        inFlight = false
+        setState({ type: "error", message: result.message })
+      }
+    },
+  }
+}
+
+export const SignOutActionView = ({
+  buttonRef,
+  onSignOut,
+  state,
+}: Readonly<{
+  buttonRef?: Ref<HTMLButtonElement>
+  onSignOut: () => void
+  state: SignOutActionState
+}>) => {
+  const isPending = state.type === "pending"
+  const errorId = state.type === "error" ? "portal-sign-out-error" : undefined
+
+  return (
+    <div className="relative">
+      <Button
+        ref={buttonRef}
+        aria-describedby={errorId}
+        loading={isPending}
+        loadingLabel="Signing out"
+        onClick={onSignOut}
+        type="button"
+        variant="ghost"
+      >
+        <LogOut aria-hidden="true" className="size-4" />
+        <span>Sign out</span>
+      </Button>
+      {state.type === "error" ? (
+        <p
+          aria-atomic="true"
+          aria-live="assertive"
+          className="absolute right-0 top-full z-overlay mt-2 w-64 rounded-md border border-destructive bg-surface p-3 text-sm text-destructive shadow-lg"
+          id="portal-sign-out-error"
+          role="alert"
+        >
+          {state.message}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+export const SignOutAction = ({
+  gateway = browserCurrentSessionGateway,
+  replace = replaceBrowserLocation,
+}: Readonly<{
+  gateway?: CurrentSessionGateway
+  replace?: ReplaceLocation
+}>) => {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [controller] = useState(() =>
+    createSignOutActionController(gateway, replace)
+  )
+  const [state, setState] = useState<SignOutActionState>({ type: "idle" })
+
+  useEffect(() => {
+    restoreSignOutFocusAfterCommit(state, buttonRef.current)
+    return undefined
+  }, [state])
+  return (
+    <SignOutActionView
+      buttonRef={buttonRef}
+      onSignOut={() => void controller.activate(setState)}
+      state={state}
+    />
+  )
+}

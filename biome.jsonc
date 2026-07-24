@@ -22,5 +22,137 @@
       "!!**/playwright-report",
       "!!**/test-results"
     ]
-  }
+  },
+  "overrides": [
+    {
+      // These files intentionally inspect validated dynamic records and ProcessEnv.
+      // TypeScript's noPropertyAccessFromIndexSignature requires bracket access.
+      "includes": [
+        "playwright.config.ts",
+        "playwright.config.test.ts",
+        "tests/e2e/helpers/artifacts.ts",
+        "tests/e2e/helpers/evidence.ts",
+        "tests/e2e/helpers/evidence.test.ts",
+        "tests/e2e/helpers/preview-email.ts",
+        "tests/e2e/helpers/register-civet-loader.test.ts",
+        "tests/e2e/helpers/run-artifacts.ts",
+        "tests/e2e/helpers/runtime.ts",
+        "tests/e2e/helpers/structured-evidence.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
+    },
+    {
+      // Bounded security parsers and one-shot tests keep regexes beside the
+      // invariant they prove; none execute in an unbounded hot path.
+      "includes": [
+        "playwright.config.test.ts",
+        "tests/e2e/helpers/artifacts.ts",
+        "tests/e2e/helpers/browser-errors.ts",
+        "tests/e2e/helpers/browser-errors.test.ts",
+        "tests/e2e/helpers/lifecycle-state.test.ts",
+        "tests/e2e/helpers/optimizer-cache.ts",
+        "tests/e2e/helpers/preview-email.ts",
+        "tests/e2e/helpers/preview-email.test.ts",
+        "tests/e2e/helpers/register-civet-loader.test.ts",
+        "tests/e2e/helpers/run-artifacts.test.ts",
+        "tests/e2e/helpers/server-readiness.ts",
+        "tests/e2e/helpers/server-readiness.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "performance": {
+            "useTopLevelRegex": "off"
+          }
+        }
+      }
+    },
+    {
+      // File modes, inode identities, checksums, and PNG bytes require exact
+      // bitwise operations; ordinary application code remains checked.
+      "includes": [
+        "tests/e2e/helpers/artifacts.ts",
+        "tests/e2e/helpers/dev-vars.ts",
+        "tests/e2e/helpers/dev-vars.test.ts",
+        "tests/e2e/helpers/lifecycle-state.test.ts",
+        "tests/e2e/helpers/run-artifacts.ts",
+        "tests/e2e/helpers/run-artifacts.test.ts",
+        "tests/e2e/helpers/structured-evidence.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noBitwiseOperators": "off"
+          }
+        }
+      }
+    },
+    {
+      // Async test doubles intentionally satisfy promise-returning contracts.
+      "includes": [
+        "tests/e2e/helpers/civet-loader-resolver.test.ts",
+        "tests/e2e/helpers/serialized-lifecycle.test.ts",
+        "tests/e2e/helpers/server-readiness.test.ts",
+        "tests/e2e/helpers/structured-evidence.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "useAwait": "off"
+          }
+        }
+      }
+    },
+    {
+      // Fail-closed validators keep their ordered ownership and cleanup checks
+      // in one auditable boundary.
+      "includes": [
+        "tests/e2e/helpers/browser-errors.ts",
+        "tests/e2e/helpers/dev-vars.ts",
+        "tests/e2e/helpers/optimizer-cache.ts",
+        "tests/e2e/helpers/preview-email.ts",
+        "tests/e2e/helpers/run-artifacts.ts",
+        "tests/e2e/helpers/server-readiness.ts"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    },
+    {
+      // Matching control bytes is the security behavior under test.
+      "includes": [
+        "tests/e2e/helpers/artifacts.ts",
+        "tests/e2e/helpers/browser-errors.ts",
+        "tests/e2e/helpers/civet-loader-resolver.mjs"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noControlCharactersInRegex": "off"
+          }
+        }
+      }
+    },
+    {
+      // Assertions inside injected lifecycle callbacks are the observable
+      // contract of these tests.
+      "includes": ["tests/e2e/helpers/lifecycle-state.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noMisplacedAssertion": "off"
+          }
+        }
+      }
+    }
+  ]
 }

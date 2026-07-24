@@ -16,7 +16,6 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import {
   classifyFeatureFailure,
   createBrowserFeatureItemGateway,
-  restorePortalFocus,
   type FeatureFailure,
   type FeatureItemGateway,
 } from "./feature-items-client.civet"
@@ -152,8 +151,9 @@ export const FeatureItemEditor = ({ gateway: suppliedGateway, id }: FeatureItemE
   const [mutationGuard] = useState(() => createEditorMutationGuard())
   const feedbackRef = useRef<HTMLDivElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
-  const confirmRef = useRef<HTMLButtonElement>(null)
+  const cancelArchiveRef = useRef<HTMLButtonElement>(null)
   const archiveTriggerRef = useRef<HTMLButtonElement>(null)
+  const restoreArchiveTriggerRef = useRef(false)
   const isMutating = isEditorMutationLocked({ archiving, changingStatus, saving })
 
   const load = useCallback(async () => {
@@ -190,7 +190,12 @@ export const FeatureItemEditor = ({ gateway: suppliedGateway, id }: FeatureItemE
   }, [gateway, id])
 
   useEffect(() => {
-    if (confirmArchive) confirmRef.current?.focus()
+    if (confirmArchive) {
+      cancelArchiveRef.current?.focus()
+    } else if (restoreArchiveTriggerRef.current) {
+      restoreArchiveTriggerRef.current = false
+      archiveTriggerRef.current?.focus()
+    }
     return undefined
   }, [confirmArchive])
 
@@ -255,8 +260,8 @@ export const FeatureItemEditor = ({ gateway: suppliedGateway, id }: FeatureItemE
   }
 
   const closeArchiveConfirmation = () => {
+    restoreArchiveTriggerRef.current = true
     setConfirmArchive(false)
-    restorePortalFocus(archiveTriggerRef.current)
   }
 
   const archive = async () => {
@@ -271,8 +276,7 @@ export const FeatureItemEditor = ({ gateway: suppliedGateway, id }: FeatureItemE
       const failure = classifyFeatureFailure(error)
       setMutationFailure(failure)
       setFeedback(failure.message)
-      setConfirmArchive(false)
-      restorePortalFocus(archiveTriggerRef.current)
+      closeArchiveConfirmation()
     } finally {
       setArchiving(false)
       mutationGuard.release()
@@ -363,10 +367,10 @@ export const FeatureItemEditor = ({ gateway: suppliedGateway, id }: FeatureItemE
               role="region"
             >
               <h2 className="font-heading text-base font-semibold text-foreground" id="editor-archive-title">Archive this item?</h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground" id="editor-archive-description">The record stays in storage but leaves the active list.</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground" id="editor-archive-description">The record remains available in archived views.</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button disabled={isMutating} onClick={closeArchiveConfirmation} size="compact" variant="ghost"><X aria-hidden="true" className="size-4" />Cancel</Button>
-                <Button loading={archiving} loadingLabel="Archiving feature item" onClick={archive} ref={confirmRef} size="compact" variant="destructive"><Archive aria-hidden="true" className="size-4" />Archive</Button>
+                <Button disabled={isMutating} onClick={closeArchiveConfirmation} ref={cancelArchiveRef} size="compact" variant="ghost"><X aria-hidden="true" className="size-4" />Cancel</Button>
+                <Button loading={archiving} loadingLabel="Archiving feature item" onClick={archive} size="compact" variant="destructive"><Archive aria-hidden="true" className="size-4" />Archive</Button>
               </div>
             </section>
           ) : (

@@ -11,7 +11,7 @@ Every design statement belongs to exactly one class:
 | **Core** | Required in every DarkFactory project | Change through an explicit architecture decision | pnpm/Turborepo, Civet-first source, Vite/vinext, PostgreSQL/Drizzle, Better Auth, oRPC, Tailwind/shadcn, evlog/OpenTelemetry/PostHog adapter, Graphify, lifecycle gates |
 | **Capability** | Optional, enabled intentionally, removable without rewriting the domain | Declare a manifest, port, adapter, config, install/remove path, verification, and docs | storage, AI provider, email delivery, jobs, error tracking, memory graph, database extensions |
 | **Convention** | Rule every contributor and agent follows | Update `AGENTS.md` and `CONVENTIONS.md` with the reason | contract-first work, feature-vertical ownership, test-first behavior changes, provider isolation |
-| **Implementation** | Current replaceable realization | May change while its contract remains stable | Cloudflare Workers, Alchemy deployment, PostHog adapter, Groq adapter, Resend adapter, R2 adapter |
+| **Implementation** | Current replaceable realization | May change while its contract remains stable | Cloudflare Workers, PostHog adapter, Groq adapter, Resend adapter, preview email adapter |
 
 This distinction prevents a vendor, optional service, or current file layout from becoming accidental architecture.
 
@@ -21,31 +21,31 @@ This distinction prevents a vendor, optional service, or current file layout fro
 pnpm workspace + Turborepo task graph
 │
 ├── apps/web
-│   ├── public routes              refined, domain-neutral marketing surface
-│   ├── authenticated routes       practical account/portal surface
-│   ├── features/*                 vertical application slices
-│   └── framework glue             Vite/vinext and Cloudflare boundaries
+│   ├── src/app                    public, auth, portal, account, admin, and API routes
+│   ├── src/features               generated feature navigation registry
+│   └── Vite/vinext/Cloudflare     framework and deployment boundaries
 │
 ├── packages
-│   ├── api                        oRPC contracts, schemas, typed errors, OpenAPI generation
-│   ├── auth                       Better Auth configuration and auth-facing services
-│   ├── db                         Drizzle client, schema, migrations, stores, seeds, extensions
-│   ├── ui                         shadcn primitives, tokens, themes, shared compositions
+│   ├── api                        oRPC contracts, schemas, handlers, clients, OpenAPI
+│   ├── auth                       Better Auth server/client, auth policy, DB sign-out
+│   ├── db                         Drizzle schema, repositories, migrations, seeds
+│   ├── config                     environment parsing and capability/database profiles
+│   ├── ui                         shadcn primitives, tokens, themes, compositions
+│   ├── state                      shared XState flows and client state boundaries
+│   ├── shared                     deliberately small cross-package utilities
 │   ├── analytics                  analytics port and PostHog adapter
-│   ├── observability              evlog and OpenTelemetry wiring
-│   ├── state                      shared XState/Zustand integration only when truly shared
-│   ├── effects                    Effect-based infrastructure utilities
-│   ├── email / ai                 provider ports and configured adapters
-│   ├── jobs / storage / memory    capability ports and adapters
-│   ├── config                     validated shared configuration
-│   └── testkit                    cross-package test infrastructure
+│   ├── observability              evlog, redaction, fanout, OpenTelemetry
+│   ├── email / ai                 provider-neutral ports and selected adapters
+│   ├── jobs / storage             optional capability ports and local/test adapters
+│   └── testkit                    cross-package PostgreSQL and test infrastructure
 │
-├── scripts                        small composed lifecycle, graph, database, cert, and capability tools
-├── infra                          Cloudflare/Alchemy and PostgreSQL deployment definitions
-└── docs                           architecture, guides, generated API docs, and decisions
+├── scripts                        lifecycle, doctor, graph, docs, database, and E2E tools
+├── tests                          contract, integration, and browser lifecycle coverage
+├── docs / design-system           architecture, decisions, evidence, and UI policy
+└── infra                          local PostgreSQL container infrastructure
 ```
 
-The topology is a target boundary map, not permission to create empty packages. Create a package when it has a real contract and owner; otherwise keep the unit inside its feature.
+This is the implemented repository topology, not a package wish list. Current page UI and orchestration live under `apps/web/src/app`, `apps/web/src/components`, and `apps/web/src/lib`; `apps/web/src/features` is presently a generated navigation registry rather than the home of feature implementations. `pnpm-workspace.yaml` includes only `apps/*` and `packages/*`; the root coordinates them without publishing an application API. Create another package only when it has a real contract and owner. Empty future-capability packages and speculative infrastructure are prohibited.
 
 ## Dependency direction and feature boundaries
 
@@ -85,6 +85,16 @@ browser or external client
 ```
 
 The contract is the API source of truth. OpenAPI, clients, and internal API documentation derive from it. Direct feature-to-database, feature-to-provider, and parallel ad hoc API paths are architectural violations.
+
+## Current runtime assembly
+
+`apps/web` is the composition root. The Better Auth catch-all route builds a request-scoped database connection, selects the configured email transport, creates the Better Auth instance, delegates to the hardened auth handler, and closes the connection. The strict sign-out endpoint revokes the current database session before expiring the cookie. Portal, account, and administration routes consume authenticated server state rather than reaching into the auth adapter directly.
+
+The oRPC catch-all route parses the validated server environment, rejects unsafe cross-origin mutations, opens a request-scoped Drizzle connection, creates repositories and authorization guards, selects email and analytics adapters from capability truth, and passes that context to the oRPC handler. Contact submission adds bounded payload and PostgreSQL-backed throttle checks at this boundary. Every request closes its database connection in `finally`; background delivery work is scheduled through the Cloudflare `waitUntil` boundary.
+
+The public API shape is owned by `packages/api`; `apps/web` owns transport composition only. `packages/auth` owns Better Auth policy and session behavior, `packages/db` owns schema/repositories/migrations, and `packages/config` owns environment and capability interpretation. OpenAPI is generated from the same oRPC contracts. This separation is the implemented route → contract → service → repository → schema/adapter path.
+
+Authentication and application data share portable PostgreSQL durability but retain separate ownership. Better Auth owns its user, account, session, and verification records. DarkFactory repositories own profile, address, preferences, feature, contact, and administration data. Role and status checks are enforced at the auth/oRPC boundary and again where application policy requires them; browser-visible state is never accepted as authorization proof.
 
 ## Generic feature stub
 
@@ -145,6 +155,17 @@ Provider configuration belongs in infrastructure. Missing optional credentials m
 - Effect is reserved for failure/resource-heavy infrastructure workflows, not ordinary pure functions.
 - Cookies may mirror authenticated theme preference for first render; PostgreSQL remains authoritative. Anonymous theme preference may be local.
 
+## Repository lifecycle
+
+The root scripts are the supported operator surface:
+
+- `pnpm dev` runs the plain application development task. `pnpm dev:https` idempotently inspects PM2 and portless before starting the stable `darkfactory-web-dev` process; status, logs, stop, and trust commands address the same stable identity and canonical `https://darkfactory.localhost` URL.
+- `pnpm doctor` inspects required and optional workstation/runtime prerequisites without printing environment values or starting infrastructure.
+- `pnpm typecheck`, `pnpm build`, the focused test commands, lint, formatting, generated-schema checks, docs checks, and Graphify checks compose the verification lifecycle. `pnpm verify` is the pre-push gate; `pnpm run ci` is the clean CI lifecycle and intentionally keeps the `run` qualifier required by pnpm 11.
+- Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Deploy scripts own only the official vinext/Cloudflare path.
+
+Graphify output is generated context rather than an authored runtime dependency. Repository Graphify commands must use the tracked secure wrapper, and graph evidence is valid only after the current source tree passes build/check/verify.
+
 ## Deployment target
 
 The authored web application is Civet compiled through Vite/vinext and deployed to Cloudflare Workers. The web deployment uses the official `@vinext/cloudflare` adapter exclusively.
@@ -153,7 +174,7 @@ Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly 
 
 Canonical local development uses `https://darkfactory.localhost` through portless, with PM2 owning the stable `darkfactory-web-dev` process. Portless trust is primary for secure cookies, authentication callbacks, secure-context APIs, and production-like assumptions. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
 
-The deployed application connects to portable PostgreSQL through the database adapter, optionally using Hyperdrive. External capabilities connect only through their provider adapters. GitHub Actions runs the same canonical lifecycle exposed by `pnpm run ci`; bare `pnpm ci` is pnpm's clean-install command, not the lifecycle gate. Deployment follows successful CI.
+The deployed application connects to portable PostgreSQL through the database adapter, optionally using Hyperdrive. External capabilities connect only through their provider adapters. GitHub Actions runs the same canonical lifecycle exposed by `pnpm run ci`; bare `pnpm ci` is pnpm's clean-install command, not the lifecycle gate. Current CI verifies builds, tests, and contracts; it performs neither a deployment dry run nor a deployment. The deployment scripts expose preview, non-deploying check, and deploy actions for an authorized operator, who invokes them only after terminal green CI.
 
 ## Baseline observability
 
@@ -178,6 +199,6 @@ The following earlier options are not the DarkFactory baseline:
 - A flat single-app layout was superseded by **pnpm workspaces with Turborepo at the root**, allowing additional apps without forcing them initially.
 - tRPC was superseded by **contract-first oRPC** for typed errors, OpenAPI, and non-TypeScript consumers.
 - Redis and RabbitMQ defaults, including speculative fallback language, were superseded by the **PostgreSQL-first decision order**.
-- SST was explicitly removed. **Cloudflare + Alchemy** is the deployment target.
+- SST was explicitly removed. Official `@vinext/cloudflare` owns web deployment. Per [ADR 0001](docs/adr/0001-vinext-alchemy-boundary.md), Alchemy 0.93.12 is only a compatibility baseline for supported ancillary Cloudflare resources; none is enabled, so no Alchemy dependency, program, or configuration is present.
 - Celery, Flower, Mintlify, Uptime Kuma, GlitchTip, Memori, storage, and specialized PostgreSQL extensions remain opt-in capabilities, not preinstalled infrastructure.
 - Dark-only styling, serif typography, and purple/cyan glow-heavy “AI” styling are rejected. Public and portal references inspire patterns but do not define a domain or authorize copying.

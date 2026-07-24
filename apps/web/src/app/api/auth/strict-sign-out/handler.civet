@@ -1,0 +1,52 @@
+import {
+  createAuth,
+} from "@darkfactory/auth/server"
+import { createDatabaseConfirmedSignOutHandler } from "@darkfactory/auth/db"
+import { parseServerEnv } from "@darkfactory/config/server"
+import { composeDatabaseProfile } from "@darkfactory/config/database"
+import { createRequestDatabase } from "@darkfactory/db/server"
+import { selectEmailPort } from "@darkfactory/email/server"
+
+import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
+
+import type { BackgroundTaskScheduler } from "../[...all]/handler.civet"
+
+export const handleStrictSignOutRequest = async (
+  request: Request,
+  scheduleBackgroundTask: BackgroundTaskScheduler,
+): Promise<Response> => {
+  const env = parseServerEnv(process.env)
+  const previewOptions = resolveE2eEmailPreviewOptions()
+  const databaseProfile = composeDatabaseProfile(env)
+  const database = await createRequestDatabase({
+    connectionString: databaseProfile.connection.connectionString,
+  })
+
+  try {
+    const email = selectEmailPort({
+      environment: env.APP_ENV,
+      transport: env.EMAIL_TRANSPORT,
+      previewDirectory: previewOptions?.authDirectory,
+      previewBinding: previewOptions?.binding,
+      resendApiKey: env.RESEND_API_KEY,
+      from: env.EMAIL_FROM,
+      trustedAppOrigin: env.APP_URL,
+    })
+    const auth = createAuth({
+      database: database.db,
+      email,
+      secret: env.BETTER_AUTH_SECRET,
+      baseURL: env.BETTER_AUTH_URL,
+      trustedOrigins: [env.APP_URL],
+      scheduleBackgroundTask,
+    })
+    return await createDatabaseConfirmedSignOutHandler({
+      auth,
+      database: database.db,
+      secret: env.BETTER_AUTH_SECRET,
+      trustedOrigin: env.APP_URL,
+    })(request)
+  } finally {
+    await database.close()
+  }
+}

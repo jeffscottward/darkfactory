@@ -1,0 +1,158 @@
+export type CapabilityArguments = Readonly<{
+  name: string
+  provider: string
+  apply: boolean
+}>
+export type CapabilityPlan = Readonly<{
+  descriptorPath: string
+  descriptorSource: string
+  expectedManifestSource: string
+  manifestSource: string
+}>
+export type CapabilityFileSystem = Readonly<{
+  readManifest: () => Promise<string>
+  exists: (path: string) => Promise<boolean>
+  commit: (plan: CapabilityPlan) => Promise<void>
+}>
+export type CapabilityDependencies = Readonly<{
+  files: CapabilityFileSystem
+  validateManifest: (source: string) => void
+}>
+export type CapabilityReport = Readonly<{
+  ok: boolean
+  changed: boolean
+  mode: "plan" | "apply"
+  reason: string
+  descriptorPath: string | undefined
+}>
+
+type SupportedDescriptor = Readonly<{
+  manifestName: string
+  descriptorPath: string
+}>
+const SUPPORTED_DESCRIPTORS: Readonly<Record<string, SupportedDescriptor>> = Object.freeze({
+  "error-tracking": Object.freeze({
+    manifestName: "error_tracking",
+    descriptorPath: "services/glitchtip/capability.json",
+  }),
+  storage: Object.freeze({
+    manifestName: "storage",
+    descriptorPath: "packages/storage/src/r2/capability.json",
+  }),
+  uptime: Object.freeze({
+    manifestName: "uptime",
+    descriptorPath: "services/uptime-kuma/capability.json",
+  }),
+})
+const SLUG = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+
+export const parseCapabilityArguments = (arguments_: readonly string[]): CapabilityArguments => {
+  const name = arguments_[0]
+  let provider: string | undefined
+  let apply = false
+  for (let index = 1; index < arguments_.length; index += 1) {
+    const argument = arguments_[index]
+    if (argument === "--apply") {
+      if (apply) throw new Error("Duplicate --apply argument")
+      apply = true
+    } else if (argument === "--provider") {
+      if (provider !== undefined || index + 1 >= arguments_.length) throw new Error("Invalid --provider argument")
+      provider = arguments_[index + 1]
+      index += 1
+    } else {
+      throw new Error("Unknown capability argument")
+    }
+  }
+  if (!name || !SLUG.test(name)) throw new Error("Capability name must be a lowercase kebab-case name")
+  if (!SUPPORTED_DESCRIPTORS[name]) throw new Error("Capability descriptor is not supported by the v0.1 manifest")
+  if (!provider || !SLUG.test(provider)) throw new Error("Capability provider must be a lowercase kebab-case name")
+  return Object.freeze({ name, provider, apply })
+}
+
+const capabilitySection = (manifest: string): Readonly<{ start: number; end: number; source: string }> => {
+  const matches = [...manifest.matchAll(/^capabilities:\s*$/gm)]
+  if (matches.length !== 1 || matches[0]?.index === undefined) throw new Error("Manifest must contain one capabilities section")
+  const headerEnd = manifest.indexOf("\n", matches[0].index)
+  if (headerEnd < 0) throw new Error("Malformed capabilities section")
+  const tail = manifest.slice(headerEnd + 1)
+  const nextTopLevel = tail.search(/^[A-Za-z_][A-Za-z0-9_]*:\s*$/m)
+  const end = nextTopLevel < 0 ? manifest.length : headerEnd + 1 + nextTopLevel
+  return Object.freeze({ start: headerEnd + 1, end, source: manifest.slice(headerEnd + 1, end) })
+}
+
+const manifestCapability = (
+  manifest: string,
+  manifestName: string,
+): Readonly<{ provider: string; enabled: boolean }> => {
+  const section = capabilitySection(manifest).source
+  const escaped = manifestName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = new RegExp(`^  ${escaped}:\\s*$`, "m").exec(section)
+  if (!match || match.index === undefined) throw new Error("Capability is not declared in the v0.1 manifest")
+  const after = section.slice(match.index + match[0].length)
+  const next = after.search(/^  [a-z][a-z0-9_]*:\s*$/m)
+  const block = next < 0 ? after : after.slice(0, next)
+  const provider = /^    provider:\s*([a-z][a-z0-9-]*)\s*$/m.exec(block)?.[1]
+  const enabled = /^    enabled:\s*(true|false)\s*$/m.exec(block)?.[1]
+  if (!provider || enabled === undefined) throw new Error("Capability manifest entry is malformed")
+  return Object.freeze({ provider, enabled: enabled === "true" })
+}
+
+export const planCapabilityAddition = (
+  manifest: string,
+  arguments_: CapabilityArguments,
+): CapabilityPlan => {
+  const supported = SUPPORTED_DESCRIPTORS[arguments_.name]
+  if (!supported) throw new Error("Capability descriptor is not supported by the v0.1 manifest")
+  const declared = manifestCapability(manifest, supported.manifestName)
+  if (declared.provider !== arguments_.provider) throw new Error("Capability provider does not match the v0.1 manifest")
+  if (declared.enabled) throw new Error("Enabled capabilities cannot be scaffolded as uninstalled descriptors")
+  const descriptorSource = `${JSON.stringify({
+    version: 1,
+    name: arguments_.name,
+    provider: arguments_.provider,
+    enabled: false,
+    installed: false,
+  }, null, 2)}\n`
+  return Object.freeze({
+    descriptorPath: supported.descriptorPath,
+    descriptorSource,
+    expectedManifestSource: manifest,
+    manifestSource: manifest,
+  })
+}
+
+const report = (
+  arguments_: CapabilityArguments,
+  ok: boolean,
+  changed: boolean,
+  reason: string,
+  descriptorPath?: string,
+): CapabilityReport => Object.freeze({
+  ok,
+  changed,
+  mode: arguments_.apply ? "apply" : "plan",
+  reason,
+  descriptorPath,
+})
+
+export const runCapabilityAddition = async (
+  arguments_: CapabilityArguments,
+  dependencies: CapabilityDependencies,
+): Promise<CapabilityReport> => {
+  try {
+    const manifest = await dependencies.files.readManifest()
+    dependencies.validateManifest(manifest)
+    const plan = planCapabilityAddition(manifest, arguments_)
+    dependencies.validateManifest(plan.manifestSource)
+    if (await dependencies.files.exists(plan.descriptorPath)) {
+      return report(arguments_, false, false, "Capability descriptor already exists", plan.descriptorPath)
+    }
+    if (!arguments_.apply) {
+      return report(arguments_, true, false, "Capability descriptor plan is valid; manifest remains disabled", plan.descriptorPath)
+    }
+    await dependencies.files.commit(plan)
+    return report(arguments_, true, true, "Capability descriptor was added; manifest remains disabled", plan.descriptorPath)
+  } catch {
+    return report(arguments_, false, false, "Capability addition failed safely")
+  }
+}

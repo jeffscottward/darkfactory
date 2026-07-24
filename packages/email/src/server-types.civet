@@ -52,9 +52,16 @@ export type RenderedEmailVerificationEmail = Readonly<{
 export type RenderEmailVerificationEmailOptions = Readonly<{
   trustedAppOrigin?: string | undefined
 }>
+export type PreviewEmailBinding = Readonly<{
+  runId: string
+  hmacKey: string
+}>
+
 export type PreviewEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production"
   directory?: string | undefined
+  maxBytes?: number | undefined
+  binding?: PreviewEmailBinding | undefined
   maxArtifacts?: number | undefined
   trustedAppOrigin?: string | undefined
 }>
@@ -91,11 +98,16 @@ export type SelectEmailPortOptions = Readonly<{
   transport?: "preview" | "resend" | undefined
   previewDirectory?: string | undefined
   previewMaxArtifacts?: number | undefined
+  previewMaxBytes?: number | undefined
+  previewBinding?: PreviewEmailBinding | undefined
   resendApiKey?: string | undefined
   from?: string | undefined
   trustedAppOrigin?: string | undefined
   resendClient?: ResendClient | undefined
 }>
+export declare const normalizeRecipient: (
+  recipient: string,
+) => string | null
 export declare const renderPasswordResetEmail: (
   input: PasswordResetEmailInput,
   options?: RenderPasswordResetEmailOptions,

@@ -7,11 +7,13 @@ import type {
   EmailVerificationEmailInput,
   PasswordResetEmailInput,
 } from "../index.civet"
+import { normalizeRecipient } from "../recipient.ts"
 import {
   createPreviewEmailPort,
   renderEmailVerificationEmail,
   renderPasswordResetEmail,
   type PreviewEmailPortOptions,
+  type PreviewEmailBinding,
   type RenderedEmailVerificationEmail,
   type RenderedPasswordResetEmail,
   type RenderEmailVerificationEmailOptions,
@@ -55,6 +57,8 @@ export type SelectEmailPortOptions = Readonly<{
   transport?: "preview" | "resend" | undefined
   previewDirectory?: string | undefined
   previewMaxArtifacts?: number | undefined
+  previewMaxBytes?: number | undefined
+  previewBinding?: PreviewEmailBinding | undefined
   resendApiKey?: string | undefined
   from?: string | undefined
   trustedAppOrigin?: string | undefined
@@ -66,7 +70,6 @@ const RETRYABLE_RESEND_ERROR_NAMES = new Set([
   "application_error",
   "internal_server_error",
 ])
-const MAILBOX_PATTERN = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
 
 const createDisabledEmailPort = (
   code: EmailDeliveryFailureCode,
@@ -96,22 +99,6 @@ const resendFailure = (
   retryable,
 })
 
-const normalizeRecipient = (recipient: string): string | null => {
-  const trimmedRecipient = recipient.trim()
-  const separatorIndex = trimmedRecipient.lastIndexOf("@")
-  if (separatorIndex <= 0) return null
-  const normalizedRecipient =
-    `${trimmedRecipient.slice(0, separatorIndex)}@` +
-    trimmedRecipient.slice(separatorIndex + 1).toLowerCase()
-  if (
-    normalizedRecipient.length > 254 ||
-    !MAILBOX_PATTERN.test(normalizedRecipient)
-  ) {
-    return null
-  }
-
-  return normalizedRecipient
-}
 
 const isRetryableProviderError = (error: ResendProviderError): boolean =>
   error.name !== undefined && RETRYABLE_RESEND_ERROR_NAMES.has(error.name)
@@ -237,6 +224,8 @@ export const selectEmailPort = (
       environment: options.environment,
       directory: options.previewDirectory,
       maxArtifacts: options.previewMaxArtifacts,
+      maxBytes: options.previewMaxBytes,
+      binding: options.previewBinding,
       trustedAppOrigin: options.trustedAppOrigin,
     }
     return createPreviewEmailPort(previewOptions)
@@ -247,11 +236,13 @@ export const selectEmailPort = (
 
 export {
   createPreviewEmailPort,
+  normalizeRecipient,
   renderPasswordResetEmail,
   renderEmailVerificationEmail,
 }
 export type {
   PreviewEmailPortOptions,
+  PreviewEmailBinding,
   RenderedPasswordResetEmail,
   RenderPasswordResetEmailOptions,
   RenderedEmailVerificationEmail,

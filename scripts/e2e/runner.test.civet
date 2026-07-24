@@ -1,0 +1,671 @@
+import { readFile } from "node:fs/promises"
+
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  artifactProfileForSpec,
+  classifyJourneySpecs,
+  runJourneySuite,
+} from "./runner.civet"
+
+const discoveredSpecs = Object.freeze([
+  "tests/e2e/account-admin-theme.spec.ts",
+  "tests/e2e/auth.spec.ts",
+  "tests/e2e/contact.spec.ts",
+  "tests/e2e/portal.spec.ts",
+  "tests/e2e/public-accessibility.a11y.spec.ts",
+  "tests/e2e/public-visual.spec.ts",
+  "tests/e2e/smoke.spec.ts",
+])
+
+const cleanScan = Object.freeze({
+  ok: true,
+  scannedEntries: 4,
+  findings: [],
+  purged: false,
+  reason: "clean",
+})
+const stoppedLifecycle = Object.freeze({
+  lifecycleStatus: "stopped" as const,
+  lifecycleStage: "server-ready" as const,
+  lifecycleObservation: "state" as const,
+  lifecycleObservationReason: "observed-state" as const,
+})
+const adoptionPayload = (
+  runId: string,
+  artifactProfile: "anonymous-public-visual" | "no-binary" = "no-binary",
+) => Object.freeze({
+  version: 1,
+  runId,
+  artifactProfile,
+  nonceDigest: "a".repeat(64),
+  e2e: {
+    root: { dev: 1, ino: 2 },
+    marker: { dev: 1, ino: 3 },
+  },
+  evidence: {
+    root: { dev: 1, ino: 4 },
+    marker: { dev: 1, ino: 5 },
+  },
+})
+const preparedRun = (
+  runId: string,
+  artifactProfile: "anonymous-public-visual" | "no-binary" = "no-binary",
+) => Object.freeze({
+  adoption: Buffer.from(
+    JSON.stringify(adoptionPayload(runId, artifactProfile)),
+    "utf8",
+  ).toString("base64url"),
+  ownership: `private-nonce-${runId}`,
+})
+
+
+describe("serialized E2E journey runner", () => {
+  it("classifies the exact filesystem set and binds binary policy to each spec", async () => {
+    const calls: Array<Readonly<{
+      arguments_: readonly string[]
+      environment: Readonly<Record<string, string>>
+    }>> = []
+    const prepared: Array<readonly [
+      string,
+      "anonymous-public-visual" | "no-binary",
+    ]> = []
+    let index = 0
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => `run_${index += 1}`,
+      createHmacKey: () => "a".repeat(43),
+      prepareRun: async (runId, profile) => {
+        prepared.push([runId, profile])
+        return preparedRun(runId, profile)
+      },
+      runPlaywright: async (arguments_, environment) => {
+        calls.push({ arguments_, environment })
+        return { ...stoppedLifecycle, exitCode: 0, treeTerminated: true }
+      },
+      scanArtifacts: async () => cleanScan,
+    })
+
+    const expectedSpecs = discoveredSpecs.filter((spec) => !spec.endsWith(".a11y.spec.ts"))
+    expect(report).toMatchObject({ ok: true, completed: expectedSpecs.length })
+    expect(calls.map((call) => call.arguments_[4])).toEqual(expectedSpecs)
+    expect(prepared.map((entry) => entry[1])).toEqual([
+      "no-binary",
+      "no-binary",
+      "no-binary",
+      "no-binary",
+      "anonymous-public-visual",
+      "no-binary",
+    ])
+    for (const [position, call] of calls.entries()) {
+      const runId = `run_${position + 1}`
+      const profile = prepared[position]?.[1]
+      if (profile === undefined) throw new Error("Missing prepared artifact profile")
+      expect(call.arguments_).toEqual([
+        "pnpm", "exec", "playwright", "test", expectedSpecs[position],
+        "--grep-invert", "@a11y", "--output",
+        `test-results/e2e-runs/${runId}/artifacts`, "--reporter=list,json",
+      ])
+      expect(call.environment).toEqual({
+        E2E_RUN_ADOPTION: preparedRun(runId, profile).adoption,
+        E2E_RUN_ID: runId,
+        E2E_EMAIL_PREVIEW_DIRECTORY: `/workspace/test-results/e2e-runs/${runId}/previews/auth`,
+        E2E_EMAIL_PREVIEW_HMAC_KEY: "a".repeat(43),
+        PLAYWRIGHT_JSON_OUTPUT_NAME: `/workspace/test-results/e2e-runs/${runId}/playwright-report.json`,
+      })
+      const decodedAdoption = JSON.parse(Buffer.from(
+        call.environment["E2E_RUN_ADOPTION"] ?? "",
+        "base64url",
+      ).toString("utf8")) as unknown
+      expect(decodedAdoption).toEqual(adoptionPayload(runId, profile))
+      expect(Object.keys(decodedAdoption as Record<string, unknown>).sort()).toEqual([
+        "artifactProfile",
+        "e2e",
+        "evidence",
+        "nonceDigest",
+        "runId",
+        "version",
+      ])
+      expect(JSON.stringify(call.environment)).not.toContain(`private-nonce-${runId}`)
+    }
+  })
+
+  it("continues after ordinary proven failures and aggregates every isolated result", async () => {
+    let index = 0
+    const scans: Array<readonly [string, boolean, string]> = []
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => `run_${index += 1}`,
+      createHmacKey: () => "z".repeat(43),
+      prepareRun: async (runId) => preparedRun(runId),
+      runPlaywright: async () => ({
+        ...(index === 1 ? {} : stoppedLifecycle),
+        diagnostics: index === 1
+          ? ["stderr: Error: Process from config.webServer was not able to start. Exit code: 1"]
+          : [],
+        exitCode: index === 1 ? 1 : 0,
+        treeTerminated: true,
+      }),
+      scanArtifacts: async (runId, purge, proof) => {
+        scans.push([runId, purge, proof])
+        return { ...cleanScan, purged: purge }
+      },
+    })
+
+    expect(report).toMatchObject({ ok: false, completed: 6 })
+    expect(scans).toHaveLength(6)
+    expect(scans[0]).toEqual(["run_1", true, "private-nonce-run_1"])
+    expect(report.results[0]).toMatchObject({
+      spec: "tests/e2e/account-admin-theme.spec.ts",
+      runId: "run_1",
+      playwrightExitCode: 1,
+      processTreeTerminated: true,
+      diagnostics: [
+        "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
+      ],
+      scan: {
+        ok: true,
+        purged: true,
+      },
+    })
+    expect(JSON.stringify(report)).not.toContain("private-nonce")
+    expect(JSON.stringify(report)).not.toContain("z".repeat(43))
+  })
+
+  it("stops immediately when the external scanner reports contamination", async () => {
+    const runPlaywright = vi.fn(async () => ({
+      ...stoppedLifecycle,
+      exitCode: 0,
+      treeTerminated: true,
+    }))
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => "poisoned_run",
+      createHmacKey: () => "q".repeat(43),
+      prepareRun: async () => preparedRun("poisoned_run"),
+      runPlaywright,
+      scanArtifacts: async () => ({
+        ok: false,
+        scannedEntries: 1,
+        findings: [{ category: "browser-password", path: "opaque-artifact" }],
+        purged: true,
+        reason: "purged",
+      }),
+    })
+
+    expect(report).toMatchObject({ ok: false, completed: 1 })
+    expect(runPlaywright).toHaveBeenCalledOnce()
+  })
+  it("returns a bounded per-spec record when the scanner throws after child failure", async () => {
+    const stages: string[] = []
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => "webserver_failed_run",
+      createHmacKey: () => "s".repeat(43),
+      prepareRun: async () => preparedRun("webserver_failed_run"),
+      reportProgress: (event) => stages.push(event.stage),
+      runPlaywright: async () => ({
+        diagnostics: [
+          "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
+        ],
+        exitCode: 1,
+        treeTerminated: true,
+        lifecycleStatus: "startup-failed",
+        lifecycleStage: "module-loading",
+      }),
+      scanArtifacts: () => {
+        throw new Error("private scanner failure value")
+      },
+    })
+
+    expect(report).toMatchObject({
+      ok: false,
+      completed: 1,
+      results: [{
+        spec: "tests/e2e/account-admin-theme.spec.ts",
+        runId: "webserver_failed_run",
+        playwrightExitCode: 1,
+        lifecycleStatus: "startup-failed",
+        lifecycleStage: "module-loading",
+        processState: "terminated",
+        processTreeTerminated: true,
+        stage: "scan",
+        diagnostics: [
+          "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
+        ],
+        scan: {
+          ok: false,
+          purged: false,
+          reason: "Artifact scanner failed before returning a bounded status",
+        },
+      }],
+    })
+    expect(JSON.stringify(report)).not.toContain("private scanner failure")
+    expect(JSON.stringify(report)).not.toContain("private-nonce")
+    expect(stages).toEqual([
+      "created",
+      "prepared",
+      "playwright-start",
+      "playwright-finished",
+      "scan-start",
+      "scan-finished",
+      "result",
+    ])
+  })
+
+  it("fails closed with a per-spec record when execution throws before a result", async () => {
+    const stages: string[] = []
+    const scanArtifacts = vi.fn(async () => cleanScan)
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => "execution_throw_run",
+      createHmacKey: () => "x".repeat(43),
+      prepareRun: async () => preparedRun("execution_throw_run"),
+      reportProgress: (event) => stages.push(event.stage),
+      runPlaywright: () => {
+        throw new Error("BrowserAuth999! private execution failure")
+      },
+      scanArtifacts,
+    })
+
+    expect(report).toMatchObject({
+      ok: false,
+      completed: 1,
+      results: [{
+        spec: "tests/e2e/account-admin-theme.spec.ts",
+        runId: "execution_throw_run",
+        processState: "unproven",
+        processTreeTerminated: false,
+        stage: "execute",
+        scan: {
+          ok: false,
+          purged: false,
+        },
+      }],
+    })
+    expect(scanArtifacts).not.toHaveBeenCalled()
+    expect(JSON.stringify(report)).not.toContain("BrowserAuth999")
+    expect(JSON.stringify(report)).not.toContain("private execution")
+    expect(stages).toEqual([
+      "created",
+      "prepared",
+      "playwright-start",
+      "playwright-finished",
+      "result",
+    ])
+  })
+
+
+  it("runs only the classified accessibility specs", async () => {
+    const calls: string[][] = []
+    const report = await runJourneySuite("a11y", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => [...discoveredSpecs].reverse(),
+      createRunId: () => "a11y_run",
+      createHmacKey: () => "b".repeat(43),
+      prepareRun: async (_runId, profile) => {
+        expect(profile).toBe("no-binary")
+        return preparedRun("a11y_run")
+      },
+      runPlaywright: async (arguments_) => {
+        calls.push([...arguments_])
+        return { ...stoppedLifecycle, exitCode: 0, treeTerminated: true }
+      },
+      scanArtifacts: async () => cleanScan,
+    })
+
+    expect(report).toMatchObject({ ok: true, completed: 1 })
+    expect(calls[0]?.slice(4, 7)).toEqual([
+      "tests/e2e/public-accessibility.a11y.spec.ts", "--grep", "@a11y",
+    ])
+  })
+
+  it("withholds scanner and purge until Playwright descendants are proven dead", async () => {
+    const scanArtifacts = vi.fn(async () => cleanScan)
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => "unproven_run",
+      createHmacKey: () => "u".repeat(43),
+      prepareRun: async () => preparedRun("unproven_run"),
+      runPlaywright: async () => ({ exitCode: 1, treeTerminated: false }),
+      scanArtifacts,
+    })
+
+    expect(report).toMatchObject({ ok: false, completed: 1 })
+    expect(scanArtifacts).not.toHaveBeenCalled()
+    expect(report.reason).toMatch(/process-tree termination/i)
+  })
+
+  it("rejects malformed credentials and invalid or duplicate discovery without launching", async () => {
+    const runPlaywright = vi.fn(async () => ({
+      ...stoppedLifecycle,
+      exitCode: 0,
+      treeTerminated: true,
+    }))
+    const malformed = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => "../escape",
+      createHmacKey: () => "short",
+      prepareRun: async () => preparedRun("unused"),
+      runPlaywright,
+      scanArtifacts: async () => cleanScan,
+    })
+    expect(malformed).toMatchObject({
+      ok: false,
+      completed: 1,
+      results: [{
+        spec: "tests/e2e/account-admin-theme.spec.ts",
+        runId: "not-started",
+        processState: "not-started",
+        stage: "prepare",
+      }],
+    })
+    expect(JSON.stringify(malformed)).not.toContain("../escape")
+    const prepareFailure = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => discoveredSpecs,
+      createRunId: () => "prepare_failed_run",
+      createHmacKey: () => "p".repeat(43),
+      prepareRun: async () => {
+        throw new Error("private ownership capability")
+      },
+      runPlaywright,
+      scanArtifacts: async () => cleanScan,
+    })
+    expect(prepareFailure).toMatchObject({
+      ok: false,
+      completed: 1,
+      results: [{
+        runId: "prepare_failed_run",
+        processState: "not-started",
+        stage: "prepare",
+        scan: { ok: false, purged: false },
+      }],
+    })
+    expect(JSON.stringify(prepareFailure)).not.toContain("private ownership")
+
+    for (const invalid of [
+      ["tests/e2e/auth.spec.ts", "tests/e2e/auth.spec.ts"],
+      ["tests/e2e/nested/auth.spec.ts"],
+      ["tests/e2e/auth.test.ts"],
+    ]) {
+      const report = await runJourneySuite("e2e", {
+        repositoryPath: "/workspace",
+        listSpecs: async () => invalid,
+        createRunId: () => "safe_run",
+        createHmacKey: () => "a".repeat(43),
+        prepareRun: async () => preparedRun("unused"),
+        runPlaywright,
+        scanArtifacts: async () => cleanScan,
+      })
+      expect(report).toMatchObject({ ok: false, completed: 0 })
+    }
+    expect(runPlaywright).not.toHaveBeenCalled()
+  })
+
+  it("preserves exact ready, stopped, and runtime failure stages", async () => {
+    const observations = [
+      {
+        exitCode: 0,
+        treeTerminated: true,
+        lifecycleStatus: "ready" as const,
+        lifecycleStage: "server-ready" as const,
+      },
+      {
+        exitCode: 0,
+        treeTerminated: true,
+        lifecycleStatus: "stopped" as const,
+        lifecycleStage: "server-ready" as const,
+      },
+      {
+        exitCode: 1,
+        treeTerminated: true,
+        lifecycleStatus: "runtime-failed" as const,
+        lifecycleStage: "server-ready" as const,
+      },
+      {
+        exitCode: 1,
+        treeTerminated: true,
+        lifecycleStatus: "runtime-failed" as const,
+        lifecycleStage: "server-probed" as const,
+      },
+    ]
+    let index = 0
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => [
+        "tests/e2e/auth.spec.ts",
+        "tests/e2e/contact.spec.ts",
+        "tests/e2e/smoke.spec.ts",
+        "tests/e2e/account-admin-theme.spec.ts",
+      ],
+      createRunId: () => `lifecycle_${index += 1}`,
+      createHmacKey: () => "l".repeat(43),
+      prepareRun: async (runId) => preparedRun(runId),
+      runPlaywright: async () => observations.shift() ?? {
+        exitCode: 1,
+        treeTerminated: false,
+      },
+      scanArtifacts: async () => cleanScan,
+    })
+
+    expect(report.results.map((result) => ({
+      lifecycleStatus: result.lifecycleStatus,
+      lifecycleStage: result.lifecycleStage,
+    }))).toEqual([
+      { lifecycleStatus: "ready", lifecycleStage: "server-ready" },
+      { lifecycleStatus: "stopped", lifecycleStage: "server-ready" },
+      { lifecycleStatus: "runtime-failed", lifecycleStage: "server-ready" },
+      { lifecycleStatus: "runtime-failed", lifecycleStage: "server-probed" },
+    ])
+  })
+  it("requires exact stopped server-ready state for every zero-exit success", async () => {
+    const cases = [
+      {
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        expectedOk: true,
+      },
+      {
+        lifecycleStatus: "ready",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        expectedOk: false,
+      },
+      {
+        lifecycleStatus: "starting",
+        lifecycleStage: "server-probed",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        expectedOk: false,
+      },
+      {
+        lifecycleStatus: "startup-failed",
+        lifecycleStage: "server-spawn",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        expectedOk: false,
+      },
+      {
+        lifecycleStatus: "runtime-failed",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        expectedOk: false,
+      },
+      {
+        lifecycleStatus: "cleanup-failed",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        expectedOk: false,
+      },
+      {
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "missing",
+        lifecycleObservationReason: "state-missing",
+        expectedOk: false,
+      },
+      {
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "invalid",
+        lifecycleObservationReason: "state-invalid",
+        expectedOk: false,
+      },
+    ] as const
+
+    for (const [index, lifecycle] of cases.entries()) {
+      const purgeRequests: boolean[] = []
+      const report = await runJourneySuite("e2e", {
+        repositoryPath: "/workspace",
+        listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+        createRunId: () => `lifecycle_success_${index}`,
+        createHmacKey: () => "s".repeat(43),
+        prepareRun: async (runId) => preparedRun(runId),
+        runPlaywright: async () => ({
+          exitCode: 0,
+          treeTerminated: true,
+          lifecycleStatus: lifecycle.lifecycleStatus,
+          lifecycleStage: lifecycle.lifecycleStage,
+          lifecycleObservation: lifecycle.lifecycleObservation,
+          lifecycleObservationReason: lifecycle.lifecycleObservationReason,
+        }),
+        scanArtifacts: async (_runId, purgeOwned) => {
+          purgeRequests.push(purgeOwned)
+          return cleanScan
+        },
+      })
+      expect(report.ok).toBe(lifecycle.expectedOk)
+      expect(purgeRequests).toEqual([!lifecycle.expectedOk])
+      expect(report.results[0]?.stage).toBe(
+        lifecycle.expectedOk ? "complete" : "execute",
+      )
+      if (lifecycle.lifecycleStatus === "cleanup-failed") {
+        expect(report.results[0]?.diagnostics).toContain(
+          "E2E lifecycle cleanup failed; resources retained",
+        )
+      }
+    }
+  })
+
+
+  it("emits only bounded safe progress in exact dependency order", async () => {
+    const progress: unknown[] = []
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+      createRunId: () => "safe_progress_run",
+      createHmacKey: () => "h".repeat(43),
+      prepareRun: async () => preparedRun("safe_progress_run"),
+      reportProgress: (event) => progress.push(event),
+      runPlaywright: async () => ({
+        ...stoppedLifecycle,
+        exitCode: 0,
+        treeTerminated: true,
+      }),
+      scanArtifacts: async () => cleanScan,
+    })
+
+    expect(report.ok).toBe(true)
+    expect(progress).toEqual([
+      { spec: "tests/e2e/auth.spec.ts", runId: "safe_progress_run", stage: "created" },
+      { spec: "tests/e2e/auth.spec.ts", runId: "safe_progress_run", stage: "prepared" },
+      { spec: "tests/e2e/auth.spec.ts", runId: "safe_progress_run", stage: "playwright-start" },
+      {
+        spec: "tests/e2e/auth.spec.ts",
+        runId: "safe_progress_run",
+        stage: "playwright-finished",
+        playwrightOk: true,
+        processTreeTerminated: true,
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+      },
+      {
+        spec: "tests/e2e/auth.spec.ts",
+        runId: "safe_progress_run",
+        stage: "scan-start",
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+      },
+      {
+        spec: "tests/e2e/auth.spec.ts",
+        runId: "safe_progress_run",
+        stage: "scan-finished",
+        scanOk: true,
+        purged: false,
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+      },
+      {
+        spec: "tests/e2e/auth.spec.ts",
+        runId: "safe_progress_run",
+        stage: "result",
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        ok: true,
+      },
+    ])
+    const rendered = JSON.stringify(progress)
+    expect(rendered).not.toContain("private-nonce")
+    expect(rendered).not.toContain("h".repeat(43))
+    expect(rendered).not.toMatch(/password|token|url|path/iu)
+  })
+
+  it("ignores synchronous progress failures at every boundary", async () => {
+    let progressCalls = 0
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+      createRunId: () => "progress_failure_run",
+      createHmacKey: () => "h".repeat(43),
+      prepareRun: async () => preparedRun("progress_failure_run"),
+      reportProgress: () => {
+        progressCalls += 1
+        throw new Error("private progress sink failure")
+      },
+      runPlaywright: async () => ({
+        ...stoppedLifecycle,
+        exitCode: 0,
+        treeTerminated: true,
+      }),
+      scanArtifacts: async () => cleanScan,
+    })
+
+    expect(report).toMatchObject({ ok: true, completed: 1 })
+    expect(progressCalls).toBe(7)
+    expect(JSON.stringify(report)).not.toContain("private progress sink")
+  })
+
+  it("never allows a caller or auth source to widen the artifact profile", async () => {
+    expect(classifyJourneySpecs(discoveredSpecs).e2e).toHaveLength(6)
+    expect(artifactProfileForSpec("tests/e2e/public-visual.spec.ts"))
+      .toBe("anonymous-public-visual")
+    expect(artifactProfileForSpec("tests/e2e/public-visual-copy.spec.ts")).toBe("no-binary")
+    expect(artifactProfileForSpec("tests/e2e/auth.spec.ts")).toBe("no-binary")
+    const authSource = await readFile(
+      new URL("../../tests/e2e/auth.spec.ts", import.meta.url),
+      "utf8",
+    )
+    expect(authSource).not.toMatch(/page\.screenshot|screenshotArtifactPath|\.png/iu)
+  })
+})

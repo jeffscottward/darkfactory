@@ -98,3 +98,4 @@ export type {
   SeedDevelopmentResult,
   SeedIdentityInput,
 } from "../seeds/index.civet"
+export * from "../generated/repository-registry.civet"

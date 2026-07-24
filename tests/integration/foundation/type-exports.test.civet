@@ -488,9 +488,7 @@ describe "type export audit", ->
     )
 
   it("generates DB and auth declarations from isolated clean package copies", async () => {
-    const root = await mkdtemp(join(projectRoot, ".type-exports-lifecycle-"))
-    temporaryRoots.push(root)
-    await writeWorkspacePatterns(root, ["packages/*"])
+    const root = await createRoot(["packages/*"])
     await cp(
       join(projectRoot, "tsconfig.base.json"),
       join(root, "tsconfig.base.json"),
@@ -539,6 +537,11 @@ describe "type export audit", ->
       },
       {
         packageName: "@darkfactory/auth",
+        subpath: "./db",
+        target: "./src/db.civet.d.ts",
+      },
+      {
+        packageName: "@darkfactory/auth",
         subpath: "./server",
         target: "./src/server.civet.d.ts",
       },
@@ -572,11 +575,12 @@ describe "type export audit", ->
       join(root, "integration.civet"),
       [
         'import * as authClient from "@darkfactory/auth/client"',
+        'import * as authDatabase from "@darkfactory/auth/db"',
         'import * as authServer from "@darkfactory/auth/server"',
         'import * as authTypes from "@darkfactory/auth/types"',
         'import * as databaseSchema from "@darkfactory/db/schema"',
         'import * as databaseServer from "@darkfactory/db/server"',
-        "void [authClient, authServer, authTypes, databaseSchema, databaseServer]",
+        "void [authClient, authDatabase, authServer, authTypes, databaseSchema, databaseServer]",
         "",
       ].join("\n"),
     )

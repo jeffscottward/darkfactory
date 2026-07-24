@@ -18,12 +18,12 @@ Do not promote an Implementation to Core or add a Capability implicitly.
 ## Work sequence
 
 1. Read the relevant contracts, feature boundary, tests, and architecture docs.
-2. Before broad exploration, query the Graphify map with `graphify query`, `graphify path`, or `graphify explain` when `graphify-out/graph.json` exists.
-3. If the map is missing, generate it with the repository graph script or `graphify extract .`; do not reconstruct the repository from repeated broad searches.
+2. Before broad exploration, use the repository Graphify wrapper: `pnpm graph:check`, then `pnpm graph:verify` when `graphify-out/graph.json` exists. Do not invoke Graphify directly; the wrapper enforces the repository's Civet compilation, workspace-alias, environment-isolation, metadata, and verification policy.
+3. If the graph is missing, run `pnpm graph:build`; do not reconstruct the repository from repeated broad searches.
 4. Define or update the observable contract and its failing test before implementation. Documentation-only and non-behavioral changes do not need artificial tests.
 5. Implement the smallest complete vertical change. Reuse existing code; never create a second convention beside an existing one.
 6. Run the narrowest relevant check while iterating, then the repository lifecycle gates required for the change.
-7. Update Graphify after adding a feature, moving public symbols, changing contracts or database relationships, or materially changing architecture. Use the repository update script or `graphify extract . --update`, then verify the map.
+7. Run `pnpm graph:update`, `pnpm graph:check`, and `pnpm graph:verify` after adding a feature, moving public symbols, changing contracts or database relationships, or materially changing architecture. When an explicitly scoped documentation task defers Graphify, record the deferral and make no freshness or query claim.
 8. Update architecture, capability truth, generated OpenAPI, enabled internal documentation, and operator guides when their source contracts change. Keep evidence records pending until the referenced command, browser flow, graph query, CI run, or deployment is actually observed at the exact revision.
 9. Commit only the focused change. After pushing, follow GitHub Actions to a terminal state; investigate and fix repository-owned failures before asking the user. Stop only when checks are green, no checks exist, or an exact external blocker is documented with its owner, evidence, rerun trigger, and stop condition.
 
@@ -73,17 +73,17 @@ Use pnpm for packages, workspaces, and the sole lockfile. Turborepo is the root 
 
 ## UI constitution
 
-- Maintain two domain-neutral surfaces: a refined public site and a practical authenticated portal. Do not invent a business-specific sitemap, entities, metrics, or workflow.
+- Maintain two domain-neutral surfaces: a refined public site and a practical authenticated portal. References are continual pattern libraries, not a fixed information architecture. Derive navigation and page structure from current product requirements; do not invent a business-specific sitemap, entities, metrics, or workflow.
 - Treat `design-system/darkfactory/MASTER.md` as the authoritative UI specification and `.impeccable.md` as persistent design context. Read both before designing or implementing an interface; page-specific design files may narrow but not silently replace the Master.
-- Use <https://www.squarespace.com/> as a continual public-site reference for editorial restraint, hierarchy, spacing, imagery, and polished responsive composition. It inspires patterns; do not copy layouts, copy, branding, assets, or trade dress.
-- Use <https://ui.shadcn.com/blocks> as a continual authenticated-portal reference for proven shells, navigation, forms, tables, settings, account, and administration patterns. It inspires composition; do not copy a block wholesale or let examples define the product domain.
+- Use <https://www.squarespace.com/> as continual public-side inspiration for editorial restraint, hierarchy, spacing, imagery, and polished responsive composition. It inspires patterns; do not copy layouts, copy, branding, assets, or trade dress.
+- Use <https://ui.shadcn.com/blocks> as a continual authenticated-portal reference for proven shells, navigation, forms, tables, settings, account, and administration patterns. It inspires composition; do not copy a block wholesale or let examples define the product domain or information architecture.
 - All typography is sans serif. The default direction is Manrope for display/headings and Public Sans for body/UI; never introduce serif typography, Inter, Roboto, Arial, or Open Sans.
 - Build with Tailwind and shadcn tokens. Support light, dark, and system modes plus the ten defined color palettes; reject dark-only design and generic purple/cyan glowing “AI” aesthetics.
 - Preserve visible keyboard focus, semantic structure, labels, contrast, and minimum 44×44 px interactive targets. Verify responsive behavior at 375, 768, 1024, and 1440 px.
 - Keep loading and interaction states stable: reserve dimensions and never use jump, bounce, scale, or hover translation that shifts layout.
 - Use meaningful icons from one coherent outline family. Do not use emoji or decorative icons as structural interface controls.
 - Do not expose a reduced-motion preference in the user profile. Still honor CSS `prefers-reduced-motion` and avoid motion that blocks comprehension.
-- Generic multi-page placeholder content may use <https://placehold.co/>, fictional avatars, and a fake favicon. Use neutral, obviously fictional identities and `.test` email addresses. Never use a real person's data or imply a business vertical.
+- Placeholder and fake content must remain visibly non-production. Generic multi-page placeholders may use <https://placehold.co/>, fictional avatars, a fake favicon, neutral fictional identities, and `.test` email addresses. Never use a real person's data, realistic credentials, production-like personal data, or content that implies a business vertical.
 
 ## Security and repository hygiene
 

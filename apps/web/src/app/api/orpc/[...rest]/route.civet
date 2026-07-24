@@ -30,6 +30,7 @@ import {
 import { createSemanticEventFanout } from "@darkfactory/observability/server/fanout"
 import { initializeTelemetry } from "@darkfactory/observability/server/otel"
 
+import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
 import { handleOrpcRequest } from "./handler.civet"
 import {
   bufferContactRequest,
@@ -107,6 +108,7 @@ const contactAbuseResponse = (
 }
 const handleOrpc = async (request: Request): Promise<Response> => {
   const env = parseServerEnv(process.env)
+  const previewOptions = resolveE2eEmailPreviewOptions()
   if (unsafeRequestDenied(request, env.APP_URL)) return forbiddenOriginResponse()
   const isContactSubmission =
     request.method === "POST" &&
@@ -172,6 +174,8 @@ const handleOrpc = async (request: Request): Promise<Response> => {
         const email = selectEmailPort({
           environment: env.APP_ENV,
           transport: env.EMAIL_TRANSPORT,
+          previewDirectory: previewOptions?.authDirectory,
+          previewBinding: previewOptions?.binding,
           resendApiKey: env.RESEND_API_KEY,
           from: env.EMAIL_FROM,
           trustedAppOrigin: env.APP_URL,
@@ -181,6 +185,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
               environment: env.APP_ENV,
               transport: env.EMAIL_TRANSPORT,
               recipient: env.CONTACT_EMAIL_TO,
+              previewDirectory: previewOptions?.contactDirectory,
               resendApiKey: env.RESEND_API_KEY,
               from: env.EMAIL_FROM,
             })

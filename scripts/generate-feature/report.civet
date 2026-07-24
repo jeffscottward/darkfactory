@@ -17,7 +17,7 @@ export const createGenerationReport = (
   dryRun,
   planId: plan.planId,
   files: Object.freeze(plan.files.map((file) => file.path)),
-  integration: "manual-reviewed-handoff" as const,
+  integration: "generator-owned-registries" as const,
   cleanup,
 })
 
@@ -31,7 +31,7 @@ export const formatHumanReport = (report: GenerationReport): string => {
     `Files: ${report.files.length}`,
     action,
     `Cleanup: ${report.cleanup}`,
-    "Integration: manual reviewed handoff required; shared runtime registries were not edited.",
+    "Integration: generator-owned runtime registries and composition hooks were atomically updated.",
     ...report.files.map((path) => `  - ${path}`),
   ].join("\n")
 }

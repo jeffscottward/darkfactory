@@ -19,9 +19,11 @@ export type GeneratorFixture = Readonly<{
 export const createGeneratorFixture = async (): Promise<GeneratorFixture> => {
   const root = await mkdtemp(join(tmpdir(), "darkfactory-generator-test-"))
   await Promise.all([
+    mkdir(join(root, ".darkfactory"), { recursive: true }),
     mkdir(join(root, "apps/web/src/features"), { recursive: true }),
-    mkdir(join(root, "packages/api/src"), { recursive: true }),
-    mkdir(join(root, "packages/db/src"), { recursive: true }),
+    mkdir(join(root, "packages/api/src/generated"), { recursive: true }),
+    mkdir(join(root, "packages/db/src/generated"), { recursive: true }),
+    mkdir(join(root, "packages/db/migrations/meta"), { recursive: true }),
     mkdir(join(root, "tests"), { recursive: true }),
     mkdir(join(root, "docs"), { recursive: true }),
   ])
@@ -30,6 +32,58 @@ export const createGeneratorFixture = async (): Promise<GeneratorFixture> => {
     `${JSON.stringify({ name: "fixture", private: true }, null, 2)}\n`,
     "utf8",
   )
+  await Promise.all([
+    writeFile(
+      join(root, ".darkfactory/features.json"),
+      `${JSON.stringify({
+        version: 1,
+        builtIn: {
+          name: "feature-item",
+          route: "/feature-items",
+          apiNamespace: "featureItems",
+          table: "feature_items",
+          status: "canonical-reference",
+        },
+        generated: [],
+      }, null, 2)}\n`,
+      "utf8",
+    ),
+    writeFile(
+      join(root, "packages/api/src/generated/contract-registry.civet"),
+      "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const generatedFeatureContracts = Object.freeze({})\n",
+      "utf8",
+    ),
+    writeFile(
+      join(root, "packages/api/src/generated/router-registry.civet"),
+      "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const generatedFeatureRouters = Object.freeze({})\n",
+      "utf8",
+    ),
+    writeFile(
+      join(root, "packages/api/src/generated/public-registry.civet"),
+      "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const GENERATED_API_FEATURES = Object.freeze([] as const)\n",
+      "utf8",
+    ),
+    writeFile(
+      join(root, "packages/db/src/generated/schema-registry.civet"),
+      "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const generatedFeatureTables = Object.freeze({})\n",
+      "utf8",
+    ),
+    writeFile(
+      join(root, "packages/db/src/generated/repository-registry.civet"),
+      "import type { DatabaseExecutor } from \"../server/client.civet\"\n\n// Generator-owned. Edit through `pnpm generate:feature` only.\nexport type GeneratedFeatureRepositories = Readonly<Record<never, never>>\nexport const createGeneratedFeatureRepositories = (_database: DatabaseExecutor): GeneratedFeatureRepositories => Object.freeze({})\n",
+      "utf8",
+    ),
+    writeFile(
+      join(root, "apps/web/src/features/generated-navigation.civet"),
+      "export const GENERATED_FEATURE_NAVIGATION = Object.freeze([])\nexport const GENERATED_FEATURE_ROUTE_PATHS = Object.freeze([])\nexport const GENERATED_FEATURE_ROUTE_PAGE_FILES = Object.freeze({})\n",
+      "utf8",
+    ),
+    writeFile(
+      join(root, "packages/db/migrations/meta/_journal.json"),
+      `${JSON.stringify({ version: "7", dialect: "postgresql", entries: [] }, null, 2)}\n`,
+      "utf8",
+    ),
+  ])
 
   return Object.freeze({
     root,

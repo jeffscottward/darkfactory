@@ -20,6 +20,11 @@
       "import": "./src/server.civet",
       "default": "./src/server.civet"
     },
+    "./recipient": {
+      "types": "./src/recipient.ts",
+      "import": "./src/recipient.ts",
+      "default": "./src/recipient.ts"
+    },
     "./test": {
       "types": "./src/test.civet.d.ts",
       "import": "./src/test.civet",
@@ -27,7 +32,7 @@
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/index.civet && civet --emit-declaration src/server-types.civet && civet --emit-declaration src/test.civet",
+    "types": "civet --config civet.types.json --emit-declaration src/index.civet src/server-types.civet src/test.civet",
     "typecheck": "civet --config civet.typecheck.json --typecheck",
     "test": "vitest run --config ../../vitest.config.ts --project unit src/server/",
     "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/server/"

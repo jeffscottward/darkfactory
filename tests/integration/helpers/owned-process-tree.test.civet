@@ -7,7 +7,7 @@ import {
   type TaskkillResult,
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
-} from "./owned-process-tree.civet"
+} from "../../../scripts/e2e/owned-process-tree.civet"
 
 type FixtureAddress = Readonly<{
   pid: number

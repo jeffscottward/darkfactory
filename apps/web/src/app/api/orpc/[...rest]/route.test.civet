@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(->
   const waitUntil = vi.fn((promise: Promise<unknown>) => { void promise.catch(() => undefined) })
@@ -147,7 +147,11 @@ describe "oRPC Worker route provider composition", ->
       retryAfterSeconds: 0,
     })
     mocks.selectContactEmailPort.mockClear()
+    mocks.selectEmailPort.mockClear()
     mocks.handleOrpcRequest.mockClear()
+
+  afterEach ->
+    vi.unstubAllEnvs()
   
   it "uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async ->
     const firstRequest = new Request(
@@ -330,6 +334,45 @@ describe "oRPC Worker route provider composition", ->
     expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(2)
     expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
     expect(mocks.close).toHaveBeenCalledTimes(2)
+
+  it "isolates auth and contact previews inside the same proven E2E run", async ->
+    mocks.handleOrpcRequest.mockResolvedValue(
+      new Response("handled", { status: 202 }),
+    )
+    const runId = "route_run"
+    const authDirectory =
+      `/repo/test-results/e2e-runs/${runId}/previews/auth`
+    vi.stubEnv("APP_ENV", "test")
+    vi.stubEnv("E2E_FIXTURES", "1")
+    vi.stubEnv("E2E_RUN_ID", runId)
+    vi.stubEnv("E2E_EMAIL_PREVIEW_HMAC_KEY", "a".repeat(43))
+    vi.stubEnv("E2E_EMAIL_PREVIEW_DIRECTORY", authDirectory)
+
+    const response = await POST(new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: { origin: "https://darkfactory.localhost" },
+        body: "{}",
+      },
+    ))
+
+    expect(response.status).toBe(202)
+    expect(mocks.selectEmailPort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previewDirectory: authDirectory,
+        previewBinding: {
+          runId,
+          hmacKey: "a".repeat(43),
+        },
+      }),
+    )
+    expect(mocks.selectContactEmailPort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previewDirectory:
+          `/repo/test-results/e2e-runs/${runId}/previews/contact`,
+      }),
+    )
 
   it "returns a typed 503 and closes the database when edge throttle storage fails", async ->
     mocks.consumeContactThrottle.mockRejectedValueOnce(

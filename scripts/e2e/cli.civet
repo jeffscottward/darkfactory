@@ -1,0 +1,720 @@
+import { randomBytes, randomUUID } from "node:crypto"
+import { access, readdir, realpath } from "node:fs/promises"
+import { constants } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
+
+import {
+  createArtifactScannerDependencies,
+  assertOwnedLifecycleRoots,
+  createOwnedLifecyclePaths,
+  decodeOwnedRunAdoption,
+  decodeOwnedRunProof,
+  encodeOwnedRunAdoption,
+  encodeOwnedRunProof,
+  prepareOwnedRun,
+  finalizeOwnedLifecycleAfterPlaywright,
+  readOwnedLifecycleState,
+  type OwnedLifecyclePaths,
+  type OwnedRunAdoption,
+} from "./system.civet"
+import {
+  runJourneySuite,
+  type E2eMode,
+  type JourneyDependencies,
+  type JourneyLifecycleStage,
+  type JourneyLifecycleObservation,
+  type JourneyLifecycleObservationReason,
+  type JourneyLifecycleStatus,
+  type JourneyProgress,
+  type JourneySuiteReport,
+} from "./runner.civet"
+import { scanArtifactPaths, type ArtifactScanReport } from "./scanner.civet"
+import { runOwnedCommand } from "./process.civet"
+import {
+  persistE2ERunnerState,
+  sanitizeE2ERunnerReport,
+  type E2ERunnerState,
+} from "./state.civet"
+
+export type CliStreams = Readonly<{
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+}>
+export type JourneyCliDependencies = Readonly<
+  Partial<Pick<
+    JourneyDependencies,
+    | "createHmacKey"
+    | "createRunId"
+    | "listSpecs"
+    | "prepareRun"
+    | "runPlaywright"
+    | "scanArtifacts"
+  >> & {
+    persistState?: (state: E2ERunnerState) => void
+  }
+>
+export const serializeJourneyProgress = (progress: JourneyProgress): string => {
+  const rendered = JSON.stringify(progress)
+  if (Buffer.byteLength(rendered, "utf8") > 1_024) {
+    throw new Error("E2E progress event exceeded its fixed bound")
+  }
+  return `${rendered}\n`
+}
+export const serializeJourneyFailureSummary = (
+  report: JourneySuiteReport,
+): string => {
+  const failed = [...report.results].reverse().find((result) =>
+    result.playwrightExitCode !== 0 || !result.scan.ok
+  ) ?? report.results.at(-1)
+  if (failed === undefined) return "Error: E2E runner failed before result\n"
+  return "Error: E2E runner failed " +
+    `stage=${failed.stage} process=${failed.processState} ` +
+    `lifecycleStatus=${failed.lifecycleStatus} ` +
+    `lifecycleStage=${failed.lifecycleStage} ` +
+    `lifecycleObservation=${failed.lifecycleObservation} ` +
+    `lifecycleObservationReason=${failed.lifecycleObservationReason} ` +
+    `playwrightOk=${failed.playwrightExitCode === 0} ` +
+    `treeTerminated=${failed.processTreeTerminated} ` +
+    `scanOk=${failed.scan.ok} purged=${failed.scan.purged}\n`
+}
+
+const INHERITED_PLAYWRIGHT_KEYS = [
+  "CI", "COLORTERM", "FORCE_COLOR", "HOME", "LANG", "LC_ALL", "LOGNAME",
+  "NODE_EXTRA_CA_CERTS", "NO_COLOR", "SHELL", "TEMP", "TERM", "TMP", "TMPDIR",
+  "USER",
+] as const
+const BLANK_PROVIDER_ENVIRONMENT = Object.freeze({
+  GROQ_API_KEY: "",
+  GROQ_MODEL: "",
+  RESEND_API_KEY: "",
+  POSTHOG_KEY: "",
+  POSTHOG_HOST: "",
+  OTEL_ENABLED: "false",
+  OTEL_EXPORTER_OTLP_ENDPOINT: "",
+  R2_ACCOUNT_ID: "",
+  R2_ACCESS_KEY_ID: "",
+  R2_SECRET_ACCESS_KEY: "",
+  ERROR_TRACKING_DSN: "",
+})
+
+const executableOutsideRepository = async (
+  name: string,
+  repositoryPath: string,
+): Promise<string> => {
+  const root = await realpath(repositoryPath)
+  for (const candidate of [
+    resolve(dirname(process.execPath), name),
+    `/opt/homebrew/bin/${name}`,
+    `/usr/local/bin/${name}`,
+    `/usr/bin/${name}`,
+    `/bin/${name}`,
+  ]) {
+    try {
+      const canonical = await realpath(candidate)
+      const relation = relative(root, canonical)
+      if (relation === "" || (!relation.startsWith(`..${sep}`) && relation !== "..")) continue
+      await access(canonical, constants.X_OK)
+      return canonical
+    } catch {
+      continue
+    }
+  }
+  throw new Error(`Trusted ${name} executable is unavailable`)
+}
+export const discoverJourneySpecs = async (
+  repositoryPath: string,
+): Promise<readonly string[]> => {
+  const entries = await readdir(join(repositoryPath, "tests", "e2e"), {
+    withFileTypes: true,
+  })
+  const candidates = entries.filter((entry) => entry.name.endsWith(".spec.ts"))
+  if (candidates.some((entry) => !entry.isFile())) {
+    throw new Error("E2E journey candidates must be regular files")
+  }
+  return Object.freeze(candidates
+    .map((entry) => `tests/e2e/${entry.name}`)
+    .sort())
+}
+
+
+export const createPlaywrightEnvironment = (
+  source: NodeJS.ProcessEnv,
+  isolated: Readonly<Record<string, string>>,
+): NodeJS.ProcessEnv => {
+  const environment: NodeJS.ProcessEnv = {
+    ...BLANK_PROVIDER_ENVIRONMENT,
+    APP_ENV: "test",
+    DATABASE_URL: source["DATABASE_URL"] ?? "",
+    PORTLESS_PORT: source["PORTLESS_PORT"] ?? "",
+    PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+    ...isolated,
+    DEBUG: "pw:webserver",
+  }
+  for (const key of INHERITED_PLAYWRIGHT_KEYS) {
+    const value = source[key]
+    if (value !== undefined) environment[key] = value
+  }
+  return environment
+}
+type LifecycleObservation = Readonly<{
+  lifecycleStatus: JourneyLifecycleStatus
+  lifecycleStage: JourneyLifecycleStage
+  lifecycleObservation: JourneyLifecycleObservation
+  lifecycleObservationReason: JourneyLifecycleObservationReason
+}>
+const unavailableLifecycle = (
+  lifecycleObservation: "invalid" | "missing",
+  lifecycleObservationReason: JourneyLifecycleObservationReason,
+): LifecycleObservation => Object.freeze({
+  lifecycleStatus: "unavailable",
+  lifecycleStage: "unavailable",
+  lifecycleObservation,
+  lifecycleObservationReason,
+})
+
+export const observeE2ELifecycle = async (
+  environment: Readonly<Record<string, string>>,
+  repositoryPath = process.cwd(),
+): Promise<LifecycleObservation> => {
+  const runId = environment["E2E_RUN_ID"]
+  const encodedAdoption = environment["E2E_RUN_ADOPTION"]
+  if (runId === undefined || encodedAdoption === undefined) {
+    return unavailableLifecycle("missing", "inputs-missing")
+  }
+  let paths: OwnedLifecyclePaths
+  try {
+    paths = await createOwnedLifecyclePaths(repositoryPath, runId)
+  } catch {
+    return unavailableLifecycle("invalid", "paths-failed")
+  }
+  let adoption: OwnedRunAdoption
+  try {
+    adoption = decodeOwnedRunAdoption(encodedAdoption, runId)
+    await assertOwnedLifecycleRoots(paths, adoption)
+  } catch {
+    return unavailableLifecycle("invalid", "adoption-invalid")
+  }
+  let state: Awaited<ReturnType<typeof readOwnedLifecycleState>>
+  try {
+    state = await readOwnedLifecycleState(paths, adoption)
+  } catch {
+    return unavailableLifecycle("invalid", "state-invalid")
+  }
+  if (state === undefined) {
+    return unavailableLifecycle("missing", "state-missing")
+  }
+  return Object.freeze({
+    lifecycleStatus: state.status as JourneyLifecycleStatus,
+    lifecycleStage: state.stage as JourneyLifecycleStage,
+    lifecycleObservation: "state",
+    lifecycleObservationReason: "observed-state",
+  })
+}
+type FinalizedLifecycleObservation = Readonly<{
+  finalizationFailed: boolean
+  lifecycle: LifecycleObservation
+}>
+
+export const finalizeAndObserveE2ELifecycle = async (
+  environment: Readonly<Record<string, string>>,
+  processResult: Readonly<{ exitCode: number; treeTerminated: boolean }>,
+  repositoryPath = process.cwd(),
+): Promise<FinalizedLifecycleObservation> => {
+  let finalizationFailed = false
+  if (processResult.exitCode !== 0 && processResult.treeTerminated) {
+    try {
+      await finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: environment["E2E_RUN_ADOPTION"] ?? "",
+        exitCode: processResult.exitCode,
+        repositoryPath,
+        runId: environment["E2E_RUN_ID"] ?? "",
+        treeTerminated: processResult.treeTerminated,
+      })
+    } catch {
+      finalizationFailed = true
+    }
+  }
+  return Object.freeze({
+    finalizationFailed,
+    lifecycle: await observeE2ELifecycle(environment, repositoryPath),
+  })
+}
+
+
+const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/gu
+const WEB_SERVER_LIFECYCLE_FAILURE =
+  /^(?:\[WebServer\]\s*)?Error:\s*E2E lifecycle (startup|cleanup) failed during (validation|owner-lock|artifact-isolation|module-loading|database-create|database-migrate|database-reset|database-seed|server-spawn|server-probed|server-ready)\.( Resources retained\.)?$/u
+
+export const observeWebServerLifecycleFailure = (
+  stdout: string,
+  stderr: string,
+): LifecycleObservation | undefined => {
+  const matches: LifecycleObservation[] = []
+  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/u)) {
+    const match = WEB_SERVER_LIFECYCLE_FAILURE.exec(
+      line.replace(ANSI_ESCAPE, "").trim(),
+    )
+    if (match === null) continue
+    const retainsResources = match[3] === " Resources retained."
+    if (
+      (match[1] === "startup" && retainsResources) ||
+      (match[1] === "cleanup" && !retainsResources)
+    ) continue
+    const status = match[1] === "startup"
+      ? "startup-failed"
+      : "cleanup-failed"
+    const stage = match[2] as JourneyLifecycleStage
+    matches.push(Object.freeze({
+      lifecycleStatus: status,
+      lifecycleStage: stage,
+      lifecycleObservation: "stderr",
+      lifecycleObservationReason: "observed-stderr",
+    }))
+  }
+  return matches.length === 1 ? matches[0] : undefined
+}
+export const resolveLifecycleObservation = (
+  recorded: LifecycleObservation,
+  stdout: string,
+  stderr: string,
+): LifecycleObservation =>
+  recorded.lifecycleObservation === "missing"
+    ? observeWebServerLifecycleFailure(stdout, stderr) ?? recorded
+    : recorded
+
+
+const scannerEnvironment = (): NodeJS.ProcessEnv => ({
+  PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+  TMPDIR: process.env["TMPDIR"],
+})
+
+const hasSensitiveProcessStructure = (value: string): boolean => [
+  /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]{4,}/iu,
+  /\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=)(?!\[REDACTED\])[^/?&#\s<"']{4,}/iu,
+  /https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email)[^\s"'<>]*[?&](?:amp;)?token=(?!\[REDACTED\])[^&\s"'<>]{4,}/iu,
+  /\/(?:reset-password|verify-email)\?(?:token=|[^#\s"'<>]{0,512}&(?:amp;)?token=)(?!\[REDACTED\])[^&#\s"'<>]{4,}/iu,
+  /["']?authorization["']?\s*[:=]\s*["']?(?:bearer|basic)\s+[^"',}\s]{4,}/iu,
+  /["']?name["']?\s*[:=]\s*["']authorization["'](?:(?!\r?\n).){0,512}["']?value["']?\s*[:=]\s*["'](?:bearer|basic)\s+[^"']{4,}/iu,
+  /["']?value["']?\s*[:=]\s*["'](?:bearer|basic)\s+[^"']{4,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["']authorization["']/iu,
+  /better-auth\.session[_-]?token(?:(?!\r?\n).){0,512}(?:value|[:=])\s*["']?[^"',;\s}]{4,}/iu,
+  /["']?value["']?\s*[:=]\s*["']?[^"',;\s}]{4,}["']?(?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["']?(?:__Secure-)?better-auth\.session[_-]?token["']?/iu,
+  /(?:hmac[_-]?key|(?:access[_-]?)?token|access[_-]?key|api[_-]?key|client[_-]?secret)\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[A-Za-z0-9._~+\/=-]{16,}/iu,
+  /(?:cookie|set-cookie)\s*[:=][^\r\n]*better-auth\.session[_-]?token=[^;\s"']{4,}/iu,
+  /["']?(?:database_url|password|private[_-]?key|api[_-]?key|secret)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/iu,
+  /postgres(?:ql)?:\/\/[^\s"'<>]+/iu,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
+].some((pattern) => pattern.test(value))
+
+const redactProcessLine = (line: string): string => {
+  if (Buffer.byteLength(line, "utf8") > 16 * 1024) {
+    return "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+  }
+  const withoutAnsi = line.replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "")
+  const inspection = withoutAnsi
+    .replace(/&quot;|&#34;|&#x22;/giu, '"')
+    .replace(/\\(["'])/gu, "$1")
+  if (hasSensitiveProcessStructure(inspection)) {
+    return "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+  }
+  return withoutAnsi
+    .replace(/Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]+/giu, "[REDACTED]")
+    .replace(/(\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=))[^/?&#\s<"']+/giu, "$1[REDACTED]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[REDACTED EMAIL]")
+    .replace(/https?:\/\/[^\s"'<>]+/giu, "[REDACTED URL]")
+}
+
+export const redactProcessOutput = (
+  value: string,
+  knownSensitiveValues: readonly string[] = [],
+): string => {
+  let redacted = value
+  for (const secret of knownSensitiveValues) {
+    if (secret.length >= 6) redacted = redacted.replaceAll(secret, "[REDACTED]")
+  }
+  return redacted.match(/[^\n]*\n|[^\n]+$/gu)?.map(redactProcessLine).join("") ?? ""
+}
+const boundedDiagnosticLines = (value: string, channel: "stderr" | "stdout"): string[] =>
+  value
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(-4)
+    .map((line) => `${channel}: ${line.slice(0, 400)}`)
+
+export const collectProcessDiagnostics = (
+  stdout: string,
+  stderr: string,
+  knownSensitiveValues: readonly string[] = [],
+): readonly string[] => Object.freeze([
+  ...boundedDiagnosticLines(
+    redactProcessOutput(stdout, knownSensitiveValues),
+    "stdout",
+  ),
+  ...boundedDiagnosticLines(
+    redactProcessOutput(stderr, knownSensitiveValues),
+    "stderr",
+  ),
+])
+const databaseUrlSensitiveValues = (value: string): readonly string[] => {
+  if (value.length === 0) return []
+  try {
+    const url = new URL(value)
+    return Object.freeze([
+      value,
+      url.username,
+      url.password,
+      decodeURIComponent(url.username),
+      decodeURIComponent(url.password),
+    ])
+  } catch {
+    return Object.freeze([value])
+  }
+}
+
+
+
+export const runArtifactScannerCli = async (
+  arguments_: readonly string[],
+  repositoryPath: string,
+  streams: CliStreams,
+): Promise<number> => {
+  const purgeOwned = arguments_.length === 5 && arguments_[4] === "--purge-owned"
+  if (
+    arguments_[0] !== "--run-id" ||
+    arguments_[2] !== "--ownership" ||
+    (arguments_.length !== 4 && !purgeOwned)
+  ) {
+    streams.writeError(
+      "Usage: scan-artifacts --run-id <safe-run-id> --ownership <proof> [--purge-owned]\n",
+    )
+    return 2
+  }
+  let report: ArtifactScanReport = Object.freeze({
+    ok: false,
+    scannedEntries: 0,
+    findings: [],
+    purged: false,
+    reason: "Owned E2E artifact scanner initialization failed safely",
+  })
+  try {
+    const proof = decodeOwnedRunProof(arguments_[3] ?? "")
+    if (proof.runId !== arguments_[1]) throw new Error("Owned proof run mismatch")
+    const dependencies = await createArtifactScannerDependencies(repositoryPath, proof)
+    report = await scanArtifactPaths(
+      arguments_[1] ?? "",
+      [
+        `test-results/e2e-runs/${arguments_[1] ?? ""}`,
+        `test-results/evidence/${arguments_[1] ?? ""}`,
+      ],
+      dependencies,
+      purgeOwned,
+    )
+  } catch {
+    // The initialized fail-closed report is preserved.
+  }
+  const rendered = `${JSON.stringify(report)}\n`
+  if (report.ok) streams.writeOutput(rendered)
+  else streams.writeError(rendered)
+  return report.ok ? 0 : 1
+}
+
+const SCANNER_CATEGORIES = new Set([
+  "authorization-header",
+  "browser-password",
+  "session-cookie",
+  "secret-assignment",
+  "token-url",
+])
+const SCANNER_REASONS = new Set([
+  "E2E run identifier is invalid",
+  "Artifacts were clean; failed-run evidence was purged",
+  "E2E artifacts passed external secret scanning",
+  "Sensitive artifact patterns were detected; owned run evidence was purged",
+  "E2E artifact scanning failed and temporary scanner cleanup was incomplete",
+  "E2E artifact scanning failed; owned run outputs were purged",
+  "E2E artifact scanning and owned-run purge failed safely",
+])
+
+const parseScannerCandidate = (
+  value: string,
+): ArtifactScanReport | undefined => {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    const findings = parsed["findings"]
+    if (
+      typeof parsed["ok"] !== "boolean" ||
+      !Number.isSafeInteger(parsed["scannedEntries"]) ||
+      (parsed["scannedEntries"] as number) < 0 ||
+      (parsed["scannedEntries"] as number) > 1_000_000 ||
+      !Array.isArray(findings) ||
+      findings.length > 100_000 ||
+      typeof parsed["purged"] !== "boolean" ||
+      typeof parsed["reason"] !== "string" ||
+      !SCANNER_REASONS.has(parsed["reason"]) ||
+      findings.some((finding) =>
+        finding === null ||
+        typeof finding !== "object" ||
+        Array.isArray(finding) ||
+        !SCANNER_CATEGORIES.has(String((finding as Record<string, unknown>)["category"])) ||
+        typeof (finding as Record<string, unknown>)["path"] !== "string" ||
+        !/^artifact-[a-f0-9]{16}$/u.test(
+          (finding as Record<string, unknown>)["path"] as string,
+        ))
+    ) return undefined
+    const ok = parsed["ok"] as boolean
+    const purged = parsed["purged"] as boolean
+    const reason = parsed["reason"] as string
+    const combinationValid = ok
+      ? findings.length === 0 && (
+        (purged && reason === "Artifacts were clean; failed-run evidence was purged") ||
+        (!purged && reason === "E2E artifacts passed external secret scanning")
+      )
+      : findings.length > 0
+        ? purged &&
+          reason === "Sensitive artifact patterns were detected; owned run evidence was purged"
+        : (
+          (!purged && reason === "E2E run identifier is invalid") ||
+          (!purged &&
+            reason === "E2E artifact scanning failed and temporary scanner cleanup was incomplete") ||
+          (purged && reason === "E2E artifact scanning failed; owned run outputs were purged") ||
+          (!purged && reason === "E2E artifact scanning and owned-run purge failed safely")
+        )
+    if (!combinationValid) return undefined
+    return Object.freeze({
+      ok: parsed["ok"],
+      scannedEntries: parsed["scannedEntries"],
+      findings: Object.freeze(findings.map((finding) => {
+        const record = finding as Record<string, unknown>
+        return Object.freeze({
+          category: record["category"],
+          path: record["path"],
+        })
+      })),
+      purged: parsed["purged"],
+      reason: parsed["reason"],
+    }) as ArtifactScanReport
+  } catch {
+    return undefined
+  }
+}
+export const parseScannerReport = (
+  value: string,
+): ArtifactScanReport | undefined => {
+  if (Buffer.byteLength(value, "utf8") > 1024 * 1024) return undefined
+  const reports: ArtifactScanReport[] = []
+  for (const line of value.split(/\r?\n/u)) {
+    const candidate = line.trim()
+    if (candidate.length === 0) continue
+    const parsed = parseScannerCandidate(candidate)
+    if (parsed !== undefined) reports.push(parsed)
+    if (reports.length > 1) return undefined
+  }
+  return reports.length === 1 ? reports[0] : undefined
+}
+const purgeAfterScannerFailure = async (
+  repositoryPath: string,
+  runId: string,
+  encodedProof: string,
+): Promise<ArtifactScanReport> => {
+  try {
+    const proof = decodeOwnedRunProof(encodedProof)
+    const dependencies = await createArtifactScannerDependencies(repositoryPath, proof)
+    await dependencies.purgeOwnedRun(runId)
+    return Object.freeze({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: true,
+      reason: "External scanner failed; parent purged owned run outputs",
+    })
+  } catch {
+    return Object.freeze({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "External scanner failed and parent purge could not be proven",
+    })
+  }
+}
+
+
+export const runJourneyCli = async (
+  arguments_: readonly string[],
+  repositoryPath: string,
+  streams: CliStreams,
+  overrides: JourneyCliDependencies = {},
+): Promise<number> => {
+  const mode = arguments_[0]
+  if (arguments_.length !== 1 || (mode !== "e2e" && mode !== "a11y")) {
+    streams.writeError("Usage: e2e-run <e2e|a11y>\n")
+    return 2
+  }
+  let corepack = ""
+  if (overrides.runPlaywright === undefined || overrides.scanArtifacts === undefined) {
+    try {
+      corepack = await executableOutsideRepository("corepack", repositoryPath)
+    } catch {
+      streams.writeError("Trusted Corepack executable is unavailable\n")
+      return 1
+    }
+  }
+  const defaultScanArtifacts = async (
+    runId: string,
+    purgeOwned: boolean,
+    ownership: string,
+  ): Promise<ArtifactScanReport> => {
+    const scannerArguments = [
+      "pnpm",
+      "exec",
+      "civet",
+      "scripts/e2e/scan-artifacts.civet",
+      "--run-id",
+      runId,
+      "--ownership",
+      ownership,
+    ]
+    if (purgeOwned) scannerArguments.push("--purge-owned")
+    const result = await runOwnedCommand(corepack, scannerArguments, {
+      cwd: repositoryPath,
+      env: scannerEnvironment(),
+    })
+    if (!result.treeTerminated) return Object.freeze({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "External scanner process-tree termination was not proven",
+    })
+    const parsed = parseScannerReport(result.stdout || result.stderr)
+    const statusMatches = parsed !== undefined &&
+      result.exitCode === (parsed.ok ? 0 : 1)
+    const purgeMatches = parsed !== undefined &&
+      (!purgeOwned || parsed.purged) &&
+      (parsed.ok || parsed.purged)
+    if (parsed !== undefined && statusMatches && purgeMatches) return parsed
+    return purgeAfterScannerFailure(repositoryPath, runId, ownership)
+  }
+  const defaultRunPlaywright: JourneyDependencies["runPlaywright"] = async (
+    playwrightArguments,
+    isolatedEnvironment,
+  ) => {
+    const environment = createPlaywrightEnvironment(process.env, isolatedEnvironment)
+    const result = await runOwnedCommand(corepack, playwrightArguments, {
+      cwd: repositoryPath,
+      env: environment,
+    })
+    const finalizedLifecycle = await finalizeAndObserveE2ELifecycle(
+      isolatedEnvironment,
+      result,
+      repositoryPath,
+    )
+    const lifecycleFinalizationFailed =
+      finalizedLifecycle.finalizationFailed
+    const recordedLifecycle = finalizedLifecycle.lifecycle
+    const lifecycle = resolveLifecycleObservation(
+      recordedLifecycle,
+      result.stdout,
+      result.stderr,
+    )
+    const knownSecrets = [
+      ...databaseUrlSensitiveValues(environment["DATABASE_URL"] ?? ""),
+      isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
+    ]
+    const safeStdout = redactProcessOutput(result.stdout, knownSecrets)
+    const safeStderr = redactProcessOutput(result.stderr, knownSecrets)
+    if (safeStdout) streams.writeOutput(safeStdout)
+    if (safeStderr) streams.writeError(safeStderr)
+    return {
+      diagnostics: [
+        ...(result.exitCode === 0 && result.treeTerminated
+          ? []
+          : collectProcessDiagnostics(result.stdout, result.stderr, knownSecrets)),
+        ...(lifecycleFinalizationFailed
+          ? ["Owned Playwright lifecycle finalization failed safely"]
+          : []),
+      ],
+      lifecycleStatus: lifecycle.lifecycleStatus,
+      lifecycleStage: lifecycle.lifecycleStage,
+      lifecycleObservation: lifecycle.lifecycleObservation,
+      lifecycleObservationReason: lifecycle.lifecycleObservationReason,
+      exitCode: result.exitCode,
+      treeTerminated: result.treeTerminated,
+    }
+  }
+  const persistState = overrides.persistState ??
+    ((state: E2ERunnerState): void =>
+      persistE2ERunnerState(repositoryPath, state))
+  let statePersistenceFailed = false
+  let stateFailureReported = false
+  const reportStateFailure = (): void => {
+    statePersistenceFailed = true
+    if (stateFailureReported) return
+    stateFailureReported = true
+    streams.writeError("Error: E2E runner state persistence failed\n")
+  }
+  const writeProgress: NonNullable<JourneyDependencies["reportProgress"]> = (
+    progress,
+  ): void => {
+    if (statePersistenceFailed) return
+    try {
+      persistState({ version: 1, phase: "progress", progress })
+    } catch {
+      reportStateFailure()
+      return
+    }
+    streams.writeError(serializeJourneyProgress(progress))
+  }
+  const dependencies: JourneyDependencies = {
+    repositoryPath,
+    createRunId: overrides.createRunId ?? (() => randomUUID()),
+    createHmacKey: overrides.createHmacKey ??
+      (() => randomBytes(32).toString("base64url")),
+    prepareRun: overrides.prepareRun ?? (async (runId, artifactProfile) => {
+      const proof = await prepareOwnedRun(repositoryPath, runId, artifactProfile)
+      return Object.freeze({
+        adoption: encodeOwnedRunAdoption(proof),
+        ownership: encodeOwnedRunProof(proof),
+      })
+    }),
+    reportProgress: writeProgress,
+    runPlaywright: overrides.runPlaywright ?? defaultRunPlaywright,
+    listSpecs: overrides.listSpecs ?? (() => discoverJourneySpecs(repositoryPath)),
+    scanArtifacts: overrides.scanArtifacts ?? defaultScanArtifacts,
+  }
+  const report: JourneySuiteReport = await runJourneySuite(
+    mode,
+    dependencies,
+  ).then(
+    (result) => result,
+    () => Object.freeze({
+      ok: false,
+      mode,
+      completed: 0,
+      results: [],
+      reason: "Serialized E2E runner failed before returning a bounded report",
+    }),
+  )
+  let safeReport: JourneySuiteReport
+  try {
+    safeReport = sanitizeE2ERunnerReport(report)
+  } catch {
+    reportStateFailure()
+    return 1
+  }
+  if (!statePersistenceFailed) {
+    try {
+      persistState({ version: 1, phase: "result", report: safeReport })
+    } catch {
+      reportStateFailure()
+    }
+  }
+  if (statePersistenceFailed) return 1
+  const rendered = `${JSON.stringify(safeReport)}\n`
+  if (safeReport.ok) streams.writeOutput(rendered)
+  else {
+    streams.writeError(serializeJourneyFailureSummary(safeReport))
+    streams.writeError(rendered)
+  }
+  return report.ok ? 0 : 1
+}

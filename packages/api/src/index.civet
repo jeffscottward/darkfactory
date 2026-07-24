@@ -75,3 +75,4 @@ export {
   buildOpenApiDocument,
   serializeOpenApiDocument,
 } from "./openapi.civet"
+export * from "./generated/public-registry.civet"

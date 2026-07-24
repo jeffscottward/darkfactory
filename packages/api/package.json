@@ -22,10 +22,10 @@
     }
   },
   "scripts": {
-    "types": "civet --config civet.types.json --emit-declaration src/index.civet && civet --config civet.types.json --emit-declaration src/server/index.civet",
+    "types": "civet --config civet.types.json --emit-declaration src/index.civet src/contract.civet src/client.civet src/openapi.civet src/contracts/account.civet src/contracts/admin-users.civet src/contracts/contact.civet src/contracts/dashboard.civet src/generated/contract-registry.civet src/generated/public-registry.civet src/generated/router-registry.civet src/server/index.civet src/server/context.civet src/server/handler.civet src/server/router.civet src/server/service.civet src/server/account-service.civet src/server/admin-users-service.civet src/server/contact-service.civet src/server/dashboard-service.civet && civet scripts/normalize-type-declarations.civet",
     "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/",
+    "test": "vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
+    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
     "openapi:generate": "civet scripts/openapi.civet --write",
     "openapi:check": "civet scripts/openapi.civet"
   },

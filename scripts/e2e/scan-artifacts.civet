@@ -1,0 +1,10 @@
+import { runArtifactScannerCli } from "./cli.civet"
+
+process.exitCode = await runArtifactScannerCli(
+  process.argv.slice(2),
+  process.cwd(),
+  {
+    writeOutput: (value) => process.stdout.write(value),
+    writeError: (value) => process.stderr.write(value),
+  },
+)

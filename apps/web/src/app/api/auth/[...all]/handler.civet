@@ -4,6 +4,8 @@ import { composeDatabaseProfile } from "@darkfactory/config/database"
 import { createRequestDatabase } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
 
+import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
+
 export type BackgroundTaskScheduler = (task: Promise<unknown>) => void
 
 export const handleAuthRequest = async (
@@ -11,6 +13,7 @@ export const handleAuthRequest = async (
   scheduleBackgroundTask: BackgroundTaskScheduler,
 ): Promise<Response> => {
   const env = parseServerEnv(process.env)
+  const previewOptions = resolveE2eEmailPreviewOptions()
   const databaseProfile = composeDatabaseProfile(env)
   const database = await createRequestDatabase({
     connectionString: databaseProfile.connection.connectionString,
@@ -20,6 +23,8 @@ export const handleAuthRequest = async (
     const email = selectEmailPort({
       environment: env.APP_ENV,
       transport: env.EMAIL_TRANSPORT,
+      previewDirectory: previewOptions?.authDirectory,
+      previewBinding: previewOptions?.binding,
       resendApiKey: env.RESEND_API_KEY,
       from: env.EMAIL_FROM,
       trustedAppOrigin: env.APP_URL,

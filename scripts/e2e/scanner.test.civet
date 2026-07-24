@@ -1,0 +1,708 @@
+import { createHash } from "node:crypto"
+import {
+  access,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { deflateSync } from "node:zlib"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import {
+  createArtifactScannerDependencies,
+  decodeOwnedRunProof,
+  encodeOwnedRunAdoption,
+  encodeOwnedRunProof,
+  prepareOwnedRun,
+  type ArtifactScanLimits,
+} from "./system.civet"
+import { inspectArtifactEntries, scanArtifactPaths } from "./scanner.civet"
+
+const entry = (path: string, content: string) => ({ path, content })
+const cleanups: Array<() => Promise<void>> = []
+afterEach(async () => {
+  vi.restoreAllMocks()
+  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
+})
+
+const fixture = async (
+  runId = "run_safe",
+  artifactProfile: "no-binary" | "anonymous-public-visual" = "no-binary",
+) => {
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-scanner-"))
+  cleanups.push(async () => rm(root, { force: true, recursive: true }))
+  const proof = await prepareOwnedRun(root, runId, artifactProfile)
+  const paths = [
+    `test-results/e2e-runs/${runId}`,
+    `test-results/evidence/${runId}`,
+  ] as const
+  return { root, runId, proof, paths }
+}
+
+const evidenceRecord = {
+  kind: "axe",
+  path: "journey/axe.json",
+  sha256: createHash("sha256").update("image", "utf8").digest("hex"),
+} as const
+const pngEvidencePath = "journey/screenshots/page.png"
+const pngCrcTable = Uint32Array.from({ length: 256 }, (_unused, index) => {
+  let value = index
+  for (let bit = 0; bit < 8; bit += 1)
+    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+  return value >>> 0
+})
+const pngChunk = (name: string, data: Buffer): Buffer => {
+  const body = Buffer.concat([Buffer.from(name, "ascii"), data])
+  let crc = 0xffffffff
+  for (const byte of body)
+    crc = (pngCrcTable[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8)
+  const header = Buffer.alloc(4)
+  header.writeUInt32BE(data.byteLength)
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
+  return Buffer.concat([header, body, checksum])
+}
+const pngFixture = (
+  width = 1,
+  extraChunk?: Readonly<{ name: string; data: Buffer }>,
+): Buffer => {
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(1, 4)
+  header[8] = 8
+  header[9] = 6
+  const pixels = Buffer.alloc(1 + width * 4)
+  const chunks = [
+    pngChunk("IHDR", header),
+    ...(extraChunk === undefined ? [] : [pngChunk(extraChunk.name, extraChunk.data)]),
+    pngChunk("IDAT", deflateSync(pixels)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    ...chunks,
+  ])
+}
+
+const writePngEvidence = async (
+  root: string,
+  runId: string,
+  content: Buffer,
+): Promise<void> => {
+  await writeRequiredReports(root, runId)
+  const evidence = join(root, "test-results/evidence", runId)
+  await writeFile(join(evidence, pngEvidencePath), content)
+  await writeFile(
+    join(evidence, "manifests/journey.json"),
+    JSON.stringify({
+      version: 1,
+      runId,
+      artifacts: [{
+        kind: "screenshots",
+        path: pngEvidencePath,
+        sha256: createHash("sha256").update(content).digest("hex"),
+      }],
+    }),
+  )
+}
+
+const writeRequiredReports = async (root: string, runId: string) => {
+  await writeFile(
+    join(root, "test-results/e2e-runs", runId, "playwright-report.json"),
+    JSON.stringify({ suites: [{ title: "journey" }], stats: {} }),
+  )
+  const evidence = join(root, "test-results/evidence", runId)
+  const manifests = join(evidence, "manifests")
+  await mkdir(manifests)
+  await mkdir(join(evidence, "journey/screenshots"), { recursive: true })
+  await writeFile(join(evidence, evidenceRecord.path), "image")
+  await writeFile(
+    join(manifests, "journey.json"),
+    JSON.stringify({ version: 1, runId, artifacts: [evidenceRecord] }),
+  )
+}
+
+const requiredEntries = (runId: string) => [
+  entry(`test-results/e2e-runs/${runId}/playwright-report.json`, JSON.stringify({ suites: [{ title: "journey" }], stats: {} })),
+  entry(`test-results/evidence/${runId}/manifests/journey.json`, JSON.stringify({ version: 1, runId, artifacts: [evidenceRecord] })),
+  entry(`test-results/evidence/${runId}/${evidenceRecord.path}`, "image"),
+]
+
+describe("external E2E artifact scanner", () => {
+  it("detects content and filename secrets while returning only opaque paths", () => {
+    const findings = inspectArtifactEntries([
+      entry("BrowserAuth123!-trace.txt", "safe"),
+      entry("reset.html", '<a href="/api/auth/reset-password/opaque-reset-value">reset</a>'),
+      entry("network.json", '{"name":"better-auth.session_token","value":"opaque-session"}'),
+      entry("headers.txt", "authorization: Bearer opaque-access-token"),
+      entry("headers.json", '{"authorization":"Bearer opaque-json-token"}'),
+      entry("database.txt", "postgresql://user:password@localhost/database"),
+      entry("worker.json", '{"hmacKey":"0123456789abcdef0123456789abcdef"}'),
+    ])
+
+    expect(findings.map((finding) => finding.category).sort()).toEqual([
+      "authorization-header",
+      "authorization-header",
+      "browser-password",
+      "browser-password",
+      "secret-assignment",
+      "session-cookie",
+      "token-url",
+    ])
+    expect(findings.every((finding) => /^artifact-[a-f0-9]{16}$/u.test(finding.path))).toBe(true)
+    expect(JSON.stringify(findings)).not.toMatch(/BrowserAuth|opaque-|postgresql|reset\.html/u)
+  })
+  it("normalizes bounded artifact text and detects reverse structural secrets", () => {
+    const findings = inspectArtifactEntries([
+      entry("reverse-auth.json", '{"value":"Bearer opaque-access-value","name":"authorization"}'),
+      entry("trace.zip#reverse-session.json", '{"value":"opaque-session-value","name":"better-auth.session_token"}'),
+      entry("secure-session.json", '{"value":"opaque","name":"__Secure-better-auth.session_token"}'),
+      entry("ansi.log", "BrowserAuth\u001b[31m123!\u001b[0m"),
+      entry("reset.html", "/api/auth/reset-password/opaque-\u001b[1mtoken\u001b[0m"),
+      entry("entity.html", "{&amp;quot;authorization&amp;quot;:&amp;quot;Bearer entity-access-value&amp;quot;}"),
+      entry("escaped.json", String.raw`{\"name\":\"better-auth.session_token\",\"value\":\"escaped-session-value\"}`),
+    ])
+    expect(findings.map((finding) => finding.category).sort()).toEqual([
+      "authorization-header",
+      "authorization-header",
+      "browser-password",
+      "session-cookie",
+      "session-cookie",
+      "session-cookie",
+      "token-url",
+    ])
+    expect(findings.every((finding) => /^artifact-[a-f0-9]{16}$/u.test(finding.path))).toBe(true)
+    expect(JSON.stringify(findings)).not.toMatch(/opaque-|BrowserAuth|entity-access|escaped-session/u)
+  })
+
+
+  it("accepts structurally redacted fixtures", () => {
+    expect(inspectArtifactEntries([
+      entry("safe.json", '{"expected":"[REDACTED]","name":"session-redacted"}'),
+      entry("safe.html", "/api/auth/reset-password/[REDACTED]"),
+      entry("reverse-safe.json", '{"value":"[REDACTED]","name":"better-auth.session_token"}'),
+      entry("verify.html", "/api/auth/verify-email?token=[REDACTED]"),
+      entry("benign-title.txt", "How to rotate a private key and API key safely"),
+    ])).toEqual([])
+  })
+
+  it("caps finding output before the runner report limit", () => {
+    const findings = inspectArtifactEntries(Array.from(
+      { length: 10_001 },
+      (_unused, index) => entry(`worker-${index}.json`, `HMAC_KEY=value-${String(index).padStart(16, "0")}`),
+    ))
+    expect(findings).toHaveLength(10_000)
+  })
+
+  it("requires a valid evidence manifest and Playwright JSON report", async () => {
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    const clean = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => requiredEntries("run_safe"),
+      purgeOwnedRun,
+    })
+    expect(clean).toMatchObject({ ok: true, purged: false, scannedEntries: 3 })
+
+    for (const entries of [
+      [],
+      requiredEntries("run_safe").slice(0, 1),
+      [
+        requiredEntries("run_safe")[0]!,
+        entry("test-results/evidence/run_safe/manifests/bad.json", "{}"),
+        requiredEntries("run_safe")[2]!,
+      ],
+      [
+        entry("test-results/e2e-runs/run_safe/playwright-report.json", JSON.stringify({ suites: [], stats: {} })),
+        ...requiredEntries("run_safe").slice(1),
+      ],
+      [
+        entry("test-results/evidence/run_safe/spoof/playwright-report.json", JSON.stringify({ suites: [{ title: "spoof" }], stats: {} })),
+        ...requiredEntries("run_safe").slice(1),
+      ],
+      [
+        ...requiredEntries("run_safe").slice(0, 2),
+        entry(`test-results/evidence/run_safe/${evidenceRecord.path}`, "changed"),
+      ],
+      [
+        ...requiredEntries("run_safe"),
+        requiredEntries("run_safe")[2]!,
+      ],
+      [
+        requiredEntries("run_safe")[0]!,
+        entry(
+          "test-results/evidence/run_safe/manifests/duplicate.json",
+          JSON.stringify({ version: 1, runId: "run_safe", artifacts: [evidenceRecord, evidenceRecord] }),
+        ),
+        requiredEntries("run_safe")[2]!,
+      ],
+      [
+        requiredEntries("run_safe")[0]!,
+        entry(
+          "test-results/evidence/run_safe/manifests/oversize.json",
+          JSON.stringify({
+            version: 1,
+            runId: "run_safe",
+            artifacts: Array.from({ length: 20_001 }, () => evidenceRecord),
+          }),
+        ),
+        requiredEntries("run_safe")[2]!,
+      ],
+    ]) {
+      const report = await scanArtifactPaths("run_safe", ["ignored"], {
+        artifactProfile: "no-binary",
+        deadlineMs: 30_000,
+        collectEntries: async () => entries,
+        purgeOwnedRun,
+      })
+      expect(report).toMatchObject({ ok: false, purged: true })
+    }
+    const screenshotText = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "anonymous-public-visual",
+      deadlineMs: 30_000,
+      collectEntries: async () => [
+        requiredEntries("run_safe")[0]!,
+        entry(
+          "test-results/evidence/run_safe/manifests/text-screenshot.json",
+          JSON.stringify({
+            version: 1,
+            runId: "run_safe",
+            artifacts: [{ ...evidenceRecord, kind: "screenshots" }],
+          }),
+        ),
+        requiredEntries("run_safe")[2]!,
+      ],
+      purgeOwnedRun,
+    })
+    expect(screenshotText).toMatchObject({ ok: false, purged: true })
+
+    const expired = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 0,
+      collectEntries: async () => requiredEntries("run_safe"),
+      purgeOwnedRun,
+    })
+    expect(expired).toMatchObject({ ok: false, purged: true })
+  })
+
+  it("validates exact bounded structured evidence for both artifact profiles", async () => {
+    const structured = {
+      version: 1,
+      status: "passed",
+      test: { title: "Public pricing page is ready" },
+      context: { persona: "anonymous", state: "ready" },
+      route: { pathname: "/pricing" },
+      viewport: { width: 1_280, height: 720 },
+      document: {
+        clientWidth: 1_280,
+        clientHeight: 720,
+        scrollWidth: 1_280,
+        scrollHeight: 1_440,
+      },
+      counts: { headings: 3, landmarks: 4, controls: 8 },
+      focus: { tag: "body", role: null },
+    } as const
+    const structuredPath = "journey/structured.json"
+    const entriesFor = (
+      value: unknown,
+      options: Readonly<{
+        binary?: "png" | "unsupported"
+        path?: string
+        sha256?: string
+      }> = {},
+    ) => {
+      const content = JSON.stringify(value)
+      const path = options.path ?? structuredPath
+      const sha256 = options.sha256 ?? createHash("sha256").update(content, "utf8").digest("hex")
+      return [
+        requiredEntries("run_safe")[0]!,
+        entry(
+          "test-results/evidence/run_safe/manifests/structured.json",
+          JSON.stringify({
+            version: 1,
+            runId: "run_safe",
+            artifacts: [{ kind: "structured", path, sha256 }],
+          }),
+        ),
+        {
+          path: `test-results/evidence/run_safe/${path}`,
+          content,
+          ...(options.binary === undefined ? {} : { binary: options.binary }),
+        },
+      ]
+    }
+    const scan = async (
+      value: unknown,
+      artifactProfile: "no-binary" | "anonymous-public-visual" = "no-binary",
+      options: Parameters<typeof entriesFor>[1] = {},
+    ) => await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile,
+      deadlineMs: 30_000,
+      collectEntries: async () => entriesFor(value, options),
+      purgeOwnedRun: async () => undefined,
+    })
+
+    await expect(scan(structured)).resolves.toMatchObject({ ok: true })
+    await expect(scan(structured, "anonymous-public-visual")).resolves.toMatchObject({ ok: true })
+
+    const invalid = [
+      { ...structured, search: "forbidden" },
+      { ...structured, test: {} },
+      { ...structured, status: "failed" },
+      { ...structured, viewport: { width: 16_385, height: 720 } },
+      { ...structured, test: { title: "password=super-secret-value" } },
+      { ...structured, route: { pathname: "/api/auth/reset-password/raw-token" } },
+      {
+        version: structured.version,
+        status: structured.status,
+        test: structured.test,
+        context: structured.context,
+        route: structured.route,
+        viewport: structured.viewport,
+        document: structured.document,
+        counts: structured.counts,
+      },
+    ]
+    for (const value of invalid) {
+      await expect(scan(value)).resolves.toMatchObject({ ok: false, purged: true })
+    }
+    await expect(scan(structured, "no-binary", { sha256: "0".repeat(64) }))
+      .resolves.toMatchObject({ ok: false, purged: true })
+    await expect(scan(structured, "no-binary", { path: "journey/structured.txt" }))
+      .resolves.toMatchObject({ ok: false, purged: true })
+    await expect(scan(structured, "no-binary", { binary: "unsupported" }))
+      .resolves.toMatchObject({ ok: false, purged: true })
+  })
+
+  it("binds binary evidence to a strict PNG, manifest digest, and public-visual profile", async () => {
+    const validPng = pngFixture()
+    const accepted = await fixture("public_png", "anonymous-public-visual")
+    await writePngEvidence(accepted.root, accepted.runId, validPng)
+    const mixedStructured = JSON.stringify({
+      version: 1,
+      status: "passed",
+      test: { title: "Public visual page is ready" },
+      context: { persona: "anonymous", state: "ready" },
+      route: { pathname: "/pricing" },
+      viewport: { width: 1_280, height: 720 },
+      document: {
+        clientWidth: 1_280,
+        clientHeight: 720,
+        scrollWidth: 1_280,
+        scrollHeight: 1_440,
+      },
+      counts: { headings: 3, landmarks: 4, controls: 8 },
+      focus: { tag: "body", role: null },
+    })
+    const acceptedEvidence = join(accepted.root, "test-results/evidence", accepted.runId)
+    await writeFile(join(acceptedEvidence, "journey/structured.json"), mixedStructured)
+    await writeFile(
+      join(acceptedEvidence, "manifests/journey.json"),
+      JSON.stringify({
+        version: 1,
+        runId: accepted.runId,
+        artifacts: [
+          {
+            kind: "screenshots",
+            path: pngEvidencePath,
+            sha256: createHash("sha256").update(validPng).digest("hex"),
+          },
+          {
+            kind: "structured",
+            path: "journey/structured.json",
+            sha256: createHash("sha256").update(mixedStructured, "utf8").digest("hex"),
+          },
+        ],
+      }),
+    )
+    const acceptedDependencies = await createArtifactScannerDependencies(
+      accepted.root,
+      accepted.proof,
+    )
+    const collected = await acceptedDependencies.collectEntries(accepted.paths)
+    expect(collected.find((candidate) => candidate.path.endsWith(".png"))).toMatchObject({
+      binary: "png",
+      sha256: createHash("sha256").update(validPng).digest("hex"),
+    })
+    await expect(scanArtifactPaths(
+      accepted.runId,
+      accepted.paths,
+      acceptedDependencies,
+      true,
+    )).resolves.toMatchObject({ ok: true, purged: true })
+
+    const rejected = await fixture("private_png", "no-binary")
+    await writePngEvidence(rejected.root, rejected.runId, validPng)
+    const rejectedDependencies = await createArtifactScannerDependencies(
+      rejected.root,
+      rejected.proof,
+    )
+    await expect(scanArtifactPaths(
+      rejected.runId,
+      rejected.paths,
+      rejectedDependencies,
+      true,
+    )).resolves.toMatchObject({ ok: false, purged: true })
+
+    for (const [runId, content] of [
+      ["metadata_png", pngFixture(1, { name: "tEXt", data: Buffer.from("secret") })],
+      ["oversize_png", pngFixture(8_193)],
+      ["corrupt_png", Buffer.from(validPng).fill(0, validPng.byteLength - 4)],
+    ] as const) {
+      const unsafe = await fixture(runId, "anonymous-public-visual")
+      await writePngEvidence(unsafe.root, unsafe.runId, content)
+      const dependencies = await createArtifactScannerDependencies(unsafe.root, unsafe.proof)
+      await expect(scanArtifactPaths(
+        unsafe.runId,
+        unsafe.paths,
+        dependencies,
+        true,
+      )).resolves.toMatchObject({ ok: false, purged: true })
+    }
+  })
+
+  it("purges proof-bound roots after findings and fails closed on tool errors", async () => {
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    const contaminated = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => [
+        ...requiredEntries("run_safe"),
+        entry("trace.zip#network.json", "better-auth.session_token=opaque-session"),
+      ],
+      purgeOwnedRun,
+    })
+    expect(contaminated).toMatchObject({ ok: false, purged: true })
+    expect(contaminated.findings[0]?.path).toMatch(/^artifact-/u)
+
+    const failed = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => { throw new Error("unzip failed with sensitive stderr") },
+      purgeOwnedRun,
+    })
+    expect(failed).toMatchObject({ ok: false, purged: true, findings: [] })
+    expect(failed.reason).not.toContain("sensitive")
+  })
+
+  it("creates nonce and inode ownership proofs and purges exactly those roots", async () => {
+    const { root, runId, proof, paths } = await fixture()
+    await writeRequiredReports(root, runId)
+    expect(decodeOwnedRunProof(encodeOwnedRunProof(proof))).toEqual(proof)
+    const adoption = JSON.parse(Buffer.from(encodeOwnedRunAdoption(proof), "base64url").toString("utf8"))
+    expect(adoption).toMatchObject({
+      version: 1,
+      runId,
+      artifactProfile: "no-binary",
+      nonceDigest: createHash("sha256").update(proof.nonce).digest("hex"),
+      e2e: proof.e2e,
+      evidence: proof.evidence,
+    })
+    expect(JSON.stringify(adoption)).not.toContain(proof.nonce)
+    for (const rootPath of paths) {
+      const marker = join(root, rootPath, ".darkfactory-e2e-owner.json")
+      await expect(readFile(marker, "utf8")).resolves.toBe(JSON.stringify(adoption))
+      expect((await lstat(marker)).mode & 0o777).toBe(0o600)
+    }
+    const dependencies = await createArtifactScannerDependencies(root, proof)
+    await expect(dependencies.collectEntries(paths)).resolves.toHaveLength(5)
+    await dependencies.purgeOwnedRun(runId)
+    await expect(access(join(root, paths[0]))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(access(join(root, paths[1]))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(dependencies.purgeOwnedRun(runId)).rejects.toThrow()
+  })
+
+  it("rejects marker replacement, run-root symlinks, and artifact symlinks", async () => {
+    const markerFixture = await fixture("marker_run")
+    const marker = join(markerFixture.root, markerFixture.paths[0], ".darkfactory-e2e-owner.json")
+    const markerContent = await readFile(marker, "utf8")
+    await rm(marker)
+    await writeFile(marker, markerContent)
+    const markerDependencies = await createArtifactScannerDependencies(markerFixture.root, markerFixture.proof)
+    await expect(markerDependencies.purgeOwnedRun(markerFixture.runId)).rejects.toThrow(/identity|marker/i)
+
+    const linkFixture = await fixture("linked_run")
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-e2e-outside-"))
+    cleanups.push(async () => rm(outside, { force: true, recursive: true }))
+    await writeFile(join(outside, "preserve.txt"), "yes")
+    const runRoot = join(linkFixture.root, linkFixture.paths[0])
+    await rename(runRoot, `${runRoot}-moved`)
+    await symlink(outside, runRoot, "dir")
+    const linkedDependencies = await createArtifactScannerDependencies(linkFixture.root, linkFixture.proof)
+    await expect(linkedDependencies.purgeOwnedRun(linkFixture.runId)).rejects.toThrow(/unsafe|identity|ancestry/i)
+    await expect(readFile(join(outside, "preserve.txt"), "utf8")).resolves.toBe("yes")
+
+    const artifactFixture = await fixture("artifact_link")
+    await writeRequiredReports(artifactFixture.root, artifactFixture.runId)
+    await symlink(outside, join(artifactFixture.root, artifactFixture.paths[1], "linked"), "dir")
+    const artifactDependencies = await createArtifactScannerDependencies(artifactFixture.root, artifactFixture.proof)
+    await expect(artifactDependencies.collectEntries(artifactFixture.paths)).rejects.toThrow(/symlink/i)
+  })
+
+  it("decodes archives with constant bounded subprocesses and opaque member names", async () => {
+    const { root, runId, proof, paths } = await fixture("archive_run")
+    await writeRequiredReports(root, runId)
+    await writeFile(
+      join(root, paths[0], "trace.bin"),
+      Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]),
+    )
+    const calls: string[][] = []
+    const payload = '{"expected":"BrowserAuth123!","food":"mustard"}'
+    const dependencies = await createArtifactScannerDependencies(root, proof, async (file, arguments_) => {
+      calls.push([file, ...arguments_])
+      if (arguments_[0] === "-Z1") return { stdout: Buffer.from("BrowserReset123!-trace.network\n") }
+      if (arguments_[0] === "-Z") return { stdout: Buffer.from(`uncompressed size: ${Buffer.byteLength(payload)} bytes`) }
+      return { stdout: Buffer.from(payload) }
+    })
+    const entries = await dependencies.collectEntries(paths)
+    expect(entries.some((candidate) => candidate.path.endsWith("trace.bin#contents"))).toBe(true)
+    expect(entries.some((candidate) => candidate.content.includes("mustard"))).toBe(true)
+    expect(calls).toHaveLength(3)
+    expect(calls.every((call) => ["unzip"].includes(call[0]!))).toBe(true)
+  })
+
+  it("rejects nested archives and enforces a global archive budget and deadline", async () => {
+    const { root, runId, proof, paths } = await fixture("limits_run")
+    await writeRequiredReports(root, runId)
+    for (const name of ["one.bin", "two.bin"]) {
+      await writeFile(join(root, paths[0], name), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    }
+    const execute = async (_file: string, arguments_: readonly string[]) => {
+      if (arguments_[0] === "-Z1") return { stdout: Buffer.from("member.bin\n") }
+      if (arguments_[0] === "-Z") return { stdout: Buffer.from("uncompressed size: 4 bytes") }
+      return { stdout: Buffer.from([0x50, 0x4b, 0x03, 0x04]) }
+    }
+    const limits: ArtifactScanLimits = {
+      maxEntries: 100,
+      maxEntryBytes: 1024,
+      maxTotalBytes: 4096,
+      maxArchives: 1,
+      maxExpandedBytes: 2048,
+      deadlineMs: 30_000,
+    }
+    const dependencies = await createArtifactScannerDependencies(root, proof, execute, limits)
+    await expect(dependencies.collectEntries(paths)).rejects.toThrow(/nested|archive.*bound/i)
+
+    const expired = await createArtifactScannerDependencies(root, proof, execute, {
+      ...limits,
+      maxArchives: 10,
+      deadlineMs: 0,
+    })
+    await expect(expired.collectEntries(paths)).rejects.toThrow(/deadline/i)
+  })
+
+  it("enforces the whole-scan deadline after archive subprocess completion", async () => {
+    const { root, runId, proof, paths } = await fixture("deadline_run")
+    await writeRequiredReports(root, runId)
+    await writeFile(join(root, paths[0], "trace.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    let now = 1_000
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    const execute = async (_file: string, arguments_: readonly string[]) => {
+      if (arguments_[0] === "-Z1") return { stdout: Buffer.from("member.txt\n") }
+      if (arguments_[0] === "-Z") return { stdout: Buffer.from("uncompressed size: 4 bytes") }
+      now += 100
+      return { stdout: Buffer.from("safe") }
+    }
+    const dependencies = await createArtifactScannerDependencies(root, proof, execute, {
+      maxEntries: 100,
+      maxEntryBytes: 1024,
+      maxTotalBytes: 4096,
+      maxArchives: 10,
+      maxExpandedBytes: 2048,
+      deadlineMs: 50,
+    })
+
+    await expect(dependencies.collectEntries(paths)).rejects.toThrow(/deadline/i)
+  })
+
+  it("rejects renamed nested TAR payloads by magic", async () => {
+    const { root, runId, proof, paths } = await fixture("nested_tar")
+    await writeRequiredReports(root, runId)
+    await writeFile(join(root, paths[0], "renamed.bin"), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    const tarPayload = Buffer.alloc(300)
+    tarPayload.write("ustar", 257, "ascii")
+    const dependencies = await createArtifactScannerDependencies(root, proof, async (_file, arguments_) => {
+      if (arguments_[0] === "-Z1") return { stdout: Buffer.from("renamed.payload\n") }
+      if (arguments_[0] === "-Z") return { stdout: Buffer.from("uncompressed size: 300 bytes") }
+      return { stdout: tarPayload }
+    }, {
+      maxEntries: 100,
+      maxEntryBytes: 1024,
+      maxTotalBytes: 4096,
+      maxArchives: 10,
+      maxExpandedBytes: 2048,
+      deadlineMs: 30_000,
+    })
+
+    await expect(dependencies.collectEntries(paths)).rejects.toThrow(/nested/i)
+  })
+
+  it("counts empty filesystem nodes against the global entry budget", async () => {
+    const { root, runId, proof, paths } = await fixture("node_budget")
+    await writeRequiredReports(root, runId)
+    for (let index = 0; index < 10; index += 1) {
+      await mkdir(join(root, paths[0], `empty-${index}`))
+    }
+    const dependencies = await createArtifactScannerDependencies(root, proof, undefined, {
+      maxEntries: 5,
+      maxEntryBytes: 1024,
+      maxTotalBytes: 4096,
+      maxArchives: 10,
+      maxExpandedBytes: 2048,
+      deadlineMs: 30_000,
+    })
+
+    await expect(dependencies.collectEntries(paths)).rejects.toThrow(/entry count/i)
+  })
+
+  it("aborts and awaits injected archive tools at the global deadline", async () => {
+    const { root, runId, proof, paths } = await fixture("hung_tool")
+    await writeRequiredReports(root, runId)
+    await writeFile(join(root, paths[0], "trace.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    let settled = false
+    const dependencies = await createArtifactScannerDependencies(
+      root,
+      proof,
+      async (_file, _arguments, _maxBuffer, _timeoutMs, signal) => {
+        return await new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            settled = true
+            reject(new Error("archive tool aborted"))
+          }, { once: true })
+        })
+      },
+      {
+        maxEntries: 100,
+        maxEntryBytes: 1024,
+        maxTotalBytes: 4096,
+        maxArchives: 10,
+        maxExpandedBytes: 2048,
+        deadlineMs: 20,
+      },
+    )
+    await expect(dependencies.collectEntries(paths)).rejects.toThrow(/deadline/i)
+    expect(settled).toBe(true)
+  })
+
+  it("rejects unsafe archive member names before extraction", async () => {
+    const { root, runId, proof, paths } = await fixture("unsafe_archive")
+    await writeRequiredReports(root, runId)
+    await writeFile(join(root, paths[0], "trace.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    const calls: string[][] = []
+    const dependencies = await createArtifactScannerDependencies(root, proof, async (file, arguments_) => {
+      calls.push([file, ...arguments_])
+      if (arguments_[0] === "-Z1") return { stdout: Buffer.from("--checkpoint-action=exec=touch-pwned\n") }
+      return { stdout: Buffer.alloc(0) }
+    })
+    await expect(dependencies.collectEntries(paths)).rejects.toThrow(/unsafe archive/i)
+    expect(calls).toHaveLength(1)
+  })
+})

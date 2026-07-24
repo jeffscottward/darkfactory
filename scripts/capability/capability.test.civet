@@ -1,0 +1,220 @@
+import { access, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it } from "vitest"
+
+import {
+  parseCapabilityArguments,
+  planCapabilityAddition,
+  runCapabilityAddition,
+  type CapabilityDependencies,
+} from "./capability.civet"
+import { runCapabilityCli } from "./cli.civet"
+import { createCapabilityFileSystem } from "./system.civet"
+
+const MANIFEST = `project:\n  name: DarkFactory\n\ncapabilities:\n  docs:\n    provider: mintlify\n    enabled: false\n  uptime:\n    provider: uptime-kuma\n    enabled: false\n  storage:\n    provider: r2\n    enabled: false\n`
+
+const dependencies = (overrides: Partial<CapabilityDependencies["files"]> = {}) => {
+  const commits: unknown[] = []
+  const files: CapabilityDependencies["files"] = {
+    readManifest: async () => MANIFEST,
+    exists: async () => false,
+    commit: async (plan) => { commits.push(plan) },
+    ...overrides,
+  }
+  return { dependencies: { files, validateManifest: () => undefined }, commits }
+}
+
+describe("capability:add", () => {
+  it("parses supported plan and apply arguments without ambiguity", () => {
+    expect(parseCapabilityArguments(["uptime", "--provider", "uptime-kuma"])).toEqual({
+      name: "uptime",
+      provider: "uptime-kuma",
+      apply: false,
+    })
+    expect(parseCapabilityArguments(["uptime", "--provider", "uptime-kuma", "--apply"])).toMatchObject({ apply: true })
+    expect(() => parseCapabilityArguments(["bad/name", "--provider", "x"])).toThrow(/name/i)
+    expect(() => parseCapabilityArguments(["search", "--provider", "x"])).toThrow(/not supported/i)
+    expect(() => parseCapabilityArguments(["uptime", "--provider", "uptime-kuma", "extra"])).toThrow(/argument/i)
+  })
+
+  it("plans one disabled descriptor while preserving the strict manifest byte-for-byte", () => {
+    const plan = planCapabilityAddition(MANIFEST, { name: "uptime", provider: "uptime-kuma", apply: false })
+    expect(plan.descriptorPath).toBe("services/uptime-kuma/capability.json")
+    expect(JSON.parse(plan.descriptorSource)).toEqual({
+      version: 1,
+      name: "uptime",
+      provider: "uptime-kuma",
+      enabled: false,
+      installed: false,
+    })
+    expect(plan.manifestSource).toBe(MANIFEST)
+    expect(plan.expectedManifestSource).toBe(MANIFEST)
+  })
+
+  it("maps every supported provider to its owned descriptor path", () => {
+    expect(planCapabilityAddition(
+      MANIFEST.replace(
+        "  storage:\n",
+        "  error_tracking:\n    provider: glitchtip\n    enabled: false\n  storage:\n",
+      ),
+      { name: "error-tracking", provider: "glitchtip", apply: false },
+    ).descriptorPath).toBe("services/glitchtip/capability.json")
+    expect(planCapabilityAddition(
+      MANIFEST,
+      { name: "storage", provider: "r2", apply: false },
+    ).descriptorPath).toBe("packages/storage/src/r2/capability.json")
+  })
+
+  it("plans without mutation and applies through one guarded commit", async () => {
+    const planned = dependencies()
+    await expect(runCapabilityAddition(
+      { name: "uptime", provider: "uptime-kuma", apply: false },
+      planned.dependencies,
+    )).resolves.toMatchObject({ ok: true, changed: false, mode: "plan" })
+    expect(planned.commits).toHaveLength(0)
+
+    const applied = dependencies()
+    await expect(runCapabilityAddition(
+      { name: "uptime", provider: "uptime-kuma", apply: true },
+      applied.dependencies,
+    )).resolves.toMatchObject({ ok: true, changed: true, mode: "apply" })
+    expect(applied.commits).toHaveLength(1)
+  })
+
+  it("refuses provider drift, enabled entries, overwrites, malformed manifests, validation failures, and commit failures", async () => {
+    expect(() => planCapabilityAddition(MANIFEST, { name: "uptime", provider: "other", apply: false })).toThrow(/provider/i)
+    expect(() => planCapabilityAddition(
+      MANIFEST.replace("    enabled: false\n  storage:", "    enabled: true\n  storage:"),
+      { name: "uptime", provider: "uptime-kuma", apply: false },
+    )).toThrow(/enabled/i)
+    expect(() => planCapabilityAddition("project:\n  name: x\n", {
+      name: "uptime",
+      provider: "uptime-kuma",
+      apply: false,
+    })).toThrow(/capabilities/i)
+
+    const existing = dependencies({ exists: async () => true })
+    await expect(runCapabilityAddition(
+      { name: "uptime", provider: "uptime-kuma", apply: true },
+      existing.dependencies,
+    )).resolves.toMatchObject({ ok: false, reason: expect.stringMatching(/exists/i) })
+
+    const invalid = dependencies()
+    await expect(runCapabilityAddition(
+      { name: "uptime", provider: "uptime-kuma", apply: true },
+      { ...invalid.dependencies, validateManifest: () => { throw new Error("invalid manifest") } },
+    )).resolves.toMatchObject({ ok: false, changed: false })
+
+    const failed = dependencies({ commit: async () => { throw new Error("disk failure") } })
+    await expect(runCapabilityAddition(
+      { name: "uptime", provider: "uptime-kuma", apply: true },
+      failed.dependencies,
+    )).resolves.toMatchObject({ ok: false, changed: false })
+  })
+
+  it("maps help, invalid input, and apply failures to deterministic redacted exit codes", async () => {
+    const output: string[] = []
+    const streams = {
+      writeOutput: (value: string) => output.push(value),
+      writeError: (value: string) => output.push(value),
+    }
+    await expect(runCapabilityCli(["--help"], dependencies().dependencies, streams)).resolves.toBe(0)
+    await expect(runCapabilityCli(["search", "--provider", "x"], dependencies().dependencies, streams)).resolves.toBe(2)
+    await expect(runCapabilityCli(
+      ["uptime", "--provider", "uptime-kuma", "--apply"],
+      dependencies({ commit: async () => { throw new Error("disk failure") } }).dependencies,
+      streams,
+    )).resolves.toBe(1)
+    expect(output.join("\n")).not.toContain("disk failure")
+  })
+
+  it("publishes one real isolated descriptor without changing or overwriting the manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-test-"))
+    try {
+      await writeFile(join(root, "capabilities.yaml"), MANIFEST, "utf8")
+      const files = await createCapabilityFileSystem(root)
+      const dependencies: CapabilityDependencies = { files, validateManifest: () => undefined }
+      await expect(runCapabilityAddition(
+        { name: "uptime", provider: "uptime-kuma", apply: true },
+        dependencies,
+      )).resolves.toMatchObject({ ok: true, changed: true })
+      expect(JSON.parse(await readFile(
+        join(root, "services/uptime-kuma/capability.json"),
+        "utf8",
+      ))).toMatchObject({ enabled: false, installed: false })
+      expect(await readFile(join(root, "capabilities.yaml"), "utf8")).toBe(MANIFEST)
+      await expect(runCapabilityAddition(
+        { name: "uptime", provider: "uptime-kuma", apply: true },
+        dependencies,
+      )).resolves.toMatchObject({ ok: false, changed: false })
+      await expect(files.exists("../escape")).rejects.toThrow(/escapes/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a symlinked descriptor parent without writing outside the repository", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-root-"))
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-capability-outside-"))
+    try {
+      await writeFile(join(root, "capabilities.yaml"), MANIFEST, "utf8")
+      await symlink(outside, join(root, "services"))
+      const files = await createCapabilityFileSystem(root)
+      await expect(runCapabilityAddition(
+        { name: "uptime", provider: "uptime-kuma", apply: true },
+        { files, validateManifest: () => undefined },
+      )).resolves.toMatchObject({ ok: false, changed: false })
+      await expect(access(join(outside, "uptime-kuma"))).rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a concurrent ancestor swap without publishing outside the repository", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-swap-"))
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-capability-swap-outside-"))
+    try {
+      await writeFile(join(root, "capabilities.yaml"), MANIFEST, "utf8")
+      await mkdir(join(root, "services"))
+      const files = await createCapabilityFileSystem(root, {
+        beforePublish: async () => {
+          await rename(join(root, "services"), join(root, "services-original"))
+          await symlink(outside, join(root, "services"))
+        },
+      })
+      await expect(runCapabilityAddition(
+        { name: "uptime", provider: "uptime-kuma", apply: true },
+        { files, validateManifest: () => undefined },
+      )).resolves.toMatchObject({ ok: false, changed: false })
+      await expect(access(join(outside, "uptime-kuma/capability.json"))).rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects same-byte manifest replacement before descriptor publication", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-manifest-"))
+    try {
+      const manifest = join(root, "capabilities.yaml")
+      await writeFile(manifest, MANIFEST, "utf8")
+      const files = await createCapabilityFileSystem(root, {
+        beforePublish: async () => {
+          const replacement = join(root, "replacement.yaml")
+          await writeFile(replacement, MANIFEST, "utf8")
+          await rename(replacement, manifest)
+        },
+      })
+      await expect(runCapabilityAddition(
+        { name: "uptime", provider: "uptime-kuma", apply: true },
+        { files, validateManifest: () => undefined },
+      )).resolves.toMatchObject({ ok: false, changed: false })
+      await expect(access(join(root, "services/uptime-kuma/capability.json"))).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(manifest, "utf8")).toBe(MANIFEST)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})

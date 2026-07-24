@@ -435,6 +435,25 @@
   }
 }
 
+@layer components {
+  .theme-palette-swatch {
+    background-color: var(--palette-primary-light);
+    border: 1px solid var(--palette-primary-border-light);
+  }
+
+  [data-mode="dark"] .theme-palette-swatch {
+    background-color: var(--palette-primary-dark);
+    border-color: var(--palette-primary-border-dark);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    [data-mode="system"] .theme-palette-swatch {
+      background-color: var(--palette-primary-dark);
+      border-color: var(--palette-primary-border-dark);
+    }
+  }
+}
+
 @utility duration-fast {
   transition-duration: var(--duration-fast);
 }

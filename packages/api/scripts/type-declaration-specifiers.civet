@@ -1,0 +1,10 @@
+export const RELATIVE_CIVET_DECLARATION_SPECIFIER =
+  /(\b(?:from\s+|import\s*(?:\(\s*)?))(["'])(\.{1,2}\/[^"']+\.civet)\2/gu
+
+export const normalizeRelativeCivetDeclarationSpecifiers = (source: string): string =>
+  source.replace(
+    RELATIVE_CIVET_DECLARATION_SPECIFIER,
+    (_match, prefix: string, quote: string, specifier: string): string => {
+      return `${prefix}${quote}${specifier}.d.js${quote}`
+    },
+  )

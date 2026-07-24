@@ -426,3 +426,4 @@ export type AuditRecord = typeof auditRecords.$inferSelect
 export type NewAuditRecord = typeof auditRecords.$inferInsert
 export type ContactRateLimit = typeof contactRateLimits.$inferSelect
 export type NewContactRateLimit = typeof contactRateLimits.$inferInsert
+export * from "../generated/schema-registry.civet"

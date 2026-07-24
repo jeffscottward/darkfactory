@@ -43,6 +43,7 @@ import {
   type FeatureServiceErrorCode,
   type ThemePreferenceServiceErrorCode,
 } from "./service.civet"
+import { generatedFeatureRouters } from "../generated/router-registry.civet"
 
 const api = implement(appContract).$context<ApiContext>()
 
@@ -787,6 +788,7 @@ const dashboardSummary = api.dashboard.summary
 
 export const appRouter = api.router({
   featureItems: { list, get, create, update, changeStatus, archive },
+  ...generatedFeatureRouters,
   contact: { submit: contactSubmit },
   account: {
     profile: { get: accountProfileGet, update: accountProfileUpdate },

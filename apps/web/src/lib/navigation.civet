@@ -18,6 +18,11 @@ import {
   UserPlus,
   Wrench,
 } from "lucide-react"
+import {
+  GENERATED_FEATURE_NAVIGATION,
+  GENERATED_FEATURE_ROUTE_PAGE_FILES,
+  GENERATED_FEATURE_ROUTE_PATHS,
+} from "../features/generated-navigation.civet"
 
 export interface NavigationItem {
   readonly label: string
@@ -50,6 +55,7 @@ export const AUTH_NAVIGATION: readonly NavigationItem[] = Object.freeze([
 export const PORTAL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   { label: "Overview", href: "/dashboard", icon: Gauge },
   { label: "Feature items", href: "/feature-items", icon: LayoutList },
+  ...GENERATED_FEATURE_NAVIGATION.map((item) => ({ ...item, icon: LayoutList })),
   { label: "Account", href: "/account", icon: CircleUserRound },
 ])
 
@@ -85,6 +91,7 @@ export const EXPOSED_ROUTE_PATHS = Object.freeze([
   "/account/preferences",
   "/account/security",
   "/admin/users",
+  ...GENERATED_FEATURE_ROUTE_PATHS,
 ] as const)
 
 export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze({
@@ -108,6 +115,7 @@ export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
   "/account/preferences": "(portal)/account/preferences/page.civet",
   "/account/security": "(portal)/account/security/page.civet",
   "/admin/users": "(portal)/admin/users/page.civet",
+  ...GENERATED_FEATURE_ROUTE_PAGE_FILES,
 })
 
 export const ALL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
