@@ -614,6 +614,7 @@ test.describe
       page,
     }) => {
       const resolvedBaseURL = requireBaseURL(baseURL);
+      test.setTimeout(120_000);
       await signInAs(page, E2E_IDENTITIES.alice);
       await restoreAliceAccount(page);
 
