@@ -441,6 +441,8 @@ describe "shared shell semantics", ->
     })))
     expect(portal.match(/id="main-content"/g)).toHaveLength(1)
     expect(portal).toContain("<aside")
+    expect(portal).toContain('data-hydration-state="pending"')
+    expect(portal).toMatch(/aria-label="Open portal navigation"[^>]*\sdisabled=""/)
     expect(portal).toContain('href="/dashboard"')
     expect(portal).toContain('href="/account/security"')
     expect(portal).toContain("<span>Sign out</span>")

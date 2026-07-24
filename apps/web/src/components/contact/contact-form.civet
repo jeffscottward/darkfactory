@@ -258,7 +258,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
       <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
         {([canSubmit, isSubmitting]) => (
           <Button
-            className="min-h-11 w-full sm:w-auto"
+            className="min-h-11 w-full transition-none sm:w-auto"
             disabled={!canSubmit || isSubmitting}
             loading={isSubmitting}
             loadingLabel="Sending message"

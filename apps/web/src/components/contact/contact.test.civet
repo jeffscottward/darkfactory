@@ -98,6 +98,7 @@ describe "ContactForm", ->
     expect(html).toContain('aria-hidden="true"')
     expect(html).toContain('class="hidden"')
     expect(html).toContain("min-h-11")
+    expect(html).toContain("transition-none")
     expect(html).toContain("Send message")
 
   it.each([

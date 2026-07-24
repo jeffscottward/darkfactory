@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { access, mkdir, rm, symlink, writeFile } from "node:fs/promises"
+import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { parseGraphConfig } from "./graph.civet"
 import { graphProcessEnvironment, nodeGraphFileSystem } from "./system.civet"
 
 const SENTINELS = {
@@ -69,6 +70,37 @@ describe("Graphify generated output reset", () => {
         nodeGraphFileSystem.resetGraphOutput(join(root, "graph.json")),
       ).rejects.toThrow(/unsafe generated path/i)
       await expect(exists(join(root, "target.txt"))).resolves.toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("Graphify configured source corpus", () => {
+  it("keeps authored dotfiles but excludes nested framework-generated .next output", async () => {
+    const root = join("scripts", "graph", `system-corpus-${randomUUID()}`)
+    const generated = join(root, ".next", "types", "routes.d.ts")
+    const authored = join(root, ".authored", "source.ts")
+    await mkdir(join(root, ".next", "types"), { recursive: true })
+    await mkdir(join(root, ".authored"), { recursive: true })
+    await Promise.all([
+      writeFile(generated, "export type GeneratedRoute = string\n"),
+      writeFile(authored, "export const authored = true\n"),
+    ])
+
+    try {
+      const config = parseGraphConfig(await readFile(".graphify/config.json", "utf8"))
+      const sources = await nodeGraphFileSystem.listSourceFiles(config)
+
+      expect(config.source.files).toEqual([
+        ".env.schema",
+        "package.json",
+        "turbo.json",
+        "tsconfig.base.json",
+        "tsconfig.json",
+      ])
+      expect(sources).toContain(authored)
+      expect(sources).not.toContain(generated)
     } finally {
       await rm(root, { force: true, recursive: true })
     }

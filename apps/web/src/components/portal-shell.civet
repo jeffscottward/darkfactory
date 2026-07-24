@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ExternalLink, Menu } from "lucide-react"
 import { IconButton } from "@darkfactory/ui"
 import {
@@ -120,6 +120,12 @@ export const PortalTopbar = ({
   const store = useUiStoreApi()
   const mobileNavigationContentRef = useRef<HTMLDivElement>(null)
   const mobileNavigationOpen = useUiState((state) => state.mobileNavigationOpen)
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  useEffect(() => {
+    setIsHydrated(true)
+    return undefined
+  }, [])
 
   return (
     <header className="sticky top-0 z-overlay border-b border-border bg-background">
@@ -130,7 +136,13 @@ export const PortalTopbar = ({
             open={mobileNavigationOpen}
           >
             <DialogTrigger asChild>
-              <IconButton aria-label="Open portal navigation" className="lg:hidden" variant="ghost">
+              <IconButton
+                aria-label="Open portal navigation"
+                className="lg:hidden"
+                data-hydration-state={isHydrated ? "ready" : "pending"}
+                disabled={!isHydrated}
+                variant="ghost"
+              >
                 <Menu aria-hidden="true" />
               </IconButton>
             </DialogTrigger>

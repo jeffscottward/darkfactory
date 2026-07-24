@@ -947,6 +947,11 @@ test.describe
       const memberTrigger = memberPage.getByRole("button", {
         name: "Open portal navigation",
       });
+      await expect(memberTrigger).toHaveAttribute(
+        "data-hydration-state",
+        "ready"
+      );
+      await expect(memberTrigger).toBeEnabled();
       await assertTouchTarget(memberTrigger);
       await memberTrigger.focus();
       await memberTrigger.press("Enter");
@@ -1012,6 +1017,11 @@ test.describe
         const adminTrigger = adminPage.getByRole("button", {
           name: "Open portal navigation",
         });
+        await expect(adminTrigger).toHaveAttribute(
+          "data-hydration-state",
+          "ready"
+        );
+        await expect(adminTrigger).toBeEnabled();
         await assertTouchTarget(adminTrigger);
         await adminTrigger.focus();
         await adminTrigger.press("Enter");

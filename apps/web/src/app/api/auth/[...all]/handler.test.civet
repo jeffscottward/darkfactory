@@ -1,0 +1,90 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(->
+  let appEnvironment = "test"
+  const close = vi.fn(async () => undefined)
+  const finalize = vi.fn(async () => undefined)
+  const requestHandler = vi.fn(async () => new Response("handled"))
+  return {
+    close,
+    finalize,
+    requestHandler,
+    setAppEnvironment: (value: string) => { appEnvironment = value },
+    parseServerEnv: vi.fn(() => ({
+      APP_ENV: appEnvironment,
+      APP_URL: "https://darkfactory.localhost",
+      EMAIL_TRANSPORT: "preview",
+      EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+      RESEND_API_KEY: undefined,
+      BETTER_AUTH_SECRET: "configured-secret".repeat(2),
+      BETTER_AUTH_URL: "https://darkfactory.localhost",
+    })),
+    composeDatabaseProfile: vi.fn(() => ({
+      connection: { connectionString: "postgres://configured.invalid/db" },
+    })),
+    createRequestDatabase: vi.fn(async () => ({ db: { request: true }, close })),
+    selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
+    createAuth: vi.fn(() => ({ auth: true })),
+    createAuthHandler: vi.fn(() => requestHandler),
+    createBackgroundTaskLifecycle: vi.fn(() => ({
+      schedule: vi.fn(),
+      finalize,
+    })),
+  }
+)
+
+vi.mock("@darkfactory/auth/server", -> ({
+  createAuth: mocks.createAuth,
+  createAuthHandler: mocks.createAuthHandler,
+}))
+vi.mock("@darkfactory/config/database", -> ({
+  composeDatabaseProfile: mocks.composeDatabaseProfile,
+}))
+vi.mock("@darkfactory/config/server", -> ({
+  parseServerEnv: mocks.parseServerEnv,
+}))
+vi.mock("@darkfactory/db/server", -> ({
+  createRequestDatabase: mocks.createRequestDatabase,
+}))
+vi.mock("@darkfactory/email/server", -> ({
+  selectEmailPort: mocks.selectEmailPort,
+}))
+vi.mock("../../../../lib/e2e-fixtures.civet", -> ({
+  resolveE2eEmailPreviewOptions: vi.fn(() => undefined),
+}))
+vi.mock("../../../../lib/background-task-lifecycle.civet", -> ({
+  createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
+}))
+
+import { handleAuthRequest } from "./handler.civet"
+
+const request = new Request("https://darkfactory.localhost/api/auth/sign-in/email", {
+  method: "POST",
+})
+
+const handle = async (): Promise<void> => {
+  await handleAuthRequest(request, vi.fn())
+}
+
+describe "auth route rate-limit configuration", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    mocks.setAppEnvironment("test")
+
+  it "disables Better Auth throttling only for the isolated test application environment", async ->
+    await handle()
+
+    expect(mocks.createAuth).toHaveBeenCalledWith(expect.objectContaining({
+      rateLimitEnabled: false,
+    }))
+
+  it.each(["development", "staging", "production"])(
+    "keeps Better Auth throttling enabled in %s",
+    async (appEnvironment) ->
+      mocks.setAppEnvironment(appEnvironment)
+      await handle()
+
+      expect(mocks.createAuth).toHaveBeenCalledWith(expect.objectContaining({
+        rateLimitEnabled: true,
+      }))
+  )

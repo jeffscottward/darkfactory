@@ -44,6 +44,7 @@ export const handleAuthRequest = async (
       secret: env.BETTER_AUTH_SECRET,
       baseURL: env.BETTER_AUTH_URL,
       trustedOrigins: [env.APP_URL],
+      rateLimitEnabled: env.APP_ENV !== "test",
       scheduleBackgroundTask: backgroundTasks.schedule,
     })
     return await createAuthHandler(auth)(request)
