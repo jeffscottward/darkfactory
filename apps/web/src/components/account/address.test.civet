@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAccountGateway } from "./account-client.civet"
+import { addressMutationMessage } from "./address-page-client.civet"
 import { AddressBook } from "./address-book.civet"
 import { changedAddressUpdateInput } from "./address-form.civet"
 
@@ -53,6 +54,23 @@ describe "typed address gateway", ->
     expect(addresses.setPrimary).toHaveBeenCalledWith({ id: address.id, expectedUpdatedAt: address.updatedAt })
     expect(addresses.remove).toHaveBeenCalledWith({ id: address.id, expectedUpdatedAt: address.updatedAt })
   
+
+  it "distinguishes create and update confirmations", ->
+    expect(addressMutationMessage({
+      type: address.type,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      region: address.region,
+      postalCode: address.postalCode,
+      country: address.country,
+      isPrimary: true,
+    })).toBe("Address created.")
+    expect(addressMutationMessage({
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: "Changed City",
+    })).toBe("Address updated.")
   it "submits only dirty address fields with the loaded version", ->
     expect(changedAddressUpdateInput(address, { ...address, city: "Changed City" })).toEqual({
       id: address.id,

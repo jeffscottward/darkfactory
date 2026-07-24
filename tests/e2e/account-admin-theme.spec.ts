@@ -460,7 +460,6 @@ const waitForAccountPage = async (
   await expect(
     page.getByRole("heading", { level: 1, name: heading })
   ).toBeVisible();
-  await page.waitForLoadState("networkidle");
 };
 
 const setCheckbox = async (
@@ -486,6 +485,9 @@ const restoreAliceAccount = async (page: Page): Promise<void> => {
 
   await page.goto("/account/address");
   await waitForAccountPage(page, "Addresses");
+  await expect(
+    page.getByRole("button", { name: "Add an address" })
+  ).toBeVisible();
   const evidenceAddress = page.getByRole("listitem").filter({
     hasText: ACCOUNT_EVIDENCE_ADDRESS,
   });
@@ -621,7 +623,7 @@ test.describe
         await page.locator("#displayName").fill("Alice Browser Evidence");
         await page.getByRole("button", { name: "Save profile" }).click();
         await expect(page.getByText("Profile saved.")).toBeVisible();
-        await page.reload({ waitUntil: "networkidle" });
+        await page.reload();
         await expect(page.locator("#displayName")).toHaveValue(
           "Alice Browser Evidence"
         );
@@ -637,7 +639,7 @@ test.describe
         await page.locator("#country").fill("us");
         await page.getByRole("button", { name: "Create address" }).click();
         await expect(page.getByText("Address created.")).toBeVisible();
-        await page.reload({ waitUntil: "networkidle" });
+        await page.reload();
         await expect(page.getByText(ACCOUNT_EVIDENCE_ADDRESS)).toBeVisible();
 
         await page.goto("/account/preferences");
@@ -649,7 +651,7 @@ test.describe
         await page.locator("#profileVisibility").selectOption("public");
         await page.getByRole("button", { name: "Save preferences" }).click();
         await expect(page.getByText("Preferences saved.")).toBeVisible();
-        await page.reload({ waitUntil: "networkidle" });
+        await page.reload();
         await expect(page.locator("#emailNotifications")).not.toBeChecked();
         await expect(page.locator("#productUpdates")).not.toBeChecked();
         await expect(page.locator("#analyticsConsent")).not.toBeChecked();
