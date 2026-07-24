@@ -35,6 +35,9 @@ describe "supported Better Auth security gateway", ->
         expect.objectContaining({ id: "session-current", isCurrent: true }),
       ]),
     })
+    expect(auth.getSession).toHaveBeenCalledWith({
+      query: { disableCookieCache: true },
+    })
     await expect(gateway.revokeOtherSessions()).resolves.toBeUndefined()
     await expect(gateway.changePassword({
       currentPassword: "current-password",

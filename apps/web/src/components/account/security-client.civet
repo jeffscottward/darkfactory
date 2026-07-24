@@ -84,7 +84,7 @@ const ensureAuthSuccess = (result: unknown): void => {
 export const createSecurityGateway = (client: SecurityAuthClient): SecurityGateway => ({
   listSessions: async () => {
     const [currentResult, sessionsResult] = await Promise.all([
-      client.getSession(),
+      client.getSession({ query: { disableCookieCache: true } }),
       client.listSessions(),
     ])
     ensureAuthSuccess(currentResult)
