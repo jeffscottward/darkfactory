@@ -124,32 +124,49 @@ const installThemeProbe = async (context: BrowserContext): Promise<void> => {
       typeof instrumentedWindow.__DF_THEME_PROBE__
     >;
     instrumentedWindow.__DF_THEME_PROBE__ = probe;
-    const root = document.documentElement;
-    new MutationObserver((records) => {
-      for (const record of records) {
-        probe.mutations.push({
-          attribute: record.attributeName ?? "",
-          newValue: root.getAttribute(record.attributeName ?? ""),
-          oldValue: record.oldValue,
-          time: performance.now(),
-        });
+    const startProbe = (): void => {
+      const root = document.documentElement;
+      if (root === null) {
+        return;
       }
-    }).observe(root, {
-      attributeFilter: ["data-mode", "data-palette"],
-      attributeOldValue: true,
-      attributes: true,
-    });
-    requestAnimationFrame(() => {
-      const paintedElement = document.body ?? root;
-      const paintedStyle = getComputedStyle(paintedElement);
-      probe.firstPaint = {
-        backgroundColor: paintedStyle.backgroundColor,
-        color: paintedStyle.color,
-        mode: root.getAttribute("data-mode") ?? undefined,
-        palette: root.getAttribute("data-palette") ?? undefined,
-        time: performance.now(),
-      };
-    });
+      new MutationObserver((records) => {
+        for (const record of records) {
+          probe.mutations.push({
+            attribute: record.attributeName ?? "",
+            newValue: root.getAttribute(record.attributeName ?? ""),
+            oldValue: record.oldValue,
+            time: performance.now(),
+          });
+        }
+      }).observe(root, {
+        attributeFilter: ["data-mode", "data-palette"],
+        attributeOldValue: true,
+        attributes: true,
+      });
+      requestAnimationFrame(() => {
+        const paintedElement = document.body ?? root;
+        const paintedStyle = getComputedStyle(paintedElement);
+        probe.firstPaint = {
+          backgroundColor: paintedStyle.backgroundColor,
+          color: paintedStyle.color,
+          mode: root.getAttribute("data-mode") ?? undefined,
+          palette: root.getAttribute("data-palette") ?? undefined,
+          time: performance.now(),
+        };
+      });
+    };
+    if (document.documentElement !== null) {
+      startProbe();
+    } else {
+      const rootObserver = new MutationObserver(() => {
+        if (document.documentElement === null) {
+          return;
+        }
+        rootObserver.disconnect();
+        startProbe();
+      });
+      rootObserver.observe(document, { childList: true });
+    }
   });
 };
 
@@ -443,14 +460,28 @@ const selectThemeOption = async (
   groupName: "Color mode" | "Color palette",
   optionName: string
 ): Promise<void> => {
-  await page
-    .getByRole("button", { name: "Theme settings", exact: true })
-    .click();
+  const trigger = page.getByRole("button", {
+    name: "Theme settings",
+    exact: true,
+  });
+  expect(await trigger.getAttribute("aria-controls")).toBeNull();
+  await trigger.click();
   const group = page.getByRole("group", { name: groupName });
   await expect(group).toBeVisible();
+  await expect(page.locator("#application-theme-trigger")).toHaveCount(1);
+  const content = page.locator("#application-theme-content");
+  await expect(trigger).toHaveAttribute(
+    "aria-controls",
+    "application-theme-content"
+  );
+  await expect(content).toHaveAttribute(
+    "aria-labelledby",
+    "application-theme-trigger"
+  );
   await group
     .getByRole("menuitemradio", { name: optionName, exact: true })
     .click();
+  expect(await trigger.getAttribute("aria-controls")).toBeNull();
 };
 
 const waitForAccountPage = async (

@@ -88,6 +88,7 @@ describe "semantic theme components", ->
       createElement(ThemeProvider, {
         children: createElement(ThemePicker, {
           disabled: true,
+          idPrefix: "disabled-theme",
           triggerLabel: "Theme settings unavailable",
         }),
         onPreferenceChange: vi.fn(),
@@ -97,12 +98,31 @@ describe "semantic theme components", ->
 
     expect(markup).toContain('aria-label="Theme settings unavailable"')
     expect(markup).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
+  it "uses unique caller-owned trigger identifiers without closed ARIA references", ->
+    const markup = renderToStaticMarkup(
+      createElement(ThemeProvider, {
+        children: createElement(
+          "div",
+          {},
+          createElement(ThemePicker, { idPrefix: "application-theme" }),
+          createElement(ThemePicker, { idPrefix: "secondary-theme" }),
+        ),
+        onPreferenceChange: vi.fn(),
+        preference: { themeMode: "system", palette: "neutral" },
+      }),
+    )
+
+    expect(markup.match(/id="application-theme-trigger"/g)).toHaveLength(1)
+    expect(markup.match(/id="secondary-theme-trigger"/g)).toHaveLength(1)
+    expect(markup).not.toContain('aria-controls="application-theme-content"')
+    expect(markup).not.toContain('aria-controls="secondary-theme-content"')
 
   it "keeps async status and errors mounted while the menu is closed", ->
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
         children: createElement(ThemePicker, {
           error: "Could not save theme settings.",
+          idPrefix: "status-theme",
           statusMessage: "Saving theme settings.",
         }),
         onPreferenceChange: vi.fn(),

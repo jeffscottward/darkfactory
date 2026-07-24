@@ -34,6 +34,8 @@ if (isIP(host) === 0 && !isHostname) {
 
 const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@tanstack/react-form",
+  "@darkfactory/auth > better-auth/client",
+  "@darkfactory/auth > better-auth/client/plugins",
   "@darkfactory/state > zustand/vanilla",
   "@darkfactory/ui > radix-ui",
   "@darkfactory/ui > sonner",

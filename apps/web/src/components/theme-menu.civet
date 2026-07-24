@@ -177,6 +177,7 @@ export const ThemeMenu = () => {
     <ThemePicker
       disabled={!controlsEnabled}
       error={error}
+      idPrefix="application-theme"
       onPreferenceChange={selectPreference}
       statusMessage={ownershipMessage}
       triggerLabel={triggerLabel}
