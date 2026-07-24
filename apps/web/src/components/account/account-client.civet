@@ -7,6 +7,7 @@ import {
   type AddressOutput,
   type AddressUpdateInput,
   type ApiClient,
+  type ApiClientOptions,
   type PreferencesOutput,
   type PreferencesUpdateInput,
   type ProfileUpdateInput,
@@ -36,8 +37,36 @@ export const createAccountGateway = (client: ApiClient): AccountGateway => ({
   updatePreferences: (input) => client.preferences.update(input),
 })
 
-export const createBrowserAccountGateway = (): AccountGateway =>
-  createAccountGateway(createApiClient({ baseUrl: window.location.origin }))
+type BrowserAccountGatewayOptions = Readonly<{
+  createClient?: (options: ApiClientOptions) => ApiClient
+  resolveOrigin?: () => string
+}>
+
+export const createBrowserAccountGateway = (
+  options: BrowserAccountGatewayOptions = {},
+): AccountGateway => {
+  const createClient = options.createClient ?? createApiClient
+  const resolveOrigin = options.resolveOrigin ?? (() => window.location.origin)
+  let gateway: AccountGateway | undefined
+  const getGateway = (): AccountGateway => {
+    if (gateway === undefined) {
+      gateway = createAccountGateway(createClient({ baseUrl: resolveOrigin() }))
+    }
+    return gateway
+  }
+
+  return {
+    getProfile: () => getGateway().getProfile(),
+    updateProfile: (input) => getGateway().updateProfile(input),
+    listAddresses: () => getGateway().listAddresses(),
+    createAddress: (input) => getGateway().createAddress(input),
+    updateAddress: (input) => getGateway().updateAddress(input),
+    removeAddress: (id, expectedUpdatedAt) => getGateway().removeAddress(id, expectedUpdatedAt),
+    setPrimaryAddress: (id, expectedUpdatedAt) => getGateway().setPrimaryAddress(id, expectedUpdatedAt),
+    getPreferences: () => getGateway().getPreferences(),
+    updatePreferences: (input) => getGateway().updatePreferences(input),
+  }
+}
 
 const errorCode = (error: unknown): string | null => {
   if (typeof error !== "object" || error === null) return null

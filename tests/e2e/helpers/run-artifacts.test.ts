@@ -1,4 +1,12 @@
-import { access, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -122,12 +130,27 @@ describe("E2E run artifact ownership", () => {
         assertOwnedE2ERunRootsReady(paths, proof.encoded)
       ).rejects.toThrow(/marker/i);
 
-      await rm(proof.e2eMarker);
+      const originalMarker = await lstat(proof.e2eMarker);
+      const replacementMarker = `${proof.e2eMarker}.replacement`;
       await writeFile(
-        proof.e2eMarker,
+        replacementMarker,
         Buffer.from(proof.encoded, "base64url"),
         { mode: 0o600 }
       );
+      const replacement = await lstat(replacementMarker);
+      expect({
+        dev: replacement.dev,
+        ino: replacement.ino,
+      }).not.toEqual({
+        dev: originalMarker.dev,
+        ino: originalMarker.ino,
+      });
+      await rename(replacementMarker, proof.e2eMarker);
+      const installed = await lstat(proof.e2eMarker);
+      expect({ dev: installed.dev, ino: installed.ino }).toEqual({
+        dev: replacement.dev,
+        ino: replacement.ino,
+      });
       await expect(
         assertOwnedE2ERunRootsReady(paths, proof.encoded)
       ).rejects.toThrow(/marker/i);

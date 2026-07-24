@@ -711,6 +711,7 @@ describe("E2E lifecycle CLIs", () => {
           env: {
             E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
             E2E_RUN_ID: runId,
+            CI: "true",
             HOME: process.env["HOME"] ?? "",
             NODE_ENV: "test",
             PATH: process.env["PATH"] ?? "",

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { BrowserErrorCollector } from "./browser-errors";
@@ -5,6 +6,14 @@ import { BrowserErrorCollector } from "./browser-errors";
 const CANONICAL_SOURCE_OPTIONS = {
   sourceOrigin: "https://darkfactory.localhost",
 } as const;
+
+const CANONICAL_ACCOUNT_MODULE_URL = new URL(
+  "../../../apps/web/src/components/account/account-client.civet",
+  import.meta.url
+);
+const CANONICAL_ACCOUNT_MODULE_PATH = fileURLToPath(
+  CANONICAL_ACCOUNT_MODULE_URL
+);
 const FINGERPRINT_PATTERN = /fingerprint=([a-f0-9]{64})/u;
 const fingerprintOf = (failure: string | undefined): string => {
   const fingerprint = FINGERPRINT_PATTERN.exec(failure ?? "")?.[1];
@@ -35,7 +44,9 @@ describe("secret-safe browser error diagnostics", () => {
     const pageError = new TypeError(
       `Cannot read properties of null (reading 'useMemo') ${message}`
     );
-    pageError.stack = `${pageError.name}: ${pageError.message}\n    at render (/Users/jeffscottward/Github/glen-ross/darkfactory/apps/web/src/components/account/account-client.civet:40:7)\n    at external (/tmp/person@example.com/private-token.ts:99:1)`;
+    pageError.stack = `${pageError.name}: ${pageError.message}\n    at render (${CANONICAL_ACCOUNT_MODULE_PATH}:40:7)\n    at external (/tmp/person@example.com/private-token.ts:99:1)`;
+    const fileUrlPageError = new TypeError(pageError.message);
+    fileUrlPageError.stack = `${fileUrlPageError.name}: ${fileUrlPageError.message}\n    at render (${CANONICAL_ACCOUNT_MODULE_URL.href}:41:7)\n    at external (/tmp/person@example.com/private-token.ts:99:1)`;
 
     collector.recordConsole(
       "error",
@@ -46,6 +57,10 @@ describe("secret-safe browser error diagnostics", () => {
       pageError,
       "/admin/users/reset-private-token?email=person@example.com"
     );
+    collector.recordPageError(
+      fileUrlPageError,
+      "/admin/users/reset-private-token?email=person@example.com"
+    );
 
     const output = JSON.stringify(collector.failures());
     for (const sensitive of sensitiveValues) {
@@ -54,6 +69,8 @@ describe("secret-safe browser error diagnostics", () => {
     for (const forbidden of [
       "reset-private-token",
       "darkfactory.localhost",
+      CANONICAL_ACCOUNT_MODULE_PATH,
+      CANONICAL_ACCOUNT_MODULE_URL.href,
       "/Users/jeffscottward",
       "/tmp/",
       "\\u0000",
@@ -69,6 +86,7 @@ describe("secret-safe browser error diagnostics", () => {
     expect(output).toContain("route=/admin/users/[userId]");
     expect(output).toContain("name=TypeError");
     expect(output).toContain("source=account-gateway:40");
+    expect(output).toContain("source=account-gateway:41");
     expect(output).toMatch(FINGERPRINT_PATTERN);
   });
 
