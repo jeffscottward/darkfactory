@@ -275,10 +275,11 @@ pnpm docs:generate       pnpm docs:check         pnpm openapi:generate
 pnpm openapi:check       pnpm db:generate        pnpm db:migrate
 pnpm db:seed             pnpm db:reset           pnpm certs:install
 pnpm certs:generate      pnpm capability:add     pnpm generate:feature <name>
-pnpm verify              pnpm run ci
+pnpm verify:core         pnpm verify:integration pnpm verify:graph
+pnpm verify:browser      pnpm verify              pnpm run ci
 ```
 
-`pnpm verify` is the full pre-push gate. `pnpm run ci` invokes the repository `ci` script and GitHub Actions executes the same clean sequence. Husky pre-commit stays staged/focused; pre-push executes the wider deterministic gate. Commit/push only focused green increments; after every push follow CI to terminal green or document an exact external blocker.
+`pnpm verify` remains the complete sequential local lifecycle, composed from independently runnable core, integration, graph, and browser lanes. `pnpm run ci` invokes that complete composition. Husky pre-commit stays staged/focused; pre-push executes the broad deterministic core lane. GitHub Actions executes all four lanes concurrently with isolated dependencies and `fail-fast: false`, so environment-heavy Graphify or browser work cannot serialize or obscure independent results. Commit/push only focused core-green increments; after every push follow every CI lane to a terminal state or document an exact blocker.
 
 Tests cover unit, contract, database/auth/feature/provider integration, component behavior, E2E public/auth/portal/admin/feature journeys, accessibility, visual/responsive themes, security smoke, build/runtime, and generator behavior. No live production providers in default tests.
 
@@ -439,13 +440,13 @@ Every item is mandatory unless explicitly classified Capability and disabled. `A
 ### Scripts, hooks, CI, delivery — DF-101 through DF-110
 
 - [ ] **DF-101 · Core · P1/W · depends: DF-011–DF-020.** All listed root scripts exist and perform real work or truthful not-applicable result. **Accept/evidence:** script inventory and focused command transcripts. **Supersedes:** none.
-- [ ] **DF-102 · Core · P1/W · depends: DF-019, DF-101.** `pnpm verify` is the complete pre-push gate; `pnpm run ci` unambiguously invokes the repository lifecycle script and mirrors GitHub Actions. **Accept/evidence:** task/workflow comparison plus a clean `pnpm run ci` invocation. **Supersedes:** none.
-- [ ] **DF-103 · Core · P1/W · depends: DF-101.** Husky pre-commit is staged/focused and calls scripts; pre-push calls full deterministic gate. **Accept/evidence:** hook fixture behavior; no duplicated logic. **Supersedes:** none.
-- [ ] **DF-104 · Convention · P1/W · depends: DF-103.** Hooks/tests/gates are never bypassed, weakened, skipped, or snapshot-deleted for green. **Accept/evidence:** AGENTS/conventions and review history. **Supersedes:** none.
-- [ ] **DF-105 · Core · P1/W · depends: DF-102.** CI uses frozen pnpm install, safe caches, isolated Postgres, migrations/seeds, config validation, full deterministic gates. **Accept/evidence:** workflow and successful run. **Supersedes:** S01.
-- [ ] **DF-106 · Core · P1/W · depends: DF-105.** CI checks format/lint/type/build/unit/contract/integration/OpenAPI/Graphify/docs/E2E/a11y and uploads failure artifacts. **Accept/evidence:** job log/artifact test. **Supersedes:** none.
-- [ ] **DF-107 · Convention · P1/L · depends: DF-102–DF-106.** Every commit is focused and made/pushed only after its affected green gate. **Accept/evidence:** commit/evidence ledger. **Supersedes:** none.
-- [ ] **DF-108 · Convention · P6/L · depends: DF-107.** Every push is followed to terminal CI; repository-owned failures are reproduced/fixed/rerun. **Accept/evidence:** CI URLs and repair loop notes. **Supersedes:** none.
+- [ ] **DF-102 · Core · P1/W · depends: DF-019, DF-101.** `pnpm verify` composes the complete lifecycle from independently runnable core, integration, graph, and browser lanes; `pnpm run ci` unambiguously invokes that composition and mirrors the GitHub Actions lane set. **Accept/evidence:** task/workflow comparison plus clean focused lane invocations. **Supersedes:** the original serial-only lifecycle after the user-directed traffic-jam correction.
+- [ ] **DF-103 · Core · P1/W · depends: DF-101.** Husky pre-commit is staged/focused and calls scripts; pre-push calls the broad deterministic core lane, while environment-heavy gates remain mandatory concurrent CI lanes. **Accept/evidence:** hook fixture behavior; no duplicated logic. **Supersedes:** the original environment-heavy pre-push sequence.
+- [ ] **DF-104 · Convention · P1/W · depends: DF-103.** Hooks/tests/gates are never bypassed, weakened, skipped, or snapshot-deleted for green. Splitting gates into lanes changes scheduling, not required coverage. **Accept/evidence:** AGENTS/conventions and review history. **Supersedes:** none.
+- [ ] **DF-105 · Core · P1/W · depends: DF-102.** CI uses frozen pnpm install, safe caches, isolated Postgres, migrations/seeds, config validation, and all deterministic gates in four concurrent lanes with `fail-fast: false`. **Accept/evidence:** workflow and terminal result for every matrix lane. **Supersedes:** S01.
+- [ ] **DF-106 · Core · P1/W · depends: DF-105.** CI checks format/lint/type/build/unit/contract/integration/OpenAPI/Graphify/docs/E2E/a11y and uploads browser failure artifacts. **Accept/evidence:** terminal matrix jobs and artifact test. **Supersedes:** none.
+- [ ] **DF-107 · Convention · P1/L · depends: DF-102–DF-106.** Every commit is focused and pushed only after its affected deterministic pre-push gate; environment-heavy gates run in clean CI rather than serializing local publication. **Accept/evidence:** commit/evidence ledger. **Supersedes:** the original all-environments-before-push scheduling rule.
+- [ ] **DF-108 · Convention · P6/L · depends: DF-107.** Every push is followed until all CI lanes are terminal; repository-owned failures are reproduced/fixed/rerun. **Accept/evidence:** CI URLs and repair loop notes. **Supersedes:** none.
 - [ ] **DF-109 · Core · P6/L · depends: DF-098, DF-105–DF-108.** Deployment is protected and depends on green CI; untrusted PR secrets never deploy. **Accept/evidence:** workflow permissions/dependency review. **Supersedes:** S08.
 - [ ] **DF-110 · Convention · P6/L · depends: DF-108.** External/flaky blockers record URL/logs/rerun/owner/stop condition and are never labeled green. **Accept/evidence:** blocker template or final explicit none. **Supersedes:** none.
 

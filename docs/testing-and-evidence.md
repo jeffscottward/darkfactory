@@ -46,25 +46,34 @@ varlock load -- pnpm test:integration
 varlock load -- pnpm test:e2e
 ```
 
-The aggregate test script runs unit, integration, then E2E:
+The aggregate test script runs unit, contract, operations, integration, E2E, and accessibility suites:
 
 ```bash
 varlock load -- pnpm test
 ```
 
-The complete pre-push lifecycle is:
+The broad deterministic pre-push lifecycle is:
+
+```bash
+pnpm verify:core
+```
+
+Environment-heavy verification remains explicit:
+
+```bash
+varlock load -- pnpm verify:integration
+pnpm verify:graph
+varlock load -- pnpm verify:browser
+```
+
+The complete sequential local lifecycle and its CI alias are:
 
 ```bash
 varlock load -- pnpm verify
-```
-
-The repository CI lifecycle is:
-
-```bash
 varlock load -- pnpm run ci
 ```
 
-`verify` and `ci` currently run format checking, lint including Markdown, auth schema drift, OpenAPI drift, type checks, build, unit tests, integration tests, and E2E tests. GitHub Actions starts isolated PostgreSQL and the local HTTPS proxy before invoking `pnpm run ci`. Never substitute bare `pnpm ci`; that is pnpm's clean-install command.
+`verify` composes all four lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. Never substitute bare `pnpm ci`; that is pnpm's clean-install command.
 
 Stop the local database after the evidence is captured:
 

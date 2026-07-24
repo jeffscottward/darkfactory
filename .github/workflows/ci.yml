@@ -9,8 +9,13 @@ permissions:
 
 jobs:
   verification:
+    name: Verification (${{ matrix.lane }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [core, integration, graph, browser]
     # Keep CI infrastructure unprivileged and isolated from production credentials.
     env:
       APP_ENV: test
@@ -47,6 +52,7 @@ jobs:
         run: corepack pnpm install --frozen-lockfile
 
       - name: Set up Python
+        if: matrix.lane == 'graph'
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12.11"
@@ -54,21 +60,26 @@ jobs:
           cache-dependency-path: scripts/graph/requirements.lock
 
       - name: Install pinned Graphify
+        if: matrix.lane == 'graph'
         run: |
           python -m pip install --disable-pip-version-check --no-input --only-binary=:all: --require-hashes --requirement scripts/graph/requirements.lock
           graphify --version
 
       - name: Install Playwright browser
+        if: matrix.lane == 'browser'
         run: corepack pnpm exec playwright install --with-deps chromium
 
       - name: Start PostgreSQL integration service
+        if: matrix.lane == 'integration' || matrix.lane == 'browser'
         run: docker compose -f infra/docker/postgres.compose.yml up --detach --wait
 
       - name: Start trusted local HTTPS proxy
+        if: matrix.lane == 'browser'
         run: corepack pnpm exec portless proxy start
 
       # Chromium uses NSS, so trust the generated CA instead of bypassing HTTPS validation.
       - name: Trust portless CA in Chromium
+        if: matrix.lane == 'browser'
         run: |
           set -euo pipefail
           if ! command -v certutil >/dev/null 2>&1; then
@@ -89,15 +100,16 @@ jobs:
           certutil -L -d "sql:$nss_db" | grep -F -- "$ca_nickname"
 
       - name: Build Graphify output and prove tracked metadata freshness
+        if: matrix.lane == 'graph'
         run: |
           corepack pnpm run graph:build
           git diff --exit-code -- .graphify/manifest.json
 
-      - name: Run canonical CI lifecycle
-        run: corepack pnpm run ci
+      - name: Run verification lane
+        run: corepack pnpm run "verify:${{ matrix.lane }}"
 
       - name: Preserve Playwright evidence and failure diagnostics
-        if: always()
+        if: matrix.lane == 'browser' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-evidence-${{ github.run_id }}-${{ github.run_attempt }}
@@ -108,5 +120,5 @@ jobs:
           retention-days: 7
 
       - name: Stop PostgreSQL integration service
-        if: always()
+        if: (matrix.lane == 'integration' || matrix.lane == 'browser') && always()
         run: docker compose -f infra/docker/postgres.compose.yml down --volumes --remove-orphans

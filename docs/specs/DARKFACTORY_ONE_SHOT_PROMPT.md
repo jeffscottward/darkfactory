@@ -1138,7 +1138,7 @@ pnpm verify
 pnpm run ci
 ```
 
-`pnpm verify` is the complete local pre-push gate. `pnpm run ci` invokes the repository `ci` script and executes the same ordered checks as GitHub Actions in a clean CI mode. Avoid divergence between package scripts, Turbo, hooks, and workflow YAML.
+`pnpm verify` is the complete local lifecycle and `pnpm run ci` invokes the same composition. Implement the lifecycle as independently runnable core, integration, Graphify, and browser/a11y lanes. GitHub Actions executes all lanes concurrently with `fail-fast: false`; this preserves complete coverage while preventing environment-heavy work from serializing or hiding independent results.
 
 Keep `turbo.json` simple:
 
@@ -1153,7 +1153,7 @@ Keep `turbo.json` simple:
 ### Husky
 
 - `pre-commit`: operate on the focused staged scope; run the authoritative staged formatting/lint path plus the smallest relevant type/unit checks. It may modify staged files only through an explicit, documented flow.
-- `pre-push`: run `pnpm verify` or an equivalent complete deterministic gate. Do not bypass it for normal work.
+- `pre-push`: run the broad deterministic core lane. Integration, Graphify, and browser/a11y remain mandatory isolated CI lanes rather than local push blockers. Do not bypass either the local hook or any CI lane for normal work.
 - Hooks call package scripts; they do not duplicate command logic.
 - CI remains authoritative and reruns clean-room checks.
 
@@ -1167,7 +1167,7 @@ Use least-privilege permissions and pinned major actions. CI must:
 4. Start isolated Postgres.
 5. Validate environment using CI-safe values.
 6. Apply migrations and seed only the isolated test environment.
-7. Run format check, lint, typecheck, build, unit, contract, integration, OpenAPI staleness, Graphify staleness/policy, docs checks, and Playwright e2e/a11y in a deterministic order.
+7. Run format check, lint, typecheck, build, unit, contract, integration, OpenAPI staleness, Graphify staleness/policy, docs checks, and Playwright e2e/a11y in deterministic lane-local order, with the four lanes executing concurrently.
 8. Upload Playwright traces/screenshots/videos and relevant logs on failure.
 9. Never print secrets.
 10. Make deployment a separately protected job dependent on all green verification; do not deploy from untrusted pull-request secrets.

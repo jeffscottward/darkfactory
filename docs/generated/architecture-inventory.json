@@ -54,7 +54,11 @@
     "typecheck:database-integration",
     "types",
     "types:check",
-    "verify"
+    "verify",
+    "verify:browser",
+    "verify:core",
+    "verify:graph",
+    "verify:integration"
   ],
   "packages": [
     {

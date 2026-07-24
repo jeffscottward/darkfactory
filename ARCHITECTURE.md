@@ -161,7 +161,7 @@ The root scripts are the supported operator surface:
 
 - `pnpm dev` runs the plain application development task. `pnpm dev:https` idempotently inspects PM2 and portless before starting the stable `darkfactory-web-dev` process; status, logs, stop, and trust commands address the same stable identity and canonical `https://darkfactory.localhost` URL.
 - `pnpm doctor` inspects required and optional workstation/runtime prerequisites without printing environment values or starting infrastructure.
-- `pnpm typecheck`, `pnpm build`, the focused test commands, lint, formatting, generated-schema checks, docs checks, and Graphify checks compose the verification lifecycle. `pnpm verify` is the pre-push gate; `pnpm run ci` is the clean CI lifecycle and intentionally keeps the `run` qualifier required by pnpm 11.
+- `pnpm typecheck`, `pnpm build`, the focused test commands, lint, formatting, generated-schema checks, docs checks, and Graphify checks compose the verification lifecycle. `pnpm verify` remains the complete local lifecycle, while `verify:core`, `verify:integration`, `verify:graph`, and `verify:browser` expose independently runnable lanes. Pre-push runs the broad deterministic `verify:core` lane; GitHub Actions runs all four lanes concurrently with isolated dependencies.
 - Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Deploy scripts own only the official vinext/Cloudflare path.
 
 Graphify output is generated context rather than an authored runtime dependency. Repository Graphify commands must use the tracked secure wrapper, and graph evidence is valid only after the current source tree passes build/check/verify.
@@ -174,7 +174,7 @@ Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly 
 
 Canonical local development uses `https://darkfactory.localhost` through portless, with PM2 owning the stable `darkfactory-web-dev` process. Portless trust is primary for secure cookies, authentication callbacks, secure-context APIs, and production-like assumptions. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
 
-The deployed application connects to portable PostgreSQL through the database adapter, optionally using Hyperdrive. External capabilities connect only through their provider adapters. GitHub Actions runs the same canonical lifecycle exposed by `pnpm run ci`; bare `pnpm ci` is pnpm's clean-install command, not the lifecycle gate. Current CI verifies builds, tests, and contracts; it performs neither a deployment dry run nor a deployment. The deployment scripts expose preview, non-deploying check, and deploy actions for an authorized operator, who invokes them only after terminal green CI.
+GitHub Actions runs the same four verification lanes composed by `pnpm run ci`, but executes them concurrently with `fail-fast: false` so one environment-heavy lane cannot hide another lane's result. Bare `pnpm ci` is pnpm's clean-install command, not the lifecycle gate. Current CI verifies builds, tests, contracts, Graphify freshness, browser journeys, and accessibility; it performs neither a deployment dry run nor a deployment. The deployment scripts expose preview, non-deploying check, and deploy actions for an authorized operator, who invokes them only after terminal green CI.
 
 ## Baseline observability
 

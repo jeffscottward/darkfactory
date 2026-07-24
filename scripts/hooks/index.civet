@@ -80,7 +80,9 @@ function selectMarkdownPaths(paths) {
   )
 }
 
-function runPnpmScripts(scripts, paths = []) {
+type PnpmScriptRunner = (scripts: readonly string[], paths?: readonly string[]) => number
+
+function runPnpmScripts(scripts: readonly string[], paths: readonly string[] = []) {
   const safePaths = paths.map((path) => `./${path}`)
 
   for (const script of scripts) {
@@ -114,7 +116,7 @@ export function runPreCommit() {
   if (biomePaths.length === 0 && markdownPaths.length === 0) {
     if (staged.paths.some(isCivetPath)) {
       console.error(
-        "[hook] staged Civet validation is deferred to mandatory corepack pnpm run verify before push.",
+        "[hook] staged Civet validation is deferred to mandatory corepack pnpm run verify:core before push.",
       )
     }
 
@@ -139,6 +141,8 @@ export function runPreCommit() {
   return 0
 }
 
-export function runPrePush() {
-  return runPnpmScripts(["verify"])
+export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
+
+export function runPrePush(runScripts: PnpmScriptRunner = runPnpmScripts) {
+  return runScripts(PRE_PUSH_SCRIPTS)
 }
