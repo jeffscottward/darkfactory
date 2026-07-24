@@ -8,6 +8,9 @@ const rootPackage = JSON.parse(await readFile(new URL("../../package.json", impo
 }
 const workspace = await readFile(new URL("../../pnpm-workspace.yaml", import.meta.url), "utf8")
 const workflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
+const turboConfig = JSON.parse(
+  await readFile(new URL("../../turbo.json", import.meta.url), "utf8"),
+) as { globalDependencies: string[] }
 const vitestConfig = await readFile(new URL("../../vitest.config.ts", import.meta.url), "utf8")
 const packageUnitScripts = await Promise.all(
   ["ai", "analytics", "api", "db", "ui"].map(async (name) => {
@@ -37,7 +40,7 @@ const EXPECTED_LANES = {
     "test:operations",
     "docs:check",
   ],
-  "verify:integration": ["test:integration"],
+  "verify:integration": ["types", "test:integration"],
   "verify:graph": ["graph:check", "graph:verify"],
   "verify:browser": ["test:e2e", "test:a11y"],
 } as const
@@ -63,6 +66,7 @@ describe("DF-101/106 lifecycle contract", () => {
   it("composes the complete lifecycle from exact, unique verification lanes", () => {
     const laneNames = Object.keys(EXPECTED_LANES)
     expect(rootPackage.scripts.ci).toBe("corepack pnpm run verify")
+    expect(turboConfig.globalDependencies).toContain("package.json")
     expect(runScriptNames(rootPackage.scripts.verify)).toEqual(laneNames)
     expect(rootPackage.scripts["test:unit"]).toBe("turbo run test:unit --concurrency=50%")
     expect(rootPackage.scripts["test:contract"]).toContain("--project contract")

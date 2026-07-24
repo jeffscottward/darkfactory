@@ -51,7 +51,7 @@ const SERVER_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/db > drizzle-orm/pg-core",
   "@darkfactory/db > drizzle-orm/node-postgres",
   "@darkfactory/db > pg",
-  "zod",
+  "@darkfactory/api > zod",
 ] as const;
 
 const mergeOptimizerEntries = (

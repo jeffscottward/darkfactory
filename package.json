@@ -41,7 +41,7 @@
     "test:e2e": "civet scripts/e2e/run.civet e2e",
     "test:a11y": "civet scripts/e2e/run.civet a11y",
     "verify:core": "corepack pnpm run format:check && corepack pnpm run lint && corepack pnpm run auth:schema:check && corepack pnpm run openapi:check && corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test:unit && corepack pnpm run test:contract && corepack pnpm run test:operations && corepack pnpm run docs:check",
-    "verify:integration": "corepack pnpm run test:integration",
+    "verify:integration": "corepack pnpm run types && corepack pnpm run test:integration",
     "verify:graph": "corepack pnpm run graph:check && corepack pnpm run graph:verify",
     "verify:browser": "corepack pnpm run test:e2e && corepack pnpm run test:a11y",
     "verify": "corepack pnpm run verify:core && corepack pnpm run verify:integration && corepack pnpm run verify:graph && corepack pnpm run verify:browser",

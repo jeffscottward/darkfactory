@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 type RootManifest = Readonly<{
   scripts: Readonly<{
     "test:unit": string
+    "verify:core": string
     verify: string
     ci: string
   }>
@@ -30,8 +31,19 @@ describe("root lifecycle orchestration", () => {
       "test:unit",
       "--concurrency=50%",
     ])
-    expect(lifecycleStages(scripts.verify)).toContainEqual(canonicalUnitInvocation)
-    expect(lifecycleStages(scripts.ci)).toContainEqual(canonicalUnitInvocation)
+    expect(lifecycleStages(scripts["verify:core"])).toContainEqual(canonicalUnitInvocation)
+    expect(lifecycleStages(scripts.verify)).toContainEqual([
+      "corepack",
+      "pnpm",
+      "run",
+      "verify:core",
+    ])
+    expect(tokenize(scripts.ci)).toEqual([
+      "corepack",
+      "pnpm",
+      "run",
+      "verify",
+    ])
     return undefined
   })
   return undefined

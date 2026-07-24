@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { resolveConfig } from "vite";
 import viteConfig from "./vite.config";
@@ -13,13 +14,17 @@ const SERVER_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/db > drizzle-orm/pg-core",
   "@darkfactory/db > drizzle-orm/node-postgres",
   "@darkfactory/db > pg",
-  "zod",
+  "@darkfactory/api > zod",
 ] as const;
 
 describe("resolved Vite environment optimizer contract", () => {
   it("applies explicit RSC, SSR, and client policy after every plugin hook", async () => {
     const resolved = await resolveConfig(
-      { ...viteConfig, configFile: false },
+      {
+        ...viteConfig,
+        root: fileURLToPath(new URL(".", import.meta.url)),
+        configFile: false,
+      },
       "serve",
       "test"
     );
@@ -45,7 +50,7 @@ describe("resolved Vite environment optimizer contract", () => {
       );
       expect(server?.exclude).toEqual(expect.arrayContaining(["vinext"]));
       expect(server?.noDiscovery).toBe(true);
-      expect(server?.include).toContain("zod");
+      expect(server?.include).toContain("@darkfactory/api > zod");
       expect(new Set(server?.include).size).toBe(server?.include?.length);
     }
 

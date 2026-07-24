@@ -129,7 +129,7 @@ describe("Vite application plugin contract", () => {
     const rscEnvironment = {
       optimizeDeps: {
         exclude: ["vinext", "vinext"],
-        include: ["zod", "zod"],
+        include: ["@darkfactory/api > zod", "@darkfactory/api > zod"],
         noDiscovery: false,
       },
     };
@@ -138,8 +138,13 @@ describe("Vite application plugin contract", () => {
     expect(rscEnvironment.optimizeDeps.include).toContain(
       "@darkfactory/auth > better-auth"
     );
+    expect(rscEnvironment.optimizeDeps.include).toContain(
+      "@darkfactory/api > zod"
+    );
     expect(
-      rscEnvironment.optimizeDeps.include.filter((entry) => entry === "zod")
+      rscEnvironment.optimizeDeps.include.filter(
+        (entry) => entry === "@darkfactory/api > zod"
+      )
     ).toHaveLength(1);
 
     expect(

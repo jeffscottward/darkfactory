@@ -1,6 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [
+    "package.json",
     "tsconfig.base.json",
     "tsconfig.json",
     "vitest.config.ts"
