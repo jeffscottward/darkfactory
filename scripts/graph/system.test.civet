@@ -15,7 +15,9 @@ const SENTINELS = {
 }
 
 const previous = Object.fromEntries(
-  Object.keys(SENTINELS).map((name) => [name, process.env[name]]),
+  [...Object.keys(SENTINELS), "PYTHONHASHSEED", "GRAPHIFY_MAX_WORKERS"].map(
+    (name) => [name, process.env[name]],
+  ),
 )
 
 afterEach(() => {
@@ -33,6 +35,75 @@ const exists = async (path: string): Promise<boolean> => {
     return false
   }
 }
+const snapshotConfig = (root: string) => parseGraphConfig(JSON.stringify({
+  version: 1,
+  graphPath: "graphify-out/graph.json",
+  manifestPath: ".graphify/manifest.json",
+  source: {
+    roots: [root],
+    files: ["package.json"],
+    extensions: [".ts"],
+    excludes: ["node_modules"],
+  },
+  verificationPath: ["from", "to"],
+}))
+
+describe("Graphify source snapshot", () => {
+  it("uses a deterministic repo-relative path and removes its owned snapshot", async () => {
+    const root = join("scripts", "graph", `system-snapshot-${randomUUID()}`)
+    const source = join(root, "source.ts")
+    await mkdir(root, { recursive: true })
+    await writeFile(source, "export const source = true\n")
+
+    try {
+      const snapshot = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig(root))
+      expect(snapshot.path).toBe(".graphify/source-snapshot")
+      await expect(readFile(join(snapshot.path, source), "utf8")).resolves.toBe(
+        "export const source = true\n",
+      )
+      await snapshot.cleanup()
+      await expect(exists(snapshot.path)).resolves.toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(".graphify/source-snapshot", { force: true, recursive: true })
+    }
+  })
+
+  it("refuses a snapshot path collision without deleting existing content", async () => {
+    const snapshotRoot = ".graphify/source-snapshot"
+    const preserved = join(snapshotRoot, "preserved.txt")
+    await mkdir(snapshotRoot, { recursive: true })
+    await writeFile(preserved, "preserve")
+
+    try {
+      const result = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig("scripts/graph"))
+        .then((snapshot) => snapshot, (error: unknown) => error)
+      if (!(result instanceof Error)) await result.cleanup()
+
+      expect(result).toBeInstanceOf(Error)
+      await expect(readFile(preserved, "utf8")).resolves.toBe("preserve")
+    } finally {
+      await rm(snapshotRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("refuses cleanup after its ownership marker changes and preserves the snapshot", async () => {
+    const root = join("scripts", "graph", `system-snapshot-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const snapshot = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig(root))
+    await writeFile(join(snapshot.path, ".owner"), "different-owner")
+
+    try {
+      await expect(snapshot.cleanup()).rejects.toThrow(/owner|ownership/i)
+      await expect(exists(join(snapshot.path, root, "source.ts"))).resolves.toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(snapshot.path, { force: true, recursive: true })
+    }
+  })
+})
+
 
 describe("Graphify generated output reset", () => {
   it("removes only known generated entries and preserves unrelated files", async () => {
@@ -110,10 +181,14 @@ describe("Graphify configured source corpus", () => {
 describe("Graphify process environment", () => {
   it("never forwards provider or application secrets to extract", () => {
     Object.assign(process.env, SENTINELS)
+    process.env.PYTHONHASHSEED = "inherited-nondeterministic-value"
+    process.env.GRAPHIFY_MAX_WORKERS = "inherited-nondeterministic-value"
 
     const environment = graphProcessEnvironment({})
 
     for (const name of Object.keys(SENTINELS)) expect(environment[name]).toBeUndefined()
+    expect(environment.PYTHONHASHSEED).toBeUndefined()
+    expect(environment.GRAPHIFY_MAX_WORKERS).toBeUndefined()
   })
 
   it("never forwards provider or application secrets to path and keeps explicit safe additions", () => {
@@ -121,12 +196,18 @@ describe("Graphify process environment", () => {
 
     const environment = graphProcessEnvironment({
       GRAPHIFY_QUERY_LOG_DISABLE: "1",
+      PYTHONHASHSEED: "0",
+      GRAPHIFY_MAX_WORKERS: "1",
       GEMINI_API_KEY: "explicit-sentinel-secret",
       CUSTOM_SECRET: "explicit-custom-secret",
     })
 
     for (const name of Object.keys(SENTINELS)) expect(environment[name]).toBeUndefined()
     expect(environment.GRAPHIFY_QUERY_LOG_DISABLE).toBe("1")
+    expect(environment.PYTHONHASHSEED).toBe("0")
+    expect(environment.GRAPHIFY_MAX_WORKERS).toBe("1")
+    expect(graphProcessEnvironment({ PYTHONHASHSEED: "1" }).PYTHONHASHSEED).toBeUndefined()
+    expect(graphProcessEnvironment({ GRAPHIFY_MAX_WORKERS: "2" }).GRAPHIFY_MAX_WORKERS).toBeUndefined()
     expect(environment.CUSTOM_SECRET).toBeUndefined()
   })
 })

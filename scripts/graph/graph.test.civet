@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   calculateContentDigest,
+  calculateGraphDigest,
   calculateSourceFingerprint,
   parseGraphConfig,
   runGraphAction,
@@ -40,7 +41,7 @@ const manifestFor = (sourceFiles = source, graphContent = GRAPH) => JSON.stringi
   version: 1,
   graphifyVersion: "2.4.0",
   configDigest: calculateContentDigest(CONFIG),
-  graphDigest: calculateContentDigest(graphContent),
+  graphDigest: calculateGraphDigest(graphContent),
   sourceFingerprint: calculateSourceFingerprint([...sourceFiles.entries()]),
   sourceFileCount: sourceFiles.size,
 }, null, 2) + "\n"
@@ -138,6 +139,172 @@ describe("Graphify workflow", () => {
     )
   })
 
+  it("hashes equivalent semantic graphs deterministically and detects semantic mutations", () => {
+    const firstNodeId = "/tmp/darkfactory-graphify-first/src/service.civet::service"
+    const secondNodeId = "/tmp/darkfactory-graphify-first/src/service.civet::repository"
+    const first = JSON.stringify({
+      directed: false,
+      multigraph: false,
+      graph: {},
+      nodes: [
+        {
+          id: firstNodeId,
+          label: "service",
+          source_file: "src/service.civet",
+          source_location: "L1",
+          community: 7,
+          norm_label: "service",
+          metadata: { kind: "function", language: "civet" },
+        },
+        {
+          id: secondNodeId,
+          label: "repository",
+          source_file: "src/service.civet",
+          source_location: "L8",
+          community: 7,
+          norm_label: "repository",
+        },
+      ],
+      links: [
+        {
+          source: firstNodeId,
+          target: secondNodeId,
+          relation: "calls",
+          context: firstNodeId,
+          confidence: "EXTRACTED",
+          weight: 1,
+        },
+        {
+          source: firstNodeId,
+          target: secondNodeId,
+          relation: "contains",
+          context: "import",
+          confidence: "EXTRACTED",
+          weight: 1,
+        },
+        {
+          source: firstNodeId,
+          target: secondNodeId,
+          relation: "imports",
+          confidence: "EXTRACTED",
+          weight: 1,
+        },
+        {
+          source: firstNodeId,
+          target: secondNodeId,
+          relation: "imports_from",
+          confidence: "EXTRACTED",
+          weight: 1,
+        },
+      ],
+      hyperedges: [],
+      built_at_commit: "1111111111111111111111111111111111111111",
+    })
+    const replacementNodeId = "/home/runner/work/darkfactory-graphify-second/src/service.civet::service"
+    const replacementTargetId = "/home/runner/work/darkfactory-graphify-second/src/service.civet::repository"
+    const equivalent = JSON.stringify({
+      built_at_commit: "2222222222222222222222222222222222222222",
+      hyperedges: [],
+      links: [
+        {
+          weight: 1,
+          confidence: "EXTRACTED",
+          relation: "calls",
+          context: firstNodeId,
+          target: replacementTargetId,
+          source: replacementNodeId,
+        },
+        {
+          weight: 1,
+          confidence: "EXTRACTED",
+          relation: "contains",
+          context: "import",
+          target: replacementTargetId,
+          source: replacementNodeId,
+        },
+        {
+          weight: 1,
+          confidence: "EXTRACTED",
+          relation: "imports",
+          target: replacementTargetId,
+          source: replacementNodeId,
+        },
+        {
+          weight: 1,
+          confidence: "EXTRACTED",
+          relation: "imports_from",
+          target: replacementTargetId,
+          source: replacementNodeId,
+        },
+      ],
+      nodes: [
+        {
+          norm_label: "repository",
+          community: 99,
+          source_location: "L8",
+          source_file: "src/service.civet",
+          label: "repository",
+          id: replacementTargetId,
+        },
+        {
+          metadata: { language: "civet", kind: "function" },
+          norm_label: "service",
+          community: 42,
+          source_location: "L1",
+          source_file: "src/service.civet",
+          label: "service",
+          id: replacementNodeId,
+        },
+      ],
+      graph: {},
+      multigraph: false,
+      directed: false,
+    }, null, 2)
+    const semanticMutation = equivalent.replace('"calls"', '"references"')
+    const importRetarget = JSON.parse(equivalent) as { links: Array<Record<string, unknown>> }
+    importRetarget.links.find((link) => link["relation"] === "imports")!["target"] = replacementNodeId
+    const importRemoval = JSON.parse(equivalent) as { links: Array<Record<string, unknown>> }
+    importRemoval.links = importRemoval.links.filter((link) => link["relation"] !== "imports_from")
+
+    expect(calculateContentDigest(first)).not.toBe(calculateContentDigest(equivalent))
+    expect(calculateGraphDigest(first)).toBe(calculateGraphDigest(equivalent))
+    expect(calculateGraphDigest(equivalent)).not.toBe(calculateGraphDigest(semanticMutation))
+    expect(calculateGraphDigest(equivalent)).not.toBe(calculateGraphDigest(JSON.stringify(importRetarget)))
+    expect(calculateGraphDigest(equivalent)).not.toBe(calculateGraphDigest(JSON.stringify(importRemoval)))
+  })
+
+  it("rejects non-finite numeric graph values instead of hashing them as null", () => {
+    const nonFinite = "{\"nodes\":[{\"id\":\"route\",\"score\":1e400}],\"links\":[]}"
+
+    expect(() => calculateGraphDigest(nonFinite)).toThrow(/finite/i)
+  })
+
+  it("rejects malformed, undersized, repeated, and colliding hyperedges", () => {
+    const nodes = ["a", "b", "c", "d"].map((id) => ({ id, label: id }))
+    const graphWith = (hyperedges: readonly unknown[]): string => JSON.stringify({
+      nodes,
+      links: [],
+      hyperedges,
+    })
+    expect(() => calculateGraphDigest(graphWith([
+      { id: "group", nodes: ["a", "b", "c"] },
+    ]))).not.toThrow()
+
+    for (const hyperedges of [
+      [{ id: "group" }],
+      [{ id: "group", nodes: ["a", "b"] }],
+      [{ id: "group", nodes: ["a", "b", "a"] }],
+      [{ id: "", nodes: ["a", "b", "c"] }],
+      [
+        { id: "group", nodes: ["a", "b", "c"] },
+        { id: "group", nodes: ["a", "c", "d"] },
+      ],
+      [{ id: "a", nodes: ["a", "b", "c"] }],
+    ]) {
+      expect(() => calculateGraphDigest(graphWith(hyperedges))).toThrow(/hyperedge/i)
+    }
+  })
+
   it("builds with a supported argument array and records source, config, and graph digests", async () => {
     const state = fixture()
 
@@ -146,6 +313,9 @@ describe("Graphify workflow", () => {
     expect(report).toMatchObject({ ok: true, action: "build", fresh: true })
     expect(state.calls).toContainEqual(["graphify", ["--version"]])
     expect(state.calls).toContainEqual(["graphify", ["extract", "/tmp/darkfactory-graphify-test", "--out", "."]])
+    expect(state.processCalls.find(({ arguments_ }) => arguments_[0] === "extract")?.options).toMatchObject({
+      environment: { GRAPHIFY_MAX_WORKERS: "1", PYTHONHASHSEED: "0" },
+    })
     expect(state.resets).toEqual(["graphify-out/graph.json"])
     expect(state.writes).toEqual([[".graphify/manifest.json", manifestFor()]])
   })
@@ -188,7 +358,7 @@ describe("Graphify workflow", () => {
     })
 
     const emptyGraph = "{\"nodes\":[],\"links\":[]}"
-    const empty = fixture({ graphExists: true, graphContent: emptyGraph, manifest: manifestFor(source, emptyGraph) })
+    const empty = fixture({ graphExists: true, graphContent: emptyGraph, manifest: manifestFor() })
     await expect(runGraphAction("check", empty.dependencies)).resolves.toMatchObject({
       ok: false,
       reason: expect.stringMatching(/graph/i),
@@ -196,7 +366,7 @@ describe("Graphify workflow", () => {
 
     const rolledBack = fixture({
       graphExists: true,
-      graphContent: "{\"nodes\":[{\"id\":\"other\"}],\"links\":[]}",
+      graphContent: "{\"nodes\":[{\"id\":\"other\",\"label\":\"other\"}],\"links\":[]}",
       manifest: manifestFor(),
     })
     await expect(runGraphAction("check", rolledBack.dependencies)).resolves.toMatchObject({

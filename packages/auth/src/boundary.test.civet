@@ -1,3 +1,8 @@
+import * as client from "@darkfactory/auth/client"
+import * as databaseAuth from "@darkfactory/auth/db"
+import * as server from "@darkfactory/auth/server"
+import * as types from "@darkfactory/auth/types"
+
 import { spawnSync } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
@@ -75,13 +80,7 @@ describe "auth package boundaries", ->
     }
     return undefined
 
-  it "keeps normal server imports and client/type subpaths operational", async ->
-    const [server, databaseAuth, client, types] = await Promise.all([
-      import("@darkfactory/auth/server"),
-      import("@darkfactory/auth/db"),
-      import("@darkfactory/auth/client"),
-      import("@darkfactory/auth/types"),
-    ])
+  it "keeps normal server imports and client/type subpaths operational", ->
 
     expect(server.createAuth).toBeTypeOf("function")
     expect(server.createAuthHandler).toBeTypeOf("function")

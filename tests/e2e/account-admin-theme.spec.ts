@@ -5,6 +5,7 @@ import type {
   APIRequestContext,
   Browser,
   BrowserContext,
+  ElementHandle,
   Locator,
   Page,
 } from "@playwright/test";
@@ -465,17 +466,60 @@ const selectThemeOption = async (
   const closedTrigger = page
     .getByRole("button", { name: "Theme settings", exact: true })
     .and(trigger);
-  await expect(closedTrigger).toHaveCount(1);
-  expect(await trigger.getAttribute("aria-controls")).toBeNull();
-  await trigger.click();
   const group = page.getByRole("group", { name: groupName });
-  await expect(group).toBeVisible();
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let clickedTrigger: ElementHandle<HTMLElement | SVGElement> | null = null;
+    try {
+      await expect(closedTrigger).toHaveCount(1);
+      const candidate = await trigger.elementHandle();
+      if (candidate === null) {
+        throw new Error("Theme trigger disappeared before selection");
+      }
+      clickedTrigger = candidate;
+      await expect
+        .poll(() =>
+          candidate
+            .evaluate(
+              (element) =>
+                element.isConnected &&
+                document.querySelector("#application-theme-trigger") ===
+                  element &&
+                element instanceof HTMLButtonElement &&
+                !element.disabled &&
+                Object.keys(element).some((key) =>
+                  key.startsWith("__reactProps$")
+                )
+            )
+            .catch(() => false)
+        )
+        .toBe(true);
+      expect(await candidate.getAttribute("aria-controls")).toBeNull();
+      await candidate.click();
+      await expect(trigger).toHaveAttribute(
+        "aria-controls",
+        "application-theme-content"
+      );
+      await expect(group).toBeVisible();
+      break;
+    } catch (error) {
+      const wasReplaced =
+        clickedTrigger !== null &&
+        (await clickedTrigger
+          .evaluate(
+            (element) =>
+              !element.isConnected ||
+              document.querySelector("#application-theme-trigger") !== element
+          )
+          .catch(() => false));
+      if (!wasReplaced || attempt === 1) {
+        throw error;
+      }
+    }
+  }
+
   await expect(page.locator("#application-theme-trigger")).toHaveCount(1);
   const content = page.locator("#application-theme-content");
-  await expect(trigger).toHaveAttribute(
-    "aria-controls",
-    "application-theme-content"
-  );
   await expect(content).toHaveAttribute(
     "aria-labelledby",
     "application-theme-trigger"

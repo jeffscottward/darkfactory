@@ -198,6 +198,142 @@ const parseManifest = (source: string): GraphManifest => {
 export const calculateContentDigest = (content: string): string =>
   createHash("sha256").update(content).digest("hex")
 
+const compareCanonicalText = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0
+
+const canonicalJson = (value: unknown): string => {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("Graph output contains a non-finite number")
+    return JSON.stringify(value)
+  }
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value)
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
+  const record = asRecord(value)
+  if (!record) throw new Error("Graph output contains an unsupported value")
+  return `{${Object.keys(record)
+    .sort(compareCanonicalText)
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(",")}}`
+}
+
+const canonicalizeHyperedge = (
+  value: unknown,
+  nodeIds: ReadonlyMap<string, string>,
+  semanticNodeIds: ReadonlySet<string>,
+  hyperedgeIds: Set<string>,
+): Readonly<Record<string, unknown>> => {
+  const hyperedge = asRecord(value)
+  const id = hyperedge?.["id"]
+  if (
+    !hyperedge ||
+    typeof id !== "string" ||
+    id.length === 0 ||
+    nodeIds.has(id) ||
+    semanticNodeIds.has(id) ||
+    hyperedgeIds.has(id)
+  ) throw new Error("Graph output has an invalid or colliding hyperedge identity")
+
+  const memberKeys = ["nodes", "members"].filter((key) =>
+    Object.prototype.hasOwnProperty.call(hyperedge, key)
+  )
+  if (memberKeys.length !== 1) throw new Error("Graph output has invalid hyperedge members")
+  const memberKey = memberKeys[0]!
+  const memberValues = hyperedge[memberKey]
+  if (!Array.isArray(memberValues) || memberValues.length < 3) {
+    throw new Error("Graph output has too few hyperedge members")
+  }
+  const members = memberValues.map((member) => {
+    if (typeof member !== "string" || !nodeIds.has(member)) {
+      throw new Error("Graph output has an invalid hyperedge member")
+    }
+    return nodeIds.get(member)!
+  })
+  if (new Set(members).size !== members.length) {
+    throw new Error("Graph output has repeated hyperedge members")
+  }
+  hyperedgeIds.add(id)
+  return Object.fromEntries(Object.entries(hyperedge).map(([key, entry]) =>
+    key === memberKey ? [key, members.sort(compareCanonicalText)] : [key, entry]
+  ))
+}
+
+export const calculateGraphDigest = (content: string): string => {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    throw new Error("Graph output is malformed")
+  }
+  const graph = asRecord(parsed)
+  const nodes = graph?.["nodes"]
+  const links = graph?.["links"]
+  const hyperedges = graph?.["hyperedges"] ?? []
+  if (!Array.isArray(nodes) || nodes.length === 0) throw new Error("Graph output has no nodes")
+  if (!Array.isArray(links) || !Array.isArray(hyperedges)) throw new Error("Graph output has an invalid shape")
+
+  const nodeIds = new Map<string, string>()
+  const semanticNodeIds = new Set<string>()
+  const canonicalNodes: string[] = []
+  for (const value of nodes) {
+    const node = asRecord(value)
+    const rawId = node?.["id"]
+    if (!node || typeof rawId !== "string" || rawId.length === 0 || nodeIds.has(rawId)) {
+      throw new Error("Graph output has an invalid node identity")
+    }
+    const semanticNode = Object.fromEntries(
+      Object.entries(node).filter(([key]) =>
+        key !== "id" && key !== "community" && key !== "norm_label"
+      ),
+    )
+    const canonicalNode = canonicalJson(semanticNode)
+    const semanticId = calculateContentDigest(canonicalNode)
+    if (semanticNodeIds.has(semanticId)) {
+      throw new Error("Graph output has indistinguishable semantic nodes")
+    }
+    semanticNodeIds.add(semanticId)
+    nodeIds.set(rawId, semanticId)
+    canonicalNodes.push(canonicalNode)
+  }
+
+  const canonicalLinks = links.map((value) => {
+    const link = asRecord(value)
+    if (
+      !link ||
+      typeof link["source"] !== "string" ||
+      typeof link["target"] !== "string" ||
+      !nodeIds.has(link["source"]) ||
+      !nodeIds.has(link["target"])
+    ) throw new Error("Graph output has an invalid link endpoint")
+    return canonicalJson({
+      ...link,
+      source: nodeIds.get(link["source"]),
+      target: nodeIds.get(link["target"]),
+    })
+  })
+  const hyperedgeIds = new Set<string>()
+  const canonicalHyperedges = hyperedges.map((value) =>
+    canonicalJson(canonicalizeHyperedge(value, nodeIds, semanticNodeIds, hyperedgeIds))
+  )
+  const graphMetadata = Object.fromEntries(
+    Object.entries(graph).filter(([key]) =>
+      key !== "built_at_commit" &&
+      key !== "nodes" &&
+      key !== "links" &&
+      key !== "hyperedges"
+    ),
+  )
+  const canonicalGraph = [
+    canonicalJson(graphMetadata),
+    `[${canonicalNodes.sort(compareCanonicalText).join(",")}]`,
+    `[${canonicalLinks.sort(compareCanonicalText).join(",")}]`,
+    `[${canonicalHyperedges.sort(compareCanonicalText).join(",")}]`,
+  ].join("\0")
+  return calculateContentDigest(canonicalGraph)
+}
+
+
 function updateFingerprint(
   hash: ReturnType<typeof createHash>,
   path: string,
@@ -272,17 +408,7 @@ const inspectGraph = async (
   config: GraphConfig,
 ): Promise<Readonly<{ digest: string }>> => {
   const content = await readRegularFile(dependencies.files, config.graphPath, MAX_GRAPH_BYTES, "Graph output")
-  let graph: unknown
-  try {
-    graph = JSON.parse(content)
-  } catch {
-    throw new Error("Graph output is malformed")
-  }
-  const record = asRecord(graph)
-  if (!Array.isArray(record?.["nodes"]) || record["nodes"].length === 0) {
-    throw new Error("Graph output has no nodes")
-  }
-  return Object.freeze({ digest: calculateContentDigest(content) })
+  return Object.freeze({ digest: calculateGraphDigest(content) })
 }
 
 const failure = (action: GraphAction, reason: string): GraphReport => Object.freeze({
@@ -384,7 +510,10 @@ const buildOrUpdate = async (
     execution = await dependencies.process.run(
       "graphify",
       ["extract", snapshot.path, "--out", "."],
-      COMMAND_OPTIONS,
+      {
+        ...COMMAND_OPTIONS,
+        environment: { GRAPHIFY_MAX_WORKERS: "1", PYTHONHASHSEED: "0" },
+      },
     )
   } finally {
     await snapshot.cleanup()

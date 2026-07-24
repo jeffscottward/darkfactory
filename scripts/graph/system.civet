@@ -4,7 +4,6 @@ import { constants } from "node:fs"
 import {
   lstat,
   mkdir,
-  mkdtemp,
   open,
   readdir,
   realpath,
@@ -12,7 +11,6 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import { dirname, extname, join, relative, resolve } from "node:path"
 
 import {
@@ -31,6 +29,8 @@ const MAX_OUTPUT_BYTES = 1_048_576
 const MAX_SOURCE_FILE_BYTES = 8_388_608
 const MAX_SOURCE_FILES = 20_000
 const MAX_SOURCE_TOTAL_BYTES = 134_217_728
+const SNAPSHOT_ROOT = ".graphify/source-snapshot"
+const SNAPSHOT_OWNER = ".owner"
 const repositoryRoot = await realpath(process.cwd())
 
 const portable = (path: string): string => path.replaceAll("\\", "/")
@@ -164,9 +164,15 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
   },
   listSourceFiles: listConfiguredSourceFiles,
   createSourceSnapshot: async (config) => {
-    const snapshotRoot = await mkdtemp(join(tmpdir(), "darkfactory-graphify-"))
+    const snapshotRoot = SNAPSHOT_ROOT
+    const ownerPath = join(snapshotRoot, SNAPSHOT_OWNER)
+    const owner = randomUUID()
+    let ownsSnapshot = false
     let total = 0
     try {
+      await mkdir(snapshotRoot, { mode: 0o700 })
+      ownsSnapshot = true
+      await writeFile(ownerPath, owner, { flag: "wx", mode: 0o600 })
       const sourcePaths = await listConfiguredSourceFiles(config)
       const workspaceManifests = await Promise.all(
         sourcePaths
@@ -209,12 +215,20 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
         await writeFile(destination, encoded, { flag: "wx", mode: 0o600 })
       }
       async function cleanup(): Promise<void> {
-        await rm(snapshotRoot, { force: true, recursive: true })
-        return undefined
+        let recordedOwner: string
+        try {
+          recordedOwner = await readBounded(ownerPath, 128)
+        } catch {
+          throw new Error("Graph source snapshot ownership marker is missing")
+        }
+        if (recordedOwner !== owner) {
+          throw new Error("Graph source snapshot ownership changed")
+        }
+        await rm(snapshotRoot, { recursive: true })
       }
       return Object.freeze({ path: snapshotRoot, cleanup })
     } catch (error) {
-      await rm(snapshotRoot, { force: true, recursive: true })
+      if (ownsSnapshot) await rm(snapshotRoot, { force: true, recursive: true })
       throw error
     }
   },
@@ -229,6 +243,8 @@ export const graphProcessEnvironment = (
   if (additions["GRAPHIFY_QUERY_LOG_DISABLE"] === "1") {
     environment["GRAPHIFY_QUERY_LOG_DISABLE"] = "1"
   }
+  if (additions["PYTHONHASHSEED"] === "0") environment["PYTHONHASHSEED"] = "0"
+  if (additions["GRAPHIFY_MAX_WORKERS"] === "1") environment["GRAPHIFY_MAX_WORKERS"] = "1"
   return environment
 }
 
