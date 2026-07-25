@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useForm } from "@tanstack/react-form"
 import { Button, Input, Label } from "@darkfactory/ui"
 
@@ -23,14 +22,33 @@ import {
 
 export const signInRequestController = runGuardedRequest
 
+type ReplaceLocation = (destination: string) => void
+
+const replaceBrowserLocation: ReplaceLocation = (destination) => {
+  window.location.replace(destination)
+}
+
+export const completeSuccessfulSignInNavigation = (
+  result: AuthFlowResult,
+  replace: ReplaceLocation,
+): void => {
+  if (result.status === "success" && "destination" in result) {
+    replace(result.destination)
+  }
+}
+
 const firstError = (errors: readonly unknown[]): string | undefined =>
   errors.find((error): error is string => typeof error === "string")
 
 export const SignInForm = ({
   callbackURL,
   auth = browserAuthClient,
-}: Readonly<{ callbackURL: unknown; auth?: AuthFlowClient }>) => {
-  const router = useRouter()
+  replace = replaceBrowserLocation,
+}: Readonly<{
+  callbackURL: unknown
+  auth?: AuthFlowClient
+  replace?: ReplaceLocation
+}>) => {
   const [result, setResult] = useState<AuthFlowResult | null>(null)
   const [isPending, setIsPending] = useState(false)
   const [requestGuard] = useState(createRequestGuard)
@@ -54,9 +72,7 @@ export const SignInForm = ({
         },
         commit: (nextResult) => {
           setResult(nextResult)
-          if (nextResult.status === "success" && "destination" in nextResult) {
-            router.replace(nextResult.destination)
-          }
+          completeSuccessfulSignInNavigation(nextResult, replace)
         },
         settle: () => setIsPending(false),
       })

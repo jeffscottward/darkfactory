@@ -1,0 +1,477 @@
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, truncate, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { basename, dirname, join } from "node:path"
+import { describe, expect, it } from "vitest"
+
+import {
+  buildCoverageArtifacts,
+  runCoverageAction,
+  serializeCoverageArtifact,
+  serializeCoverageBadge,
+  type CoverageDependencies,
+} from "./coverage.civet"
+import { runCoverageCli } from "./cli.civet"
+import { createCoverageFileSystem } from "./system.civet"
+
+const rawSummary = JSON.stringify({
+  total: {
+    lines: { total: 200, covered: 170, skipped: 0, pct: 85 },
+    branches: { total: 100, covered: 76, skipped: 0, pct: 76 },
+    functions: { total: 80, covered: 64, skipped: 0, pct: 80 },
+    statements: { total: 220, covered: 187, skipped: 0, pct: 85 },
+  },
+  "/private/worktree/packages/api/src/index.civet": {
+    lines: { total: 1, covered: 1, skipped: 0, pct: 100 },
+  },
+})
+
+const expectedSummaryBytes = [
+  "{",
+  '  "schemaVersion": 1,',
+  '  "provider": "v8",',
+  '  "projects": ["unit", "contract", "operations"],',
+  '  "metrics": {',
+  '    "lines": {',
+  '      "total": 200,',
+  '      "covered": 170,',
+  '      "skipped": 0,',
+  '      "pct": 85',
+  "    },",
+  '    "branches": {',
+  '      "total": 100,',
+  '      "covered": 76,',
+  '      "skipped": 0,',
+  '      "pct": 76',
+  "    },",
+  '    "functions": {',
+  '      "total": 80,',
+  '      "covered": 64,',
+  '      "skipped": 0,',
+  '      "pct": 80',
+  "    },",
+  '    "statements": {',
+  '      "total": 220,',
+  '      "covered": 187,',
+  '      "skipped": 0,',
+  '      "pct": 85',
+  "    }",
+  "  }",
+  "}",
+  "",
+].join("\n")
+
+const expectedBadgeBytes = [
+  "{",
+  '  "schemaVersion": 1,',
+  '  "label": "coverage",',
+  '  "message": "85% lines, 76% branches",',
+  '  "color": "yellowgreen"',
+  "}",
+  "",
+].join("\n")
+
+const sentinelPath = "/private/sentinel-worktree/coverage-artifact.json"
+
+type FixtureFailures = Readonly<{
+  readRawSummary?: unknown
+  readCommitted?: unknown
+  writeCommitted?: unknown
+}>
+
+const fixture = (
+  summary = rawSummary,
+  committed?: Readonly<Record<string, string>>,
+  failures: FixtureFailures = {},
+) => {
+  const writes: Array<readonly [string, string]> = []
+  const dependencies: CoverageDependencies = {
+    files: {
+      readRawSummary: async () => {
+        if ("readRawSummary" in failures) throw failures.readRawSummary
+        return summary
+      },
+      readCommitted: async (path) => {
+        if ("readCommitted" in failures) throw failures.readCommitted
+        return committed?.[path]
+      },
+      writeCommitted: async (path, content) => {
+        if ("writeCommitted" in failures) throw failures.writeCommitted
+        writes.push([path, content])
+      },
+    },
+  }
+  return { dependencies, writes }
+}
+
+describe("coverage assessment artifacts", () => {
+  it("normalizes only aggregate metrics without paths or timestamps", () => {
+    const artifacts = buildCoverageArtifacts(JSON.parse(rawSummary))
+
+    expect(artifacts.summary).toEqual({
+      schemaVersion: 1,
+      provider: "v8",
+      projects: ["unit", "contract", "operations"],
+      metrics: {
+        lines: { total: 200, covered: 170, skipped: 0, pct: 85 },
+        branches: { total: 100, covered: 76, skipped: 0, pct: 76 },
+        functions: { total: 80, covered: 64, skipped: 0, pct: 80 },
+        statements: { total: 220, covered: 187, skipped: 0, pct: 85 },
+      },
+    })
+    expect(serializeCoverageArtifact(artifacts.summary)).toBe(expectedSummaryBytes)
+    expect(serializeCoverageArtifact(artifacts.summary)).not.toContain("/private/worktree")
+    expect(serializeCoverageArtifact(artifacts.summary)).not.toMatch(/timestamp|generatedAt/i)
+  })
+
+  it("builds a deterministic Shields endpoint from line and branch coverage", () => {
+    const artifacts = buildCoverageArtifacts(JSON.parse(rawSummary))
+
+    expect(artifacts.badge).toEqual({
+      schemaVersion: 1,
+      label: "coverage",
+      message: "85% lines, 76% branches",
+      color: "yellowgreen",
+    })
+    expect(serializeCoverageBadge(artifacts.badge)).toBe(expectedBadgeBytes)
+  })
+
+  it("matches Istanbul percentage truncation at floating-point boundaries", () => {
+    const artifacts = buildCoverageArtifacts({
+      total: {
+        lines: { total: 12_600, covered: 4_347, skipped: 0, pct: 34.5 },
+        branches: { total: 0, covered: 0, skipped: 0, pct: 100 },
+        functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
+        statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      },
+    })
+
+    expect(artifacts.summary.metrics.lines.pct).toBe(34.5)
+    expect(artifacts.summary.metrics.branches.pct).toBe(100)
+  })
+
+  it.each([
+    ["missing total", {}],
+    ["missing metric", { total: { lines: { total: 1, covered: 1, skipped: 0, pct: 100 } } }],
+    ["non-numeric metric", { total: {
+      lines: { total: 1, covered: 1, skipped: 0, pct: "100" },
+      branches: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
+    } }],
+    ["non-finite metric", { total: {
+      lines: { total: 1, covered: 1, skipped: 0, pct: Number.POSITIVE_INFINITY },
+      branches: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
+    } }],
+    ["covered greater than total", { total: {
+      lines: { total: 1, covered: 2, skipped: 0, pct: 100 },
+      branches: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
+    } }],
+    ["percentage inconsistent with counts", { total: {
+      lines: { total: 100, covered: 0, skipped: 0, pct: 100 },
+      branches: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
+    } }],
+    ["covered and skipped greater than total", { total: {
+      lines: { total: 2, covered: 1, skipped: 2, pct: 50 },
+      branches: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
+      statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
+    } }],
+  ])("rejects %s", (_name, value) => {
+    expect(() => buildCoverageArtifacts(value)).toThrow(/coverage/i)
+  })
+
+  it("byte-checks both committed artifacts without writing", async () => {
+    const expected = buildCoverageArtifacts(JSON.parse(rawSummary))
+    const committed = {
+      "docs/assessments/coverage-summary.json": serializeCoverageArtifact(expected.summary),
+      "docs/assessments/coverage-badge.json": serializeCoverageBadge(expected.badge),
+    }
+    const state = fixture(rawSummary, committed)
+
+    await expect(runCoverageAction("check", state.dependencies)).resolves.toMatchObject({
+      ok: true,
+      changed: false,
+    })
+    expect(state.writes).toHaveLength(0)
+  })
+
+  it("rejects stale or missing committed artifacts", async () => {
+    const stale = fixture(rawSummary, {
+      "docs/assessments/coverage-summary.json": "{}\n",
+    })
+
+    await expect(runCoverageAction("check", stale.dependencies)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: expect.stringMatching(/stale|missing/i),
+    })
+    expect(stale.writes).toHaveLength(0)
+  })
+
+  it("writes both artifacts only when generation changes them", async () => {
+    const state = fixture()
+
+    await expect(runCoverageAction("generate", state.dependencies)).resolves.toMatchObject({
+      ok: true,
+      changed: true,
+    })
+    expect(state.writes.map(([path]) => path)).toEqual([
+      "docs/assessments/coverage-summary.json",
+      "docs/assessments/coverage-badge.json",
+    ])
+  })
+
+  it("reports malformed raw JSON separately from raw-summary read failures", async () => {
+    const malformed = fixture("{not-json")
+    const unreadable = fixture(rawSummary, undefined, {
+      readRawSummary: new Error(`cannot read ${sentinelPath}`),
+    })
+
+    await expect(runCoverageAction("check", malformed.dependencies)).resolves.toMatchObject({
+      ok: false,
+      reason: "Invalid coverage summary JSON",
+    })
+    await expect(runCoverageAction("check", unreadable.dependencies)).resolves.toMatchObject({
+      ok: false,
+      reason: "Unable to read coverage summary",
+    })
+  })
+
+  it("returns path-free committed-read, write, and unknown failure reports", async () => {
+    const committedRead = await runCoverageAction(
+      "check",
+      fixture(rawSummary, undefined, {
+        readCommitted: new Error(`cannot read ${sentinelPath}`),
+      }).dependencies,
+    )
+    const committedWrite = await runCoverageAction(
+      "generate",
+      fixture(rawSummary, undefined, {
+        writeCommitted: new Error(`cannot write ${sentinelPath}`),
+      }).dependencies,
+    )
+    const unknown = await runCoverageAction(
+      "check",
+      fixture(rawSummary, undefined, {
+        readRawSummary: { message: `unknown ${sentinelPath}` },
+      }).dependencies,
+    )
+
+    expect(committedRead.reason).toBe("Unable to read committed coverage artifacts")
+    expect(committedWrite.reason).toBe("Unable to write committed coverage artifacts")
+    expect(unknown.reason).toBe("Coverage artifact generation failed")
+    expect(JSON.stringify([committedRead, committedWrite, unknown])).not.toContain(sentinelPath)
+  })
+
+  it("reports a partial change when a later artifact write fails", async () => {
+    const firstWrite: Array<readonly [string, string]> = []
+    let writeAttempts = 0
+    const state = fixture()
+    const dependencies: CoverageDependencies = {
+      files: {
+        ...state.dependencies.files,
+        writeCommitted: async (path, content) => {
+          writeAttempts += 1
+          if (writeAttempts === 2) throw new Error(`cannot write ${sentinelPath}`)
+          firstWrite.push([path, content])
+        },
+      },
+    }
+
+    await expect(runCoverageAction("generate", dependencies)).resolves.toMatchObject({
+      ok: false,
+      changed: true,
+      reason: "Unable to write committed coverage artifacts",
+    })
+    expect(firstWrite.map(([path]) => path)).toEqual([
+      "docs/assessments/coverage-summary.json",
+    ])
+  })
+
+  it("never emits raw failure messages through the CLI", async () => {
+    const output: string[] = []
+    const streams = {
+      writeOutput: (value: string) => output.push(value),
+      writeError: (value: string) => output.push(value),
+    }
+
+    await expect(runCoverageCli(
+      ["generate"],
+      fixture(rawSummary, undefined, {
+        writeCommitted: new Error(`cannot write ${sentinelPath}`),
+      }).dependencies,
+      streams,
+    )).resolves.toBe(1)
+    expect(output.join("")).toContain("Unable to write committed coverage artifacts")
+    expect(output.join("")).not.toContain(sentinelPath)
+  })
+
+  it("maps current, stale, and invalid CLI requests to stable exit codes", async () => {
+    const expected = buildCoverageArtifacts(JSON.parse(rawSummary))
+    const committed = {
+      "docs/assessments/coverage-summary.json": serializeCoverageArtifact(expected.summary),
+      "docs/assessments/coverage-badge.json": serializeCoverageBadge(expected.badge),
+    }
+    const output: string[] = []
+    const streams = {
+      writeOutput: (value: string) => output.push(value),
+      writeError: (value: string) => output.push(value),
+    }
+
+    await expect(runCoverageCli(["check"], fixture(rawSummary, committed).dependencies, streams)).resolves.toBe(0)
+    await expect(runCoverageCli(["check"], fixture(rawSummary, {}).dependencies, streams)).resolves.toBe(1)
+    await expect(runCoverageCli(["unknown"], fixture().dependencies, streams)).resolves.toBe(2)
+    expect(output.join("")).toMatch(/current|stale|Usage/)
+  })
+
+  it("reads raw coverage and writes committed artifacts under an explicit root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-"))
+    try {
+      await mkdir(join(root, "coverage"), { recursive: true })
+      await writeFile(join(root, "coverage/coverage-summary.json"), rawSummary, "utf8")
+      const files = createCoverageFileSystem(root)
+
+      await expect(files.readRawSummary()).resolves.toBe(rawSummary)
+      await files.writeCommitted("docs/assessments/coverage-summary.json", "{}\n")
+      await expect(files.readCommitted("docs/assessments/coverage-summary.json")).resolves.toBe("{}\n")
+      await rm(join(root, "coverage/coverage-summary.json"))
+      await expect(files.readRawSummary()).rejects.toThrow(/test:coverage/i)
+      await expect(files.readCommitted("missing.json")).resolves.toBeUndefined()
+      const missingReport = await runCoverageAction("check", { files })
+      expect(missingReport.reason).toBe(
+        "Coverage summary is missing; run pnpm test:coverage first",
+      )
+      expect(JSON.stringify(missingReport)).not.toContain(root)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects absolute and parent-traversal writes without escaping the root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
+    const outside = join(dirname(root), `${basename(root)}-escape.json`)
+    const files = createCoverageFileSystem(root)
+    try {
+      for (const path of [
+        `../${basename(outside)}`,
+        outside,
+        "docs/../escape.json",
+        "docs\\..\\escape.json",
+        "C:\\escape.json",
+        "C:escape.json",
+        "\\\\server\\share\\escape.json",
+        "\\\\?\\C:\\escape.json",
+        "docs\\.. \\.. \\escape.json",
+        "docs\\...\\escape.json",
+      ]) {
+        await expect(files.writeCommitted(path, "escaped\n")).rejects.toThrow(
+          "Coverage artifact path must be relative and remain inside the coverage root",
+        )
+      }
+      await expect(readFile(outside, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true })
+    }
+  })
+
+  it("rejects symlinked parents and targets for reads and writes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-coverage-outside-"))
+    const files = createCoverageFileSystem(root)
+    try {
+      await mkdir(join(root, "docs"), { recursive: true })
+      await writeFile(join(outside, "sentinel.json"), "sentinel\n", "utf8")
+      await symlink(outside, join(root, "docs/linked"), "dir")
+      await symlink(
+        join(outside, "sentinel.json"),
+        join(root, "docs/target.json"),
+        "file",
+      )
+
+      for (const path of ["docs/linked/escape.json", "docs/target.json"]) {
+        await expect(files.readCommitted(path)).rejects.toThrow(
+          "Coverage artifact paths must not contain symbolic links",
+        )
+        await expect(files.writeCommitted(path, "escaped\n")).rejects.toThrow(
+          "Coverage artifact paths must not contain symbolic links",
+        )
+      }
+      await expect(readFile(join(outside, "sentinel.json"), "utf8")).resolves.toBe("sentinel\n")
+      await expect(readFile(join(outside, "escape.json"), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("pins the canonical root at construction and rejects its replacement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
+    const relocatedRoot = `${root}-relocated`
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-coverage-outside-"))
+    const files = createCoverageFileSystem(root)
+    try {
+      await writeFile(join(outside, "sentinel.json"), "sentinel\n", "utf8")
+      await rename(root, relocatedRoot)
+      await symlink(outside, root, "dir")
+
+      await expect(files.readCommitted("sentinel.json")).rejects.toThrow(
+        "Coverage root changed during artifact operation",
+      )
+      await expect(files.writeCommitted("escape.json", "escaped\n")).rejects.toThrow(
+        "Coverage root changed during artifact operation",
+      )
+      await expect(readFile(join(outside, "sentinel.json"), "utf8")).resolves.toBe("sentinel\n")
+      await expect(readFile(join(outside, "escape.json"), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(relocatedRoot, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects non-regular and oversized artifact reads", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
+    const files = createCoverageFileSystem(root)
+    try {
+      await mkdir(join(root, "docs/non-regular.json"), { recursive: true })
+      await mkdir(join(root, "docs"), { recursive: true })
+      await writeFile(join(root, "docs/oversized.json"), "", "utf8")
+      await truncate(join(root, "docs/oversized.json"), 8_388_609)
+
+      for (const path of ["docs/non-regular.json", "docs/oversized.json"]) {
+        await expect(files.readCommitted(path)).rejects.toThrow(
+          "Coverage artifact must be a bounded regular file",
+        )
+      }
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("removes temporary files after an atomic replacement failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
+    const artifactDirectory = join(root, "docs/assessments/blocked.json")
+    const files = createCoverageFileSystem(root)
+    try {
+      await mkdir(artifactDirectory, { recursive: true })
+
+      await expect(
+        files.writeCommitted("docs/assessments/blocked.json", "content\n"),
+      ).rejects.toThrow()
+      await expect(readdir(join(root, "docs/assessments"))).resolves.toEqual(["blocked.json"])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})

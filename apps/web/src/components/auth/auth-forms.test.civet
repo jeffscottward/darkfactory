@@ -10,7 +10,10 @@ vi.mock("next/link", () => ({ default: "a" }))
 import type { AuthFlowClient } from "./auth-flow.civet"
 import { AuthPanel } from "./auth-panel.civet"
 import { SessionRedirect, destinationForSession } from "./session-redirect.civet"
-import { SignInForm } from "./sign-in-form.civet"
+import {
+  SignInForm,
+  completeSuccessfulSignInNavigation,
+} from "./sign-in-form.civet"
 import { SignUpForm } from "./sign-up-form.civet"
 import { ResetPasswordForm } from "./reset-password-form.civet"
 import {
@@ -68,6 +71,17 @@ describe "auth form surface", ->
     expect(html).toContain("min-h-11")
     expect(html.match(/required=\"\"/g)).toHaveLength(2)
     expect(html.match(/aria-required=\"true\"/g)).toHaveLength(2)
+
+  it "crosses the authenticated layout boundary with a full history-replacing navigation", ->
+    const replace = vi.fn()
+
+    completeSuccessfulSignInNavigation(
+      { status: "success", destination: "/dashboard" },
+      replace,
+    )
+
+    expect(replace).toHaveBeenCalledOnce()
+    expect(replace).toHaveBeenCalledWith("/dashboard")
 
   it "renders sign-up with name, email, two password controls, and truthful verification guidance", ->
     const html = markup(createElement(SignUpForm, { auth: client }))

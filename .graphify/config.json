@@ -63,7 +63,7 @@
       ".vinext",
       ".wrangler",
       "build",
-      "coverage",
+      "coverage/**",
       "dist",
       "graphify-out",
       "node_modules",

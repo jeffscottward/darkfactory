@@ -12,6 +12,12 @@ build/
 .alchemy/
 .cache/
 coverage/
+!scripts/coverage/
+scripts/coverage/**
+!scripts/coverage/cli.civet
+!scripts/coverage/coverage.civet
+!scripts/coverage/coverage.test.civet
+!scripts/coverage/system.civet
 playwright-report/
 test-results/
 graphify-out/

@@ -42,13 +42,17 @@ const containedPath = (path: string): string => {
   }
   return absolute
 }
-const isExcluded = (path: string, excludes: readonly string[]): boolean =>
-  excludes.some((excluded) =>
-    (excluded === "*.civet.d.ts" && path.endsWith(".civet.d.ts")) ||
-    path === excluded ||
-    path.startsWith(`${excluded}/`) ||
-    path.split("/").includes(excluded)
-  )
+export const isGraphSourceExcluded = (path: string, excludes: readonly string[]): boolean =>
+  excludes.some((excluded) => {
+    if (excluded === "*.civet.d.ts") return path.endsWith(".civet.d.ts")
+    if (excluded.endsWith("/**")) {
+      const rootPath = excluded.slice(0, -3)
+      return rootPath.length > 0 && (path === rootPath || path.startsWith(`${rootPath}/`))
+    }
+    return path === excluded ||
+      path.startsWith(`${excluded}/`) ||
+      path.split("/").includes(excluded)
+  })
 const inspectPath = async (path: string): Promise<GraphFileInfo> => {
   try {
     const stats = await lstat(containedPath(path))
@@ -87,7 +91,7 @@ const collectDirectory = async (root: string, config: GraphConfig, collected: st
   const entries = await readdir(containedPath(root), { withFileTypes: true })
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     const path = portable(join(root, entry.name)).replace(/^\.\//, "")
-    if (isExcluded(path, config.source.excludes) || entry.isSymbolicLink()) continue
+    if (isGraphSourceExcluded(path, config.source.excludes) || entry.isSymbolicLink()) continue
     if (entry.isDirectory()) await collectDirectory(path, config, collected)
     else if (entry.isFile() && config.source.extensions.includes(extname(entry.name).toLowerCase())) {
       collected.push(path)
@@ -104,7 +108,7 @@ const listConfiguredSourceFiles = async (config: GraphConfig): Promise<readonly 
   }
   for (const path of config.source.files) {
     if ((await inspectPath(path)).kind !== "file") throw new Error(`Graph source file is not regular: ${path}`)
-    if (!isExcluded(path, config.source.excludes)) collected.push(path)
+    if (!isGraphSourceExcluded(path, config.source.excludes)) collected.push(path)
   }
   return Object.freeze([...new Set(collected)].sort())
 }

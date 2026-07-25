@@ -1,0 +1,192 @@
+import { randomUUID } from "node:crypto"
+import { constants, lstatSync, realpathSync } from "node:fs"
+import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path"
+
+import { CoverageSummaryMissingError } from "./coverage.civet"
+import type { CoverageFileSystem } from "./coverage.civet"
+
+const INVALID_PATH_MESSAGE =
+  "Coverage artifact path must be relative and remain inside the coverage root"
+const SYMLINK_PATH_MESSAGE =
+  "Coverage artifact paths must not contain symbolic links"
+const ROOT_UNAVAILABLE_MESSAGE = "Coverage root is unavailable"
+const ROOT_CHANGED_MESSAGE = "Coverage root changed during artifact operation"
+const MAX_COVERAGE_ARTIFACT_BYTES = 8_388_608
+const INVALID_FILE_MESSAGE = "Coverage artifact must be a bounded regular file"
+
+type CanonicalRoot = Readonly<{
+  path: string
+  device: number
+  inode: number
+}>
+
+const hasErrorCode = (error: unknown, code: string): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as NodeJS.ErrnoException).code === code
+
+const initializeCanonicalRoot = (explicitRoot: string): CanonicalRoot => {
+  try {
+    const path = realpathSync(explicitRoot)
+    const status = lstatSync(path)
+    if (!status.isDirectory() || status.isSymbolicLink()) {
+      throw new Error(ROOT_UNAVAILABLE_MESSAGE)
+    }
+    return Object.freeze({ path, device: status.dev, inode: status.ino })
+  } catch {
+    throw new Error(ROOT_UNAVAILABLE_MESSAGE)
+  }
+}
+
+const verifyCanonicalRoot = async (root: CanonicalRoot): Promise<string> => {
+  try {
+    const status = await lstat(root.path)
+    const canonicalPath = await realpath(root.path)
+    if (
+      !status.isDirectory() ||
+      status.isSymbolicLink() ||
+      status.dev !== root.device ||
+      status.ino !== root.inode ||
+      canonicalPath !== root.path
+    ) {
+      throw new Error(ROOT_CHANGED_MESSAGE)
+    }
+    return root.path
+  } catch {
+    throw new Error(ROOT_CHANGED_MESSAGE)
+  }
+}
+
+const assertRelativePath = (path: string): void => {
+  const components = path.split(/[\\/]/)
+  if (
+    path.length === 0 ||
+    path.includes("\0") ||
+    isAbsolute(path) ||
+    win32.parse(path).root.length > 0 ||
+    components.some((component) =>
+      component === ".." || component.endsWith(".") || component.endsWith(" ")
+    )
+  ) {
+    throw new Error(INVALID_PATH_MESSAGE)
+  }
+}
+
+const assertNoSymbolicLinks = async (root: string, target: string): Promise<void> => {
+  const components = relative(root, target).split(sep).filter(Boolean)
+  let current = root
+  for (const component of components) {
+    current = join(current, component)
+    try {
+      if ((await lstat(current)).isSymbolicLink()) {
+        throw new Error(SYMLINK_PATH_MESSAGE)
+      }
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) return
+      throw error
+    }
+  }
+}
+
+const recheckSafePath = async (
+  getCanonicalRoot: () => Promise<string>,
+  root: string,
+  target: string,
+): Promise<void> => {
+  if (await getCanonicalRoot() !== root) throw new Error(ROOT_CHANGED_MESSAGE)
+  await assertNoSymbolicLinks(root, target)
+}
+
+const resolveSafePath = async (
+  getCanonicalRoot: () => Promise<string>,
+  path: string,
+): Promise<Readonly<{ root: string; target: string }>> => {
+  assertRelativePath(path)
+  const root = await getCanonicalRoot()
+  const target = resolve(root, path)
+  const fromRoot = relative(root, target)
+  if (
+    fromRoot.length === 0 ||
+    fromRoot === ".." ||
+    fromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(fromRoot)
+  ) {
+    throw new Error(INVALID_PATH_MESSAGE)
+  }
+  await assertNoSymbolicLinks(root, target)
+  return Object.freeze({ root, target })
+}
+
+const readOptional = async (
+  getCanonicalRoot: () => Promise<string>,
+  path: string,
+): Promise<string | undefined> => {
+  const { root, target } = await resolveSafePath(getCanonicalRoot, path)
+  await recheckSafePath(getCanonicalRoot, root, target)
+  let handle
+  try {
+    handle = await open(
+      target,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    )
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return undefined
+    if (hasErrorCode(error, "ELOOP")) throw new Error(SYMLINK_PATH_MESSAGE)
+    throw error
+  }
+  try {
+    const status = await handle.stat()
+    if (!status.isFile() || status.size > MAX_COVERAGE_ARTIFACT_BYTES) {
+      throw new Error(INVALID_FILE_MESSAGE)
+    }
+    return await handle.readFile("utf8")
+  } finally {
+    await handle.close()
+  }
+}
+
+export const createCoverageFileSystem = (root: string): CoverageFileSystem => {
+  const canonicalRoot = initializeCanonicalRoot(resolve(root))
+  const getCanonicalRoot = (): Promise<string> => verifyCanonicalRoot(canonicalRoot)
+
+  return Object.freeze({
+    readRawSummary: async () => {
+      const summary = await readOptional(
+        getCanonicalRoot,
+        "coverage/coverage-summary.json",
+      )
+      if (summary === undefined) throw new CoverageSummaryMissingError()
+      return summary
+    },
+    readCommitted: (path) => readOptional(getCanonicalRoot, path),
+    writeCommitted: async (path, content) => {
+      const { root: canonicalRoot, target } = await resolveSafePath(getCanonicalRoot, path)
+      await recheckSafePath(getCanonicalRoot, canonicalRoot, target)
+      await mkdir(dirname(target), { recursive: true })
+      await recheckSafePath(getCanonicalRoot, canonicalRoot, target)
+      const temporary = join(
+        dirname(target),
+        `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`,
+      )
+      let handle
+      try {
+        await recheckSafePath(getCanonicalRoot, canonicalRoot, target)
+        handle = await open(temporary, "wx", 0o644)
+        await handle.writeFile(content, "utf8")
+        await handle.sync()
+        await handle.close()
+        handle = undefined
+        await recheckSafePath(getCanonicalRoot, canonicalRoot, target)
+        await rename(temporary, target)
+      } catch (error) {
+        await handle?.close().catch(() => undefined)
+        await rm(temporary, { force: true }).catch(() => undefined)
+        throw error
+      }
+    },
+  })
+}
+
+export const nodeCoverageFileSystem = createCoverageFileSystem(".")

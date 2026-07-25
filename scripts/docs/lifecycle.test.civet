@@ -1,4 +1,7 @@
+import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 import { PRE_PUSH_SCRIPTS, runPrePush } from "../hooks/index.civet"
 
@@ -8,6 +11,20 @@ const rootPackage = JSON.parse(await readFile(new URL("../../package.json", impo
 }
 const workspace = await readFile(new URL("../../pnpm-workspace.yaml", import.meta.url), "utf8")
 const workflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
+const ignoreRules = await readFile(new URL("../../.gitignore", import.meta.url), "utf8")
+const projectRoot = fileURLToPath(new URL("../..", import.meta.url))
+const execFileAsync = promisify(execFile)
+const isIgnored = async (path: string): Promise<boolean> => {
+  try {
+    await execFileAsync("git", ["check-ignore", "--no-index", "--quiet", path], {
+      cwd: projectRoot,
+    })
+    return true
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) return false
+    throw error
+  }
+}
 const turboConfig = JSON.parse(
   await readFile(new URL("../../turbo.json", import.meta.url), "utf8"),
 ) as { globalDependencies: string[]; tasks: Record<string, { passThroughEnv?: string[] }> }
@@ -108,6 +125,39 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(new Set(leafScripts).size).toBe(leafScripts.length)
     expect(rootPackage.scripts["test:e2e"]).toBe("civet scripts/e2e/run.civet e2e")
     expect(rootPackage.scripts["test:a11y"]).toBe("civet scripts/e2e/run.civet a11y")
+  })
+
+  it("allowlists exactly the authored coverage sources while ignoring generated output", async () => {
+    const authoredCoverageFiles = [
+      "scripts/coverage/cli.civet",
+      "scripts/coverage/coverage.civet",
+      "scripts/coverage/coverage.test.civet",
+      "scripts/coverage/system.civet",
+    ]
+    const coverageExceptions = ignoreRules
+      .split(/\r?\n/)
+      .filter((rule) => rule.startsWith("!scripts/coverage/"))
+
+    expect(coverageExceptions).toEqual([
+      "!scripts/coverage/",
+      ...authoredCoverageFiles.map((path) => `!${path}`),
+    ])
+    expect(ignoreRules.split(/\r?\n/)).toContain("scripts/coverage/**")
+    await expect(Promise.all(authoredCoverageFiles.map(isIgnored))).resolves.toEqual([
+      false,
+      false,
+      false,
+      false,
+    ])
+    const ignoredCoveragePaths = [
+      "coverage/coverage-summary.json",
+      "scripts/coverage/unexpected.civet",
+      "scripts/coverage/nested/unexpected.civet",
+      ...authoredCoverageFiles.map((path) => `${path}/unexpected.civet`),
+    ]
+    await expect(Promise.all(ignoredCoveragePaths.map(isIgnored))).resolves.toEqual(
+      ignoredCoveragePaths.map(() => true),
+    )
   })
 
   it("runs isolated CI lanes concurrently while preserving only verified browser evidence", () => {

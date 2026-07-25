@@ -1,0 +1,24 @@
+import type { CoverageDependencies } from "./coverage.civet"
+import { runCoverageAction } from "./coverage.civet"
+
+export type CoverageCliOutput = Readonly<{
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+}>
+
+export const runCoverageCli = async (
+  arguments_: readonly string[],
+  dependencies: CoverageDependencies,
+  output: CoverageCliOutput,
+): Promise<number> => {
+  const action = arguments_[0]
+  if ((action !== "generate" && action !== "check") || arguments_.length !== 1) {
+    output.writeError("Usage: pnpm coverage:generate | pnpm coverage:check\n")
+    return 2
+  }
+  const result = await runCoverageAction(action, dependencies)
+  const rendered = `${JSON.stringify(result, null, 2)}\n`
+  if (result.ok) output.writeOutput(rendered)
+  else output.writeError(rendered)
+  return result.ok ? 0 : 1
+}

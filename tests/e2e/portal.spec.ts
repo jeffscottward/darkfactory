@@ -316,16 +316,26 @@ test.describe
 
       const navigationTrigger = page.getByRole("button", {
         name: "Open portal navigation",
+        exact: true,
       });
+      const navigationTriggerElement = page.locator(
+        'button[aria-label="Open portal navigation"]'
+      );
+      await expect(navigationTriggerElement).toHaveCount(1);
       await expect(navigationTrigger).toBeVisible();
       await expect(navigationTrigger).toHaveAttribute(
         "data-hydration-state",
-        "ready",
-        { timeout: 15_000 }
+        "ready"
       );
       await expect(navigationTrigger).toBeEnabled();
+      await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
       await navigationTrigger.focus();
       await navigationTrigger.press("Enter");
+      await expect(navigationTrigger).toHaveCount(0);
+      await expect(navigationTriggerElement).toHaveAttribute(
+        "aria-expanded",
+        "true"
+      );
       const mobileNavigation = page.getByRole("navigation", {
         name: "Mobile portal navigation",
       });
@@ -350,14 +360,22 @@ test.describe
       await expect(overviewLink).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(mobileNavigation).toBeHidden();
+      await expect(navigationTrigger).toBeVisible();
       await expect(navigationTrigger).toBeFocused();
+      await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
 
       await navigationTrigger.press("Enter");
+      await expect(navigationTrigger).toHaveCount(0);
+      await expect(navigationTriggerElement).toHaveAttribute(
+        "aria-expanded",
+        "true"
+      );
       await expect(overviewLink).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(featureItemsLink).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(mobileNavigation).toBeHidden();
+      await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
 
       await expect(
         page.getByRole("heading", {

@@ -1,0 +1,240 @@
+export const COVERAGE_SUMMARY_PATH = "docs/assessments/coverage-summary.json"
+export const COVERAGE_BADGE_PATH = "docs/assessments/coverage-badge.json"
+
+const metricNames = ["lines", "branches", "functions", "statements"] as const
+
+type MetricName = typeof metricNames[number]
+type JsonRecord = Record<string, unknown>
+
+const failureReasons = Object.freeze({
+  missingSummary: "Coverage summary is missing; run pnpm test:coverage first",
+  invalidJson: "Invalid coverage summary JSON",
+  rawRead: "Unable to read coverage summary",
+  committedRead: "Unable to read committed coverage artifacts",
+  committedWrite: "Unable to write committed coverage artifacts",
+  unknown: "Coverage artifact generation failed",
+})
+
+class CoverageValidationError extends Error {
+  readonly reason: string
+
+  constructor(reason: string) {
+    super(reason)
+    this.name = "CoverageValidationError"
+    this.reason = reason
+  }
+}
+
+export class CoverageSummaryMissingError extends Error {
+  constructor() {
+    super(failureReasons.missingSummary)
+    this.name = "CoverageSummaryMissingError"
+  }
+}
+
+const invalidCoverage = (reason: string): never => {
+  throw new CoverageValidationError(reason)
+}
+
+export type CoverageMetric = Readonly<{
+  total: number
+  covered: number
+  skipped: number
+  pct: number
+}>
+
+export type CoverageArtifact = Readonly<{
+  schemaVersion: 1
+  provider: "v8"
+  projects: readonly ["unit", "contract", "operations"]
+  metrics: Readonly<Record<MetricName, CoverageMetric>>
+}>
+
+export type CoverageBadge = Readonly<{
+  schemaVersion: 1
+  label: "coverage"
+  message: string
+  color: "red" | "orange" | "yellow" | "yellowgreen" | "green" | "brightgreen"
+}>
+
+export type CoverageArtifacts = Readonly<{
+  summary: CoverageArtifact
+  badge: CoverageBadge
+}>
+
+export type CoverageFileSystem = Readonly<{
+  readRawSummary: () => Promise<string>
+  readCommitted: (path: string) => Promise<string | undefined>
+  writeCommitted: (path: string, content: string) => Promise<void>
+}>
+
+export type CoverageDependencies = Readonly<{ files: CoverageFileSystem }>
+
+export type CoverageReport = Readonly<{
+  action: "generate" | "check"
+  ok: boolean
+  changed: boolean
+  reason: string
+}>
+
+const asRecord = (value: unknown): JsonRecord | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as JsonRecord
+    : null
+
+const normalizeMetric = (name: MetricName, value: unknown): CoverageMetric => {
+  const record = asRecord(value)
+  if (record === null) invalidCoverage(`Invalid coverage metric: ${name}`)
+
+  const total = record["total"]
+  const covered = record["covered"]
+  const skipped = record["skipped"]
+  const pct = record["pct"]
+  if (
+    typeof total !== "number" || !Number.isSafeInteger(total) || total < 0 ||
+    typeof covered !== "number" || !Number.isSafeInteger(covered) || covered < 0 || covered > total ||
+    typeof skipped !== "number" || !Number.isSafeInteger(skipped) || skipped < 0 ||
+    covered + skipped > total ||
+    typeof pct !== "number" || !Number.isFinite(pct) || pct < 0 || pct > 100
+  ) {
+    invalidCoverage(`Invalid coverage metric: ${name}`)
+  }
+  const expectedPercentage = total === 0
+    ? 100
+    : Math.floor((10_000 * covered) / total) / 100
+  if (pct !== expectedPercentage) {
+    invalidCoverage(`Invalid coverage percentage: ${name}`)
+  }
+
+  return Object.freeze({ total, covered, skipped, pct })
+}
+
+const badgeColor = (percentage: number): CoverageBadge["color"] => {
+  if (percentage >= 90) return "brightgreen"
+  if (percentage >= 80) return "green"
+  if (percentage >= 70) return "yellowgreen"
+  if (percentage >= 60) return "yellow"
+  if (percentage >= 50) return "orange"
+  return "red"
+}
+
+const formatPercentage = (percentage: number): string => `${percentage}`
+
+export const buildCoverageArtifacts = (value: unknown): CoverageArtifacts => {
+  const root = asRecord(value)
+  const total = asRecord(root?.["total"])
+  if (total === null) invalidCoverage("Invalid coverage summary: missing total metrics")
+
+  const metrics = Object.freeze({
+    lines: normalizeMetric("lines", total["lines"]),
+    branches: normalizeMetric("branches", total["branches"]),
+    functions: normalizeMetric("functions", total["functions"]),
+    statements: normalizeMetric("statements", total["statements"]),
+  })
+  const summary = Object.freeze({
+    schemaVersion: 1 as const,
+    provider: "v8" as const,
+    projects: Object.freeze(["unit", "contract", "operations"] as const),
+    metrics,
+  })
+  const badge = Object.freeze({
+    schemaVersion: 1 as const,
+    label: "coverage" as const,
+    message: `${formatPercentage(metrics.lines.pct)}% lines, ${formatPercentage(metrics.branches.pct)}% branches`,
+    color: badgeColor(Math.min(metrics.lines.pct, metrics.branches.pct)),
+  })
+  return Object.freeze({ summary, badge })
+}
+
+export const serializeCoverageArtifact = (artifact: CoverageArtifact): string => {
+  const serialized = JSON.stringify(artifact, null, 2).replace(
+    '  "projects": [\n    "unit",\n    "contract",\n    "operations"\n  ]',
+    '  "projects": ["unit", "contract", "operations"]',
+  )
+  return `${serialized}\n`
+}
+
+export const serializeCoverageBadge = (badge: CoverageBadge): string =>
+  `${JSON.stringify(badge, null, 2)}\n`
+
+const report = (
+  action: "generate" | "check",
+  ok: boolean,
+  changed: boolean,
+  reason: string,
+): CoverageReport => Object.freeze({ action, ok, changed, reason })
+
+export const runCoverageAction = async (
+  action: "generate" | "check",
+  dependencies: CoverageDependencies,
+): Promise<CoverageReport> => {
+  const failed = (reason: string, changed = false): CoverageReport =>
+    report(action, false, changed, reason)
+
+  try {
+    let rawSummary: string
+    try {
+      rawSummary = await dependencies.files.readRawSummary()
+    } catch (error) {
+      if (error instanceof CoverageSummaryMissingError) {
+        return failed(failureReasons.missingSummary)
+      }
+      return failed(error instanceof Error ? failureReasons.rawRead : failureReasons.unknown)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawSummary)
+    } catch {
+      return failed(failureReasons.invalidJson)
+    }
+
+    let artifacts: CoverageArtifacts
+    try {
+      artifacts = buildCoverageArtifacts(parsed)
+    } catch (error) {
+      return failed(
+        error instanceof CoverageValidationError
+          ? error.reason
+          : failureReasons.unknown,
+      )
+    }
+
+    const expected = [
+      [COVERAGE_SUMMARY_PATH, serializeCoverageArtifact(artifacts.summary)],
+      [COVERAGE_BADGE_PATH, serializeCoverageBadge(artifacts.badge)],
+    ] as const
+    let current: readonly (string | undefined)[]
+    try {
+      current = await Promise.all(
+        expected.map(([path]) => dependencies.files.readCommitted(path)),
+      )
+    } catch (error) {
+      return failed(error instanceof Error ? failureReasons.committedRead : failureReasons.unknown)
+    }
+    const stale = expected.filter(([, content], index) => current[index] !== content)
+
+    if (action === "check") {
+      return stale.length === 0
+        ? report(action, true, false, "Committed coverage artifacts are current")
+        : failed("Committed coverage artifacts are stale or missing")
+    }
+    let changed = false
+    try {
+      for (const [path, content] of stale) {
+        await dependencies.files.writeCommitted(path, content)
+        changed = true
+      }
+    } catch (error) {
+      return failed(
+        error instanceof Error ? failureReasons.committedWrite : failureReasons.unknown,
+        changed,
+      )
+    }
+    return stale.length === 0
+      ? report(action, true, false, "Committed coverage artifacts are already current")
+      : report(action, true, true, "Committed coverage artifacts were updated")
+  } catch {
+    return failed(failureReasons.unknown)
+  }
+}
