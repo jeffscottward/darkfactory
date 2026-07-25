@@ -13,6 +13,17 @@ export type ArtifactFindingCategory =
   | "authorization-header"
   | "secret-assignment"
 export type ArtifactFinding = Readonly<{ category: ArtifactFindingCategory; path: string }>
+export const ARTIFACT_SCANNER_FAILURE_CATEGORIES = [
+  "deadline",
+  "bounds",
+  "ownership-path-safety",
+  "evidence-contract-validation",
+  "archive-validation",
+  "cleanup",
+  "internal",
+] as const
+export type ArtifactScannerFailureCategory =
+  typeof ARTIFACT_SCANNER_FAILURE_CATEGORIES[number]
 export type ArtifactScannerDependencies = Readonly<{
   artifactProfile: "no-binary" | "anonymous-public-visual"
   deadlineMs: number
@@ -25,12 +36,113 @@ export type ArtifactScanReport = Readonly<{
   findings: readonly ArtifactFinding[]
   purged: boolean
   reason: string
+  failureCategory?: ArtifactScannerFailureCategory
 }>
 export class ArtifactScannerCleanupError extends Error {
   constructor() {
     super("Artifact scanner temporary cleanup failed")
     this.name = "ArtifactScannerCleanupError"
   }
+}
+
+const FAILURE_MESSAGES: Readonly<Record<
+  Exclude<ArtifactScannerFailureCategory, "cleanup" | "internal">,
+  ReadonlySet<string>
+>> = Object.freeze({
+  deadline: new Set([
+    "Artifact scan deadline exceeded",
+    "Artifact scan deadline is invalid",
+  ]),
+  bounds: new Set([
+    "Artifact scan limits are invalid",
+    "Artifact entry count exceeds scan bound",
+    "Artifact exceeds scan size bound",
+    "Artifacts exceed aggregate scan bound",
+    "Expanded artifacts exceed aggregate scan bound",
+    "Global archive count exceeds scan bound",
+    "Archive member count exceeds scan bound",
+    "Evidence manifest artifact count exceeds scan bound",
+  ]),
+  "ownership-path-safety": new Set([
+    "Invalid owned proof encoding",
+    "Invalid owned E2E proof",
+    "Owned proof run mismatch",
+    "Invalid E2E run identifier",
+    "Owned E2E directory ancestry is unsafe",
+    "Owned E2E directory ancestry changed",
+    "Artifact path escapes or replaces the repository root",
+    "Artifact identity or size is unsafe",
+    "Artifact identity changed while reading",
+    "Artifact symlinks or redirected ancestry are unsafe",
+    "Artifact directory identity changed while scanning",
+    "Scanner paths do not match owned E2E proof",
+    "Owned E2E proof does not match run",
+    "Owned E2E root identity changed",
+    "Owned E2E marker identity changed",
+    "Owned E2E marker changed",
+    "Owned E2E marker capability mismatch",
+    "Owned E2E root changed during purge",
+    "Owned E2E quarantine identity changed",
+    "Owned E2E purge rollback failed",
+  ]),
+  "evidence-contract-validation": new Set([
+    "Duplicate owned artifact path",
+    "Expected owned Playwright JSON report is missing",
+    "Expected owned Playwright JSON report is malformed",
+    "Expected owned evidence manifest is missing",
+    "Expected owned evidence manifest is malformed",
+    "Duplicate evidence artifact reference",
+    "Expected owned evidence manifest digest does not match",
+    "Screenshot evidence is not a permitted PNG for this run",
+    "Structured evidence encoding is invalid",
+    "Structured evidence is malformed",
+    "Structured evidence schema is invalid",
+    "Structured evidence route is invalid",
+    "Accessibility evidence must be text",
+    "Unreferenced or unsupported binary E2E evidence was detected",
+  ]),
+  "archive-validation": new Set([
+    "Unknown archive tool",
+    "Trusted gzip executable is unavailable",
+    "Trusted tar executable is unavailable",
+    "Trusted unzip executable is unavailable",
+    "Unsupported compressed artifact format",
+    "Artifact extension does not match archive magic",
+    "Binary artifact is not a permitted PNG",
+    "PNG chunk is truncated",
+    "PNG chunk length is unsafe",
+    "PNG metadata or unknown chunks are rejected",
+    "PNG chunk checksum is invalid",
+    "PNG header is invalid",
+    "PNG header is unsafe",
+    "PNG contains duplicate headers",
+    "PNG palette is invalid",
+    "PNG image chunks are invalid",
+    "PNG terminator is invalid",
+    "PNG terminator is missing",
+    "PNG image data is invalid",
+    "PNG pixel data size is invalid",
+    "Unsafe archive entry name",
+    "Gzip entry size is unknown",
+    "Gzip size changed",
+    "Nested compressed artifacts are rejected",
+    "Nested archives are rejected",
+    "Archive entry size is unknown",
+    "Archive size changed",
+  ]),
+})
+
+export const classifyArtifactScannerFailure = (
+  error: unknown,
+): ArtifactScannerFailureCategory => {
+  if (error instanceof ArtifactScannerCleanupError) return "cleanup"
+  if (!(error instanceof Error)) return "internal"
+  for (const [category, messages] of Object.entries(FAILURE_MESSAGES)) {
+    if (messages.has(error.message)) {
+      return category as ArtifactScannerFailureCategory
+    }
+  }
+  return "internal"
 }
 
 const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/
@@ -370,19 +482,21 @@ export const scanArtifactPaths = async (
     await dependencies.purgeOwnedRun(runId)
     return Object.freeze({
       ok: false,
-      scannedEntries: entries.length,
+      scannedEntries: 0,
       findings,
       purged: true,
       reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
     })
   } catch (error) {
-    const cleanupUnsafe = error instanceof ArtifactScannerCleanupError
+    const initialFailureCategory = classifyArtifactScannerFailure(error)
+    const cleanupUnsafe = initialFailureCategory === "cleanup"
     let purged = false
+    let purgeFailed = false
     try {
       await dependencies.purgeOwnedRun(runId)
       purged = !cleanupUnsafe
     } catch {
-      purged = false
+      purgeFailed = true
     }
     return Object.freeze({
       ok: false,
@@ -394,6 +508,9 @@ export const scanArtifactPaths = async (
         : purged
           ? "E2E artifact scanning failed; owned run outputs were purged"
           : "E2E artifact scanning and owned-run purge failed safely",
+      failureCategory: cleanupUnsafe || purgeFailed
+        ? "cleanup"
+        : initialFailureCategory,
     })
   }
 }

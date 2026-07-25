@@ -24,7 +24,11 @@ import {
   prepareOwnedRun,
   type ArtifactScanLimits,
 } from "./system.civet"
-import { inspectArtifactEntries, scanArtifactPaths } from "./scanner.civet"
+import {
+  ArtifactScannerCleanupError,
+  inspectArtifactEntries,
+  scanArtifactPaths,
+} from "./scanner.civet"
 
 const entry = (path: string, content: string) => ({ path, content })
 const cleanups: Array<() => Promise<void>> = []
@@ -501,7 +505,7 @@ describe("external E2E artifact scanner", () => {
     }
   })
 
-  it("purges proof-bound roots after findings and fails closed on tool errors", async () => {
+  it("returns only allowlisted catch categories, zero unvalidated counts, and purges", async () => {
     const purgeOwnedRun = vi.fn(async () => undefined)
     const contaminated = await scanArtifactPaths("run_safe", ["ignored"], {
       artifactProfile: "no-binary",
@@ -512,17 +516,54 @@ describe("external E2E artifact scanner", () => {
       ],
       purgeOwnedRun,
     })
-    expect(contaminated).toMatchObject({ ok: false, purged: true })
+    expect(contaminated).toMatchObject({
+      ok: false,
+      scannedEntries: 0,
+      purged: true,
+    })
     expect(contaminated.findings[0]?.path).toMatch(/^artifact-/u)
 
-    const failed = await scanArtifactPaths("run_safe", ["ignored"], {
+    const cases = [
+      ["Artifact scan deadline exceeded", "deadline"],
+      ["Artifact entry count exceeds scan bound", "bounds"],
+      ["Artifact symlinks or redirected ancestry are unsafe", "ownership-path-safety"],
+      ["Expected owned evidence manifest is missing", "evidence-contract-validation"],
+      ["Archive entry size is unknown", "archive-validation"],
+      ["private exception /tmp/secret BrowserReset123!", "internal"],
+    ] as const
+    for (const [message, failureCategory] of cases) {
+      const failed = await scanArtifactPaths("run_safe", ["ignored"], {
+        artifactProfile: "no-binary",
+        deadlineMs: 30_000,
+        collectEntries: async () => { throw new Error(message) },
+        purgeOwnedRun,
+      })
+      expect(failed).toMatchObject({
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: true,
+        failureCategory,
+      })
+      expect(JSON.stringify(failed)).not.toContain(message)
+      expect(JSON.stringify(failed)).not.toContain("BrowserReset123")
+      expect(JSON.stringify(failed)).not.toContain("/tmp/secret")
+    }
+
+    const cleanupFailed = await scanArtifactPaths("run_safe", ["ignored"], {
       artifactProfile: "no-binary",
       deadlineMs: 30_000,
-      collectEntries: async () => { throw new Error("unzip failed with sensitive stderr") },
+      collectEntries: async () => { throw new ArtifactScannerCleanupError() },
       purgeOwnedRun,
     })
-    expect(failed).toMatchObject({ ok: false, purged: true, findings: [] })
-    expect(failed.reason).not.toContain("sensitive")
+    expect(cleanupFailed).toMatchObject({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      failureCategory: "cleanup",
+    })
+    expect(purgeOwnedRun).toHaveBeenCalled()
   })
 
   it("creates nonce and inode ownership proofs and purges exactly those roots", async () => {

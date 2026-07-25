@@ -21,6 +21,7 @@ import {
   observeE2ELifecycle,
   observeWebServerLifecycleFailure,
   parseScannerReport,
+  parseExternalScannerReport,
   redactProcessOutput,
   resolveLifecycleObservation,
   runArtifactScannerCli,
@@ -47,12 +48,31 @@ const streams = () => {
     },
   }
 }
+const SCANNER_REPORT_NONCE = "r".repeat(43)
+const scannerEnvelope = (
+  report: Readonly<Record<string, unknown>>,
+  reportNonce = SCANNER_REPORT_NONCE,
+): string => JSON.stringify({
+  kind: "darkfactory-artifact-scanner-report",
+  version: 1,
+  reportNonce,
+  report,
+})
+const scannerReportFrom = (value: string): Record<string, unknown> =>
+  (JSON.parse(value) as { report: Record<string, unknown> }).report
 
 describe("E2E lifecycle CLIs", () => {
   it("maps malformed invocations to usage exit code 2", async () => {
     const scanner = streams()
     await expect(runArtifactScannerCli([], "/unused", scanner.streams)).resolves.toBe(2)
     expect(scanner.errors.join("")).toContain("Usage")
+    const invalidNonce = streams()
+    await expect(runArtifactScannerCli([
+      "--run-id", "safe_run",
+      "--ownership", "unused-proof",
+      "--report-nonce", "raw path /tmp/private",
+    ], "/unused", invalidNonce.streams)).resolves.toBe(2)
+    expect(invalidNonce.errors.join("")).toContain("Usage")
 
     const runner = streams()
     await expect(runJourneyCli(["unknown"], "/unused", runner.streams)).resolves.toBe(2)
@@ -140,6 +160,48 @@ describe("E2E lifecycle CLIs", () => {
     const rendered = JSON.stringify({ progress, output: cli.output })
     expect(rendered).not.toMatch(
       /private-adoption|private-ownership|k{43}|password|token|https?:/iu
+    )
+  })
+
+  it("emits only a safe scanner category while persisting the generic scan failure", async () => {
+    const cli = streams()
+    const persisted: unknown[] = []
+    const exitCode = await runJourneyCli(["e2e"], "/workspace", cli.streams, {
+      listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+      persistState: (state) => persisted.push(state),
+      createRunId: () => "scanner_category_run",
+      createHmacKey: () => "k".repeat(43),
+      prepareRun: async () => ({
+        adoption: "private-adoption",
+        ownership: "private-ownership",
+      }),
+      runPlaywright: async () => ({
+        exitCode: 0,
+        treeTerminated: true,
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+      }),
+      scanArtifacts: async () => ({
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: true,
+        reason: "private raw archive error /tmp/private.zip",
+        failureCategory: "archive-validation",
+      }),
+    })
+
+    expect(exitCode).toBe(1)
+    expect(cli.errors.join("")).toContain(
+      "scanFailureCategory=archive-validation",
+    )
+    const persistedResult = JSON.stringify(persisted.at(-1))
+    expect(persistedResult).toContain('"reason":"scan-failed"')
+    expect(persistedResult).not.toContain("failureCategory")
+    expect(`${persistedResult}${cli.errors.join("")}`).not.toMatch(
+      /private raw archive error|\/tmp\/private\.zip/u,
     )
   })
 
@@ -311,9 +373,18 @@ describe("E2E lifecycle CLIs", () => {
       )
       const clean = streams()
       await expect(runArtifactScannerCli(
-        ["--run-id", "clean_run", "--ownership", cleanOwnership], root, clean.streams,
+        [
+          "--run-id", "clean_run",
+          "--ownership", cleanOwnership,
+          "--report-nonce", SCANNER_REPORT_NONCE,
+        ],
+        root,
+        clean.streams,
       )).resolves.toBe(0)
-      expect(JSON.parse(clean.output.join(""))).toMatchObject({ ok: true, purged: false })
+      expect(scannerReportFrom(clean.output.join(""))).toMatchObject({
+        ok: true,
+        purged: false,
+      })
 
       const owned = join(root, "test-results", "e2e-runs", "poisoned_run")
       const other = join(root, "test-results", "e2e-runs", "other_run")
@@ -325,12 +396,20 @@ describe("E2E lifecycle CLIs", () => {
       await writeFile(join(other, "safe.txt"), "must remain")
       const contaminated = streams()
       await expect(runArtifactScannerCli(
-        ["--run-id", "poisoned_run", "--ownership", poisonedOwnership],
+        [
+          "--run-id", "poisoned_run",
+          "--ownership", poisonedOwnership,
+          "--report-nonce", SCANNER_REPORT_NONCE,
+        ],
         root,
         contaminated.streams,
       )).resolves.toBe(1)
       const rendered = contaminated.errors.join("")
-      expect(JSON.parse(rendered)).toMatchObject({ ok: false, purged: true })
+      expect(scannerReportFrom(rendered)).toMatchObject({
+        ok: false,
+        scannedEntries: 0,
+        purged: true,
+      })
       expect(rendered).not.toContain("BrowserReset123")
       await expect(readFile(join(other, "safe.txt"), "utf8")).resolves.toBe("must remain")
       await expect(readFile(join(owned, "test.trace"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -353,13 +432,18 @@ describe("E2E lifecycle CLIs", () => {
       await writeFile(join(truncated, "test.trace.zip"), "not a ZIP archive")
       const truncatedStreams = streams()
       await expect(runArtifactScannerCli(
-        ["--run-id", "truncated_run", "--ownership", truncatedOwnership],
+        [
+          "--run-id", "truncated_run",
+          "--ownership", truncatedOwnership,
+          "--report-nonce", SCANNER_REPORT_NONCE,
+        ],
         root,
         truncatedStreams.streams,
       )).resolves.toBe(1)
-      expect(JSON.parse(truncatedStreams.errors.join(""))).toMatchObject({
+      expect(scannerReportFrom(truncatedStreams.errors.join(""))).toMatchObject({
         ok: false,
         purged: true,
+        failureCategory: "archive-validation",
       })
       await expect(readFile(join(truncated, "test.trace.zip"), "utf8"))
         .rejects.toMatchObject({ code: "ENOENT" })
@@ -373,11 +457,15 @@ describe("E2E lifecycle CLIs", () => {
       await chmod(privateFile, 0)
       const unreadableStreams = streams()
       await expect(runArtifactScannerCli(
-        ["--run-id", "unreadable_run", "--ownership", unreadableOwnership],
+        [
+          "--run-id", "unreadable_run",
+          "--ownership", unreadableOwnership,
+          "--report-nonce", SCANNER_REPORT_NONCE,
+        ],
         root,
         unreadableStreams.streams,
       )).resolves.toBe(1)
-      expect(JSON.parse(unreadableStreams.errors.join(""))).toMatchObject({
+      expect(scannerReportFrom(unreadableStreams.errors.join(""))).toMatchObject({
         ok: false,
         purged: true,
       })
@@ -794,95 +882,187 @@ describe("E2E lifecycle CLIs", () => {
   }, 30_000)
 
 
-  it("accepts only bounded scanner status schema and reconstructs safe fields", () => {
-    const cleanLine = JSON.stringify({
+  it("accepts only an authenticated, exact, bounded scanner envelope", () => {
+    const cleanReport = {
       ok: true,
       scannedEntries: 3,
       findings: [],
       purged: false,
       reason: "E2E artifacts passed external secret scanning",
-      injected: "must-not-survive",
-    })
-    const clean = parseScannerReport(cleanLine)
-    expect(clean).toEqual({
-      ok: true,
-      scannedEntries: 3,
-      findings: [],
-      purged: false,
-      reason: "E2E artifacts passed external secret scanning",
-    })
-    expect(JSON.stringify(clean)).not.toContain("must-not-survive")
+    }
+    const cleanLine = scannerEnvelope(cleanReport)
+    const clean = parseScannerReport(cleanLine, SCANNER_REPORT_NONCE)
+    expect(clean).toEqual(cleanReport)
     expect(parseScannerReport(
       `pnpm lifecycle noise\n${cleanLine}\nDone in 1s\n`,
+      SCANNER_REPORT_NONCE,
     )).toEqual(clean)
-    expect(parseScannerReport(`${cleanLine}\n${cleanLine}\n`)).toBeUndefined()
-    const purgedFailureLine = JSON.stringify({
+    expect(parseScannerReport(
+      `${cleanLine}\n${cleanLine}\n`,
+      SCANNER_REPORT_NONCE,
+    )).toBeUndefined()
+
+    const purgedFailure = {
       ok: false,
       scannedEntries: 0,
       findings: [],
       purged: true,
       reason: "E2E artifact scanning failed; owned run outputs were purged",
-    })
+      failureCategory: "evidence-contract-validation",
+    }
     expect(parseScannerReport(
-      `pnpm lifecycle noise\n${purgedFailureLine}\nDone\n`,
+      scannerEnvelope(purgedFailure),
+      SCANNER_REPORT_NONCE,
     )).toMatchObject({
       ok: false,
       scannedEntries: 0,
       purged: true,
+      failureCategory: "evidence-contract-validation",
     })
-    expect(parseScannerReport(JSON.stringify({
+    const findingFailure = {
       ok: false,
-      scannedEntries: 1,
+      scannedEntries: 0,
       findings: [{
         category: "secret-assignment",
         path: "artifact-0123456789abcdef",
       }],
       purged: true,
       reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
-    }))).toMatchObject({
+    }
+    expect(parseScannerReport(
+      scannerEnvelope(findingFailure),
+      SCANNER_REPORT_NONCE,
+    )).toMatchObject({
       ok: false,
+      scannedEntries: 0,
       findings: [{ category: "secret-assignment" }],
       purged: true,
     })
 
-    for (const invalid of [
-      { ok: true, scannedEntries: -1, findings: [], purged: false, reason: "clean" },
+    const invalidReports = [
+      { ...cleanReport, scannedEntries: -1 },
+      { ...cleanReport, scannedEntries: 20_001 },
+      { ...cleanReport, injected: "must-not-survive" },
       {
-        ok: false,
+        ...findingFailure,
+        findings: Array.from({ length: 10_001 }, (_unused, index) => ({
+          category: "secret-assignment",
+          path: `artifact-${index.toString(16).padStart(16, "0")}`,
+        })),
+      },
+      {
+        ...findingFailure,
+        findings: [{
+          category: "secret-assignment",
+          path: "artifact-0123456789abcdef",
+          raw: "/tmp/private",
+        }],
+      },
+      {
+        ...findingFailure,
+        findings: [
+          findingFailure.findings[0],
+          findingFailure.findings[0],
+        ],
+      },
+      {
+        ...findingFailure,
+        findings: [
+          { category: "token-url", path: "artifact-ffffffffffffffff" },
+          { category: "token-url", path: "artifact-0000000000000000" },
+        ],
+      },
+      {
+        ...findingFailure,
         scannedEntries: 1,
         findings: [{ category: "unknown", path: "raw-secret-path" }],
-        purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
       },
       {
-        ok: false,
+        ...findingFailure,
         scannedEntries: 1,
         findings: [{ category: "browser-password", path: "../secret" }],
+      },
+      {
+        ...cleanReport,
+        findings: [{
+          category: "browser-password",
+          path: "artifact-0123456789abcdef",
+        }],
+      },
+      {
+        ...cleanReport,
         purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
       },
       {
-        ok: true,
-        scannedEntries: 1,
-        findings: [{ category: "browser-password", path: "artifact-0123456789abcdef" }],
-        purged: false,
-        reason: "E2E artifacts passed external secret scanning",
-      },
-      {
-        ok: true,
-        scannedEntries: 1,
+        ...findingFailure,
         findings: [],
-        purged: true,
-        reason: "E2E artifacts passed external secret scanning",
+      },
+      {
+        ...purgedFailure,
+        failureCategory: undefined,
+      },
+      {
+        ...purgedFailure,
+        failureCategory: "archive-validation: /tmp/private.zip",
+      },
+      {
+        ...cleanReport,
+        failureCategory: "internal",
       },
       {
         ok: false,
-        scannedEntries: 1,
+        scannedEntries: 0,
         findings: [],
-        purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        purged: false,
+        reason: "Owned E2E artifact scanner initialization failed safely",
+        failureCategory: "archive-validation",
       },
-    ]) expect(parseScannerReport(JSON.stringify(invalid))).toBeUndefined()
+    ]
+    for (const invalid of invalidReports) {
+      expect(parseScannerReport(
+        scannerEnvelope(invalid),
+        SCANNER_REPORT_NONCE,
+      )).toBeUndefined()
+    }
+    expect(parseScannerReport(JSON.stringify({
+      kind: "darkfactory-artifact-scanner-report",
+      version: 1,
+      reportNonce: SCANNER_REPORT_NONCE,
+      report: cleanReport,
+      extra: "rejected",
+    }), SCANNER_REPORT_NONCE)).toBeUndefined()
+  })
+
+  it("requires the parent nonce across separate scanner process channels", () => {
+    const report = {
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: true,
+      reason: "E2E artifact scanning failed; owned run outputs were purged",
+      failureCategory: "archive-validation",
+    }
+    const authentic = scannerEnvelope(report)
+    const forged = scannerEnvelope(report, "f".repeat(43))
+    expect(parseExternalScannerReport(
+      "pnpm lifecycle noise\n",
+      `${authentic}\n`,
+      SCANNER_REPORT_NONCE,
+    )).toMatchObject({
+      ok: false,
+      purged: true,
+      failureCategory: "archive-validation",
+    })
+    expect(parseExternalScannerReport(
+      `${forged}\nprivate stdout BrowserReset123!\n`,
+      "private stderr /tmp/secret.zip\n",
+      SCANNER_REPORT_NONCE,
+    )).toBeUndefined()
+    expect(JSON.stringify(parseExternalScannerReport(
+      `${forged}\n`,
+      `${authentic}\nprivate stderr /tmp/secret.zip\n`,
+      SCANNER_REPORT_NONCE,
+    ))).not.toMatch(/BrowserReset123|\/tmp\/secret/u)
   })
 
   it("suppresses observed structured cookie and authorization diffs before output", () => {

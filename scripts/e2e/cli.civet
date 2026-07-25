@@ -28,7 +28,13 @@ import {
   type JourneyProgress,
   type JourneySuiteReport,
 } from "./runner.civet"
-import { scanArtifactPaths, type ArtifactScanReport } from "./scanner.civet"
+import {
+  ARTIFACT_SCANNER_FAILURE_CATEGORIES,
+  classifyArtifactScannerFailure,
+  scanArtifactPaths,
+  type ArtifactScannerFailureCategory,
+  type ArtifactScanReport,
+} from "./scanner.civet"
 import { runOwnedCommand } from "./process.civet"
 import {
   persistE2ERunnerState,
@@ -63,11 +69,16 @@ export const serializeJourneyProgress = (progress: JourneyProgress): string => {
 }
 export const serializeJourneyFailureSummary = (
   report: JourneySuiteReport,
+  failureCategory?: ArtifactScannerFailureCategory,
 ): string => {
   const failed = [...report.results].reverse().find((result) =>
     result.playwrightExitCode !== 0 || !result.scan.ok
   ) ?? report.results.at(-1)
   if (failed === undefined) return "Error: E2E runner failed before result\n"
+  const category = failureCategory !== undefined &&
+    SCANNER_FAILURE_CATEGORIES.has(failureCategory)
+    ? ` scanFailureCategory=${failureCategory}`
+    : ""
   return "Error: E2E runner failed " +
     `stage=${failed.stage} process=${failed.processState} ` +
     `lifecycleStatus=${failed.lifecycleStatus} ` +
@@ -76,7 +87,7 @@ export const serializeJourneyFailureSummary = (
     `lifecycleObservationReason=${failed.lifecycleObservationReason} ` +
     `playwrightOk=${failed.playwrightExitCode === 0} ` +
     `treeTerminated=${failed.processTreeTerminated} ` +
-    `scanOk=${failed.scan.ok} purged=${failed.scan.purged}\n`
+    `scanOk=${failed.scan.ok} purged=${failed.scan.purged}${category}\n`
 }
 
 const INHERITED_PLAYWRIGHT_KEYS = [
@@ -374,19 +385,27 @@ const databaseUrlSensitiveValues = (value: string): readonly string[] => {
 
 
 
+const SCANNER_REPORT_KIND = "darkfactory-artifact-scanner-report"
+const SCANNER_REPORT_NONCE = /^[A-Za-z0-9_-]{43}$/u
+
 export const runArtifactScannerCli = async (
   arguments_: readonly string[],
   repositoryPath: string,
   streams: CliStreams,
 ): Promise<number> => {
-  const purgeOwned = arguments_.length === 5 && arguments_[4] === "--purge-owned"
+  const purgeOwned =
+    arguments_.length === 7 && arguments_[6] === "--purge-owned"
+  const reportNonce = arguments_[5] ?? ""
   if (
     arguments_[0] !== "--run-id" ||
     arguments_[2] !== "--ownership" ||
-    (arguments_.length !== 4 && !purgeOwned)
+    arguments_[4] !== "--report-nonce" ||
+    !SCANNER_REPORT_NONCE.test(reportNonce) ||
+    (arguments_.length !== 6 && !purgeOwned)
   ) {
     streams.writeError(
-      "Usage: scan-artifacts --run-id <safe-run-id> --ownership <proof> [--purge-owned]\n",
+      "Usage: scan-artifacts --run-id <safe-run-id> --ownership <proof> " +
+        "--report-nonce <nonce> [--purge-owned]\n",
     )
     return 2
   }
@@ -396,6 +415,7 @@ export const runArtifactScannerCli = async (
     findings: [],
     purged: false,
     reason: "Owned E2E artifact scanner initialization failed safely",
+    failureCategory: "internal",
   })
   try {
     const proof = decodeOwnedRunProof(arguments_[3] ?? "")
@@ -410,21 +430,39 @@ export const runArtifactScannerCli = async (
       dependencies,
       purgeOwned,
     )
-  } catch {
-    // The initialized fail-closed report is preserved.
+  } catch (error) {
+    report = Object.freeze({
+      ...report,
+      failureCategory: classifyArtifactScannerFailure(error),
+    })
   }
-  const rendered = `${JSON.stringify(report)}\n`
+  const rendered = `${JSON.stringify({
+    kind: SCANNER_REPORT_KIND,
+    version: 1,
+    reportNonce,
+    report,
+  })}\n`
   if (report.ok) streams.writeOutput(rendered)
   else streams.writeError(rendered)
   return report.ok ? 0 : 1
 }
 
+const SCANNER_MAX_ENTRIES = 20_000
+const SCANNER_MAX_FINDINGS = 10_000
 const SCANNER_CATEGORIES = new Set([
   "authorization-header",
   "browser-password",
   "session-cookie",
   "secret-assignment",
   "token-url",
+])
+const SCANNER_FAILURE_CATEGORIES = new Set<string>(
+  ARTIFACT_SCANNER_FAILURE_CATEGORIES,
+)
+const SCANNER_INITIALIZATION_FAILURE_CATEGORIES = new Set<string>([
+  "bounds",
+  "ownership-path-safety",
+  "internal",
 ])
 const SCANNER_REASONS = new Set([
   "E2E run identifier is invalid",
@@ -434,65 +472,131 @@ const SCANNER_REASONS = new Set([
   "E2E artifact scanning failed and temporary scanner cleanup was incomplete",
   "E2E artifact scanning failed; owned run outputs were purged",
   "E2E artifact scanning and owned-run purge failed safely",
+  "Owned E2E artifact scanner initialization failed safely",
 ])
+
+const recordValue = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+const hasExactKeys = (
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean =>
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort())
+const compareScannerFindings = (
+  left: Readonly<{ category: string; path: string }>,
+  right: Readonly<{ category: string; path: string }>,
+): number =>
+  left.path < right.path
+    ? -1
+    : left.path > right.path
+      ? 1
+      : left.category.localeCompare(right.category)
 
 const parseScannerCandidate = (
   value: string,
+  expectedNonce: string,
 ): ArtifactScanReport | undefined => {
   try {
-    const parsed = JSON.parse(value) as Record<string, unknown>
+    const envelope = recordValue(JSON.parse(value) as unknown)
+    if (
+      envelope === undefined ||
+      !hasExactKeys(envelope, ["kind", "version", "reportNonce", "report"]) ||
+      envelope["kind"] !== SCANNER_REPORT_KIND ||
+      envelope["version"] !== 1 ||
+      envelope["reportNonce"] !== expectedNonce
+    ) return undefined
+    const parsed = recordValue(envelope["report"])
+    if (parsed === undefined) return undefined
     const findings = parsed["findings"]
+    const hasFailureCategory = Object.hasOwn(parsed, "failureCategory")
+    if (!hasExactKeys(
+      parsed,
+      hasFailureCategory
+        ? ["ok", "scannedEntries", "findings", "purged", "reason", "failureCategory"]
+        : ["ok", "scannedEntries", "findings", "purged", "reason"],
+    )) return undefined
+    const rawFailureCategory = parsed["failureCategory"]
+    const failureCategory = typeof rawFailureCategory === "string" &&
+      SCANNER_FAILURE_CATEGORIES.has(rawFailureCategory)
+      ? rawFailureCategory as ArtifactScannerFailureCategory
+      : undefined
     if (
       typeof parsed["ok"] !== "boolean" ||
       !Number.isSafeInteger(parsed["scannedEntries"]) ||
       (parsed["scannedEntries"] as number) < 0 ||
-      (parsed["scannedEntries"] as number) > 1_000_000 ||
+      (parsed["scannedEntries"] as number) > SCANNER_MAX_ENTRIES ||
       !Array.isArray(findings) ||
-      findings.length > 100_000 ||
+      findings.length > SCANNER_MAX_FINDINGS ||
       typeof parsed["purged"] !== "boolean" ||
       typeof parsed["reason"] !== "string" ||
       !SCANNER_REASONS.has(parsed["reason"]) ||
-      findings.some((finding) =>
-        finding === null ||
-        typeof finding !== "object" ||
-        Array.isArray(finding) ||
-        !SCANNER_CATEGORIES.has(String((finding as Record<string, unknown>)["category"])) ||
-        typeof (finding as Record<string, unknown>)["path"] !== "string" ||
-        !/^artifact-[a-f0-9]{16}$/u.test(
-          (finding as Record<string, unknown>)["path"] as string,
-        ))
+      (hasFailureCategory && failureCategory === undefined)
     ) return undefined
+    const normalizedFindings: Array<Readonly<{ category: string; path: string }>> = []
+    for (const finding of findings) {
+      const record = recordValue(finding)
+      if (
+        record === undefined ||
+        !hasExactKeys(record, ["category", "path"]) ||
+        typeof record["category"] !== "string" ||
+        !SCANNER_CATEGORIES.has(record["category"]) ||
+        typeof record["path"] !== "string" ||
+        !/^artifact-[a-f0-9]{16}$/u.test(record["path"])
+      ) return undefined
+      normalizedFindings.push(Object.freeze({
+        category: record["category"],
+        path: record["path"],
+      }))
+    }
+    for (let index = 1; index < normalizedFindings.length; index += 1) {
+      if (compareScannerFindings(
+        normalizedFindings[index - 1]!,
+        normalizedFindings[index]!,
+      ) >= 0) return undefined
+    }
     const ok = parsed["ok"] as boolean
     const purged = parsed["purged"] as boolean
+    const scannedEntries = parsed["scannedEntries"] as number
     const reason = parsed["reason"] as string
     const combinationValid = ok
-      ? findings.length === 0 && (
+      ? scannedEntries > 0 && !hasFailureCategory && normalizedFindings.length === 0 && (
         (purged && reason === "Artifacts were clean; failed-run evidence was purged") ||
         (!purged && reason === "E2E artifacts passed external secret scanning")
       )
-      : findings.length > 0
-        ? purged &&
+      : normalizedFindings.length > 0
+        ? !hasFailureCategory &&
+          scannedEntries === 0 &&
+          purged &&
           reason === "Sensitive artifact patterns were detected; owned run evidence was purged"
-        : (
-          (!purged && reason === "E2E run identifier is invalid") ||
-          (!purged &&
+        : scannedEntries === 0 && (
+          (!hasFailureCategory &&
+            !purged &&
+            reason === "E2E run identifier is invalid") ||
+          (failureCategory !== undefined &&
+            SCANNER_INITIALIZATION_FAILURE_CATEGORIES.has(failureCategory) &&
+            !purged &&
+            reason === "Owned E2E artifact scanner initialization failed safely") ||
+          (failureCategory === "cleanup" &&
+            !purged &&
             reason === "E2E artifact scanning failed and temporary scanner cleanup was incomplete") ||
-          (purged && reason === "E2E artifact scanning failed; owned run outputs were purged") ||
-          (!purged && reason === "E2E artifact scanning and owned-run purge failed safely")
+          (failureCategory !== undefined &&
+            failureCategory !== "cleanup" &&
+            purged &&
+            reason === "E2E artifact scanning failed; owned run outputs were purged") ||
+          (failureCategory === "cleanup" &&
+            !purged &&
+            reason === "E2E artifact scanning and owned-run purge failed safely")
         )
     if (!combinationValid) return undefined
     return Object.freeze({
-      ok: parsed["ok"],
-      scannedEntries: parsed["scannedEntries"],
-      findings: Object.freeze(findings.map((finding) => {
-        const record = finding as Record<string, unknown>
-        return Object.freeze({
-          category: record["category"],
-          path: record["path"],
-        })
-      })),
-      purged: parsed["purged"],
-      reason: parsed["reason"],
+      ok,
+      scannedEntries,
+      findings: Object.freeze(normalizedFindings),
+      purged,
+      reason,
+      ...(failureCategory === undefined ? {} : { failureCategory }),
     }) as ArtifactScanReport
   } catch {
     return undefined
@@ -500,22 +604,33 @@ const parseScannerCandidate = (
 }
 export const parseScannerReport = (
   value: string,
+  expectedNonce: string,
 ): ArtifactScanReport | undefined => {
-  if (Buffer.byteLength(value, "utf8") > 1024 * 1024) return undefined
+  if (
+    !SCANNER_REPORT_NONCE.test(expectedNonce) ||
+    Buffer.byteLength(value, "utf8") > 1024 * 1024
+  ) return undefined
   const reports: ArtifactScanReport[] = []
   for (const line of value.split(/\r?\n/u)) {
     const candidate = line.trim()
     if (candidate.length === 0) continue
-    const parsed = parseScannerCandidate(candidate)
+    const parsed = parseScannerCandidate(candidate, expectedNonce)
     if (parsed !== undefined) reports.push(parsed)
     if (reports.length > 1) return undefined
   }
   return reports.length === 1 ? reports[0] : undefined
 }
+export const parseExternalScannerReport = (
+  stdout: string,
+  stderr: string,
+  expectedNonce: string,
+): ArtifactScanReport | undefined =>
+  parseScannerReport(`${stdout}\n${stderr}`, expectedNonce)
 const purgeAfterScannerFailure = async (
   repositoryPath: string,
   runId: string,
   encodedProof: string,
+  failureCategory: ArtifactScannerFailureCategory,
 ): Promise<ArtifactScanReport> => {
   try {
     const proof = decodeOwnedRunProof(encodedProof)
@@ -527,6 +642,7 @@ const purgeAfterScannerFailure = async (
       findings: [],
       purged: true,
       reason: "External scanner failed; parent purged owned run outputs",
+      failureCategory,
     })
   } catch {
     return Object.freeze({
@@ -535,6 +651,7 @@ const purgeAfterScannerFailure = async (
       findings: [],
       purged: false,
       reason: "External scanner failed and parent purge could not be proven",
+      failureCategory: "cleanup",
     })
   }
 }
@@ -565,6 +682,7 @@ export const runJourneyCli = async (
     purgeOwned: boolean,
     ownership: string,
   ): Promise<ArtifactScanReport> => {
+    const reportNonce = randomBytes(32).toString("base64url")
     const scannerArguments = [
       "pnpm",
       "exec",
@@ -574,6 +692,8 @@ export const runJourneyCli = async (
       runId,
       "--ownership",
       ownership,
+      "--report-nonce",
+      reportNonce,
     ]
     if (purgeOwned) scannerArguments.push("--purge-owned")
     const result = await runOwnedCommand(corepack, scannerArguments, {
@@ -586,15 +706,25 @@ export const runJourneyCli = async (
       findings: [],
       purged: false,
       reason: "External scanner process-tree termination was not proven",
+      failureCategory: "internal",
     })
-    const parsed = parseScannerReport(result.stdout || result.stderr)
+    const parsed = parseExternalScannerReport(
+      result.stdout,
+      result.stderr,
+      reportNonce,
+    )
     const statusMatches = parsed !== undefined &&
       result.exitCode === (parsed.ok ? 0 : 1)
     const purgeMatches = parsed !== undefined &&
       (!purgeOwned || parsed.purged) &&
       (parsed.ok || parsed.purged)
     if (parsed !== undefined && statusMatches && purgeMatches) return parsed
-    return purgeAfterScannerFailure(repositoryPath, runId, ownership)
+    return purgeAfterScannerFailure(
+      repositoryPath,
+      runId,
+      ownership,
+      parsed?.failureCategory ?? "internal",
+    )
   }
   const defaultRunPlaywright: JourneyDependencies["runPlaywright"] = async (
     playwrightArguments,
@@ -709,6 +839,14 @@ export const runJourneyCli = async (
       reason: "Serialized E2E runner failed before returning a bounded report",
     }),
   )
+  const rawFailureCategory = [...report.results].reverse().find((result) =>
+    result.playwrightExitCode !== 0 || !result.scan.ok
+  )?.scan.failureCategory
+  const safeFailureCategory =
+    typeof rawFailureCategory === "string" &&
+    SCANNER_FAILURE_CATEGORIES.has(rawFailureCategory)
+      ? rawFailureCategory as ArtifactScannerFailureCategory
+      : undefined
   let safeReport: JourneySuiteReport
   try {
     safeReport = sanitizeE2ERunnerReport(report)
@@ -727,7 +865,7 @@ export const runJourneyCli = async (
   const rendered = `${JSON.stringify(safeReport)}\n`
   if (safeReport.ok) streams.writeOutput(rendered)
   else {
-    streams.writeError(serializeJourneyFailureSummary(safeReport))
+    streams.writeError(serializeJourneyFailureSummary(safeReport, safeFailureCategory))
     streams.writeError(rendered)
   }
   return report.ok ? 0 : 1
