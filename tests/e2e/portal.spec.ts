@@ -318,6 +318,11 @@ test.describe
         name: "Open portal navigation",
       });
       await expect(navigationTrigger).toBeVisible();
+      await expect(navigationTrigger).toHaveAttribute(
+        "data-hydration-state",
+        "ready"
+      );
+      await expect(navigationTrigger).toBeEnabled();
       await navigationTrigger.focus();
       await navigationTrigger.press("Enter");
       const mobileNavigation = page.getByRole("navigation", {
