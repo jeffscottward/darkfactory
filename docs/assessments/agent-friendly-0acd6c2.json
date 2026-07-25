@@ -4,11 +4,11 @@
   "projectSource": "https://github.com/hsnice16/agent-friendly-code",
   "scorerSource": "https://github.com/hsnice16/agent-friendly-skill",
   "assessedRepository": "https://github.com/jeffscottward/darkfactory",
-  "assessedRevision": "e78a8f21c4ddc0c9747861ad2008f8e561863c55",
+  "assessedRevision": "0acd6c2296a790a49a92c98ee2c9bbf919e9a1ab",
   "worktreeClean": true,
   "scorerRevision": "3a719e06c4e79d37b60f21c5c7992e0e535e0ff6",
   "scorerPath": "skills/agent-friendly/dist/index.js",
-  "capturedAt": "2026-07-25T09:15:09.427Z",
+  "capturedAt": "2026-07-25T15:31:41.518Z",
   "result": {
     "signals": [
       {
@@ -51,7 +51,7 @@
         "id": "readme",
         "matchedPath": "README.md",
         "label": "README",
-        "detail": "README detailed (14189 chars)"
+        "detail": "README detailed (14537 chars)"
       },
       {
         "pass": 1,
@@ -119,7 +119,7 @@
       {
         "pass": 0.8,
         "id": "size",
-        "detail": "591 files",
+        "detail": "618 files",
         "label": "Manageable size"
       }
     ],

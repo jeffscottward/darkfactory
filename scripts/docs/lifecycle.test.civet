@@ -15,7 +15,7 @@ const ignoreRules = await readFile(new URL("../../.gitignore", import.meta.url),
 const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8")
 const agentFriendlyAssessment = JSON.parse(
   await readFile(
-    new URL("../../docs/assessments/agent-friendly-e78a8f2.json", import.meta.url),
+    new URL("../../docs/assessments/agent-friendly-0acd6c2.json", import.meta.url),
     "utf8",
   ),
 ) as {
@@ -25,7 +25,7 @@ const agentFriendlyAssessment = JSON.parse(
   scorerSource: string
   assessedRevision: string
   worktreeClean: boolean
-  result: { overall: number }
+  result: { overall: number; warnings: unknown[] }
 }
 const projectRoot = fileURLToPath(new URL("../..", import.meta.url))
 const execFileAsync = promisify(execFile)
@@ -203,7 +203,7 @@ describe("DF-101/106 lifecycle contract", () => {
 
   it("links a truthful versioned Agent Friendly score to exact evidence", () => {
     expect(readme).toContain(
-      "[![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-e78a8f2.json)",
+      "[![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-0acd6c2.json)",
     )
     expect(readme).toContain(
       "versioned assessment results linked to their exact evidence",
@@ -213,9 +213,9 @@ describe("DF-101/106 lifecycle contract", () => {
       scorerPath: "skills/agent-friendly/dist/index.js",
       scorerRevision: "3a719e06c4e79d37b60f21c5c7992e0e535e0ff6",
       scorerSource: "https://github.com/hsnice16/agent-friendly-skill",
-      assessedRevision: "e78a8f21c4ddc0c9747861ad2008f8e561863c55",
+      assessedRevision: "0acd6c2296a790a49a92c98ee2c9bbf919e9a1ab",
       worktreeClean: true,
-      result: { overall: 98.7 },
+      result: { overall: 98.7, warnings: [] },
     })
   })
 
