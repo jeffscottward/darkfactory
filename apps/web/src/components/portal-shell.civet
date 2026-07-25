@@ -1,14 +1,8 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useEffect, useRef, useState } from "react"
-import { ExternalLink, Menu } from "lucide-react"
+import { ExternalLink, Menu, X } from "lucide-react"
 import { IconButton } from "@darkfactory/ui"
-import {
-  Dialog,
-  DialogContent,
-  DialogTrigger,
-} from "@darkfactory/ui/client/dialog"
 
 import {
   ACCOUNT_NAVIGATION,
@@ -17,7 +11,6 @@ import {
   PORTAL_NAVIGATION,
   isRouteExposed,
 } from "../lib/navigation.civet"
-import { useUiState, useUiStoreApi } from "../lib/ui-store.civet"
 import { SignOutAction } from "./account/sign-out-action.civet"
 import { BrandLink } from "./brand-mark.civet"
 import { NavigationLinks } from "./navigation-links.civet"
@@ -29,12 +22,17 @@ interface PortalNavigationProps {
   readonly mobile?: boolean
 }
 
+const closePortalNavigation = () => {
+  const navigation = document.getElementById("portal-navigation")
+  const hidePopover = navigation?.hidePopover
+  if (typeof hidePopover === "function") hidePopover.call(navigation)
+}
+
 const PortalNavigation = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
   isAdmin = false,
   mobile = false,
 }: PortalNavigationProps) => {
-  const store = useUiStoreApi()
   const portalItems = PORTAL_NAVIGATION.filter((item) => (
     isRouteExposed(item.href, availableRoutes)
   ))
@@ -44,9 +42,7 @@ const PortalNavigation = ({
   const adminItems = ADMIN_NAVIGATION.filter((item) => (
     isRouteExposed(item.href, availableRoutes)
   ))
-  const onNavigate = mobile
-    ? () => store.getState().closeMobileNavigation()
-    : undefined
+  const onNavigate = mobile ? closePortalNavigation : undefined
 
   if (
     portalItems.length === 0
@@ -116,63 +112,62 @@ export const PortalSidebar = ({
 export const PortalTopbar = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
   isAdmin = false,
-}: PortalNavigationProps) => {
-  const store = useUiStoreApi()
-  const mobileNavigationContentRef = useRef<HTMLDivElement>(null)
-  const mobileNavigationOpen = useUiState((state) => state.mobileNavigationOpen)
-  const [isHydrated, setIsHydrated] = useState(false)
-
-  useEffect(() => {
-    setIsHydrated(true)
-    return undefined
-  }, [])
-
-  return (
-    <header className="sticky top-0 z-overlay border-b border-border bg-background">
-      <div className="flex min-h-16 items-center justify-between gap-4 px-4 md:px-6 lg:px-10">
-        <div className="flex items-center gap-2">
-          <Dialog
-            onOpenChange={(open) => store.getState().setMobileNavigationOpen(open)}
-            open={mobileNavigationOpen}
-          >
-            <DialogTrigger asChild>
-              <IconButton
-                aria-label="Open portal navigation"
-                className="lg:hidden"
-                data-hydration-state={isHydrated ? "ready" : "pending"}
-                disabled={!isHydrated}
-                variant="ghost"
+}: PortalNavigationProps) => (
+  <header className="sticky top-0 z-overlay border-b border-border bg-background">
+    <div className="flex min-h-16 items-center justify-between gap-4 px-4 md:px-6 lg:px-10">
+      <div className="flex items-center gap-2">
+        <IconButton
+          aria-label="Open portal navigation"
+          className="lg:hidden"
+          popoverTarget="portal-navigation"
+          popoverTargetAction="toggle"
+          variant="ghost"
+        >
+          <Menu aria-hidden="true" />
+        </IconButton>
+        <div
+          aria-describedby="portal-navigation-description"
+          aria-labelledby="portal-navigation-title"
+          className="fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-dvh w-full max-w-sm overflow-y-auto rounded-none border-y-0 border-l-0 border-r border-border bg-background p-6 text-foreground shadow-xl backdrop:bg-black/50 lg:hidden"
+          id="portal-navigation"
+          popover="auto"
+          role="dialog"
+        >
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold" id="portal-navigation-title">
+                Portal navigation
+              </h2>
+              <p
+                className="mt-1 text-sm leading-6 text-muted-foreground"
+                id="portal-navigation-description"
               >
-                <Menu aria-hidden="true" />
-              </IconButton>
-            </DialogTrigger>
-            <DialogContent
-              className="left-0 right-auto top-0 h-dvh max-h-dvh w-full max-w-sm translate-x-0 translate-y-0 rounded-none border-y-0 border-l-0"
-              description="Open portal and account destinations."
-              onOpenAutoFocus={(event) => {
-                const firstDestination = mobileNavigationContentRef.current?.querySelector<HTMLElement>("a[href]")
-                if (!firstDestination) return
-                event.preventDefault()
-                firstDestination.focus()
-              }}
-              ref={mobileNavigationContentRef}
-              title="Portal navigation"
+                Open portal and account destinations.
+              </p>
+            </div>
+            <IconButton
+              aria-label="Close portal navigation"
+              autoFocus
+              popoverTarget="portal-navigation"
+              popoverTargetAction="hide"
+              variant="ghost"
             >
-              <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} mobile />
-            </DialogContent>
-          </Dialog>
-          <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
-            Application portal
-          </span>
+              <X aria-hidden="true" />
+            </IconButton>
+          </div>
+          <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} mobile />
         </div>
-        <div className="flex items-center gap-1">
-          <ThemeMenu />
-          <SignOutAction />
-        </div>
+        <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
+          Application portal
+        </span>
       </div>
-    </header>
-  )
-}
+      <div className="flex items-center gap-1">
+        <ThemeMenu />
+        <SignOutAction />
+      </div>
+    </div>
+  </header>
+)
 
 export interface PortalShellProps {
   readonly availableRoutes?: readonly string[]

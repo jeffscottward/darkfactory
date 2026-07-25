@@ -16,7 +16,8 @@ const BOB_SEED_ITEM = "Bob example item";
 const ADMIN_SEED_ITEM = "Admin example item";
 const BOB_SEED_ITEM_ID = "30000000-0000-4000-8000-000000000003";
 const MOBILE_VIEWPORT = { height: 812, width: 375 } as const;
-const COLD_HYDRATION_TIMEOUT_MS = 15_000;
+const PORTAL_CLIENT_MODULE_PATH_PATTERN =
+  /\/src\/components\/portal-shell\.civet(?:\.jsx)?(?:\?.*)?$/u;
 const FEATURE_LIST_PATH = "/api/orpc/featureItems/list";
 const FEATURE_GET_PATH = "/api/orpc/featureItems/get";
 const FEATURE_ITEM_ID_PATTERN =
@@ -264,80 +265,28 @@ test.describe
 
       await page.setViewportSize(MOBILE_VIEWPORT);
       await signInAs(page, E2E_IDENTITIES.alice);
-      const initialAliceItems = await listOwnerItems(page, appURL);
-      expect(initialAliceItems).toContainEqual(
-        expect.objectContaining({
-          name: ALICE_SEED_ITEM,
-          ownerId: E2E_IDENTITIES.alice.id,
-          status: "draft",
-        })
-      );
-      expect(
-        initialAliceItems.every(
-          (item) => item.ownerId === E2E_IDENTITIES.alice.id
-        )
-      ).toBe(true);
-      await expectDashboardCounts(page, countsFromItems(initialAliceItems));
-      await expect(
-        page.getByRole("heading", {
-          level: 2,
-          name: "Welcome back, Alice Adams",
-        })
-      ).toBeVisible();
-      await expect(
-        page.getByText(ALICE_SEED_ITEM, { exact: true })
-      ).toBeVisible();
-      await expect(page.getByText(BOB_SEED_ITEM, { exact: true })).toHaveCount(
-        0
-      );
-      await expectNoHorizontalOverflow(page);
-
-      browserErrors.allowHttpError({
-        method: "POST",
-        pathname: FEATURE_LIST_PATH,
-        status: 503,
+      const portalModuleGate = new EventEmitter();
+      const portalModuleRequested = once(portalModuleGate, "route-ready", {
+        signal: AbortSignal.timeout(15_000),
       });
       await page.route(
-        `**${FEATURE_LIST_PATH}`,
-        (route) =>
-          route.fulfill({
-            body: JSON.stringify({
-              json: {
-                code: "STORAGE_ERROR",
-                defined: true,
-                message: "Feature item storage unavailable",
-                status: 503,
-              },
-            }),
-            contentType: "application/json",
-            status: 503,
-          }),
+        PORTAL_CLIENT_MODULE_PATH_PATTERN,
+        async (route) => {
+          portalModuleGate.emit("route-ready");
+          await once(portalModuleGate, "release");
+          await route.continue();
+        },
         { times: 1 }
       );
-
+      const coldDashboardNavigation = page.goto("/dashboard", {
+        waitUntil: "domcontentloaded",
+      });
       const navigationTrigger = page.getByRole("button", {
         name: "Open portal navigation",
         exact: true,
       });
       const navigationTriggerElement = page.locator(
         'button[aria-label="Open portal navigation"]'
-      );
-      await expect(navigationTriggerElement).toHaveCount(1);
-      await expect(navigationTrigger).toBeVisible();
-      await expect(navigationTrigger).toBeEnabled({
-        timeout: COLD_HYDRATION_TIMEOUT_MS,
-      });
-      await expect(navigationTrigger).toHaveAttribute(
-        "data-hydration-state",
-        "ready"
-      );
-      await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
-      await navigationTrigger.focus();
-      await navigationTrigger.press("Enter");
-      await expect(navigationTrigger).toHaveCount(0);
-      await expect(navigationTriggerElement).toHaveAttribute(
-        "aria-expanded",
-        "true"
       );
       const mobileNavigation = page.getByRole("navigation", {
         name: "Mobile portal navigation",
@@ -348,37 +297,115 @@ test.describe
         exact: true,
       });
       const closeNavigation = page.getByRole("button", {
-        name: "Close dialog",
+        name: "Close portal navigation",
       });
-      await expect(mobileNavigation).toBeVisible();
-      await expect(overviewLink).toHaveAccessibleName(
-        OVERVIEW_CURRENT_PAGE_NAME_PATTERN
-      );
-      await expect(overviewLink).toHaveAttribute("aria-current", "page");
-      await expect(overviewLink).toBeFocused();
-      await expectNoHorizontalOverflow(page);
-      await page.keyboard.press("Shift+Tab");
-      await expect(closeNavigation).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(overviewLink).toBeFocused();
-      await page.keyboard.press("Escape");
-      await expect(mobileNavigation).toBeHidden();
-      await expect(navigationTrigger).toBeVisible();
-      await expect(navigationTrigger).toBeFocused();
-      await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
 
-      await navigationTrigger.press("Enter");
-      await expect(navigationTrigger).toHaveCount(0);
-      await expect(navigationTriggerElement).toHaveAttribute(
-        "aria-expanded",
-        "true"
+      try {
+        await Promise.all([coldDashboardNavigation, portalModuleRequested]);
+        await expect(page).toHaveURL(new URL("/dashboard", appURL).href);
+        expect(
+          await page
+            .getByRole("button", { name: "Sign out", exact: true })
+            .getAttribute("data-hydration-state")
+        ).toBe("pending");
+        const initialAliceItems = await listOwnerItems(page, appURL);
+        expect(initialAliceItems).toContainEqual(
+          expect.objectContaining({
+            name: ALICE_SEED_ITEM,
+            ownerId: E2E_IDENTITIES.alice.id,
+            status: "draft",
+          })
+        );
+        expect(
+          initialAliceItems.every(
+            (item) => item.ownerId === E2E_IDENTITIES.alice.id
+          )
+        ).toBe(true);
+        await expectDashboardCounts(page, countsFromItems(initialAliceItems));
+        await expect(
+          page.getByRole("heading", {
+            level: 2,
+            name: "Welcome back, Alice Adams",
+          })
+        ).toBeVisible();
+        await expect(
+          page.getByText(ALICE_SEED_ITEM, { exact: true })
+        ).toBeVisible();
+        await expect(
+          page.getByText(BOB_SEED_ITEM, { exact: true })
+        ).toHaveCount(0);
+        await expectNoHorizontalOverflow(page);
+
+        browserErrors.allowHttpError({
+          method: "POST",
+          pathname: FEATURE_LIST_PATH,
+          status: 503,
+        });
+        await page.route(
+          `**${FEATURE_LIST_PATH}`,
+          (route) =>
+            route.fulfill({
+              body: JSON.stringify({
+                json: {
+                  code: "STORAGE_ERROR",
+                  defined: true,
+                  message: "Feature item storage unavailable",
+                  status: 503,
+                },
+              }),
+              contentType: "application/json",
+              status: 503,
+            }),
+          { times: 1 }
+        );
+
+        await expect(navigationTriggerElement).toHaveCount(1);
+        await expect(navigationTrigger).toBeVisible();
+        await expect(navigationTrigger).toBeEnabled();
+        await expect(navigationTrigger).toHaveAttribute(
+          "popovertarget",
+          "portal-navigation"
+        );
+        await navigationTrigger.focus();
+        await navigationTrigger.press("Enter");
+        await expect(mobileNavigation).toBeVisible();
+        await expect(overviewLink).toHaveAccessibleName(
+          OVERVIEW_CURRENT_PAGE_NAME_PATTERN
+        );
+        await expect(overviewLink).toHaveAttribute("aria-current", "page");
+        await expect(closeNavigation).toBeFocused();
+        await expectNoHorizontalOverflow(page);
+        await page.keyboard.press("Tab");
+        await expect(overviewLink).toBeFocused();
+        await page.keyboard.press("Shift+Tab");
+        await expect(closeNavigation).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(mobileNavigation).toBeHidden();
+        await expect(navigationTrigger).toBeVisible();
+        await expect(navigationTrigger).toBeFocused();
+
+        await navigationTrigger.press("Enter");
+        await expect(closeNavigation).toBeFocused();
+      } finally {
+        portalModuleGate.emit("release");
+      }
+
+      const signOutAction = page.getByRole("button", {
+        name: "Sign out",
+        exact: true,
+      });
+      await expect(signOutAction).toHaveAttribute(
+        "data-hydration-state",
+        "ready",
+        { timeout: 15_000 }
       );
+      await expect(mobileNavigation).toBeVisible();
+      await page.keyboard.press("Tab");
       await expect(overviewLink).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(featureItemsLink).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(mobileNavigation).toBeHidden();
-      await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
 
       await expect(
         page.getByRole("heading", {

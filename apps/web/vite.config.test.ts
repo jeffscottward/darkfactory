@@ -192,6 +192,12 @@ describe("Vite application plugin contract", () => {
     });
   });
 
+  it("pretransforms the protected portal client boundary during dev startup", () => {
+    expect(viteConfig.server?.warmup?.clientFiles).toEqual([
+      "./src/components/portal-shell.civet",
+    ]);
+  });
+
   it("keeps Worker dev-var files out of source control", async () => {
     const rootGitignore = await readFile(
       new URL("../../.gitignore", import.meta.url),

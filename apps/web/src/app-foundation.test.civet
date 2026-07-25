@@ -436,13 +436,18 @@ describe "shared shell semantics", ->
     const portal = markup(withUiState(createElement(PortalShell, {
       children: createElement("h1", {}, "Portal page"),
     })))
+    const portalNavigationTrigger = portal.match(/<button[^>]*aria-label="Open portal navigation"[^>]*>/)?.[0]
     const auth = markup(withUiState(createElement(AuthShell, {
       children: createElement("h1", {}, "Sign in"),
     })))
     expect(portal.match(/id="main-content"/g)).toHaveLength(1)
     expect(portal).toContain("<aside")
-    expect(portal).toContain('data-hydration-state="pending"')
-    expect(portal).toMatch(/aria-label="Open portal navigation"[^>]*\sdisabled=""/)
+    expect(portal).toContain('popoverTarget="portal-navigation"')
+    expect(portal).toContain('popover="auto"')
+    expect(portal).toContain('popoverTargetAction="hide"')
+    expect(portal).toMatch(/aria-label="Open portal navigation"/)
+    expect(portal).not.toMatch(/aria-label="Open portal navigation"[^>]*\sdisabled(?:=|>|\s)/)
+    expect(portalNavigationTrigger).not.toContain("data-hydration-state")
     expect(portal).toContain('href="/dashboard"')
     expect(portal).toContain('href="/account/security"')
     expect(portal).toContain("<span>Sign out</span>")

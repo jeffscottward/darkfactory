@@ -992,8 +992,8 @@ test.describe
         name: "Open portal navigation",
       });
       await expect(memberTrigger).toHaveAttribute(
-        "data-hydration-state",
-        "ready"
+        "popovertarget",
+        "portal-navigation"
       );
       await expect(memberTrigger).toBeEnabled();
       await assertTouchTarget(memberTrigger);
@@ -1062,8 +1062,8 @@ test.describe
           name: "Open portal navigation",
         });
         await expect(adminTrigger).toHaveAttribute(
-          "data-hydration-state",
-          "ready"
+          "popovertarget",
+          "portal-navigation"
         );
         await expect(adminTrigger).toBeEnabled();
         await assertTouchTarget(adminTrigger);

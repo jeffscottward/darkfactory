@@ -110,6 +110,10 @@ export default defineConfig({
     host,
     ...(port === undefined ? {} : { port }),
     strictPort: true,
+    // Reduces dev transform latency; the native popover remains the SSR fallback.
+    warmup: {
+      clientFiles: ["./src/components/portal-shell.civet"],
+    },
   },
   plugins: [
     civetVitePlugin({
