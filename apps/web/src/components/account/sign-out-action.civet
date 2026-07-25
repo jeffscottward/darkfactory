@@ -68,10 +68,12 @@ export const createSignOutActionController = (
 
 export const SignOutActionView = ({
   buttonRef,
+  isHydrated,
   onSignOut,
   state,
 }: Readonly<{
   buttonRef?: Ref<HTMLButtonElement>
+  isHydrated: boolean
   onSignOut: () => void
   state: SignOutActionState
 }>) => {
@@ -83,6 +85,8 @@ export const SignOutActionView = ({
       <Button
         ref={buttonRef}
         aria-describedby={errorId}
+        data-hydration-state={isHydrated ? "ready" : "pending"}
+        disabled={!isHydrated}
         loading={isPending}
         loadingLabel="Signing out"
         onClick={onSignOut}
@@ -115,10 +119,16 @@ export const SignOutAction = ({
   replace?: ReplaceLocation
 }>) => {
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const [isHydrated, setIsHydrated] = useState(false)
   const [controller] = useState(() =>
     createSignOutActionController(gateway, replace)
   )
   const [state, setState] = useState<SignOutActionState>({ type: "idle" })
+
+  useEffect(() => {
+    setIsHydrated(true)
+    return undefined
+  }, [])
 
   useEffect(() => {
     restoreSignOutFocusAfterCommit(state, buttonRef.current)
@@ -127,6 +137,7 @@ export const SignOutAction = ({
   return (
     <SignOutActionView
       buttonRef={buttonRef}
+      isHydrated={isHydrated}
       onSignOut={() => void controller.activate(setState)}
       state={state}
     />

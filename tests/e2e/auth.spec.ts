@@ -530,11 +530,21 @@ test.describe("DF-113 auth browser journeys", () => {
       sessionCookie.value,
     ]);
 
+    const signOutButton = page.getByRole("button", {
+      name: "Sign out",
+      exact: true,
+    });
+    await expect(signOutButton).toHaveAttribute(
+      "data-hydration-state",
+      "ready"
+    );
+    await expect(signOutButton).toBeEnabled();
+
     const signOutResponsePromise = waitForAuthResponse(
       page,
       "/api/auth/strict-sign-out"
     );
-    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await signOutButton.click();
     const signOutResponse = await signOutResponsePromise;
     expectBrowserResponse(signOutResponse, "/api/auth/strict-sign-out", 200);
     const clearCookie = await signOutResponse.headerValue("set-cookie");

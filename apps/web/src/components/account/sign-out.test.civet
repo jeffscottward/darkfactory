@@ -9,6 +9,7 @@ import {
 } from "./sign-out-client.civet"
 import {
   SIGNED_OUT_DESTINATION,
+  SignOutAction,
   SignOutActionView,
   completeCurrentSessionSignOut,
   createSignOutActionController,
@@ -133,13 +134,29 @@ describe "current-session sign-out workflow", ->
     expect(button.focus).toHaveBeenCalledOnce()
 
 describe "portal sign-out action", ->
+  it "keeps the server-rendered action inert until React hydration", ->
+    const html = renderToStaticMarkup(
+      <SignOutAction
+        gateway={{ signOut: vi.fn().mockResolvedValue({ ok: true }) }}
+        replace={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('data-hydration-state="pending"')
+    expect(html).toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/)
+
   it "renders a keyboard-native E2E-addressable action instead of a GET mutation", ->
     const html = renderToStaticMarkup(
-      <SignOutActionView onSignOut={vi.fn()} state={{ type: "idle" }} />,
+      <SignOutActionView
+        isHydrated
+        onSignOut={vi.fn()}
+        state={{ type: "idle" }}
+      />,
     )
 
     expect(html).toContain("<button")
     expect(html).toContain('type="button"')
+    expect(html).toContain('data-hydration-state="ready"')
     expect(html).toContain("Sign out")
     expect(html).toContain("min-h-11")
     expect(html).not.toContain("<a")
@@ -148,7 +165,11 @@ describe "portal sign-out action", ->
 
   it "disables repeat activation and announces pending work", ->
     const html = renderToStaticMarkup(
-      <SignOutActionView onSignOut={vi.fn()} state={{ type: "pending" }} />,
+      <SignOutActionView
+        isHydrated
+        onSignOut={vi.fn()}
+        state={{ type: "pending" }}
+      />,
     )
 
     expect(html).toContain("disabled")
@@ -159,12 +180,14 @@ describe "portal sign-out action", ->
   it "keeps the retry action enabled and exposes truthful failure feedback", ->
     const html = renderToStaticMarkup(
       <SignOutActionView
+        isHydrated
         onSignOut={vi.fn()}
         state={{ type: "error", message: SIGN_OUT_FAILED_MESSAGE }}
       />,
     )
 
     expect(html).toContain('aria-describedby="portal-sign-out-error"')
+    expect(html).toContain('data-hydration-state="ready"')
     expect(html).toContain('role="alert"')
     expect(html).toContain(SIGN_OUT_FAILED_MESSAGE)
     expect(html).not.toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/)
