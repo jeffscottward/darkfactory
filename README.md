@@ -1,10 +1,17 @@
+<!-- markdownlint-disable-next-line MD041 -->
+![DarkFactory — Full-Stack Project Scaffold, illustrated as a modular industrial complex labeled Frontend, Backend, Database, DevOps, Auth, and Testing](docs/assets/darkfactory-banner.webp)
+
 # DarkFactory
 
-[![CI](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml)
+| Category | Status |
+| --- | --- |
+| Verification | [![CI](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml) [![CodeQL](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml) |
+| Project health | [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjeffscottward%2Fdarkfactory%2Fmain%2Fdocs%2Fassessments%2Fcoverage-badge.json)](docs/assessments/coverage-summary.json) [![Latest release](https://img.shields.io/github/v/release/jeffscottward/darkfactory?display_name=tag&sort=semver)](https://github.com/jeffscottward/darkfactory/releases/latest) [![MIT license](https://img.shields.io/github/license/jeffscottward/darkfactory)](LICENSE) <br> [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jeffscottward/darkfactory/badge)](https://securityscorecards.dev/viewer/?uri=github.com/jeffscottward/darkfactory) |
+| Community and runtime | [![PRs welcome](https://img.shields.io/badge/PRs-welcome-2ea44f)](CONTRIBUTING.md) [![Open issues](https://img.shields.io/github/issues/jeffscottward/darkfactory?label=open%20issues)](https://github.com/jeffscottward/darkfactory/issues) [![Open pull requests](https://img.shields.io/github/issues-pr/jeffscottward/darkfactory?label=open%20pull%20requests)](https://github.com/jeffscottward/darkfactory/pulls) <br> [![Node.js 22.13+](https://img.shields.io/badge/Node.js-%E2%89%A522.13.0-339933?logo=nodedotjs&logoColor=white)](package.json) [![pnpm 11.16](https://img.shields.io/badge/pnpm-11.16.0-F69220?logo=pnpm&logoColor=white)](package.json) |
 
 DarkFactory is a domain-neutral, Postgres-first application foundation for building AI-assisted products without making an AI provider, business vertical, or optional service part of the core architecture. It combines a public site, authenticated portal, contract-first API, portable PostgreSQL data layer, provider adapters, and an inspectable engineering lifecycle.
 
-The repository is a v0.1 foundation under active verification. The CI badge reports the repository workflow; it is not a production-readiness, deployment, coverage, or security certification.
+The badges above are live pointers to authoritative sources; they are not a production-readiness, deployment, coverage-completeness, or security certification. See [Testing and evidence](docs/testing-and-evidence.md) for the limits and reproducibility contract behind repository claims.
 
 ## Architecture
 
