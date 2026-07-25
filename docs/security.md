@@ -109,4 +109,4 @@ Detailed owners, prerequisites, evidence, rerun requirements, and stop condition
 
 ## Reporting a vulnerability
 
-No repository-specific private reporting channel or support policy is currently documented. Do not invent one. Avoid placing exploit details, credentials, or sensitive evidence in a public issue. Use the repository owner's established private contact mechanism when one is available, and disclose only what that authorized channel permits.
+Follow the repository's [security policy](../SECURITY.md) for the private reporting channel, scope, and response expectations. Do not disclose suspected vulnerabilities or sensitive evidence in a public issue.

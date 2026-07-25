@@ -9,10 +9,8 @@
   "files": {
     "ignoreUnknown": true,
     "includes": [
-      // Civet owns parsing and type checks for authored .civet source.
       "!!**/*.civet",
       "!!.markdownlint-cli2.jsonc",
-      // Generated deterministically by @darkfactory/api; stale-check owns its exact bytes.
       "!!packages/api/openapi.json",
       "!!**/node_modules",
       "!!**/.turbo",
@@ -25,8 +23,6 @@
   },
   "overrides": [
     {
-      // These files intentionally inspect validated dynamic records and ProcessEnv.
-      // TypeScript's noPropertyAccessFromIndexSignature requires bracket access.
       "includes": [
         "playwright.config.ts",
         "playwright.config.test.ts",
@@ -48,8 +44,6 @@
       }
     },
     {
-      // Bounded security parsers and one-shot tests keep regexes beside the
-      // invariant they prove; none execute in an unbounded hot path.
       "includes": [
         "playwright.config.test.ts",
         "tests/e2e/helpers/artifacts.ts",
@@ -73,8 +67,6 @@
       }
     },
     {
-      // File modes, inode identities, checksums, and PNG bytes require exact
-      // bitwise operations; ordinary application code remains checked.
       "includes": [
         "tests/e2e/helpers/artifacts.ts",
         "tests/e2e/helpers/dev-vars.ts",
@@ -93,7 +85,6 @@
       }
     },
     {
-      // Async test doubles intentionally satisfy promise-returning contracts.
       "includes": [
         "tests/e2e/helpers/civet-loader-resolver.test.ts",
         "tests/e2e/helpers/serialized-lifecycle.test.ts",
@@ -109,8 +100,6 @@
       }
     },
     {
-      // Fail-closed validators keep their ordered ownership and cleanup checks
-      // in one auditable boundary.
       "includes": [
         "tests/e2e/helpers/browser-errors.ts",
         "tests/e2e/helpers/dev-vars.ts",
@@ -128,7 +117,6 @@
       }
     },
     {
-      // Matching control bytes is the security behavior under test.
       "includes": [
         "tests/e2e/helpers/artifacts.ts",
         "tests/e2e/helpers/browser-errors.ts",
@@ -143,8 +131,6 @@
       }
     },
     {
-      // Assertions inside injected lifecycle callbacks are the observable
-      // contract of these tests.
       "includes": ["tests/e2e/helpers/lifecycle-state.test.ts"],
       "linter": {
         "rules": {

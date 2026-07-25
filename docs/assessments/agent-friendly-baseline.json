@@ -1,0 +1,1066 @@
+{
+  "signals": [
+    {
+      "pass": 1,
+      "label": "AGENTS.md / CLAUDE.md",
+      "id": "agents_md",
+      "matchedPath": "AGENTS.md",
+      "detail": "Substantive (12095 chars)"
+    },
+    {
+      "pass": 0,
+      "label": "Cursor rules (.cursor/rules)",
+      "id": "cursor_rules",
+      "detail": "No .cursor/rules/*.mdc or .cursorrules"
+    },
+    {
+      "pass": 0,
+      "label": "GEMINI.md",
+      "id": "gemini_md",
+      "detail": "No GEMINI.md at repo root"
+    },
+    {
+      "pass": 0,
+      "label": ".openhands/setup.sh",
+      "id": "openhands_setup",
+      "detail": "No .openhands/setup.sh"
+    },
+    {
+      "pass": 0,
+      "label": ".aider.conf.yml",
+      "id": "aider_conf",
+      "detail": "No .aider.conf.yml at repo root"
+    },
+    {
+      "pass": 1,
+      "id": "readme",
+      "matchedPath": "README.md",
+      "label": "README",
+      "detail": "README detailed (12257 chars)"
+    },
+    {
+      "pass": 1,
+      "id": "tests",
+      "matchedPath": "tests",
+      "label": "Test suite",
+      "detail": "Found /tests"
+    },
+    {
+      "pass": 1,
+      "id": "ci",
+      "label": "CI configuration",
+      "matchedPath": ".github/workflows",
+      "detail": "1 GitHub Actions workflow(s)"
+    },
+    {
+      "pass": 0,
+      "id": "linter",
+      "label": "Linter / formatter config",
+      "detail": "No linter/formatter config found"
+    },
+    {
+      "pass": 1,
+      "matchedPath": "package.json",
+      "id": "deps_manifest",
+      "detail": "Manifest present",
+      "label": "Dependency manifest"
+    },
+    {
+      "pass": 0.6,
+      "id": "dev_env",
+      "matchedPath": "package.json",
+      "label": "Reproducible dev env",
+      "detail": "package.json has 59 scripts"
+    },
+    {
+      "pass": 1,
+      "matchedPath": "tsconfig.json",
+      "id": "type_config",
+      "label": "Type configuration",
+      "detail": "Type config present"
+    },
+    {
+      "pass": 0,
+      "id": "license",
+      "label": "License file",
+      "detail": "No LICENSE/COPYING file"
+    },
+    {
+      "pass": 0,
+      "id": "contributing",
+      "label": "CONTRIBUTING guide",
+      "detail": "No CONTRIBUTING file"
+    },
+    {
+      "pass": 1,
+      "matchedPath": ".husky",
+      "id": "pre_commit",
+      "label": "Pre-commit / git hooks",
+      "detail": "Hook framework configured"
+    },
+    {
+      "pass": 0.8,
+      "id": "size",
+      "detail": "575 files",
+      "label": "Manageable size"
+    }
+  ],
+  "modelScores": [
+    {
+      "contributions": [
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.5,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.54,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.4,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "claude-code",
+      "modelLabel": "Claude Code",
+      "score": 76.8
+    },
+    {
+      "contributions": [
+        {
+          "weight": 0.8,
+          "contribution": 0.8,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 1,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.8,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.8,
+          "contribution": 0.8,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.3,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0.3,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.32000000000000006,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "cursor",
+      "modelLabel": "Cursor",
+      "score": 67.7
+    },
+    {
+      "contributions": [
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 1,
+          "contribution": 0.6,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.5,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.5,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.48,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "devin",
+      "modelLabel": "Devin",
+      "score": 76.4
+    },
+    {
+      "contributions": [
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.8,
+          "contribution": 0.8,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.8,
+          "contribution": 0.8,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.42,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.4,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "gpt-5-codex",
+      "modelLabel": "GPT-5 Codex",
+      "score": 77.6
+    },
+    {
+      "contributions": [
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.42,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.32000000000000006,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "kimi-cli",
+      "modelLabel": "Kimi CLI",
+      "score": 76.6
+    },
+    {
+      "contributions": [
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 1,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.8,
+          "contribution": 0.8,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.42,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.4,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "gemini-cli",
+      "modelLabel": "Gemini CLI",
+      "score": 68.4
+    },
+    {
+      "contributions": [
+        {
+          "weight": 0.3,
+          "contribution": 0.3,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 1,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0.3,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 1,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.3,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.5,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.2,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0.3,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.32000000000000006,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "aider",
+      "modelLabel": "Aider",
+      "score": 60.8
+    },
+    {
+      "contributions": [
+        {
+          "weight": 0.5,
+          "contribution": 0.5,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 1,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 1,
+          "contribution": 0.6,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.5,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.5599999999999999,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "openhands",
+      "modelLabel": "OpenHands",
+      "score": 66.2
+    },
+    {
+      "contributions": [
+        {
+          "weight": 1,
+          "contribution": 1,
+          "pass": 1,
+          "signalId": "agents_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "cursor_rules"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "gemini_md"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "openhands_setup"
+        },
+        {
+          "weight": 0,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "aider_conf"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "readme"
+        },
+        {
+          "weight": 0.9,
+          "contribution": 0.9,
+          "pass": 1,
+          "signalId": "tests"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "ci"
+        },
+        {
+          "weight": 0.8,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "linter"
+        },
+        {
+          "weight": 0.7,
+          "contribution": 0.7,
+          "pass": 1,
+          "signalId": "deps_manifest"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.36,
+          "pass": 0.6,
+          "signalId": "dev_env"
+        },
+        {
+          "weight": 0.6,
+          "contribution": 0.6,
+          "pass": 1,
+          "signalId": "type_config"
+        },
+        {
+          "weight": 0.2,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "license"
+        },
+        {
+          "weight": 0.3,
+          "contribution": 0,
+          "pass": 0,
+          "signalId": "contributing"
+        },
+        {
+          "weight": 0.4,
+          "contribution": 0.4,
+          "pass": 1,
+          "signalId": "pre_commit"
+        },
+        {
+          "weight": 0.5,
+          "contribution": 0.4,
+          "pass": 0.8,
+          "signalId": "size"
+        }
+      ],
+      "modelId": "pi",
+      "modelLabel": "Pi",
+      "score": 76.9
+    }
+  ],
+  "overall": 71.9,
+  "topImprovements": [
+    {
+      "label": "Linter / formatter config",
+      "signalId": "linter",
+      "scoreGain": 8,
+      "suggestion": "Configure a linter/formatter (ESLint+Prettier, Biome, Ruff, rustfmt+clippy, golangci-lint) and commit the config."
+    },
+    {
+      "label": "CONTRIBUTING guide",
+      "signalId": "contributing",
+      "scoreGain": 5.3,
+      "suggestion": "Add CONTRIBUTING.md describing branch naming, commit style, test commands, and the PR process."
+    },
+    {
+      "label": "License file",
+      "signalId": "license",
+      "scoreGain": 4,
+      "suggestion": "Add a LICENSE (or COPYING) file — MIT, Apache-2.0, BSD, GPL, etc. — at the repo root."
+    }
+  ],
+  "warnings": [],
+  "evidence": {
+    "scorer": "hsnice16/agent-friendly-skill",
+    "scorerVersion": "0.1.4",
+    "scorerCommit": "3a719e06c4e79d37b60f21c5c7992e0e535e0ff6",
+    "repositoryCommit": "1cfed040b1e2aa7b1b64249ce82934ef0a994395",
+    "capturedAt": "2026-07-25T04:41:42.485Z"
+  }
+}

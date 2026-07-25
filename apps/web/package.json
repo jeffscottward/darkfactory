@@ -1,6 +1,11 @@
 {
   "name": "@darkfactory/web",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffscottward/darkfactory.git"
+  },
   "private": true,
   "type": "module",
   "engines": {

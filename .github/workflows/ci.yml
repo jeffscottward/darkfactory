@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [core, integration, graph, browser]
+        lane: [core, coverage, integration, graph, browser]
     # Keep CI infrastructure unprivileged and isolated from production credentials.
     env:
       APP_ENV: test

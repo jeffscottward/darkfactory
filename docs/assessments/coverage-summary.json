@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "provider": "v8",
+  "projects": ["unit", "contract", "operations"],
+  "metrics": {
+    "lines": {
+      "total": 9486,
+      "covered": 6668,
+      "skipped": 0,
+      "pct": 70.29
+    },
+    "branches": {
+      "total": 7088,
+      "covered": 4420,
+      "skipped": 0,
+      "pct": 62.35
+    },
+    "functions": {
+      "total": 2070,
+      "covered": 1361,
+      "skipped": 0,
+      "pct": 65.74
+    },
+    "statements": {
+      "total": 10549,
+      "covered": 7183,
+      "skipped": 0,
+      "pct": 68.09
+    }
+  }
+}

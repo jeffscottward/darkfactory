@@ -106,6 +106,20 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 - Use Effect when resource safety, typed failure composition, retry/timeout policy, cancellation, or concurrency justifies the added model.
 - TanStack Devtools is development-only.
 
+## Biome scope and exception rationale
+
+`biome.json` is strict JSON so standard discovery and parsers can consume it. The configuration owns the exact file scopes; these conventions preserve the reasons for every non-default scope and rule exception:
+
+- Civet owns parsing and type checks for authored `.civet` source.
+- `packages/api/openapi.json` is generated deterministically by `@darkfactory/api`; the stale check owns its exact bytes.
+- `useLiteralKeys` is disabled only for the listed files that intentionally inspect validated dynamic records and `ProcessEnv`; TypeScript's `noPropertyAccessFromIndexSignature` requires bracket access.
+- `useTopLevelRegex` is disabled only for bounded security parsers and one-shot tests that keep regexes beside the invariant they prove; none execute in an unbounded hot path.
+- `noBitwiseOperators` is disabled only where file modes, inode identities, checksums, and PNG bytes require exact bitwise operations; ordinary application code remains checked.
+- `useAwait` is disabled only where async test doubles intentionally satisfy promise-returning contracts.
+- `noExcessiveCognitiveComplexity` is disabled only for fail-closed validators that keep their ordered ownership and cleanup checks in one auditable boundary.
+- `noControlCharactersInRegex` is disabled only where matching control bytes is the security behavior under test.
+- `noMisplacedAssertion` is disabled only where assertions inside injected lifecycle callbacks are the observable contract of the tests.
+
 ## Testing
 
 - New behavior and bug fixes start with a test that fails for the intended observable reason. Do not write source-text, implementation-detail, or tautological tests.

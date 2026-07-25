@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/jeffscottward/darkfactory/security/advisories/new
+    about: Send vulnerability details privately through GitHub Security Advisories.
+  - name: Support guidance
+    url: https://github.com/jeffscottward/darkfactory/blob/main/SUPPORT.md
+    about: Review documentation, diagnostic details, and support boundaries before opening an issue.

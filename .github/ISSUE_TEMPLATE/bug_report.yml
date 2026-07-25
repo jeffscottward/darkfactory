@@ -1,0 +1,69 @@
+name: Bug report
+description: Report reproducible incorrect behavior in DarkFactory
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Search existing issues first. For a suspected vulnerability, do not continue here; use [private vulnerability reporting](https://github.com/jeffscottward/darkfactory/security/advisories/new).
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the problem in one clear sentence.
+      placeholder: A concise description of the incorrect behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened instead? Include exact, redacted error text when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the DarkFactory revision, operating system, and relevant Node.js, pnpm, Docker, database, or browser versions.
+      placeholder: |
+        Revision:
+        Operating system:
+        Node.js and pnpm:
+        Other relevant versions:
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Add redacted logs, screenshots, traces, or links that help diagnose the issue. Drag files here to attach them.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed secrets, credentials, session data, personal data, and other sensitive values from this report and its attachments.
+          required: true
+        - label: This report does not describe a suspected security vulnerability.
+          required: true

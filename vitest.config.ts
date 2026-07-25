@@ -5,6 +5,32 @@ export default defineConfig({
   plugins: [civet({ ts: "esbuild" })],
   test: {
     environment: "node",
+    coverage: {
+      provider: "v8",
+      reportsDirectory: "coverage",
+      reporter: ["text", "json-summary"],
+      thresholds: {
+        lines: 70,
+        branches: 62,
+        functions: 65,
+        statements: 68,
+      },
+      include: [
+        "apps/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "packages/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "scripts/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+      ],
+      exclude: [
+        "**/*.{test,spec}.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "**/*.d.ts",
+        "**/*.civet.tsx",
+        "**/generated/**",
+        "apps/web/src/features/generated-navigation.civet",
+        "packages/email/src/server/preview.civet",
+        "scripts/generate-feature/path-safety.civet",
+        "scripts/generate-feature/plan.civet",
+      ],
+    },
     projects: [
       {
         extends: true,

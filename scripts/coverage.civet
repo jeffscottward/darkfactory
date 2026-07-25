@@ -1,0 +1,11 @@
+import { runCoverageCli } from "./coverage/cli.civet"
+import { nodeCoverageFileSystem } from "./coverage/system.civet"
+
+process.exitCode = await runCoverageCli(
+  process.argv.slice(2),
+  { files: nodeCoverageFileSystem },
+  {
+    writeOutput: (value) => process.stdout.write(value),
+    writeError: (value) => process.stderr.write(value),
+  },
+)

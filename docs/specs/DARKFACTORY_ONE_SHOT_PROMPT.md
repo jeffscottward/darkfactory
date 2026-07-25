@@ -1167,8 +1167,8 @@ Use least-privilege permissions and pinned major actions. CI must:
 4. Start isolated Postgres.
 5. Validate environment using CI-safe values.
 6. Apply migrations and seed only the isolated test environment.
-7. Run format check, lint, typecheck, build, unit, contract, integration, OpenAPI staleness, Graphify staleness/policy, docs checks, and Playwright e2e/a11y in deterministic lane-local order, with the four lanes executing concurrently.
-8. Upload Playwright traces/screenshots/videos and relevant logs on failure.
+7. Run format check, lint, typecheck, build, unit, contract, deterministic coverage generation/byte-staleness, integration, OpenAPI staleness, Graphify staleness/policy, docs checks, and Playwright e2e/a11y in deterministic lane-local order, with the five lanes executing concurrently.
+8. Preserve Playwright traces/screenshots/videos only after the repository scanner completes successfully; never upload unverified, contaminated, or indeterminate failure material.
 9. Never print secrets.
 10. Make deployment a separately protected job dependent on all green verification; do not deploy from untrusted pull-request secrets.
 

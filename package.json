@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "description": "A modular, Postgres-first, AI-native application foundation.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffscottward/darkfactory.git"
+  },
+  "homepage": "https://github.com/jeffscottward/darkfactory#readme",
+  "bugs": {
+    "url": "https://github.com/jeffscottward/darkfactory/issues"
+  },
   "type": "module",
   "packageManager": "pnpm@11.16.0",
   "engines": {
@@ -40,13 +49,18 @@
     "test:operations": "vitest run --config vitest.config.ts --project operations --project e2e-helpers --maxWorkers=1 --no-file-parallelism",
     "test:integration": "vitest run --config vitest.config.ts --project integration",
     "test:e2e": "civet scripts/e2e/run.civet e2e",
+    "test:coverage": "vitest run --config vitest.config.ts --project unit --project contract --project operations --coverage --maxWorkers=1 --no-file-parallelism",
     "test:a11y": "civet scripts/e2e/run.civet a11y",
     "verify:core": "corepack pnpm run format:check && corepack pnpm run lint && corepack pnpm run auth:schema:check && corepack pnpm run openapi:check && corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test:unit && corepack pnpm run test:contract && corepack pnpm run test:operations && corepack pnpm run docs:check",
     "verify:integration": "corepack pnpm run types && corepack pnpm run test:integration",
     "verify:graph": "corepack pnpm run graph:check && corepack pnpm run graph:verify",
     "verify:browser": "corepack pnpm run test:e2e && corepack pnpm run test:a11y",
-    "verify": "corepack pnpm run verify:core && corepack pnpm run verify:integration && corepack pnpm run verify:graph && corepack pnpm run verify:browser",
+    "verify": "corepack pnpm run verify:core && corepack pnpm run verify:coverage && corepack pnpm run verify:integration && corepack pnpm run verify:graph && corepack pnpm run verify:browser",
     "ci": "corepack pnpm run verify",
+    "coverage:generate": "civet scripts/coverage.civet generate",
+    "coverage:check": "civet scripts/coverage.civet check",
+    "coverage:update": "corepack pnpm run test:coverage && corepack pnpm run coverage:generate",
+    "verify:coverage": "corepack pnpm run test:coverage && corepack pnpm run coverage:check",
     "docs:generate": "civet scripts/docs.civet generate",
     "docs:check": "civet scripts/docs.civet check",
     "openapi:generate": "corepack pnpm run api:openapi:generate",
@@ -90,6 +104,7 @@
     "@darkfactory/ui": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "husky": "catalog:",
     "markdownlint-cli2": "catalog:",
     "portless": "catalog:",

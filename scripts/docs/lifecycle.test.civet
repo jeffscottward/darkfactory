@@ -46,6 +46,7 @@ const EXPECTED_LANES = {
     "test:operations",
     "docs:check",
   ],
+  "verify:coverage": ["test:coverage", "coverage:check"],
   "verify:integration": ["types", "test:integration"],
   "verify:graph": ["graph:check", "graph:verify"],
   "verify:browser": ["test:e2e", "test:a11y"],
@@ -110,7 +111,7 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.devDependencies["@axe-core/playwright"]).toBe("catalog:")
     expect(workspace).toContain('"@axe-core/playwright": 4.12.1')
     expect(workflow).toContain("matrix:")
-    expect(workflow).toContain("lane: [core, integration, graph, browser]")
+    expect(workflow).toContain("lane: [core, coverage, integration, graph, browser]")
     expect(workflow).toContain("fail-fast: false")
     expect(workflow).toContain('corepack pnpm run "verify:${{ matrix.lane }}"')
     expect(workflow).toContain("scripts/graph/requirements.lock")

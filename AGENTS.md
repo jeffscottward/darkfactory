@@ -4,6 +4,10 @@ DarkFactory is a domain-neutral, AI-native application foundation. It is opinion
 
 Read `ARCHITECTURE.md` and `CONVENTIONS.md` before changing the repository.
 
+## Adapter precedence
+
+Tool adapters such as `GEMINI.md`, `.cursor/rules/*.mdc`, `.aider.conf.yml`, `.openhands/setup.sh`, `Makefile`, and the devcontainer are entry points, not competing policy. When repository guidance differs, follow `AGENTS.md` for executable policy, then `ARCHITECTURE.md` for boundaries and decisions, then `CONVENTIONS.md` for implementation rules. An adapter may add only tool-specific bootstrap or evidence mechanics and must not weaken the canonical documents or higher-priority task instructions.
+
 ## Requirement language
 
 Classify every requirement before implementing it:

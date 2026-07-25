@@ -1,0 +1,9 @@
+version: 2
+
+updates:
+  # The repository uses pnpm 11, whose Dependabot updater support is unproven.
+  # Keep automation limited to pinned GitHub Actions until support is verified.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
