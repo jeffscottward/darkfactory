@@ -49,7 +49,7 @@
     "test:operations": "vitest run --config vitest.config.ts --project operations --project e2e-helpers --maxWorkers=1 --no-file-parallelism",
     "test:integration": "vitest run --config vitest.config.ts --project integration",
     "test:e2e": "civet scripts/e2e/run.civet e2e",
-    "test:coverage": "vitest run --config vitest.config.ts --project unit --project contract --project operations --coverage --maxWorkers=1 --no-file-parallelism",
+    "test:coverage": "corepack pnpm run types && vitest run --config vitest.config.ts --project unit --project contract --project operations --coverage --maxWorkers=1 --no-file-parallelism",
     "test:a11y": "civet scripts/e2e/run.civet a11y",
     "verify:core": "corepack pnpm run format:check && corepack pnpm run lint && corepack pnpm run auth:schema:check && corepack pnpm run openapi:check && corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test:unit && corepack pnpm run test:contract && corepack pnpm run test:operations && corepack pnpm run docs:check",
     "verify:integration": "corepack pnpm run types && corepack pnpm run test:integration",

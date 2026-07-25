@@ -85,6 +85,9 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["test:operations"]).toContain("--project e2e-helpers")
     expect(rootPackage.scripts["test:operations"]).toContain("--maxWorkers=1")
     expect(rootPackage.scripts["test:operations"]).toContain("--no-file-parallelism")
+    expect(rootPackage.scripts["test:coverage"]).toMatch(
+      /^corepack pnpm run types && vitest run /,
+    )
     expect(vitestConfig).toContain('"**/*contract.test.civet"')
     expect(vitestConfig).toContain('name: "contract"')
     expect(vitestConfig).toContain('name: "operations"')
