@@ -60,23 +60,31 @@ export const runOwnedCommand = async (
   let outputBytes = 0
   let reason: OwnedCommandResult["reason"] = "completed"
   let stopPromise: Promise<boolean> | undefined
-  let settleExit: ((exitCode: number) => void) | undefined
+  let observedExitCode: number | undefined
+  let settleCompletion: ((exitCode: number) => void) | undefined
   const onError = (): void => {
     reason = "spawn-error"
-    settleExit?.(1)
+    settleCompletion?.(1)
   }
-  const onExit = (code: number | null): void => settleExit?.(code ?? 1)
-  const exitPromise = new Promise<number>((resolveExit) => {
-    settleExit = resolveExit
+  const onExit = (code: number | null): void => {
+    observedExitCode = code ?? 1
+  }
+  const onClose = (code: number | null): void => {
+    settleCompletion?.(code ?? observedExitCode ?? 1)
+  }
+  const completionPromise = new Promise<number>((resolveCompletion) => {
+    settleCompletion = resolveCompletion
     child.once("error", onError)
     child.once("exit", onExit)
+    child.once("close", onClose)
   })
   const stop = (nextReason: OwnedCommandResult["reason"]): Promise<boolean> => {
     if (reason === "completed") reason = nextReason
     stopPromise ??= terminateTree(child)
-    stopPromise.then((proven) => {
-      if (!proven) settleExit?.(1)
-    }, () => settleExit?.(1))
+    stopPromise.then(
+      () => settleCompletion?.(1),
+      () => settleCompletion?.(1),
+    )
     return stopPromise
   }
   const collect = (target: Buffer[], value: Buffer | string): void => {
@@ -101,14 +109,15 @@ export const runOwnedCommand = async (
 
   let exitCode = 1
   try {
-    exitCode = await exitPromise
+    exitCode = await completionPromise
   } finally {
-    settleExit = undefined
+    settleCompletion = undefined
     clearTimeout(timer)
     signals.off("SIGINT", interrupt)
     signals.off("SIGTERM", interrupt)
     child.off("error", onError)
     child.off("exit", onExit)
+    child.off("close", onClose)
     child.stdout.off("data", collectStdout)
     child.stderr.off("data", collectStderr)
     child.stdout.destroy()

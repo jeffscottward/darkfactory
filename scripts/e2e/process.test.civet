@@ -97,6 +97,60 @@ describe("owned E2E command lifecycle", () => {
     })
   })
 
+  it("drains scanner output inherited by a short-lived command wrapper", async () => {
+    const scannerReport = JSON.stringify({
+      kind: "darkfactory-artifact-scanner-report",
+      version: 1,
+      reportNonce: "r".repeat(43),
+      report: { ok: true, purged: false },
+    })
+    const scanner = `
+      const wrapperPid = Number(process.argv[1]);
+      const deadline = Date.now() + 2000;
+      const writeAfterWrapperExit = () => {
+        try {
+          process.kill(wrapperPid, 0);
+        } catch (error) {
+          if (error?.code === "ESRCH") {
+            process.stdout.write(${JSON.stringify(scannerReport)});
+            return;
+          }
+          process.exitCode = 1;
+          return;
+        }
+        if (Date.now() >= deadline) {
+          process.exitCode = 1;
+          return;
+        }
+        setTimeout(writeAfterWrapperExit, 10);
+      };
+      writeAfterWrapperExit();
+    `
+    const wrapper = `
+      const { spawn } = require("node:child_process");
+      const child = spawn(
+        process.execPath,
+        ["-e", ${JSON.stringify(scanner)}, String(process.pid)],
+        { stdio: ["ignore", "inherit", "inherit"] },
+      );
+      child.unref();
+    `
+
+    const result = await runOwnedCommand(
+      process.execPath,
+      ["-e", wrapper],
+      commandOptions,
+    )
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: scannerReport,
+      stderr: "",
+      treeTerminated: true,
+      reason: "completed",
+    })
+  })
+
   it("survives completed Playwright-like and scanner-like detached process groups", async () => {
     const parentPid = process.pid
     const completed = await runOwnedCommand(
@@ -197,6 +251,65 @@ describe("owned E2E command lifecycle", () => {
     )
     await waitForListeningPort(port)
     await expectTreeAndPortStopped(await resultPromise, port, "timeout")
+  })
+
+  it("bounds cancellation when an escaped descendant holds inherited output", async () => {
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const signals: ProcessSignals = {
+      on: (name, listener) => listeners.set(name, listener),
+      off: (name, listener) => {
+        if (listeners.get(name) === listener) listeners.delete(name)
+      },
+    }
+    const holder = `
+      setInterval(() => undefined, 1000);
+      setTimeout(() => process.exit(0), 1000);
+    `
+    const wrapper = `
+      const { spawn } = require("node:child_process");
+      const { writeSync } = require("node:fs");
+      const child = spawn(
+        process.execPath,
+        ["-e", ${JSON.stringify(holder)}],
+        {
+          detached: true,
+          stdio: ["ignore", "inherit", "inherit"],
+        },
+      );
+      writeSync(1, "holder-pid=" + child.pid + "\\n");
+      child.unref();
+    `
+    const startedAt = Date.now()
+    const result = await runOwnedCommand(
+      process.execPath,
+      ["-e", wrapper],
+      {
+        ...commandOptions,
+        signals,
+        timeoutMillis: 100,
+      },
+    )
+    const elapsedMillis = Date.now() - startedAt
+    const holderPid = Number(
+      /^holder-pid=(\d+)$/mu.exec(result.stdout)?.[1],
+    )
+    try {
+      expect(result).toMatchObject({
+        exitCode: 1,
+        reason: "timeout",
+        treeTerminated: true,
+      })
+      expect(elapsedMillis).toBeLessThan(600)
+      expect(listeners.size).toBe(0)
+    } finally {
+      if (Number.isSafeInteger(holderPid) && holderPid > 0) {
+        try {
+          process.kill(holderPid, "SIGKILL")
+        } catch {
+          // The bounded fixture may have already reached its safety exit.
+        }
+      }
+    }
   })
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

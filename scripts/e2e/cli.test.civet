@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -339,6 +339,93 @@ describe("E2E lifecycle CLIs", () => {
     const stateAfter = await readFile(state, "utf8").catch(() => undefined)
     expect(stateAfter).toBe(stateBefore)
   })
+
+  it("captures the nonce-bound report from the real external scanner entrypoint", async () => {
+    const repositoryPath = fileURLToPath(new URL("../../", import.meta.url))
+    const runId = `scanner_entry_${process.pid}_${Date.now()}`
+    const reportNonce = "s".repeat(43)
+    const proof = await prepareOwnedRun(repositoryPath, runId, "no-binary")
+    const runRoot = join(
+      repositoryPath,
+      "test-results",
+      "e2e-runs",
+      runId,
+    )
+    const evidenceRoot = join(
+      repositoryPath,
+      "test-results",
+      "evidence",
+      runId,
+    )
+    try {
+      await writeFile(
+        join(runRoot, "playwright-report.json"),
+        '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}',
+      )
+      await mkdir(join(evidenceRoot, "axe"))
+      await mkdir(join(evidenceRoot, "manifests"))
+      await writeFile(
+        join(evidenceRoot, "axe", "safe.json"),
+        '{"violations":[]}',
+      )
+      await writeFile(
+        join(evidenceRoot, "manifests", "clean.json"),
+        `{"version":1,"runId":"${runId}","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}`,
+      )
+
+      const result = await runOwnedCommand(
+        "corepack",
+        [
+          "pnpm",
+          "exec",
+          "civet",
+          "scripts/e2e/scan-artifacts.civet",
+          "--run-id",
+          runId,
+          "--ownership",
+          encodeOwnedRunProof(proof),
+          "--report-nonce",
+          reportNonce,
+          "--purge-owned",
+        ],
+        {
+          cwd: repositoryPath,
+          env: {
+            PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+            TMPDIR: process.env["TMPDIR"],
+          },
+          maxOutputBytes: 1024 * 1024,
+          timeoutMillis: 30_000,
+        },
+      )
+      const report = parseExternalScannerReport(
+        result.stdout,
+        result.stderr,
+        reportNonce,
+      )
+
+      expect(result).toMatchObject({
+        exitCode: 0,
+        reason: "completed",
+        treeTerminated: true,
+      })
+      expect(report).toMatchObject({
+        ok: true,
+        purged: true,
+        reason: "Artifacts were clean; failed-run evidence was purged",
+      })
+      expect(report?.scannedEntries).toBeGreaterThan(0)
+      await expect(readFile(runRoot, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+      await expect(readFile(evidenceRoot, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    } finally {
+      await rm(runRoot, { force: true, recursive: true })
+      await rm(evidenceRoot, { force: true, recursive: true })
+    }
+  }, 30_000)
 
   it("returns zero for clean fixtures and nonzero while purging only a contaminated owned run", async () => {
     const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-"))
