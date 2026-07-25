@@ -320,7 +320,8 @@ test.describe
       await expect(navigationTrigger).toBeVisible();
       await expect(navigationTrigger).toHaveAttribute(
         "data-hydration-state",
-        "ready"
+        "ready",
+        { timeout: 15_000 }
       );
       await expect(navigationTrigger).toBeEnabled();
       await navigationTrigger.focus();

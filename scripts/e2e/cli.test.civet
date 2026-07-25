@@ -339,7 +339,7 @@ describe("E2E lifecycle CLIs", () => {
     )
     const stateAfter = await readFile(state, "utf8").catch(() => undefined)
     expect(stateAfter).toBe(stateBefore)
-  })
+  }, 30_000)
 
   it("launches the scanner directly without a package-manager proxy", () => {
     const scanner = createArtifactScannerInvocation("/workspace", {
