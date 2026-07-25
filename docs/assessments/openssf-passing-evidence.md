@@ -27,6 +27,15 @@
 - The public history contains zero issues, and the maintainer confirmed no GitHub repository advisory/report on 2026-07-25. Response rows describe only that dated history and promise no acknowledgement time, remediation time, or SLA.
 - The published 0.1.0 changelog lists eight dependency advisories fixed before release. No publicly known DarkFactory project runtime vulnerability with a CVE or similar identifier was identified; the official `release_notes_vulns` criterion excludes dependency vulnerabilities and therefore uses N/A here. These bounded checks are not a penetration test, general vulnerability scan, or proof that the software is vulnerability-free.
 
+## Higher-level badge determination
+
+Passing is the highest badge DarkFactory can currently defend. The 2026-07-25 review stopped the Silver (level 1) assessment at a disqualifying MUST criterion rather than turning an operational gap into a paper claim:
+
+- **Silver — `access_continuity`: Unmet.** The pinned official [level-1 criterion](https://github.com/ossf/best-practices-badge/blob/424f55aff728c97d55a3df53b2d04deef3bcb0d9/criteria/criteria.yml#L754-L757) requires continuity, and the [official wording](https://github.com/ossf/best-practices-badge/blob/424f55aff728c97d55a3df53b2d04deef3bcb0d9/config/locales/en.yml#L2371-L2385) requires the project to create/close issues, accept changes, and release within one week after losing any one person's support. The owner-visible GitHub review found exactly one direct collaborator and the public history found exactly one contributor. A repository scan found no successor/co-maintainer, credential or key escrow, or legal-rights continuity arrangement. DarkFactory therefore does not claim Silver, and the remaining Silver criteria were not asserted as complete after this blocker was established.
+- **Gold — prerequisite-blocked.** The pinned official [level-2 criteria](https://github.com/ossf/best-practices-badge/blob/424f55aff728c97d55a3df53b2d04deef3bcb0d9/criteria/criteria.yml#L1321-L1325) make `achieve_silver` a MUST. Gold is not claimed or scored while Silver is unavailable.
+
+Remediation requires a real operational arrangement, not a policy-only document: another named human must accept the role and possess or be able to recover the repository, release, required service, credential/key, and legal authority needed to perform the official continuity actions. A sanitized recovery drill must prove the arrangement before `access_continuity` is changed to Met; only then should every remaining Silver criterion be assessed.
+
 ## Criterion ledger
 
 | # | Criterion ID | Category | Review status | Adapter status | Exact evidence / rationale | Owner / reviewer need | Limitation |

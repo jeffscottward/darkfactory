@@ -184,3 +184,23 @@ Every agent loop must satisfy these rules:
 **Evidence:** Sanitized failure trace, root-cause classification, failing baseline eval, harness diff, passing result, regression set, metrics, permission review, and rollback checkpoint.
 
 **Stop:** The reproduced failure is prevented without weakening product gates or expanding permissions, and no regression exceeds the approved threshold. Otherwise revert, retain the failing eval, and escalate the unresolved design decision to a human owner.
+
+## OpenSSF Silver access continuity
+
+Sources: pinned official [`access_continuity` level-1 MUST](https://github.com/ossf/best-practices-badge/blob/424f55aff728c97d55a3df53b2d04deef3bcb0d9/criteria/criteria.yml#L754-L757), its [continuity wording](https://github.com/ossf/best-practices-badge/blob/424f55aff728c97d55a3df53b2d04deef3bcb0d9/config/locales/en.yml#L2371-L2385), and Gold's [`achieve_silver` prerequisite](https://github.com/ossf/best-practices-badge/blob/424f55aff728c97d55a3df53b2d04deef3bcb0d9/criteria/criteria.yml#L1321-L1325).
+
+**Owner:** Repository owner plus a separately named human continuity owner.
+
+**Current blocker:** On 2026-07-25 GitHub showed one direct collaborator and one public contributor, and the repository documented no successor/co-maintainer, credential/key escrow, or legal-rights continuity arrangement. Passing is therefore the highest defensible badge; Silver `access_continuity` is Unmet and Gold is prerequisite-blocked. Do not mark this complete with a policy-only document.
+
+**Steps:**
+
+1. A second named human accepts the continuity role and its security, privacy, cost, and legal responsibilities.
+2. Grant or securely escrow the minimum real authority needed to create/close issues, accept changes, publish a release within one week, recover required service access, and exercise any required legal rights.
+3. Document revocation, rotation, death/incapacity transfer, emergency contact, and evidence-retention rules without committing secrets.
+4. Run a sanitized recovery drill in which the continuity owner proves the required actions without help from the primary maintainer or access to production/customer data.
+5. Record the drill, repair any gap, then assess every remaining Silver criterion. Evaluate Gold only after Silver is actually achieved.
+
+**Completion condition:** The real arrangement and recovery drill satisfy the official one-week continuity outcome, all remaining Silver MUST criteria are independently reviewed, and the public OpenSSF assessment is updated truthfully.
+
+**Immediate stop condition:** No separate human accepts the role; required authority cannot be granted safely; the drill would expose secrets or production data; or the arrangement exists only on paper.
