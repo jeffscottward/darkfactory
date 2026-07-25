@@ -143,7 +143,7 @@ export const guardedWrite = async (
     try {
       await handle.writeFile(content, "utf8")
       await handle.sync()
-      await handle.close()
+      // Keep the descriptor open so an unlinked inode cannot be reused before identity checks.
       await hooks.beforePublish?.()
       await assertLock()
       for (const snapshot of ancestors) await assertIdentity(snapshot)
@@ -184,8 +184,8 @@ export const guardedWrite = async (
       }
       throw error
     } finally {
-      await handle.close().catch(() => undefined)
       await removeOwned(temporaryIdentity).catch(() => undefined)
+      await handle.close().catch(() => undefined)
       await removeOwned(backupIdentity).catch(() => undefined)
     }
   })

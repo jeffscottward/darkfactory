@@ -100,7 +100,7 @@ V8 writes the ignored raw report to `coverage/coverage-summary.json`. `coverage:
 
 The badge message publishes both line and branch percentages, and its color is graded from the lower of the two so a stronger line result cannot hide weaker branch coverage.
 
-The committed deterministic-scope baseline is 87.68% lines (8,395/9,574), 84.08% branches (6,008/7,145), 84.09% functions (1,750/2,081), and 86.29% statements (9,184/10,642). The configured floors are the rounded-down observed values: 87% lines, 84% branches, 84% functions, and 86% statements. The committed byte-checked artifact provides the finer-grained non-regression signal.
+The committed deterministic-scope baseline is 87.68% lines (8,394/9,573), 84.08% branches (6,008/7,145), 84.09% functions (1,750/2,081), and 86.29% statements (9,183/10,641). The configured floors are the rounded-down observed values: 87% lines, 84% branches, 84% functions, and 86% statements. The committed byte-checked artifact provides the finer-grained non-regression signal.
 
 ### Assertion-enabled dynamic analysis
 
