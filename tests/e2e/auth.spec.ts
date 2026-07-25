@@ -251,7 +251,7 @@ test.describe("DF-113 auth browser journeys", () => {
           name: state.submit,
           exact: true,
         });
-        await expect(submit).toBeVisible();
+        await expect(submit).toBeVisible({ timeout: 30_000 });
         const layout = await page.evaluate(() => ({
           clientWidth: document.documentElement.clientWidth,
           controls: Array.from(

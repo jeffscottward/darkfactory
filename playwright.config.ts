@@ -200,6 +200,7 @@ export default defineConfig({
   outputDir: "./test-results/artifacts",
   fullyParallel: false,
   forbidOnly: isCI,
+  failOnFlakyTests: isCI,
   preserveOutput: "failures-only",
   retries: isCI ? 2 : 0,
   workers: 1,

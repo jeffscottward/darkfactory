@@ -605,7 +605,7 @@ const parseScannerCandidate = (
         (!purged && reason === "E2E artifacts passed external secret scanning")
       )
       : normalizedFindings.length > 0
-        ? !hasFailureCategory &&
+        ? failureCategory === "evidence-contamination" &&
           scannedEntries === 0 &&
           purged &&
           reason === "Sensitive artifact patterns were detected; owned run evidence was purged"

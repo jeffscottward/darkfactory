@@ -14,6 +14,7 @@ export type ArtifactFindingCategory =
   | "secret-assignment"
 export type ArtifactFinding = Readonly<{ category: ArtifactFindingCategory; path: string }>
 export const ARTIFACT_SCANNER_FAILURE_CATEGORIES = [
+  "evidence-contamination",
   "deadline",
   "bounds",
   "ownership-path-safety",
@@ -46,7 +47,7 @@ export class ArtifactScannerCleanupError extends Error {
 }
 
 const FAILURE_MESSAGES: Readonly<Record<
-  Exclude<ArtifactScannerFailureCategory, "cleanup" | "internal">,
+  Exclude<ArtifactScannerFailureCategory, "evidence-contamination" | "cleanup" | "internal">,
   ReadonlySet<string>
 >> = Object.freeze({
   deadline: new Set([
@@ -486,6 +487,7 @@ export const scanArtifactPaths = async (
       findings,
       purged: true,
       reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+      failureCategory: "evidence-contamination",
     })
   } catch (error) {
     const initialFailureCategory = classifyArtifactScannerFailure(error)

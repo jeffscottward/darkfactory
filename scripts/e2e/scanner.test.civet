@@ -520,6 +520,7 @@ describe("external E2E artifact scanner", () => {
       ok: false,
       scannedEntries: 0,
       purged: true,
+      failureCategory: "evidence-contamination",
     })
     expect(contaminated.findings[0]?.path).toMatch(/^artifact-/u)
 

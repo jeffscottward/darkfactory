@@ -506,6 +506,7 @@ describe("E2E lifecycle CLIs", () => {
         ok: false,
         scannedEntries: 0,
         purged: true,
+        failureCategory: "evidence-contamination",
       })
       expect(rendered).not.toContain("BrowserReset123")
       await expect(readFile(join(other, "safe.txt"), "utf8")).resolves.toBe("must remain")
@@ -1025,6 +1026,7 @@ describe("E2E lifecycle CLIs", () => {
       }],
       purged: true,
       reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+      failureCategory: "evidence-contamination",
     }
     expect(parseScannerReport(
       scannerEnvelope(findingFailure),
@@ -1034,6 +1036,7 @@ describe("E2E lifecycle CLIs", () => {
       scannedEntries: 0,
       findings: [{ category: "secret-assignment" }],
       purged: true,
+      failureCategory: "evidence-contamination",
     })
 
     const invalidReports = [
