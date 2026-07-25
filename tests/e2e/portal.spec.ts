@@ -16,6 +16,7 @@ const BOB_SEED_ITEM = "Bob example item";
 const ADMIN_SEED_ITEM = "Admin example item";
 const BOB_SEED_ITEM_ID = "30000000-0000-4000-8000-000000000003";
 const MOBILE_VIEWPORT = { height: 812, width: 375 } as const;
+const COLD_HYDRATION_TIMEOUT_MS = 15_000;
 const FEATURE_LIST_PATH = "/api/orpc/featureItems/list";
 const FEATURE_GET_PATH = "/api/orpc/featureItems/get";
 const FEATURE_ITEM_ID_PATTERN =
@@ -323,11 +324,13 @@ test.describe
       );
       await expect(navigationTriggerElement).toHaveCount(1);
       await expect(navigationTrigger).toBeVisible();
+      await expect(navigationTrigger).toBeEnabled({
+        timeout: COLD_HYDRATION_TIMEOUT_MS,
+      });
       await expect(navigationTrigger).toHaveAttribute(
         "data-hydration-state",
         "ready"
       );
-      await expect(navigationTrigger).toBeEnabled();
       await expect(navigationTrigger).toHaveAttribute("aria-expanded", "false");
       await navigationTrigger.focus();
       await navigationTrigger.press("Enter");
