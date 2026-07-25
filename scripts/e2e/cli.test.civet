@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -15,6 +15,7 @@ import {
 
 import {
   collectProcessDiagnostics,
+  createArtifactScannerInvocation,
   createPlaywrightEnvironment,
   discoverJourneySpecs,
   finalizeAndObserveE2ELifecycle,
@@ -340,6 +341,29 @@ describe("E2E lifecycle CLIs", () => {
     expect(stateAfter).toBe(stateBefore)
   })
 
+  it("launches the scanner directly without a package-manager proxy", () => {
+    const scanner = createArtifactScannerInvocation("/workspace", {
+      runId: "run_safe",
+      ownership: "[ownership]",
+      reportNonce: "[nonce]",
+      purgeOwned: true,
+    })
+
+    expect(scanner.command).toBe(process.execPath)
+    expect(scanner.options).toMatchObject({
+      maxOutputBytes: 1024 * 1024,
+      timeoutMillis: 45_000,
+    })
+    expect(scanner.arguments.slice(0, 4)).toEqual([
+      "--experimental-strip-types",
+      "--import",
+      "./tests/e2e/helpers/register-civet-loader.mjs",
+      "./scripts/e2e/scan-artifacts.civet",
+    ])
+    expect(scanner.arguments).not.toContain("corepack")
+    expect(scanner.arguments).not.toContain("pnpm")
+  })
+
   it("captures the nonce-bound report from the real external scanner entrypoint", async () => {
     const repositoryPath = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `scanner_entry_${process.pid}_${Date.now()}`
@@ -373,30 +397,16 @@ describe("E2E lifecycle CLIs", () => {
         `{"version":1,"runId":"${runId}","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}`,
       )
 
+      const scanner = createArtifactScannerInvocation(repositoryPath, {
+        runId,
+        ownership: encodeOwnedRunProof(proof),
+        reportNonce,
+        purgeOwned: true,
+      })
       const result = await runOwnedCommand(
-        "corepack",
-        [
-          "pnpm",
-          "exec",
-          "civet",
-          "scripts/e2e/scan-artifacts.civet",
-          "--run-id",
-          runId,
-          "--ownership",
-          encodeOwnedRunProof(proof),
-          "--report-nonce",
-          reportNonce,
-          "--purge-owned",
-        ],
-        {
-          cwd: repositoryPath,
-          env: {
-            PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
-            TMPDIR: process.env["TMPDIR"],
-          },
-          maxOutputBytes: 1024 * 1024,
-          timeoutMillis: 30_000,
-        },
+        scanner.command,
+        scanner.arguments,
+        scanner.options,
       )
       const report = parseExternalScannerReport(
         result.stdout,
@@ -404,17 +414,17 @@ describe("E2E lifecycle CLIs", () => {
         reportNonce,
       )
 
+      expect(report).toMatchObject({
+        ok: true,
+        purged: true,
+        scannedEntries: 5,
+        reason: "Artifacts were clean; failed-run evidence was purged",
+      })
       expect(result).toMatchObject({
         exitCode: 0,
         reason: "completed",
         treeTerminated: true,
       })
-      expect(report).toMatchObject({
-        ok: true,
-        purged: true,
-        reason: "Artifacts were clean; failed-run evidence was purged",
-      })
-      expect(report?.scannedEntries).toBeGreaterThan(0)
       await expect(readFile(runRoot, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })

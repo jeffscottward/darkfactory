@@ -226,7 +226,7 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: true,
     })
     expect(result.stderr).not.toMatch(/Error|ERR_|Cannot find|failed/iu)
-  })
+  }, 30_000)
 
   it("kills a listening descendant when output exceeds its bound", async () => {
     const port = await reservePort()

@@ -300,6 +300,45 @@ const scannerEnvironment = (): NodeJS.ProcessEnv => ({
   TMPDIR: process.env["TMPDIR"],
 })
 
+export const createArtifactScannerInvocation = (
+  repositoryPath: string,
+  {
+    runId,
+    ownership,
+    reportNonce,
+    purgeOwned,
+  }: Readonly<{
+    runId: string
+    ownership: string
+    reportNonce: string
+    purgeOwned: boolean
+  }>,
+) => {
+  const arguments_ = [
+    "--experimental-strip-types",
+    "--import",
+    "./tests/e2e/helpers/register-civet-loader.mjs",
+    "./scripts/e2e/scan-artifacts.civet",
+    "--run-id",
+    runId,
+    "--ownership",
+    ownership,
+    "--report-nonce",
+    reportNonce,
+  ]
+  if (purgeOwned) arguments_.push("--purge-owned")
+  return Object.freeze({
+    command: process.execPath,
+    arguments: Object.freeze(arguments_),
+    options: Object.freeze({
+      cwd: repositoryPath,
+      env: scannerEnvironment(),
+      maxOutputBytes: 1024 * 1024,
+      timeoutMillis: 45_000,
+    }),
+  })
+}
+
 const hasSensitiveProcessStructure = (value: string): boolean => [
   /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]{4,}/iu,
   /\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=)(?!\[REDACTED\])[^/?&#\s<"']{4,}/iu,
@@ -669,7 +708,7 @@ export const runJourneyCli = async (
     return 2
   }
   let corepack = ""
-  if (overrides.runPlaywright === undefined || overrides.scanArtifacts === undefined) {
+  if (overrides.runPlaywright === undefined) {
     try {
       corepack = await executableOutsideRepository("corepack", repositoryPath)
     } catch {
@@ -683,23 +722,17 @@ export const runJourneyCli = async (
     ownership: string,
   ): Promise<ArtifactScanReport> => {
     const reportNonce = randomBytes(32).toString("base64url")
-    const scannerArguments = [
-      "pnpm",
-      "exec",
-      "civet",
-      "scripts/e2e/scan-artifacts.civet",
-      "--run-id",
+    const scanner = createArtifactScannerInvocation(repositoryPath, {
       runId,
-      "--ownership",
       ownership,
-      "--report-nonce",
       reportNonce,
-    ]
-    if (purgeOwned) scannerArguments.push("--purge-owned")
-    const result = await runOwnedCommand(corepack, scannerArguments, {
-      cwd: repositoryPath,
-      env: scannerEnvironment(),
+      purgeOwned,
     })
+    const result = await runOwnedCommand(
+      scanner.command,
+      scanner.arguments,
+      scanner.options,
+    )
     if (!result.treeTerminated) return Object.freeze({
       ok: false,
       scannedEntries: 0,
