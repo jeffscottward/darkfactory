@@ -80,4 +80,109 @@ describe("Civet-aware Graphify corpus", () => {
       new Map(),
     )).rejects.toThrow()
   })
+
+  it("selects supported conditional Civet exports and ignores unrelated manifests", () => {
+    const aliases = deriveWorkspaceAliases([
+      { directory: "packages/null", source: "null" },
+      {
+        directory: "packages/external",
+        source: JSON.stringify({
+          name: "@external/package",
+          exports: { ".": "./src/index.civet" },
+        }),
+      },
+      {
+        directory: "packages/worker",
+        source: JSON.stringify({
+          name: "@darkfactory/worker",
+          exports: {
+            ".": {
+              import: "./src/index.js",
+              worker: "./src/worker.civet",
+              default: "./src/fallback.civet",
+            },
+            "./fallback": {
+              browser: "./src/browser.civet",
+              default: "./src/fallback.civet",
+            },
+            "./javascript": "./src/index.js",
+            "./missing": null,
+          },
+        }),
+      },
+    ])
+
+    expect([...aliases]).toEqual([
+      ["@darkfactory/worker", "packages/worker/src/worker.civet"],
+      ["@darkfactory/worker/fallback", "packages/worker/src/fallback.civet"],
+    ])
+  })
+
+  it("rejects malformed manifests, unsafe export declarations, and duplicate aliases", () => {
+    expect(() => deriveWorkspaceAliases([{
+      directory: "packages/api",
+      source: "{",
+    }])).toThrow()
+    expect(() => deriveWorkspaceAliases([{
+      directory: "packages/api",
+      source: JSON.stringify({
+        name: "@darkfactory/api",
+        exports: { server: "./src/server.civet" },
+      }),
+    }])).toThrow(/unsafe workspace export subpath/i)
+
+    for (const target of ["./src\\index.civet", "./../outside.civet"]) {
+      expect(() => deriveWorkspaceAliases([{
+        directory: "packages/api",
+        source: JSON.stringify({
+          name: "@darkfactory/api",
+          exports: { ".": target },
+        }),
+      }])).toThrow(/unsafe|escapes/i)
+    }
+
+    expect(() => deriveWorkspaceAliases([
+      {
+        directory: "packages/api",
+        source: JSON.stringify({
+          name: "@darkfactory/api",
+          exports: { ".": "./src/index.civet" },
+        }),
+      },
+      {
+        directory: "packages/api-copy",
+        source: JSON.stringify({
+          name: "@darkfactory/api",
+          exports: { ".": "./src/index.civet" },
+        }),
+      },
+    ])).toThrow(/duplicate workspace alias/i)
+  })
+
+  it("rewrites export, dynamic import, and require specifiers without touching ordinary strings", () => {
+    const aliases = deriveWorkspaceAliases(manifests)
+    const rewritten = rewriteWorkspaceAliases(
+      "apps/web/src/route.tsx",
+      [
+        "export { appContract } from '@darkfactory/api/server'",
+        "const load = import(\"@darkfactory/db\")",
+        "const database = require('@darkfactory/db/server')",
+        "const alias = \"@darkfactory/api\"",
+        "const untouched = require(alias)",
+      ].join("\n"),
+      aliases,
+    )
+
+    expect(rewritten).toContain("from '../../../packages/api/src/server/index.tsx'")
+    expect(rewritten).toContain('import("../../../packages/db/src/index.tsx")')
+    expect(rewritten).toContain("require('../../../packages/db/src/server/index.tsx')")
+    expect(rewritten).toContain('const alias = "@darkfactory/api"')
+    expect(rewritten).toContain("require(alias)")
+
+    expect(rewriteWorkspaceAliases(
+      "packages/api/src/consumer.tsx",
+      'import value from "@darkfactory/local"',
+      new Map([["@darkfactory/local", "packages/api/src/index.civet"]]),
+    )).toContain('from "./index.tsx"')
+  })
 })

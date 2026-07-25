@@ -1,0 +1,161 @@
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { describe, expect, it } from "vitest"
+
+import { GENERATED_INVENTORY_PATH, runDocsAction } from "./docs.civet"
+import { createDocsFileSystem } from "./system.civet"
+
+const packageManifest = (name: string): string => JSON.stringify({
+  name,
+  version: "1.0.0",
+})
+
+const createRepository = async (): Promise<string> => {
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-system-"))
+  await Promise.all([
+    mkdir(join(root, "apps"), { recursive: true }),
+    mkdir(join(root, "packages"), { recursive: true }),
+  ])
+  await writeFile(join(root, "package.json"), packageManifest("@darkfactory/root"), "utf8")
+  return root
+}
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+describe("documentation filesystem", () => {
+  it("discovers only regular package manifests in portable sorted order", async () => {
+    const root = await createRepository()
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-docs-system-outside-"))
+    try {
+      await Promise.all([
+        mkdir(join(root, "apps/web"), { recursive: true }),
+        mkdir(join(root, "packages/api"), { recursive: true }),
+        mkdir(join(root, "packages/without-manifest"), { recursive: true }),
+        mkdir(join(outside, "linked"), { recursive: true }),
+      ])
+      await Promise.all([
+        writeFile(join(root, "apps/web/package.json"), packageManifest("@darkfactory/web"), "utf8"),
+        writeFile(join(root, "packages/api/package.json"), packageManifest("@darkfactory/api"), "utf8"),
+        writeFile(join(root, "packages/not-a-directory"), "ignored", "utf8"),
+        writeFile(join(outside, "linked/package.json"), packageManifest("outside"), "utf8"),
+      ])
+      await symlink(join(outside, "linked"), join(root, "packages/linked"))
+
+      const files = await createDocsFileSystem(root)
+      const discovered = await files.discoverPackageManifests()
+
+      expect(discovered.map(({ path }) => path)).toEqual([
+        "apps/web/package.json",
+        "package.json",
+        "packages/api/package.json",
+      ])
+      expect(discovered.map(({ source }) => JSON.parse(source).name)).toEqual([
+        "@darkfactory/web",
+        "@darkfactory/root",
+        "@darkfactory/api",
+      ])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("bounds reads and rejects paths, directories, and symbolic links outside the file contract", async () => {
+    const root = await createRepository()
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-docs-read-outside-"))
+    try {
+      const generated = join(root, "docs/generated")
+      await mkdir(join(generated, "directory"), { recursive: true })
+      await writeFile(join(generated, "at-limit.json"), "x".repeat(262_144), "utf8")
+      await writeFile(join(generated, "too-large.json"), "x".repeat(262_145), "utf8")
+      await writeFile(join(outside, "secret.json"), "outside", "utf8")
+      await symlink(join(outside, "secret.json"), join(generated, "linked.json"))
+      const files = await createDocsFileSystem(root)
+
+      await expect(files.readGenerated("docs/generated/missing.json")).resolves.toBeUndefined()
+      await expect(files.readGenerated("docs/generated/at-limit.json")).resolves.toHaveLength(262_144)
+      await expect(files.readGenerated("docs/generated/too-large.json")).rejects.toThrow(/invalid|large/i)
+      await expect(files.readGenerated("docs/generated/directory")).rejects.toThrow(/invalid/i)
+      await expect(files.readGenerated("docs/generated/linked.json")).rejects.toThrow()
+      await expect(files.readGenerated("../secret.json")).rejects.toThrow(/escapes repository/i)
+      await expect(files.writeGenerated("../secret.json", "changed")).rejects.toThrow(/escapes repository/i)
+      await expect(readFile(join(outside, "secret.json"), "utf8")).resolves.toBe("outside")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("supports documentation generation and reports fresh and stale checks without tracked writes", async () => {
+    const root = await createRepository()
+    try {
+      await mkdir(join(root, "apps/web"), { recursive: true })
+      await writeFile(
+        join(root, "apps/web/package.json"),
+        packageManifest("@darkfactory/web"),
+        "utf8",
+      )
+      const files = await createDocsFileSystem(root)
+
+      await expect(runDocsAction("generate", { files })).resolves.toMatchObject({
+        ok: true,
+        changed: true,
+        packageCount: 2,
+      })
+      const generatedPath = join(root, GENERATED_INVENTORY_PATH)
+      const generated = await readFile(generatedPath, "utf8")
+      await expect(runDocsAction("check", { files })).resolves.toMatchObject({
+        ok: true,
+        changed: false,
+        reason: expect.stringMatching(/current/i),
+      })
+
+      await mkdir(join(root, "packages/api"), { recursive: true })
+      await writeFile(
+        join(root, "packages/api/package.json"),
+        packageManifest("@darkfactory/api"),
+        "utf8",
+      )
+      await expect(runDocsAction("check", { files })).resolves.toMatchObject({
+        ok: false,
+        changed: false,
+        packageCount: 3,
+        reason: expect.stringMatching(/stale/i),
+      })
+      await expect(readFile(generatedPath, "utf8")).resolves.toBe(generated)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a workspace root that is not a regular directory", async () => {
+    const root = await createRepository()
+    try {
+      await rm(join(root, "apps"), { recursive: true })
+      await writeFile(join(root, "apps"), "occupied", "utf8")
+      const files = await createDocsFileSystem(root)
+
+      await expect(files.discoverPackageManifests()).rejects.toThrow(/ancestor is unsafe/i)
+      await expect(exists(join(root, GENERATED_INVENTORY_PATH))).resolves.toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})

@@ -1,6 +1,7 @@
 import type { SafeAuthSession, SafePrincipal } from "@darkfactory/auth/types"
 import {
   AdminUsersPersistenceError,
+  DatabaseConflictError,
   DashboardPersistenceError,
   InvalidAdminUsersCursorError,
   InvalidRepositoryInputError,
@@ -13,7 +14,10 @@ import {
 import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema"
 import { describe, expect, it, vi } from "vitest"
 
-import { createAccountService } from "./server/account-service.civet"
+import {
+  AccountServiceError,
+  createAccountService,
+} from "./server/account-service.civet"
 import { AdminUsersServiceError, createAdminUsersService } from "./server/admin-users-service.civet"
 import { DashboardServiceError, createDashboardService } from "./server/dashboard-service.civet"
 
@@ -171,6 +175,203 @@ describe "account service", ->
       code: "VALIDATION_ERROR",
       message: "Account validation failed",
     })
+
+  it "applies every supplied profile field to the authenticated owner", async ->
+    const repositories = accountRepositories()
+    const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z")
+
+    await createAccountService(repositories).updateProfile(session, {
+      expectedUpdatedAt,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      displayName: "Ada L.",
+      avatarUrl: "https://example.test/avatar.png",
+      phone: "+33 1 23 45 67 89",
+      businessName: "Analytical Engines",
+      jobTitle: "Programmer",
+      biography: "Computing pioneer",
+      timezone: "Europe/Paris",
+      locale: "fr",
+      dateOfBirth: null,
+    })
+
+    expect(repositories.profiles.updateOptimistic).toHaveBeenCalledWith({
+      userId: "member-1",
+      expectedUpdatedAt,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      displayName: "Ada L.",
+      avatarUrl: "https://example.test/avatar.png",
+      phone: "+33 1 23 45 67 89",
+      businessName: "Analytical Engines",
+      jobTitle: "Programmer",
+      biography: "Computing pioneer",
+      timezone: "Europe/Paris",
+      locale: "fr",
+      dateOfBirth: null,
+    })
+
+  it "omits absent address defaults and keeps successful operations owner scoped", async ->
+    const repositories = accountRepositories()
+    vi.mocked(repositories.addresses.updateOptimistic).mockResolvedValue(
+      address({ type: "work", city: "Lyon" }),
+    )
+    vi.mocked(repositories.addresses.removeOptimistic).mockResolvedValue(true)
+    vi.mocked(repositories.addresses.setPrimaryOptimistic).mockResolvedValue(
+      address({ isPrimary: true }),
+    )
+    const service = createAccountService(repositories)
+    const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z")
+
+    await expect(service.listAddresses(principal)).resolves.toEqual([])
+    await service.createAddress(principal, {
+      type: "home",
+      line1: "1 Main St",
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75001",
+      country: "FR",
+    })
+    await expect(service.updateAddress(principal, {
+      id: "address-1",
+      expectedUpdatedAt,
+      type: "work",
+      line1: "2 Market St",
+      line2: null,
+      city: "Lyon",
+      region: "Auvergne-Rhone-Alpes",
+      postalCode: "69001",
+      country: "FR",
+    })).resolves.toMatchObject({ id: "address-1", city: "Lyon" })
+    await expect(service.removeAddress(principal, {
+      id: "address-1",
+      expectedUpdatedAt,
+    })).resolves.toEqual({ removed: true })
+    await expect(service.setPrimaryAddress(principal, {
+      id: "address-1",
+      expectedUpdatedAt,
+    })).resolves.toMatchObject({ id: "address-1", isPrimary: true })
+
+    expect(repositories.addresses.listByUserId).toHaveBeenCalledWith("member-1")
+    expect(repositories.addresses.create).toHaveBeenCalledWith({
+      userId: "member-1",
+      type: "home",
+      line1: "1 Main St",
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75001",
+      country: "FR",
+    })
+    expect(repositories.addresses.updateOptimistic).toHaveBeenCalledWith({
+      userId: "member-1",
+      id: "address-1",
+      expectedUpdatedAt,
+      type: "work",
+      line1: "2 Market St",
+      line2: null,
+      city: "Lyon",
+      region: "Auvergne-Rhone-Alpes",
+      postalCode: "69001",
+      country: "FR",
+    })
+    expect(repositories.addresses.removeOptimistic).toHaveBeenCalledWith({
+      id: "address-1",
+      userId: "member-1",
+      expectedUpdatedAt,
+    })
+    expect(repositories.addresses.setPrimaryOptimistic).toHaveBeenCalledWith({
+      id: "address-1",
+      userId: "member-1",
+      expectedUpdatedAt,
+    })
+
+  it "projects stored preferences and preserves omitted fields across partial updates", async ->
+    const repositories = accountRepositories()
+    const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z")
+    vi.mocked(repositories.userPreferences.findByUserId).mockResolvedValue(
+      preferences({
+        mode: "dark",
+        colorScheme: "violet",
+        emailNotifications: false,
+        productUpdates: false,
+        analyticsConsent: true,
+        personalizationConsent: true,
+        profileVisibility: "members",
+        updatedAt: expectedUpdatedAt,
+      }),
+    )
+    const service = createAccountService(repositories)
+
+    await expect(service.getPreferences(principal)).resolves.toEqual({
+      themeMode: "dark",
+      palette: "violet",
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+      updatedAt: expectedUpdatedAt,
+    })
+    await service.updatePreferences(principal, {
+      expectedUpdatedAt,
+      emailNotifications: true,
+    })
+    expect(repositories.userPreferences.updateOptimistic).toHaveBeenLastCalledWith({
+      userId: "member-1",
+      expectedUpdatedAt,
+      emailNotifications: true,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+    })
+
+    await service.updatePreferences(principal, {
+      expectedUpdatedAt,
+      profileVisibility: "public",
+    })
+    expect(repositories.userPreferences.updateOptimistic).toHaveBeenLastCalledWith({
+      userId: "member-1",
+      expectedUpdatedAt,
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "public",
+    })
+
+  it.each([
+    {
+      failure: new DatabaseConflictError("account address"),
+      code: "CONFLICT",
+      message: "Account resource conflict",
+    },
+    {
+      failure: new Error("private account adapter details"),
+      code: "STORAGE_ERROR",
+      message: "Account storage is unavailable",
+    },
+  ] as const)("maps repository failures to the stable $code contract", async ({ failure, code, message }) ->
+    const repositories = accountRepositories()
+    vi.mocked(repositories.addresses.listByUserId).mockRejectedValue(failure)
+
+    await expect(
+      createAccountService(repositories).listAddresses(principal),
+    ).rejects.toMatchObject({
+      name: "AccountServiceError",
+      code,
+      message,
+    })
+  )
+
+  it "preserves an already classified account failure", async ->
+    const repositories = accountRepositories()
+    const failure = new AccountServiceError("NOT_FOUND", "Address not found")
+    vi.mocked(repositories.addresses.listByUserId).mockRejectedValue(failure)
+
+    await expect(
+      createAccountService(repositories).listAddresses(principal),
+    ).rejects.toBe(failure)
 
 describe "admin user and dashboard services", ->
   it "maps malformed cursors to BAD_REQUEST and storage failures to safe STORAGE_ERROR", async ->

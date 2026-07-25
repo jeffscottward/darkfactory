@@ -278,6 +278,7 @@ describe("owned E2E command lifecycle", () => {
       );
       writeSync(1, "holder-pid=" + child.pid + "\\n");
       child.unref();
+      setInterval(() => undefined, 1000);
     `
     const startedAt = Date.now()
     const result = await runOwnedCommand(

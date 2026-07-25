@@ -3,8 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  createBrowserSecurityGateway,
   createSecurityGateway,
   safeSecurityFeedback,
+  securityFailureKind,
   toSafeSessions,
 } from "./security-client.civet"
 import { PasswordForm, SecurityPanel } from "./security-panel.civet"
@@ -98,6 +100,84 @@ describe "supported Better Auth security gateway", ->
     expect(safeSecurityFeedback(new Error("password=secret token=opaque"))).not.toContain("secret")
     expect(safeSecurityFeedback({ code: "UNAUTHORIZED" })).toContain("Sign in")
 
+  it "drops malformed sessions, normalizes supported dates, and marks only the correlated session current", ->
+    const safe = toSafeSessions([
+      null,
+      "not-a-session",
+      { ...session, id: "" },
+      { ...session, id: "bad-created", createdAt: "not-a-date" },
+      { ...session, id: "bad-updated", updatedAt: Number.NaN },
+      { ...session, id: "bad-expiry", expiresAt: {} },
+      {
+        id: "session-other",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: 1_767_312_000_000,
+        expiresAt: "2026-02-01T00:00:00.000Z",
+        userAgent: "   ",
+      },
+    ], "session-current")
+    expect(safe).toHaveLength(1)
+    expect(safe[0]).toMatchObject({
+      id: "session-other",
+      isCurrent: false,
+      userAgent: null,
+    })
+    expect(safe[0]?.createdAt).toBeInstanceOf(Date)
+    expect(safe[0]?.updatedAt).toBeInstanceOf(Date)
+    expect(safe[0]?.expiresAt).toBeInstanceOf(Date)
+
+  it "tolerates missing session data but rejects every Better Auth operation failure", async ->
+    const emptyGateway = createSecurityGateway({
+      getSession: vi.fn(async -> ({ data: null, error: null })),
+      listSessions: vi.fn(async -> ({ data: { unexpected: true }, error: null })),
+      revokeOtherSessions: vi.fn(async -> ({ data: null, error: null })),
+      changePassword: vi.fn(async -> ({ data: null, error: null })),
+    } as never)
+    await expect(emptyGateway.listSessions()).resolves.toEqual({
+      currentSessionId: null,
+      sessions: [],
+    })
+
+    const currentFailure = { code: "UNAUTHORIZED" }
+    await expect(createSecurityGateway({
+      getSession: vi.fn(async -> ({ data: null, error: currentFailure })),
+      listSessions: vi.fn(async -> ({ data: [], error: null })),
+    } as never).listSessions()).rejects.toBe(currentFailure)
+
+    const sessionsFailure = { code: "FORBIDDEN" }
+    await expect(createSecurityGateway({
+      getSession: vi.fn(async -> ({ data: null, error: null })),
+      listSessions: vi.fn(async -> ({ data: [], error: sessionsFailure })),
+    } as never).listSessions()).rejects.toBe(sessionsFailure)
+
+    const revokeFailure = { status: 403 }
+    await expect(createSecurityGateway({
+      revokeOtherSessions: vi.fn(async -> ({ data: null, error: revokeFailure })),
+    } as never).revokeOtherSessions()).rejects.toBe(revokeFailure)
+
+    const passwordFailure = { status: 401 }
+    await expect(createSecurityGateway({
+      changePassword: vi.fn(async -> ({ data: null, error: passwordFailure })),
+    } as never).changePassword({
+      currentPassword: "current-password",
+      newPassword: "new-password-long-enough",
+    })).rejects.toBe(passwordFailure)
+
+  it.each([
+    [{ code: "UNAUTHORIZED" }, "unauthorized", "Sign in again"],
+    [{ status: 401 }, "unauthorized", "Sign in again"],
+    [{ code: "FORBIDDEN" }, "forbidden", "not permitted"],
+    [{ status: 403 }, "forbidden", "not permitted"],
+    [{ code: 401 }, "retryable", "Try again"],
+    [null, "retryable", "Try again"],
+  ] as const)("maps supported security failure %j to %s", (error, kind, message) ->
+    expect(securityFailureKind(error)).toBe(kind)
+    expect(safeSecurityFeedback(error)).toContain(message)
+  )
+
+  it "constructs the browser security gateway without starting a request", ->
+    expect(() => createBrowserSecurityGateway()).not.toThrow()
+
 describe "security page states and actions", ->
   it "marks the current session and never offers to revoke it", ->
     const html = renderToStaticMarkup(
@@ -124,6 +204,33 @@ describe "security page states and actions", ->
     expect(renderToStaticMarkup(<SecurityPanel state={state} />)).toContain(expected)
   )
 
+  it.each([
+    ["unauthorized", "/sign-in?callbackURL=%2Faccount%2Fsecurity", "Sign in"],
+    ["forbidden", "href=\"/account\"", "Back to account"],
+    ["retryable", "Try again", "Try again"],
+  ] as const)("renders the accessible %s recovery path", (kind, destination, action) ->
+    const html = renderToStaticMarkup(
+      <SecurityPanel state={{ type: "error", kind, message: "Security details are unavailable." }} />,
+    )
+    expect(html).toContain("role=\"alert\"")
+    expect(html).toContain("Security details are unavailable")
+    expect(html).toContain(destination)
+    expect(html).toContain(action)
+  )
+
+  it "renders unknown agents safely and disables bulk revocation for the only active session", ->
+    const html = renderToStaticMarkup(
+      <SecurityPanel
+        state={{
+          type: "ready",
+          sessions: [{ ...toSafeSessions([session], "session-current")[0]!, userAgent: null }],
+        }}
+      />,
+    )
+    expect(html).toContain("Unidentified browser")
+    expect(html).toContain("This is the only active session")
+    expect(html).toContain("disabled")
+
   it "renders supported password fields without ever echoing values", ->
     const html = renderToStaticMarkup(<PasswordForm onSave={vi.fn()} />)
     expect(html).toContain("name=\"currentPassword\"")
@@ -131,3 +238,7 @@ describe "security page states and actions", ->
     expect(html).toContain("name=\"confirmPassword\"")
     expect(html).toContain("type=\"password\"")
     expect(html).toContain("Change password")
+    expect(html).toContain("disabled")
+    expect(html).toContain("autoComplete=\"current-password\"")
+    expect(html).toContain("autoComplete=\"new-password\"")
+    expect(html).toContain("Sign out other sessions")

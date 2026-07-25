@@ -16,16 +16,12 @@ vi.mock("evlog/workers", -> ({
   createWorkersLogger: workers.createWorkersLogger,
 }))
 
-import { createEvlogSink, initializeEvlog } from "./evlog.civet"
-
-const runtime = initializeEvlog({
-  serviceName: "darkfactory-test",
-  silent: true,
-})
-
 beforeEach ->
+  vi.resetModules()
   workers.emit.mockReset()
-  workers.createWorkersLogger.mockClear()
+  workers.initWorkersLogger.mockReset()
+  workers.createWorkersLogger.mockReset()
+  workers.createWorkersLogger.mockImplementation(-> ({ emit: workers.emit }))
 
 const rawEvent = (requestId: string): SemanticEvent => ({
   eventId: `event_${requestId}`,
@@ -45,6 +41,11 @@ const rawEvent = (requestId: string): SemanticEvent => ({
 
 describe "evlog Worker runtime", ->
   it "initializes globally once, keeps redaction enabled, and safely interleaves request sinks", async ->
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+    const runtime = initializeEvlog({
+      serviceName: "darkfactory-test",
+      silent: true,
+    })
     const executionContext = { waitUntil: vi.fn() }
     const requestA = new Request(
       "https://darkfactory.localhost/rpc/feature.create",
@@ -104,7 +105,18 @@ describe "evlog Worker runtime", ->
     )
     expect(JSON.stringify(workers.emit.mock.calls)).not.toContain("raw-password")
 
-  it "rejects conflicting global initialization without changing the active runtime", ->
+  it "rejects conflicting global initialization without changing the active runtime", async ->
+    const { initializeEvlog } = await import("./evlog.civet")
+    const runtime = initializeEvlog({
+      serviceName: "darkfactory-test",
+      silent: true,
+    })
+    expect(
+      initializeEvlog({
+        serviceName: "darkfactory-test",
+        silent: true,
+      })
+    ).toBe(runtime)
     expect(->
       initializeEvlog({
         serviceName: "other-service",
@@ -114,6 +126,11 @@ describe "evlog Worker runtime", ->
     expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
 
   it "does not expose provider errors or event data in its stable failure result", async ->
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+    const runtime = initializeEvlog({
+      serviceName: "darkfactory-test",
+      silent: true,
+    })
     workers.emit.mockImplementationOnce(->
       throw new Error("raw-provider-payload password=hidden")
     )
@@ -128,3 +145,126 @@ describe "evlog Worker runtime", ->
     )
     await expect(sink.emit(event)).resolves.toBeUndefined()
     expect(workers.emit).toHaveBeenCalledTimes(2)
+
+  it "trims service configuration, defaults to non-silent, and rejects blank names", async ->
+    const { initializeEvlog } = await import("./evlog.civet")
+    for (const serviceName of ["", "   "]) {
+      expect(() => initializeEvlog({ serviceName })).toThrow(
+        "evlog Worker runtime configuration is invalid"
+      )
+    }
+    expect(workers.initWorkersLogger).not.toHaveBeenCalled()
+
+    const runtime = initializeEvlog({
+      serviceName: "  darkfactory-worker  ",
+    })
+    expect(
+      initializeEvlog({
+        serviceName: "darkfactory-worker",
+        silent: false,
+      })
+    ).toBe(runtime)
+    expect(Object.isFrozen(runtime)).toBe(true)
+    expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
+    expect(workers.initWorkersLogger).toHaveBeenCalledWith({
+      env: { service: "darkfactory-worker" },
+      pretty: false,
+      redact: true,
+      silent: false,
+      stringify: false,
+    })
+
+  it "rejects runtimes that were not created by the active module", async ->
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+    const invalidRuntime = Object.freeze(
+      {}
+    ) as ReturnType<typeof initializeEvlog>
+
+    expect(() =>
+      createEvlogSink({
+        runtime: invalidRuntime,
+        request: new Request("https://darkfactory.localhost/"),
+      })
+    ).toThrow("evlog Worker runtime is invalid")
+    expect(workers.createWorkersLogger).not.toHaveBeenCalled()
+
+  it "converts full and minimal semantic events into stable logger payloads", async ->
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+    const runtime = initializeEvlog({
+      serviceName: "darkfactory-test",
+      silent: true,
+    })
+    const request = new Request("https://darkfactory.localhost/events")
+    const sink = createEvlogSink({ runtime, request })
+    const fullEvent: SemanticEvent = {
+      ...rawEvent("request_full"),
+      action: "archive",
+      entityId: "feature_01",
+      entityType: "feature-item",
+      outcome: "failure",
+      source: "worker",
+      errorCategory: "domain",
+      durationMs: 27,
+      attributes: {
+        password: "private-marker",
+        safe: "kept",
+      },
+    }
+    const minimalEvent: SemanticEvent = {
+      eventId: "event_minimal",
+      name: "feature-item.archived",
+      occurredAt: "2026-07-23T12:01:00.000Z",
+      correlation: { requestId: "request_minimal" },
+    }
+
+    await sink.emit(fullEvent)
+    await sink.emit(minimalEvent)
+
+    expect(workers.emit).toHaveBeenNthCalledWith(1, {
+      event: {
+        id: "event_request_full",
+        name: "feature-item.created",
+        occurredAt: "2026-07-23T12:00:00.000Z",
+        action: "archive",
+        entityId: "feature_01",
+        entityType: "feature-item",
+      },
+      correlation: fullEvent.correlation,
+      outcome: "failure",
+      source: "worker",
+      errorCategory: "domain",
+      durationMs: 27,
+      attributes: {
+        password: "[REDACTED]",
+        safe: "kept",
+      },
+    })
+    expect(workers.emit).toHaveBeenNthCalledWith(2, {
+      event: {
+        id: "event_minimal",
+        name: "feature-item.archived",
+        occurredAt: "2026-07-23T12:01:00.000Z",
+      },
+      correlation: { requestId: "request_minimal" },
+    })
+
+  it "normalizes asynchronous transport failures to the stable sink error", async ->
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+    const runtime = initializeEvlog({
+      serviceName: "darkfactory-test",
+      silent: true,
+    })
+    workers.emit.mockRejectedValueOnce(
+      new Error("asynchronous transport unavailable")
+    )
+    const sink = createEvlogSink({
+      runtime,
+      request: new Request("https://darkfactory.localhost/"),
+    })
+
+    await expect(sink.emit(rawEvent("request_async_failure"))).rejects.toThrow(
+      "Structured event emission failed"
+    )
+    await expect(
+      sink.emit(rawEvent("request_async_recovery"))
+    ).resolves.toBeUndefined()

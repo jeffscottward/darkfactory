@@ -1,0 +1,210 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const otlp = vi.hoisted(() => {
+  type ExportCallback = (result: { code: number }) => void
+  const traceExporters: Array<{
+    options: unknown
+    batches: unknown[][]
+    export: ReturnType<typeof vi.fn>
+    shutdown: ReturnType<typeof vi.fn>
+  }> = []
+  const metricExporters: Array<{
+    options: unknown
+    batches: unknown[]
+    export: ReturnType<typeof vi.fn>
+    forceFlush: ReturnType<typeof vi.fn>
+    shutdown: ReturnType<typeof vi.fn>
+  }> = []
+
+  class TraceExporter {
+    options: unknown
+    batches: unknown[][] = []
+    export = vi.fn((batch: unknown[], callback: ExportCallback): void => {
+      this.batches.push(batch)
+      callback({ code: 0 })
+    })
+    shutdown = vi.fn(async () => undefined)
+
+    constructor(options: unknown) {
+      this.options = options
+      traceExporters.push(this)
+    }
+  }
+
+  class MetricExporter {
+    options: unknown
+    batches: unknown[] = []
+    export = vi.fn((batch: unknown, callback: ExportCallback): void => {
+      this.batches.push(batch)
+      callback({ code: 0 })
+    })
+    forceFlush = vi.fn(async () => undefined)
+    shutdown = vi.fn(async () => undefined)
+
+    constructor(options: unknown) {
+      this.options = options
+      metricExporters.push(this)
+    }
+  }
+
+  return {
+    MetricExporter,
+    TraceExporter,
+    metricExporters,
+    traceExporters,
+  }
+})
+
+vi.mock("@opentelemetry/exporter-trace-otlp-http", () => ({
+  OTLPTraceExporter: otlp.TraceExporter,
+}))
+vi.mock("@opentelemetry/exporter-metrics-otlp-http", () => ({
+  OTLPMetricExporter: otlp.MetricExporter,
+}))
+
+import { initializeTelemetry } from "./otel.civet"
+
+beforeEach(() => {
+  otlp.traceExporters.length = 0
+  otlp.metricExporters.length = 0
+})
+
+describe "OpenTelemetry exporter lifecycle", ->
+  it "uses fake exporters for normalized configuration and resources", async ->
+    const authorization = "credential-marker"
+    const team = "team-marker"
+    const headers = Object.assign(Object.create(null), {
+      Authorization: authorization,
+      "X-Honeycomb-Team": team,
+    }) as Record<string, string>
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "  darkfactory-worker  ",
+      otlpEndpoint: "https://collector.example.test/otel/",
+      otlpAllowedHosts: ["COLLECTOR.EXAMPLE.TEST"],
+      otlpHeaders: headers,
+    })
+    headers["Authorization"] = "changed-after-initialization"
+
+    expect(runtime.state).toEqual({ status: "exporting" })
+    expect(runtime.testExports).toBeUndefined()
+    expect(otlp.traceExporters).toHaveLength(1)
+    expect(otlp.metricExporters).toHaveLength(1)
+    const traceExporter = otlp.traceExporters[0]!
+    const metricExporter = otlp.metricExporters[0]!
+    expect(traceExporter.options).toEqual({
+      url: "https://collector.example.test/otel/v1/traces",
+      headers: {
+        authorization,
+        "x-honeycomb-team": team,
+      },
+    })
+    expect(metricExporter.options).toEqual({
+      url: "https://collector.example.test/otel/v1/metrics",
+      headers: {
+        authorization,
+        "x-honeycomb-team": team,
+      },
+    })
+
+    await runtime.withSpan(
+      {
+        name: "worker.export",
+        correlation: { requestId: "request_export" },
+      },
+      (span) => {
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 1,
+          attributes: { eventName: "feature-item.created" },
+        })
+      }
+    )
+    await runtime.forceFlush()
+
+    const exportedSpan = traceExporter.batches[0]?.[0] as
+      | {
+          resource: {
+            attributes: Readonly<Record<string, unknown>>
+          }
+        }
+      | undefined
+    const exportedMetric = metricExporter.batches[0] as
+      | {
+          resource: {
+            attributes: Readonly<Record<string, unknown>>
+          }
+        }
+      | undefined
+    expect(exportedSpan?.resource.attributes["service.name"]).toBe(
+      "darkfactory-worker"
+    )
+    expect(exportedMetric?.resource.attributes["service.name"]).toBe(
+      "darkfactory-worker"
+    )
+
+    await runtime.dispose()
+    expect(traceExporter.shutdown).toHaveBeenCalledOnce()
+    expect(metricExporter.shutdown).toHaveBeenCalledOnce()
+
+  it "memoizes shutdown and routes later flushes through the disposal promise", async ->
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-worker",
+      otlpEndpoint: "https://collector.example.test",
+      otlpAllowedHosts: ["collector.example.test"],
+    })
+    const traceExporter = otlp.traceExporters[0]!
+    const metricExporter = otlp.metricExporters[0]!
+
+    await expect(runtime.forceFlush()).resolves.toBeUndefined()
+    expect(metricExporter.forceFlush).toHaveBeenCalledOnce()
+    const firstDisposal = runtime.dispose()
+    const secondDisposal = runtime.dispose()
+    expect(secondDisposal).toBe(firstDisposal)
+    await expect(firstDisposal).resolves.toBeUndefined()
+    expect(traceExporter.shutdown).toHaveBeenCalledOnce()
+    expect(metricExporter.shutdown).toHaveBeenCalledOnce()
+
+    const flushesAfterDisposal = metricExporter.forceFlush.mock.calls.length
+    const laterFlush = runtime.forceFlush()
+    expect(laterFlush).toBe(firstDisposal)
+    await expect(laterFlush).resolves.toBeUndefined()
+    expect(metricExporter.forceFlush).toHaveBeenCalledTimes(
+      flushesAfterDisposal
+    )
+
+  it "contains exporter lifecycle failures in deterministic runtime promises", async ->
+    const flushRuntime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-worker",
+      otlpEndpoint: "https://collector.example.test",
+      otlpAllowedHosts: ["collector.example.test"],
+    })
+    const flushExporter = otlp.metricExporters[0]!
+    const flushError = new Error("metric flush unavailable")
+    flushExporter.forceFlush.mockRejectedValueOnce(flushError)
+
+    await expect(flushRuntime.forceFlush()).rejects.toBe(flushError)
+    await expect(flushRuntime.dispose()).resolves.toBeUndefined()
+
+    otlp.traceExporters.length = 0
+    otlp.metricExporters.length = 0
+    const shutdownRuntime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-worker",
+      otlpEndpoint: "https://collector.example.test",
+      otlpAllowedHosts: ["collector.example.test"],
+    })
+    const traceExporter = otlp.traceExporters[0]!
+    const shutdownExporter = otlp.metricExporters[0]!
+    const shutdownError = new Error("metric shutdown unavailable")
+    shutdownExporter.shutdown.mockRejectedValueOnce(shutdownError)
+
+    const disposal = shutdownRuntime.dispose()
+    expect(shutdownRuntime.dispose()).toBe(disposal)
+    await expect(disposal).rejects.toBe(shutdownError)
+    expect(traceExporter.shutdown).toHaveBeenCalledOnce()
+    expect(shutdownExporter.shutdown).toHaveBeenCalledOnce()
+    expect(shutdownRuntime.forceFlush()).toBe(disposal)
+    await expect(shutdownRuntime.forceFlush()).rejects.toBe(shutdownError)

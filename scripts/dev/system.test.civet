@@ -1,0 +1,372 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  access: vi.fn(),
+  createConnection: vi.fn(),
+  execFile: vi.fn(),
+  homedir: vi.fn(() => "/home/test"),
+  lstat: vi.fn(),
+  mkdir: vi.fn(),
+  mkdtemp: vi.fn(),
+  open: vi.fn(),
+  randomUUID: vi.fn(() => "fixed-uuid"),
+  realpath: vi.fn(async (path: string) =>
+    String(path) === process.cwd() ? "/repo" : `/repo/${String(path)}`
+  ),
+  rename: vi.fn(),
+  rm: vi.fn(),
+  spawn: vi.fn(),
+}))
+
+vi.mock("node:child_process", () => ({
+  execFile: mocks.execFile,
+  spawn: mocks.spawn,
+}))
+vi.mock("node:crypto", () => ({ randomUUID: mocks.randomUUID }))
+vi.mock("node:fs/promises", () => ({
+  access: mocks.access,
+  lstat: mocks.lstat,
+  mkdir: mocks.mkdir,
+  mkdtemp: mocks.mkdtemp,
+  open: mocks.open,
+  realpath: mocks.realpath,
+  rename: mocks.rename,
+  rm: mocks.rm,
+}))
+vi.mock("node:net", () => ({ createConnection: mocks.createConnection }))
+vi.mock("node:os", () => ({ homedir: mocks.homedir }))
+
+import { nodeLifecycleFileSystem, nodeProcessAdapter } from "./system.civet"
+
+const errno = (code: string, message = code): NodeJS.ErrnoException =>
+  Object.assign(new Error(message), { code })
+
+const stats = (
+  kind: "directory" | "file" | "symlink" | "other",
+  size = 1,
+) => ({
+  size,
+  isDirectory: () => kind === "directory",
+  isFile: () => kind === "file",
+  isSymbolicLink: () => kind === "symlink",
+})
+
+const pidHandle = (content: string, kind: "file" | "other" = "file", size = content.length) => ({
+  stat: vi.fn(async () => stats(kind, size)),
+  readFile: vi.fn(async () => content),
+  close: vi.fn(async () => undefined),
+})
+
+const fakeSocket = (outcome: "connect" | "error" | "none") => ({
+  destroy: vi.fn(),
+  once: vi.fn((event: string, listener: () => void) => {
+    if (event === outcome) queueMicrotask(listener)
+  }),
+})
+
+const fakeChild = () => {
+  const listeners = new Map<string, (value?: number | null) => void>()
+  return {
+    kill: vi.fn(),
+    once: vi.fn((event: string, listener: (value?: number | null) => void) => {
+      listeners.set(event, listener)
+    }),
+    emit: (event: string, value?: number | null) => listeners.get(event)?.(value),
+  }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.realpath.mockImplementation(async (path: string) => {
+    if (String(path) === process.cwd()) return "/repo"
+    if (String(path) === ".certs") return "/repo/.certs"
+    return String(path)
+  })
+  mocks.lstat.mockImplementation(async (path: string) =>
+    String(path) === ".certs" ? stats("directory") : stats("file")
+  )
+  mocks.access.mockRejectedValue(errno("ENOENT"))
+  mocks.mkdir.mockResolvedValue(undefined)
+  mocks.mkdtemp.mockResolvedValue("/repo/.certs/.mkcert-fixed")
+  mocks.rename.mockResolvedValue(undefined)
+  mocks.rm.mockResolvedValue(undefined)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
+describe("development Node process adapter", () => {
+  it("runs bounded commands with a minimal environment and maps exit outcomes", async () => {
+    vi.stubEnv("PATH", "/safe/bin")
+    vi.stubEnv("DATABASE_URL", "postgres://must-not-leak")
+    let capturedOptions: Record<string, unknown> | undefined
+    mocks.execFile.mockImplementationOnce((
+      _command: string,
+      _arguments: readonly string[],
+      options: Record<string, unknown>,
+      callback: (error: Error | null, stdout?: string | null, stderr?: string | null) => void,
+    ) => {
+      capturedOptions = options
+      callback(null, "command output", "warning")
+    })
+
+    await expect(nodeProcessAdapter.run("tool", ["--check"], {
+      timeoutMs: 25,
+      maxOutputBytes: 128,
+      environment: { PATH: "/override/bin", SAFE_FLAG: "enabled" },
+    })).resolves.toEqual({
+      exitCode: 0,
+      stdout: "command output",
+      stderr: "warning",
+    })
+    expect(mocks.execFile).toHaveBeenCalledWith(
+      "tool",
+      ["--check"],
+      expect.any(Object),
+      expect.any(Function),
+    )
+    expect(capturedOptions).toMatchObject({
+      encoding: "utf8",
+      maxBuffer: 128,
+      timeout: 25,
+      windowsHide: true,
+      env: expect.objectContaining({ PATH: "/override/bin", SAFE_FLAG: "enabled" }),
+    })
+    expect(capturedOptions?.env).not.toHaveProperty("DATABASE_URL")
+
+    mocks.execFile.mockImplementationOnce((
+      _command: string,
+      _arguments: readonly string[],
+      options: Record<string, unknown>,
+      callback: (error: NodeJS.ErrnoException, stdout?: null, stderr?: null) => void,
+    ) => {
+      capturedOptions = options
+      callback(errno("ENOENT"), null, null)
+    })
+    await expect(nodeProcessAdapter.run("missing", [])).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    })
+    expect(capturedOptions).toMatchObject({ maxBuffer: 1_048_576, timeout: 15_000 })
+
+    mocks.execFile.mockImplementationOnce((
+      _command: string,
+      _arguments: readonly string[],
+      _options: Record<string, unknown>,
+      callback: (error: NodeJS.ErrnoException, stdout: string, stderr: string) => void,
+    ) => callback(Object.assign(new Error("failed"), { code: 9 }), "partial", "failure"))
+    await expect(nodeProcessAdapter.run("failed", [])).resolves.toEqual({
+      exitCode: 9,
+      stdout: "partial",
+      stderr: "failure",
+    })
+  })
+
+  it("maps interactive success, child errors, and timeout termination without a shell", async () => {
+    vi.stubEnv("HOME", "/home/safe")
+    vi.stubEnv("BETTER_AUTH_SECRET", "must-not-leak")
+    const successful = fakeChild()
+    mocks.spawn.mockReturnValueOnce(successful)
+
+    const success = nodeProcessAdapter.runInteractive("portless", ["trust"], {
+      timeoutMs: 50,
+      environment: { PORTLESS_PORT: "443" },
+    })
+    successful.emit("exit", 0)
+    await expect(success).resolves.toEqual({ exitCode: 0, stdout: "", stderr: "" })
+    expect(mocks.spawn).toHaveBeenLastCalledWith("portless", ["trust"], {
+      env: expect.objectContaining({ HOME: "/home/safe", PORTLESS_PORT: "443" }),
+      shell: false,
+      stdio: "inherit",
+      windowsHide: true,
+    })
+    expect(mocks.spawn.mock.calls.at(-1)?.[2]?.env).not.toHaveProperty("BETTER_AUTH_SECRET")
+
+    const errored = fakeChild()
+    mocks.spawn.mockReturnValueOnce(errored)
+    const errorResult = nodeProcessAdapter.runInteractive("missing", [])
+    errored.emit("error")
+    errored.emit("exit", 0)
+    await expect(errorResult).resolves.toEqual({ exitCode: 1, stdout: "", stderr: "" })
+
+    vi.useFakeTimers()
+    const timedOut = fakeChild()
+    mocks.spawn.mockReturnValueOnce(timedOut)
+    const timeoutResult = nodeProcessAdapter.runInteractive("slow", [], { timeoutMs: 20 })
+    await vi.advanceTimersByTimeAsync(20)
+    await expect(timeoutResult).resolves.toEqual({ exitCode: 1, stdout: "", stderr: "" })
+    expect(timedOut.kill).toHaveBeenCalledWith("SIGTERM")
+  })
+
+  it("maps trusted HTTPS status ranges and fetch rejection", async () => {
+    const fetchRequest = vi.fn()
+      .mockResolvedValueOnce({ status: 204 })
+      .mockResolvedValueOnce({ status: 399 })
+      .mockResolvedValueOnce({ status: 400 })
+      .mockRejectedValueOnce(new Error("offline"))
+    vi.stubGlobal("fetch", fetchRequest)
+
+    await expect(nodeProcessAdapter.probeHttps("https://one.localhost")).resolves.toBe(true)
+    await expect(nodeProcessAdapter.probeHttps("https://two.localhost")).resolves.toBe(true)
+    await expect(nodeProcessAdapter.probeHttps("https://three.localhost")).resolves.toBe(false)
+    await expect(nodeProcessAdapter.probeHttps("https://offline.localhost")).resolves.toBe(false)
+    expect(fetchRequest).toHaveBeenNthCalledWith(1, "https://one.localhost", {
+      method: "HEAD",
+      redirect: "manual",
+      signal: expect.any(AbortSignal),
+    })
+  })
+
+  it("requires both a live bounded PID and a connected PM2 socket", async () => {
+    vi.stubEnv("PM2_HOME", "/isolated/pm2")
+    const handle = pidHandle("321\n")
+    mocks.open.mockResolvedValue(handle)
+    const socket = fakeSocket("connect")
+    mocks.createConnection.mockReturnValue(socket)
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true)
+
+    await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(true)
+    expect(mocks.open).toHaveBeenCalledWith("/isolated/pm2/pm2.pid", expect.any(Number))
+    expect(kill).toHaveBeenCalledWith(321, 0)
+    expect(mocks.createConnection).toHaveBeenCalledWith("/isolated/pm2/rpc.sock")
+    expect(socket.destroy).toHaveBeenCalledOnce()
+    expect(handle.close).toHaveBeenCalledOnce()
+
+    mocks.open.mockResolvedValue(pidHandle("321"))
+    mocks.createConnection.mockReturnValue(fakeSocket("error"))
+    await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
+  })
+
+  it("rejects malformed, unsafe, dead, and unresponsive PM2 state", async () => {
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    for (const handle of [
+      pidHandle("0"),
+      pidHandle("not-a-pid"),
+      pidHandle("12", "other"),
+      pidHandle("12", "file", 33),
+    ]) {
+      mocks.open.mockResolvedValueOnce(handle)
+      await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
+      expect(handle.close).toHaveBeenCalledOnce()
+    }
+    expect(mocks.createConnection).not.toHaveBeenCalled()
+
+    mocks.open.mockRejectedValueOnce(errno("ENOENT"))
+    await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
+
+    mocks.open.mockResolvedValueOnce(pidHandle("77"))
+    kill.mockImplementationOnce(() => { throw errno("ESRCH") })
+    await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
+
+    vi.useFakeTimers()
+    mocks.open.mockResolvedValueOnce(pidHandle("88"))
+    mocks.createConnection.mockReturnValueOnce(fakeSocket("none"))
+    const availability = nodeProcessAdapter.pm2DaemonAvailable()
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(availability).resolves.toBe(false)
+  })
+})
+
+describe("development certificate filesystem adapter", () => {
+  it("prepares, commits, and cleans isolated certificate outputs in order", async () => {
+    const prepared = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])
+
+    expect(prepared.certificatePath).toBe("/repo/.certs/.mkcert-fixed/certificate.pem")
+    expect(prepared.keyPath).toBe("/repo/.certs/.mkcert-fixed/key.pem")
+    expect(mocks.mkdtemp).toHaveBeenCalledWith(expect.stringMatching(
+      /^\/repo\/\.certs\/\.mkcert-\d+-fixed-uuid-$/,
+    ))
+
+    await prepared.commit()
+    expect(mocks.rename.mock.calls).toEqual([
+      [prepared.certificatePath, "/repo/.certs/localhost.pem"],
+      [prepared.keyPath, "/repo/.certs/localhost-key.pem"],
+    ])
+    expect(mocks.rm).toHaveBeenCalledWith("/repo/.certs/.mkcert-fixed", {
+      force: true,
+      recursive: true,
+    })
+
+    await prepared.cleanup()
+    expect(mocks.rm).toHaveBeenCalledTimes(2)
+  })
+
+  it("creates a missing regular directory but rejects unsafe directory identities", async () => {
+    mocks.lstat.mockRejectedValueOnce(errno("ENOENT"))
+    await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])
+    expect(mocks.mkdir).toHaveBeenCalledWith(".certs", {
+      recursive: false,
+      mode: 0o700,
+    })
+
+    mocks.lstat.mockResolvedValueOnce(stats("symlink"))
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toThrow(/regular/i)
+
+    mocks.lstat.mockRejectedValueOnce(errno("EACCES"))
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toMatchObject({ code: "EACCES" })
+
+    mocks.realpath.mockResolvedValueOnce("/outside/certificates")
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toThrow(/escapes the repository/i)
+  })
+
+  it("rejects wrong counts, traversal, existing outputs, and unexpected access errors", async () => {
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/only.pem",
+    ])).rejects.toThrow(/certificate and key/i)
+
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/../outside.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toThrow(/unsafe certificate output path/i)
+
+    mocks.access.mockResolvedValueOnce(undefined)
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toThrow(/already exists/i)
+
+    mocks.access.mockRejectedValueOnce(errno("EACCES"))
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toMatchObject({ code: "EACCES" })
+  })
+
+  it("refuses unsafe generated files and outputs that appear before commit", async () => {
+    const unsafe = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])
+    mocks.lstat.mockResolvedValueOnce(stats("symlink"))
+    await expect(unsafe.commit()).rejects.toThrow(/unsafe output/i)
+    expect(mocks.rename).not.toHaveBeenCalled()
+
+    const raced = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])
+    mocks.access.mockResolvedValueOnce(undefined)
+    await expect(raced.commit()).rejects.toThrow(/appeared during generation/i)
+    expect(mocks.rename).not.toHaveBeenCalled()
+  })
+})

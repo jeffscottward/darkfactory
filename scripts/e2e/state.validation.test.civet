@@ -1,0 +1,421 @@
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { describe, expect, it } from "vitest"
+
+import type {
+  JourneyProgress,
+  JourneyResult,
+  JourneySuiteReport,
+} from "./runner.civet"
+import {
+  persistE2ERunnerState,
+  sanitizeE2ERunnerReport,
+} from "./state.civet"
+
+const lifecycle = Object.freeze({
+  lifecycleStatus: "stopped" as const,
+  lifecycleStage: "server-ready" as const,
+  lifecycleObservation: "state" as const,
+  lifecycleObservationReason: "observed-state" as const,
+})
+
+const scan = Object.freeze({
+  ok: true,
+  scannedEntries: 1,
+  findings: [],
+  purged: false,
+  reason: "private scanner reason",
+})
+
+const result = (
+  overrides: Partial<JourneyResult> = {},
+): JourneyResult => Object.freeze({
+  spec: "tests/e2e/auth.spec.ts",
+  runId: "safe_state_run",
+  playwrightExitCode: 0,
+  diagnostics: [],
+  ...lifecycle,
+  processState: "terminated",
+  stage: "complete",
+  processTreeTerminated: true,
+  scan,
+  ...overrides,
+})
+
+const report = (
+  overrides: Partial<JourneySuiteReport> = {},
+): JourneySuiteReport => {
+  const results = overrides.results ?? [result()]
+  return Object.freeze({
+    ok: true,
+    mode: "e2e",
+    completed: results.length,
+    results,
+    reason: "private suite reason",
+    ...overrides,
+  })
+}
+
+const fixture = async (): Promise<string> =>
+  await mkdtemp(join(tmpdir(), "darkfactory-state-validation-"))
+
+const statePath = (root: string): string =>
+  join(root, "test-results", "e2e-runner-state.json")
+
+const baseProgress = Object.freeze({
+  spec: "tests/e2e/auth.spec.ts",
+  runId: "safe_state_run",
+})
+
+describe("E2E runner progress lifecycle states", () => {
+  it.each([
+    [
+      "created",
+      { ...baseProgress, stage: "created", ok: true },
+      { ...baseProgress, stage: "created" },
+    ],
+    [
+      "prepared",
+      { ...baseProgress, stage: "prepared" },
+      { ...baseProgress, stage: "prepared" },
+    ],
+    [
+      "playwright-start",
+      { ...baseProgress, stage: "playwright-start" },
+      { ...baseProgress, stage: "playwright-start" },
+    ],
+    [
+      "playwright-finished",
+      {
+        ...baseProgress,
+        stage: "playwright-finished",
+        playwrightOk: false,
+        processTreeTerminated: true,
+        ...lifecycle,
+      },
+      {
+        ...baseProgress,
+        stage: "playwright-finished",
+        playwrightOk: false,
+        processTreeTerminated: true,
+        ...lifecycle,
+      },
+    ],
+    [
+      "scan-start",
+      { ...baseProgress, stage: "scan-start", ...lifecycle },
+      { ...baseProgress, stage: "scan-start", ...lifecycle },
+    ],
+    [
+      "scan-finished",
+      {
+        ...baseProgress,
+        stage: "scan-finished",
+        ...lifecycle,
+        scanOk: true,
+        purged: false,
+      },
+      {
+        ...baseProgress,
+        stage: "scan-finished",
+        ...lifecycle,
+        scanOk: true,
+        purged: false,
+      },
+    ],
+    [
+      "result",
+      { ...baseProgress, stage: "result", ...lifecycle, ok: true },
+      { ...baseProgress, stage: "result", ...lifecycle, ok: true },
+    ],
+  ] as const)("persists canonical %s progress", async (
+    _case,
+    progress,
+    expected,
+  ) => {
+    const root = await fixture()
+    try {
+      persistE2ERunnerState(root, {
+        version: 1,
+        phase: "progress",
+        progress: progress as JourneyProgress,
+      })
+
+      expect(JSON.parse(await readFile(statePath(root), "utf8"))).toEqual({
+        version: 1,
+        phase: "progress",
+        progress: expected,
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects malformed identities, stage payloads, and lifecycle tuples", async () => {
+    const root = await fixture()
+    const invalidProgress: readonly unknown[] = [
+      { ...baseProgress, spec: "../escape.spec.ts", stage: "created" },
+      { ...baseProgress, runId: "", stage: "created" },
+      { ...baseProgress, stage: "unknown" },
+      {
+        ...baseProgress,
+        stage: "playwright-finished",
+        playwrightOk: true,
+        ...lifecycle,
+      },
+      {
+        ...baseProgress,
+        stage: "playwright-finished",
+        playwrightOk: "yes",
+        processTreeTerminated: true,
+        ...lifecycle,
+      },
+      { ...baseProgress, stage: "scan-finished", ...lifecycle, scanOk: true },
+      {
+        ...baseProgress,
+        stage: "scan-finished",
+        ...lifecycle,
+        scanOk: "yes",
+        purged: false,
+      },
+      { ...baseProgress, stage: "result", ...lifecycle },
+      { ...baseProgress, stage: "scan-start" },
+      {
+        ...baseProgress,
+        stage: "scan-start",
+        ...lifecycle,
+        lifecycleStatus: "unknown",
+      },
+      {
+        ...baseProgress,
+        stage: "scan-start",
+        ...lifecycle,
+        lifecycleStage: "unknown",
+      },
+      {
+        ...baseProgress,
+        stage: "scan-start",
+        ...lifecycle,
+        lifecycleObservation: "unknown",
+      },
+      {
+        ...baseProgress,
+        stage: "scan-start",
+        ...lifecycle,
+        lifecycleObservationReason: "unknown",
+      },
+    ]
+    try {
+      for (const progress of invalidProgress) {
+        expect(() => persistE2ERunnerState(root, {
+          version: 1,
+          phase: "progress",
+          progress,
+        } as never)).toThrow(/invalid/i)
+      }
+      expect(() => persistE2ERunnerState(root, {
+        version: 2,
+        phase: "progress",
+        progress: { ...baseProgress, stage: "created" },
+      } as never)).toThrow(/version is invalid/i)
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "unknown",
+      } as never)).toThrow(/phase is invalid/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("E2E suite report sanitization", () => {
+  it("normalizes a successful report to its bounded public contract", () => {
+    const sanitized = sanitizeE2ERunnerReport(report({
+      mode: "a11y",
+      results: [result({
+        diagnostics: [
+          "E2E lifecycle cleanup failed during server-ready. Resources retained. private detail",
+          "E2E lifecycle cleanup failed during server-ready. duplicate",
+          "E2E lifecycle cleanup failed during unknown. ignored",
+          "raw provider secret ignored",
+        ],
+        scan: Object.freeze({
+          ...scan,
+          findings: [{
+            category: "secret-assignment",
+            path: "private/path.json",
+          }],
+        }),
+      })],
+    }))
+
+    expect(sanitized).toEqual({
+      ok: true,
+      mode: "a11y",
+      completed: 1,
+      results: [{
+        spec: "tests/e2e/auth.spec.ts",
+        runId: "safe_state_run",
+        playwrightExitCode: 0,
+        diagnostics: [
+          "E2E lifecycle cleanup failed during server-ready",
+        ],
+        ...lifecycle,
+        processState: "terminated",
+        stage: "complete",
+        processTreeTerminated: true,
+        scan: {
+          ok: true,
+          scannedEntries: 1,
+          findings: [],
+          purged: false,
+          reason: "scan-complete",
+        },
+      }],
+      reason: "journey-suite-complete",
+    })
+    expect(Object.isFrozen(sanitized)).toBe(true)
+    expect(Object.isFrozen(sanitized.results)).toBe(true)
+  })
+
+  it("normalizes failed scan reasons and the suite failure reason", () => {
+    const sanitized = sanitizeE2ERunnerReport(report({
+      ok: false,
+      results: [result({
+        playwrightExitCode: 1,
+        stage: "scan",
+        scan: Object.freeze({
+          ...scan,
+          ok: false,
+          purged: true,
+        }),
+      })],
+    }))
+
+    expect(sanitized.reason).toBe("journey-suite-failed")
+    expect(sanitized.results[0]?.scan).toMatchObject({
+      ok: false,
+      purged: true,
+      reason: "scan-failed",
+    })
+  })
+
+  it("accepts the result-count and scanned-entry upper boundaries", () => {
+    const maximumResults = Array.from({ length: 256 }, () => result({
+      scan: Object.freeze({ ...scan, scannedEntries: 1_000_000 }),
+    }))
+
+    expect(sanitizeE2ERunnerReport(report({
+      results: maximumResults,
+    })).results).toHaveLength(256)
+  })
+
+  it.each([
+    ["a non-boolean status", { ok: "yes" }],
+    ["an unknown mode", { mode: "unit" }],
+    ["a mismatched completion count", { completed: 0 }],
+    [
+      "too many results",
+      { results: Array.from({ length: 257 }, () => result()) },
+    ],
+  ] as const)("rejects a report with %s", (_case, overrides) => {
+    expect(() => sanitizeE2ERunnerReport(report(overrides as never))).toThrow(
+      /report is invalid/i,
+    )
+  })
+
+  it.each([
+    ["an unsafe spec", { spec: "../escape.spec.ts" }],
+    ["an unsafe run identifier", { runId: "unsafe/run" }],
+    ["a fractional Playwright exit", { playwrightExitCode: 1.5 }],
+    ["an unknown journey stage", { stage: "unknown" }],
+    ["an unknown process state", { processState: "running" }],
+    ["an unknown lifecycle status", { lifecycleStatus: "unknown" }],
+    ["an unknown lifecycle stage", { lifecycleStage: "unknown" }],
+    ["an unknown lifecycle observation", { lifecycleObservation: "unknown" }],
+    [
+      "an unknown lifecycle observation reason",
+      { lifecycleObservationReason: "unknown" },
+    ],
+    ["a non-boolean tree proof", { processTreeTerminated: "yes" }],
+    ["a non-boolean scan result", { scan: { ...scan, ok: "yes" } }],
+    ["a non-boolean purge result", { scan: { ...scan, purged: "yes" } }],
+    ["a fractional scanned count", { scan: { ...scan, scannedEntries: 1.5 } }],
+    ["a negative scanned count", { scan: { ...scan, scannedEntries: -1 } }],
+    ["an excessive scanned count", { scan: { ...scan, scannedEntries: 1_000_001 } }],
+  ] as const)("rejects a result with %s", (_case, overrides) => {
+    expect(() => sanitizeE2ERunnerReport(report({
+      results: [result(overrides as never)],
+    }))).toThrow(/result is invalid|identity is invalid/i)
+  })
+})
+
+describe("E2E state filesystem safety", () => {
+  it("rejects a symlinked state parent", async () => {
+    const root = await fixture()
+    try {
+      const outside = join(root, "outside")
+      await mkdir(outside)
+      await symlink(outside, join(root, "test-results"))
+
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report(),
+      })).toThrow(/state parent is unsafe/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a non-directory state parent", async () => {
+    const root = await fixture()
+    try {
+      await writeFile(join(root, "test-results"), "not a directory")
+
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report(),
+      })).toThrow(/state parent is unsafe/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a fixed target that is not a regular file", async () => {
+    const root = await fixture()
+    try {
+      await mkdir(join(root, "test-results"))
+      await mkdir(statePath(root))
+
+      expect(() => persistE2ERunnerState(root, {
+        version: 1,
+        phase: "result",
+        report: report(),
+      })).toThrow(/state target is unsafe/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("propagates a missing repository without creating output elsewhere", async () => {
+    const root = await fixture()
+    await rm(root, { recursive: true })
+
+    expect(() => persistE2ERunnerState(root, {
+      version: 1,
+      phase: "result",
+      report: report(),
+    })).toThrow()
+  })
+})

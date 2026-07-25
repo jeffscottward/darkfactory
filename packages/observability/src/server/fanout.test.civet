@@ -155,6 +155,13 @@ describe "createSemanticEventFanout", ->
         procedure: correlation.procedure,
       },
     })
+    await fanout.emit({
+      ...baseEvent,
+      correlation: {
+        ...correlation,
+        actorId: "[Undefined]",
+      },
+    })
     expect(analyticsCapture).not.toHaveBeenCalled()
 
   it "contains adapter failures as safe result states without retrying or duplicating calls", async ->
@@ -238,3 +245,114 @@ describe "createSemanticEventFanout", ->
     expect(events).toHaveLength(0)
     expect(metrics).toHaveLength(0)
     expect(analyticsCapture).not.toHaveBeenCalled()
+
+  it "emits to the required sink when no optional targets exist", async ->
+    const sink = { emit: vi.fn() }
+    const fanout = createSemanticEventFanout({ sink })
+
+    const result = await fanout.emit(baseEvent)
+
+    expect(sink.emit).toHaveBeenCalledOnce()
+    expect(result).toEqual({
+      structuredEvent: "emitted",
+      span: "skipped",
+      analytics: "skipped",
+    })
+    expect(Object.isFrozen(result)).toBe(true)
+
+  it "maps skipped and failed analytics adapter results onto the fanout contract", async ->
+    const cases = [
+      [
+        {
+          status: "skipped",
+          reason: "disabled",
+        } as const,
+        "skipped" as const,
+      ],
+      [
+        {
+          status: "failed",
+          category: "network",
+          retryable: true,
+        } as const,
+        "failed" as const,
+      ],
+    ] as const
+
+    for (const [adapterResult, expectedStatus] of cases) {
+      const capture = vi.fn(async () => adapterResult)
+      const resolveConsent = vi.fn(() => "granted" as const)
+      const fanout = createSemanticEventFanout({
+        sink: { emit: vi.fn() },
+        analytics: { capture },
+        resolveConsent,
+      })
+
+      const result = await fanout.emit(baseEvent)
+
+      expect(resolveConsent).toHaveBeenCalledWith(baseEvent.correlation)
+      expect(capture).toHaveBeenCalledOnce()
+      expect(result.analytics).toBe(expectedStatus)
+    }
+
+  it "records span failure while still attempting both span operations", async ->
+    for (const failingOperation of ["event", "metric"] as const) {
+      const addEvent = vi.fn((_event: SemanticEvent) => {
+        if (failingOperation === "event") {
+          throw new Error("span event unavailable")
+        }
+      })
+      const recordMetric = vi.fn((_metric: MetricObservation) => {
+        if (failingOperation === "metric") {
+          throw new Error("span metric unavailable")
+        }
+      })
+      const span: SpanHandle = {
+        correlation,
+        addEvent,
+        recordMetric,
+      }
+      const fanout = createSemanticEventFanout({
+        sink: { emit: vi.fn() },
+      })
+
+      const result = await fanout.emit(baseEvent, { span })
+
+      expect(addEvent).toHaveBeenCalledOnce()
+      expect(recordMetric).toHaveBeenCalledOnce()
+      expect(result).toEqual({
+        structuredEvent: "emitted",
+        span: "failed",
+        analytics: "skipped",
+      })
+    }
+
+  it "contains an asynchronous sink failure and a broken lifetime hook", async ->
+    const sink = {
+      emit: vi.fn(async () => {
+        throw new Error("structured transport unavailable")
+      }),
+    }
+    const capture = vi.fn(async () => ({
+      status: "captured" as const,
+      eventId: baseEvent.eventId,
+    }))
+    const waitUntil = vi.fn((_task: Promise<unknown>) => {
+      throw new Error("lifetime hook unavailable")
+    })
+    const fanout = createSemanticEventFanout({
+      sink,
+      analytics: { capture },
+      resolveConsent: () => "granted",
+    })
+
+    const result = await fanout.emit(baseEvent, { waitUntil })
+
+    expect(sink.emit).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(capture).toHaveBeenCalledOnce()
+    expect(result).toEqual({
+      structuredEvent: "failed",
+      span: "skipped",
+      analytics: "captured",
+    })

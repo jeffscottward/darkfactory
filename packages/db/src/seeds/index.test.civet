@@ -1,0 +1,377 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { SQL } from "drizzle-orm"
+import { PgDialect } from "drizzle-orm/pg-core"
+
+import { accounts, users } from "../schema/index.civet"
+import type { Database } from "../server/client.civet"
+
+const convergence = vi.hoisted(() => ({
+  profiles: vi.fn(),
+  preferences: vi.fn(),
+  content: vi.fn(),
+}))
+
+vi.mock("./profiles.civet", () => ({
+  convergeDevelopmentProfiles: convergence.profiles,
+}))
+vi.mock("./preferences.civet", () => ({
+  convergeDevelopmentPreferences: convergence.preferences,
+}))
+vi.mock("./content.civet", () => ({
+  convergeDevelopmentContent: convergence.content,
+}))
+
+import {
+  DevelopmentSeedError,
+  SeedIdentityCollisionError,
+  seedDevelopment,
+  type EnsureSeedIdentity,
+  type PrepareSeedIdentities,
+} from "./index.civet"
+import {
+  DEVELOPMENT_PERSONAS,
+  seedIdentityInput,
+  type DevelopmentPersona,
+} from "./users.civet"
+
+const QUERY_DIALECT = new PgDialect()
+const VALID_PASSWORD_HASH = `${"a".repeat(32)}:${"b".repeat(128)}`
+
+type QueryRows = ReadonlyArray<Record<string, unknown>>
+type QueryOutcome = QueryRows | Error
+type QueryOperation = {
+  table?: "users" | "accounts" | "unknown"
+  where?: unknown
+}
+type QueryBuilder = {
+  from: (table: unknown) => QueryBuilder
+  where: (condition: unknown) => QueryBuilder
+  then: (
+    onFulfilled: (rows: QueryRows) => unknown,
+    onRejected?: (error: unknown) => unknown,
+  ) => Promise<unknown>
+}
+
+const createSeedDatabase = (configuredOutcomes: QueryOutcome[]) => {
+  const outcomes = [...configuredOutcomes]
+  const selects: QueryOperation[] = []
+  const statements: unknown[] = []
+  const lifecycle: string[] = []
+
+  const transactionExecutor = {
+    select: vi.fn(() => {
+      const operation: QueryOperation = {}
+      selects.push(operation)
+      let builder = {} as QueryBuilder
+      builder.from = vi.fn((table: unknown) => {
+        operation.table = table === users
+          ? "users"
+          : table === accounts
+            ? "accounts"
+            : "unknown"
+        return builder
+      })
+      builder.where = vi.fn((condition: unknown) => {
+        operation.where = condition
+        return builder
+      })
+      builder.then = (onFulfilled, onRejected) => {
+        const outcome = outcomes.shift() ?? []
+        const promise = outcome instanceof Error
+          ? Promise.reject(outcome)
+          : Promise.resolve(outcome)
+        return promise.then(onFulfilled, onRejected)
+      }
+      return builder
+    }),
+    execute: vi.fn(async (statement: unknown) => {
+      statements.push(statement)
+      return []
+    }),
+  } as unknown as Database
+
+  const database = {
+    transaction: vi.fn(
+      async (operation: (transaction: Database) => Promise<unknown>) => {
+        lifecycle.push("begin")
+        try {
+          const result = await operation(transactionExecutor)
+          lifecycle.push("commit")
+          return result
+        } catch (error) {
+          lifecycle.push("rollback")
+          throw error
+        }
+      },
+    ),
+  } as unknown as Database
+
+  return { database, lifecycle, selects, statements, transactionExecutor }
+}
+
+const userRow = (
+  persona: DevelopmentPersona,
+  overrides: Record<string, unknown> = {},
+) => ({
+  id: persona.userId,
+  email: persona.email,
+  ...overrides,
+})
+
+const credentialRow = (
+  persona: DevelopmentPersona,
+  overrides: Record<string, unknown> = {},
+) => ({
+  id: persona.accountId,
+  userId: persona.userId,
+  providerId: "credential",
+  accountId: persona.userId,
+  password: VALID_PASSWORD_HASH,
+  ...overrides,
+})
+
+const validInspection = (
+  persona: DevelopmentPersona,
+  normalizedEmailVariant = false,
+): QueryRows[] => [
+  [userRow(persona, normalizedEmailVariant
+    ? { email: `  ${persona.email.toUpperCase()}  ` }
+    : {})],
+  [credentialRow(persona)],
+]
+
+const allExistingOutcomes = (): QueryRows[] => {
+  const inspection = DEVELOPMENT_PERSONAS.flatMap((persona, index) =>
+    validInspection(persona, index === 0)
+  )
+  return [...inspection, ...inspection]
+}
+
+const allCreatedOutcomes = (): QueryRows[] => [
+  ...DEVELOPMENT_PERSONAS.flatMap(() => [[], []] as QueryRows[]),
+  ...DEVELOPMENT_PERSONAS.flatMap((persona) => validInspection(persona)),
+]
+
+const queryParameters = (statement: unknown): unknown[] =>
+  QUERY_DIALECT.sqlToQuery(statement as SQL).params
+
+const preparedIdentity = () => {
+  const ensureIdentity = vi.fn<EnsureSeedIdentity>(async () => undefined)
+  const prepareIdentity = vi.fn<PrepareSeedIdentities>(async () => ensureIdentity)
+  return { ensureIdentity, prepareIdentity }
+}
+
+beforeEach ->
+  convergence.profiles.mockReset()
+  convergence.preferences.mockReset()
+  convergence.content.mockReset()
+  convergence.profiles.mockResolvedValue(undefined)
+  convergence.preferences.mockResolvedValue(undefined)
+  convergence.content.mockResolvedValue(undefined)
+
+describe "development seed orchestration", ->
+  it "rejects production before preparing or opening a transaction", async ->
+    const prepareIdentity = vi.fn()
+    const database = { transaction: vi.fn() } as unknown as Database
+
+    await expect(seedDevelopment(database, {
+      environment: "production",
+      prepareIdentity,
+    })).rejects.toMatchObject({
+      name: "DevelopmentSeedError",
+      message: "Development seed requires an explicit development or test environment",
+    })
+    expect(prepareIdentity).not.toHaveBeenCalled()
+    expect(database.transaction).not.toHaveBeenCalled()
+
+  it "converges existing identities and application rows without creating identities", async ->
+    const double = createSeedDatabase(allExistingOutcomes())
+    const identity = preparedIdentity()
+    const applicationOrder: string[] = []
+    convergence.profiles.mockImplementation(async ->
+      applicationOrder.push("profiles")
+    )
+    convergence.preferences.mockImplementation(async ->
+      applicationOrder.push("preferences")
+    )
+    convergence.content.mockImplementation(async ->
+      applicationOrder.push("content")
+    )
+
+    const result = await seedDevelopment(double.database, {
+      environment: "test",
+      prepareIdentity: identity.prepareIdentity,
+    })
+
+    const expectedInputs = DEVELOPMENT_PERSONAS.map(seedIdentityInput)
+    expect(identity.prepareIdentity).toHaveBeenCalledWith(expectedInputs)
+    expect(identity.ensureIdentity.mock.calls.map(([, exists]) => exists)).toEqual([
+      true,
+      true,
+      true,
+    ])
+    expect(identity.ensureIdentity.mock.calls.map(([input]) => input)).toEqual(
+      expectedInputs,
+    )
+    expect(identity.ensureIdentity.mock.calls.every(([, , transaction]) =>
+      transaction === double.transactionExecutor
+    )).toBe(true)
+    expect(applicationOrder).toEqual(["profiles", "preferences", "content"])
+    expect(convergence.profiles).toHaveBeenCalledWith(double.transactionExecutor)
+    expect(convergence.preferences).toHaveBeenCalledWith(double.transactionExecutor)
+    expect(convergence.content).toHaveBeenCalledWith(double.transactionExecutor)
+    expect(double.statements.map(queryParameters)).toEqual(
+      [...DEVELOPMENT_PERSONAS]
+        .sort((left, right) => left.userId.localeCompare(right.userId))
+        .map(({ userId }) => [userId]),
+    )
+    expect(result).toEqual({
+      identitiesCreated: 0,
+      usersConverged: 3,
+      profilesConverged: 3,
+      preferencesConverged: 3,
+      addressesConverged: 3,
+      featureItemsConverged: 3,
+    })
+    expect(Object.isFrozen(result)).toBe(true)
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+
+  it "reports each absent identity created after the assurer persists it", async ->
+    const double = createSeedDatabase(allCreatedOutcomes())
+    const identity = preparedIdentity()
+
+    const result = await seedDevelopment(double.database, {
+      environment: "development",
+      prepareIdentity: identity.prepareIdentity,
+    })
+
+    expect(identity.ensureIdentity.mock.calls.map(([, exists]) => exists)).toEqual([
+      false,
+      false,
+      false,
+    ])
+    expect(result.identitiesCreated).toBe(3)
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+
+  it "rejects an orphaned deterministic account before invoking the assurer", async ->
+    const persona = DEVELOPMENT_PERSONAS[0]!
+    const double = createSeedDatabase([[], [credentialRow(persona)]])
+    const identity = preparedIdentity()
+
+    await expect(seedDevelopment(double.database, {
+      environment: "test",
+      prepareIdentity: identity.prepareIdentity,
+    })).rejects.toMatchObject({
+      name: "SeedIdentityCollisionError",
+      message: expect.stringContaining("deterministic account ID is already in use"),
+    })
+    expect(identity.ensureIdentity).not.toHaveBeenCalled()
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+
+  it.each([
+    [
+      "multiple users",
+      [userRow(DEVELOPMENT_PERSONAS[0]!), userRow(DEVELOPMENT_PERSONAS[0]!)],
+    ],
+    [
+      "a different deterministic ID",
+      [userRow(DEVELOPMENT_PERSONAS[0]!, { id: "different-user" })],
+    ],
+    [
+      "a different normalized email",
+      [userRow(DEVELOPMENT_PERSONAS[0]!, { email: "other@domain.test" })],
+    ],
+  ] as const)("rejects when %s match a persona lookup", async (_label, matchedUsers) ->
+    const persona = DEVELOPMENT_PERSONAS[0]!
+    const double = createSeedDatabase([
+      [...matchedUsers],
+      [credentialRow(persona)],
+    ])
+    const identity = preparedIdentity()
+
+    await expect(seedDevelopment(double.database, {
+      environment: "test",
+      prepareIdentity: identity.prepareIdentity,
+    })).rejects.toMatchObject({
+      name: "SeedIdentityCollisionError",
+      message: expect.stringContaining(
+        "deterministic user ID and normalized email do not identify the same user",
+      ),
+    })
+  )
+
+  it.each([
+    ["account ID", { id: "different-account" }],
+    ["user ID", { userId: "different-user" }],
+    ["provider", { providerId: "oauth" }],
+    ["provider account ID", { accountId: "different-user" }],
+  ] as const)("rejects a credential with a mismatched %s", async (_label, override) ->
+    const persona = DEVELOPMENT_PERSONAS[0]!
+    const double = createSeedDatabase([
+      [userRow(persona)],
+      [credentialRow(persona, override)],
+    ])
+    const identity = preparedIdentity()
+
+    await expect(seedDevelopment(double.database, {
+      environment: "test",
+      prepareIdentity: identity.prepareIdentity,
+    })).rejects.toMatchObject({
+      name: "SeedIdentityCollisionError",
+      message: expect.stringContaining("required credential account is missing or mismatched"),
+    })
+  )
+
+  it.each([
+    ["a non-string value", null],
+    ["an unstructured string", "not-a-password-hash"],
+    ["uppercase hexadecimal", `${"A".repeat(32)}:${"B".repeat(128)}`],
+  ] as const)("rejects %s as a persisted credential hash", async (_label, password) ->
+    const persona = DEVELOPMENT_PERSONAS[0]!
+    const double = createSeedDatabase([
+      [userRow(persona)],
+      [credentialRow(persona, { password })],
+    ])
+    const identity = preparedIdentity()
+
+    await expect(seedDevelopment(double.database, {
+      environment: "test",
+      prepareIdentity: identity.prepareIdentity,
+    })).rejects.toMatchObject({
+      name: "SeedIdentityCollisionError",
+      message: expect.stringContaining("credential password hash is malformed"),
+    })
+  )
+
+  it "fails and rolls back when the assurer does not persist an absent identity", async ->
+    const initialAbsence = DEVELOPMENT_PERSONAS.flatMap(
+      () => [[], []] as QueryRows[],
+    )
+    const double = createSeedDatabase([...initialAbsence, [], []])
+    const identity = preparedIdentity()
+
+    await expect(seedDevelopment(double.database, {
+      environment: "test",
+      prepareIdentity: identity.prepareIdentity,
+    })).rejects.toMatchObject({
+      name: "DevelopmentSeedError",
+      message: "Identity assurer did not persist Admin User",
+    })
+    expect(identity.ensureIdentity).toHaveBeenCalledTimes(1)
+    expect(convergence.profiles).not.toHaveBeenCalled()
+    expect(convergence.preferences).not.toHaveBeenCalled()
+    expect(convergence.content).not.toHaveBeenCalled()
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+
+  it "exposes distinct public error types for policy denial and collisions", ->
+    expect(new DevelopmentSeedError("denied")).toMatchObject({
+      name: "DevelopmentSeedError",
+      message: "denied",
+    })
+    expect(new SeedIdentityCollisionError("collision")).toMatchObject({
+      name: "SeedIdentityCollisionError",
+      message: "collision",
+    })
+    expect(new SeedIdentityCollisionError("collision")).toBeInstanceOf(
+      DevelopmentSeedError,
+    )

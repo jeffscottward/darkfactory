@@ -1,0 +1,411 @@
+import { describe, expect, it, vi } from "vitest"
+import type { SQL } from "drizzle-orm"
+import { PgDialect } from "drizzle-orm/pg-core"
+
+import { profiles, users } from "../schema/index.civet"
+import type { Database } from "./client.civet"
+import {
+  InvalidAdminUsersCursorError,
+  createAdminUsersRepository,
+  decodeAdminUsersCursor,
+  encodeAdminUsersCursor,
+} from "./admin-users-repository.civet"
+
+const QUERY_DIALECT = new PgDialect()
+const CREATED_AT = new Date("2026-01-02T03:04:05.000Z")
+
+type QueryRows = ReadonlyArray<Record<string, unknown>>
+type QueryOutcome = QueryRows | Error
+type JoinOperation = Readonly<{ kind: "inner" | "left"; table: unknown }>
+type SelectOperation = {
+  selection: Record<string, unknown> | undefined
+  table?: "users" | "profiles" | "unknown"
+  where?: unknown
+  orderBy?: unknown[]
+  limit?: number
+  joins: JoinOperation[]
+  setOperators?: unknown[]
+  alias?: string
+}
+type QueryBuilder = {
+  from: (table: unknown) => QueryBuilder
+  where: (condition: unknown) => QueryBuilder
+  orderBy: (...clauses: unknown[]) => QueryBuilder
+  limit: (value: number) => QueryBuilder
+  leftJoin: (table: unknown, condition: unknown) => QueryBuilder
+  innerJoin: (table: unknown, condition: unknown) => QueryBuilder
+  getSelectedFields: () => Record<string, unknown>
+  addSetOperators: (operators: unknown[]) => QueryBuilder
+  as: (alias: string) => QueryBuilder
+  then: (
+    onFulfilled: (rows: QueryRows) => unknown,
+    onRejected?: (error: unknown) => unknown,
+  ) => Promise<unknown>
+}
+type AdminDatabaseOptions = Readonly<{
+  outcomes?: QueryOutcome[]
+  executeError?: Error
+  transactionError?: Error
+}>
+
+const createAdminDatabase = (options: AdminDatabaseOptions = {}) => {
+  const outcomes = [...(options.outcomes ?? [])]
+  const selects: SelectOperation[] = []
+  const statements: unknown[] = []
+  const lifecycle: string[] = []
+
+  const transactionExecutor = {
+    select: vi.fn((selection?: Record<string, unknown>) => {
+      const operation: SelectOperation = { selection, joins: [] }
+      selects.push(operation)
+      let builder = {} as QueryBuilder
+      builder.from = vi.fn((table: unknown) => {
+        operation.table = table === users
+          ? "users"
+          : table === profiles
+            ? "profiles"
+            : "unknown"
+        return builder
+      })
+      builder.where = vi.fn((condition: unknown) => {
+        operation.where = condition
+        return builder
+      })
+      builder.orderBy = vi.fn((...clauses: unknown[]) => {
+        operation.orderBy = clauses
+        return builder
+      })
+      builder.limit = vi.fn((value: number) => {
+        operation.limit = value
+        return builder
+      })
+      builder.leftJoin = vi.fn((table: unknown) => {
+        operation.joins.push({ kind: "left", table })
+        return builder
+      })
+      builder.innerJoin = vi.fn((table: unknown) => {
+        operation.joins.push({ kind: "inner", table })
+        return builder
+      })
+      builder.getSelectedFields = vi.fn(() => selection ?? {})
+      builder.addSetOperators = vi.fn((operators: unknown[]) => {
+        operation.setOperators = operators
+        return builder
+      })
+      builder.as = vi.fn((alias: string) => {
+        operation.alias = alias
+        return builder
+      })
+      builder.then = (onFulfilled, onRejected) => {
+        const outcome = outcomes.shift() ?? []
+        const promise = outcome instanceof Error
+          ? Promise.reject(outcome)
+          : Promise.resolve(outcome)
+        return promise.then(onFulfilled, onRejected)
+      }
+      return builder
+    }),
+    execute: vi.fn(async (statement: unknown) => {
+      statements.push(statement)
+      if (options.executeError !== undefined) throw options.executeError
+      return []
+    }),
+  } as unknown as Database
+
+  const database = {
+    transaction: vi.fn(
+      async (operation: (transaction: Database) => Promise<unknown>) => {
+        lifecycle.push("begin")
+        try {
+          if (options.transactionError !== undefined) {
+            throw options.transactionError
+          }
+          const result = await operation(transactionExecutor)
+          lifecycle.push("commit")
+          return result
+        } catch (error) {
+          lifecycle.push("rollback")
+          throw error
+        }
+      },
+    ),
+  } as unknown as Database
+
+  return { database, lifecycle, selects, statements, transactionExecutor }
+}
+
+const outerSelect = (selects: SelectOperation[]): SelectOperation => {
+  const operation = selects.find(({ selection }) =>
+    selection !== undefined && "email" in selection
+  )
+  if (operation === undefined) throw new Error("Missing outer admin users query")
+  return operation
+}
+
+const queryParameters = (condition: unknown): unknown[] =>
+  QUERY_DIALECT.sqlToQuery(condition as SQL).params
+
+const statementText = (statement: unknown): string =>
+  QUERY_DIALECT.sqlToQuery(statement as SQL).sql.replaceAll(/\s+/gu, " ").trim()
+
+const directoryRows: QueryRows = [
+  {
+    id: "user-3",
+    name: "Ada Admin",
+    email: "ada@example.test",
+    emailVerified: true,
+    image: null,
+    role: "admin",
+    status: "active",
+    createdAt: new Date("2026-01-03T00:00:00.000Z"),
+    profileUserId: null,
+    displayName: null,
+    avatarUrl: null,
+    businessName: null,
+    jobTitle: null,
+  },
+  {
+    id: "user-2",
+    name: "Morgan Member",
+    email: "morgan@example.test",
+    emailVerified: false,
+    image: "https://example.test/morgan.png",
+    role: "member",
+    status: "suspended",
+    createdAt: CREATED_AT,
+    profileUserId: "user-2",
+    displayName: "Morgan M.",
+    avatarUrl: "https://example.test/profile.png",
+    businessName: "Member Co.",
+    jobTitle: "Operator",
+  },
+  {
+    id: "user-1",
+    name: "Extra Row",
+    email: "extra@example.test",
+    emailVerified: false,
+    image: null,
+    role: "member",
+    status: "active",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    profileUserId: null,
+    displayName: null,
+    avatarUrl: null,
+    businessName: null,
+    jobTitle: null,
+  },
+]
+
+describe("admin user cursor", () => {
+  it("round-trips Unicode identifiers through an opaque URL-safe cursor", () => {
+    const cursor = encodeAdminUsersCursor({
+      createdAt: CREATED_AT,
+      id: "üser/+ 2",
+    })
+
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/u)
+    expect(cursor).not.toContain("üser")
+    expect(decodeAdminUsersCursor(cursor)).toEqual({
+      createdAt: CREATED_AT,
+      id: "üser/+ 2",
+    })
+  })
+
+  it.each([
+    ["empty input", ""],
+    ["invalid base64 length", "A"],
+    ["invalid UTF-8", Buffer.from([0xff]).toString("base64url")],
+    ["non-JSON text", Buffer.from("not-json").toString("base64url")],
+    ["null JSON", Buffer.from("null").toString("base64url")],
+    ["array JSON", Buffer.from("[]").toString("base64url")],
+    [
+      "an extra property",
+      Buffer.from(JSON.stringify({
+        v: 1,
+        createdAt: CREATED_AT.toISOString(),
+        id: "user-2",
+        extra: true,
+      })).toString("base64url"),
+    ],
+    [
+      "a blank identifier",
+      Buffer.from(JSON.stringify({
+        v: 1,
+        createdAt: CREATED_AT.toISOString(),
+        id: "   ",
+      })).toString("base64url"),
+    ],
+    [
+      "a non-canonical timestamp",
+      Buffer.from(JSON.stringify({
+        v: 1,
+        createdAt: "2026-01-02T03:04:05Z",
+        id: "user-2",
+      })).toString("base64url"),
+    ],
+  ] as const)("rejects %s", (_label, cursor) => {
+    expect(() => decodeAdminUsersCursor(cursor)).toThrow(
+      InvalidAdminUsersCursorError,
+    )
+    return undefined
+  })
+  return undefined
+})
+
+describe("admin user directory", () => {
+  it("maps roles, statuses, optional profiles, and a keyset cursor from one extra row", async () => {
+    const double = createAdminDatabase({ outcomes: [directoryRows] })
+    const repository = createAdminUsersRepository(double.database)
+
+    const result = await repository.search({ limit: 2 })
+
+    expect(result.items).toEqual([
+      {
+        id: "user-3",
+        name: "Ada Admin",
+        email: "ada@example.test",
+        emailVerified: true,
+        image: null,
+        role: "admin",
+        status: "active",
+        createdAt: new Date("2026-01-03T00:00:00.000Z"),
+        profile: null,
+      },
+      {
+        id: "user-2",
+        name: "Morgan Member",
+        email: "morgan@example.test",
+        emailVerified: false,
+        image: "https://example.test/morgan.png",
+        role: "member",
+        status: "suspended",
+        createdAt: CREATED_AT,
+        profile: {
+          displayName: "Morgan M.",
+          avatarUrl: "https://example.test/profile.png",
+          businessName: "Member Co.",
+          jobTitle: "Operator",
+        },
+      },
+    ])
+    expect(decodeAdminUsersCursor(result.nextCursor!)).toEqual({
+      createdAt: CREATED_AT,
+      id: "user-2",
+    })
+    expect(outerSelect(double.selects).limit).toBe(3)
+    expect(outerSelect(double.selects).where).toBeUndefined()
+    expect(outerSelect(double.selects).joins.map(({ kind }) => kind)).toEqual([
+      "left",
+    ])
+    expect(statementText(double.statements[0])).toContain(
+      "set local statement_timeout = '2000ms'",
+    )
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+  })
+
+  it("returns an empty terminal page without manufacturing a cursor", async () => {
+    const double = createAdminDatabase({ outcomes: [[]] })
+
+    const result = await createAdminUsersRepository(double.database).search({
+      query: "   ",
+      limit: 25,
+    })
+
+    expect(result).toEqual({ items: [], nextCursor: null })
+    expect(outerSelect(double.selects).joins.map(({ kind }) => kind)).toEqual([
+      "left",
+    ])
+  })
+
+  it("escapes prefix-search metacharacters across user and profile fields", async () => {
+    const double = createAdminDatabase({ outcomes: [[]] })
+
+    await createAdminUsersRepository(double.database).search({
+      query: "  A%_\\  ",
+      limit: 10,
+    })
+
+    const matchingSubqueries = double.selects.filter(({ selection, where }) =>
+      selection !== undefined &&
+      Object.keys(selection).join(",") === "id" &&
+      where !== undefined
+    )
+    expect(matchingSubqueries).toHaveLength(2)
+    expect(matchingSubqueries.map(({ where }) => queryParameters(where))).toEqual([
+      ["a\\%\\_\\\\%", "a\\%\\_\\\\%"],
+      ["a\\%\\_\\\\%", "a\\%\\_\\\\%", "a\\%\\_\\\\%"],
+    ])
+    expect(outerSelect(double.selects).joins.map(({ kind }) => kind)).toEqual([
+      "inner",
+      "left",
+    ])
+  })
+
+  it("binds a decoded cursor as descending created-at and ID boundaries", async () => {
+    const double = createAdminDatabase({ outcomes: [[]] })
+    const cursor = encodeAdminUsersCursor({
+      createdAt: CREATED_AT,
+      id: "user-2",
+    })
+
+    await createAdminUsersRepository(double.database).search({
+      cursor,
+      limit: 10,
+    })
+
+    expect(queryParameters(outerSelect(double.selects).where)).toEqual([
+      CREATED_AT.toISOString(),
+      CREATED_AT.toISOString(),
+      "user-2",
+    ])
+  })
+
+  it.each([0, 101, 1.5, Number.NaN])(
+    "denies invalid limit %s before opening a transaction",
+    async (limit) => {
+      const double = createAdminDatabase()
+
+      await expect(createAdminUsersRepository(double.database).search({ limit }))
+        .rejects.toBeInstanceOf(InvalidAdminUsersCursorError)
+      expect(double.database.transaction).not.toHaveBeenCalled()
+    },
+  )
+
+  it("denies a malformed cursor before opening a transaction", async () => {
+    const double = createAdminDatabase()
+
+    await expect(createAdminUsersRepository(double.database).search({
+      cursor: "A",
+      limit: 10,
+    })).rejects.toBeInstanceOf(InvalidAdminUsersCursorError)
+    expect(double.database.transaction).not.toHaveBeenCalled()
+  })
+
+  it.each(["statement timeout", "directory query"] as const)(
+    "maps a %s failure to the stable persistence error",
+    async (failurePoint) => {
+      const privateFailure = new Error("private database detail")
+      const double = createAdminDatabase(
+        failurePoint === "statement timeout"
+          ? { executeError: privateFailure }
+          : { outcomes: [privateFailure] },
+      )
+
+      await expect(createAdminUsersRepository(double.database).search({ limit: 10 }))
+        .rejects.toMatchObject({
+          name: "AdminUsersPersistenceError",
+          message: "Admin user directory is unavailable",
+        })
+      expect(double.lifecycle).toEqual(["begin", "rollback"])
+    },
+  )
+
+  it("preserves an explicit cursor denial raised by the transaction boundary", async () => {
+    const denial = new InvalidAdminUsersCursorError()
+    const double = createAdminDatabase({ transactionError: denial })
+
+    await expect(createAdminUsersRepository(double.database).search({ limit: 10 }))
+      .rejects.toBe(denial)
+  })
+  return undefined
+})

@@ -10,10 +10,10 @@ export default defineConfig({
       reportsDirectory: "coverage",
       reporter: ["text", "json-summary"],
       thresholds: {
-        lines: 70,
-        branches: 62,
-        functions: 65,
-        statements: 68,
+        lines: 87,
+        branches: 84,
+        functions: 84,
+        statements: 86,
       },
       include: [
         "apps/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",

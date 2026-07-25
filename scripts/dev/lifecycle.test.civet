@@ -6,6 +6,7 @@ import {
   PM2_ENVIRONMENT_VERSION,
   ROUTE_NAME,
   inspectDevelopmentState,
+  isCanonicalRouteOutput,
   parsePm2ProcessList,
   runDevelopmentAction,
   type CommandResult,
@@ -20,7 +21,7 @@ const result = (stdout = "", exitCode = 0, stderr = ""): CommandResult => ({
 })
 
 const TEST_CWD = "/workspace/darkfactory"
-const pm2Process = (status: "online" | "stopped", overrides: Record<string, unknown> = {}) => ({
+const pm2Process = (status: string, overrides: Record<string, unknown> = {}) => ({
   name: PROCESS_NAME,
   pm_id: 7,
   pm2_env: {
@@ -37,7 +38,7 @@ const stoppedPm2 = JSON.stringify([pm2Process("stopped")])
 
 const adapter = (
   respond: (command: string, arguments_: readonly string[]) => CommandResult | Promise<CommandResult>,
-  probeHealthy = true,
+  probeHealthy: boolean | (() => boolean | Promise<boolean>) = true,
   daemonAvailable: () => boolean | Promise<boolean> = () => true,
 ) => {
   const calls: Array<readonly [string, readonly string[]]> = []
@@ -46,7 +47,7 @@ const adapter = (
   const process: ProcessAdapter = {
     workingDirectory: TEST_CWD,
     pm2DaemonAvailable: async () => daemonAvailable(),
-    probeHttps: async () => probeHealthy,
+    probeHttps: async () => typeof probeHealthy === "function" ? probeHealthy() : probeHealthy,
     run: async (command, arguments_, commandOptions) => {
       calls.push([command, [...arguments_]])
       options.push(commandOptions)
@@ -86,6 +87,56 @@ describe("PM2 and portless lifecycle", () => {
     expect(parsePm2ProcessList(JSON.stringify([
       pm2Process("online", { DARKFACTORY_PM2_ENVIRONMENT_VERSION: undefined }),
     ]), TEST_CWD)).toEqual({ status: "stale", processId: 7 })
+  })
+
+  it("rejects ambiguous PM2 identity and maps terminal and unknown states", () => {
+    expect(() => parsePm2ProcessList("{}", TEST_CWD)).toThrow(/process list/i)
+    expect(() => parsePm2ProcessList(JSON.stringify([
+      pm2Process("online"),
+      pm2Process("stopped"),
+    ]), TEST_CWD)).toThrow(/duplicate/i)
+    expect(parsePm2ProcessList(JSON.stringify([null, [], 7]), TEST_CWD)).toEqual({
+      status: "absent",
+    })
+
+    const invalidProcesses = [
+      { ...pm2Process("online"), pm_id: -1 },
+      pm2Process("online", { pm_exec_path: `${TEST_CWD}/node_modules/.bin/pnpm` }),
+      pm2Process("online", { pm_cwd: "/workspace/another-project" }),
+      pm2Process("online", { args: ROUTE_NAME }),
+    ]
+    for (const process of invalidProcesses) {
+      expect(() => parsePm2ProcessList(JSON.stringify([process]), TEST_CWD)).toThrow(
+        /unexpected command/i,
+      )
+    }
+
+    expect(parsePm2ProcessList(JSON.stringify([
+      pm2Process("errored", { pm_exec_path: "C:\\tools\\portless" }),
+    ]), TEST_CWD)).toEqual({ status: "errored", processId: 7 })
+    expect(parsePm2ProcessList(JSON.stringify([
+      pm2Process("launching"),
+    ]), TEST_CWD)).toEqual({ status: "unknown", processId: 7 })
+  })
+
+  it("accepts only a successful exact canonical route token", () => {
+    expect(isCanonicalRouteOutput(result(
+      `Active routes:\n${CANONICAL_URL} -> localhost:4775\n`,
+    ))).toBe(true)
+
+    for (const stdout of [
+      "not-a-url",
+      "http://darkfactory.localhost",
+      "https://darkfactory.localhost:444",
+      "https://darkfactory.localhost/path",
+      "https://darkfactory.localhost?mode=dev",
+      "https://darkfactory.localhost#status",
+      "https://user@darkfactory.localhost",
+      "https://darkfactory.localhost.example",
+    ]) {
+      expect(isCanonicalRouteOutput(result(stdout))).toBe(false)
+    }
+    expect(isCanonicalRouteOutput(result(CANONICAL_URL, 1))).toBe(false)
   })
 
   it("is idempotent when the stable process and route are healthy", async () => {
@@ -250,6 +301,213 @@ describe("PM2 and portless lifecycle", () => {
     )).toHaveLength(0)
   })
 
+  it("maps unavailable, failed, malformed, and rejected status probes", async () => {
+    const absent = adapter(() => result(), true, () => false)
+    await expect(inspectDevelopmentState(absent.process)).resolves.toMatchObject({
+      ok: false,
+      processStatus: "absent",
+      routeHealthy: false,
+      reason: expect.stringMatching(/absent/i),
+    })
+    expect(absent.calls).toHaveLength(0)
+
+    const failed = adapter((command, arguments_) =>
+      command === "pm2" && arguments_[0] === "jlist" ? result("", 2) : result()
+    )
+    await expect(inspectDevelopmentState(failed.process)).resolves.toMatchObject({
+      ok: false,
+      reason: "PM2 status inspection failed",
+    })
+
+    const malformed = adapter((command, arguments_) =>
+      command === "pm2" && arguments_[0] === "jlist" ? result("{") : result()
+    )
+    await expect(inspectDevelopmentState(malformed.process)).resolves.toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/malformed/i),
+    })
+
+    let rejectedProbeCalls = 0
+    const rejectedProbe = adapter(healthyResponse, async () => {
+      rejectedProbeCalls += 1
+      throw new Error("TLS rejected")
+    })
+    await expect(inspectDevelopmentState(rejectedProbe.process)).resolves.toMatchObject({
+      ok: false,
+      processStatus: "online",
+      routeHealthy: false,
+    })
+    expect(rejectedProbeCalls).toBe(1)
+
+    let skippedProbeCalls = 0
+    const invalidRoute = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      if (command === "portless" && arguments_[0] === "list") return result("not canonical")
+      return healthyResponse(command, arguments_)
+    }, () => {
+      skippedProbeCalls += 1
+      return true
+    })
+    await expect(inspectDevelopmentState(invalidRoute.process)).resolves.toMatchObject({
+      routeHealthy: false,
+    })
+    expect(skippedProbeCalls).toBe(0)
+  })
+
+  it("blocks startup for conflicting or failed canonical proxies", async () => {
+    const conflicting = adapter((command, arguments_) => {
+      if (command === "portless" && arguments_[0] === "list") {
+        return result("https://legacy.localhost:7777 -> localhost:3000")
+      }
+      return result()
+    }, true, () => false)
+
+    await expect(runDevelopmentAction("start", conflicting.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      processStatus: "absent",
+      reason: expect.stringMatching(/noncanonical/i),
+    })
+    expect(conflicting.interactiveCalls).toHaveLength(0)
+    expect(conflicting.calls.some(([command]) => command === "pm2")).toBe(false)
+
+    const failedProxy = adapter(
+      (command, arguments_) => command === "portless" && arguments_[0] === "proxy"
+        ? result("", 1)
+        : result(),
+      true,
+      () => false,
+    )
+    await expect(runDevelopmentAction("start", failedProxy.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: expect.stringMatching(/HTTPS proxy failed/i),
+    })
+    expect(failedProxy.interactiveCalls).toEqual([
+      ["portless", ["proxy", "start", "-p", "443"]],
+    ])
+  })
+
+  it("reports each stale replacement and fresh startup failure without unsafe continuation", async () => {
+    const stalePm2 = JSON.stringify([
+      pm2Process("stopped", { DARKFACTORY_PM2_ENVIRONMENT_VERSION: undefined }),
+    ])
+    const deleteFailure = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(stalePm2)
+      if (command === "pm2" && arguments_[0] === "delete") return result("", 1)
+      return result()
+    })
+    await expect(runDevelopmentAction("start", deleteFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: expect.stringMatching(/could not remove stale/i),
+    })
+    expect(deleteFailure.calls.some(([command, args]) =>
+      command === "pm2" && (args[0] === "save" || args[0] === "start")
+    )).toBe(false)
+
+    const saveFailure = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(stalePm2)
+      if (command === "pm2" && arguments_[0] === "save") return result("", 1)
+      return result()
+    })
+    await expect(runDevelopmentAction("start", saveFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: true,
+      reason: expect.stringMatching(/could not save/i),
+    })
+    expect(saveFailure.calls.some(([command, args]) =>
+      command === "pm2" && args[0] === "start"
+    )).toBe(false)
+
+    const startFailure = adapter(
+      (command, arguments_) => command === "pm2" && arguments_[0] === "start"
+        ? result("", 1)
+        : result(),
+      true,
+      () => false,
+    )
+    await expect(runDevelopmentAction("start", startFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      processStatus: "absent",
+      reason: expect.stringMatching(/could not start/i),
+    })
+
+    let daemon = false
+    const persistenceFailure = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "start") {
+        daemon = true
+        return result()
+      }
+      if (command === "pm2" && arguments_[0] === "save") return result("", 1)
+      return healthyResponse(command, arguments_)
+    }, true, () => daemon)
+    await expect(runDevelopmentAction("start", persistenceFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: true,
+      reason: expect.stringMatching(/could not save/i),
+    })
+  })
+
+  it("keeps stop decisions idempotent and maps command and persistence failures", async () => {
+    const alreadyAbsent = adapter(() => result(), true, () => false)
+    await expect(runDevelopmentAction("stop", alreadyAbsent.process)).resolves.toMatchObject({
+      ok: true,
+      changed: false,
+      processStatus: "absent",
+    })
+
+    const alreadyStopped = adapter((command, arguments_) =>
+      command === "pm2" && arguments_[0] === "jlist" ? result(stoppedPm2) : result()
+    )
+    await expect(runDevelopmentAction("stop", alreadyStopped.process)).resolves.toMatchObject({
+      ok: true,
+      changed: false,
+      processStatus: "stopped",
+    })
+    expect(alreadyStopped.calls.some(([command, args]) =>
+      command === "pm2" && args[0] === "stop"
+    )).toBe(false)
+
+    const stopFailure = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      if (command === "pm2" && arguments_[0] === "stop") return result("", 1)
+      return result()
+    })
+    await expect(runDevelopmentAction("stop", stopFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: expect.stringMatching(/could not be stopped/i),
+    })
+
+    const saveFailure = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      if (command === "pm2" && arguments_[0] === "save") return result("", 1)
+      return result()
+    })
+    await expect(runDevelopmentAction("stop", saveFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: true,
+      reason: expect.stringMatching(/could not be saved/i),
+    })
+
+    const stalePm2 = JSON.stringify([
+      pm2Process("online", { BETTER_AUTH_SECRET: "legacy" }),
+    ])
+    const staleSaveFailure = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(stalePm2)
+      if (command === "pm2" && arguments_[0] === "save") return result("", 1)
+      return result()
+    })
+    await expect(runDevelopmentAction("stop", staleSaveFailure.process)).resolves.toMatchObject({
+      ok: false,
+      changed: true,
+      processStatus: "absent",
+      reason: expect.stringMatching(/could not be saved/i),
+    })
+  })
+
   it("uses validated PM2 ids, saves stop state, exposes bounded logs, and keeps fallback args safe", async () => {
     const fixture = adapter(healthyResponse)
     const certificateChecks: string[][] = []
@@ -289,6 +547,69 @@ describe("PM2 and portless lifecycle", () => {
       "mkcert",
       ["-cert-file", ".certs/.private/certificate.pem", "-key-file", ".certs/.private/key.pem", "localhost", "*.localhost", "127.0.0.1", "::1"],
     ])
+  })
+
+  it("omits unavailable logs and cleans failed certificate generation without committing", async () => {
+    const offline = adapter(() => result(), true, () => false)
+    const unavailableLogs = await runDevelopmentAction("logs", offline.process)
+    expect(unavailableLogs).toMatchObject({
+      ok: false,
+      changed: false,
+      processStatus: "absent",
+    })
+    expect(offline.calls.some(([command, args]) =>
+      command === "pm2" && args[0] === "logs"
+    )).toBe(false)
+
+    const failedLogs = adapter((command, arguments_) => {
+      if (command === "pm2" && arguments_[0] === "jlist") return result(onlinePm2)
+      if (command === "pm2" && arguments_[0] === "logs") return result("partial", 1)
+      return healthyResponse(command, arguments_)
+    })
+    const logReport = await runDevelopmentAction("logs", failedLogs.process)
+    expect(logReport).toMatchObject({ ok: false, changed: false, reason: "logs failed" })
+    expect(logReport).not.toHaveProperty("output")
+
+    const failedSimple = adapter(() => result("", 1))
+    await expect(runDevelopmentAction("trust", failedSimple.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: "trust failed",
+    })
+    await expect(runDevelopmentAction("certs-install", failedSimple.process)).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: "certs-install failed",
+    })
+
+    await expect(runDevelopmentAction("certs-generate", failedSimple.process)).resolves.toEqual({
+      action: "certs-generate",
+      ok: false,
+      changed: false,
+      reason: "Certificate filesystem adapter is unavailable",
+    })
+
+    let cleanupCalls = 0
+    let commitCalls = 0
+    const files = {
+      prepareCertificateOutputs: async () => ({
+        certificatePath: "/private/certificate.pem",
+        keyPath: "/private/key.pem",
+        cleanup: async () => { cleanupCalls += 1 },
+        commit: async () => { commitCalls += 1 },
+      }),
+    }
+    await expect(runDevelopmentAction(
+      "certs-generate",
+      failedSimple.process,
+      files,
+    )).resolves.toMatchObject({
+      ok: false,
+      changed: false,
+      reason: "certs-generate failed",
+    })
+    expect(cleanupCalls).toBe(1)
+    expect(commitCalls).toBe(0)
   })
 
   it("returns a nonzero CLI exit code for unknown actions and failed health", async () => {

@@ -1,0 +1,157 @@
+import { describe, expect, it, vi } from "vitest"
+
+import { profiles } from "../schema/index.civet"
+import type { Database } from "../server/client.civet"
+import {
+  DEVELOPMENT_PROFILES,
+  convergeDevelopmentProfiles,
+} from "./profiles.civet"
+
+type QueryRows = ReadonlyArray<Record<string, unknown>>
+type QueryOperation = {
+  kind: "select" | "insert"
+  table?: string
+  value?: Record<string, unknown>
+  conflict?: unknown
+}
+type QueryBuilder = {
+  from: (table: unknown) => QueryBuilder
+  where: (condition: unknown) => QueryBuilder
+  limit: (value: number) => QueryBuilder
+  values: (value: Record<string, unknown>) => QueryBuilder
+  onConflictDoUpdate: (config: unknown) => QueryBuilder
+  returning: () => QueryBuilder
+  then: (
+    onFulfilled: (rows: QueryRows) => unknown,
+    onRejected?: (error: unknown) => unknown,
+  ) => Promise<unknown>
+}
+
+const createProfileSeedDatabase = (selectOutcomes: QueryRows[]) => {
+  const operations: QueryOperation[] = []
+  const pendingSelects = [...selectOutcomes]
+
+  const builderFor = (operation: QueryOperation): QueryBuilder => {
+    let builder = {} as QueryBuilder
+    builder.from = vi.fn((table: unknown) => {
+      operation.table = table === profiles ? "profiles" : "unknown"
+      return builder
+    })
+    builder.where = vi.fn(() => builder)
+    builder.limit = vi.fn(() => builder)
+    builder.values = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    })
+    builder.onConflictDoUpdate = vi.fn((config: unknown) => {
+      operation.conflict = config
+      return builder
+    })
+    builder.returning = vi.fn(() => builder)
+    builder.then = (onFulfilled, onRejected) => {
+      const rows = operation.kind === "select"
+        ? pendingSelects.shift() ?? []
+        : operation.value === undefined
+          ? []
+          : [operation.value]
+      return Promise.resolve(rows).then(onFulfilled, onRejected)
+    }
+    return builder
+  }
+
+  const database = {
+    select: vi.fn(() => {
+      const operation: QueryOperation = { kind: "select" }
+      operations.push(operation)
+      return builderFor(operation)
+    }),
+    insert: vi.fn((table: unknown) => {
+      const operation: QueryOperation = {
+        kind: "insert",
+        table: table === profiles ? "profiles" : "unknown",
+      }
+      operations.push(operation)
+      return builderFor(operation)
+    }),
+  } as unknown as Database
+
+  return { database, operations }
+}
+
+const profileRows = () =>
+  DEVELOPMENT_PROFILES.map((profile) => [{ ...profile }])
+
+describe "development profile seeds", ->
+  it "publishes three frozen deterministic profiles with explicit locale defaults", ->
+    expect(Object.isFrozen(DEVELOPMENT_PROFILES)).toBe(true)
+    expect(DEVELOPMENT_PROFILES.every(Object.isFrozen)).toBe(true)
+    expect(DEVELOPMENT_PROFILES.map((profile) => profile.userId)).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+      "00000000-0000-4000-8000-000000000003",
+    ])
+    expect(DEVELOPMENT_PROFILES.map(({ locale, timezone, dateOfBirth }) => ({
+      locale,
+      timezone,
+      dateOfBirth,
+    }))).toEqual([
+      { locale: "en-US", timezone: "UTC", dateOfBirth: null },
+      {
+        locale: "en-US",
+        timezone: "America/New_York",
+        dateOfBirth: "1990-04-12",
+      },
+      {
+        locale: "en-US",
+        timezone: "America/Chicago",
+        dateOfBirth: "1988-09-23",
+      },
+    ])
+
+  it "inserts every missing profile with the authored seed values", async ->
+    const double = createProfileSeedDatabase([[], [], []])
+
+    await convergeDevelopmentProfiles(double.database)
+
+    const inserts = double.operations.filter((operation) => operation.kind === "insert")
+    expect(inserts.map((operation) => operation.table)).toEqual([
+      "profiles",
+      "profiles",
+      "profiles",
+    ])
+    expect(inserts.map((operation) => operation.value)).toEqual(
+      DEVELOPMENT_PROFILES,
+    )
+    expect(inserts.every((operation) => operation.conflict !== undefined)).toBe(true)
+
+  it "leaves profiles unchanged when every authored field already matches", async ->
+    const double = createProfileSeedDatabase(profileRows())
+
+    await convergeDevelopmentProfiles(double.database)
+
+    expect(double.operations.filter((operation) => operation.kind === "select")).toHaveLength(3)
+    expect(double.operations.filter((operation) => operation.kind === "insert")).toEqual([])
+
+  it.each([
+    ["firstName", "Changed"],
+    ["lastName", "Changed"],
+    ["displayName", "Changed"],
+    ["avatarUrl", "https://example.test/changed.png"],
+    ["phone", "+1-202-555-0199"],
+    ["businessName", "Changed Business"],
+    ["jobTitle", "Changed Role"],
+    ["biography", "Changed biography"],
+    ["timezone", "Europe/London"],
+    ["locale", "fr-FR"],
+    ["dateOfBirth", "2000-01-01"],
+  ] as const)("repairs a profile whose %s drifted", async (field, replacement) ->
+    const outcomes = profileRows()
+    outcomes[0] = [{ ...DEVELOPMENT_PROFILES[0]!, [field]: replacement }]
+    const double = createProfileSeedDatabase(outcomes)
+
+    await convergeDevelopmentProfiles(double.database)
+
+    const inserts = double.operations.filter((operation) => operation.kind === "insert")
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]?.value).toEqual(DEVELOPMENT_PROFILES[0])
+  )

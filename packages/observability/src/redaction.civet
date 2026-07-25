@@ -239,7 +239,8 @@ export const redact = (
                 : "value" in descriptor
                   ? descriptor.value
                   : UNSERIALIZABLE
-          } catch {
+          } catch (error) {
+            void error
             child = UNSERIALIZABLE
           }
           result.push(visit(child, depth + 1))

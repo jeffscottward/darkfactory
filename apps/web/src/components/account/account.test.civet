@@ -9,9 +9,11 @@ import type {
 
 import { AccountNavigation } from "./account-navigation.civet"
 import {
+  accountFailureKind,
   createAccountGateway,
   createBrowserAccountGateway,
   createLatestRequestGuard,
+  isAmbiguousAccountFailure,
   safeAccountFeedback,
 } from "./account-client.civet"
 import { ProfilePageClient } from "./profile-page-client.civet"
@@ -226,6 +228,26 @@ describe "typed account gateway", ->
     expect(safeAccountFeedback(new Error("postgres://user:secret@db.internal/private"))).not.toContain("postgres")
     expect(safeAccountFeedback(new Error("postgres://user:secret@db.internal/private"))).not.toContain("secret")
 
+  it "classifies direct and nested account failures without treating coded failures as ambiguous", ->
+    expect(accountFailureKind({ code: "UNAUTHORIZED" })).toBe("unauthorized")
+    expect(accountFailureKind({ data: { code: "FORBIDDEN" } })).toBe("forbidden")
+    expect(accountFailureKind({ code: "NOT_FOUND" })).toBe("not-found")
+    expect(accountFailureKind({ data: { code: "CONFLICT" } })).toBe("conflict")
+    expect(accountFailureKind({ code: "UNKNOWN" })).toBe("retryable")
+    expect(accountFailureKind(null)).toBe("retryable")
+    expect(isAmbiguousAccountFailure({ code: "UNKNOWN" })).toBe(false)
+    expect(isAmbiguousAccountFailure({ data: { code: "BAD_REQUEST" } })).toBe(false)
+    expect(isAmbiguousAccountFailure({ data: null })).toBe(true)
+    expect(isAmbiguousAccountFailure("network failure")).toBe(true)
+
+  it "covers every owner-safe account feedback category and ignores malformed codes", ->
+    expect(safeAccountFeedback({ code: "BAD_REQUEST" })).toContain("highlighted fields")
+    expect(safeAccountFeedback({ data: { code: "NOT_FOUND" } })).toContain("no longer available")
+    expect(safeAccountFeedback({ code: "CONFLICT" })).toContain("changed elsewhere")
+    expect(safeAccountFeedback({ code: 409, data: { code: 409 } })).toBe(
+      "The request could not be completed. Try again.",
+    )
+
   it "suppresses responses from superseded request generations", ->
     const requests = createLatestRequestGuard()
     const first = requests.next()
@@ -257,6 +279,29 @@ describe "persisted account forms", ->
     expect(changedProfileInput(profile, { ...profile, jobTitle: "Maintainer" })).toEqual({
       expectedUpdatedAt: profile.updatedAt,
       jobTitle: "Maintainer",
+    })
+
+  it "normalizes nullable profile fields, trims durable locale fields, and keeps unchanged data out of the patch", ->
+    expect(changedProfileInput(profile, profile)).toEqual({
+      expectedUpdatedAt: profile.updatedAt,
+    })
+    expect(changedProfileInput(profile, {
+      ...profile,
+      firstName: "   ",
+      lastName: "  Adams  ",
+      avatarUrl: "",
+      biography: "  Updated owner biography.  ",
+      timezone: "  UTC  ",
+      locale: "  en-GB  ",
+      dateOfBirth: "",
+    })).toEqual({
+      expectedUpdatedAt: profile.updatedAt,
+      firstName: null,
+      avatarUrl: null,
+      biography: "Updated owner biography.",
+      timezone: "UTC",
+      locale: "en-GB",
+      dateOfBirth: null,
     })
 
   it "renders complete durable preferences without a reduced-motion setting", ->

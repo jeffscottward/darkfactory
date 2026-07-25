@@ -1,0 +1,370 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import {
+  addresses,
+  auditRecords,
+  featureItems,
+  outboxEvents,
+} from "../schema/index.civet"
+import type { Database } from "../server/client.civet"
+import {
+  DEVELOPMENT_ADDRESSES,
+  DEVELOPMENT_FEATURE_ITEMS,
+  convergeDevelopmentContent,
+} from "./content.civet"
+
+const FIXED_ROW_TIME = new Date("2026-01-02T03:04:05.000Z")
+const FIXED_GENERATED_ID = "90000000-0000-4000-8000-000000000001"
+
+beforeEach ->
+  vi.useFakeTimers()
+  vi.setSystemTime(FIXED_ROW_TIME)
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(FIXED_GENERATED_ID)
+
+afterEach ->
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+
+type QueryKind = "select" | "insert" | "update"
+type QueryRows = ReadonlyArray<Record<string, unknown>>
+type QueryOperation = {
+  kind: QueryKind | "execute"
+  table?: string
+  value?: Record<string, unknown>
+  where?: unknown
+  returning?: boolean
+  statement?: unknown
+}
+type QueryBuilder = {
+  from: (table: unknown) => QueryBuilder
+  where: (condition: unknown) => QueryBuilder
+  limit: (value: number) => QueryBuilder
+  values: (value: Record<string, unknown>) => QueryBuilder
+  set: (value: Record<string, unknown>) => QueryBuilder
+  returning: () => QueryBuilder
+  then: (
+    onFulfilled: (rows: QueryRows) => unknown,
+    onRejected?: (error: unknown) => unknown,
+  ) => Promise<unknown>
+}
+type QueryOutcomes = Partial<Record<QueryKind, QueryRows[]>>
+
+const tableName = (table: unknown): string => {
+  if (table === addresses) return "addresses"
+  if (table === featureItems) return "feature_items"
+  if (table === auditRecords) return "audit_records"
+  if (table === outboxEvents) return "outbox_events"
+  return "unknown"
+}
+
+const createContentSeedDatabase = (configured: QueryOutcomes) => {
+  const operations: QueryOperation[] = []
+  const outcomes: Record<QueryKind, QueryRows[]> = {
+    select: [...(configured.select ?? [])],
+    insert: [...(configured.insert ?? [])],
+    update: [...(configured.update ?? [])],
+  }
+
+  const builderFor = (operation: QueryOperation): QueryBuilder => {
+    let builder = {} as QueryBuilder
+    builder.from = vi.fn((table: unknown) => {
+      operation.table = tableName(table)
+      return builder
+    })
+    builder.where = vi.fn((condition: unknown) => {
+      operation.where = condition
+      return builder
+    })
+    builder.limit = vi.fn(() => builder)
+    builder.values = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    })
+    builder.set = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    })
+    builder.returning = vi.fn(() => {
+      operation.returning = true
+      return builder
+    })
+    builder.then = (onFulfilled, onRejected) => {
+      if (operation.kind === "execute") {
+        return Promise.resolve([]).then(onFulfilled, onRejected)
+      }
+      const rows = outcomes[operation.kind].shift() ?? []
+      return Promise.resolve(rows).then(onFulfilled, onRejected)
+    }
+    return builder
+  }
+
+  let executor: Database
+  const transaction = vi.fn(
+    async (callback: (transaction: Database) => Promise<unknown>) => {
+      return callback(executor)
+    },
+  )
+  executor = {
+    select: vi.fn(() => {
+      const operation: QueryOperation = { kind: "select" }
+      operations.push(operation)
+      return builderFor(operation)
+    }),
+    insert: vi.fn((table: unknown) => {
+      const operation: QueryOperation = {
+        kind: "insert",
+        table: tableName(table),
+      }
+      operations.push(operation)
+      return builderFor(operation)
+    }),
+    update: vi.fn((table: unknown) => {
+      const operation: QueryOperation = {
+        kind: "update",
+        table: tableName(table),
+      }
+      operations.push(operation)
+      return builderFor(operation)
+    }),
+    execute: vi.fn(async (statement: unknown) => {
+      operations.push({ kind: "execute", statement })
+      return []
+    }),
+    transaction,
+  } as unknown as Database
+
+  return { database: executor, operations, transaction }
+}
+
+const addressRow = (index: number) => {
+  const expected = DEVELOPMENT_ADDRESSES[index]!
+  return {
+    ...expected,
+    id: expected.id!,
+    line2: expected.line2 ?? null,
+    country: expected.country.toUpperCase(),
+    isPrimary: expected.isPrimary ?? false,
+    createdAt: FIXED_ROW_TIME,
+    updatedAt: FIXED_ROW_TIME,
+  }
+}
+
+const featureRow = (index: number) => {
+  const expected = DEVELOPMENT_FEATURE_ITEMS[index]!
+  return {
+    ...expected,
+    id: expected.id!,
+    status: expected.status ?? "draft",
+    metadata: expected.metadata ?? {},
+    createdAt: FIXED_ROW_TIME,
+    updatedAt: FIXED_ROW_TIME,
+  }
+}
+
+const matchingSelectOutcomes = (): QueryRows[] => [
+  ...DEVELOPMENT_ADDRESSES.map((_, index) => [addressRow(index)]),
+  ...DEVELOPMENT_FEATURE_ITEMS.map((_, index) => [featureRow(index)]),
+]
+
+const missingContentOutcomes = (): QueryOutcomes => {
+  const select: QueryRows[] = []
+  const insert: QueryRows[] = []
+  const update: QueryRows[] = []
+
+  for (const [index] of DEVELOPMENT_ADDRESSES.entries()) {
+    select.push([], [{ value: 0 }], [])
+    insert.push([addressRow(index)])
+    update.push([])
+  }
+  for (const [index] of DEVELOPMENT_FEATURE_ITEMS.entries()) {
+    select.push([])
+    insert.push([featureRow(index)], [], [])
+  }
+  return { select, insert, update }
+}
+
+describe "development content seeds", ->
+  it "publishes aligned frozen addresses and feature items for every persona", ->
+    expect(Object.isFrozen(DEVELOPMENT_ADDRESSES)).toBe(true)
+    expect(Object.isFrozen(DEVELOPMENT_FEATURE_ITEMS)).toBe(true)
+    expect(DEVELOPMENT_ADDRESSES.every(Object.isFrozen)).toBe(true)
+    expect(DEVELOPMENT_FEATURE_ITEMS.every(Object.isFrozen)).toBe(true)
+    expect(DEVELOPMENT_FEATURE_ITEMS.every(({ metadata }) => Object.isFrozen(metadata))).toBe(true)
+    expect(DEVELOPMENT_ADDRESSES.map(({ userId }) => userId)).toEqual(
+      DEVELOPMENT_FEATURE_ITEMS.map(({ ownerId }) => ownerId),
+    )
+    expect(DEVELOPMENT_ADDRESSES.map(({ type, country, isPrimary }) => ({
+      type,
+      country,
+      isPrimary,
+    }))).toEqual([
+      { type: "work", country: "US", isPrimary: true },
+      { type: "home", country: "US", isPrimary: true },
+      { type: "home", country: "US", isPrimary: true },
+    ])
+    expect(DEVELOPMENT_FEATURE_ITEMS.map(({ status }) => status)).toEqual([
+      "active",
+      "draft",
+      "archived",
+    ])
+
+  it "creates all missing content and authors feature mutation records", async ->
+    const double = createContentSeedDatabase(missingContentOutcomes())
+
+    await convergeDevelopmentContent(double.database)
+
+    const addressInserts = double.operations.filter(
+      (operation) => operation.kind === "insert" && operation.table === "addresses",
+    )
+    expect(addressInserts).toHaveLength(DEVELOPMENT_ADDRESSES.length)
+    for (const [index, operation] of addressInserts.entries()) {
+      const expected = DEVELOPMENT_ADDRESSES[index]!
+      expect(operation.value).toMatchObject({
+        ...expected,
+        line2: expected.line2 ?? null,
+        country: expected.country.toUpperCase(),
+        isPrimary: expected.isPrimary ?? false,
+        createdAt: FIXED_ROW_TIME,
+        updatedAt: FIXED_ROW_TIME,
+      })
+    }
+
+    const featureInserts = double.operations.filter(
+      (operation) => operation.kind === "insert" && operation.table === "feature_items",
+    )
+    expect(featureInserts).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
+    for (const [index, operation] of featureInserts.entries()) {
+      expect(operation.value).toMatchObject({
+        ...DEVELOPMENT_FEATURE_ITEMS[index]!,
+        createdAt: FIXED_ROW_TIME,
+        updatedAt: FIXED_ROW_TIME,
+      })
+    }
+
+    const audits = double.operations.filter(
+      (operation) => operation.kind === "insert" && operation.table === "audit_records",
+    )
+    const outbox = double.operations.filter(
+      (operation) => operation.kind === "insert" && operation.table === "outbox_events",
+    )
+    expect(audits).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
+    expect(outbox).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
+    for (const [index, operation] of audits.entries()) {
+      const ownerId = DEVELOPMENT_FEATURE_ITEMS[index]!.ownerId
+      expect(operation.value).toMatchObject({
+        actorUserId: ownerId,
+        action: "feature_item.created",
+        requestId: `development-seed:${ownerId}`,
+        id: FIXED_GENERATED_ID,
+        createdAt: FIXED_ROW_TIME,
+      })
+    }
+    for (const [index, operation] of outbox.entries()) {
+      const feature = DEVELOPMENT_FEATURE_ITEMS[index]!
+      expect(operation.value).toMatchObject({
+        id: FIXED_GENERATED_ID,
+        eventType: "feature_item.created",
+        aggregateId: feature.id,
+        occurredAt: FIXED_ROW_TIME,
+      })
+    }
+    expect(double.transaction).toHaveBeenCalledTimes(6)
+
+  it "performs no mutations when all authored content already matches", async ->
+    const double = createContentSeedDatabase({
+      select: matchingSelectOutcomes(),
+    })
+
+    await convergeDevelopmentContent(double.database)
+
+    expect(double.operations.filter(({ kind }) => kind === "select")).toHaveLength(6)
+    expect(double.operations.filter(({ kind }) => kind === "insert")).toEqual([])
+    expect(double.operations.filter(({ kind }) => kind === "update")).toEqual([])
+    expect(double.transaction).not.toHaveBeenCalled()
+
+  it.each([
+    ["type", "home"],
+    ["line1", "Changed address"],
+    ["line2", "Suite 10"],
+    ["city", "Changed City"],
+    ["region", "CA"],
+    ["postalCode", "99999"],
+    ["country", "us"],
+    ["isPrimary", false],
+  ] as const)("repairs an address whose %s drifted", async (field, replacement) ->
+    const drifted = { ...addressRow(0), [field]: replacement }
+    const double = createContentSeedDatabase({
+      select: [
+        [drifted],
+        [drifted],
+        [{ updatedAt: FIXED_ROW_TIME }],
+        [addressRow(1)],
+        [addressRow(2)],
+        [featureRow(0)],
+        [featureRow(1)],
+        [featureRow(2)],
+      ],
+      update: [[addressRow(0)]],
+    })
+
+    await convergeDevelopmentContent(double.database)
+
+    const updates = double.operations.filter(
+      (operation) => operation.kind === "update" && operation.table === "addresses",
+    )
+    expect(updates).toHaveLength(1)
+    const expected = DEVELOPMENT_ADDRESSES[0]!
+    expect(updates[0]?.value).toMatchObject({
+      type: expected.type,
+      line1: expected.line1,
+      line2: expected.line2 ?? null,
+      city: expected.city,
+      region: expected.region,
+      postalCode: expected.postalCode,
+      country: expected.country.toUpperCase(),
+      isPrimary: expected.isPrimary ?? false,
+    })
+  )
+
+  it.each([
+    ["name", "Changed item"],
+    ["description", "Changed description"],
+    ["status", "draft"],
+    ["metadata", { source: "changed" }],
+  ] as const)("repairs a feature item whose %s drifted", async (field, replacement) ->
+    const drifted = { ...featureRow(0), [field]: replacement }
+    const double = createContentSeedDatabase({
+      select: [
+        [addressRow(0)],
+        [addressRow(1)],
+        [addressRow(2)],
+        [drifted],
+        [featureRow(1)],
+        [featureRow(2)],
+      ],
+      insert: [[], []],
+      update: [[featureRow(0)]],
+    })
+
+    await convergeDevelopmentContent(double.database)
+
+    const updates = double.operations.filter(
+      (operation) => operation.kind === "update" && operation.table === "feature_items",
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0]?.value).toMatchObject({
+      name: DEVELOPMENT_FEATURE_ITEMS[0]!.name,
+      description: DEVELOPMENT_FEATURE_ITEMS[0]!.description,
+      status: DEVELOPMENT_FEATURE_ITEMS[0]!.status,
+      metadata: DEVELOPMENT_FEATURE_ITEMS[0]!.metadata,
+    })
+    const audit = double.operations.find(
+      (operation) => operation.kind === "insert" && operation.table === "audit_records",
+    )
+    expect(audit?.value).toMatchObject({
+      actorUserId: DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId,
+      action: "feature_item.updated",
+      requestId: `development-seed:${DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId}`,
+      metadata: { changedFields: ["name", "description", "status", "metadata"] },
+    })
+  )

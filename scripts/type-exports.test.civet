@@ -1,0 +1,1005 @@
+import { execFile } from "node:child_process"
+import { copyFile, mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join, resolve } from "node:path"
+import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
+
+import { afterEach, describe, expect, it } from "vitest"
+
+import {
+  auditTypeExports,
+  formatTypeExportProblems,
+  formatTypeExportTargets,
+  inspectTypeExports,
+} from "./type-exports.civet"
+
+const MAX_WORKSPACE_CONFIG_BYTES = 64 * 1024
+const MAX_MANIFEST_BYTES = 1024 * 1024
+const MAX_TOTAL_MANIFEST_BYTES = 16 * 1024 * 1024
+const MAX_WORKSPACE_PATTERN_LENGTH = 256
+const MAX_WORKSPACE_PATTERNS = 100
+const MAX_EXPORT_DEPTH = 100
+const MAX_EXPORT_KEYS = 10_000
+const MAX_EXPORT_NODES = 10_000
+const MAX_TYPE_TARGETS = 1000
+
+const temporaryRoots: string[] = []
+const execFileAsync = promisify(execFile)
+const scriptsDirectory = dirname(fileURLToPath(import.meta.url))
+const projectRoot = resolve(scriptsDirectory, "..")
+const typeExportsScript = join(scriptsDirectory, "type-exports.civet")
+const civetExecutable = join(
+  projectRoot,
+  "node_modules",
+  "@danielx",
+  "civet",
+  "dist",
+  "civet",
+)
+
+const writeWorkspacePatterns = async (
+  root: string,
+  patterns: readonly string[],
+): Promise<void> => {
+  await writeFile(
+    join(root, "pnpm-workspace.yaml"),
+    `packages:\n${patterns.map((pattern) => `  - ${JSON.stringify(pattern)}`).join("\n")}\n`,
+  )
+}
+
+const createRoot = async (
+  patterns: readonly string[] = ["apps/*", "packages/*"],
+): Promise<string> => {
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-type-exports-operations-"))
+  temporaryRoots.push(root)
+  await writeWorkspacePatterns(root, patterns)
+  return root
+}
+
+const createPackage = async (
+  root: string,
+  workspace: string,
+  directory: string,
+  manifest: Readonly<Record<string, unknown>>,
+): Promise<string> => {
+  const packageDirectory = join(root, workspace, directory)
+  await mkdir(packageDirectory, { recursive: true })
+  await writeFile(
+    join(packageDirectory, "package.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  )
+  return packageDirectory
+}
+
+const createDeclaration = async (
+  packageDirectory: string,
+  target: string,
+): Promise<void> => {
+  const declarationPath = resolve(packageDirectory, target)
+  await mkdir(resolve(declarationPath, ".."), { recursive: true })
+  await writeFile(declarationPath, "export {}\n")
+}
+
+const exactManifestSource = (name: string, byteLength: number): string => {
+  const prefix = `{"name":${JSON.stringify(name)},"exports":{},"padding":"`
+  const suffix = `"}`
+  const paddingLength = byteLength - Buffer.byteLength(prefix) - Buffer.byteLength(suffix)
+  if (paddingLength < 0) {
+    throw new Error(`Manifest fixture cannot fit in ${byteLength} bytes`)
+  }
+  const source = `${prefix}${"x".repeat(paddingLength)}${suffix}`
+  if (Buffer.byteLength(source) !== byteLength) {
+    throw new Error(`Manifest fixture is not exactly ${byteLength} bytes`)
+  }
+  return source
+}
+
+const writeExactManifest = async (
+  packageDirectory: string,
+  name: string,
+  byteLength: number,
+): Promise<void> => {
+  await writeFile(
+    join(packageDirectory, "package.json"),
+    exactManifestSource(name, byteLength),
+  )
+}
+
+const createExactPackage = async (
+  root: string,
+  directory: string,
+  name: string,
+  byteLength: number,
+): Promise<string> => {
+  const packageDirectory = join(root, "packages", directory)
+  await mkdir(packageDirectory, { recursive: true })
+  await writeExactManifest(packageDirectory, name, byteLength)
+  return packageDirectory
+}
+
+const writeExactWorkspaceConfig = async (
+  root: string,
+  byteLength: number,
+): Promise<void> => {
+  const header = 'packages:\n  - "packages/*"\n'
+  const paddingLength = byteLength - Buffer.byteLength(header) - 1
+  if (paddingLength < 0) {
+    throw new Error(`Workspace fixture cannot fit in ${byteLength} bytes`)
+  }
+  const source = `${header}#${"x".repeat(paddingLength)}`
+  if (Buffer.byteLength(source) !== byteLength) {
+    throw new Error(`Workspace fixture is not exactly ${byteLength} bytes`)
+  }
+  await writeFile(join(root, "pnpm-workspace.yaml"), source)
+}
+
+const nestedExports = (depth: number): unknown => {
+  let value: unknown = null
+  for (let index = 0; index < depth; index += 1) {
+    value = { node: value }
+  }
+  return value
+}
+
+const keyedExports = (keyCount: number): Readonly<Record<string, unknown>> => {
+  const entries: Array<readonly [string, unknown]> = [
+    ["types", "./types/index.d.ts"],
+  ]
+  for (let index = 0; index < keyCount - 1; index += 1) {
+    entries.push([`condition-${index}`, null])
+  }
+  return Object.fromEntries(entries)
+}
+
+const targetExports = (
+  targetCount: number,
+): Readonly<Record<string, unknown>> => {
+  const entries: Array<readonly [string, unknown]> = []
+  for (let index = 0; index < targetCount; index += 1) {
+    entries.push([
+      `./entry-${index.toString().padStart(4, "0")}`,
+      { types: "./types/index.d.ts" },
+    ])
+  }
+  return Object.fromEntries(entries)
+}
+
+type CliOutcome = Readonly<{
+  exitCode: number
+  stdout: string
+  stderr: string
+}>
+
+const runTypeExportsCli = async (root: string): Promise<CliOutcome> => {
+  const fixtureScriptsDirectory = join(root, "scripts")
+  const fixtureScript = join(fixtureScriptsDirectory, "type-exports.civet")
+  await mkdir(fixtureScriptsDirectory, { recursive: true })
+  await copyFile(typeExportsScript, fixtureScript)
+  const invokedScript = await realpath(fixtureScript)
+
+  try {
+    const result = await execFileAsync(
+      process.execPath,
+      [civetExecutable, invokedScript],
+      {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --no-deprecation`.trim(),
+        },
+      },
+    )
+    return {
+      exitCode: 0,
+      stdout: String(result.stdout),
+      stderr: String(result.stderr),
+    }
+  } catch (error) {
+    const failure = error as Error & {
+      code?: number | string
+      stdout?: string | Buffer
+      stderr?: string | Buffer
+    }
+    return {
+      exitCode: typeof failure.code === "number" ? failure.code : -1,
+      stdout: failure.stdout === undefined ? "" : String(failure.stdout),
+      stderr: failure.stderr === undefined ? "" : String(failure.stderr),
+    }
+  }
+}
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryRoots.splice(0).map((root) =>
+      rm(root, { recursive: true, force: true })
+    ),
+  )
+})
+
+describe("type export audit", () => {
+  it("traverses nested conditions and arrays, deduplicates targets, and returns deterministic order", async () => {
+    const root = await createRoot()
+    const packageDirectory = await createPackage(root, "packages", "nested", {
+      name: "@fixture/nested",
+      exports: {
+        ".": {
+          import: "./src/index.civet",
+          types: "./types/shared.d.ts",
+        },
+        "./server": [
+          { node: { types: "./types/shared.d.ts" } },
+          { worker: { types: "./types/server.d.ts" } },
+          { default: { types: "./types/shared.d.ts" } },
+        ],
+      },
+    })
+    const appDirectory = await createPackage(root, "apps", "console", {
+      name: "@fixture/console",
+      exports: {
+        browser: {
+          types: "./types/index.d.ts",
+        },
+      },
+    })
+    await Promise.all([
+      createDeclaration(packageDirectory, "./types/shared.d.ts"),
+      createDeclaration(packageDirectory, "./types/server.d.ts"),
+      createDeclaration(appDirectory, "./types/index.d.ts"),
+    ])
+
+    await expect(auditTypeExports(root)).resolves.toEqual([
+      {
+        packageName: "@fixture/console",
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+      {
+        packageName: "@fixture/nested",
+        subpath: ".",
+        target: "./types/shared.d.ts",
+      },
+      {
+        packageName: "@fixture/nested",
+        subpath: "./server",
+        target: "./types/server.d.ts",
+      },
+      {
+        packageName: "@fixture/nested",
+        subpath: "./server",
+        target: "./types/shared.d.ts",
+      },
+    ])
+  })
+
+  it("discovers configured glob workspaces while respecting exclusions and pruned directories", async () => {
+    const root = await createRoot([
+      "./build/*",
+      "apps/?onsole",
+      "tools/**",
+      "node_modules/**",
+      ".git/**",
+      "!tools/excluded/**",
+    ])
+    const buildDirectory = await createPackage(root, "build", "included", {
+      name: "@fixture/build",
+      exports: { ".": { types: "./types/index.d.ts" } },
+    })
+    const appDirectory = await createPackage(root, "apps", "console", {
+      name: "@fixture/console",
+      exports: { ".": { types: "./types/index.d.ts" } },
+    })
+    const toolDirectory = await createPackage(root, "tools/group", "included", {
+      name: "@fixture/tool",
+      exports: { ".": { types: "./types/index.d.ts" } },
+    })
+    await createPackage(root, "tools/excluded", "ignored", {
+      name: "@fixture/excluded",
+      exports: { ".": { types: "./types/missing.d.ts" } },
+    })
+    await createPackage(root, "node_modules", "ignored", {
+      name: "@fixture/node-modules",
+      exports: { ".": { types: "./types/missing.d.ts" } },
+    })
+    await createPackage(root, ".git", "ignored", {
+      name: "@fixture/git",
+      exports: { ".": { types: "./types/missing.d.ts" } },
+    })
+    await Promise.all([
+      createDeclaration(buildDirectory, "./types/index.d.ts"),
+      createDeclaration(appDirectory, "./types/index.d.ts"),
+      createDeclaration(toolDirectory, "./types/index.d.ts"),
+    ])
+
+    await expect(auditTypeExports(root)).resolves.toEqual([
+      {
+        packageName: "@fixture/build",
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+      {
+        packageName: "@fixture/console",
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+      {
+        packageName: "@fixture/tool",
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+    ])
+  })
+
+  it("reports and formats missing targets in deterministic package, subpath, and target order", async () => {
+    const root = await createRoot()
+    await createPackage(root, "packages", "zeta", {
+      name: "@fixture/zeta",
+      exports: {
+        "./z": { types: "./types/z.d.ts" },
+        "./a": {
+          worker: { types: "./types/b.d.ts" },
+          node: { types: "./types/a.d.ts" },
+        },
+      },
+    })
+    await createPackage(root, "packages", "alpha", {
+      name: "@fixture/alpha",
+      exports: {
+        ".": { types: "./types/index.d.ts" },
+      },
+    })
+
+    const report = await inspectTypeExports(root)
+    expect(report.problems).toEqual([
+      {
+        packageName: "@fixture/alpha",
+        subpath: ".",
+        target: "./types/index.d.ts",
+        reason: "missing or not a regular file",
+      },
+      {
+        packageName: "@fixture/zeta",
+        subpath: "./a",
+        target: "./types/a.d.ts",
+        reason: "missing or not a regular file",
+      },
+      {
+        packageName: "@fixture/zeta",
+        subpath: "./a",
+        target: "./types/b.d.ts",
+        reason: "missing or not a regular file",
+      },
+      {
+        packageName: "@fixture/zeta",
+        subpath: "./z",
+        target: "./types/z.d.ts",
+        reason: "missing or not a regular file",
+      },
+    ])
+    const formatted = [
+      "Type export audit failed:",
+      "- @fixture/alpha . -> ./types/index.d.ts: missing or not a regular file",
+      "- @fixture/zeta ./a -> ./types/a.d.ts: missing or not a regular file",
+      "- @fixture/zeta ./a -> ./types/b.d.ts: missing or not a regular file",
+      "- @fixture/zeta ./z -> ./types/z.d.ts: missing or not a regular file",
+    ].join("\n")
+    expect(formatTypeExportProblems(report.problems)).toBe(formatted)
+    await expect(auditTypeExports(root)).rejects.toThrow(formatted)
+  })
+
+  it("rejects absolute, Windows-absolute, unrooted, and traversal targets before filesystem lookup", async () => {
+    const root = await createRoot()
+    const absoluteTarget = resolve(root, "outside.d.ts")
+    await createPackage(root, "packages", "unsafe", {
+      name: "@fixture/unsafe",
+      exports: {
+        "./absolute": { types: absoluteTarget },
+        "./backslash": { types: ".\\types\\..\\outside.d.ts" },
+        "./traversal": { types: "./types/../../outside.d.ts" },
+        "./unrooted": { types: "types/index.d.ts" },
+        "./windows": { types: "C:\\outside.d.ts" },
+      },
+    })
+
+    const report = await inspectTypeExports(root)
+    expect(report.problems).toEqual([
+      {
+        packageName: "@fixture/unsafe",
+        subpath: "./absolute",
+        target: absoluteTarget,
+        reason: "absolute path is not allowed",
+      },
+      {
+        packageName: "@fixture/unsafe",
+        subpath: "./backslash",
+        target: ".\\types\\..\\outside.d.ts",
+        reason: "path traversal is not allowed",
+      },
+      {
+        packageName: "@fixture/unsafe",
+        subpath: "./traversal",
+        target: "./types/../../outside.d.ts",
+        reason: "path traversal is not allowed",
+      },
+      {
+        packageName: "@fixture/unsafe",
+        subpath: "./unrooted",
+        target: "types/index.d.ts",
+        reason: 'target must start with "./"',
+      },
+      {
+        packageName: "@fixture/unsafe",
+        subpath: "./windows",
+        target: "C:\\outside.d.ts",
+        reason: "absolute path is not allowed",
+      },
+    ])
+  })
+
+  it("rejects duplicate package names with sorted, collision-free paths", async () => {
+    const root = await createRoot()
+    await createPackage(root, "packages", "zeta", {
+      name: "@fixture/duplicate",
+      exports: {},
+    })
+    await createPackage(root, "apps", "alpha", {
+      name: "@fixture/duplicate",
+      exports: {},
+    })
+
+    await expect(auditTypeExports(root)).rejects.toThrow(
+      [
+        "Duplicate workspace package names:",
+        "- @fixture/duplicate: apps/alpha, packages/zeta",
+      ].join("\n"),
+    )
+  })
+
+  it("keeps NUL-containing target identities distinct and rejects only the unsafe target", async () => {
+    const root = await createRoot()
+    const packageDirectory = await createPackage(root, "packages", "collision", {
+      name: "@fixture/collision",
+      exports: {
+        "./a": { types: "./b\u0000./c" },
+        "./a\u0000./b": { types: "./c" },
+      },
+    })
+    await createDeclaration(packageDirectory, "./c")
+
+    const report = await inspectTypeExports(root)
+    expect(report.targets).toEqual([
+      {
+        packageName: "@fixture/collision",
+        subpath: "./a",
+        target: "./b\u0000./c",
+      },
+      {
+        packageName: "@fixture/collision",
+        subpath: "./a\u0000./b",
+        target: "./c",
+      },
+    ])
+    expect(report.problems).toEqual([
+      {
+        packageName: "@fixture/collision",
+        subpath: "./a",
+        target: "./b\u0000./c",
+        reason: "NUL bytes are not allowed",
+      },
+    ])
+  })
+
+  it("enforces workspace pattern syntax, length, and count at exact boundaries", async () => {
+    for (const length of [
+      MAX_WORKSPACE_PATTERN_LENGTH - 1,
+      MAX_WORKSPACE_PATTERN_LENGTH,
+    ]) {
+      const root = await createRoot([
+        `packages/${"a".repeat(length - "packages/".length)}`,
+      ])
+      await expect(auditTypeExports(root)).resolves.toEqual([])
+    }
+
+    const longPatternRoot = await createRoot([
+      `packages/${"a".repeat(MAX_WORKSPACE_PATTERN_LENGTH + 1 - "packages/".length)}`,
+    ])
+    await expect(auditTypeExports(longPatternRoot)).rejects.toThrow(
+      `Workspace package pattern exceeds ${MAX_WORKSPACE_PATTERN_LENGTH} characters`,
+    )
+
+    for (const count of [MAX_WORKSPACE_PATTERNS - 1, MAX_WORKSPACE_PATTERNS]) {
+      const root = await createRoot(
+        Array.from({ length: count }, () => "packages/*"),
+      )
+      await expect(auditTypeExports(root)).resolves.toEqual([])
+    }
+
+    const excessivePatternRoot = await createRoot(
+      Array.from({ length: MAX_WORKSPACE_PATTERNS + 1 }, () => "packages/*"),
+    )
+    await expect(auditTypeExports(excessivePatternRoot)).rejects.toThrow(
+      `Workspace pattern count exceeds ${MAX_WORKSPACE_PATTERNS}`,
+    )
+
+    const unsupportedGlobRoot = await createRoot(["packages/{alpha,beta}"])
+    await expect(auditTypeExports(unsupportedGlobRoot)).rejects.toThrow(
+      "Unsupported pnpm workspace glob syntax: packages/{alpha,beta}",
+    )
+
+    const partialGlobstarRoot = await createRoot(["packages/**nested"])
+    await expect(auditTypeExports(partialGlobstarRoot)).rejects.toThrow(
+      "Unsupported pnpm workspace glob syntax: packages/**nested",
+    )
+
+    const parentPatternRoot = await createRoot(["packages/../outside"])
+    await expect(auditTypeExports(parentPatternRoot)).rejects.toThrow(
+      "Unsafe pnpm workspace package pattern: packages/../outside",
+    )
+
+    const ambiguousGlobRoot = await createRoot([
+      `packages/${"*a".repeat(100)}b`,
+    ])
+    await mkdir(
+      join(ambiguousGlobRoot, "packages", "a".repeat(200)),
+      { recursive: true },
+    )
+    await expect(auditTypeExports(ambiguousGlobRoot)).resolves.toEqual([])
+  })
+
+  it("rejects missing, malformed, and invalidly named workspace metadata", async () => {
+    const missingPatternsRoot = await createRoot()
+    await writeFile(join(missingPatternsRoot, "pnpm-workspace.yaml"), "name: fixture\n")
+    await expect(auditTypeExports(missingPatternsRoot)).rejects.toThrow(
+      "pnpm-workspace.yaml must configure at least one package pattern",
+    )
+
+    const unsupportedItemRoot = await createRoot()
+    await writeFile(
+      join(unsupportedItemRoot, "pnpm-workspace.yaml"),
+      "packages:\n  - [packages/*]\n",
+    )
+    await expect(auditTypeExports(unsupportedItemRoot)).rejects.toThrow(
+      "Unsupported pnpm workspace glob syntax: [packages/*]",
+    )
+
+    const malformedManifestRoot = await createRoot()
+    const malformedDirectory = join(malformedManifestRoot, "packages", "malformed")
+    await mkdir(malformedDirectory, { recursive: true })
+    await writeFile(join(malformedDirectory, "package.json"), "{")
+    await expect(auditTypeExports(malformedManifestRoot)).rejects.toThrow(
+      "Workspace manifest packages/malformed/package.json is invalid JSON",
+    )
+
+    const unnamedManifestRoot = await createRoot()
+    await createPackage(unnamedManifestRoot, "packages", "unnamed", {
+      name: "",
+      exports: {},
+    })
+    await expect(auditTypeExports(unnamedManifestRoot)).rejects.toThrow(
+      "Workspace manifest packages/unnamed/package.json must have a package name",
+    )
+  })
+
+  it("rejects special and symlinked workspace configs, manifests, and directories", async () => {
+    const specialConfigRoot = await createRoot()
+    await rm(join(specialConfigRoot, "pnpm-workspace.yaml"))
+    await mkdir(join(specialConfigRoot, "pnpm-workspace.yaml"))
+    await expect(auditTypeExports(specialConfigRoot)).rejects.toThrow(
+      "pnpm-workspace.yaml must be a regular non-symbolic file",
+    )
+
+    const linkedWorkspaceRoot = await createRoot()
+    const outsideWorkspace = join(linkedWorkspaceRoot, "outside-workspace")
+    await mkdir(outsideWorkspace)
+    await writeFile(
+      join(outsideWorkspace, "package.json"),
+      `${JSON.stringify({ name: "@fixture/linked-workspace", exports: {} })}\n`,
+    )
+    await mkdir(join(linkedWorkspaceRoot, "packages"), { recursive: true })
+    await symlink(
+      outsideWorkspace,
+      join(linkedWorkspaceRoot, "packages", "linked"),
+      process.platform === "win32" ? "junction" : "dir",
+    )
+    await expect(auditTypeExports(linkedWorkspaceRoot)).rejects.toThrow(
+      "Symbolic links are not allowed during workspace discovery: packages/linked",
+    )
+
+    const linkedAncestorRoot = await createRoot()
+    const outsidePackages = join(linkedAncestorRoot, "outside-packages")
+    await mkdir(join(outsidePackages, "hidden"), { recursive: true })
+    await writeFile(
+      join(outsidePackages, "hidden", "package.json"),
+      `${JSON.stringify({ name: "@fixture/hidden", exports: {} })}\n`,
+    )
+    await symlink(
+      outsidePackages,
+      join(linkedAncestorRoot, "packages"),
+      process.platform === "win32" ? "junction" : "dir",
+    )
+    await expect(auditTypeExports(linkedAncestorRoot)).rejects.toThrow(
+      "Symbolic links are not allowed during workspace discovery: packages",
+    )
+
+    const specialManifestRoot = await createRoot()
+    await mkdir(
+      join(specialManifestRoot, "packages", "special", "package.json"),
+      { recursive: true },
+    )
+    await expect(auditTypeExports(specialManifestRoot)).rejects.toThrow(
+      "Workspace manifest packages/special/package.json must be a regular non-symbolic file",
+    )
+
+    if (process.platform !== "win32") {
+      const linkedConfigRoot = await createRoot()
+      const externalConfig = join(linkedConfigRoot, "external-workspace.yaml")
+      await writeFile(externalConfig, 'packages:\n  - "packages/*"\n')
+      await rm(join(linkedConfigRoot, "pnpm-workspace.yaml"))
+      await symlink(
+        externalConfig,
+        join(linkedConfigRoot, "pnpm-workspace.yaml"),
+        "file",
+      )
+      await expect(auditTypeExports(linkedConfigRoot)).rejects.toThrow(
+        "pnpm-workspace.yaml must be a regular non-symbolic file",
+      )
+
+      const linkedManifestRoot = await createRoot()
+      const externalManifest = join(linkedManifestRoot, "external-package.json")
+      await writeFile(
+        externalManifest,
+        `${JSON.stringify({ name: "@fixture/linked-manifest", exports: {} })}\n`,
+      )
+      const linkedPackage = join(linkedManifestRoot, "packages", "linked")
+      await mkdir(linkedPackage, { recursive: true })
+      await symlink(
+        externalManifest,
+        join(linkedPackage, "package.json"),
+        "file",
+      )
+      await expect(auditTypeExports(linkedManifestRoot)).rejects.toThrow(
+        "Symbolic links are not allowed during workspace discovery: packages/linked/package.json",
+      )
+    }
+  })
+
+  it("reports special and symlinked declaration targets without following them", async () => {
+    const specialRoot = await createRoot()
+    const specialPackage = await createPackage(specialRoot, "packages", "special", {
+      name: "@fixture/special-targets",
+      exports: {
+        "./directory": { types: "./types/directory.d.ts" },
+        "./intermediate": { types: "./not-a-directory/index.d.ts" },
+      },
+    })
+    await mkdir(join(specialPackage, "types", "directory.d.ts"), {
+      recursive: true,
+    })
+    await writeFile(join(specialPackage, "not-a-directory"), "not a directory\n")
+    const specialReport = await inspectTypeExports(specialRoot)
+    expect(specialReport.problems).toEqual([
+      {
+        packageName: "@fixture/special-targets",
+        subpath: "./directory",
+        target: "./types/directory.d.ts",
+        reason: "missing or not a regular file",
+      },
+      {
+        packageName: "@fixture/special-targets",
+        subpath: "./intermediate",
+        target: "./not-a-directory/index.d.ts",
+        reason: "missing or not a regular file",
+      },
+    ])
+
+    const linkedAncestorTargetRoot = await createRoot()
+    const outsideDirectory = join(linkedAncestorTargetRoot, "outside")
+    await mkdir(outsideDirectory)
+    await writeFile(join(outsideDirectory, "index.d.ts"), "export {}\n")
+    const linkedPackage = await createPackage(
+      linkedAncestorTargetRoot,
+      "packages",
+      "linked",
+      {
+        name: "@fixture/linked-target",
+        exports: { ".": { types: "./types/index.d.ts" } },
+      },
+    )
+    await symlink(
+      outsideDirectory,
+      join(linkedPackage, "types"),
+      process.platform === "win32" ? "junction" : "dir",
+    )
+    const linkedAncestorReport = await inspectTypeExports(linkedAncestorTargetRoot)
+    expect(linkedAncestorReport.problems).toEqual([
+      {
+        packageName: "@fixture/linked-target",
+        subpath: ".",
+        target: "./types/index.d.ts",
+        reason: "symbolic links are not allowed",
+      },
+    ])
+
+    if (process.platform !== "win32") {
+      const linkedFileTargetRoot = await createRoot()
+      const outsideFile = join(linkedFileTargetRoot, "outside.d.ts")
+      await writeFile(outsideFile, "export {}\n")
+      const linkedFilePackage = await createPackage(
+        linkedFileTargetRoot,
+        "packages",
+        "linked-file",
+        {
+          name: "@fixture/linked-file-target",
+          exports: { ".": { types: "./index.d.ts" } },
+        },
+      )
+      await symlink(
+        outsideFile,
+        join(linkedFilePackage, "index.d.ts"),
+        "file",
+      )
+      const linkedFileReport = await inspectTypeExports(linkedFileTargetRoot)
+      expect(linkedFileReport.problems).toEqual([
+        {
+          packageName: "@fixture/linked-file-target",
+          subpath: ".",
+          target: "./index.d.ts",
+          reason: "symbolic links are not allowed",
+        },
+      ])
+    }
+  })
+
+  it("accepts workspace config byte limit minus one and limit, then rejects limit plus one", async () => {
+    for (const byteLength of [
+      MAX_WORKSPACE_CONFIG_BYTES - 1,
+      MAX_WORKSPACE_CONFIG_BYTES,
+    ]) {
+      const root = await createRoot()
+      await writeExactWorkspaceConfig(root, byteLength)
+      await expect(auditTypeExports(root)).resolves.toEqual([])
+    }
+
+    const oversizedRoot = await createRoot()
+    await writeExactWorkspaceConfig(oversizedRoot, MAX_WORKSPACE_CONFIG_BYTES + 1)
+    await expect(auditTypeExports(oversizedRoot)).rejects.toThrow(
+      `pnpm-workspace.yaml exceeds ${MAX_WORKSPACE_CONFIG_BYTES} bytes`,
+    )
+  })
+
+  it("accepts manifest byte limit minus one and limit, then rejects limit plus one", async () => {
+    for (const byteLength of [MAX_MANIFEST_BYTES - 1, MAX_MANIFEST_BYTES]) {
+      const root = await createRoot(["packages/*"])
+      await createExactPackage(
+        root,
+        `manifest-${byteLength}`,
+        `@fixture/manifest-${byteLength}`,
+        byteLength,
+      )
+      await expect(auditTypeExports(root)).resolves.toEqual([])
+    }
+
+    const oversizedRoot = await createRoot(["packages/*"])
+    await createExactPackage(
+      oversizedRoot,
+      "oversized",
+      "@fixture/oversized",
+      MAX_MANIFEST_BYTES + 1,
+    )
+    await expect(auditTypeExports(oversizedRoot)).rejects.toThrow(
+      `Workspace manifest packages/oversized/package.json exceeds ${MAX_MANIFEST_BYTES} bytes`,
+    )
+  })
+
+  it("accepts total manifest byte limit minus one and limit, then rejects limit plus one", async () => {
+    const root = await createRoot(["packages/*"])
+    const packageBytes = 1_000_000
+    for (let index = 0; index < 16; index += 1) {
+      const suffix = index.toString().padStart(2, "0")
+      await createExactPackage(
+        root,
+        `package-${suffix}`,
+        `@fixture/package-${suffix}`,
+        packageBytes,
+      )
+    }
+    const finalDirectory = await createExactPackage(
+      root,
+      "package-16",
+      "@fixture/package-16",
+      MAX_TOTAL_MANIFEST_BYTES - 1 - packageBytes * 16,
+    )
+
+    await expect(auditTypeExports(root)).resolves.toEqual([])
+
+    await writeExactManifest(
+      finalDirectory,
+      "@fixture/package-16",
+      MAX_TOTAL_MANIFEST_BYTES - packageBytes * 16,
+    )
+    await expect(auditTypeExports(root)).resolves.toEqual([])
+
+    await writeExactManifest(
+      finalDirectory,
+      "@fixture/package-16",
+      MAX_TOTAL_MANIFEST_BYTES + 1 - packageBytes * 16,
+    )
+    await expect(auditTypeExports(root)).rejects.toThrow(
+      `Workspace manifests exceed ${MAX_TOTAL_MANIFEST_BYTES} total bytes`,
+    )
+  }, 30_000)
+
+  it("accepts export depth limit minus one and limit, then rejects limit plus one", async () => {
+    for (const depth of [MAX_EXPORT_DEPTH - 1, MAX_EXPORT_DEPTH]) {
+      const root = await createRoot(["packages/*"])
+      await createPackage(root, "packages", `depth-${depth}`, {
+        name: `@fixture/depth-${depth}`,
+        exports: nestedExports(depth),
+      })
+      await expect(auditTypeExports(root)).resolves.toEqual([])
+    }
+
+    const excessiveRoot = await createRoot(["packages/*"])
+    await createPackage(excessiveRoot, "packages", "depth-excessive", {
+      name: "@fixture/depth-excessive",
+      exports: nestedExports(MAX_EXPORT_DEPTH + 1),
+    })
+    await expect(auditTypeExports(excessiveRoot)).rejects.toThrow(
+      `Workspace manifest packages/depth-excessive/package.json exports exceed maximum depth ${MAX_EXPORT_DEPTH}`,
+    )
+  })
+
+  it("accepts export node limit minus one and limit, then rejects limit plus one", async () => {
+    for (const nodeCount of [MAX_EXPORT_NODES - 1, MAX_EXPORT_NODES]) {
+      const root = await createRoot(["packages/*"])
+      await createPackage(root, "packages", `nodes-${nodeCount}`, {
+        name: `@fixture/nodes-${nodeCount}`,
+        exports: Array.from({ length: nodeCount - 1 }, () => null),
+      })
+      await expect(auditTypeExports(root)).resolves.toEqual([])
+    }
+
+    const excessiveRoot = await createRoot(["packages/*"])
+    await createPackage(excessiveRoot, "packages", "nodes-excessive", {
+      name: "@fixture/nodes-excessive",
+      exports: Array.from({ length: MAX_EXPORT_NODES }, () => null),
+    })
+    await expect(auditTypeExports(excessiveRoot)).rejects.toThrow(
+      `Workspace manifest packages/nodes-excessive/package.json exports exceed ${MAX_EXPORT_NODES} nodes`,
+    )
+  }, 30_000)
+
+  it("accepts export key limit minus one and limit, then rejects limit plus one", async () => {
+    for (const keyCount of [MAX_EXPORT_KEYS - 1, MAX_EXPORT_KEYS]) {
+      const root = await createRoot(["packages/*"])
+      const packageDirectory = await createPackage(
+        root,
+        "packages",
+        `keys-${keyCount}`,
+        {
+          name: `@fixture/keys-${keyCount}`,
+          exports: keyedExports(keyCount),
+        },
+      )
+      await createDeclaration(packageDirectory, "./types/index.d.ts")
+      await expect(auditTypeExports(root)).resolves.toEqual([
+        {
+          packageName: `@fixture/keys-${keyCount}`,
+          subpath: ".",
+          target: "./types/index.d.ts",
+        },
+      ])
+    }
+
+    const excessiveRoot = await createRoot(["packages/*"])
+    await createPackage(excessiveRoot, "packages", "keys-excessive", {
+      name: "@fixture/keys-excessive",
+      exports: keyedExports(MAX_EXPORT_KEYS + 1),
+    })
+    await expect(auditTypeExports(excessiveRoot)).rejects.toThrow(
+      `Workspace manifest packages/keys-excessive/package.json exports exceed ${MAX_EXPORT_KEYS} keys`,
+    )
+  }, 30_000)
+
+  it("accepts type target limit minus one and limit, then rejects limit plus one", async () => {
+    for (const targetCount of [MAX_TYPE_TARGETS - 1, MAX_TYPE_TARGETS]) {
+      const root = await createRoot(["packages/*"])
+      const packageDirectory = await createPackage(
+        root,
+        "packages",
+        `targets-${targetCount}`,
+        {
+          name: `@fixture/targets-${targetCount}`,
+          exports: targetExports(targetCount),
+        },
+      )
+      await createDeclaration(packageDirectory, "./types/index.d.ts")
+
+      const targets = await auditTypeExports(root)
+      expect(targets).toHaveLength(targetCount)
+      expect(targets[0]).toEqual({
+        packageName: `@fixture/targets-${targetCount}`,
+        subpath: "./entry-0000",
+        target: "./types/index.d.ts",
+      })
+      expect(targets[targets.length - 1]).toEqual({
+        packageName: `@fixture/targets-${targetCount}`,
+        subpath: `./entry-${(targetCount - 1).toString().padStart(4, "0")}`,
+        target: "./types/index.d.ts",
+      })
+    }
+
+    const excessiveRoot = await createRoot(["packages/*"])
+    await createPackage(excessiveRoot, "packages", "targets-excessive", {
+      name: "@fixture/targets-excessive",
+      exports: targetExports(MAX_TYPE_TARGETS + 1),
+    })
+    await expect(auditTypeExports(excessiveRoot)).rejects.toThrow(
+      `Workspace manifest packages/targets-excessive/package.json exports exceed ${MAX_TYPE_TARGETS} type targets`,
+    )
+  }, 30_000)
+
+  it("escapes control and format characters in exported formatters", () => {
+    expect(formatTypeExportTargets([
+      {
+        packageName: "@fixture/control\u0000",
+        subpath: "./line\nbreak",
+        target: "./types/\u202eindex.d.ts",
+      },
+    ])).toBe([
+      "Type export audit passed (1 targets):",
+      "- @fixture/control\\u0000 ./line\\u000abreak -> ./types/\\u202eindex.d.ts",
+    ].join("\n"))
+
+    expect(formatTypeExportProblems([
+      {
+        packageName: "@fixture/control\u0000",
+        subpath: "./line\nbreak",
+        target: "./types/\u202eindex.d.ts",
+        reason: "bad\u2028reason",
+      },
+    ])).toBe([
+      "Type export audit failed:",
+      "- @fixture/control\\u0000 ./line\\u000abreak -> ./types/\\u202eindex.d.ts: bad\\u2028reason",
+    ].join("\n"))
+  })
+
+  it("runs the real CLI boundary successfully against an isolated valid workspace", async () => {
+    const root = await createRoot(["packages/*"])
+    const packageDirectory = await createPackage(root, "packages", "cli", {
+      name: "@fixture/cli",
+      exports: { ".": { types: "./types/index.d.ts" } },
+    })
+    await createDeclaration(packageDirectory, "./types/index.d.ts")
+
+    await expect(runTypeExportsCli(root)).resolves.toEqual({
+      exitCode: 0,
+      stdout: [
+        "Type export audit passed (1 targets):",
+        "- @fixture/cli . -> ./types/index.d.ts",
+        "",
+      ].join("\n"),
+      stderr: "",
+    })
+  }, 30_000)
+
+  it("returns a nonzero CLI result and exact diagnostic for an isolated invalid workspace", async () => {
+    const root = await createRoot(["packages/*"])
+    await createPackage(root, "packages", "cli", {
+      name: "@fixture/cli",
+      exports: { ".": { types: "./types/missing.d.ts" } },
+    })
+
+    await expect(runTypeExportsCli(root)).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: [
+        "Type export audit failed:",
+        "- @fixture/cli . -> ./types/missing.d.ts: missing or not a regular file",
+        "",
+      ].join("\n"),
+    })
+  }, 30_000)
+})

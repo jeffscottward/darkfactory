@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-DarkFactory has not published a stable release. Security fixes target the current default branch. Historical commits, forks, modified copies, and downstream deployments are not covered by a guaranteed support schedule.
+DarkFactory security fixes target the latest published release and the current default branch. Historical releases and commits, forks, modified copies, and downstream deployments are not covered by a guaranteed support schedule.
 
 ## Report a vulnerability privately
 

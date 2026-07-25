@@ -2,13 +2,17 @@ import { randomUUID } from "node:crypto"
 import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({ execFile: vi.fn() }))
+vi.mock("node:child_process", () => ({ execFile: mocks.execFile }))
 
 import { parseGraphConfig } from "./graph.civet"
 import {
   graphProcessEnvironment,
   isGraphSourceExcluded,
   nodeGraphFileSystem,
+  nodeGraphProcess,
 } from "./system.civet"
 
 const SENTINELS = {
@@ -19,12 +23,13 @@ const SENTINELS = {
 }
 
 const previous = Object.fromEntries(
-  [...Object.keys(SENTINELS), "PYTHONHASHSEED", "GRAPHIFY_MAX_WORKERS"].map(
+  [...Object.keys(SENTINELS), "PYTHONHASHSEED", "GRAPHIFY_MAX_WORKERS", "LC_ALL"].map(
     (name) => [name, process.env[name]],
   ),
 )
 
 afterEach(() => {
+  vi.clearAllMocks()
   for (const [name, value] of Object.entries(previous)) {
     if (value === undefined) delete process.env[name]
     else process.env[name] = value
@@ -222,5 +227,256 @@ describe("Graphify process environment", () => {
     expect(graphProcessEnvironment({ PYTHONHASHSEED: "1" }).PYTHONHASHSEED).toBeUndefined()
     expect(graphProcessEnvironment({ GRAPHIFY_MAX_WORKERS: "2" }).GRAPHIFY_MAX_WORKERS).toBeUndefined()
     expect(environment.CUSTOM_SECRET).toBeUndefined()
+  })
+})
+
+describe("Graph node filesystem boundaries", () => {
+  it("inspects, bounds, and atomically writes only regular repository files", async () => {
+    const root = join("scripts", "graph", `system-files-${randomUUID()}`)
+    await mkdir(join(root, "directory"), { recursive: true })
+    await mkdir(join(root, "actual-parent"))
+    await writeFile(join(root, "source.txt"), "value")
+    await symlink("source.txt", join(root, "linked.txt"))
+    await symlink("actual-parent", join(root, "linked-parent"))
+
+    try {
+      await expect(nodeGraphFileSystem.inspect(join(root, "source.txt"))).resolves.toMatchObject({
+        kind: "file",
+        size: 5,
+      })
+      await expect(nodeGraphFileSystem.inspect(join(root, "directory"))).resolves.toMatchObject({
+        kind: "directory",
+      })
+      await expect(nodeGraphFileSystem.inspect(join(root, "linked.txt"))).resolves.toMatchObject({
+        kind: "symlink",
+      })
+      await expect(nodeGraphFileSystem.inspect(join(root, "missing.txt"))).resolves.toEqual({
+        kind: "missing",
+        size: 0,
+      })
+      await expect(nodeGraphFileSystem.exists(join(root, "source.txt"))).resolves.toBe(true)
+      await expect(nodeGraphFileSystem.exists(join(root, "missing.txt"))).resolves.toBe(false)
+
+      await expect(nodeGraphFileSystem.readText(join(root, "source.txt"), 5)).resolves.toBe("value")
+      await expect(nodeGraphFileSystem.readText(join(root, "source.txt"), 4))
+        .rejects.toThrow(/read exceeds its bound/i)
+      await expect(nodeGraphFileSystem.readText(join(root, "directory"))).rejects.toThrow(/bound/i)
+      await expect(nodeGraphFileSystem.readText(join(root, "linked.txt"))).rejects.toThrow()
+
+      await nodeGraphFileSystem.writeText(join(root, "written.txt"), "first")
+      await nodeGraphFileSystem.writeText(join(root, "written.txt"), "second")
+      await expect(readFile(join(root, "written.txt"), "utf8")).resolves.toBe("second")
+      await expect(nodeGraphFileSystem.writeText(join(root, "directory"), "unsafe"))
+        .rejects.toThrow(/regular file/i)
+      await expect(nodeGraphFileSystem.writeText(join(root, "linked-parent", "file.txt"), "unsafe"))
+        .rejects.toThrow(/parent.*regular directory/i)
+      await expect(nodeGraphFileSystem.inspect("../outside")).rejects.toThrow(/escapes the repository/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("sorts and deduplicates configured sources while excluding symlinks and generated subtrees", async () => {
+    const root = join("scripts", "graph", `system-list-${randomUUID()}`)
+    await mkdir(join(root, "excluded"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "a.ts"), "export const a = true\n"),
+      writeFile(join(root, "b.TS"), "export const b = true\n"),
+      writeFile(join(root, "explicit.ts"), "export const explicit = true\n"),
+      writeFile(join(root, "ignored.js"), "export const ignored = true\n"),
+      writeFile(join(root, "excluded", "generated.ts"), "export const generated = true\n"),
+    ])
+    await symlink("a.ts", join(root, "linked.ts"))
+    const configFor = (roots: readonly string[], files: readonly string[]) => parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots,
+        files,
+        extensions: [".ts"],
+        excludes: [`${root}/excluded/**`],
+      },
+      verificationPath: ["from", "to"],
+    }))
+
+    try {
+      const sources = await nodeGraphFileSystem.listSourceFiles(configFor(
+        [root],
+        [join(root, "explicit.ts"), join(root, "a.ts")],
+      ))
+      expect(sources).toEqual([
+        join(root, "a.ts"),
+        join(root, "b.TS"),
+        join(root, "explicit.ts"),
+      ].sort())
+      await expect(nodeGraphFileSystem.listSourceFiles(configFor(
+        [join(root, "missing")],
+        [join(root, "a.ts")],
+      ))).rejects.toThrow(/source root is not a regular directory/i)
+      await expect(nodeGraphFileSystem.listSourceFiles(configFor(
+        [root],
+        [join(root, "excluded")],
+      ))).rejects.toThrow(/source file is not regular/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("compiles authored Civet snapshots and rewrites discovered workspace aliases", async () => {
+    const packageName = `graph-system-${randomUUID()}`
+    const root = join("packages", packageName)
+    await mkdir(join(root, "src"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "package.json"), JSON.stringify({
+        name: `@darkfactory/${packageName}`,
+        version: "1.0.0",
+        exports: { ".": "./src/index.civet" },
+      })),
+      writeFile(join(root, "src/index.civet"), "export const value = 1\n"),
+      writeFile(
+        join(root, "src/consumer.civet"),
+        `import { value } from "@darkfactory/${packageName}"\nexport const consumer = value\n`,
+      ),
+    ])
+    const config = parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots: [root],
+        files: ["package.json"],
+        extensions: [".civet", ".json"],
+        excludes: ["node_modules"],
+      },
+      verificationPath: ["from", "to"],
+    }))
+
+    try {
+      const snapshot = await nodeGraphFileSystem.createSourceSnapshot(config)
+      try {
+        expect(snapshot.path).toBe(".graphify/source-snapshot")
+        await expect(readFile(
+          join(snapshot.path, root, "src/consumer.tsx"),
+          "utf8",
+        )).resolves.toContain('from "./index.tsx"')
+        await expect(exists(join(snapshot.path, root, "src/consumer.civet"))).resolves.toBe(false)
+      } finally {
+        await snapshot.cleanup()
+      }
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(".graphify/source-snapshot", { force: true, recursive: true })
+    }
+  })
+
+  it("removes a failed snapshot corpus and diagnoses a missing ownership marker", async () => {
+    const invalidPackage = join("packages", `graph-system-invalid-${randomUUID()}`)
+    await mkdir(invalidPackage, { recursive: true })
+    await writeFile(join(invalidPackage, "package.json"), "{")
+    const invalidConfig = parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots: [invalidPackage],
+        files: ["package.json"],
+        extensions: [".json"],
+        excludes: ["node_modules"],
+      },
+      verificationPath: ["from", "to"],
+    }))
+    try {
+      await expect(nodeGraphFileSystem.createSourceSnapshot(invalidConfig)).rejects.toThrow()
+      await expect(exists(".graphify/source-snapshot")).resolves.toBe(false)
+    } finally {
+      await rm(invalidPackage, { force: true, recursive: true })
+      await rm(".graphify/source-snapshot", { force: true, recursive: true })
+    }
+
+    const root = join("scripts", "graph", `system-owner-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const snapshot = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig(root))
+    await rm(join(snapshot.path, ".owner"))
+    try {
+      await expect(snapshot.cleanup()).rejects.toThrow(/ownership marker is missing/i)
+      await expect(exists(join(snapshot.path, root, "source.ts"))).resolves.toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(snapshot.path, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("Graphify inherited process controls", () => {
+  it("forwards allowlisted values only when the parent environment defines them", () => {
+    process.env.LC_ALL = ""
+    expect(graphProcessEnvironment().LC_ALL).toBeUndefined()
+
+    process.env.LC_ALL = "C"
+    expect(graphProcessEnvironment().LC_ALL).toBe("C")
+    expect(graphProcessEnvironment({ LC_ALL: "attacker-controlled" }).LC_ALL).toBe("C")
+  })
+})
+
+describe("Graphify Node process adapter", () => {
+  it("forwards bounded options through the secret-filtered environment and maps exit outcomes", async () => {
+    type ExecError = Error & Readonly<{ code?: string | number }>
+    let capturedOptions: Record<string, unknown> | undefined
+    mocks.execFile.mockImplementationOnce((
+      _command: string,
+      _arguments: readonly string[],
+      options: Record<string, unknown>,
+      callback: (error: ExecError | null, stdout?: string | null, stderr?: string | null) => void,
+    ) => {
+      capturedOptions = options
+      callback(null, "output", "warning")
+    })
+
+    await expect(nodeGraphProcess.run("tool", ["--check"], {
+      timeoutMs: 25,
+      maxOutputBytes: 128,
+      environment: {
+        PYTHONHASHSEED: "0",
+        DATABASE_URL: "must-not-leak",
+      },
+    })).resolves.toEqual({
+      exitCode: 0,
+      stdout: "output",
+      stderr: "warning",
+    })
+    expect(capturedOptions).toMatchObject({
+      encoding: "utf8",
+      maxBuffer: 128,
+      timeout: 25,
+      windowsHide: true,
+      env: expect.objectContaining({ PYTHONHASHSEED: "0" }),
+    })
+    expect((capturedOptions?.["env"] as NodeJS.ProcessEnv | undefined)?.DATABASE_URL).toBeUndefined()
+
+    mocks.execFile.mockImplementationOnce((
+      _command: string,
+      _arguments: readonly string[],
+      _options: Record<string, unknown>,
+      callback: (error: ExecError | null, stdout?: string | null, stderr?: string | null) => void,
+    ) => callback(Object.assign(new Error("failed"), { code: 7 }), null, "failed"))
+    await expect(nodeGraphProcess.run("tool", ["--fail"])).resolves.toEqual({
+      exitCode: 7,
+      stdout: "",
+      stderr: "failed",
+    })
+
+    mocks.execFile.mockImplementationOnce((
+      _command: string,
+      _arguments: readonly string[],
+      _options: Record<string, unknown>,
+      callback: (error: ExecError | null, stdout?: string | null, stderr?: string | null) => void,
+    ) => callback(Object.assign(new Error("missing"), { code: "ENOENT" })))
+    await expect(nodeGraphProcess.run("missing", [])).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    })
   })
 })

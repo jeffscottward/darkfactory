@@ -100,7 +100,11 @@ V8 writes the ignored raw report to `coverage/coverage-summary.json`. `coverage:
 
 The badge message publishes both line and branch percentages, and its color is graded from the lower of the two so a stronger line result cannot hide weaker branch coverage.
 
-The committed deterministic-scope baseline is 70.57% lines (6,764/9,584), 62.56% branches (4,471/7,146), 65.94% functions (1,375/2,085), and 68.34% statements (7,278/10,649). The configured floors are the rounded-down observed values: 70% lines, 62% branches, 65% functions, and 68% statements. The committed byte-checked artifact provides the finer-grained non-regression signal.
+The committed deterministic-scope baseline is 87.68% lines (8,395/9,574), 84.08% branches (6,008/7,145), 84.09% functions (1,750/2,081), and 86.29% statements (9,184/10,642). The configured floors are the rounded-down observed values: 87% lines, 84% branches, 84% functions, and 86% statements. The committed byte-checked artifact provides the finer-grained non-regression signal.
+
+### Assertion-enabled dynamic analysis
+
+`pnpm test:coverage` executes the application through Vitest with explicit `expect`, rejection, and thrown-error assertions enabled; any failed assertion makes the coverage lane fail. `pnpm verify:browser` separately exercises deployed application behavior with Playwright assertions. These assertions are test-only fault-detection controls and are not enabled in production builds.
 
 ## Browser evidence
 

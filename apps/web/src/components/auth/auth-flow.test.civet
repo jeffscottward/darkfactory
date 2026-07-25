@@ -1,18 +1,38 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const browserAuthSdk = vi.hoisted(() => ({
+  signIn: { email: vi.fn() },
+  signUp: { email: vi.fn() },
+  requestPasswordReset: vi.fn(),
+  resetPassword: vi.fn(),
+  sendVerificationEmail: vi.fn(),
+  getSession: vi.fn(),
+}))
+
+vi.mock("@darkfactory/auth/client", () => ({ authClient: browserAuthSdk }))
 
 import type { AuthFlowClient } from "./auth-flow.civet"
 import {
   SAFE_ACCOUNT_EMAIL_MESSAGE,
+  browserAuthClient,
   normalizeAuthDestination,
   submitForgotPassword,
   submitResetPassword,
   submitSignIn,
   submitSignUp,
   submitVerificationEmail,
+  validateEmail,
+  validateName,
+  validatePassword,
+  validatePasswordConfirmation,
+  validatePasswordPresent,
 } from "./auth-flow.civet"
 import { PasswordField } from "./password-field.civet"
+
+afterEach ->
+  vi.restoreAllMocks()
 
 const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
   signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
@@ -23,6 +43,53 @@ const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => 
   getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
   ...overrides,
 })
+
+describe "browserAuthClient", ->
+  it "forwards every browser operation to the Better Auth client without changing its response", async ->
+    const response = { data: { accepted: true }, error: null }
+    browserAuthSdk.signIn.email.mockResolvedValueOnce(response)
+    browserAuthSdk.signUp.email.mockResolvedValueOnce(response)
+    browserAuthSdk.requestPasswordReset.mockResolvedValueOnce(response)
+    browserAuthSdk.resetPassword.mockResolvedValueOnce(response)
+    browserAuthSdk.sendVerificationEmail.mockResolvedValueOnce(response)
+    browserAuthSdk.getSession.mockResolvedValueOnce(response)
+
+    const signInInput = {
+      email: "member@domain.test",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "/dashboard",
+    }
+    const signUpInput = {
+      name: "Member Example",
+      email: "member@domain.test",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "/verify-email?verified=1",
+    }
+    const resetRequest = {
+      email: "member@domain.test",
+      redirectTo: "/reset-password",
+    }
+    const newPassword = {
+      newPassword: "NewCorrectHorseBatteryStaple!84",
+      token: "one-time-reset-token",
+    }
+    const verification = {
+      email: "member@domain.test",
+      callbackURL: "/verify-email?verified=1",
+    }
+
+    await expect(browserAuthClient.signInEmail(signInInput)).resolves.toBe(response)
+    await expect(browserAuthClient.signUpEmail(signUpInput)).resolves.toBe(response)
+    await expect(browserAuthClient.requestPasswordReset(resetRequest)).resolves.toBe(response)
+    await expect(browserAuthClient.resetPassword(newPassword)).resolves.toBe(response)
+    await expect(browserAuthClient.sendVerificationEmail(verification)).resolves.toBe(response)
+    await expect(browserAuthClient.getSession()).resolves.toBe(response)
+    expect(browserAuthSdk.signIn.email).toHaveBeenCalledWith(signInInput)
+    expect(browserAuthSdk.signUp.email).toHaveBeenCalledWith(signUpInput)
+    expect(browserAuthSdk.requestPasswordReset).toHaveBeenCalledWith(resetRequest)
+    expect(browserAuthSdk.resetPassword).toHaveBeenCalledWith(newPassword)
+    expect(browserAuthSdk.sendVerificationEmail).toHaveBeenCalledWith(verification)
+    expect(browserAuthSdk.getSession).toHaveBeenCalledWith()
 
 describe "normalizeAuthDestination", ->
   it "preserves same-origin relative application paths", ->
@@ -51,6 +118,21 @@ describe "normalizeAuthDestination", ->
       expect(normalizeAuthDestination(callback)).toBe("/dashboard")
     }
 
+  it "decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", ->
+    for (const callback of [
+      "/%E0%A4%A",
+      "/safe/./settings",
+      "/safe/%252e%252e/admin",
+      "/dashboard%0A.evil",
+      "/%252f%252fattacker.test/steal",
+    ]) {
+      expect(normalizeAuthDestination(callback)).toBe("/dashboard")
+    }
+    expect(normalizeAuthDestination("  /feature-items?status=active#results  ")).toBe(
+      "/feature-items?status=active#results",
+    )
+
+
   it "prevents auth loops and auth API callbacks", ->
     for (const callback of [
       "/sign-in",
@@ -62,6 +144,38 @@ describe "normalizeAuthDestination", ->
     ]) {
       expect(normalizeAuthDestination(callback)).toBe("/dashboard")
     }
+
+describe "auth field validation", ->
+  it "validates email absence, syntax, maximum length, and a trimmed valid address", ->
+    expect(validateEmail("   ")).toBe("Enter your email address.")
+    expect(validateEmail("member@domain")).toBe("Enter a valid email address.")
+    expect(validateEmail("a".repeat(255))).toBe("Enter a valid email address.")
+    expect(validateEmail("  member@domain.test  ")).toBeUndefined()
+
+  it "enforces the name boundaries after trimming", ->
+    expect(validateName("   ")).toBe("Enter your name.")
+    expect(validateName(" A ")).toBe("Use at least 2 characters.")
+    expect(validateName("a".repeat(81))).toBe("Use no more than 80 characters.")
+    expect(validateName(" Ada ")).toBeUndefined()
+    expect(validateName("a".repeat(80))).toBeUndefined()
+
+  it "distinguishes sign-in presence from new-password length requirements", ->
+    expect(validatePasswordPresent("")).toBe("Enter your password.")
+    expect(validatePasswordPresent("short")).toBeUndefined()
+    expect(validatePassword("")).toBe("Enter your password.")
+    expect(validatePassword("a".repeat(11))).toBe("Use at least 12 characters.")
+    expect(validatePassword("a".repeat(129))).toBe("Use no more than 128 characters.")
+    expect(validatePassword("a".repeat(12))).toBeUndefined()
+    expect(validatePassword("a".repeat(128))).toBeUndefined()
+
+  it "requires a present confirmation that exactly matches", ->
+    expect(validatePasswordConfirmation("", "a".repeat(12))).toBe(
+      "Confirm your password.",
+    )
+    expect(validatePasswordConfirmation("different-password", "a".repeat(12))).toBe(
+      "Passwords do not match.",
+    )
+    expect(validatePasswordConfirmation("a".repeat(12), "a".repeat(12))).toBeUndefined()
 
 describe "typed auth operations", ->
   it "signs in through Better Auth and returns only the sanitized local destination", async ->
@@ -202,6 +316,27 @@ describe "typed auth operations", ->
     })
     expect(resetPassword).not.toHaveBeenCalled()
 
+    for (const malformedToken of [
+      "short",
+      "a".repeat(15),
+      "a".repeat(4097),
+      "token with spaces",
+      "tökén-value-that-is-long-enough",
+    ]) {
+      await expect(
+        submitResetPassword(client, {
+          token: malformedToken,
+          newPassword: "NewCorrectHorseBatteryStaple!84",
+        }),
+      ).resolves.toEqual({
+        status: "error",
+        message: "This password reset link is invalid or has expired.",
+        actionHref: "/forgot-password",
+        actionLabel: "Request a new link",
+      })
+    }
+    expect(resetPassword).not.toHaveBeenCalled()
+
     const invalidClient = authClient({
       resetPassword: vi.fn().mockResolvedValue({
         data: null,
@@ -238,6 +373,109 @@ describe "typed auth operations", ->
     })
     expect(JSON.stringify(result)).not.toContain(token)
     expect([consoleLog, consoleWarn, consoleError].flatMap((spy) => spy.mock.calls)).toEqual([])
+
+  it "distinguishes deactivated, rejected, and unreachable sign-in attempts", async ->
+    const input = {
+      email: "member@domain.test",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "/dashboard",
+    }
+    await expect(
+      submitSignIn(
+        authClient({
+          signInEmail: vi.fn().mockResolvedValue({
+            data: null,
+            error: { code: "ACCOUNT_DEACTIVATED", message: "private provider detail" },
+          }),
+        }),
+        input,
+      ),
+    ).resolves.toEqual({
+      status: "error",
+      message: "This account is unavailable. Contact the project administrator.",
+    })
+    await expect(
+      submitSignIn(
+        authClient({
+          signInEmail: vi.fn().mockResolvedValue({
+            data: null,
+            error: { code: "INVALID_CREDENTIALS", message: "private provider detail" },
+          }),
+        }),
+        input,
+      ),
+    ).resolves.toEqual({
+      status: "error",
+      message: "The email or password was not accepted. Check both fields and try again.",
+      actionHref: "/forgot-password",
+      actionLabel: "Reset your password",
+    })
+    await expect(
+      submitSignIn(
+        authClient({
+          signInEmail: vi.fn().mockRejectedValue(new Error("network details")),
+        }),
+        input,
+      ),
+    ).resolves.toEqual({
+      status: "error",
+      message: "We could not complete the request. Check your connection and try again.",
+    })
+
+  it "keeps account-email provider denials and transport failures generic", async ->
+    const providerDenial = {
+      data: null,
+      error: { code: "PROVIDER_FAILURE", message: "private provider detail" },
+    }
+    const deniedClient = authClient({
+      signUpEmail: vi.fn().mockResolvedValue(providerDenial),
+      requestPasswordReset: vi.fn().mockResolvedValue(providerDenial),
+      sendVerificationEmail: vi.fn().mockResolvedValue(providerDenial),
+    })
+    const connectionFailure = {
+      status: "error",
+      message: "We could not complete the request. Check your connection and try again.",
+    }
+
+    await expect(
+      submitSignUp(deniedClient, {
+        name: "Member Example",
+        email: "member@domain.test",
+        password: "CorrectHorseBatteryStaple!42",
+      }),
+    ).resolves.toEqual(connectionFailure)
+    await expect(
+      submitForgotPassword(deniedClient, "member@domain.test"),
+    ).resolves.toEqual(connectionFailure)
+    await expect(
+      submitVerificationEmail(deniedClient, "member@domain.test"),
+    ).resolves.toEqual(connectionFailure)
+
+    const offlineClient = authClient({
+      signUpEmail: vi.fn().mockRejectedValue(new Error("offline")),
+      requestPasswordReset: vi.fn().mockRejectedValue(new Error("offline")),
+      sendVerificationEmail: vi.fn().mockRejectedValue(new Error("offline")),
+      resetPassword: vi.fn().mockRejectedValue(new Error("offline")),
+    })
+    await expect(
+      submitSignUp(offlineClient, {
+        name: "Member Example",
+        email: "member@domain.test",
+        password: "CorrectHorseBatteryStaple!42",
+      }),
+    ).resolves.toEqual(connectionFailure)
+    await expect(
+      submitForgotPassword(offlineClient, "member@domain.test"),
+    ).resolves.toEqual(connectionFailure)
+    await expect(
+      submitVerificationEmail(offlineClient, "member@domain.test"),
+    ).resolves.toEqual(connectionFailure)
+    await expect(
+      submitResetPassword(offlineClient, {
+        token: "one-time-reset-token",
+        newPassword: "NewCorrectHorseBatteryStaple!84",
+      }),
+    ).resolves.toEqual(connectionFailure)
 
 describe "PasswordField accessibility", ->
   it "renders a labeled password input and a 44px visibility control", ->

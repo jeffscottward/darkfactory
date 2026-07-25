@@ -1,0 +1,697 @@
+import type { ReactElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const reactHarness = vi.hoisted(() => {
+  type Effect = () => void | (() => void)
+  type Setter = (next: unknown) => void
+  type StatePair = readonly [unknown, Setter]
+
+  let cursor = 0
+  let effects: Effect[] = []
+  let pairs: StatePair[] = []
+
+  return {
+    begin: (nextPairs: readonly StatePair[]): void => {
+      cursor = 0
+      effects = []
+      pairs = [...nextPairs]
+    },
+    reset: (): void => {
+      cursor = 0
+      effects = []
+      pairs = []
+    },
+    runEffect: (index = 0): (() => void) | undefined => {
+      const cleanup = effects[index]?.()
+      return typeof cleanup === "function" ? cleanup : undefined
+    },
+    useEffect: (effect: Effect, _deps?: readonly unknown[]): void => {
+      effects.push(effect)
+    },
+    useState: <Value>(
+      initializer: Value | (() => Value),
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+      const injected = pairs[cursor++]
+      if (injected !== undefined) {
+        return injected as unknown as readonly [
+          Value,
+          (next: Value | ((current: Value) => Value)) => void,
+        ]
+      }
+      let current = typeof initializer === "function"
+        ? (initializer as () => Value)()
+        : initializer
+      return [
+        current,
+        (next) => {
+          current = typeof next === "function"
+            ? (next as (value: Value) => Value)(current)
+            : next
+        },
+      ]
+    },
+  }
+})
+
+const formHarness = vi.hoisted(() => {
+  type Values = Record<string, string>
+  type State = {
+    values: Values
+    isValid: boolean
+    canSubmit: boolean
+    isSubmitting: boolean
+  }
+  type Setup = Partial<Omit<State, "values">> & {
+    values?: Values
+    handleSubmit?: () => Promise<void>
+  }
+  type Options = {
+    defaultValues: Values
+    onSubmit: (input: { value: Values }) => Promise<void> | void
+  }
+
+  const Field = (_props: unknown): null => null
+  const Subscribe = (_props: unknown): null => null
+  let currentOptions: Options | undefined
+  let handleSubmit = async (): Promise<void> => undefined
+  let state: State = {
+    values: {},
+    isValid: true,
+    canSubmit: true,
+    isSubmitting: false,
+  }
+
+  const begin = (setup: Setup = {}): void => {
+    currentOptions = undefined
+    handleSubmit = setup.handleSubmit ?? (async () => undefined)
+    state = {
+      values: setup.values ?? {},
+      isValid: setup.isValid ?? true,
+      canSubmit: setup.canSubmit ?? true,
+      isSubmitting: setup.isSubmitting ?? false,
+    }
+  }
+
+  return {
+    Field,
+    Subscribe,
+    begin,
+    options: (): Options => {
+      if (currentOptions === undefined) throw new Error("Expected useForm to be called")
+      return currentOptions
+    },
+    reset: (): void => begin(),
+    state: (): State => state,
+    useForm: (options: Options) => {
+      currentOptions = options
+      state.values = { ...options.defaultValues, ...state.values }
+      return {
+        Field,
+        Subscribe,
+        state,
+        handleSubmit: () => handleSubmit(),
+      }
+    },
+  }
+})
+
+const navigationHarness = vi.hoisted(() => ({ replace: vi.fn() }))
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useEffect: reactHarness.useEffect,
+    useState: reactHarness.useState,
+  }
+})
+vi.mock("@tanstack/react-form", () => ({ useForm: formHarness.useForm }))
+vi.mock("next/navigation", () => ({ useRouter: () => navigationHarness }))
+vi.mock("next/link", () => ({ default: "a" }))
+
+import {
+  SAFE_ACCOUNT_EMAIL_MESSAGE,
+  type AuthFlowClient,
+  type AuthFlowResult,
+} from "./auth-flow.civet"
+import { FormStatus } from "./form-status.civet"
+import { ResetPasswordForm } from "./reset-password-form.civet"
+import { SignUpForm } from "./sign-up-form.civet"
+
+type ElementRecord = Readonly<{
+  type: unknown
+  props: Record<string, unknown>
+}>
+
+type TextChangeEvent = Readonly<{
+  target: Readonly<{ value: string }>
+}>
+
+type FieldRenderInput = Readonly<{
+  handleBlur: () => void
+  handleChange: (value: string) => void
+  name: string
+  state: Readonly<{
+    meta: Readonly<{
+      errors: readonly unknown[]
+      isTouched: boolean
+    }>
+    value: string
+  }>
+}>
+
+type StringValidator = (input: Readonly<{ value: string }>) => string | undefined
+
+type FieldValidators = Readonly<{
+  onBlur?: StringValidator
+  onChange?: StringValidator
+  onSubmit?: StringValidator
+}>
+
+type FocusTarget = Readonly<{ focus: () => void }>
+type QuerySelector = (selector: string) => FocusTarget | null
+
+type FormSubmitEvent = Readonly<{
+  currentTarget: Readonly<{ querySelector: QuerySelector }>
+  preventDefault: () => void
+}>
+
+type SubmissionSelection = boolean | readonly [boolean, boolean]
+type SubmissionSelector = (
+  state: ReturnType<typeof formHarness.state>,
+) => SubmissionSelection
+type SubmissionRender = (selected: SubmissionSelection) => unknown
+
+type FormSetup = Parameters<typeof formHarness.begin>[0]
+
+const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
+  signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  signUpEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  requestPasswordReset: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  resetPassword: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  sendVerificationEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
+  ...overrides,
+})
+
+const deferred = <Value>() => {
+  let resolvePromise = (_value: Value): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve
+  })
+  return { promise, resolve: resolvePromise }
+}
+
+const textOf = (node: unknown): string => {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (typeof node !== "object" || node === null) return ""
+  const props = Reflect.get(node, "props")
+  if (typeof props !== "object" || props === null) return ""
+  return textOf(Reflect.get(props, "children"))
+}
+
+const findElement = (
+  tree: unknown,
+  predicate: (element: ElementRecord) => boolean,
+): ElementRecord | undefined => {
+  const seen = new WeakSet<object>()
+  const visit = (node: unknown): ElementRecord | undefined => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = visit(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return undefined
+    const element = node as ElementRecord
+    if (predicate(element)) return element
+    for (const value of Object.values(element.props)) {
+      const found = visit(value)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  return visit(tree)
+}
+
+const requiredElement = (
+  tree: unknown,
+  predicate: (element: ElementRecord) => boolean,
+  description: string,
+): ElementRecord => {
+  const element = findElement(tree, predicate)
+  expect(element, `Expected ${description}`).toBeDefined()
+  return element!
+}
+
+const fieldElement = (tree: unknown, name: string): ElementRecord => (
+  requiredElement(
+    tree,
+    (element) => element.type === formHarness.Field && element.props["name"] === name,
+    `field ${name}`,
+  )
+)
+
+const fieldView = (
+  tree: unknown,
+  name: string,
+  value: string,
+  errors: readonly unknown[] = [],
+  isTouched = false,
+) => {
+  const field = fieldElement(tree, name)
+  const render = field.props["children"]
+  expect(render).toBeTypeOf("function")
+  const handleBlur = vi.fn()
+  const handleChange = vi.fn()
+  const view = (render as (field: FieldRenderInput) => unknown)({
+    name,
+    state: { value, meta: { errors, isTouched } },
+    handleBlur,
+    handleChange,
+  })
+  return { handleBlur, handleChange, view }
+}
+
+const controlById = (tree: unknown, id: string): ElementRecord => (
+  requiredElement(tree, (element) => element.props["id"] === id, `control #${id}`)
+)
+
+const buttonView = (tree: unknown): ElementRecord => {
+  const subscription = requiredElement(
+    tree,
+    (element) => element.type === formHarness.Subscribe,
+    "form submission state",
+  )
+  const selector = subscription.props["selector"] as SubmissionSelector
+  const render = subscription.props["children"] as SubmissionRender
+  const selected = selector(formHarness.state())
+  return requiredElement(
+    render(selected),
+    (element) => element.props["type"] === "submit",
+    "submit button",
+  )
+}
+
+const markup = (tree: unknown): string => renderToStaticMarkup(tree as ReactElement)
+
+const flushMicrotasks = async (): Promise<void> ->
+  await Promise.resolve()
+  await Promise.resolve()
+
+const mountSignUp = ({
+  auth = authClient(),
+  result = null,
+  isPending = false,
+  form = {},
+}: {
+  auth?: AuthFlowClient
+  result?: AuthFlowResult | null
+  isPending?: boolean
+  form?: FormSetup
+} = {}) => {
+  const setResult = vi.fn()
+  const setIsPending = vi.fn()
+  reactHarness.begin([
+    [result, setResult],
+    [isPending, setIsPending],
+  ])
+  formHarness.begin(form)
+  return {
+    setIsPending,
+    setResult,
+    tree: SignUpForm({ auth }),
+  }
+}
+
+const mountReset = ({
+  auth = authClient(),
+  result = null,
+  isPending = false,
+  form = {},
+  token = "one-time-reset-token",
+}: {
+  auth?: AuthFlowClient
+  result?: AuthFlowResult | null
+  isPending?: boolean
+  form?: FormSetup
+  token?: string | undefined
+} = {}) => {
+  const setResult = vi.fn()
+  const setIsPending = vi.fn()
+  reactHarness.begin([
+    [result, setResult],
+    [isPending, setIsPending],
+  ])
+  formHarness.begin(form)
+  return {
+    setIsPending,
+    setResult,
+    tree: ResetPasswordForm({ auth, token }),
+  }
+}
+
+const submitRootForm = async (
+  tree: unknown,
+  querySelector: QuerySelector,
+): Promise<() => void> => {
+  const form = requiredElement(tree, (element) => element.type === "form", "form")
+  const preventDefault = vi.fn()
+  const onSubmit = form.props["onSubmit"] as (event: FormSubmitEvent) => void
+  onSubmit({ currentTarget: { querySelector }, preventDefault })
+  await flushMicrotasks()
+  expect(preventDefault).toHaveBeenCalledOnce()
+  return preventDefault
+}
+
+afterEach ->
+  reactHarness.reset()
+  formHarness.reset()
+  vi.clearAllMocks()
+
+describe "SignUpForm", ->
+  it "exposes accessible errors, delegates every validator, and clears stale server feedback on edits", ->
+    const serverError: AuthFlowResult = {
+      status: "error",
+      message: "We could not complete the request.",
+    }
+    const { setResult, tree } = mountSignUp({
+      result: serverError,
+      form: { values: { password: "a".repeat(12) } },
+    })
+    const status = requiredElement(
+      tree,
+      (element) => element.type === FormStatus,
+      "form status",
+    )
+    expect(status.props["result"]).toBe(serverError)
+
+    const cases = [
+      ["name", "sign-up-name", "Enter your name."],
+      ["email", "sign-up-email", "Enter a valid email address."],
+      ["password", "sign-up-password", "Use at least 12 characters."],
+      ["confirmPassword", "sign-up-confirm-password", "Passwords do not match."],
+    ] as const
+    for (const [name, id, message] of cases) {
+      const untouched = fieldView(tree, name, "", [new Error("ignored"), message])
+      expect(markup(untouched.view)).not.toContain(message)
+
+      const touched = fieldView(tree, name, "", [new Error("ignored"), message], true)
+      const html = markup(touched.view)
+      expect(html).toContain(message)
+      expect(html).toContain('aria-invalid="true"')
+      expect(html).toContain('role="alert"')
+
+      const control = controlById(touched.view, id)
+      ;(control.props["onChange"] as (event: TextChangeEvent) => void)({
+        target: { value: `${name}-value` },
+      })
+      ;(control.props["onBlur"] as () => void)()
+      expect(touched.handleChange).toHaveBeenCalledWith(`${name}-value`)
+      expect(touched.handleBlur).toHaveBeenCalledOnce()
+    }
+    expect(setResult).toHaveBeenCalledTimes(cases.length)
+    expect(setResult).toHaveBeenCalledWith(null)
+
+    const validators = (name: string): FieldValidators => (
+      fieldElement(tree, name).props["validators"] as FieldValidators
+    )
+    expect(validators("name")["onBlur"]?.({ value: " " })).toBe("Enter your name.")
+    expect(validators("name")["onSubmit"]?.({ value: "Ada" })).toBeUndefined()
+    expect(validators("email")["onBlur"]?.({ value: "invalid" })).toBe(
+      "Enter a valid email address.",
+    )
+    expect(validators("email")["onSubmit"]?.({ value: "member@domain.test" })).toBeUndefined()
+    expect(validators("password")["onBlur"]?.({ value: "short" })).toBe(
+      "Use at least 12 characters.",
+    )
+    expect(validators("password")["onSubmit"]?.({ value: "a".repeat(12) })).toBeUndefined()
+    expect(validators("confirmPassword")["onChange"]?.({ value: "different-value" })).toBe(
+      "Passwords do not match.",
+    )
+    expect(validators("confirmPassword")["onSubmit"]?.({ value: "a".repeat(12) })).toBeUndefined()
+
+  it "focuses the first invalid control after submission and tolerates a missing focus target", async ->
+    const focus = vi.fn()
+    const querySelector: QuerySelector = vi.fn(() => ({ focus }))
+    await submitRootForm(
+      mountSignUp({ form: { isValid: false } }).tree,
+      querySelector,
+    )
+    expect(querySelector).toHaveBeenCalledWith('[aria-invalid="true"]')
+    expect(focus).toHaveBeenCalledOnce()
+
+    const missingControl: QuerySelector = vi.fn(() => null)
+    await submitRootForm(
+      mountSignUp({ form: { isValid: false } }).tree,
+      missingControl,
+    )
+    expect(missingControl).toHaveBeenCalledOnce()
+
+    const validQuery: QuerySelector = vi.fn()
+    await submitRootForm(
+      mountSignUp({ form: { isValid: true } }).tree,
+      validQuery,
+    )
+    expect(validQuery).not.toHaveBeenCalled()
+
+  it "moves from pending to safe success or denial feedback without leaking provider details", async ->
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
+    const signUpEmail = vi.fn(() => gate.promise)
+    const success = mountSignUp({ auth: authClient({ signUpEmail }) })
+    const successSubmission = formHarness.options().onSubmit({
+      value: {
+        name: "  Member Example  ",
+        email: "  MEMBER@DOMAIN.TEST  ",
+        password: "CorrectHorseBatteryStaple!42",
+        confirmPassword: "CorrectHorseBatteryStaple!42",
+      },
+    })
+    expect(success.setResult).toHaveBeenCalledWith(null)
+    expect(success.setIsPending).toHaveBeenCalledWith(true)
+    gate.resolve({ data: { user: { id: "user-1" } }, error: null })
+    await successSubmission
+    expect(signUpEmail).toHaveBeenCalledWith({
+      name: "Member Example",
+      email: "member@domain.test",
+      password: "CorrectHorseBatteryStaple!42",
+      callbackURL: "/verify-email?verified=1",
+    })
+    expect(success.setResult).toHaveBeenLastCalledWith({
+      status: "success",
+      message: SAFE_ACCOUNT_EMAIL_MESSAGE,
+    })
+    expect(success.setIsPending).toHaveBeenLastCalledWith(false)
+
+    const denial = mountSignUp({
+      auth: authClient({
+        signUpEmail: vi.fn().mockResolvedValue({
+          data: null,
+          error: { code: "EMAIL_TAKEN", message: "private provider detail" },
+        }),
+      }),
+    })
+    await formHarness.options().onSubmit({
+      value: {
+        name: "Member Example",
+        email: "member@domain.test",
+        password: "CorrectHorseBatteryStaple!42",
+        confirmPassword: "CorrectHorseBatteryStaple!42",
+      },
+    })
+    expect(denial.setResult).toHaveBeenLastCalledWith({
+      status: "error",
+      message: "We could not complete the request. Check your connection and try again.",
+    })
+    expect(denial.setIsPending).toHaveBeenLastCalledWith(false)
+
+  it "disables controls and names every idle, submitting, and pending state truthfully", ->
+    const idle = mountSignUp()
+    expect(buttonView(idle.tree).props["disabled"]).toBe(false)
+    expect(textOf(buttonView(idle.tree))).toBe("Create account")
+
+    const submitting = mountSignUp({ form: { isSubmitting: true } })
+    expect(buttonView(submitting.tree).props["disabled"]).toBe(true)
+    expect(textOf(buttonView(submitting.tree))).toBe("Creating account…")
+
+    const pending = mountSignUp({ isPending: true })
+    expect(buttonView(pending.tree).props["disabled"]).toBe(true)
+    expect(textOf(buttonView(pending.tree))).toBe("Creating account…")
+    expect(controlById(fieldView(pending.tree, "name", "").view, "sign-up-name").props["disabled"]).toBe(true)
+
+describe "ResetPasswordForm", ->
+  it "renders malformed or missing tokens only as an alert with a recovery action", ->
+    reactHarness.begin([])
+    formHarness.begin()
+    const html = markup(ResetPasswordForm({ auth: authClient(), token: undefined }))
+    expect(html).toContain('role="alert"')
+    expect(html).toContain("This password reset link is invalid or has expired.")
+    expect(html).toContain('href="/forgot-password"')
+    expect(html).not.toContain('name="newPassword"')
+
+  it "validates both password fields accessibly and clears stale server feedback on edits", ->
+    const { setResult, tree } = mountReset({
+      result: {
+        status: "error",
+        message: "This password reset link is invalid or has expired.",
+      },
+      form: { values: { newPassword: "a".repeat(12) } },
+    })
+    const cases = [
+      ["newPassword", "reset-new-password", "Use at least 12 characters."],
+      ["confirmPassword", "reset-confirm-password", "Passwords do not match."],
+    ] as const
+    for (const [name, id, message] of cases) {
+      expect(markup(fieldView(tree, name, "", [null, message]).view)).not.toContain(message)
+      const touched = fieldView(tree, name, "", [null, message], true)
+      const html = markup(touched.view)
+      expect(html).toContain(message)
+      expect(html).toContain('aria-invalid="true"')
+      expect(html).toContain('role="alert"')
+      const control = controlById(touched.view, id)
+      ;(control.props["onChange"] as (event: TextChangeEvent) => void)({
+        target: { value: `${name}-value` },
+      })
+      ;(control.props["onBlur"] as () => void)()
+      expect(touched.handleChange).toHaveBeenCalledWith(`${name}-value`)
+      expect(touched.handleBlur).toHaveBeenCalledOnce()
+    }
+    expect(setResult).toHaveBeenCalledTimes(cases.length)
+    expect(setResult).toHaveBeenCalledWith(null)
+
+    const validators = (name: string): FieldValidators => (
+      fieldElement(tree, name).props["validators"] as FieldValidators
+    )
+    expect(validators("newPassword")["onChange"]?.({ value: "short" })).toBe(
+      "Use at least 12 characters.",
+    )
+    expect(validators("newPassword")["onBlur"]?.({ value: "a".repeat(12) })).toBeUndefined()
+    expect(validators("newPassword")["onSubmit"]?.({ value: "a".repeat(129) })).toBe(
+      "Use no more than 128 characters.",
+    )
+    expect(validators("confirmPassword")["onChange"]?.({ value: "different" })).toBe(
+      "Passwords do not match.",
+    )
+    expect(validators("confirmPassword")["onBlur"]?.({ value: "a".repeat(12) })).toBeUndefined()
+    expect(validators("confirmPassword")["onSubmit"]?.({ value: "" })).toBe(
+      "Confirm your password.",
+    )
+
+  it "focuses invalid reset input after submission and skips focus work for a valid form", async ->
+    const focus = vi.fn()
+    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }))
+    await submitRootForm(
+      mountReset({ form: { isValid: false } }).tree,
+      invalidQuery,
+    )
+    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]')
+    expect(focus).toHaveBeenCalledOnce()
+
+    const missingControl: QuerySelector = vi.fn(() => null)
+    await submitRootForm(
+      mountReset({ form: { isValid: false } }).tree,
+      missingControl,
+    )
+    expect(missingControl).toHaveBeenCalledOnce()
+
+    const validQuery: QuerySelector = vi.fn()
+    await submitRootForm(
+      mountReset({ form: { isValid: true } }).tree,
+      validQuery,
+    )
+    expect(validQuery).not.toHaveBeenCalled()
+
+  it "redirects only after a successful reset and renders a denied token as recovery", async ->
+    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const success = mountReset({ auth: authClient({ resetPassword }) })
+    await formHarness.options().onSubmit({
+      value: {
+        newPassword: "NewCorrectHorseBatteryStaple!84",
+        confirmPassword: "NewCorrectHorseBatteryStaple!84",
+      },
+    })
+    expect(success.setResult).toHaveBeenNthCalledWith(1, null)
+    expect(success.setIsPending).toHaveBeenNthCalledWith(1, true)
+    expect(resetPassword).toHaveBeenCalledWith({
+      token: "one-time-reset-token",
+      newPassword: "NewCorrectHorseBatteryStaple!84",
+    })
+    expect(success.setResult).toHaveBeenLastCalledWith({
+      status: "success",
+      destination: "/sign-in?reset=1",
+    })
+    expect(navigationHarness.replace).toHaveBeenCalledWith("/sign-in?reset=1")
+    expect(success.setIsPending).toHaveBeenLastCalledWith(false)
+
+    navigationHarness.replace.mockClear()
+    const denied = mountReset({
+      auth: authClient({
+        resetPassword: vi.fn().mockResolvedValue({
+          data: null,
+          error: { code: "INVALID_TOKEN", message: "private provider detail" },
+        }),
+      }),
+    })
+    await formHarness.options().onSubmit({
+      value: {
+        newPassword: "NewCorrectHorseBatteryStaple!84",
+        confirmPassword: "NewCorrectHorseBatteryStaple!84",
+      },
+    })
+    expect(denied.setResult).toHaveBeenLastCalledWith({
+      status: "error",
+      message: "This password reset link is invalid or has expired.",
+      actionHref: "/forgot-password",
+      actionLabel: "Request a new link",
+    })
+    expect(navigationHarness.replace).not.toHaveBeenCalled()
+    expect(denied.setIsPending).toHaveBeenLastCalledWith(false)
+
+  it "suppresses redirect and state commits when an in-flight reset form unmounts", async ->
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
+    const mounted = mountReset({
+      auth: authClient({ resetPassword: vi.fn(() => gate.promise) }),
+    })
+    const cleanup = reactHarness.runEffect()
+    expect(cleanup).toBeTypeOf("function")
+    const submission = formHarness.options().onSubmit({
+      value: {
+        newPassword: "NewCorrectHorseBatteryStaple!84",
+        confirmPassword: "NewCorrectHorseBatteryStaple!84",
+      },
+    })
+    cleanup?.()
+    gate.resolve({ data: {}, error: null })
+    await submission
+
+    expect(mounted.setResult).toHaveBeenCalledOnce()
+    expect(mounted.setResult).toHaveBeenCalledWith(null)
+    expect(mounted.setIsPending).toHaveBeenCalledOnce()
+    expect(mounted.setIsPending).toHaveBeenCalledWith(true)
+    expect(navigationHarness.replace).not.toHaveBeenCalled()
+
+  it "disables reset controls for invalid, submitting, and pending states", ->
+    const ready = mountReset()
+    expect(buttonView(ready.tree).props["disabled"]).toBe(false)
+    expect(textOf(buttonView(ready.tree))).toBe("Update password")
+
+    const invalid = mountReset({ form: { canSubmit: false } })
+    expect(buttonView(invalid.tree).props["disabled"]).toBe(true)
+    expect(textOf(buttonView(invalid.tree))).toBe("Update password")
+
+    const submitting = mountReset({ form: { isSubmitting: true } })
+    expect(buttonView(submitting.tree).props["disabled"]).toBe(true)
+    expect(textOf(buttonView(submitting.tree))).toBe("Updating password…")
+
+    const pending = mountReset({ isPending: true })
+    expect(buttonView(pending.tree).props["disabled"]).toBe(true)
+    expect(textOf(buttonView(pending.tree))).toBe("Updating password…")
+    expect(controlById(fieldView(pending.tree, "newPassword", "").view, "reset-new-password").props["disabled"]).toBe(true)

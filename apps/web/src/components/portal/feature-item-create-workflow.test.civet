@@ -1,0 +1,535 @@
+import type { FeatureItemOutput } from "@darkfactory/api"
+import type { ReactElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const hookRuntime = vi.hoisted(() => {
+  type Effect = () => void | (() => void)
+  type EffectSlot = {
+    cleanup?: (() => void) | undefined
+    deps: readonly unknown[] | undefined
+  }
+  type PendingEffect = {
+    deps: readonly unknown[] | undefined
+    effect: Effect
+    index: number
+  }
+
+  const stateSlots: Array<{ value: unknown }> = []
+  const refSlots: Array<{ current: unknown }> = []
+  const effectSlots: EffectSlot[] = []
+  const storeCleanups: Array<(() => void) | undefined> = []
+  const pendingEffects: PendingEffect[] = []
+  const focusHistory: string[] = []
+  let stateCursor = 0
+  let refCursor = 0
+  let effectCursor = 0
+  let storeCursor = 0
+
+  const dependenciesChanged = (
+    previous: readonly unknown[] | undefined,
+    next: readonly unknown[] | undefined,
+  ): boolean => (
+    previous === undefined
+    || next === undefined
+    || previous.length !== next.length
+    || previous.some((value, index) => !Object.is(value, next[index]))
+  )
+
+  const textOf = (node: unknown): string => {
+    if (typeof node === "string" || typeof node === "number") return String(node)
+    if (Array.isArray(node)) return node.map(textOf).join("")
+    if (typeof node !== "object" || node === null) return ""
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return ""
+    return textOf(Reflect.get(props, "children"))
+  }
+
+  const visitElements = (
+    node: unknown,
+    visit: (element: Readonly<{ props: Record<string, unknown> }>) => void,
+    seen = new WeakSet<object>(),
+  ): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        visitElements(child, visit, seen)
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return
+    const element = node as Readonly<{ props: Record<string, unknown> }>
+    visit(element)
+    for (const value of Object.values(element.props)) visitElements(value, visit, seen)
+  }
+
+  const assignRefs = (tree: unknown): void => {
+    visitElements(tree, (element) => {
+      const ref = element.props["ref"]
+      if (typeof ref !== "object" || ref === null || !("current" in ref)) return
+      const label = typeof element.props["id"] === "string"
+        ? element.props["id"]
+        : textOf(element).replace(/\s+/gu, " ").trim() || "unlabeled"
+      Reflect.set(ref, "current", {
+        focus: () => focusHistory.push(label),
+      })
+    })
+  }
+
+  return {
+    begin: () => {
+      stateCursor = 0
+      refCursor = 0
+      effectCursor = 0
+      storeCursor = 0
+      pendingEffects.length = 0
+    },
+    commit: (tree: unknown) => {
+      assignRefs(tree)
+      for (const pending of pendingEffects.splice(0)) {
+        effectSlots[pending.index]?.cleanup?.()
+        const cleanup = pending.effect()
+        effectSlots[pending.index] = {
+          cleanup: typeof cleanup === "function" ? cleanup : undefined,
+          deps: pending.deps,
+        }
+      }
+    },
+    lastFocus: (): string | undefined => focusHistory.at(-1),
+    reset: () => {
+      for (const slot of effectSlots) slot.cleanup?.()
+      for (const cleanup of storeCleanups) cleanup?.()
+      stateSlots.length = 0
+      refSlots.length = 0
+      effectSlots.length = 0
+      storeCleanups.length = 0
+      pendingEffects.length = 0
+      focusHistory.length = 0
+      stateCursor = 0
+      refCursor = 0
+      effectCursor = 0
+      storeCursor = 0
+    },
+    useCallback: <Callback>(callback: Callback): Callback => callback,
+    useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+      const index = effectCursor++
+      const previous = effectSlots[index]
+      if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
+        pendingEffects.push({ deps, effect, index })
+      }
+    },
+    useRef: <Value>(initialValue: Value): { current: Value } => {
+      const index = refCursor++
+      refSlots[index] ??= { current: initialValue }
+      return refSlots[index] as { current: Value }
+    },
+    useState: <Value>(
+      initializer: Value | (() => Value),
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+      const index = stateCursor++
+      stateSlots[index] ??= {
+        value: typeof initializer === "function"
+          ? (initializer as () => Value)()
+          : initializer,
+      }
+      const slot = stateSlots[index]!
+      return [
+        slot.value as Value,
+        (next) => {
+          slot.value = typeof next === "function"
+            ? (next as (current: Value) => Value)(slot.value as Value)
+            : next
+        },
+      ]
+    },
+    useSyncExternalStore: <Snapshot>(
+      subscribe: (notify: () => void) => () => void,
+      getSnapshot: () => Snapshot,
+      _getServerSnapshot?: () => Snapshot,
+    ): Snapshot => {
+      const index = storeCursor++
+      storeCleanups[index] ??= subscribe(() => undefined)
+      return getSnapshot()
+    },
+  }
+})
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useCallback: hookRuntime.useCallback,
+    useEffect: hookRuntime.useEffect,
+    useRef: hookRuntime.useRef,
+    useState: hookRuntime.useState,
+    useSyncExternalStore: hookRuntime.useSyncExternalStore,
+  }
+})
+
+import {
+  FeatureItemCreateWorkflow,
+} from "./feature-item-create-workflow.civet"
+import type { FeatureItemGateway } from "./feature-items-client.civet"
+
+type ElementRecord = Readonly<{ props: Record<string, unknown> }>
+
+const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
+  id: "item-1",
+  name: "Created item",
+  description: "Stored description",
+  status: "draft",
+  metadata: {},
+  ownerId: "user-1",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  ...overrides,
+})
+
+const gatewayWith = (overrides: Partial<FeatureItemGateway> = {}): FeatureItemGateway => ({
+  list: vi.fn(async () => []),
+  get: vi.fn(async () => item()),
+  create: vi.fn(async (input) => item({ name: input.name, description: input.description })),
+  update: vi.fn(async (_id, input) => item(input)),
+  changeStatus: vi.fn(async (_id, status) => item({ status })),
+  archive: vi.fn(async () => item({ status: "archived" })),
+  ...overrides,
+})
+
+const deferred = <Value>() => {
+  let resolvePromise = (_value: Value): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  let rejectPromise = (_reason: unknown): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  const promise = new Promise<Value>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
+  })
+  return { promise, reject: rejectPromise, resolve: resolvePromise }
+}
+
+const textOf = (node: unknown): string => {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (typeof node !== "object" || node === null) return ""
+  const props = Reflect.get(node, "props")
+  if (typeof props !== "object" || props === null) return ""
+  return textOf(Reflect.get(props, "children"))
+}
+
+const findElement = (
+  tree: unknown,
+  predicate: (element: ElementRecord) => boolean,
+): ElementRecord | undefined => {
+  const seen = new WeakSet<object>()
+  const visit = (node: unknown): ElementRecord | undefined => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = visit(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return undefined
+    const element = node as ElementRecord
+    if (predicate(element)) return element
+    for (const value of Object.values(element.props)) {
+      const found = visit(value)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  return visit(tree)
+}
+
+const elementById = (tree: unknown, id: string): ElementRecord => {
+  const element = findElement(tree, (candidate) => candidate.props["id"] === id)
+  expect(element, `Expected control #${id}`).toBeDefined()
+  return element!
+}
+
+const controlByText = (tree: unknown, label: string): ElementRecord | undefined => (
+  findElement(tree, (candidate) => (
+    typeof candidate.props["onClick"] === "function"
+    && textOf(candidate).replace(/\s+/gu, " ").trim() === label
+  ))
+)
+
+const click = (tree: unknown, label: string): unknown => {
+  const control = controlByText(tree, label)
+  expect(control, `Expected control named ${label}`).toBeDefined()
+  return (control!.props["onClick"] as () => unknown)()
+}
+
+const changeValue = (tree: unknown, id: string, value: string): void => {
+  const control = elementById(tree, id)
+  expect(control.props["onChange"], `Expected #${id} to accept input`).toBeTypeOf("function")
+  const onChange = control.props["onChange"] as (event: { currentTarget: { value: string } }) => void
+  onChange({
+    currentTarget: { value },
+  })
+}
+
+const markup = (tree: unknown): string => renderToStaticMarkup(tree as ReactElement)
+
+const mountWorkflow = (gateway: FeatureItemGateway) => ({
+  render: (): ReactElement => {
+    hookRuntime.begin()
+    const tree = FeatureItemCreateWorkflow({ gateway })
+    hookRuntime.commit(tree)
+    return tree
+  },
+})
+
+const reachReview = (
+  mount: ReturnType<typeof mountWorkflow>,
+  options: Readonly<{
+    description?: string
+    name?: string
+    status?: "active" | "draft"
+  }> = {},
+): ReactElement => {
+  let tree = mount.render()
+  changeValue(tree, "feature-name", options.name ?? "Release checklist")
+  tree = mount.render()
+  changeValue(tree, "feature-description", options.description ?? "Owner-scoped details")
+  tree = mount.render()
+  click(tree, "Continue")
+  tree = mount.render()
+  changeValue(tree, "feature-status", options.status ?? "draft")
+  tree = mount.render()
+  click(tree, "Review")
+  return mount.render()
+}
+
+const flushMicrotasks = async ->
+  await Promise.resolve()
+  await Promise.resolve()
+
+afterEach(() => {
+  hookRuntime.reset()
+})
+
+describe "feature item create workflow", ->
+  it "holds empty and over-limit details at step one, accepts exact limits, and restores field focus", async ->
+    const mount = mountWorkflow(gatewayWith())
+    let tree = mount.render()
+
+    expect(markup(tree)).toContain("Step 1 of 3")
+    expect(elementById(tree, "feature-name").props["maxLength"]).toBe(200)
+    expect(elementById(tree, "feature-description").props["maxLength"]).toBe(10_000)
+
+    click(tree, "Continue")
+    await flushMicrotasks()
+    tree = mount.render()
+    expect(markup(tree)).toContain("Enter a name before continuing.")
+    expect(elementById(tree, "feature-name").props["aria-invalid"]).toBe(true)
+    expect(hookRuntime.lastFocus()).toBe("feature-name")
+
+    changeValue(tree, "feature-name", "x".repeat(201))
+    tree = mount.render()
+    click(tree, "Continue")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Step 1 of 3")
+    expect(elementById(tree, "feature-name").props["aria-invalid"]).toBe(true)
+
+    changeValue(tree, "feature-name", "n".repeat(200))
+    tree = mount.render()
+    changeValue(tree, "feature-description", "d".repeat(10_001))
+    tree = mount.render()
+    click(tree, "Continue")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Step 1 of 3")
+
+    const longDescription = "d".repeat(10_000)
+    changeValue(tree, "feature-description", longDescription)
+    tree = mount.render()
+    click(tree, "Continue")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Step 2 of 3")
+
+    click(tree, "Back")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Step 1 of 3")
+    click(tree, "Continue")
+    tree = mount.render()
+    changeValue(tree, "feature-status", "active")
+    tree = mount.render()
+    click(tree, "Review")
+    tree = mount.render()
+
+    const review = markup(tree)
+    expect(review).toContain("Step 3 of 3")
+    expect(review).toContain("n".repeat(200))
+    expect(review).toContain(longDescription)
+    expect(review).toContain("active")
+
+    click(tree, "Back")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Step 2 of 3")
+
+  it "locks duplicate creates through activation and renders submitting and final output states", async ->
+    const createRequest = deferred<FeatureItemOutput>()
+    const activationRequest = deferred<FeatureItemOutput>()
+    const create = vi.fn(() => createRequest.promise)
+    const changeStatus = vi.fn(() => activationRequest.promise)
+    const mount = mountWorkflow(gatewayWith({ create, changeStatus }))
+    let tree = reachReview(mount, {
+      description: "Visible output",
+      name: "  Trimmed item  ",
+      status: "active",
+    })
+
+    const firstSubmission = click(tree, "Create feature item") as Promise<void>
+    const duplicateSubmission = click(tree, "Create feature item") as Promise<void>
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(create).toHaveBeenCalledWith({
+      name: "Trimmed item",
+      description: "Visible output",
+    })
+    tree = mount.render()
+    const pending = markup(tree)
+    expect(pending).toContain("Saving through oRPC")
+    expect(pending).toContain("Creating feature item")
+    expect(pending).toContain("aria-busy=\"true\"")
+
+    createRequest.resolve(item({ name: "Server output", description: "Visible output" }))
+    await flushMicrotasks()
+    expect(changeStatus).toHaveBeenCalledOnce()
+    expect(changeStatus).toHaveBeenCalledWith("item-1", "active")
+
+    activationRequest.resolve(item({
+      name: "Server output",
+      description: "Visible output",
+      status: "active",
+    }))
+    await Promise.all([firstSubmission, duplicateSubmission])
+    tree = mount.render()
+
+    const completed = markup(tree)
+    expect(create).toHaveBeenCalledOnce()
+    expect(changeStatus).toHaveBeenCalledOnce()
+    expect(completed).toContain("role=\"status\"")
+    expect(completed).toContain("The feature item is ready")
+    expect(completed).toContain("View Server output")
+    expect(completed).toContain("/feature-items/item-1")
+
+  it "retries a persisted draft without creating a duplicate", async ->
+    const create = vi.fn(async () => item({ name: "Release checklist", description: "Owner-scoped details", status: "draft" }))
+    const update = vi.fn(async (_id, input) => item(input))
+    const changeStatus = vi.fn()
+      .mockRejectedValueOnce({ code: "STORAGE_ERROR" })
+      .mockResolvedValueOnce(item({ status: "active" }))
+    const mount = mountWorkflow(gatewayWith({ create, update, changeStatus }))
+    let tree = reachReview(mount, { status: "active" })
+
+    await (click(tree, "Create feature item") as Promise<void>)
+    tree = mount.render()
+    const failedActivation = markup(tree)
+    expect(failedActivation).toContain("Draft created; activation failed")
+    expect(failedActivation).toContain("The persisted draft is still available")
+    expect(failedActivation).toContain("View persisted draft")
+    expect(controlByText(tree, "Try again")).toBeDefined()
+
+    await (click(tree, "Try again") as Promise<void>)
+    tree = mount.render()
+    expect(create).toHaveBeenCalledOnce()
+    expect(update).not.toHaveBeenCalled()
+    expect(changeStatus).toHaveBeenCalledTimes(2)
+    expect(markup(tree)).toContain("The feature item is ready")
+
+  it "treats an unknown create outcome as non-retryable and directs duplicate-safe recovery", async ->
+    const create = vi.fn(async () => {
+      throw new Error("private transport detail")
+    })
+    const mount = mountWorkflow(gatewayWith({ create }))
+    let tree = reachReview(mount, { description: "" })
+    expect(markup(tree)).toContain("None provided")
+
+    await (click(tree, "Create feature item") as Promise<void>)
+    tree = mount.render()
+    const failedCreate = markup(tree)
+
+    expect(failedCreate).toContain("Creation outcome unknown")
+    expect(failedCreate).toContain("Check the feature item list before trying again to avoid a duplicate.")
+    expect(failedCreate).toContain("View feature item list")
+    expect(failedCreate).not.toContain("View persisted draft")
+    expect(controlByText(tree, "Try again")).toBeUndefined()
+    expect(create).toHaveBeenCalledOnce()
+
+  const recoveryCases = [
+    {
+      action: "Try again",
+      code: "VALIDATION_ERROR",
+      kind: "validation",
+      message: "Check the highlighted fields and try again.",
+    },
+    {
+      action: "Sign in again",
+      code: "UNAUTHORIZED",
+      kind: "unauthorized",
+      message: "Your session ended. Sign in again to continue.",
+    },
+    {
+      action: "Return to feature items",
+      code: "FORBIDDEN",
+      kind: "forbidden",
+      message: "You do not have access to that feature item.",
+    },
+    {
+      action: "Return to feature items",
+      code: "NOT_FOUND",
+      kind: "not-found",
+      message: "That feature item is no longer available.",
+    },
+    {
+      action: "Try again",
+      code: "CONFLICT",
+      kind: "conflict",
+      message: "The feature item changed elsewhere. Reload and try again.",
+    },
+    {
+      action: "Try again",
+      code: "STORAGE_ERROR",
+      kind: "transient",
+      message: "Feature item storage is temporarily unavailable. Try again.",
+    },
+  ] as const
+
+  for (const recoveryCase of recoveryCases) {
+    it `renders and honors ${recoveryCase.kind} creation recovery`, async ->
+      const create = vi.fn()
+        .mockRejectedValueOnce({ code: recoveryCase.code })
+        .mockResolvedValueOnce(item())
+      const mount = mountWorkflow(gatewayWith({ create }))
+      let tree = reachReview(mount)
+
+      await (click(tree, "Create feature item") as Promise<void>)
+      tree = mount.render()
+      const failure = markup(tree)
+
+      expect(failure).toContain("Creation was interrupted")
+      expect(failure).toContain(recoveryCase.message)
+      expect(failure).toContain(recoveryCase.action)
+
+      if (recoveryCase.kind === "unauthorized") {
+        expect(failure).toContain("/sign-in?callbackURL=%2Ffeature-items")
+      } else if (recoveryCase.kind === "forbidden" || recoveryCase.kind === "not-found") {
+        expect(failure).toContain("href=\"/feature-items\"")
+        expect(controlByText(tree, "Try again")).toBeUndefined()
+      } else {
+        expect(controlByText(tree, "Try again")).toBeDefined()
+        await (click(tree, "Try again") as Promise<void>)
+        tree = mount.render()
+        expect(markup(tree)).toContain("The feature item is ready")
+        expect(create).toHaveBeenCalledTimes(2)
+      }
+  }
+  return undefined

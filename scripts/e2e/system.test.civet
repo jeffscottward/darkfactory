@@ -1,0 +1,771 @@
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  assertOwnedLifecycleRoots,
+  createArtifactScannerDependencies,
+  createOwnedLifecyclePaths,
+  decodeOwnedRunAdoption,
+  decodeOwnedRunProof,
+  encodeOwnedRunAdoption,
+  encodeOwnedRunProof,
+  finalizeOwnedLifecycleAfterPlaywright,
+  prepareOwnedRun,
+  readOwnedLifecycleState,
+  type ArtifactScanLimits,
+  type OwnedLifecyclePaths,
+  type OwnedRunProof,
+} from "./system.civet"
+
+const proofFixture = (): OwnedRunProof => Object.freeze({
+  version: 1,
+  runId: "safe_run",
+  nonce: "n".repeat(43),
+  artifactProfile: "no-binary",
+  e2e: Object.freeze({
+    root: Object.freeze({ dev: 11, ino: 12 }),
+    marker: Object.freeze({ dev: 13, ino: 14 }),
+  }),
+  evidence: Object.freeze({
+    root: Object.freeze({ dev: 21, ino: 22 }),
+    marker: Object.freeze({ dev: 23, ino: 24 }),
+  }),
+})
+
+const encodeJson = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value), "utf8").toString("base64url")
+
+const withOwnedRun = async (
+  operation: (root: string, proof: OwnedRunProof) => Promise<void>,
+): Promise<void> => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-system-test-")))
+  try {
+    const proof = await prepareOwnedRun(root, "safe_run", "no-binary")
+    await operation(root, proof)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+const lifecycle = async (
+  root: string,
+  proof: OwnedRunProof,
+): Promise<Readonly<{
+  adoption: ReturnType<typeof decodeOwnedRunAdoption>
+  paths: OwnedLifecyclePaths
+}>> => {
+  const paths = await createOwnedLifecyclePaths(root, proof.runId)
+  const adoption = decodeOwnedRunAdoption(
+    encodeOwnedRunAdoption(proof),
+    proof.runId,
+  )
+  return Object.freeze({ adoption, paths })
+}
+
+const lifecycleStatePath = (paths: OwnedLifecyclePaths): string =>
+  join(paths.e2e, "lifecycle-state.json")
+
+const playwrightReportPath = (paths: OwnedLifecyclePaths): string =>
+  join(paths.e2e, "playwright-report.json")
+
+const writeLifecycleState = async (
+  paths: OwnedLifecyclePaths,
+  value: unknown,
+): Promise<void> => {
+  const path = lifecycleStatePath(paths)
+  await rm(path, { force: true, recursive: true })
+  await writeFile(path, `${JSON.stringify(value)}\n`, { mode: 0o600 })
+  await chmod(path, 0o600)
+}
+
+const executedReport = Object.freeze({
+  suites: [{ specs: [{ tests: [{ results: [{ status: "passed" }] }] }] }],
+})
+
+const scannerPaths = (proof: OwnedRunProof): readonly string[] => Object.freeze([
+  `test-results/e2e-runs/${proof.runId}`,
+  `test-results/evidence/${proof.runId}`,
+])
+
+const limits = (
+  overrides: Partial<ArtifactScanLimits> = {},
+): ArtifactScanLimits => Object.freeze({
+  maxEntries: 100,
+  maxEntryBytes: 1_024,
+  maxTotalBytes: 16_384,
+  maxArchives: 10,
+  maxExpandedBytes: 16_384,
+  deadlineMs: 10_000,
+  ...overrides,
+})
+
+describe("owned run capability encoding", () => {
+  it("round-trips proof and nonce-free adoption capabilities", () => {
+    const proof = proofFixture()
+
+    expect(decodeOwnedRunProof(encodeOwnedRunProof(proof))).toEqual(proof)
+    const adoption = decodeOwnedRunAdoption(
+      encodeOwnedRunAdoption(proof),
+      proof.runId,
+    )
+    expect(adoption).toMatchObject({
+      version: 1,
+      runId: proof.runId,
+      artifactProfile: proof.artifactProfile,
+      e2e: proof.e2e,
+      evidence: proof.evidence,
+    })
+    expect(adoption.nonceDigest).toMatch(/^[a-f0-9]{64}$/u)
+    expect(JSON.stringify(adoption)).not.toContain(proof.nonce)
+    expect(Object.isFrozen(adoption)).toBe(true)
+  })
+
+  it.each([
+    ["invalid transport characters", "not+base64"],
+    ["malformed JSON", Buffer.from("{", "utf8").toString("base64url")],
+    ["wrong version", encodeJson({ ...proofFixture(), version: 2 })],
+    ["unsafe run identifier", encodeJson({ ...proofFixture(), runId: "../escape" })],
+    ["short nonce", encodeJson({ ...proofFixture(), nonce: "short" })],
+    ["unknown artifact profile", encodeJson({ ...proofFixture(), artifactProfile: "all-binary" })],
+    ["missing evidence identity", encodeJson({ ...proofFixture(), evidence: undefined })],
+    ["fractional root identity", encodeJson({
+      ...proofFixture(),
+      e2e: { ...proofFixture().e2e, root: { dev: 1.5, ino: 2 } },
+    })],
+    ["missing marker inode", encodeJson({
+      ...proofFixture(),
+      evidence: {
+        ...proofFixture().evidence,
+        marker: { dev: 1 },
+      },
+    })],
+  ] as const)("rejects a proof with %s", (_case, encoded) => {
+    expect(() => decodeOwnedRunProof(encoded)).toThrow()
+  })
+
+  it("rejects mismatched, noncanonical, and overprivileged adoptions", () => {
+    const proof = proofFixture()
+    const encoded = encodeOwnedRunAdoption(proof)
+    const canonical = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8"),
+    ) as Record<string, unknown>
+
+    expect(() => decodeOwnedRunAdoption(`${encoded}=`, proof.runId)).toThrow(
+      /adoption encoding/i,
+    )
+    expect(() => decodeOwnedRunAdoption(encoded, "different_run")).toThrow(
+      /invalid owned E2E adoption/i,
+    )
+    expect(() => decodeOwnedRunAdoption(encodeJson({
+      runId: canonical["runId"],
+      version: canonical["version"],
+      artifactProfile: canonical["artifactProfile"],
+      nonceDigest: canonical["nonceDigest"],
+      e2e: canonical["e2e"],
+      evidence: canonical["evidence"],
+    }), proof.runId)).toThrow(/noncanonical/i)
+    expect(() => decodeOwnedRunAdoption(encodeJson({
+      ...canonical,
+      extraCapability: true,
+    }), proof.runId)).toThrow(/noncanonical/i)
+    expect(() => decodeOwnedRunAdoption(encodeJson({
+      ...canonical,
+      e2e: {
+        ...(canonical["e2e"] as Record<string, unknown>),
+        root: { dev: -1, ino: 12 },
+      },
+    }), proof.runId)).toThrow(/invalid owned E2E adoption/i)
+    expect(() => decodeOwnedRunAdoption(encodeJson({
+      ...canonical,
+      nonceDigest: "A".repeat(64),
+    }), proof.runId)).toThrow(/invalid owned E2E adoption/i)
+  })
+})
+
+describe("owned lifecycle filesystem contracts", () => {
+  it.each([
+    ["an unsafe run identifier", "../escape", "no-binary"],
+    ["an empty run identifier", "", "no-binary"],
+    ["an unknown artifact profile", "safe_run", "all-binary"],
+  ] as const)("rejects %s before creating owned roots", async (_case, runId, profile) => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-system-invalid-"))
+    try {
+      await expect(prepareOwnedRun(
+        root,
+        runId,
+        profile as "no-binary",
+      )).rejects.toThrow(/invalid E2E (?:run identifier|artifact profile)/i)
+      await expect(access(join(root, "test-results"))).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("creates authenticated roots and reports a missing lifecycle state", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+
+      await expect(assertOwnedLifecycleRoots(paths, adoption)).resolves.toBeUndefined()
+      await expect(readOwnedLifecycleState(paths, adoption)).resolves.toBeUndefined()
+      expect(paths).toEqual({
+        repository: root,
+        e2e: join(root, "test-results", "e2e-runs", proof.runId),
+        evidence: join(root, "test-results", "evidence", proof.runId),
+      })
+      await expect(createOwnedLifecyclePaths(root, "../escape")).rejects.toThrow(
+        /run identity is invalid/i,
+      )
+    })
+  })
+
+  it("rejects redirected directory ancestry", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-system-symlink-"))
+    try {
+      const outside = join(root, "outside")
+      await mkdir(outside)
+      await symlink(outside, join(root, "test-results"))
+
+      await expect(prepareOwnedRun(root, "safe_run", "no-binary")).rejects.toThrow(
+        /directory ancestry is unsafe/i,
+      )
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("detects a marker capability changed after adoption", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, ".darkfactory-e2e-owner.json"),
+        "{}",
+        { mode: 0o600 },
+      )
+
+      await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
+        /marker capability changed/i,
+      )
+    })
+  })
+
+  it("accepts canonical lifecycle states and rejects malformed state files", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      const valid = { version: 1, status: "stopped", stage: "server-ready" }
+      await writeLifecycleState(paths, valid)
+      await expect(readOwnedLifecycleState(paths, adoption)).resolves.toEqual(valid)
+
+      const invalidStates = [
+        "{",
+        "{}\n",
+        '{"version":2,"status":"stopped","stage":"server-ready"}\n',
+        '{"version":1,"status":"unknown","stage":"server-ready"}\n',
+        '{"version":1,"status":"stopped","stage":"unknown"}\n',
+        '{"version":1,"status":"starting","stage":"server-ready"}\n',
+        '{"version":1,"status":"ready","stage":"module-loading"}\n',
+        '{"version":1,"status":"runtime-failed","stage":"database-seed"}\n',
+        '{"status":"stopped","version":1,"stage":"server-ready"}\n',
+        '{"version":1,"status":"stopped","stage":"server-ready","extra":true}\n',
+        '{"version":1,"status":"stopped","stage":"server-ready"}',
+      ]
+      for (const content of invalidStates) {
+        await rm(lifecycleStatePath(paths), { force: true, recursive: true })
+        await writeFile(lifecycleStatePath(paths), content, { mode: 0o600 })
+        await chmod(lifecycleStatePath(paths), 0o600)
+        await expect(readOwnedLifecycleState(paths, adoption)).rejects.toThrow()
+      }
+
+      await writeLifecycleState(paths, valid)
+      await chmod(lifecycleStatePath(paths), 0o644)
+      await expect(readOwnedLifecycleState(paths, adoption)).rejects.toThrow(
+        /state file is unsafe/i,
+      )
+
+      await rm(lifecycleStatePath(paths), { force: true })
+      await mkdir(lifecycleStatePath(paths))
+      await expect(readOwnedLifecycleState(paths, adoption)).rejects.toThrow(
+        /state file is unsafe/i,
+      )
+    })
+  })
+})
+
+describe("Playwright lifecycle finalization", () => {
+  it.each([
+    [
+      "keeps state when the process tree is unproven",
+      { version: 1, status: "stopped", stage: "server-spawn" },
+      true,
+      0,
+      false,
+      { version: 1, status: "stopped", stage: "server-spawn" },
+    ],
+    [
+      "keeps state when the report is missing",
+      { version: 1, status: "stopped", stage: "server-spawn" },
+      false,
+      0,
+      true,
+      { version: 1, status: "stopped", stage: "server-spawn" },
+    ],
+    [
+      "keeps state when no journey result executed",
+      { version: 1, status: "stopped", stage: "server-spawn" },
+      "empty",
+      0,
+      true,
+      { version: 1, status: "stopped", stage: "server-spawn" },
+    ],
+    ["keeps a missing state missing", undefined, true, 1, true, undefined],
+    [
+      "keeps a non-stopped state",
+      { version: 1, status: "ready", stage: "server-ready" },
+      true,
+      1,
+      true,
+      { version: 1, status: "ready", stage: "server-ready" },
+    ],
+    [
+      "keeps a pre-server stopped stage",
+      { version: 1, status: "stopped", stage: "database-seed" },
+      true,
+      0,
+      true,
+      { version: 1, status: "stopped", stage: "database-seed" },
+    ],
+    [
+      "keeps an already clean server-ready stop",
+      { version: 1, status: "stopped", stage: "server-ready" },
+      true,
+      0,
+      true,
+      { version: 1, status: "stopped", stage: "server-ready" },
+    ],
+    [
+      "repairs a passing SIGTERM race to server-ready",
+      { version: 1, status: "stopped", stage: "server-spawn" },
+      true,
+      0,
+      true,
+      { version: 1, status: "stopped", stage: "server-ready" },
+    ],
+    [
+      "maps a failed executed journey to runtime-failed",
+      { version: 1, status: "stopped", stage: "server-probed" },
+      true,
+      1,
+      true,
+      { version: 1, status: "runtime-failed", stage: "server-probed" },
+    ],
+  ] as const)("%s", async (
+    _case,
+    current,
+    report,
+    exitCode,
+    treeTerminated,
+    expected,
+  ) => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      if (current !== undefined) await writeLifecycleState(paths, current)
+      if (report === true) {
+        await writeFile(playwrightReportPath(paths), JSON.stringify(executedReport))
+      } else if (report === "empty") {
+        await writeFile(playwrightReportPath(paths), '{"suites":[]}')
+      }
+
+      await expect(finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: encodeOwnedRunAdoption(proof),
+        exitCode,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated,
+      })).resolves.toEqual(expected)
+    })
+  })
+
+  it("rejects malformed inputs and propagates an unsafe report", async () => {
+    await expect(finalizeOwnedLifecycleAfterPlaywright({
+      encodedAdoption: "",
+      exitCode: 1.5,
+      repositoryPath: "/unused",
+      runId: "safe_run",
+      treeTerminated: true,
+    })).rejects.toThrow(/input is invalid/i)
+    await expect(finalizeOwnedLifecycleAfterPlaywright({
+      encodedAdoption: "",
+      exitCode: 1,
+      repositoryPath: "/unused",
+      runId: "safe_run",
+      treeTerminated: "yes" as never,
+    })).rejects.toThrow(/input is invalid/i)
+
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await writeFile(playwrightReportPath(paths), "{")
+
+      await expect(finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toThrow()
+    })
+  })
+})
+
+describe("artifact scanner system dependencies", () => {
+  it.each([
+    ["zero entry count", { maxEntries: 0 }],
+    ["fractional entry size", { maxEntryBytes: 1.5 }],
+    ["zero total size", { maxTotalBytes: 0 }],
+    ["zero archive count", { maxArchives: 0 }],
+    ["zero expanded size", { maxExpandedBytes: 0 }],
+    ["negative deadline", { deadlineMs: -1 }],
+    ["excessive deadline", { deadlineMs: 30_001 }],
+  ] as const)("rejects limits with %s", async (_case, overrides) => {
+    await expect(createArtifactScannerDependencies(
+      "/unused",
+      proofFixture(),
+      undefined,
+      limits(overrides),
+    )).rejects.toThrow(/scan limits are invalid/i)
+  })
+
+  it("rejects an invalid proof and scanner path list", async () => {
+    await expect(createArtifactScannerDependencies(
+      "/unused",
+      { ...proofFixture(), runId: "../escape" },
+    )).rejects.toThrow(/invalid owned E2E proof/i)
+
+    await withOwnedRun(async (root, proof) => {
+      const dependencies = await createArtifactScannerDependencies(root, proof)
+      await expect(dependencies.collectEntries([
+        `test-results/evidence/${proof.runId}`,
+        `test-results/e2e-runs/${proof.runId}`,
+      ])).rejects.toThrow(/paths do not match/i)
+      await expect(dependencies.purgeOwnedRun("another_run")).rejects.toThrow(
+        /proof does not match run/i,
+      )
+    })
+  })
+
+  it("collects stable text, unsupported bytes, and a strict PNG", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.e2e, "note.txt"), "public evidence")
+      await writeFile(join(paths.evidence, "opaque.bin"), Buffer.from([0xff, 0x00]))
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAbitOmMAAAAASUVORK5CYII=",
+        "base64",
+      )
+      await writeFile(join(paths.evidence, "pixel.png"), png)
+
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+      expect(entries.find((entry) => entry.path.endsWith("note.txt"))).toMatchObject({
+        content: "public evidence",
+      })
+      expect(entries.find((entry) => entry.path.endsWith("opaque.bin"))).toMatchObject({
+        binary: "unsupported",
+      })
+      expect(entries.find((entry) => entry.path.endsWith("pixel.png"))).toMatchObject({
+        binary: "png",
+      })
+      expect(entries.every((entry) => entry.sha256?.match(/^[a-f0-9]{64}$/u))).toBe(true)
+
+      const corrupt = Buffer.from(png)
+      corrupt[corrupt.byteLength - 1] = (corrupt.at(-1) ?? 0) ^ 0xff
+      await writeFile(join(paths.evidence, "corrupt.png"), corrupt)
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /PNG chunk checksum is invalid/i,
+      )
+    })
+  })
+
+  it("rejects symlinks, disguised archives, and unsupported compression", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await writeFile(join(root, "outside.txt"), "outside")
+      await symlink(join(root, "outside.txt"), join(paths.e2e, "linked.txt"))
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /symlinks or redirected ancestry are unsafe/i,
+      )
+      await rm(join(paths.e2e, "linked.txt"))
+
+      await writeFile(join(paths.e2e, "fake.zip"), "not a zip")
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /extension does not match archive magic/i,
+      )
+      await rm(join(paths.e2e, "fake.zip"))
+
+      await writeFile(
+        join(paths.e2e, "compressed.bin"),
+        Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]),
+      )
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /unsupported compressed artifact format/i,
+      )
+    })
+  })
+
+  it("forwards bounded gzip operations and returns the expanded entry", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.e2e, "trace.gz"), Buffer.from([0x1f, 0x8b, 0, 0]))
+      const execute = vi.fn(async (
+        file: string,
+        arguments_: readonly string[],
+        _maxBuffer: number,
+        _timeoutMs?: number,
+        _signal?: AbortSignal,
+      ) => {
+        expect(file).toBe("gzip")
+        if (arguments_[0] === "-l") {
+          return { stdout: Buffer.from("compressed uncompressed ratio name\n4 5 20% artifact\n") }
+        }
+        if (arguments_[0] === "-cd") return { stdout: Buffer.from("hello") }
+        throw new Error("unexpected gzip operation")
+      })
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits(),
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+      expect(entries.find((entry) => entry.path.endsWith("trace.gz#uncompressed"))).toMatchObject({
+        content: "hello",
+      })
+      expect(execute.mock.calls.map(([file, arguments_]) => [file, arguments_[0]])).toEqual([
+        ["gzip", "-l"],
+        ["gzip", "-cd"],
+      ])
+      expect(execute.mock.calls.every((call) =>
+        typeof call[3] === "number" && call[3] > 0 && call[4]?.aborted === false
+      )).toBe(true)
+    })
+  })
+
+  it("validates archive names, metadata, extracted size, and nesting", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.e2e, "bundle.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+
+      const zipExecutor = (
+        names: string,
+        metadata: string,
+        body: Buffer,
+      ) => vi.fn(async (_file: string, arguments_: readonly string[]) => {
+        if (arguments_[0] === "-Z1") return { stdout: Buffer.from(names) }
+        if (arguments_[0] === "-Z") return { stdout: Buffer.from(metadata) }
+        if (arguments_[0] === "-p") return { stdout: body }
+        throw new Error("unexpected zip operation")
+      })
+
+      const clean = await createArtifactScannerDependencies(
+        root,
+        proof,
+        zipExecutor(
+          "a.txt\nnested/b.txt\n",
+          "uncompressed size: 1 bytes\nuncompressed size: 2 bytes\n",
+          Buffer.from("ABC"),
+        ),
+        limits(),
+      )
+      const entries = await clean.collectEntries(scannerPaths(proof))
+      expect(entries.find((entry) => entry.path.endsWith("bundle.zip#contents"))?.content).toBe(
+        "a.txt\nnested/b.txt\nABC",
+      )
+
+      for (const unsafeName of [
+        "-option",
+        "/absolute.txt",
+        "C:\\absolute.txt",
+        "../escape.txt",
+        "control\u0001.txt",
+      ]) {
+        const unsafe = await createArtifactScannerDependencies(
+          root,
+          proof,
+          zipExecutor(`${unsafeName}\n`, "", Buffer.alloc(0)),
+          limits(),
+        )
+        await expect(unsafe.collectEntries(scannerPaths(proof))).rejects.toThrow(
+          /unsafe archive entry name/i,
+        )
+      }
+
+      const nestedName = await createArtifactScannerDependencies(
+        root,
+        proof,
+        zipExecutor("inner.tgz\n", "", Buffer.alloc(0)),
+        limits(),
+      )
+      await expect(nestedName.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /nested archives are rejected/i,
+      )
+
+      const unknownSize = await createArtifactScannerDependencies(
+        root,
+        proof,
+        zipExecutor("a.txt\n", "", Buffer.from("A")),
+        limits(),
+      )
+      await expect(unknownSize.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /entry size is unknown/i,
+      )
+
+      const changedSize = await createArtifactScannerDependencies(
+        root,
+        proof,
+        zipExecutor("a.txt\n", "uncompressed size: 2 bytes\n", Buffer.from("A")),
+        limits(),
+      )
+      await expect(changedSize.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /archive size changed/i,
+      )
+
+      const nestedPayload = await createArtifactScannerDependencies(
+        root,
+        proof,
+        zipExecutor(
+          "a.txt\n",
+          "uncompressed size: 4 bytes\n",
+          Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+        ),
+        limits(),
+      )
+      await expect(nestedPayload.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /nested compressed artifacts are rejected/i,
+      )
+    })
+  })
+
+  it("enforces deadline, entry, byte, archive, and expansion bounds", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.e2e, "one.txt"), "one")
+
+      const expired = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits({ deadlineMs: 0 }),
+      )
+      await expect(expired.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /deadline exceeded/i,
+      )
+
+      const countBound = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits({ maxEntries: 1 }),
+      )
+      await expect(countBound.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /entry count exceeds/i,
+      )
+
+      await rm(join(paths.e2e, "one.txt"))
+      await writeFile(join(paths.e2e, "one.gz"), Buffer.from([0x1f, 0x8b, 0, 0]))
+      const oversizedEntry = vi.fn(async (_file: string, arguments_: readonly string[]) =>
+        arguments_[0] === "-l"
+          ? { stdout: Buffer.from("compressed uncompressed ratio name\n4 513 99% artifact\n") }
+          : { stdout: Buffer.alloc(513) }
+      )
+      const entryBound = await createArtifactScannerDependencies(
+        root,
+        proof,
+        oversizedEntry,
+        limits({ maxEntryBytes: 512 }),
+      )
+      await expect(entryBound.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /artifact exceeds scan size bound/i,
+      )
+
+      const totalBound = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits({ maxTotalBytes: 1 }),
+      )
+      await expect(totalBound.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /aggregate scan bound/i,
+      )
+
+      await writeFile(join(paths.evidence, "two.gz"), Buffer.from([0x1f, 0x8b, 0, 0]))
+      const execute = vi.fn(async (_file: string, arguments_: readonly string[]) =>
+        arguments_[0] === "-l"
+          ? { stdout: Buffer.from("compressed uncompressed ratio name\n4 5 20% artifact\n") }
+          : { stdout: Buffer.from("hello") }
+      )
+      const archiveBound = await createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits({ maxArchives: 1 }),
+      )
+      await expect(archiveBound.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /global archive count exceeds/i,
+      )
+
+      const expandedBound = await createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits({ maxExpandedBytes: 4 }),
+      )
+      await expect(expandedBound.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /expanded artifacts exceed/i,
+      )
+    })
+  })
+
+  it("purges only the authenticated run roots", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const dependencies = await createArtifactScannerDependencies(root, proof)
+
+      await dependencies.purgeOwnedRun(proof.runId)
+
+      await expect(access(paths.e2e)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(access(paths.evidence)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(access(join(root, "test-results", "e2e-runs"))).resolves.toBeUndefined()
+      await expect(access(join(root, "test-results", "evidence"))).resolves.toBeUndefined()
+    })
+  })
+})

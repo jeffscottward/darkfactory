@@ -1,0 +1,597 @@
+import type { FeatureItemOutput } from "@darkfactory/api"
+import type { ReactElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const hookRuntime = vi.hoisted(() => {
+  type Effect = () => void | (() => void)
+  type EffectSlot = {
+    cleanup?: (() => void) | undefined
+    deps: readonly unknown[] | undefined
+  }
+  type PendingEffect = {
+    deps: readonly unknown[] | undefined
+    effect: Effect
+    index: number
+  }
+
+  const stateSlots: Array<{ value: unknown }> = []
+  const refSlots: Array<{ current: unknown }> = []
+  const effectSlots: EffectSlot[] = []
+  const pendingEffects: PendingEffect[] = []
+  const focusHistory: string[] = []
+  let stateCursor = 0
+  let refCursor = 0
+  let effectCursor = 0
+
+  const dependenciesChanged = (
+    previous: readonly unknown[] | undefined,
+    next: readonly unknown[] | undefined,
+  ): boolean => (
+    previous === undefined
+    || next === undefined
+    || previous.length !== next.length
+    || previous.some((value, index) => !Object.is(value, next[index]))
+  )
+
+  const textOf = (node: unknown): string => {
+    if (typeof node === "string" || typeof node === "number") return String(node)
+    if (Array.isArray(node)) return node.map(textOf).join("")
+    if (typeof node !== "object" || node === null) return ""
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return ""
+    return textOf(Reflect.get(props, "children"))
+  }
+
+  const visitElements = (
+    node: unknown,
+    visit: (element: Readonly<{ props: Record<string, unknown> }>) => void,
+    seen = new WeakSet<object>(),
+  ): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        visitElements(child, visit, seen)
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return
+    const element = node as Readonly<{ props: Record<string, unknown> }>
+    visit(element)
+    for (const value of Object.values(element.props)) visitElements(value, visit, seen)
+  }
+
+  const assignRefs = (tree: unknown): void => {
+    visitElements(tree, (element) => {
+      const ref = element.props["ref"] ?? element.props["inputRef"]
+      if (typeof ref !== "object" || ref === null || !("current" in ref)) return
+      const label = element.props["inputRef"] === ref
+        ? "edit-feature-name"
+        : typeof element.props["id"] === "string"
+          ? element.props["id"]
+          : element.props["aria-live"] === "polite"
+            ? "feedback"
+            : textOf(element).replace(/\s+/gu, " ").trim() || "unlabeled"
+      Reflect.set(ref, "current", {
+        focus: () => focusHistory.push(label),
+      })
+    })
+  }
+
+  return {
+    begin: () => {
+      stateCursor = 0
+      refCursor = 0
+      effectCursor = 0
+      pendingEffects.length = 0
+    },
+    commit: (tree: unknown) => {
+      assignRefs(tree)
+      for (const pending of pendingEffects.splice(0)) {
+        effectSlots[pending.index]?.cleanup?.()
+        const cleanup = pending.effect()
+        effectSlots[pending.index] = {
+          cleanup: typeof cleanup === "function" ? cleanup : undefined,
+          deps: pending.deps,
+        }
+      }
+    },
+    lastFocus: (): string | undefined => focusHistory.at(-1),
+    reset: () => {
+      for (const slot of effectSlots) slot.cleanup?.()
+      stateSlots.length = 0
+      refSlots.length = 0
+      effectSlots.length = 0
+      pendingEffects.length = 0
+      focusHistory.length = 0
+      stateCursor = 0
+      refCursor = 0
+      effectCursor = 0
+    },
+    useCallback: <Callback>(callback: Callback): Callback => callback,
+    useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+      const index = effectCursor++
+      const previous = effectSlots[index]
+      if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
+        pendingEffects.push({ deps, effect, index })
+      }
+    },
+    useRef: <Value>(initialValue: Value): { current: Value } => {
+      const index = refCursor++
+      refSlots[index] ??= { current: initialValue }
+      return refSlots[index] as { current: Value }
+    },
+    useState: <Value>(
+      initializer: Value | (() => Value),
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+      const index = stateCursor++
+      stateSlots[index] ??= {
+        value: typeof initializer === "function"
+          ? (initializer as () => Value)()
+          : initializer,
+      }
+      const slot = stateSlots[index]!
+      return [
+        slot.value as Value,
+        (next) => {
+          slot.value = typeof next === "function"
+            ? (next as (current: Value) => Value)(slot.value as Value)
+            : next
+        },
+      ]
+    },
+  }
+})
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useCallback: hookRuntime.useCallback,
+    useEffect: hookRuntime.useEffect,
+    useRef: hookRuntime.useRef,
+    useState: hookRuntime.useState,
+  }
+})
+
+import { EditorNameField, FeatureItemEditor } from "./feature-item-editor.civet"
+import type { FeatureItemGateway } from "./feature-items-client.civet"
+
+type ElementRecord = Readonly<{ props: Record<string, unknown>; type: unknown }>
+
+const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
+  id: "item-1",
+  name: "Original name",
+  description: "Original description",
+  status: "draft",
+  metadata: {},
+  ownerId: "user-1",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T12:00:00.000Z"),
+  ...overrides,
+})
+
+const gatewayWith = (overrides: Partial<FeatureItemGateway> = {}): FeatureItemGateway => ({
+  list: vi.fn(async () => []),
+  get: vi.fn(async () => item()),
+  create: vi.fn(async (input) => item({ name: input.name, description: input.description })),
+  update: vi.fn(async (_id, input) => item({
+    name: input.name ?? "Original name",
+    description: input.description ?? "Original description",
+  })),
+  changeStatus: vi.fn(async (_id, status) => item({ status })),
+  archive: vi.fn(async () => item({ status: "archived" })),
+  ...overrides,
+})
+
+const deferred = <Value>() => {
+  let resolvePromise = (_value: Value): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  let rejectPromise = (_reason: unknown): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  const promise = new Promise<Value>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
+  })
+  return { promise, reject: rejectPromise, resolve: resolvePromise }
+}
+
+const textOf = (node: unknown): string => {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (typeof node !== "object" || node === null) return ""
+  const props = Reflect.get(node, "props")
+  if (typeof props !== "object" || props === null) return ""
+  return textOf(Reflect.get(props, "children"))
+}
+
+const findElement = (
+  tree: unknown,
+  predicate: (element: ElementRecord) => boolean,
+): ElementRecord | undefined => {
+  const seen = new WeakSet<object>()
+  const visit = (node: unknown): ElementRecord | undefined => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = visit(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return undefined
+    const element = node as ElementRecord
+    if (predicate(element)) return element
+    if (element.type === EditorNameField) {
+      const found = visit(EditorNameField(element.props as unknown as Parameters<typeof EditorNameField>[0]))
+      if (found !== undefined) return found
+    }
+    for (const value of Object.values(element.props)) {
+      const found = visit(value)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  return visit(tree)
+}
+
+const elementById = (tree: unknown, id: string): ElementRecord => {
+  const element = findElement(tree, (candidate) => candidate.props["id"] === id)
+  expect(element, `Expected control #${id}`).toBeDefined()
+  return element!
+}
+
+const controlByText = (tree: unknown, label: string): ElementRecord | undefined => (
+  findElement(tree, (candidate) => (
+    typeof candidate.props["onClick"] === "function"
+    && textOf(candidate).replace(/\s+/gu, " ").trim() === label
+  ))
+)
+
+const click = (tree: unknown, label: string): unknown => {
+  const control = controlByText(tree, label)
+  expect(control, `Expected control named ${label}`).toBeDefined()
+  return (control!.props["onClick"] as () => unknown)()
+}
+
+const changeValue = (tree: unknown, id: string, value: string): unknown => {
+  const control = elementById(tree, id)
+  expect(control.props["onChange"], `Expected #${id} to accept input`).toBeTypeOf("function")
+  return (control.props["onChange"] as (event: { currentTarget: { value: string } }) => unknown)({
+    currentTarget: { value },
+  })
+}
+
+const markup = (tree: unknown): string => renderToStaticMarkup(tree as ReactElement)
+
+const mountEditor = (gateway: FeatureItemGateway) => ({
+  render: (): ReactElement => {
+    hookRuntime.begin()
+    const tree = FeatureItemEditor({ gateway, id: "item-1" })
+    hookRuntime.commit(tree)
+    return tree
+  },
+})
+
+const flushMicrotasks = async ->
+  await Promise.resolve()
+  await Promise.resolve()
+
+const renderLoadedEditor = async (
+  mount: ReturnType<typeof mountEditor>,
+): Promise<ReactElement> => {
+  mount.render()
+  await flushMicrotasks()
+  return mount.render()
+}
+
+const recoveryElement = (tree: unknown): ElementRecord | undefined => (
+  findElement(tree, (candidate) => (
+    typeof candidate.props["kind"] === "string"
+    && candidate.props["returnHref"] === "/feature-items"
+  ))
+)
+
+afterEach(() => {
+  hookRuntime.reset()
+  vi.unstubAllGlobals()
+})
+
+describe "feature item editor", ->
+  it "validates empty names, accepts exact field limits, restores focus, and renders saved output", async ->
+    const update = vi.fn(async (_id, input) => item({
+      name: input.name,
+      description: input.description,
+    }))
+    const mount = mountEditor(gatewayWith({ update }))
+    let tree = mount.render()
+    expect(markup(tree)).toContain("Loading feature item")
+
+    await flushMicrotasks()
+    tree = mount.render()
+    expect(elementById(tree, "edit-feature-name").props["value"]).toBe("Original name")
+    expect(elementById(tree, "edit-feature-name").props["maxLength"]).toBe(200)
+    expect(elementById(tree, "edit-feature-description").props["maxLength"]).toBe(10_000)
+    expect(elementById(tree, "edit-feature-status").props["value"]).toBe("draft")
+
+    changeValue(tree, "edit-feature-name", "   ")
+    tree = mount.render()
+    await (click(tree, "Save changes") as Promise<void>)
+    await flushMicrotasks()
+    tree = mount.render()
+    expect(markup(tree)).toContain("Enter a name before saving.")
+    expect(elementById(tree, "edit-feature-name").props["aria-invalid"]).toBe(true)
+    expect(hookRuntime.lastFocus()).toBe("edit-feature-name")
+    expect(update).not.toHaveBeenCalled()
+
+    const longName = "n".repeat(200)
+    const longDescription = "d".repeat(10_000)
+    changeValue(tree, "edit-feature-name", longName)
+    tree = mount.render()
+    changeValue(tree, "edit-feature-description", longDescription)
+    tree = mount.render()
+    await (click(tree, "Save changes") as Promise<void>)
+    tree = mount.render()
+
+    expect(update).toHaveBeenCalledWith("item-1", {
+      name: longName,
+      description: longDescription,
+    })
+    expect(elementById(tree, "edit-feature-name").props["value"]).toBe(longName)
+    expect(elementById(tree, "edit-feature-description").props["value"]).toBe(longDescription)
+    expect(elementById(tree, "edit-feature-name").props["aria-invalid"]).toBeUndefined()
+    expect(markup(tree)).toContain("Changes saved.")
+    expect(hookRuntime.lastFocus()).toBe("feedback")
+
+  it "keeps every mutation surface locked while a duplicate save is pending", async ->
+    const saveRequest = deferred<FeatureItemOutput>()
+    const update = vi.fn(() => saveRequest.promise)
+    const changeStatus = vi.fn(async (_id, status) => item({ status }))
+    const mount = mountEditor(gatewayWith({ update, changeStatus }))
+    let tree = await renderLoadedEditor(mount)
+
+    changeValue(tree, "edit-feature-name", "Changed once")
+    tree = mount.render()
+    const firstSave = click(tree, "Save changes") as Promise<void>
+    const duplicateSave = click(tree, "Save changes") as Promise<void>
+
+    expect(update).toHaveBeenCalledOnce()
+    tree = mount.render()
+    expect(elementById(tree, "edit-feature-name").props["disabled"]).toBe(true)
+    expect(elementById(tree, "edit-feature-description").props["disabled"]).toBe(true)
+    expect(elementById(tree, "edit-feature-status").props["disabled"]).toBe(true)
+    expect(controlByText(tree, "Save changes")?.props["loading"]).toBe(true)
+    expect(controlByText(tree, "Archive feature item")?.props["disabled"]).toBe(true)
+    expect(markup(tree)).toContain("Saving changes")
+
+    changeValue(tree, "edit-feature-status", "active")
+    expect(changeStatus).not.toHaveBeenCalled()
+
+    saveRequest.resolve(item({ name: "Changed once" }))
+    await Promise.all([firstSave, duplicateSave])
+    tree = mount.render()
+    expect(update).toHaveBeenCalledOnce()
+    expect(elementById(tree, "edit-feature-status").props["disabled"]).toBe(false)
+    expect(markup(tree)).toContain("Changes saved.")
+
+  it "rolls back a failed status change, then renders the recovered status and focused feedback", async ->
+    const changeStatus = vi.fn()
+      .mockRejectedValueOnce({ code: "CONFLICT" })
+      .mockResolvedValueOnce(item({ status: "active" }))
+    const mount = mountEditor(gatewayWith({ changeStatus }))
+    let tree = await renderLoadedEditor(mount)
+
+    await (changeValue(tree, "edit-feature-status", "active") as Promise<void>)
+    tree = mount.render()
+    expect(elementById(tree, "edit-feature-status").props["value"]).toBe("draft")
+    expect(markup(tree)).toContain("The feature item changed elsewhere. Reload and try again.")
+    expect(hookRuntime.lastFocus()).toBe("feedback")
+
+    await (changeValue(tree, "edit-feature-status", "active") as Promise<void>)
+    tree = mount.render()
+    const activeOutput = markup(tree)
+    expect(elementById(tree, "edit-feature-status").props["value"]).toBe("active")
+    expect(activeOutput).toContain("Status changed to active.")
+    expect(activeOutput).toContain(">active<")
+    expect(hookRuntime.lastFocus()).toBe("feedback")
+
+    await (changeValue(tree, "edit-feature-status", "active") as Promise<void>)
+    expect(changeStatus).toHaveBeenCalledTimes(2)
+
+  const loadRecoveryCases = [
+    {
+      action: "Try again",
+      error: { code: "VALIDATION_ERROR" },
+      kind: "validation",
+      message: "Check the highlighted fields and try again.",
+    },
+    {
+      action: "Sign in again",
+      error: { code: "UNAUTHORIZED" },
+      kind: "unauthorized",
+      message: "Your session ended. Sign in again to continue.",
+    },
+    {
+      action: "Return to feature items",
+      error: { code: "FORBIDDEN" },
+      kind: "forbidden",
+      message: "You do not have access to that feature item.",
+    },
+    {
+      action: "Return to feature items",
+      error: { code: "NOT_FOUND" },
+      kind: "not-found",
+      message: "That feature item is no longer available.",
+    },
+    {
+      action: "Try again",
+      error: { code: "CONFLICT" },
+      kind: "conflict",
+      message: "The feature item changed elsewhere. Reload and try again.",
+    },
+    {
+      action: "Try again",
+      error: { code: "STORAGE_ERROR" },
+      kind: "transient",
+      message: "Feature item storage is temporarily unavailable. Try again.",
+    },
+    {
+      action: "Try again",
+      error: new Error("private transport detail"),
+      kind: "unknown",
+      message: "The request could not be completed. Try again.",
+    },
+  ] as const
+
+  for (const recoveryCase of loadRecoveryCases) {
+    it `renders and honors ${recoveryCase.kind} load recovery`, async ->
+      const get = vi.fn()
+        .mockRejectedValueOnce(recoveryCase.error)
+        .mockResolvedValueOnce(item({ name: "Recovered item" }))
+      const mount = mountEditor(gatewayWith({ get }))
+      mount.render()
+      await flushMicrotasks()
+      let tree = mount.render()
+      const unavailable = markup(tree)
+
+      expect(unavailable).toContain("Feature item unavailable")
+      expect(unavailable).toContain(recoveryCase.message)
+      expect(unavailable).toContain(recoveryCase.action)
+      expect(recoveryElement(tree)?.props["kind"]).toBe(recoveryCase.kind)
+
+      if (recoveryCase.kind === "unauthorized") {
+        expect(unavailable).toContain("/sign-in?callbackURL=%2Ffeature-items")
+      } else if (recoveryCase.kind === "forbidden" || recoveryCase.kind === "not-found") {
+        expect(unavailable).toContain("href=\"/feature-items\"")
+      } else {
+        const recovery = recoveryElement(tree)
+        const retry = recovery?.props["onRetry"] as (() => Promise<void>) | undefined
+        expect(retry).toBeTypeOf("function")
+        const retrying = retry!()
+        tree = mount.render()
+        expect(markup(tree)).toContain("Loading feature item")
+        await retrying
+        tree = mount.render()
+        expect(elementById(tree, "edit-feature-name").props["value"]).toBe("Recovered item")
+        expect(get).toHaveBeenCalledTimes(2)
+      }
+  }
+
+  const authorizationMutationCases = [
+    {
+      action: "Sign in again",
+      code: "UNAUTHORIZED",
+      kind: "unauthorized",
+      message: "Your session ended. Sign in again to continue.",
+    },
+    {
+      action: "Return to feature items",
+      code: "FORBIDDEN",
+      kind: "forbidden",
+      message: "You do not have access to that feature item.",
+    },
+    {
+      action: "Return to feature items",
+      code: "NOT_FOUND",
+      kind: "not-found",
+      message: "That feature item is no longer available.",
+    },
+  ] as const
+
+  for (const failureCase of authorizationMutationCases) {
+    it `keeps the editor visible with ${failureCase.kind} mutation recovery`, async ->
+      const update = vi.fn().mockRejectedValue({ code: failureCase.code })
+      const mount = mountEditor(gatewayWith({ update }))
+      let tree = await renderLoadedEditor(mount)
+      changeValue(tree, "edit-feature-name", "Unsaved visible edit")
+      tree = mount.render()
+
+      await (click(tree, "Save changes") as Promise<void>)
+      tree = mount.render()
+      const failedSave = markup(tree)
+
+      expect(elementById(tree, "edit-feature-name").props["value"]).toBe("Unsaved visible edit")
+      expect(failedSave).toContain(failureCase.message)
+      expect(failedSave).toContain(failureCase.action)
+      expect(recoveryElement(tree)?.props["kind"]).toBe(failureCase.kind)
+      expect(hookRuntime.lastFocus()).toBe("feedback")
+  }
+
+  it "renders archived data as an accessibility-visible read-only record", async ->
+    const archivedName = "a".repeat(200)
+    const get = vi.fn(async () => item({
+      name: archivedName,
+      description: "",
+      status: "archived",
+    }))
+    const mount = mountEditor(gatewayWith({ get }))
+    const tree = await renderLoadedEditor(mount)
+    const archived = markup(tree)
+
+    expect(archived).toContain("role=\"note\"")
+    expect(archived).toContain("Archived records cannot be edited.")
+    expect(archived).toContain("read-only")
+    expect(archived).toContain(archivedName)
+    expect(archived).toContain("No description provided.")
+    expect(archived).toContain("Archived")
+    expect(archived).toContain("Jan 2, 2026")
+    expect(archived).toContain("overflow-wrap:anywhere")
+    expect(archived).not.toContain("<input")
+    expect(archived).not.toContain("<textarea")
+    expect(archived).not.toContain("<select")
+    expect(archived).not.toContain("<button")
+
+  it "moves focus into archive confirmation and restores it on escape, cancel, and failure", async ->
+    const archive = vi.fn().mockRejectedValue({ code: "STORAGE_ERROR" })
+    const mount = mountEditor(gatewayWith({ archive }))
+    let tree = await renderLoadedEditor(mount)
+
+    click(tree, "Archive feature item")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Archive this item?")
+    expect(hookRuntime.lastFocus()).toBe("Cancel")
+
+    const region = findElement(tree, (candidate) => (
+      candidate.props["role"] === "region"
+      && typeof candidate.props["onKeyDown"] === "function"
+    ))
+    expect(region).toBeDefined()
+    const onKeyDown = region!.props["onKeyDown"] as (event: { key: string }) => void
+    onKeyDown({ key: "Escape" })
+    tree = mount.render()
+    expect(markup(tree)).not.toContain("Archive this item?")
+    expect(hookRuntime.lastFocus()).toBe("Archive feature item")
+
+    click(tree, "Archive feature item")
+    tree = mount.render()
+    click(tree, "Cancel")
+    tree = mount.render()
+    expect(hookRuntime.lastFocus()).toBe("Archive feature item")
+
+    click(tree, "Archive feature item")
+    tree = mount.render()
+    await (click(tree, "Archive") as Promise<void>)
+    tree = mount.render()
+    expect(markup(tree)).toContain("Feature item storage is temporarily unavailable. Try again.")
+    expect(markup(tree)).not.toContain("Archive this item?")
+    expect(hookRuntime.lastFocus()).toBe("Archive feature item")
+
+  it "navigates to the collection after a confirmed archive", async ->
+    const assign = vi.fn()
+    vi.stubGlobal("window", { location: { assign } })
+    const archive = vi.fn(async () => item({ status: "archived" }))
+    const mount = mountEditor(gatewayWith({ archive }))
+    let tree = await renderLoadedEditor(mount)
+
+    click(tree, "Archive feature item")
+    tree = mount.render()
+    await (click(tree, "Archive") as Promise<void>)
+
+    expect(archive).toHaveBeenCalledWith("item-1")
+    expect(assign).toHaveBeenCalledWith("/feature-items")

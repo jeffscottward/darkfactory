@@ -171,20 +171,18 @@ export const ensureUserResources = async (
   })
 }
 
-const inactiveStatusError = (status: UserStatus): APIError | undefined => {
-  if (status === "suspended") {
-    return new APIError("FORBIDDEN", {
-      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
-      message: "Account is unavailable",
-    })
-  }
-  if (status === "deactivated") {
-    return new APIError("FORBIDDEN", {
-      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED,
-      message: "Account is unavailable",
-    })
-  }
-  return undefined
+const inactiveStatusError = (status: unknown): APIError | undefined => {
+  if (status === "active") return undefined
+  const code =
+    status === "suspended"
+      ? AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED
+      : status === "deactivated"
+        ? AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED
+        : AUTHORIZATION_ERROR_CODES.FORBIDDEN
+  return new APIError("FORBIDDEN", {
+    code,
+    message: "Account is unavailable",
+  })
 }
 
 const requireActiveUserId = async (
@@ -238,12 +236,9 @@ export const createAuth = (options: AuthFactoryOptions) => {
             session?: { user?: { status?: unknown } } | null
           }
         ).session?.user
-        if (
-          context.path !== "/sign-out" &&
-          (currentUser?.status === "suspended" ||
-            currentUser?.status === "deactivated")
-        ) {
-          throw inactiveStatusError(currentUser.status)
+        if (context.path !== "/sign-out" && currentUser !== undefined) {
+          const statusError = inactiveStatusError(currentUser.status)
+          if (statusError) throw statusError
         }
 
         if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return undefined
@@ -825,12 +820,18 @@ const inactiveSessionResponse = async (
 ): Promise<Response | undefined> => {
   if (isStatusGateExempt(request)) return undefined
   const session = await auth.api.getSession({ headers: request.headers })
-  const status = (session?.user as { status?: unknown } | undefined)?.status
-  if (status !== "suspended" && status !== "deactivated") return undefined
+  const user = (
+    session as { user?: { status?: unknown } | null } | null
+  )?.user
+  if (user === undefined || user === null) return undefined
+  const status = user.status
+  if (status === "active") return undefined
   const code =
     status === "suspended"
       ? AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED
-      : AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED
+      : status === "deactivated"
+        ? AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED
+        : AUTHORIZATION_ERROR_CODES.FORBIDDEN
   return Response.json(
     { code, message: "Account is unavailable" },
     { status: 403 },

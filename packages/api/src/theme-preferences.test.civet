@@ -4,7 +4,9 @@ import {
   type SafeAuthSession,
 } from "@darkfactory/auth/server"
 import {
+  DatabaseConflictError,
   DatabasePersistenceError,
+  InvalidRepositoryInputError,
   type FeatureItemRepository,
   type Repositories,
   type UserPreferencesRepository,
@@ -218,6 +220,59 @@ describe "DF-088 theme preference service", ->
     expect(
       new ThemePreferenceServiceError("VALIDATION_ERROR", "Invalid theme"),
     ).toMatchObject({ code: "VALIDATION_ERROR", message: "Invalid theme" })
+
+  it.each([
+    {
+      failure: new InvalidRepositoryInputError("private invalid theme"),
+      code: "VALIDATION_ERROR",
+      message: "Theme preference validation failed",
+    },
+    {
+      failure: new DatabaseConflictError("theme preference"),
+      code: "CONFLICT",
+      message: "Theme preference conflict",
+    },
+  ] as const)("maps repository failures to the stable $code contract", async ({ failure, code, message }) ->
+    const service = createThemePreferenceService(
+      themeRepository({
+        upsertTheme: vi.fn(async () => { throw failure }),
+      }),
+    )
+
+    await expect(service.update(memberSession.principal, {
+      themeMode: "dark",
+      palette: "violet",
+      expectedUpdatedAt: THEME_VERSION,
+    })).rejects.toMatchObject({
+      name: "ThemePreferenceServiceError",
+      code,
+      message,
+    })
+  )
+
+  it "preserves classified failures and does not disguise unexpected adapter errors", async ->
+    const classified = new ThemePreferenceServiceError(
+      "CONFLICT",
+      "Theme preference conflict",
+    )
+    const classifiedService = createThemePreferenceService(
+      themeRepository({
+        findThemeByUserId: vi.fn(async () => { throw classified }),
+      }),
+    )
+    await expect(
+      classifiedService.get(memberSession.principal),
+    ).rejects.toBe(classified)
+
+    const unexpected = new Error("unexpected theme adapter contract violation")
+    const unexpectedService = createThemePreferenceService(
+      themeRepository({
+        findThemeByUserId: vi.fn(async () => { throw unexpected }),
+      }),
+    )
+    await expect(
+      unexpectedService.get(memberSession.principal),
+    ).rejects.toBe(unexpected)
 
 describe "DF-088 authenticated theme preference router", ->
   it "denies anonymous reads and updates", async ->

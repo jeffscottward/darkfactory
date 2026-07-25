@@ -1,4 +1,9 @@
-import type { FeatureItemRepository } from "@darkfactory/db/server"
+import {
+  DatabaseConflictError,
+  DatabasePersistenceError,
+  InvalidRepositoryInputError,
+  type FeatureItemRepository,
+} from "@darkfactory/db/server"
 import type { FeatureItem } from "@darkfactory/db/schema"
 import { describe, expect, it, vi } from "vitest"
 
@@ -127,6 +132,193 @@ describe "DF-063 feature service policy", ->
     await expect(
       service.get(principal(), { id: "missing" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+  it "passes every supplied list filter to the authenticated owner scope", async ->
+    const listByOwner = vi.fn(async () => [item({ status: "active" })])
+    const service = createFeatureItemService(repository({ listByOwner }))
+
+    await expect(service.list(principal(), {
+      query: "neutral",
+      status: "active",
+      limit: 7,
+    })).resolves.toEqual([item({ status: "active" })])
+    expect(listByOwner).toHaveBeenCalledWith("member-1", {
+      query: "neutral",
+      status: "active",
+      limit: 7,
+    })
+
+  it "denies a cross-owner mutation before invoking the repository", async ->
+    const create = vi.fn(async (input) => item(input))
+    const service = createFeatureItemService(repository({ create }))
+
+    await expect(service.create(
+      principal(),
+      {
+        ownerId: "victim-1",
+        name: "Unauthorized",
+        description: "Must not be stored",
+      },
+      "request-denied",
+    )).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: "Members may access only their own feature items",
+    })
+    expect(create).not.toHaveBeenCalled()
+
+  it "omits absent metadata while retaining actor and request correlation", async ->
+    const create = vi.fn(async (input) => item(input))
+    const service = createFeatureItemService(repository({ create }))
+
+    await service.create(
+      principal(),
+      { name: "Without metadata", description: "Description" },
+      "request-2",
+    )
+
+    expect(create).toHaveBeenCalledWith(
+      {
+        ownerId: "member-1",
+        name: "Without metadata",
+        description: "Description",
+      },
+      { actorUserId: "member-1", requestId: "request-2" },
+    )
+
+  it "forwards complete and partial updates without inventing fields", async ->
+    const update = vi.fn(async (input) => item(input))
+    const service = createFeatureItemService(repository({ update }))
+
+    await service.update(
+      principal(),
+      {
+        id: "item-1",
+        name: "Renamed",
+        description: "Updated description",
+        metadata: { source: "member" },
+      },
+      "request-3",
+    )
+    expect(update).toHaveBeenLastCalledWith(
+      {
+        id: "item-1",
+        ownerId: "member-1",
+        name: "Renamed",
+        description: "Updated description",
+        metadata: { source: "member" },
+      },
+      { actorUserId: "member-1", requestId: "request-3" },
+    )
+
+    await service.update(
+      principal(),
+      { id: "item-1", description: "Only description changed" },
+      "request-4",
+    )
+    expect(update).toHaveBeenLastCalledWith(
+      {
+        id: "item-1",
+        ownerId: "member-1",
+        description: "Only description changed",
+      },
+      { actorUserId: "member-1", requestId: "request-4" },
+    )
+
+  it "archives an active item in the authenticated owner scope", async ->
+    const archive = vi.fn(async () => item({ status: "archived" }))
+    const service = createFeatureItemService(repository({
+      findByIdForOwner: vi.fn(async () => item({ status: "active" })),
+      archive,
+    }))
+
+    await expect(
+      service.archive(principal(), { id: "item-1" }, "request-5"),
+    ).resolves.toMatchObject({ id: "item-1", status: "archived" })
+    expect(archive).toHaveBeenCalledWith(
+      "item-1",
+      "member-1",
+      { actorUserId: "member-1", requestId: "request-5" },
+    )
+
+  it "rejects a redundant archive without writing again", async ->
+    const archive = vi.fn(async () => item({ status: "archived" }))
+    const service = createFeatureItemService(repository({
+      findByIdForOwner: vi.fn(async () => item({ status: "archived" })),
+      archive,
+    }))
+
+    await expect(
+      service.archive(principal(), { id: "item-1" }, "request-6"),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "Feature item is already archived",
+    })
+    expect(archive).not.toHaveBeenCalled()
+
+  it "reports missing results from update and archive ports", async ->
+    const service = createFeatureItemService(repository({
+      findByIdForOwner: vi.fn(async () => item({ status: "active" })),
+      update: vi.fn(async () => null),
+      archive: vi.fn(async () => null),
+    }))
+
+    await expect(service.update(
+      principal(),
+      { id: "missing-update", name: "Missing" },
+      "request-7",
+    )).rejects.toMatchObject({ code: "NOT_FOUND" })
+    await expect(
+      service.archive(principal(), { id: "missing-archive" }, "request-8"),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+  it.each([
+    {
+      failure: new InvalidRepositoryInputError("invalid feature input"),
+      code: "VALIDATION_ERROR",
+    },
+    {
+      failure: new DatabaseConflictError("feature item"),
+      code: "CONFLICT",
+    },
+    {
+      failure: new DatabasePersistenceError("list feature items"),
+      code: "STORAGE_ERROR",
+    },
+  ] as const)("maps repository failures to the stable $code service contract", async ({ failure, code }) ->
+    const service = createFeatureItemService(repository({
+      listByOwner: vi.fn(async () => { throw failure }),
+    }))
+
+    await expect(service.list(principal(), {})).rejects.toMatchObject({
+      name: "FeatureServiceError",
+      code,
+    })
+  )
+
+  it "sanitizes persistence details but preserves unexpected adapter failures", async ->
+    const persistenceService = createFeatureItemService(repository({
+      listByOwner: vi.fn(async () => {
+        throw new DatabasePersistenceError("private connection details")
+      }),
+    }))
+    await expect(persistenceService.list(principal(), {})).rejects.toMatchObject({
+      code: "STORAGE_ERROR",
+      message: "Feature item storage is unavailable",
+    })
+
+    const unexpected = new Error("unexpected adapter contract violation")
+    const unexpectedService = createFeatureItemService(repository({
+      listByOwner: vi.fn(async () => { throw unexpected }),
+    }))
+    await expect(unexpectedService.list(principal(), {})).rejects.toBe(unexpected)
+
+  it "preserves an already classified feature failure", async ->
+    const failure = new FeatureServiceError("NOT_FOUND", "Feature item not found")
+    const service = createFeatureItemService(repository({
+      listByOwner: vi.fn(async () => { throw failure }),
+    }))
+
+    await expect(service.list(principal(), {})).rejects.toBe(failure)
 
   it "preserves the typed feature service error shape", ->
     const error = new FeatureServiceError("VALIDATION_ERROR", "Invalid item")

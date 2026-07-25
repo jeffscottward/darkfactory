@@ -1,0 +1,751 @@
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join, resolve } from "node:path"
+
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  createArtifactScannerInvocation,
+  createPlaywrightEnvironment,
+  discoverJourneySpecs,
+  parseExternalScannerReport,
+  parseScannerReport,
+  runArtifactScannerCli,
+  runJourneyCli,
+  serializeJourneyFailureSummary,
+  serializeJourneyProgress,
+  type JourneyCliDependencies,
+} from "./cli.civet"
+import type {
+  JourneyResult,
+  JourneySuiteReport,
+} from "./runner.civet"
+import {
+  encodeOwnedRunProof,
+  type OwnedRunProof,
+} from "./system.civet"
+
+const streams = () => {
+  const output: string[] = []
+  const errors: string[] = []
+  return {
+    output,
+    errors,
+    streams: {
+      writeOutput: (value: string) => output.push(value),
+      writeError: (value: string) => errors.push(value),
+    },
+  }
+}
+
+const REPORT_NONCE = "r".repeat(43)
+const scannerEnvelope = (
+  report: unknown,
+  reportNonce = REPORT_NONCE,
+): string => JSON.stringify({
+  kind: "darkfactory-artifact-scanner-report",
+  version: 1,
+  reportNonce,
+  report,
+})
+
+const proofFixture = (
+  runId = "safe_run",
+): OwnedRunProof => Object.freeze({
+  version: 1,
+  runId,
+  nonce: "n".repeat(43),
+  artifactProfile: "no-binary",
+  e2e: Object.freeze({
+    root: Object.freeze({ dev: 1, ino: 2 }),
+    marker: Object.freeze({ dev: 3, ino: 4 }),
+  }),
+  evidence: Object.freeze({
+    root: Object.freeze({ dev: 5, ino: 6 }),
+    marker: Object.freeze({ dev: 7, ino: 8 }),
+  }),
+})
+
+const cleanScan = Object.freeze({
+  ok: true,
+  scannedEntries: 1,
+  findings: [],
+  purged: false,
+  reason: "clean",
+})
+
+const stoppedProcess = Object.freeze({
+  exitCode: 0,
+  treeTerminated: true,
+  lifecycleStatus: "stopped" as const,
+  lifecycleStage: "server-ready" as const,
+  lifecycleObservation: "state" as const,
+  lifecycleObservationReason: "observed-state" as const,
+})
+
+const journeyResult = (
+  overrides: Partial<JourneyResult> = {},
+): JourneyResult => Object.freeze({
+  spec: "tests/e2e/auth.spec.ts",
+  runId: "safe_run",
+  playwrightExitCode: 0,
+  diagnostics: [],
+  lifecycleStatus: "stopped",
+  lifecycleStage: "server-ready",
+  lifecycleObservation: "state",
+  lifecycleObservationReason: "observed-state",
+  processState: "terminated",
+  stage: "complete",
+  processTreeTerminated: true,
+  scan: cleanScan,
+  ...overrides,
+})
+
+const journeyReport = (
+  results: readonly JourneyResult[],
+  ok = false,
+): JourneySuiteReport => Object.freeze({
+  ok,
+  mode: "e2e",
+  completed: results.length,
+  results,
+  reason: "private suite reason",
+})
+
+describe("CLI invocation validation", () => {
+  it.each([
+    ["no arguments", []],
+    ["wrong run flag", ["--run", "safe_run", "--ownership", "proof", "--report-nonce", REPORT_NONCE]],
+    ["missing run value", ["--run-id", "--ownership", "proof", "--report-nonce", REPORT_NONCE]],
+    ["wrong ownership flag", ["--run-id", "safe_run", "--proof", "proof", "--report-nonce", REPORT_NONCE]],
+    ["wrong nonce flag", ["--run-id", "safe_run", "--ownership", "proof", "--nonce", REPORT_NONCE]],
+    ["short nonce", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", "r".repeat(42)]],
+    ["long nonce", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", "r".repeat(44)]],
+    ["non-url-safe nonce", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", `${"r".repeat(42)}+`]],
+    ["unknown trailing flag", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", REPORT_NONCE, "--unknown"]],
+    ["extra trailing value", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", REPORT_NONCE, "--purge-owned", "extra"]],
+  ] as const)("maps scanner %s to usage without output", async (_case, arguments_) => {
+    const cli = streams()
+
+    await expect(runArtifactScannerCli(
+      arguments_,
+      "/unused",
+      cli.streams,
+    )).resolves.toBe(2)
+    expect(cli.output).toEqual([])
+    expect(cli.errors).toEqual([
+      "Usage: scan-artifacts --run-id <safe-run-id> --ownership <proof> " +
+        "--report-nonce <nonce> [--purge-owned]\n",
+    ])
+  })
+
+  it.each([
+    ["no mode", []],
+    ["unknown mode", ["unit"]],
+    ["case-changed mode", ["E2E"]],
+    ["an extra E2E argument", ["e2e", "extra"]],
+    ["an extra accessibility argument", ["a11y", "extra"]],
+  ] as const)("maps runner %s to usage before dependencies", async (
+    _case,
+    arguments_,
+  ) => {
+    const cli = streams()
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
+    const runPlaywright = vi.fn(async () => stoppedProcess)
+
+    await expect(runJourneyCli(arguments_, "/unused", cli.streams, {
+      listSpecs,
+      runPlaywright,
+    })).resolves.toBe(2)
+    expect(cli.output).toEqual([])
+    expect(cli.errors).toEqual(["Usage: e2e-run <e2e|a11y>\n"])
+    expect(listSpecs).not.toHaveBeenCalled()
+    expect(runPlaywright).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["without purge", false],
+    ["with purge", true],
+  ] as const)("accepts a valid scanner shape %s and fails malformed ownership safely", async (
+    _case,
+    purgeOwned,
+  ) => {
+    const cli = streams()
+    const arguments_ = [
+      "--run-id",
+      "safe_run",
+      "--ownership",
+      "invalid+proof",
+      "--report-nonce",
+      REPORT_NONCE,
+      ...(purgeOwned ? ["--purge-owned"] : []),
+    ]
+
+    await expect(runArtifactScannerCli(
+      arguments_,
+      "/unused",
+      cli.streams,
+    )).resolves.toBe(1)
+    expect(cli.output).toEqual([])
+    expect(cli.errors.join("")).not.toContain("Usage:")
+    expect(parseExternalScannerReport(
+      cli.output.join(""),
+      cli.errors.join(""),
+      REPORT_NONCE,
+    )).toEqual({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "Owned E2E artifact scanner initialization failed safely",
+      failureCategory: "ownership-path-safety",
+    })
+    expect(cli.errors.join("")).not.toContain("invalid+proof")
+  })
+
+  it("classifies a proof/run mismatch without exposing the capability", async () => {
+    const cli = streams()
+    const ownership = encodeOwnedRunProof(proofFixture("proof_run"))
+
+    await expect(runArtifactScannerCli([
+      "--run-id", "requested_run",
+      "--ownership", ownership,
+      "--report-nonce", REPORT_NONCE,
+    ], "/unused", cli.streams)).resolves.toBe(1)
+    expect(parseScannerReport(cli.errors.join(""), REPORT_NONCE)).toMatchObject({
+      ok: false,
+      failureCategory: "ownership-path-safety",
+    })
+    expect(cli.errors.join("")).not.toContain(ownership)
+  })
+})
+
+describe("CLI argument and environment forwarding", () => {
+  it.each([
+    [
+      "e2e",
+      "tests/e2e/public-visual.spec.ts",
+      "anonymous-public-visual",
+      "--grep-invert",
+    ],
+    [
+      "a11y",
+      "tests/e2e/contrast.a11y.spec.ts",
+      "no-binary",
+      "--grep",
+    ],
+  ] as const)("forwards the exact %s journey contract", async (
+    mode,
+    spec,
+    artifactProfile,
+    grepFlag,
+  ) => {
+    const cli = streams()
+    const runId = `${mode}_forwarding_run`
+    const runRoot = resolve(
+      "/workspace",
+      "test-results",
+      "e2e-runs",
+      runId,
+    )
+    const prepareRun = vi.fn(async () => ({
+      adoption: "private-adoption-capability",
+      ownership: "private-ownership-capability",
+    }))
+    const runPlaywright = vi.fn(async () => stoppedProcess)
+    const scanArtifacts = vi.fn(async () => cleanScan)
+    const persisted: unknown[] = []
+
+    const exitCode = await runJourneyCli(
+      [mode],
+      "/workspace",
+      cli.streams,
+      {
+        createHmacKey: () => "h".repeat(43),
+        createRunId: () => runId,
+        listSpecs: async () => [
+          "tests/e2e/public-visual.spec.ts",
+          "tests/e2e/contrast.a11y.spec.ts",
+        ],
+        persistState: (state) => persisted.push(state),
+        prepareRun,
+        runPlaywright,
+        scanArtifacts,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(prepareRun).toHaveBeenCalledWith(runId, artifactProfile)
+    expect(runPlaywright).toHaveBeenCalledWith([
+      "pnpm",
+      "exec",
+      "playwright",
+      "test",
+      spec,
+      grepFlag,
+      "@a11y",
+      "--output",
+      `test-results/e2e-runs/${runId}/artifacts`,
+      "--reporter=list,json",
+    ], {
+      E2E_RUN_ID: runId,
+      E2E_EMAIL_PREVIEW_DIRECTORY: `${runRoot}/previews/auth`,
+      E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
+      PLAYWRIGHT_JSON_OUTPUT_NAME: `${runRoot}/playwright-report.json`,
+      E2E_RUN_ADOPTION: "private-adoption-capability",
+    })
+    expect(scanArtifacts).toHaveBeenCalledWith(
+      runId,
+      false,
+      "private-ownership-capability",
+    )
+    expect(persisted.at(-1)).toMatchObject({
+      version: 1,
+      phase: "result",
+      report: { ok: true, mode },
+    })
+    expect(JSON.parse(cli.output.join(""))).toMatchObject({
+      ok: true,
+      mode,
+      completed: 1,
+    })
+  })
+
+  it.each([
+    ["omits purge", false],
+    ["forwards purge", true],
+  ] as const)("builds a direct scanner invocation that %s", (_case, purgeOwned) => {
+    const invocation = createArtifactScannerInvocation("/workspace", {
+      runId: "safe_run",
+      ownership: "ownership-capability",
+      reportNonce: REPORT_NONCE,
+      purgeOwned,
+    })
+
+    expect(invocation.command).toBe(process.execPath)
+    expect(invocation.arguments).toEqual([
+      "--experimental-strip-types",
+      "--import",
+      "./tests/e2e/helpers/register-civet-loader.mjs",
+      "./scripts/e2e/scan-artifacts.civet",
+      "--run-id",
+      "safe_run",
+      "--ownership",
+      "ownership-capability",
+      "--report-nonce",
+      REPORT_NONCE,
+      ...(purgeOwned ? ["--purge-owned"] : []),
+    ])
+    expect(invocation.options).toMatchObject({
+      cwd: "/workspace",
+      maxOutputBytes: 1_024 * 1_024,
+      timeoutMillis: 45_000,
+    })
+    expect(invocation.options.env).toEqual({
+      PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+      TMPDIR: process.env["TMPDIR"],
+    })
+  })
+
+  it("constructs blank provider defaults and lets only isolated values override source", () => {
+    const environment = createPlaywrightEnvironment({
+      DATABASE_URL: "postgres://source",
+      PORTLESS_PORT: "43123",
+      HOME: "/safe-home",
+      NODE_OPTIONS: "must-not-inherit",
+    }, {
+      DATABASE_URL: "postgres://isolated",
+      E2E_RUN_ID: "safe_run",
+      DEBUG: "must-not-win",
+    })
+
+    expect(environment).toMatchObject({
+      APP_ENV: "test",
+      DATABASE_URL: "postgres://isolated",
+      PORTLESS_PORT: "43123",
+      HOME: "/safe-home",
+      E2E_RUN_ID: "safe_run",
+      DEBUG: "pw:webserver",
+      GROQ_API_KEY: "",
+      RESEND_API_KEY: "",
+      OTEL_ENABLED: "false",
+    })
+    expect(environment["NODE_OPTIONS"]).toBeUndefined()
+
+    const defaults = createPlaywrightEnvironment({}, {})
+    expect(defaults["DATABASE_URL"]).toBe("")
+    expect(defaults["PORTLESS_PORT"]).toBe("")
+    expect(defaults["HOME"]).toBeUndefined()
+  })
+})
+
+describe("CLI filesystem discovery", () => {
+  it("returns an empty set, then sorted regular top-level specs only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-discovery-unit-"))
+    try {
+      const directory = join(root, "tests", "e2e")
+      await mkdir(directory, { recursive: true })
+      await expect(discoverJourneySpecs(root)).resolves.toEqual([])
+
+      await writeFile(join(directory, "zeta.spec.ts"), "export {}")
+      await writeFile(join(directory, "alpha.spec.ts"), "export {}")
+      await writeFile(join(directory, "ignored.test.ts"), "export {}")
+      await mkdir(join(directory, "fixtures"))
+
+      await expect(discoverJourneySpecs(root)).resolves.toEqual([
+        "tests/e2e/alpha.spec.ts",
+        "tests/e2e/zeta.spec.ts",
+      ])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("propagates a missing discovery directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-discovery-missing-"))
+    try {
+      await expect(discoverJourneySpecs(root)).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("bounded CLI serialization", () => {
+  it("rejects an oversized progress event", () => {
+    expect(() => serializeJourneyProgress({
+      spec: `tests/e2e/${"a".repeat(1_100)}.spec.ts`,
+      runId: "safe_run",
+      stage: "created",
+    })).toThrow(/exceeded its fixed bound/i)
+  })
+
+  it("summarizes pre-result failure and the most recent failed result", () => {
+    expect(serializeJourneyFailureSummary(journeyReport([]))).toBe(
+      "Error: E2E runner failed before result\n",
+    )
+
+    const firstFailure = journeyResult({
+      playwrightExitCode: 1,
+      stage: "execute",
+    })
+    const latestFailure = journeyResult({
+      stage: "scan",
+      scan: Object.freeze({
+        ...cleanScan,
+        ok: false,
+        purged: true,
+      }),
+    })
+    const summary = serializeJourneyFailureSummary(
+      journeyReport([firstFailure, latestFailure]),
+      "archive-validation",
+    )
+    expect(summary).toContain("stage=scan")
+    expect(summary).toContain("playwrightOk=true")
+    expect(summary).toContain("scanOk=false purged=true")
+    expect(summary).toContain("scanFailureCategory=archive-validation")
+
+    expect(serializeJourneyFailureSummary(
+      journeyReport([latestFailure]),
+      "private/raw-category" as never,
+    )).not.toContain("scanFailureCategory")
+  })
+
+  it("falls back to the last result when a failed report has no failed result", () => {
+    const summary = serializeJourneyFailureSummary(
+      journeyReport([journeyResult()], false),
+    )
+    expect(summary).toContain("stage=complete")
+    expect(summary).toContain("playwrightOk=true")
+    expect(summary).toContain("scanOk=true")
+  })
+})
+
+describe("scanner envelope parsing", () => {
+  it.each([
+    [
+      "clean purged success",
+      {
+        ok: true,
+        scannedEntries: 2,
+        findings: [],
+        purged: true,
+        reason: "Artifacts were clean; failed-run evidence was purged",
+      },
+    ],
+    [
+      "invalid run identifier",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: false,
+        reason: "E2E run identifier is invalid",
+      },
+    ],
+    [
+      "bounded initialization failure",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: false,
+        reason: "Owned E2E artifact scanner initialization failed safely",
+        failureCategory: "bounds",
+      },
+    ],
+    [
+      "temporary cleanup failure",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: false,
+        reason: "E2E artifact scanning failed and temporary scanner cleanup was incomplete",
+        failureCategory: "cleanup",
+      },
+    ],
+    [
+      "scanner and purge cleanup failure",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: false,
+        reason: "E2E artifact scanning and owned-run purge failed safely",
+        failureCategory: "cleanup",
+      },
+    ],
+    [
+      "purged archive failure",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: true,
+        reason: "E2E artifact scanning failed; owned run outputs were purged",
+        failureCategory: "archive-validation",
+      },
+    ],
+    [
+      "same-path findings in canonical category order",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [
+          { category: "browser-password", path: "artifact-0123456789abcdef" },
+          { category: "token-url", path: "artifact-0123456789abcdef" },
+        ],
+        purged: true,
+        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        failureCategory: "evidence-contamination",
+      },
+    ],
+  ] as const)("accepts %s", (_case, report) => {
+    expect(parseScannerReport(
+      scannerEnvelope(report),
+      REPORT_NONCE,
+    )).toEqual(report)
+  })
+
+  it("rejects malformed transport and envelope boundaries", () => {
+    const clean = {
+      ok: true,
+      scannedEntries: 1,
+      findings: [],
+      purged: false,
+      reason: "E2E artifacts passed external secret scanning",
+    }
+    expect(parseScannerReport(scannerEnvelope(clean), "short")).toBeUndefined()
+    expect(parseScannerReport("x".repeat(1_024 * 1_024 + 1), REPORT_NONCE)).toBeUndefined()
+    expect(parseScannerReport("{", REPORT_NONCE)).toBeUndefined()
+    expect(parseScannerReport("[]", REPORT_NONCE)).toBeUndefined()
+    expect(parseScannerReport(JSON.stringify({
+      kind: "darkfactory-artifact-scanner-report",
+      version: 1,
+      reportNonce: REPORT_NONCE,
+      report: clean,
+      extra: true,
+    }), REPORT_NONCE)).toBeUndefined()
+    expect(parseScannerReport(scannerEnvelope(null), REPORT_NONCE)).toBeUndefined()
+    expect(parseScannerReport(
+      scannerEnvelope(clean, "f".repeat(43)),
+      REPORT_NONCE,
+    )).toBeUndefined()
+  })
+
+  it("rejects invalid primitive fields, findings, and status combinations", () => {
+    const invalidReports = [
+      {
+        ok: "yes",
+        scannedEntries: 1,
+        findings: [],
+        purged: false,
+        reason: "E2E artifacts passed external secret scanning",
+      },
+      {
+        ok: true,
+        scannedEntries: 1.5,
+        findings: [],
+        purged: false,
+        reason: "E2E artifacts passed external secret scanning",
+      },
+      {
+        ok: true,
+        scannedEntries: 1,
+        findings: "none",
+        purged: false,
+        reason: "E2E artifacts passed external secret scanning",
+      },
+      {
+        ok: true,
+        scannedEntries: 1,
+        findings: [],
+        purged: "no",
+        reason: "E2E artifacts passed external secret scanning",
+      },
+      {
+        ok: true,
+        scannedEntries: 1,
+        findings: [],
+        purged: false,
+        reason: "private unbounded reason",
+      },
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [null],
+        purged: true,
+        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        failureCategory: "evidence-contamination",
+      },
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [{
+          category: 7,
+          path: "artifact-0123456789abcdef",
+        }],
+        purged: true,
+        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        failureCategory: "evidence-contamination",
+      },
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [{
+          category: "token-url",
+          path: 7,
+        }],
+        purged: true,
+        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        failureCategory: "evidence-contamination",
+      },
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [],
+        purged: false,
+        reason: "Owned E2E artifact scanner initialization failed safely",
+        failureCategory: "archive-validation",
+      },
+    ]
+    for (const report of invalidReports) {
+      expect(parseScannerReport(
+        scannerEnvelope(report),
+        REPORT_NONCE,
+      )).toBeUndefined()
+    }
+  })
+})
+
+describe("CLI dependency failures", () => {
+  const dependencies = (
+    overrides: JourneyCliDependencies = {},
+  ): JourneyCliDependencies => ({
+    createHmacKey: () => "h".repeat(43),
+    createRunId: () => "failure_run",
+    listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+    persistState: () => undefined,
+    prepareRun: async () => ({
+      adoption: "private-adoption",
+      ownership: "private-ownership",
+    }),
+    runPlaywright: async () => stoppedProcess,
+    scanArtifacts: async () => cleanScan,
+    ...overrides,
+  })
+
+  it("withholds scanning and redacts a rejected process dependency", async () => {
+    const cli = streams()
+    const scanArtifacts = vi.fn(async () => cleanScan)
+
+    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
+      runPlaywright: async () => {
+        throw new Error("private child process failure")
+      },
+      scanArtifacts,
+    }))).resolves.toBe(1)
+    expect(scanArtifacts).not.toHaveBeenCalled()
+    expect(cli.output).toEqual([])
+    expect(cli.errors.join("")).toContain("process=unproven")
+    expect(cli.errors.join("")).not.toContain("private child process failure")
+  })
+
+  it("maps a rejected scanner dependency to a bounded failed result", async () => {
+    const cli = streams()
+
+    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
+      scanArtifacts: async () => {
+        throw new Error("private scanner provider failure")
+      },
+    }))).resolves.toBe(1)
+    expect(cli.output).toEqual([])
+    expect(cli.errors.join("")).toContain("stage=scan")
+    expect(cli.errors.join("")).toContain("scanOk=false")
+    expect(cli.errors.join("")).not.toContain("private scanner provider failure")
+  })
+
+  it("fails once when only final state persistence fails", async () => {
+    const cli = streams()
+    const persistedPhases: string[] = []
+
+    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
+      persistState: (state: { phase: string }) => {
+        persistedPhases.push(state.phase)
+        if (state.phase === "result") throw new Error("private final write failure")
+      },
+    }))).resolves.toBe(1)
+    expect(persistedPhases).toContain("progress")
+    expect(persistedPhases.at(-1)).toBe("result")
+    expect(cli.output).toEqual([])
+    expect(cli.errors.filter((line) =>
+      line === "Error: E2E runner state persistence failed\n"
+    )).toHaveLength(1)
+    expect(cli.errors.join("")).not.toContain("private final write failure")
+  })
+
+  it("fails closed when an injected result cannot be sanitized", async () => {
+    const cli = streams()
+
+    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
+      scanArtifacts: async () => ({
+        ...cleanScan,
+        scannedEntries: 1.5,
+      }),
+    }))).resolves.toBe(1)
+    expect(cli.output).toEqual([])
+    expect(cli.errors.at(-1)).toBe(
+      "Error: E2E runner state persistence failed\n",
+    )
+    expect(cli.errors.join("")).not.toContain("1.5")
+  })
+})

@@ -1,11 +1,49 @@
 import { describe, expect, it } from "vitest"
 
+import type { SemanticEvent } from "./port.civet"
 import {
   REDACTED,
   TRUNCATED,
   freezeSnapshot,
   redact,
+  redactSemanticEvent,
 } from "./redaction.civet"
+
+const makeSemanticEvent = (
+  overrides: Readonly<Record<string, unknown>> = {},
+): SemanticEvent =>
+  ({
+    eventId: "event-1",
+    name: "account.updated",
+    occurredAt: "2026-01-02T03:04:05.000Z",
+    correlation: { requestId: "request-1" },
+    ...overrides,
+  }) as unknown as SemanticEvent
+
+const expectNoSecrets = (
+  value: unknown,
+  secrets: readonly string[],
+): void => {
+  const serialized = JSON.stringify(value)
+  for (const secret of secrets) {
+    expect(serialized).not.toContain(secret)
+  }
+}
+
+const expectInvalidSemanticEvent = (
+  input: unknown,
+  secret: string,
+): void => {
+  let thrown: unknown
+  try {
+    redactSemanticEvent(input as SemanticEvent)
+  } catch (error) {
+    thrown = error
+  }
+  expect(thrown).toBeInstanceOf(TypeError)
+  expect((thrown as TypeError).message).toBe("Invalid semantic event")
+  expect(String(thrown)).not.toContain(secret)
+}
 
 describe "redact", ->
   it "recursively removes every prohibited observability field without mutating the input", ->
@@ -173,6 +211,9 @@ describe "redact", ->
       nil: null,
       missing: undefined,
       count: 2n,
+      nan: Number.NaN,
+      positiveInfinity: Number.POSITIVE_INFINITY,
+      negativeInfinity: Number.NEGATIVE_INFINITY,
       symbol: secretSymbol,
       fn: -> "raw-function-body",
     })
@@ -181,7 +222,723 @@ describe "redact", ->
       nil: null,
       missing: "[Undefined]",
       count: "[BigInt]",
+      nan: "[NonFiniteNumber]",
+      positiveInfinity: "[NonFiniteNumber]",
+      negativeInfinity: "[NonFiniteNumber]",
       symbol: "[Symbol]",
       fn: "[Function]",
     })
     expect(JSON.stringify(output)).not.toContain("raw-secret")
+
+  it "honors exact depth, entry, key, node, and string boundaries before truncating overflow", ->
+    const output = redact(
+      {
+        exactDepth: { value: "kept" },
+        pastDepth: { nested: { payload: "raw-depth-secret" } },
+        exactEntries: ["one", "two"],
+        overflowEntries: ["one", "two", "raw-entry-secret"],
+        exactString: "0123456789",
+        overflowString: "0123456789raw-string-secret",
+      },
+      {
+        maxDepth: 2,
+        maxEntries: 2,
+        maxStringLength: 10,
+      },
+    )
+
+    expect(output).toEqual({
+      exactDepth: { value: "kept" },
+      pastDepth: { nested: TRUNCATED },
+      exactEntries: ["one", "two"],
+      overflowEntries: ["one", "two", TRUNCATED],
+      exactString: "0123456789",
+      overflowString: `0123456789${TRUNCATED}`,
+    })
+    expectNoSecrets(output, [
+      "raw-depth-secret",
+      "raw-entry-secret",
+      "raw-string-secret",
+    ])
+
+    const exactObjectEntries = redact(
+      { first: 1, second: 2 },
+      { maxObjectKeys: 2 },
+    )
+    const overflowObjectEntries = redact(
+      {
+        first: 1,
+        second: 2,
+        third: "raw-object-entry-secret",
+      },
+      { maxObjectKeys: 2 },
+    )
+    expect(exactObjectEntries).toEqual({ first: 1, second: 2 })
+    expect(overflowObjectEntries).toEqual({
+      first: 1,
+      second: 2,
+      [TRUNCATED]: TRUNCATED,
+    })
+    expectNoSecrets(overflowObjectEntries, ["raw-object-entry-secret"])
+
+    const exactKey = "k".repeat(8)
+    const overflowKey = `${exactKey}x`
+    const keyOutput = redact(
+      {
+        [exactKey]: "kept",
+        [overflowKey]: "raw-key-secret",
+      },
+      { maxKeyLength: 8 },
+    )
+    expect(keyOutput).toEqual({
+      [exactKey]: "kept",
+      "[REDACTED_KEY]": REDACTED,
+    })
+    expectNoSecrets(keyOutput, [overflowKey, "raw-key-secret"])
+
+    const sanitizedKeyOutput = redact({
+      "": "kept",
+      "customer-secret-hint": "raw-sensitive-key-secret",
+    })
+    expect(sanitizedKeyOutput).toEqual({
+      "[EmptyKey]": "kept",
+      "[REDACTED_KEY]": REDACTED,
+    })
+    expectNoSecrets(sanitizedKeyOutput, [
+      "customer-secret-hint",
+      "raw-sensitive-key-secret",
+    ])
+
+    expect(redact([1, 2], { maxTotalNodes: 3 })).toEqual([1, 2])
+    const nodeOverflow = redact(
+      [1, "raw-node-secret"],
+      { maxTotalNodes: 2 },
+    )
+    expect(nodeOverflow).toEqual([1, TRUNCATED])
+    expectNoSecrets(nodeOverflow, ["raw-node-secret"])
+
+    expect(redact("", { maxStringLength: 0 })).toBe("")
+    const zeroString = redact(
+      "raw-zero-string-secret",
+      { maxStringLength: 0 },
+    )
+    const zeroEntries = redact(
+      ["raw-zero-entry-secret"],
+      { maxEntries: 0 },
+    )
+    const zeroDepth = redact(
+      { payload: "raw-zero-depth-secret" },
+      { maxDepth: 0 },
+    )
+    expect(zeroString).toBe(TRUNCATED)
+    expect(zeroEntries).toEqual([TRUNCATED])
+    expect(zeroDepth).toBe(TRUNCATED)
+    expectNoSecrets(zeroString, ["raw-zero-string-secret"])
+    expectNoSecrets(zeroEntries, ["raw-zero-entry-secret"])
+    expectNoSecrets(zeroDepth, ["raw-zero-depth-secret"])
+
+  it "uses stable safe markers for sparse arrays, symbols, and non-plain prototypes", ->
+    const sparse: unknown[] = new Array(3)
+    sparse[1] = {
+      safe: "kept",
+      password: "raw-sparse-secret",
+    }
+    const hidden = Symbol("raw-symbol-description")
+    Object.defineProperty(sparse, hidden, {
+      enumerable: true,
+      value: "raw-symbol-value",
+    })
+
+    const symbolRecord = { safe: "kept" }
+    Object.defineProperty(symbolRecord, hidden, {
+      enumerable: true,
+      value: "raw-symbol-record-value",
+    })
+
+    const nullPrototype = Object.create(null) as Record<string, unknown>
+    nullPrototype["safe"] = "kept"
+    nullPrototype["password"] = "raw-null-prototype-secret"
+
+    const customPrototype = Object.create({
+      inherited: "raw-inherited-prototype-secret",
+    }) as Record<string, unknown>
+    customPrototype["own"] = "raw-own-prototype-secret"
+
+    const alteredArray = [1]
+    Object.setPrototypeOf(alteredArray, null)
+
+    const sparseOutput = redact(sparse)
+    const symbolOutput = redact(symbolRecord)
+    const nullPrototypeOutput = redact(nullPrototype)
+    const customPrototypeOutput = redact(customPrototype)
+    const alteredArrayOutput = redact(alteredArray)
+
+    expect(sparseOutput).toEqual([
+      "[Undefined]",
+      { safe: "kept", password: REDACTED },
+      "[Undefined]",
+    ])
+    expect(symbolOutput).toEqual({ safe: "kept" })
+    expect(nullPrototypeOutput).toEqual({
+      safe: "kept",
+      password: REDACTED,
+    })
+    expect(customPrototypeOutput).toBe("[Unserializable]")
+    expect(alteredArrayOutput).toBe("[Unserializable]")
+    expectNoSecrets(sparseOutput, [
+      "raw-sparse-secret",
+      "raw-symbol-description",
+      "raw-symbol-value",
+    ])
+    expectNoSecrets(symbolOutput, [
+      "raw-symbol-description",
+      "raw-symbol-record-value",
+    ])
+    expectNoSecrets(nullPrototypeOutput, ["raw-null-prototype-secret"])
+    expectNoSecrets(customPrototypeOutput, [
+      "raw-inherited-prototype-secret",
+      "raw-own-prototype-secret",
+    ])
+
+  it "contains proxy traps with deterministic markers and never invokes array accessors", ->
+    const prototypeFailure = new Proxy(
+      { value: "raw-prototype-proxy-value" },
+      {
+        getPrototypeOf: ->
+          throw new Error("raw-prototype-proxy-secret")
+      },
+    )
+    const enumerationFailure = new Proxy(
+      { value: "raw-enumeration-proxy-value" },
+      {
+        ownKeys: ->
+          throw new Error("raw-enumeration-proxy-secret")
+      },
+    )
+    const descriptorFailure = new Proxy(
+      ["raw-descriptor-proxy-secret"],
+      {
+        getOwnPropertyDescriptor: (target, key) ->
+          if key is "0"
+            throw new Error("descriptor unavailable")
+          return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    )
+    let accessorReads = 0
+    const accessor = [1]
+    Object.defineProperty(accessor, "0", {
+      enumerable: true,
+      get: ->
+        accessorReads += 1
+        return "raw-accessor-value"
+    })
+
+    const prototypeOutput = redact(prototypeFailure)
+    const enumerationOutput = redact(enumerationFailure)
+    const descriptorOutput = redact(descriptorFailure)
+    const accessorOutput = redact(accessor)
+
+    expect(prototypeOutput).toBe("[Unserializable]")
+    expect(enumerationOutput).toBe("[Unserializable]")
+    expect(descriptorOutput).toEqual(["[Unserializable]"])
+    expect(accessorOutput).toEqual(["[Unserializable]"])
+    expect(accessorReads).toBe(0)
+    expectNoSecrets(prototypeOutput, [
+      "raw-prototype-proxy-value",
+      "raw-prototype-proxy-secret",
+    ])
+    expectNoSecrets(enumerationOutput, [
+      "raw-enumeration-proxy-value",
+      "raw-enumeration-proxy-secret",
+    ])
+    expectNoSecrets(descriptorOutput, ["raw-descriptor-proxy-secret"])
+    expectNoSecrets(accessorOutput, ["raw-accessor-value"])
+
+  it "marks only active circular paths while safely revisiting shared objects", ->
+    const shared = {
+      value: "kept",
+      password: "raw-shared-secret",
+    }
+    const root: Record<string, unknown> = {
+      first: shared,
+      second: shared,
+    }
+    const branch: Record<string, unknown> = {}
+    root["branch"] = branch
+    branch["back"] = root
+    const circularArray: unknown[] = []
+    circularArray.push(
+      circularArray,
+      { token: "raw-circular-array-secret" },
+    )
+    root["array"] = circularArray
+
+    const output = redact(root)
+
+    expect(output).toEqual({
+      first: { value: "kept", password: REDACTED },
+      second: { value: "kept", password: REDACTED },
+      branch: { back: "[Circular]" },
+      array: [
+        "[Circular]",
+        { "[REDACTED_KEY]": REDACTED },
+      ],
+    })
+    expectNoSecrets(output, [
+      "raw-shared-secret",
+      "raw-circular-array-secret",
+    ])
+
+  it "freezes circular plain snapshots and rejects symbol or proxy freeze failures", ->
+    const root: Record<string, unknown> = {}
+    const child: Record<string, unknown> = { parent: root }
+    root["child"] = child
+
+    expect(freezeSnapshot(root)).toBe(root)
+    expect(Object.isFrozen(root)).toBe(true)
+    expect(Object.isFrozen(child)).toBe(true)
+
+    const symbolSnapshot = {}
+    Object.defineProperty(
+      symbolSnapshot,
+      Symbol("raw-freeze-symbol-secret"),
+      {
+        enumerable: true,
+        value: "raw-freeze-symbol-value",
+      },
+    )
+    const freezeFailure = new Proxy(
+      {},
+      {
+        preventExtensions: ->
+          throw new Error("raw-freeze-proxy-secret")
+      },
+    )
+    expect(-> freezeSnapshot(symbolSnapshot)).toThrowError(
+      new TypeError("Unsafe snapshot value"),
+    )
+    expect(-> freezeSnapshot(freezeFailure)).toThrowError(
+      new TypeError("Unsafe snapshot value"),
+    )
+
+describe "redactSemanticEvent", ->
+  it "emits a frozen canonical correlation and redacts every retained text field", ->
+    const correlation = Object.create(null) as Record<string, unknown>
+    Object.assign(correlation, {
+      requestId: "request member@domain.test",
+      traceId: "t".repeat(32),
+      spanId: `${"s".repeat(16)}raw-span-secret`,
+      actorId: "actor token=raw-actor-secret",
+      route: "/members/member@domain.test",
+      procedure: "p".repeat(256),
+      ignored: "raw-correlation-extra-secret",
+    })
+    Object.defineProperty(
+      correlation,
+      Symbol("raw-correlation-symbol-description"),
+      {
+        enumerable: true,
+        value: "raw-correlation-symbol-value",
+      },
+    )
+
+    const output = redactSemanticEvent(
+      makeSemanticEvent({
+        correlation,
+        action: "password=raw-action-secret",
+        entityId: "member@domain.test",
+        entityType: "account",
+        outcome: "failure",
+        source: "worker",
+        errorCategory: "token=raw-error-secret",
+        durationMs: 0,
+        attributes: {
+          password: "raw-attribute-password",
+          note: "Bearer raw-attribute-secret",
+        },
+        ignored: "raw-event-extra-secret",
+      }),
+    )
+
+    expect(output).toEqual({
+      eventId: "event-1",
+      name: "account.updated",
+      occurredAt: "2026-01-02T03:04:05.000Z",
+      correlation: {
+        requestId: `request ${REDACTED}`,
+        traceId: "t".repeat(32),
+        spanId: `${"s".repeat(16)}${TRUNCATED}`,
+        actorId: `actor token=${REDACTED}`,
+        route: `/members/${REDACTED}`,
+        procedure: "p".repeat(256),
+      },
+      action: `password=${REDACTED}`,
+      entityId: REDACTED,
+      entityType: "account",
+      outcome: "failure",
+      source: "worker",
+      errorCategory: `token=${REDACTED}`,
+      durationMs: 0,
+      attributes: {
+        password: REDACTED,
+        note: `Bearer ${REDACTED}`,
+      },
+    })
+    expect(Object.keys(output.correlation)).toEqual([
+      "requestId",
+      "traceId",
+      "spanId",
+      "actorId",
+      "route",
+      "procedure",
+    ])
+    expect(Object.getPrototypeOf(output.correlation)).toBe(Object.prototype)
+    expect(Object.isFrozen(output)).toBe(true)
+    expect(Object.isFrozen(output.correlation)).toBe(true)
+    expect(Object.isFrozen(output.attributes)).toBe(true)
+    expect(redactSemanticEvent(output)).toBe(output)
+    expectNoSecrets(output, [
+      "member@domain.test",
+      "raw-span-secret",
+      "raw-actor-secret",
+      "raw-correlation-extra-secret",
+      "raw-correlation-symbol-description",
+      "raw-correlation-symbol-value",
+      "raw-action-secret",
+      "raw-error-secret",
+      "raw-attribute-password",
+      "raw-attribute-secret",
+      "raw-event-extra-secret",
+    ])
+
+  it "preserves exact correlation field limits and truncates only overflow", ->
+    const exactCorrelation = {
+      requestId: "r".repeat(256),
+      traceId: "t".repeat(32),
+      spanId: "s".repeat(16),
+      actorId: "a".repeat(256),
+      route: "/".repeat(512),
+      procedure: "p".repeat(256),
+    }
+    const exactOutput = redactSemanticEvent(
+      makeSemanticEvent({ correlation: exactCorrelation }),
+    )
+    expect(exactOutput.correlation).toEqual(exactCorrelation)
+
+    const overflowCorrelation = {
+      requestId: `${"r".repeat(256)}raw-request-secret`,
+      traceId: `${"t".repeat(32)}raw-trace-secret`,
+      spanId: `${"s".repeat(16)}raw-span-secret`,
+      actorId: `${"a".repeat(256)}raw-actor-secret`,
+      route: `${"/".repeat(512)}raw-route-secret`,
+      procedure: `${"p".repeat(256)}raw-procedure-secret`,
+    }
+    const overflowOutput = redactSemanticEvent(
+      makeSemanticEvent({ correlation: overflowCorrelation }),
+    )
+    expect(overflowOutput.correlation).toEqual({
+      requestId: `${"r".repeat(256)}${TRUNCATED}`,
+      traceId: `${"t".repeat(32)}${TRUNCATED}`,
+      spanId: `${"s".repeat(16)}${TRUNCATED}`,
+      actorId: `${"a".repeat(256)}${TRUNCATED}`,
+      route: `${"/".repeat(512)}${TRUNCATED}`,
+      procedure: `${"p".repeat(256)}${TRUNCATED}`,
+    })
+    expectNoSecrets(overflowOutput, [
+      "raw-request-secret",
+      "raw-trace-secret",
+      "raw-span-secret",
+      "raw-actor-secret",
+      "raw-route-secret",
+      "raw-procedure-secret",
+    ])
+
+  it "rejects missing, primitive, array, prototype, and revoked correlation containers", ->
+    const missingCorrelation = {
+      ...makeSemanticEvent(),
+      ignored: "raw-missing-correlation-secret",
+    } as unknown as Record<string, unknown>
+    delete missingCorrelation["correlation"]
+    expectInvalidSemanticEvent(
+      missingCorrelation,
+      "raw-missing-correlation-secret",
+    )
+
+    const arrayCorrelation = ["raw-array-correlation-secret"]
+    Object.assign(arrayCorrelation, { requestId: "request-1" })
+
+    const customCorrelation = Object.create({
+      inherited: "raw-custom-correlation-secret",
+    }) as Record<string, unknown>
+    customCorrelation["requestId"] = "request-1"
+
+    const revoked = Proxy.revocable(
+      {
+        requestId: "request-1",
+        ignored: "raw-revoked-correlation-secret",
+      },
+      {},
+    )
+    revoked.revoke()
+
+    const prototypeFailure = new Proxy(
+      { requestId: "request-1" },
+      {
+        getPrototypeOf: ->
+          throw new Error("raw-correlation-prototype-trap-secret")
+      },
+    )
+
+    const invalid: ReadonlyArray<readonly [unknown, string]> = [
+      [undefined, "raw-undefined-correlation-secret"],
+      [null, "raw-null-correlation-secret"],
+      ["raw-primitive-correlation-secret", "raw-primitive-correlation-secret"],
+      [arrayCorrelation, "raw-array-correlation-secret"],
+      [customCorrelation, "raw-custom-correlation-secret"],
+      [revoked.proxy, "raw-revoked-correlation-secret"],
+      [prototypeFailure, "raw-correlation-prototype-trap-secret"],
+    ]
+
+    for (const [correlation, secret] of invalid) {
+      expectInvalidSemanticEvent(
+        makeSemanticEvent({ correlation, ignored: secret }),
+        secret,
+      )
+    }
+
+  it "rejects missing or invalid request IDs and omits invalid optional correlation fields", ->
+    const symbolRequestId = Symbol("raw-request-symbol-secret")
+    const invalid: ReadonlyArray<readonly [Record<string, unknown>, string]> = [
+      [{ ignored: "raw-missing-request-secret" }, "raw-missing-request-secret"],
+      [
+        { requestId: undefined, ignored: "raw-undefined-request-secret" },
+        "raw-undefined-request-secret",
+      ],
+      [
+        { requestId: "", ignored: "raw-empty-request-secret" },
+        "raw-empty-request-secret",
+      ],
+      [
+        { requestId: 0, ignored: "raw-number-request-secret" },
+        "raw-number-request-secret",
+      ],
+      [
+        { requestId: symbolRequestId },
+        "raw-request-symbol-secret",
+      ],
+    ]
+    for (const [correlation, secret] of invalid) {
+      expectInvalidSemanticEvent(
+        makeSemanticEvent({ correlation }),
+        secret,
+      )
+    }
+
+    const optionalSymbol = Symbol("raw-optional-correlation-secret")
+    const output = redactSemanticEvent(
+      makeSemanticEvent({
+        correlation: {
+          requestId: "request-1",
+          traceId: "",
+          spanId: 42,
+          actorId: null,
+          route: false,
+          procedure: optionalSymbol,
+          ignored: "raw-optional-extra-secret",
+        },
+      }),
+    )
+    expect(output.correlation).toEqual({ requestId: "request-1" })
+    expectNoSecrets(output, [
+      "raw-optional-correlation-secret",
+      "raw-optional-extra-secret",
+    ])
+
+  it "rejects correlation and event data accessors or descriptor proxy failures without invoking accessors", ->
+    let correlationReads = 0
+    const accessorCorrelation: Record<string, unknown> = {}
+    Object.defineProperty(accessorCorrelation, "requestId", {
+      enumerable: true,
+      get: ->
+        correlationReads += 1
+        return "raw-correlation-accessor-secret"
+    })
+    expectInvalidSemanticEvent(
+      makeSemanticEvent({ correlation: accessorCorrelation }),
+      "raw-correlation-accessor-secret",
+    )
+    expect(correlationReads).toBe(0)
+
+    const descriptorCorrelation = new Proxy(
+      { requestId: "request-1" },
+      {
+        getOwnPropertyDescriptor: (target, key) ->
+          if key is "requestId"
+            throw new Error("raw-correlation-descriptor-secret")
+          return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    )
+    expectInvalidSemanticEvent(
+      makeSemanticEvent({ correlation: descriptorCorrelation }),
+      "raw-correlation-descriptor-secret",
+    )
+
+    let eventReads = 0
+    const accessorEvent = {
+      ...makeSemanticEvent(),
+      ignored: "raw-event-accessor-secret",
+    } as unknown as Record<string, unknown>
+    Object.defineProperty(accessorEvent, "name", {
+      enumerable: true,
+      get: ->
+        eventReads += 1
+        return "raw-event-accessor-secret"
+    })
+    expectInvalidSemanticEvent(
+      accessorEvent,
+      "raw-event-accessor-secret",
+    )
+    expect(eventReads).toBe(0)
+
+    const attributeDescriptorFailure = new Proxy(
+      makeSemanticEvent({
+        ignored: "raw-attribute-descriptor-secret",
+      }),
+      {
+        getOwnPropertyDescriptor: (target, key) ->
+          if key is "attributes"
+            throw new Error("raw-attribute-descriptor-secret")
+          return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    )
+    expectInvalidSemanticEvent(
+      attributeDescriptorFailure,
+      "raw-attribute-descriptor-secret",
+    )
+
+  it "reads an attributes accessor once and sanitizes holes, cycles, symbols, and secrets", ->
+    const sparse: unknown[] = new Array(2)
+    sparse[1] = "member@domain.test"
+    const attributes: Record<string, unknown> = {
+      password: "raw-attribute-password",
+      sparse,
+    }
+    attributes["self"] = attributes
+    Object.defineProperty(
+      attributes,
+      Symbol("raw-attribute-symbol-description"),
+      {
+        enumerable: true,
+        value: "raw-attribute-symbol-value",
+      },
+    )
+
+    let accessorReads = 0
+    const input = makeSemanticEvent() as unknown as Record<string, unknown>
+    Object.defineProperty(input, "attributes", {
+      enumerable: true,
+      get: ->
+        accessorReads += 1
+        return attributes
+    })
+
+    const output = redactSemanticEvent(input as unknown as SemanticEvent)
+
+    expect(accessorReads).toBe(1)
+    expect(output.attributes).toEqual({
+      password: REDACTED,
+      sparse: ["[Undefined]", REDACTED],
+      self: "[Circular]",
+    })
+    expectNoSecrets(output, [
+      "member@domain.test",
+      "raw-attribute-password",
+      "raw-attribute-symbol-description",
+      "raw-attribute-symbol-value",
+    ])
+
+  it "converts throwing or missing attributes getters into the canonical invalid-event error", ->
+    let throwingReads = 0
+    const throwing = {
+      ...makeSemanticEvent(),
+      ignored: "raw-throwing-attributes-secret",
+    } as unknown as Record<string, unknown>
+    Object.defineProperty(throwing, "attributes", {
+      enumerable: true,
+      get: ->
+        throwingReads += 1
+        throw new Error("raw-throwing-attributes-secret")
+    })
+    expectInvalidSemanticEvent(
+      throwing,
+      "raw-throwing-attributes-secret",
+    )
+    expect(throwingReads).toBe(1)
+
+    const setterOnly = {
+      ...makeSemanticEvent(),
+      ignored: "raw-setter-only-attributes-secret",
+    } as unknown as Record<string, unknown>
+    Object.defineProperty(setterOnly, "attributes", {
+      enumerable: true,
+      set: (_value: unknown) -> undefined
+    })
+    expectInvalidSemanticEvent(
+      setterOnly,
+      "raw-setter-only-attributes-secret",
+    )
+
+  it "omits unsafe attribute containers and invalid optional event fields", ->
+    const revokedAttributes = Proxy.revocable(
+      { password: "raw-revoked-attribute-secret" },
+      {},
+    )
+    revokedAttributes.revoke()
+    const unsafeAttributesOutput = redactSemanticEvent(
+      makeSemanticEvent({
+        attributes: revokedAttributes.proxy,
+        ignored: "raw-revoked-attribute-secret",
+      }),
+    )
+    expect(unsafeAttributesOutput.attributes).toBeUndefined()
+    expectNoSecrets(unsafeAttributesOutput, [
+      "raw-revoked-attribute-secret",
+    ])
+
+    const optionalSymbol = Symbol("raw-event-optional-symbol-secret")
+    const invalidOptionalOutput = redactSemanticEvent(
+      makeSemanticEvent({
+        action: "",
+        entityId: 42,
+        entityType: null,
+        errorCategory: optionalSymbol,
+        outcome: "raw-outcome-secret",
+        source: "raw-source-secret",
+        durationMs: -1,
+        attributes: ["raw-array-attribute-secret"],
+      }),
+    )
+    expect(invalidOptionalOutput).toEqual({
+      eventId: "event-1",
+      name: "account.updated",
+      occurredAt: "2026-01-02T03:04:05.000Z",
+      correlation: { requestId: "request-1" },
+    })
+    expectNoSecrets(invalidOptionalOutput, [
+      "raw-event-optional-symbol-secret",
+      "raw-outcome-secret",
+      "raw-source-secret",
+      "raw-array-attribute-secret",
+    ])
+
+  it "retains each canonical source and both outcomes", ->
+    for (const source of ["api", "system", "web", "worker"] as const) {
+      const output = redactSemanticEvent(
+        makeSemanticEvent({
+          source,
+          outcome: source === "api" ? "success" : "failure",
+        }),
+      )
+      expect(output.source).toBe(source)
+      expect(output.outcome).toBe(source === "api" ? "success" : "failure")
+    }

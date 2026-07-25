@@ -1,0 +1,305 @@
+import { describe, expect, it, vi } from "vitest"
+import type { SQL } from "drizzle-orm"
+import { PgDialect } from "drizzle-orm/pg-core"
+
+import type { Database } from "./client.civet"
+import {
+  createContactThrottleRepository,
+  type ContactThrottleRepositoryOptions,
+} from "./contact-throttle-repository.civet"
+
+const QUERY_DIALECT = new PgDialect()
+const KEY_HASH = "a".repeat(64)
+
+type ExecuteRows = Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>
+type ExecuteOutcome = ExecuteRows | Error
+type TransactionRecord = {
+  statements: unknown[]
+  lifecycle: string[]
+}
+
+const rows = (
+  values: ReadonlyArray<Record<string, unknown>> = [],
+): ExecuteRows => ({ rows: values })
+
+const createThrottleDatabase = (scenarios: ExecuteOutcome[][]) => {
+  const pendingScenarios = scenarios.map((scenario) => [...scenario])
+  const records: TransactionRecord[] = []
+
+  const database = {
+    transaction: vi.fn(
+      async (operation: (transaction: Database) => Promise<unknown>) => {
+        const outcomes = pendingScenarios.shift() ?? []
+        const record: TransactionRecord = { statements: [], lifecycle: ["begin"] }
+        records.push(record)
+        const transaction = {
+          execute: vi.fn(async (statement: unknown) => {
+            record.statements.push(statement)
+            const outcome = outcomes.shift() ?? rows()
+            if (outcome instanceof Error) throw outcome
+            return outcome
+          }),
+        } as unknown as Database
+        try {
+          const result = await operation(transaction)
+          record.lifecycle.push("commit")
+          return result
+        } catch (error) {
+          record.lifecycle.push("rollback")
+          throw error
+        }
+      },
+    ),
+  } as unknown as Database
+
+  return { database, records }
+}
+
+const compiled = (statement: unknown) =>
+  QUERY_DIALECT.sqlToQuery(statement as SQL)
+
+const statementText = (statement: unknown): string =>
+  compiled(statement).sql.replaceAll(/\s+/gu, " ").trim()
+
+const newKeyScenario = (
+  capacity: Record<string, unknown>,
+  decision?: Record<string, unknown>,
+): ExecuteOutcome[] => [
+  rows(),
+  rows(),
+  rows(),
+  rows(),
+  rows([capacity]),
+  ...(decision === undefined ? [] : [rows([decision])]),
+]
+
+const existingKeyScenario = (
+  decision?: Record<string, unknown>,
+): ExecuteOutcome[] => [
+  rows(),
+  rows([{ key_hash: KEY_HASH }]),
+  ...(decision === undefined ? [rows()] : [rows([decision])]),
+]
+
+describe "contact throttle repository", ->
+  it.each([
+    ["maxRows", 0, 100_000],
+    ["maxRows", 100_001, 100_000],
+    ["cleanupBatchSize", -1, 1_000],
+    ["cleanupBatchSize", 1_001, 1_000],
+    ["maxRequests", 1.5, 1_000],
+    ["maxRequests", Number.POSITIVE_INFINITY, 1_000],
+  ] as const)("rejects invalid %s value %s", (name, value, maximum) ->
+    const options = { [name]: value } as ContactThrottleRepositoryOptions
+
+    expect(() => createContactThrottleRepository({} as Database, options)).toThrow(
+      new RangeError(`${name} must be an integer between 1 and ${maximum}`),
+    )
+  )
+
+  it.each([
+    ["uppercase hex", "A".repeat(64)],
+    ["too short", "a".repeat(63)],
+    ["too long", "a".repeat(65)],
+    ["non-hex", `${"a".repeat(63)}g`],
+    ["null", null],
+  ] as const)("rejects %s keys before opening a transaction", async (_label, keyHash) ->
+    const double = createThrottleDatabase([])
+    const repository = createContactThrottleRepository(double.database)
+
+    await expect(repository.consume(keyHash as string)).rejects.toThrow(
+      new TypeError("keyHash must be a lowercase SHA-256 HMAC"),
+    )
+    expect(double.database.transaction).not.toHaveBeenCalled()
+  )
+
+  it "inserts a new key below capacity using the default cleanup and quota policy", async ->
+    const double = createThrottleDatabase([
+      newKeyScenario(
+        { row_count: 0, retry_after_seconds: null },
+        { allowed: true, remaining: 4, retry_after_seconds: 0 },
+      ),
+    ])
+    const repository = createContactThrottleRepository(double.database)
+
+    const result = await repository.consume(KEY_HASH)
+
+    expect(Object.isFrozen(repository)).toBe(true)
+    expect(result).toEqual({
+      allowed: true,
+      remaining: 4,
+      retryAfterSeconds: 0,
+    })
+    const record = double.records[0]!
+    expect(record.lifecycle).toEqual(["begin", "commit"])
+    expect(record.statements).toHaveLength(6)
+    expect(statementText(record.statements[0])).toContain("pg_advisory_xact_lock")
+    expect(compiled(record.statements[0]).params).toEqual([KEY_HASH])
+    expect(statementText(record.statements[1])).toContain("for update")
+    expect(compiled(record.statements[1]).params).toEqual([KEY_HASH])
+    expect(compiled(record.statements[2]).params).toEqual([])
+    expect(statementText(record.statements[2])).toContain(
+      "darkfactory.contact-rate-limit.capacity",
+    )
+    expect(statementText(record.statements[3])).toContain(
+      "delete from contact_rate_limits",
+    )
+    expect(compiled(record.statements[3]).params).toEqual([100])
+    expect(statementText(record.statements[4])).toContain("count(*)::integer")
+    expect(statementText(record.statements[5])).toContain(
+      "insert into contact_rate_limits",
+    )
+    expect(statementText(record.statements[5])).toContain(
+      "on conflict (key_hash) do update",
+    )
+    expect(compiled(record.statements[5]).params).toEqual(
+      expect.arrayContaining([KEY_HASH, 5]),
+    )
+
+  it "updates an expired existing key into a fresh custom-sized window", async ->
+    const double = createThrottleDatabase([
+      existingKeyScenario({
+        allowed: true,
+        remaining: 2,
+        retry_after_seconds: 0,
+      }),
+    ])
+    const repository = createContactThrottleRepository(double.database, {
+      maxRows: 10,
+      cleanupBatchSize: 7,
+      maxRequests: 3,
+    })
+
+    const result = await repository.consume(KEY_HASH)
+
+    expect(result).toEqual({
+      allowed: true,
+      remaining: 2,
+      retryAfterSeconds: 0,
+    })
+    const record = double.records[0]!
+    expect(record.statements).toHaveLength(3)
+    const decisionText = statementText(record.statements[2])
+    expect(decisionText).toContain(
+      "when contact_rate_limits.expires_at <= clock_timestamp() then 1",
+    )
+    expect(decisionText).toContain(
+      "clock_timestamp() + interval '15 minutes'",
+    )
+    expect(compiled(record.statements[2]).params).toEqual(
+      expect.arrayContaining([KEY_HASH, 3]),
+    )
+
+  it "returns the database quota denial for an active existing key", async ->
+    const double = createThrottleDatabase([
+      existingKeyScenario({
+        allowed: false,
+        remaining: 0,
+        retry_after_seconds: 812,
+      }),
+    ])
+    const repository = createContactThrottleRepository(double.database, {
+      maxRequests: 1,
+    })
+
+    const result = await repository.consume(KEY_HASH)
+
+    expect(result).toEqual({
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: 812,
+    })
+    expect(double.records[0]!.statements).toHaveLength(3)
+    expect(statementText(double.records[0]!.statements[2])).toContain(
+      "contact_rate_limits.request_count <",
+    )
+    expect(compiled(double.records[0]!.statements[2]).params).toEqual(
+      expect.arrayContaining([1]),
+    )
+
+  it.each([
+    [null, 1],
+    [37, 37],
+  ] as const)(
+    "denies a new key at table capacity with retry %s normalized to %s",
+    async (databaseRetry, expectedRetry) ->
+      const double = createThrottleDatabase([
+        newKeyScenario({
+          row_count: 2,
+          retry_after_seconds: databaseRetry,
+        }),
+      ])
+      const repository = createContactThrottleRepository(double.database, {
+        maxRows: 2,
+      })
+
+      await expect(repository.consume(KEY_HASH)).resolves.toEqual({
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: expectedRetry,
+      })
+      expect(double.records[0]!.statements).toHaveLength(5)
+  )
+
+  it "fails closed when the capacity query returns no row", async ->
+    const double = createThrottleDatabase([
+      [rows(), rows(), rows(), rows(), rows()],
+    ])
+
+    await expect(
+      createContactThrottleRepository(double.database).consume(KEY_HASH),
+    ).rejects.toThrow("Contact throttle did not return table capacity")
+    expect(double.records[0]!.lifecycle).toEqual(["begin", "rollback"])
+
+  it "fails closed when the atomic attempt returns no decision", async ->
+    const double = createThrottleDatabase([existingKeyScenario()])
+
+    await expect(
+      createContactThrottleRepository(double.database).consume(KEY_HASH),
+    ).rejects.toThrow("Contact throttle did not return a decision")
+    expect(double.records[0]!.lifecycle).toEqual(["begin", "rollback"])
+
+  it "propagates transaction failures without issuing later operations", async ->
+    const failure = new Error("database unavailable")
+    const double = createThrottleDatabase([[failure]])
+
+    await expect(
+      createContactThrottleRepository(double.database).consume(KEY_HASH),
+    ).rejects.toBe(failure)
+    expect(double.records[0]!.statements).toHaveLength(1)
+    expect(double.records[0]!.lifecycle).toEqual(["begin", "rollback"])
+
+  it "preserves independent adapter decisions and key-lock statements across parallel callers", async ->
+    const double = createThrottleDatabase([
+      existingKeyScenario({
+        allowed: true,
+        remaining: 0,
+        retry_after_seconds: 0,
+      }),
+      existingKeyScenario({
+        allowed: false,
+        remaining: 0,
+        retry_after_seconds: 900,
+      }),
+    ])
+    const repository = createContactThrottleRepository(double.database, {
+      maxRequests: 1,
+    })
+
+    const results = await Promise.all([
+      repository.consume(KEY_HASH),
+      repository.consume(KEY_HASH),
+    ])
+
+    expect(results).toEqual([
+      { allowed: true, remaining: 0, retryAfterSeconds: 0 },
+      { allowed: false, remaining: 0, retryAfterSeconds: 900 },
+    ])
+    expect(double.records).toHaveLength(2)
+    for (const record of double.records) {
+      expect(statementText(record.statements[0])).toContain(
+        "pg_advisory_xact_lock",
+      )
+      expect(compiled(record.statements[0]).params).toEqual([KEY_HASH])
+      expect(record.lifecycle).toEqual(["begin", "commit"])
+    }

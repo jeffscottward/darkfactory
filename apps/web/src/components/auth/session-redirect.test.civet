@@ -1,0 +1,221 @@
+import { createElement, type ReactElement, type ReactNode } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const reactHarness = vi.hoisted(() => {
+  type Effect = () => void | (() => void)
+
+  let current = true
+  let effect: Effect | undefined
+  let setter = vi.fn()
+
+  return {
+    begin: (value: boolean): ReturnType<typeof vi.fn> => {
+      current = value
+      effect = undefined
+      setter = vi.fn()
+      return setter
+    },
+    reset: (): void => {
+      current = true
+      effect = undefined
+      setter = vi.fn()
+    },
+    runEffect: (): (() => void) | undefined => {
+      const cleanup = effect?.()
+      return typeof cleanup === "function" ? cleanup : undefined
+    },
+    useEffect: (nextEffect: Effect, _deps?: readonly unknown[]): void => {
+      effect = nextEffect
+    },
+    useState: <Value>(
+      _initializer: Value | (() => Value),
+    ): readonly [Value, (next: Value) => void] => [
+      current as unknown as Value,
+      setter as (next: Value) => void,
+    ],
+  }
+})
+
+const navigationHarness = vi.hoisted(() => ({ replace: vi.fn() }))
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useEffect: reactHarness.useEffect,
+    useState: reactHarness.useState,
+  }
+})
+vi.mock("next/navigation", () => ({ useRouter: () => navigationHarness }))
+
+import type { AuthFlowClient } from "./auth-flow.civet"
+import {
+  SessionRedirect,
+  destinationForSession,
+} from "./session-redirect.civet"
+
+const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
+  signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  signUpEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  requestPasswordReset: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  resetPassword: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  sendVerificationEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
+  ...overrides,
+})
+
+const deferred = <Value>() => {
+  let rejectPromise = (_reason: unknown): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  let resolvePromise = (_value: Value): void => {
+    throw new Error("Deferred promise was not initialized")
+  }
+  const promise = new Promise<Value>((resolve, reject) => {
+    rejectPromise = reject
+    resolvePromise = resolve
+  })
+  return { promise, reject: rejectPromise, resolve: resolvePromise }
+}
+
+const flushMicrotasks = async ->
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+
+const mount = ({
+  auth = authClient(),
+  callbackURL = "/dashboard",
+  children,
+  isChecking = true,
+}: {
+  auth?: AuthFlowClient
+  callbackURL?: unknown
+  children?: ReactNode
+  isChecking?: boolean
+} = {}) => {
+  const setIsChecking = reactHarness.begin(isChecking)
+  return {
+    setIsChecking,
+    tree: SessionRedirect({ auth, callbackURL, children }),
+  }
+}
+
+const markup = (tree: unknown): string => renderToStaticMarkup(tree as ReactElement)
+
+afterEach ->
+  reactHarness.reset()
+  vi.clearAllMocks()
+
+describe "destinationForSession", ->
+  it "denies provider errors and malformed data or session payloads", ->
+    const malformedResponses = [
+      { data: null, error: null },
+      { data: "session-1", error: null },
+      { data: {}, error: null },
+      { data: { session: null }, error: null },
+      { data: { session: "session-1" }, error: null },
+      { data: { session: { id: "session-1" } }, error: { code: "FAILED" } },
+    ]
+
+    for (const response of malformedResponses) {
+      expect(destinationForSession(response, "/feature-items")).toBeNull()
+    }
+
+  it "returns only an allowlisted local destination for an object session", ->
+    const response = {
+      data: { session: { id: "session-1" } },
+      error: null,
+    }
+    expect(destinationForSession(response, "/feature-items?status=active#results")).toBe(
+      "/feature-items?status=active#results",
+    )
+    expect(destinationForSession(response, "https://attacker.test/steal")).toBe(
+      "/dashboard",
+    )
+    expect(destinationForSession(response, "/sign-in")).toBe("/dashboard")
+    expect(destinationForSession(response, { pathname: "/feature-items" })).toBe(
+      "/dashboard",
+    )
+
+describe "SessionRedirect", ->
+  it "announces the initial check and withholds interactive children", ->
+    const { tree } = mount({
+      children: createElement("button", {}, "Interactive form"),
+    })
+    const html = markup(tree)
+    expect(html).toContain('role="status"')
+    expect(html).toContain('aria-live="polite"')
+    expect(html).toContain("Checking your session…")
+    expect(html).not.toContain("Interactive form")
+
+  it "replaces history for a session without revealing gated children", async ->
+    const getSession = vi.fn().mockResolvedValue({
+      data: { session: { id: "session-1" } },
+      error: null,
+    })
+    const { setIsChecking } = mount({
+      auth: authClient({ getSession }),
+      callbackURL: "//attacker.test/steal",
+      children: createElement("button", {}, "Interactive form"),
+    })
+    const cleanup = reactHarness.runEffect()
+    expect(cleanup).toBeTypeOf("function")
+    await flushMicrotasks()
+
+    expect(getSession).toHaveBeenCalledOnce()
+    expect(navigationHarness.replace).toHaveBeenCalledWith("/dashboard")
+    expect(setIsChecking).not.toHaveBeenCalled()
+    expect(cleanup?.()).toBeUndefined()
+
+  it "reveals children after a completed check finds no session", async ->
+    const getSession = vi.fn().mockResolvedValue({ data: null, error: null })
+    const checking = mount({ auth: authClient({ getSession }) })
+    reactHarness.runEffect()
+    await flushMicrotasks()
+    expect(checking.setIsChecking).toHaveBeenCalledWith(false)
+    expect(navigationHarness.replace).not.toHaveBeenCalled()
+
+    const ready = mount({
+      auth: authClient({ getSession }),
+      children: createElement("button", {}, "Interactive form"),
+      isChecking: false,
+    })
+    expect(markup(ready.tree)).toContain("Interactive form")
+    expect(mount({ isChecking: false }).tree).toBeNull()
+
+  it "recovers from a session lookup rejection by revealing the auth form", async ->
+    const getSession = vi.fn().mockRejectedValue(new Error("offline"))
+    const { setIsChecking } = mount({ auth: authClient({ getSession }) })
+    reactHarness.runEffect()
+    await flushMicrotasks()
+
+    expect(setIsChecking).toHaveBeenCalledWith(false)
+    expect(navigationHarness.replace).not.toHaveBeenCalled()
+
+  it "does not redirect or update state when a resolved lookup outlives the component", async ->
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
+    const { setIsChecking } = mount({
+      auth: authClient({ getSession: vi.fn(() => gate.promise) }),
+    })
+    const cleanup = reactHarness.runEffect()
+    expect(cleanup?.()).toBeUndefined()
+    gate.resolve({ data: { session: { id: "session-1" } }, error: null })
+    await flushMicrotasks()
+
+    expect(setIsChecking).not.toHaveBeenCalled()
+    expect(navigationHarness.replace).not.toHaveBeenCalled()
+
+  it "does not update state when a rejected lookup outlives the component", async ->
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
+    const { setIsChecking } = mount({
+      auth: authClient({ getSession: vi.fn(() => gate.promise) }),
+    })
+    const cleanup = reactHarness.runEffect()
+    expect(cleanup?.()).toBeUndefined()
+    gate.reject(new Error("offline"))
+    await flushMicrotasks()
+
+    expect(setIsChecking).not.toHaveBeenCalled()
+    expect(navigationHarness.replace).not.toHaveBeenCalled()
