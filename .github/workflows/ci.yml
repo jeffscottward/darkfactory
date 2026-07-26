@@ -354,7 +354,8 @@ jobs:
       - name: Prepare private browser pnpm toolchain
         if: matrix.lane == 'browser'
         env:
-          PNPM_ACTION_BIN: ${{ steps.pnpm.outputs.bin_dest }}/pnpm
+          PNPM_ACTION_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}
+          PNPM_EXPECTED_VERSION: 11.16.0
         run: |
           set -euo pipefail
           umask 077
@@ -392,14 +393,77 @@ jobs:
             "$workspace_root" | "$workspace_root"/*) exit 1 ;;
           esac
 
+          [ "$PNPM_EXPECTED_VERSION" = "11.16.0" ]
+          pnpm_expected_major="${PNPM_EXPECTED_VERSION%%.*}"
+          [ "$pnpm_expected_major" = "11" ]
+
           node_candidate="$(command -v node)"
-          pnpm_candidate="$PNPM_ACTION_BIN"
           require_absolute_safe_path "$node_candidate"
-          require_absolute_safe_path "$pnpm_candidate"
           node_target="$(realpath -e -- "$node_candidate")"
-          pnpm_target="$(realpath -e -- "$pnpm_candidate")"
           require_external_executable "$node_target"
+
+          require_absolute_safe_path "$PNPM_ACTION_BIN_DEST"
+          pnpm_bin_dest="$(realpath -e -- "$PNPM_ACTION_BIN_DEST")"
+          require_absolute_safe_path "$pnpm_bin_dest"
+          [ -d "$pnpm_bin_dest" ]
+          case "$pnpm_bin_dest" in
+            "$workspace_root" | "$workspace_root"/*) exit 1 ;;
+          esac
+
+          pnpm_global_root_candidate="$(dirname -- "$pnpm_bin_dest")/global/v$pnpm_expected_major"
+          require_absolute_safe_path "$pnpm_global_root_candidate"
+          pnpm_global_root="$(realpath -e -- "$pnpm_global_root_candidate")"
+          require_absolute_safe_path "$pnpm_global_root"
+          [ -d "$pnpm_global_root" ]
+          case "$pnpm_global_root" in
+            "$workspace_root" | "$workspace_root"/*) exit 1 ;;
+          esac
+
+          declare -a pnpm_package_targets=()
+          for manifest_candidate in "$pnpm_global_root"/*/node_modules/pnpm/package.json; do
+            [ -f "$manifest_candidate" ] || continue
+            require_absolute_safe_path "$manifest_candidate"
+            manifest_target="$(realpath -e -- "$manifest_candidate")"
+            require_absolute_safe_path "$manifest_target"
+            [ -f "$manifest_target" ]
+            case "$manifest_target" in
+              "$workspace_root" | "$workspace_root"/*) exit 1 ;;
+            esac
+            manifest_version="$("$node_target" -e '
+              const { readFileSync } = require("node:fs");
+              const manifest = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              if (manifest.name !== "pnpm" || typeof manifest.version !== "string") {
+                process.exit(1);
+              }
+              process.stdout.write(manifest.version);
+            ' "$manifest_target")"
+            [[ "$manifest_version" == "$PNPM_EXPECTED_VERSION" ]] || continue
+
+            package_target="$(realpath -e -- "$(dirname -- "$manifest_candidate")")"
+            require_absolute_safe_path "$package_target"
+            [ -d "$package_target" ]
+            case "$package_target" in
+              "$workspace_root" | "$workspace_root"/*) exit 1 ;;
+            esac
+            package_seen=false
+            for existing_package_target in "${pnpm_package_targets[@]}"; do
+              if [ "$existing_package_target" = "$package_target" ]; then
+                package_seen=true
+                break
+              fi
+            done
+            if [ "$package_seen" = false ]; then
+              pnpm_package_targets+=("$package_target")
+            fi
+          done
+          [ "${#pnpm_package_targets[@]}" -eq 1 ]
+
+          pnpm_candidate="${pnpm_package_targets[0]}/bin/pnpm.mjs"
+          require_absolute_safe_path "$pnpm_candidate"
+          pnpm_target="$(realpath -e -- "$pnpm_candidate")"
           require_external_executable "$pnpm_target"
+          pnpm_version="$("$node_target" "$pnpm_target" --version)"
+          [ "$pnpm_version" = "$PNPM_EXPECTED_VERSION" ]
 
           toolchain="$(mktemp -d "$runner_temp_root/darkfactory-browser-toolchain.XXXXXX")"
           toolchain="$(realpath -e -- "$toolchain")"

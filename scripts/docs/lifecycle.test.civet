@@ -384,7 +384,35 @@ describe("DF-101/106 lifecycle contract", () => {
     )
     expect(browserToolchain).toContain("if: matrix.lane == 'browser'")
     expect(browserToolchain).toContain(
-      'PNPM_ACTION_BIN: ${{ steps.pnpm.outputs.bin_dest }}/pnpm',
+      'PNPM_ACTION_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}',
+    )
+    expect(browserToolchain).toContain("PNPM_EXPECTED_VERSION: 11.16.0")
+    expect(browserToolchain).toContain(
+      'pnpm_global_root_candidate="$(dirname -- "$pnpm_bin_dest")/global/v$pnpm_expected_major"',
+    )
+    expect(browserToolchain).toContain(
+      'for manifest_candidate in "$pnpm_global_root"/*/node_modules/pnpm/package.json; do',
+    )
+    expect(browserToolchain).toContain(
+      'manifest_version="$("$node_target" -e',
+    )
+    expect(browserToolchain).toContain(
+      '[[ "$manifest_version" == "$PNPM_EXPECTED_VERSION" ]] || continue',
+    )
+    expect(browserToolchain).toContain(
+      '[ "${#pnpm_package_targets[@]}" -eq 1 ]',
+    )
+    expect(browserToolchain).toContain(
+      'pnpm_candidate="${pnpm_package_targets[0]}/bin/pnpm.mjs"',
+    )
+    expect(browserToolchain).toContain(
+      'pnpm_version="$("$node_target" "$pnpm_target" --version)"',
+    )
+    expect(browserToolchain).toContain(
+      '[ "$pnpm_version" = "$PNPM_EXPECTED_VERSION" ]',
+    )
+    expect(browserToolchain).not.toContain(
+      '"$PNPM_ACTION_BIN_DEST/pnpm"',
     )
     expect(browserToolchain).toContain("set -euo pipefail")
     expect(browserToolchain).toContain("umask 077")

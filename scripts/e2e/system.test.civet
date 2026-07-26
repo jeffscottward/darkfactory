@@ -1,8 +1,11 @@
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
+  open,
+  readFile,
   realpath,
   rm,
   symlink,
@@ -533,14 +536,51 @@ describe("owned lifecycle filesystem contracts", () => {
   it("detects marker capability drift after adoption", async () => {
     await withOwnedRun(async (root, proof) => {
       const { adoption, paths } = await lifecycle(root, proof)
-      await writeFile(
-        join(paths.e2e, ".darkfactory-e2e-owner.json"),
-        "{}",
-        { mode: 0o600 },
-      )
+      const markerPath = join(paths.e2e, ".darkfactory-e2e-owner.json")
+      const { authenticStats, driftedContent } = await (async () => {
+        const marker = await open(markerPath, "r+")
+        try {
+          const authenticContent = await marker.readFile({ encoding: "utf8" })
+          const authenticStats = await marker.stat()
+          const replacement = adoption.nonceDigest.endsWith("0") ? "1" : "0"
+          const driftedContent = authenticContent.replace(
+            adoption.nonceDigest,
+            `${adoption.nonceDigest.slice(0, -1)}${replacement}`,
+          )
+          const driftedBytes = Buffer.from(driftedContent, "utf8")
+
+          expect(authenticContent).toBe(JSON.stringify(adoption))
+          expect(JSON.parse(driftedContent)).toBeDefined()
+          expect(driftedContent).not.toBe(authenticContent)
+          expect(driftedBytes.byteLength).toBe(
+            Buffer.byteLength(authenticContent, "utf8"),
+          )
+
+          const { bytesWritten } = await marker.write(
+            driftedBytes,
+            0,
+            driftedBytes.byteLength,
+            0,
+          )
+          expect(bytesWritten).toBe(driftedBytes.byteLength)
+          await marker.sync()
+          return { authenticStats, driftedContent }
+        } finally {
+          await marker.close()
+        }
+      })()
+
+      expect(await readFile(markerPath, "utf8")).toBe(driftedContent)
+      const driftedStats = await lstat(markerPath)
+      expect(driftedStats.dev).toBe(authenticStats.dev)
+      expect(driftedStats.ino).toBe(authenticStats.ino)
+      expect(driftedStats.size).toBe(authenticStats.size)
+      expect(authenticStats.isFile()).toBe(true)
+      expect(driftedStats.isFile()).toBe(authenticStats.isFile())
+      expect(driftedStats.mode).toBe(authenticStats.mode)
 
       await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
-        /marker identity or capability changed/i,
+        /^Owned lifecycle marker identity or capability changed$/u,
       )
     })
   })
