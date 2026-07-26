@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
-import { access, readdir, realpath } from "node:fs/promises"
+import { access, readdir, realpath, stat } from "node:fs/promises"
 import { constants } from "node:fs"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import {
   createArtifactScannerDependencies,
@@ -109,31 +109,90 @@ const BLANK_PROVIDER_ENVIRONMENT = Object.freeze({
   R2_SECRET_ACCESS_KEY: "",
   ERROR_TRACKING_DSN: "",
 })
+const FIXED_EXECUTABLE_DIRECTORIES = Object.freeze([
+  dirname(process.execPath),
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+])
+const safeExecutableDirectory = (candidate: string): string => {
+  if (!isAbsolute(candidate) || candidate.includes(delimiter)) {
+    throw new Error("Trusted executable directory is unsafe")
+  }
+  return candidate
+}
+const assertExecutableFile = async (candidate: string): Promise<void> => {
+  if (!(await stat(candidate)).isFile()) {
+    throw new Error("Trusted executable target is not a regular file")
+  }
+  await access(candidate, constants.X_OK)
+}
 
-const executableOutsideRepository = async (
+const pathIsOutsideRepository = (
+  repositoryRoot: string,
+  candidate: string,
+): boolean => {
+  const relation = relative(repositoryRoot, candidate)
+  return relation === ".." || relation.startsWith(`..${sep}`)
+}
+type TrustedExecutable = Readonly<{
+  command: string
+  pathDirectory?: string
+}>
+const resolveTrustedExecutable = async (
   name: string,
   repositoryPath: string,
-): Promise<string> => {
+  searchInheritedPath = false,
+): Promise<TrustedExecutable> => {
   const root = await realpath(repositoryPath)
-  for (const candidate of [
-    resolve(dirname(process.execPath), name),
-    `/opt/homebrew/bin/${name}`,
-    `/usr/local/bin/${name}`,
-    `/usr/bin/${name}`,
-    `/bin/${name}`,
-  ]) {
+  const inheritedDirectories = searchInheritedPath
+    ? (process.env["PATH"] ?? "")
+      .split(delimiter)
+      .filter((directory) => directory.length > 0 && isAbsolute(directory))
+    : []
+  for (const directory of inheritedDirectories) {
+    try {
+      const candidateDirectory = resolve(directory)
+      const canonicalDirectory = await realpath(candidateDirectory)
+      safeExecutableDirectory(canonicalDirectory)
+      if (!pathIsOutsideRepository(root, canonicalDirectory)) continue
+      if (!(await stat(canonicalDirectory)).isDirectory()) continue
+      await access(canonicalDirectory, constants.X_OK)
+      const candidate = resolve(canonicalDirectory, name)
+      const canonical = await realpath(candidate)
+      if (!pathIsOutsideRepository(root, canonical)) continue
+      await assertExecutableFile(canonical)
+      return Object.freeze({
+        command: canonical,
+        pathDirectory: canonicalDirectory,
+      })
+    } catch {
+      continue
+    }
+  }
+  for (const candidate of FIXED_EXECUTABLE_DIRECTORIES.map(
+    (directory) => resolve(directory, name),
+  )) {
     try {
       const canonical = await realpath(candidate)
-      const relation = relative(root, canonical)
-      if (relation === "" || (!relation.startsWith(`..${sep}`) && relation !== "..")) continue
-      await access(canonical, constants.X_OK)
-      return canonical
+      if (!pathIsOutsideRepository(root, canonical)) continue
+      await assertExecutableFile(canonical)
+      return Object.freeze({ command: canonical })
     } catch {
       continue
     }
   }
   throw new Error(`Trusted ${name} executable is unavailable`)
 }
+export const resolveTrustedCorepackExecutable = async (
+  repositoryPath: string,
+): Promise<TrustedExecutable> =>
+  await resolveTrustedExecutable("corepack", repositoryPath, true)
+export const resolveTrustedNodeExecutable = async (
+  repositoryPath: string,
+): Promise<TrustedExecutable> =>
+  await resolveTrustedExecutable("node", repositoryPath)
 export const discoverJourneySpecs = async (
   repositoryPath: string,
 ): Promise<readonly string[]> => {
@@ -150,18 +209,26 @@ export const discoverJourneySpecs = async (
 }
 
 
-export const createPlaywrightEnvironment = (
+const createPlaywrightEnvironmentWithTrustedDirectory = (
   source: NodeJS.ProcessEnv,
   isolated: Readonly<Record<string, string>>,
+  trustedExecutableDirectory?: string,
 ): NodeJS.ProcessEnv => {
+  const trustedDirectory = trustedExecutableDirectory === undefined
+    ? undefined
+    : safeExecutableDirectory(trustedExecutableDirectory)
+  const executableDirectories = trustedDirectory === undefined
+    ? FIXED_EXECUTABLE_DIRECTORIES
+    : [trustedDirectory, ...FIXED_EXECUTABLE_DIRECTORIES]
   const environment: NodeJS.ProcessEnv = {
     ...BLANK_PROVIDER_ENVIRONMENT,
     APP_ENV: "test",
     DATABASE_URL: source["DATABASE_URL"] ?? "",
     PORTLESS_PORT: source["PORTLESS_PORT"] ?? "",
-    PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
     ...isolated,
+    PATH: executableDirectories.join(delimiter),
   }
+  delete environment["NODE_OPTIONS"]
   delete environment["DEBUG"]
   for (const key of INHERITED_PLAYWRIGHT_KEYS) {
     const value = source[key]
@@ -169,6 +236,11 @@ export const createPlaywrightEnvironment = (
   }
   return environment
 }
+export const createPlaywrightEnvironment = (
+  source: NodeJS.ProcessEnv,
+  isolated: Readonly<Record<string, string>>,
+): NodeJS.ProcessEnv =>
+  createPlaywrightEnvironmentWithTrustedDirectory(source, isolated)
 type LifecycleObservation = Readonly<{
   lifecycleStatus: JourneyLifecycleStatus
   lifecycleStage: JourneyLifecycleStage
@@ -894,10 +966,10 @@ export const runJourneyCli = async (
     streams.writeError("Usage: e2e-run <e2e|a11y>\n")
     return 2
   }
-  let corepack = ""
+  let corepack: TrustedExecutable | undefined
   if (overrides.runPlaywright === undefined) {
     try {
-      corepack = await executableOutsideRepository("corepack", repositoryPath)
+      corepack = await resolveTrustedCorepackExecutable(repositoryPath)
     } catch {
       streams.writeError("Trusted Corepack executable is unavailable\n")
       return 1
@@ -907,7 +979,7 @@ export const runJourneyCli = async (
   if (overrides.scanArtifacts === undefined) {
     try {
       node = overrides.resolveNodeExecutable === undefined
-        ? await executableOutsideRepository("node", repositoryPath)
+        ? (await resolveTrustedNodeExecutable(repositoryPath)).command
         : await overrides.resolveNodeExecutable(repositoryPath)
     } catch (_error) {
       streams.writeError("Trusted Node executable is unavailable\n")
@@ -961,12 +1033,16 @@ export const runJourneyCli = async (
     playwrightArguments,
     isolatedEnvironment,
   ) => {
-    const environment = createPlaywrightEnvironment(process.env, isolatedEnvironment)
+    const environment = createPlaywrightEnvironmentWithTrustedDirectory(
+      process.env,
+      isolatedEnvironment,
+      corepack?.pathDirectory,
+    )
     const knownSecrets = [
       ...databaseUrlSensitiveValues(environment["DATABASE_URL"]!),
       isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
     ]
-    const result = await runOwnedCommand(corepack, playwrightArguments, {
+    const result = await runOwnedCommand(corepack!.command, playwrightArguments, {
       cwd: repositoryPath,
       env: environment,
     })

@@ -1,11 +1,15 @@
+import { constants } from "node:fs"
+import { delimiter, dirname, join, resolve } from "node:path"
 import {
+  chmod,
+  realpath,
   mkdir,
   mkdtemp,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -16,6 +20,8 @@ import {
   parseExternalScannerReport,
   parseScannerReport,
   runArtifactScannerCli,
+  resolveTrustedCorepackExecutable,
+  resolveTrustedNodeExecutable,
   runJourneyCli,
   serializeJourneyFailureSummary,
   serializeJourneyProgress,
@@ -407,6 +413,98 @@ describe("CLI argument and environment forwarding", () => {
     expect(defaults["DATABASE_URL"]).toBe("")
     expect(defaults["PORTLESS_PORT"]).toBe("")
     expect(defaults["HOME"]).toBeUndefined()
+  })
+
+  it("rejects source and isolated child execution controls", () => {
+    const restrictedPath = [
+      dirname(process.execPath),
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+    ].join(delimiter)
+    const source = {
+      PATH: "/trusted-node/bin:/workspace/node_modules/.bin",
+      NODE_OPTIONS: "--require=/source/private-hook.cjs",
+      DEBUG: "source-private-debug",
+    }
+
+    const trusted = createPlaywrightEnvironment(
+      source,
+      {
+        PATH: "/isolated/bin",
+        NODE_OPTIONS: "--require=/isolated/private-hook.cjs",
+        DEBUG: "isolated-private-debug",
+      },
+    )
+    expect(trusted["PATH"]).toBe(restrictedPath)
+
+    expect(trusted["NODE_OPTIONS"]).toBeUndefined()
+    expect(trusted["DEBUG"]).toBeUndefined()
+    expect(createPlaywrightEnvironment(source, {})["PATH"]).toBe(restrictedPath)
+  })
+
+  it("resolves an executable from a validated parent PATH and the fixed fallback", async () => {
+    const repository = await mkdtemp(join(tmpdir(), "darkfactory-resolver-root-"))
+    const tools = await mkdtemp(join(tmpdir(), "darkfactory-resolver-tools-"))
+    const links = await mkdtemp(join(tmpdir(), "darkfactory-resolver-links-"))
+    const inside = join(repository, "bin")
+    const wrapper = join(tools, "corepack")
+    const pathFile = join(tools, "path-file")
+    const directoryTarget = join(tools, "directory-target")
+    const nonExecutableDirectory = join(tools, "non-executable")
+    const delimiterDirectory = join(tools, `delimiter${delimiter}target`)
+    const delimiterAlias = join(links, "candidate")
+    const previousPath = process.env["PATH"]
+    try {
+      await mkdir(inside)
+      await writeFile(wrapper, "#!/bin/sh\nexit 0\n")
+      await chmod(wrapper, 0o700)
+      await writeFile(pathFile, "not a PATH directory\n")
+      await mkdir(join(directoryTarget, "corepack"), { recursive: true })
+      await mkdir(nonExecutableDirectory)
+      await writeFile(join(nonExecutableDirectory, "corepack"), "not executable\n")
+      await mkdir(delimiterDirectory)
+      const delimiterWrapper = join(delimiterDirectory, "corepack")
+      await writeFile(delimiterWrapper, "#!/bin/sh\nexit 0\n")
+      await chmod(delimiterWrapper, 0o700)
+      await symlink(delimiterDirectory, delimiterAlias, "dir")
+      process.env["PATH"] = [
+        "relative",
+        inside,
+        pathFile,
+        directoryTarget,
+        delimiterAlias,
+        nonExecutableDirectory,
+        tools,
+      ].join(delimiter)
+
+      const canonicalTools = await realpath(tools)
+      const canonicalWrapper = await realpath(wrapper)
+      await expect(
+        resolveTrustedCorepackExecutable(repository),
+      ).resolves.toEqual({
+        command: canonicalWrapper,
+        pathDirectory: canonicalTools,
+      })
+      delete process.env["PATH"]
+      await expect(
+        resolveTrustedCorepackExecutable("/"),
+      ).rejects.toThrow("Trusted corepack executable is unavailable")
+      await expect(
+        resolveTrustedNodeExecutable(repository),
+      ).resolves.toEqual({
+        command: await realpath(process.execPath),
+      })
+    } finally {
+      if (previousPath === undefined) delete process.env["PATH"]
+      else process.env["PATH"] = previousPath
+      await Promise.all([
+        rm(repository, { recursive: true, force: true }),
+        rm(tools, { recursive: true, force: true }),
+        rm(links, { recursive: true, force: true }),
+      ])
+    }
   })
 
   it("uses the default bounded identity, capability, and discovery providers", async () => {
@@ -1126,9 +1224,107 @@ describe("default CLI dependency fakes", () => {
     expect(readOwnedLifecycleState).toHaveBeenCalledTimes(2)
   })
 
+  it("uses a validated parent-PATH Corepack wrapper without inheriting the parent PATH", async () => {
+    vi.resetModules()
+    vi.stubEnv(
+      "PATH",
+      [
+        "relative",
+        "/workspace/node_modules/.bin",
+        "/outside-link/bin",
+        "/trusted-node/bin",
+      ].join(delimiter),
+    )
+    const canonicalCorepack =
+      "/trusted-node/lib/node_modules/corepack/dist/corepack.js"
+    const runOwnedCommand = vi.fn(async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      treeTerminated: false,
+      reason: "completed" as const,
+    }))
+    const runJourneySuite = vi.fn(async (
+      _mode: "e2e" | "a11y",
+      dependencies: JourneyDependencies,
+    ): Promise<JourneySuiteReport> => {
+      await dependencies.runPlaywright(["pnpm"], {})
+      return journeyReport([])
+    })
+    const access = vi.fn(async () => undefined)
+    const stat = vi.fn(async (path: string) => ({
+      isDirectory: () => ["/trusted-link/bin", "/trusted-node/bin"].includes(path),
+      isFile: () => path === canonicalCorepack,
+    }))
+    const realpath = vi.fn(async (path: string) => {
+      if (
+        path === "/workspace" ||
+        path === "/workspace/node_modules/.bin" ||
+        path === "/trusted-node/bin"
+      ) return path
+      if (path === "/outside-link/bin") return "/trusted-link/bin"
+      if (path === "/trusted-link/bin/corepack") {
+        return "/workspace/tools/corepack"
+      }
+      if (path === "/trusted-node/bin/corepack") return canonicalCorepack
+      throw new Error("unexpected executable candidate")
+    })
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      return {
+        ...actual,
+        access,
+        stat,
+        realpath,
+      }
+    })
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./runner.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./runner.civet")>()
+      return { ...actual, runJourneySuite }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      streams().streams,
+      isolatedCliOverrides({}, "runPlaywright"),
+    )).resolves.toBe(1)
+
+    expect(runOwnedCommand).toHaveBeenCalledWith(
+      canonicalCorepack,
+      ["pnpm"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PATH: [
+            "/trusted-node/bin",
+            dirname(process.execPath),
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+          ].join(delimiter),
+        }),
+      }),
+    )
+    expect(realpath).not.toHaveBeenCalledWith("relative")
+    expect(stat.mock.calls.map((call) => call[0])).toEqual([
+      "/trusted-link/bin",
+      "/trusted-node/bin",
+      canonicalCorepack,
+    ])
+    expect(access.mock.calls).toEqual([
+      ["/trusted-link/bin", constants.X_OK],
+      ["/trusted-node/bin", constants.X_OK],
+      [canonicalCorepack, constants.X_OK],
+    ])
+  })
+
   it("uses only outside executables and fails closed without report inputs", async () => {
     vi.resetModules()
     vi.stubEnv("DATABASE_URL", "")
+    vi.stubEnv("PATH", "")
     const candidates = [
       "/workspace/tools/corepack",
       "/",
@@ -1141,6 +1337,7 @@ describe("default CLI dependency fakes", () => {
     const access = vi.fn(async (path: string) => {
       if (path === "/") throw new Error("parent candidate is not executable")
     })
+    const stat = vi.fn(async () => ({ isFile: () => true }))
     const runOwnedCommand = vi.fn(async () => ({
       exitCode: 0,
       stdout: "",
@@ -1175,7 +1372,7 @@ describe("default CLI dependency fakes", () => {
     })
     vi.doMock("node:fs/promises", async (importOriginal) => {
       const actual = await importOriginal<typeof import("node:fs/promises")>()
-      return { ...actual, access, realpath }
+      return { ...actual, access, realpath, stat }
     })
     vi.doMock("./process.civet", () => ({ runOwnedCommand }))
     vi.doMock("./runner.civet", async (importOriginal) => {
@@ -1240,6 +1437,7 @@ describe("default CLI dependency fakes", () => {
 
   it("fails before discovery when no trusted Corepack executable resolves", async () => {
     vi.resetModules()
+    vi.stubEnv("PATH", "")
     const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
     vi.doMock("node:fs/promises", async (importOriginal) => {
       const actual = await importOriginal<typeof import("node:fs/promises")>()
