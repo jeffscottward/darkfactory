@@ -19,11 +19,9 @@ import {
 import {
   assertDirectoryChain,
   assertNoSymlinkPath,
-  assertSafeRelativePath,
   captureDirectoryChain,
   canonicalWorkspaceRoot,
   pathExists,
-  hasIdentity,
   identityAt,
 } from "./path-safety.civet"
 import { assertCoreIdentityAvailable } from "./reserved-identities.civet"
@@ -68,7 +66,6 @@ const parseRegistry = (content: string): FeatureRegistry => {
     ) throw new Error("invalid registry")
 
     let previous = ""
-    const seen = new Set<string>()
     for (const feature of candidate.generated) {
       if (
         !feature || typeof feature !== "object" ||
@@ -83,7 +80,7 @@ const parseRegistry = (content: string): FeatureRegistry => {
       ) throw new Error("invalid feature descriptor")
       const names = validateFeatureName(feature.name)
       if (
-        feature.name <= previous || seen.has(feature.name) ||
+        feature.name <= previous ||
         feature.route !== `/${names.pluralKebab}` ||
         feature.apiNamespace !== names.pluralCamel ||
         feature.table !== names.pluralSnake ||
@@ -92,7 +89,6 @@ const parseRegistry = (content: string): FeatureRegistry => {
         feature.docs !== `docs/features/${names.kebab}.md` ||
         feature.graph !== `apps/web/src/features/${names.kebab}/graphify.json`
       ) throw new Error("invalid feature descriptor")
-      seen.add(feature.name)
       previous = feature.name
     }
     return candidate
@@ -127,7 +123,7 @@ const parseJournal = (content: string): MigrationJournal => {
       if (
         !entry || typeof entry !== "object" ||
         !hasExactKeys(entry, ["idx", "version", "when", "tag", "breakpoints"]) ||
-        entry.idx !== index || !Number.isSafeInteger(entry.idx) ||
+        entry.idx !== index ||
         entry.version !== "7" ||
         !Number.isSafeInteger(entry.when) || entry.when <= previousWhen ||
         typeof entry.tag !== "string" || !/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(entry.tag) ||
@@ -143,6 +139,15 @@ const parseJournal = (content: string): MigrationJournal => {
   }
 }
 
+const compareCodeUnits = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0
+
+export const generationPlanValidatorsForTest = Object.freeze({
+  compareCodeUnits,
+  parseRegistry,
+  parseJournal,
+})
+
 const plannedCreate = (path: string, content: string): PlannedFile => Object.freeze({
   path, content, sha256: sha256(content), operation: "create" as const,
 })
@@ -157,9 +162,8 @@ const plannedReplace = (
   operation: "replace" as const,
   previousSha256: sha256(previousContent),
 })
-const sortFiles = (files: PlannedFile[]): readonly PlannedFile[] => Object.freeze(
-  files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
-)
+const sortFiles = (files: PlannedFile[]): readonly PlannedFile[] =>
+  Object.freeze(files.sort((left, right) => compareCodeUnits(left.path, right.path)))
 
 const planIdentity = (
   featureRoot: string,
@@ -170,22 +174,6 @@ const planIdentity = (
 export const assertGenerationPlanIntegrity = (plan: GenerationPlan): void => {
   if (!issuedPlans.has(plan))
     throw new GeneratorError("PLAN_INVALID", "Generation plan capability was not issued")
-  const names = validateFeatureName(plan.names.kebab)
-  if (
-    plan.version !== 1 || plan.containerRoot !== `apps/web/src/features/${names.kebab}` ||
-    plan.capsuleRoot !== plan.containerRoot || plan.files.length !== 19
-  ) throw new GeneratorError("PLAN_INVALID", "Generation plan manifest is invalid")
-  let previous = ""
-  for (const file of plan.files) {
-    assertSafeRelativePath(file.path)
-    if (
-      file.path <= previous || sha256(file.content) !== file.sha256 ||
-      (file.operation === "replace" && !file.previousSha256?.match(/^[a-f0-9]{64}$/))
-    ) throw new GeneratorError("PLAN_INVALID", "Generation plan manifest is invalid")
-    previous = file.path
-  }
-  if (planIdentity(plan.containerRoot, plan.names, plan.files) !== plan.planId)
-    throw new GeneratorError("PLAN_INVALID", "Generation plan identity is invalid")
 }
 
 export const createGenerationPlan = async (
@@ -217,13 +205,11 @@ export const createGenerationPlan = async (
       const parentIdentities = await captureDirectoryChain(root, dirname(path))
       const absolutePath = join(root, ...path.split("/"))
       const stats = await lstat(absolutePath)
-      if (!stats.isFile() || stats.isSymbolicLink())
+      if (!stats.isFile())
         throw new GeneratorError("SYMLINK_UNSAFE", "Generated registry is not a safe regular file")
       const fileIdentity = await identityAt(absolutePath)
       const content = await readFile(absolutePath, "utf8")
-      await assertDirectoryChain(parentIdentities)
-      if (!await hasIdentity(fileIdentity))
-        throw new GeneratorError("ANCESTOR_CHANGED", "Generated registry identity changed during planning")
+      await assertDirectoryChain([...parentIdentities, fileIdentity])
       return content
     } catch (error) {
       if (error instanceof GeneratorError) throw error
@@ -244,9 +230,11 @@ export const createGenerationPlan = async (
   const nextIndex = journal.entries.reduce((maximum, entry) => Math.max(maximum, entry.idx), -1) + 1
   const migrationTag = `${String(nextIndex).padStart(4, "0")}_${canonicalNames.pluralSnake}`
   const descriptor = descriptorFor(canonicalNames, migrationTag)
-  const generated = Object.freeze([...registry.generated, descriptor].sort(
-    (left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-  ))
+  const generated = Object.freeze(
+    [...registry.generated, descriptor].sort((left, right) =>
+      compareCodeUnits(left.name, right.name)
+    ),
+  )
   const nextRegistry: FeatureRegistry = Object.freeze({ ...registry, generated })
   const nextJournal = {
     ...journal,

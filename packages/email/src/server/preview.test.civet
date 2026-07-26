@@ -110,21 +110,22 @@ afterEach async ->
   )
 
 describe "createPreviewEmailPort", ->
-  it "writes inspectable semantic HTML and text without claiming it was sent", async ->
+  it "renders a password reset through the delivery closure with complete artifacts", async ->
     const directory = await createTemporaryDirectory()
     const canonicalDirectory = await realpath(directory)
-    const email = createPreviewEmailPort({
+    const email = createPreviewEmailPortForTest({
       environment: "test",
       directory,
       binding: previewBinding,
+      artifactName: (operation) => `${operation}-success`,
     })
 
     const result = await email.sendPasswordReset(resetInput)
 
     expect(result.status).toBe("previewed")
     if result.status !== "previewed" then throw new Error("Expected preview")
-    expect(result.artifactPath).toMatch(
-      new RegExp(`^${canonicalDirectory}/reset-password-[a-f0-9-]+\\.html$`),
+    expect(result.artifactPath).toBe(
+      join(canonicalDirectory, "reset-password-success.html"),
     )
     const html = await readFile(result.artifactPath, "utf8")
     const text = await readFile(
@@ -603,3 +604,252 @@ describe "createPreviewEmailPort", ->
       code: "EMAIL_PREVIEW_WRITE_FAILED",
       retryable: false,
     })
+
+  it "resolves the default preview directory before rejecting an invalid recipient", async ->
+    const email = createPreviewEmailPort({ environment: "test" })
+
+    await expect(email.sendPasswordReset({
+      ...resetInput,
+      to: " ",
+    })).resolves.toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_RECIPIENT_INVALID",
+      retryable: false,
+    })
+
+  it "uses an opaque fallback when sanitization removes the entire artifact name", async ->
+    const directory = await createTemporaryDirectory()
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "...",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    if result.status !== "previewed" then throw new Error("Expected preview")
+    expect(basename(result.artifactPath)).toMatch(
+      /^email-preview-[a-f0-9-]+\.html$/,
+    )
+
+  it "validates retention bounds independently before constructing the port", ->
+    for options of [
+      { maxArtifacts: 0 },
+      { maxArtifacts: -1 },
+      { maxArtifacts: 1.5 },
+      { maxBytes: 0 },
+      { maxBytes: -1 },
+      { maxBytes: 1.5 },
+    ]
+      expect(() => createPreviewEmailPort({
+        environment: "test",
+        ...options,
+      })).toThrowError("Preview retention bounds must be positive integers")
+
+  it "normalizes a valid run identifier and rejects malformed bindings", async ->
+    const directory = await createTemporaryDirectory()
+    const email = createPreviewEmailPort({
+      environment: "test",
+      directory,
+      binding: {
+        runId: "  run_trimmed  ",
+        hmacKey: bindingKey,
+      },
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    if result.status !== "previewed" then throw new Error("Expected preview")
+    await expect(readMetadata(result.artifactPath)).resolves.toMatchObject({
+      runId: "run_trimmed",
+    })
+
+    for runId of ["", " ", "invalid run", "a".repeat(129)]
+      expect(() => createPreviewEmailPort({
+        environment: "test",
+        directory,
+        binding: { runId, hmacKey: bindingKey },
+      })).toThrowError("Preview email binding runId is invalid")
+
+    for hmacKey of ["", "a".repeat(42), "a".repeat(44), `${"a".repeat(42)}!`]
+      expect(() => createPreviewEmailPort({
+        environment: "test",
+        directory,
+        binding: { runId: "run", hmacKey },
+      })).toThrowError("Preview email binding HMAC key is invalid")
+
+  it "maps renderer rejection to a typed failure without touching the directory", async ->
+    const directory = await createTemporaryDirectory()
+    const email = createPreviewEmailPort({
+      environment: "test",
+      directory,
+    })
+
+    await expect(email.sendPasswordReset({
+      ...resetInput,
+      resetUrl: resetInput.resetUrl.replace(
+        "darkfactory.localhost",
+        "attacker.test",
+      ),
+    })).resolves.toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_RENDER_FAILED",
+      retryable: false,
+    })
+    expect(await readdir(directory)).toEqual([])
+
+  it "rejects oversized metadata before deriving filesystem paths", async ->
+    const directory = await createTemporaryDirectory()
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "a".repeat(2_000),
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await readdir(directory)).toEqual([])
+
+  it "preserves active locks and fresh partials while cleaning unrelated orphans", async ->
+    const directory = await createTemporaryDirectory()
+    await Promise.all([
+      writeFile(join(directory, ".active.preview.lock"), "", "utf8"),
+      writeFile(join(directory, ".active.html.tmp"), "partial", "utf8"),
+      writeFile(join(directory, "active.html"), "active content", "utf8"),
+      writeFile(join(directory, "orphan.txt"), "orphan content", "utf8"),
+      writeFile(join(directory, "orphan.metadata.json"), "{}", "utf8"),
+    ])
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "current",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("previewed")
+    expect((await readdir(directory)).sort()).toEqual([
+      ".active.html.tmp",
+      ".active.preview.lock",
+      "active.html",
+      "current.html",
+      "current.metadata.json",
+      "current.txt",
+    ])
+
+  it "finishes quarantined deletion units and ignores unrelated entries", async ->
+    const directory = await createTemporaryDirectory()
+    await Promise.all([
+      writeFile(join(directory, "retired.html"), "html", "utf8"),
+      writeFile(join(directory, "retired.txt"), "text", "utf8"),
+      writeFile(join(directory, "retired.deleting.json"), "{}", "utf8"),
+      writeFile(join(directory, "notes.bin"), "unrelated", "utf8"),
+      writeFile(join(directory, ".html"), "empty artifact name", "utf8"),
+    ])
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "current",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("previewed")
+    expect((await readdir(directory)).sort()).toEqual([
+      ".html",
+      "current.html",
+      "current.metadata.json",
+      "current.txt",
+      "notes.bin",
+    ])
+
+  it "evicts by aggregate bytes even when the artifact-count bound is satisfied", async ->
+    const directory = await createTemporaryDirectory()
+    const firstEmail = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "first",
+    })
+    const firstResult = await firstEmail.sendPasswordReset(resetInput)
+    if firstResult.status !== "previewed" then throw new Error("Expected preview")
+    const firstPaths = [
+      firstResult.artifactPath,
+      firstResult.artifactPath.replace(/\.html$/, ".txt"),
+      metadataPathFor(firstResult.artifactPath),
+    ]
+    const maxBytes = (
+      await Promise.all(firstPaths.map((path) => lstat(path)))
+    ).reduce((total, stats) => total + stats.size, 0)
+    const secondEmail = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      maxArtifacts: 20,
+      maxBytes,
+      artifactName: () => "other",
+    })
+
+    const secondResult = await secondEmail.sendPasswordReset(resetInput)
+
+    expect(secondResult.status).toBe("previewed")
+    expect((await readdir(directory)).sort()).toEqual([
+      "other.html",
+      "other.metadata.json",
+      "other.txt",
+    ])
+
+  it "uses artifact names as the deterministic retention tie-breaker", async ->
+    const directory = await createTemporaryDirectory()
+    const oldDate = new Date(Date.now() - 60_000)
+    const existingPaths = [
+      "bbb.html",
+      "bbb.txt",
+      "bbb.metadata.json",
+      "aaa.html",
+      "aaa.txt",
+      "aaa.metadata.json",
+    ].map((name) => join(directory, name))
+    await Promise.all(existingPaths.map((path) => writeFile(path, "x", "utf8")))
+    await Promise.all(existingPaths.map((path) => utimes(path, oldDate, oldDate)))
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      maxArtifacts: 2,
+      artifactName: () => "current",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result.status).toBe("previewed")
+    expect((await readdir(directory)).sort()).toEqual([
+      "bbb.html",
+      "bbb.metadata.json",
+      "bbb.txt",
+      "current.html",
+      "current.metadata.json",
+      "current.txt",
+    ])
+
+  it "rolls back text publication when the html destination collides", async ->
+    const directory = await createTemporaryDirectory()
+    const collidingHtmlPath = join(directory, "collision.html")
+    await writeFile(collidingHtmlPath, "pre-existing", "utf8")
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "collision",
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    await expect(readFile(collidingHtmlPath, "utf8")).resolves.toBe(
+      "pre-existing",
+    )
+    expect((await readdir(directory)).sort()).toEqual(["collision.html"])

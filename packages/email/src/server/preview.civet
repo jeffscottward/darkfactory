@@ -71,11 +71,11 @@ type RemoveFile = (path: string) => Promise<void>
 
 type PreviewEmailPortTestOptions = PreviewEmailPortOptions &
   Readonly<{
-    artifactName: (operation?: PreviewOperation) => string
+    artifactName: (operation: PreviewOperation) => string
     removeFile?: RemoveFile | undefined
   }>
 const defaultArtifactName = (
-  operation: PreviewOperation = "reset-password",
+  operation: PreviewOperation,
 ): string => `${operation}-${randomUUID()}`
 
 const sanitizeArtifactName = (candidate: string): string => {
@@ -91,7 +91,7 @@ const assertCanonicalDirectory = async (directory: string): Promise<string> => {
   const requestedPath = resolve(directory)
   await mkdir(requestedPath, { recursive: true, mode: 0o700 })
   const requestedDirectory = await lstat(requestedPath)
-  if (requestedDirectory.isSymbolicLink() || !requestedDirectory.isDirectory()) {
+  if (!requestedDirectory.isDirectory()) {
     throw new Error("Unsafe preview directory")
   }
 
@@ -103,7 +103,7 @@ const assertCanonicalDirectory = async (directory: string): Promise<string> => {
   let currentDirectory = requestedPath
   while (currentDirectory !== root) {
     const current = await lstat(currentDirectory)
-    if (current.isSymbolicLink() || !current.isDirectory()) {
+    if (!current.isDirectory()) {
       throw new Error("Unsafe preview directory ancestry")
     }
     currentDirectory = dirname(currentDirectory)
@@ -193,9 +193,6 @@ const resolveBinding = (
     throw new TypeError("Preview email binding HMAC key is invalid")
   }
   const hmacKey = Buffer.from(binding.hmacKey, "base64url")
-  if (hmacKey.length !== 32) {
-    throw new TypeError("Preview email binding HMAC key is invalid")
-  }
   return { runId, hmacKey }
 }
 
@@ -282,7 +279,7 @@ const removeExpiredArtifacts = async (
     else if fileName.endsWith(".txt")
       artifactName = fileName.slice(0, -".txt".length)
       member = "text"
-    if !artifactName || !member then continue
+    if !artifactName then continue
 
     const fileDetails = await lstatIfPresent(path)
     if (!fileDetails) then continue
@@ -295,7 +292,8 @@ const removeExpiredArtifacts = async (
       hasMetadata: false,
       hasDeleting: false,
     }
-    inventory.modifiedAt = Math.max(inventory.modifiedAt, fileDetails.mtimeMs)
+    if fileDetails.mtimeMs > inventory.modifiedAt
+      inventory.modifiedAt = fileDetails.mtimeMs
     inventory.totalBytes += fileDetails.size
     if member === "html" then inventory.hasHtml = true
     if member === "text" then inventory.hasText = true
@@ -401,9 +399,47 @@ const recipientFailure = (): EmailDeliveryResult => ({
   retryable: false,
 })
 
+type PreviewRendererOptions = Readonly<{
+  trustedAppOrigin?: string | undefined
+}>
+type PreviewRenderer<Input> = (
+  input: Input,
+  options: PreviewRendererOptions,
+) => Promise<{ html: string; text: string }>
+type PreviewWriter = <Input>(
+  operation: PreviewOperation,
+  recipient: string,
+  renderer: PreviewRenderer<Input>,
+  input: Input,
+) => Promise<EmailDeliveryResult>
+
+async function sendPasswordResetPreview(
+  writePreview: PreviewWriter,
+  input: PasswordResetEmailInput,
+): Promise<EmailDeliveryResult> {
+  return await writePreview(
+    "reset-password",
+    input.to,
+    renderPasswordResetEmail,
+    input,
+  )
+}
+
+async function sendEmailVerificationPreview(
+  writePreview: PreviewWriter,
+  input: EmailVerificationEmailInput,
+): Promise<EmailDeliveryResult> {
+  return await writePreview(
+    "verify-email",
+    input.to,
+    renderEmailVerificationEmail,
+    input,
+  )
+}
+
 const createPreviewPort = (
   options: PreviewEmailPortOptions,
-  artifactName: (operation?: PreviewOperation) => string,
+  artifactName: (operation: PreviewOperation) => string,
   removeArtifactFile: RemoveFile,
 ): EmailPort => {
   if (options.environment === "production") {
@@ -423,17 +459,20 @@ const createPreviewPort = (
     throw new RangeError("Preview retention bounds must be positive integers")
   }
 
-  const writePreview = async (
+  const writePreview = async <Input>(
     operation: PreviewOperation,
     recipient: string,
-    renderEmail: () => Promise<{ html: string; text: string }>,
+    renderer: PreviewRenderer<Input>,
+    input: Input,
   ): Promise<EmailDeliveryResult> => {
     const normalizedRecipient = normalizeRecipient(recipient)
     if (!normalizedRecipient) return recipientFailure()
 
     let rendered
     try {
-      rendered = await renderEmail()
+      rendered = await renderer(input, {
+        trustedAppOrigin: options.trustedAppOrigin,
+      })
     } catch {
       return renderFailure()
     }
@@ -538,10 +577,10 @@ const createPreviewPort = (
         link(temporaryHtmlPath, htmlPath),
         link(temporaryTextPath, textPath),
       ])
-      if (publishResults[0]?.status === "fulfilled") {
+      if (publishResults[0]!.status === "fulfilled") {
         publishedContentPaths.push(htmlPath)
       }
-      if (publishResults[1]?.status === "fulfilled") {
+      if (publishResults[1]!.status === "fulfilled") {
         publishedContentPaths.push(textPath)
       }
       if (publishResults.some((result) => result.status === "rejected")) {
@@ -585,25 +624,20 @@ const createPreviewPort = (
     }
   }
 
+  async function sendPasswordReset(
+    input: PasswordResetEmailInput,
+  ): Promise<EmailDeliveryResult> {
+    return await sendPasswordResetPreview(writePreview, input)
+  }
+  async function sendEmailVerification(
+    input: EmailVerificationEmailInput,
+  ): Promise<EmailDeliveryResult> {
+    return await sendEmailVerificationPreview(writePreview, input)
+  }
+
   return Object.freeze({
-    sendPasswordReset: async (
-      input: PasswordResetEmailInput,
-    ): Promise<EmailDeliveryResult> => {
-      const renderEmail = () =>
-        renderPasswordResetEmail(input, {
-          trustedAppOrigin: options.trustedAppOrigin,
-        })
-      return await writePreview("reset-password", input.to, renderEmail)
-    },
-    sendEmailVerification: async (
-      input: EmailVerificationEmailInput,
-    ): Promise<EmailDeliveryResult> => {
-      const renderEmail = () =>
-        renderEmailVerificationEmail(input, {
-          trustedAppOrigin: options.trustedAppOrigin,
-        })
-      return await writePreview("verify-email", input.to, renderEmail)
-    },
+    sendPasswordReset,
+    sendEmailVerification,
   })
 }
 

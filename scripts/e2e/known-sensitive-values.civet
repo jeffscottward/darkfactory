@@ -1,0 +1,121 @@
+const COMPACT_SENSITIVE_TEXT_SEPARATOR = /[\n\p{Z}]/u
+
+export const MINIMUM_PRECISE_KNOWN_VALUE_LENGTH = 6
+
+export type SensitiveTextRange = Readonly<{
+  start: number
+  end: number
+}>
+
+export type CompactedSensitiveTextRange = Readonly<{
+  inspection: string
+  sourceOffsets: readonly number[]
+}>
+
+const decodePrintableAsciiUnicodeEscape = (
+  source: string,
+  hexadecimal: string,
+): string =>
+  const code = Number.parseInt(hexadecimal, 16)
+  return code >= 0x20 && code <= 0x7e
+    ? String.fromCharCode(code)
+    : source
+
+const decodePrintableAsciiHtmlEntity = (
+  source: string,
+  hexadecimal: string | undefined,
+  decimal: string | undefined,
+): string =>
+  const code = hexadecimal === undefined
+    ? Number.parseInt(decimal ?? "", 10)
+    : Number.parseInt(hexadecimal, 16)
+  return code >= 0x20 && code <= 0x7e
+    ? String.fromCharCode(code)
+    : source
+
+export const inspectSensitiveText = (value: string): string =>
+  value
+    .replace(
+      /&#(?:x([0-9a-f]+)|([0-9]+))?;/giu,
+      decodePrintableAsciiHtmlEntity,
+    )
+    .replace(
+      /\\u00([0-9a-f]{2})/giu,
+      decodePrintableAsciiUnicodeEscape,
+    )
+    .replace(/&quot;|&#34;|&#x22;/giu, '"')
+    .replace(/\\(["'])/gu, "$1")
+
+export const compactSensitiveTextRange = (
+  inspection: string,
+  rangeStart: number,
+  rangeEnd: number,
+): CompactedSensitiveTextRange | undefined =>
+  const compactCharacters: string[] = []
+  const sourceOffsets: number[] = []
+  let compacted = false
+  for (let index = rangeStart; index < rangeEnd; index += 1)
+    const character = inspection.charAt(index)
+    if COMPACT_SENSITIVE_TEXT_SEPARATOR.test(character)
+      compacted = true
+      continue
+    compactCharacters.push(character)
+    sourceOffsets.push(index)
+  if !compacted return undefined
+  return {
+    inspection: compactCharacters.join(""),
+    sourceOffsets,
+  }
+
+const literalSensitiveTextRanges = (
+  value: string,
+  literal: string,
+): readonly SensitiveTextRange[] =>
+  const ranges: SensitiveTextRange[] = []
+  let offset = 0
+  while offset <= value.length - literal.length
+    const start = value.indexOf(literal, offset)
+    if start < 0 break
+    ranges.push({ start, end: start + literal.length })
+    offset = start + 1
+  return ranges
+
+export const knownSensitiveTextRanges = (
+  inspection: string,
+  inspectedKnownValues: readonly string[],
+): readonly SensitiveTextRange[] | undefined =>
+  const ranges: SensitiveTextRange[] = []
+  const compactedInspection = compactSensitiveTextRange(
+    inspection,
+    0,
+    inspection.length,
+  )
+  for knownValue of inspectedKnownValues
+    const directRanges = literalSensitiveTextRanges(inspection, knownValue)
+    if directRanges.length > 0
+      if knownValue.length < MINIMUM_PRECISE_KNOWN_VALUE_LENGTH
+        return undefined
+      ranges.push(...directRanges)
+
+    if compactedInspection === undefined continue
+    const compactedKnownValue = compactSensitiveTextRange(
+      knownValue,
+      0,
+      knownValue.length,
+    )?.inspection ?? knownValue
+    if compactedKnownValue.length === 0 return undefined
+    const compactedRanges = literalSensitiveTextRanges(
+      compactedInspection.inspection,
+      compactedKnownValue,
+    )
+    if (
+      compactedRanges.length > 0 &&
+      compactedKnownValue.length < MINIMUM_PRECISE_KNOWN_VALUE_LENGTH
+    ) return undefined
+    for range of compactedRanges
+      ranges.push({
+        start: compactedInspection.sourceOffsets[range.start]!,
+        end: compactedInspection.sourceOffsets[range.end - 1]! + 1,
+      })
+  ranges.sort((left, right) => left.start - right.start || left.end - right.end)
+  return ranges

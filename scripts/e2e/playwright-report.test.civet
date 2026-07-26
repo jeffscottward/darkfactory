@@ -27,6 +27,76 @@ const report = (environment: Record<string, string>) => ({
   suites: [{ title: "account journey" }],
   stats: { expected: 1 },
 })
+
+const unicodeSeparators = Object.freeze([
+  "\u0020",
+  "\u00a0",
+  "\u1680",
+  "\u2000",
+  "\u2001",
+  "\u2002",
+  "\u2003",
+  "\u2004",
+  "\u2005",
+  "\u2006",
+  "\u2007",
+  "\u2008",
+  "\u2009",
+  "\u200a",
+  "\u2028",
+  "\u2029",
+  "\u202f",
+  "\u205f",
+  "\u3000",
+])
+
+const decodeNumericEntityForAssertion = (
+  source: string,
+  hexadecimal: string | undefined,
+  decimal: string | undefined,
+): string => {
+  const code = Number.parseInt(hexadecimal ?? decimal ?? "", hexadecimal ? 16 : 10)
+  return Number.isSafeInteger(code) && code >= 0 && code <= 0x10ffff
+    ? String.fromCodePoint(code)
+    : source
+}
+
+const decodeUnicodeEscapeForAssertion = (
+  source: string,
+  hexadecimal: string,
+): string => {
+  const code = Number.parseInt(hexadecimal, 16)
+  return Number.isSafeInteger(code)
+    ? String.fromCharCode(code)
+    : source
+}
+
+const reconstructSensitiveText = (value: string): string =>
+  value
+    .replace(
+      /&#(?:x([0-9a-f]+)|([0-9]+));/giu,
+      decodeNumericEntityForAssertion,
+    )
+    .replace(/\\u00([0-9a-f]{2})/giu, decodeUnicodeEscapeForAssertion)
+    .replace(/[\n\p{Z}]/gu, "")
+
+const collectJsonScalars = (root: unknown): readonly string[] => {
+  const pending: unknown[] = [root]
+  const scalars: string[] = []
+  while (pending.length > 0) {
+    const value = pending.pop()
+    if (Array.isArray(value)) {
+      pending.push(...value)
+      continue
+    }
+    if (value !== null && typeof value === "object") {
+      pending.push(...Object.values(value as Record<string, unknown>))
+      continue
+    }
+    scalars.push(String(value))
+  }
+  return scalars
+}
 const fileStats = (dev = 1, ino = 2) => ({
   dev,
   ino,
@@ -112,6 +182,222 @@ describe "Playwright JSON report redaction", ->
     expect(content).toContain("account journey")
     expect(content).not.toContain(databaseUrl)
     expect(content).not.toContain(hmacKey)
+
+  it "redacts encoded and separator-fragmented secrets from values and attachments", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-encoded-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const secret = "pRiv4teToken"
+    const variants = [
+      secret,
+      "pRiv4te&#84;oken",
+      "pRiv4te&#x54;oken",
+      String.raw`pRiv4te\u0054oken`,
+      "pRiv4te\nToken",
+      ...unicodeSeparators.map((separator) => `pRiv4te${separator}Token`),
+    ]
+    await writeFile(path, JSON.stringify({
+      config: { webServer: {} },
+      ordinary: "account journey completed normally",
+      values: variants,
+      attachments: variants.map((body, index) => ({
+        name: `artifact-${index}`,
+        contentType: "text/plain",
+        body,
+      })),
+    }))
+
+    await sanitizePlaywrightJsonReport(path, [secret])
+
+    const content = await readFile(path, "utf8")
+    const sanitized = JSON.parse(content) as {
+      ordinary: string
+      values: string[]
+      attachments: Array<{
+        name: string
+        contentType: string
+        body: string
+      }>
+    }
+    expect(sanitized.ordinary).toBe("account journey completed normally")
+    expect(sanitized.values).toEqual(variants.map(() => "[REDACTED]"))
+    expect(sanitized.attachments.map(({ body }) => body)).toEqual(
+      variants.map(() => "[REDACTED]"),
+    )
+    expect(sanitized.attachments.map(({ name }) => name)).toEqual(
+      variants.map((_, index) => `artifact-${index}`),
+    )
+    expect(content).not.toContain(secret)
+    for (const scalar of collectJsonScalars(sanitized)) {
+      expect(reconstructSensitiveText(scalar)).not.toContain(secret)
+    }
+
+  it "fails closed for short values and preserves overlapping literal redaction", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-ambiguous-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const shortSecret = "xy"
+    const prefixSecret = "private"
+    const longerSecret = "private-token"
+    await writeFile(path, JSON.stringify({
+      config: { webServer: {} },
+      ordinary: "account journey completed normally",
+      shortExact: shortSecret,
+      shortEmbedded: `before-${shortSecret}-after`,
+      overlap: `failure:${longerSecret}:ordinary-tail`,
+      countValue: 7319,
+      flagValue: true,
+      missingValue: null,
+      attachments: [
+        { name: "short", body: `before-${shortSecret}-after` },
+        { name: "overlap", body: longerSecret },
+      ],
+    }))
+
+    await sanitizePlaywrightJsonReport(path, [
+      shortSecret,
+      prefixSecret,
+      longerSecret,
+      "7319",
+      "true",
+      "null",
+    ])
+
+    const content = await readFile(path, "utf8")
+    const sanitized = JSON.parse(content) as {
+      ordinary: string
+      shortExact: string
+      shortEmbedded: string
+      overlap: string
+      countValue: string
+      flagValue: string
+      missingValue: string
+      attachments: Array<{ name: string, body: string }>
+    }
+    expect(sanitized.ordinary).toBe("account journey completed normally")
+    expect(sanitized.shortExact).toBe("[REDACTED]")
+    expect(sanitized.shortEmbedded).toBe("[REDACTED]")
+    expect(sanitized.overlap).toBe("failure:[REDACTED]:ordinary-tail")
+    expect(sanitized.overlap).not.toContain("-token")
+    expect(sanitized.countValue).toBe("[REDACTED]")
+    expect(sanitized.flagValue).toBe("[REDACTED]")
+    expect(sanitized.missingValue).toBe("[REDACTED]")
+    expect(sanitized.attachments).toEqual([
+      { name: "short", body: "[REDACTED]" },
+      { name: "overlap", body: "[REDACTED]" },
+    ])
+    for (const knownValue of [
+      shortSecret,
+      longerSecret,
+      "7319",
+      "true",
+      "null",
+    ]) {
+      for (const scalar of collectJsonScalars(sanitized)) {
+        expect(reconstructSensitiveText(scalar)).not.toContain(knownValue)
+      }
+    }
+
+  it "renames sensitive member names deterministically without key collisions", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-keys-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const secret = "pRiv4teToken"
+    const shortSecret = "xy"
+    const prefixSecret = "private"
+    const longerSecret = "private-token"
+    const sensitiveKeys = [
+      secret,
+      "pRiv4te&#84;oken",
+      String.raw`pRiv4te\u0054oken`,
+      "pRiv4te\nToken",
+      "pRiv4te\u00a0Token",
+      "pRiv4te\u2003Token",
+      `before-${shortSecret}-after`,
+      longerSecret,
+    ]
+    await writeFile(path, JSON.stringify({
+      config: { webServer: {} },
+      labels: Object.fromEntries([
+        ["ordinary-first", "preserved-first"],
+        ["__proto__", "preserved-prototype-name"],
+        ["[REDACTED KEY]", "preexisting-base"],
+        ["[REDACTED KEY 2]", "preexisting-suffix"],
+        ...sensitiveKeys.map((key, index) =>
+          [key, `sensitive-${index}`] as const
+        ),
+        ["ordinary-last", "preserved-last"],
+      ]),
+    }))
+
+    const knownValues = [
+      secret,
+      shortSecret,
+      prefixSecret,
+      longerSecret,
+    ]
+    await sanitizePlaywrightJsonReport(path, knownValues)
+
+    const content = await readFile(path, "utf8")
+    const sanitized = JSON.parse(content) as {
+      labels: Record<string, string>
+    }
+    expect(Object.entries(sanitized.labels)).toEqual([
+      ["ordinary-first", "preserved-first"],
+      ["__proto__", "preserved-prototype-name"],
+      ["[REDACTED KEY]", "preexisting-base"],
+      ["[REDACTED KEY 2]", "preexisting-suffix"],
+      ...sensitiveKeys.map((_, index) =>
+        [`[REDACTED KEY ${index + 3}]`, `sensitive-${index}`]
+      ),
+      ["ordinary-last", "preserved-last"],
+    ])
+    for (const key of Object.keys(sanitized.labels)) {
+      for (const knownValue of knownValues) {
+        expect(reconstructSensitiveText(key)).not.toContain(knownValue)
+      }
+    }
+
+    await sanitizePlaywrightJsonReport(path, knownValues)
+    await expect(readFile(path, "utf8")).resolves.toBe(content)
+
+  it "fails before writing when every bounded redacted-key candidate is sensitive", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-key-exhaustion-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const original = JSON.stringify({
+      config: { webServer: {} },
+      labels: { "REDACTED-secret": "preserved-value" },
+    })
+    await writeFile(path, original)
+
+    await expect(
+      sanitizePlaywrightJsonReport(path, ["REDACTED"])
+    ).rejects.toThrow("Playwright report key redaction failed safely")
+    await expect(readFile(path, "utf8")).resolves.toBe(original)
+
+  it "never reconstructs a short secret through the scalar redaction marker", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-marker-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    await writeFile(path, JSON.stringify({
+      config: { webServer: {} },
+      ordinary: "account journey completed normally",
+      sensitive: "before-RED-after",
+    }))
+
+    await sanitizePlaywrightJsonReport(path, ["RED"])
+
+    const content = await readFile(path, "utf8")
+    const sanitized = JSON.parse(content) as {
+      ordinary: string
+      sensitive: string
+    }
+    expect(sanitized).toMatchObject({
+      ordinary: "account journey completed normally",
+      sensitive: "",
+    })
+    expect(content).not.toContain("RED")
   it "fails closed for malformed reports and symbolic links", async ->
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-invalid-"))
     temporaryDirectories.add(directory)
@@ -143,6 +429,7 @@ describe "Playwright JSON report redaction", ->
         "private-token/private",
         { nested: "private-token" },
         42,
+        false,
         null,
       ],
     }
@@ -168,6 +455,7 @@ describe "Playwright JSON report redaction", ->
       "[REDACTED]/[REDACTED]",
       { nested: "[REDACTED]" },
       42,
+      false,
       null,
     ])
     expect(content.endsWith("\n")).toBe(true)
@@ -226,10 +514,10 @@ describe "Playwright JSON report redaction", ->
     const path = join(directory, "playwright-report.json")
     await writeFile(path, JSON.stringify({
       config: { webServer: {} },
-      output: "a".repeat(2 * 1024 * 1024),
+      output: "secret".repeat(2 * 1024 * 1024),
     }))
 
-    await expect(sanitizePlaywrightJsonReport(path, ["a"])).rejects.toThrow(
+    await expect(sanitizePlaywrightJsonReport(path, ["secret"])).rejects.toThrow(
       "Redacted Playwright report exceeds its bound",
     )
 
@@ -237,14 +525,14 @@ describe "Playwright JSON report redaction", ->
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-aggregate-bound-"))
     temporaryDirectories.add(directory)
     const path = join(directory, "playwright-report.json")
-    const repeated = "a".repeat(900_000)
+    const repeated = "secret".repeat(900_000)
     const original = JSON.stringify({
       config: { webServer: {} },
       output: [repeated, repeated],
     })
     await writeFile(path, original)
 
-    await expect(sanitizePlaywrightJsonReport(path, ["a"])).rejects.toThrow(
+    await expect(sanitizePlaywrightJsonReport(path, ["secret"])).rejects.toThrow(
       "Redacted Playwright report exceeds its bound",
     )
     await expect(readFile(path, "utf8")).resolves.toBe(original)

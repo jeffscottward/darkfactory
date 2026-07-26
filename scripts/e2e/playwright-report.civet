@@ -1,12 +1,21 @@
 import { constants } from "node:fs"
 import { lstat, open } from "node:fs/promises"
+import {
+  inspectSensitiveText,
+  knownSensitiveTextRanges,
+  MINIMUM_PRECISE_KNOWN_VALUE_LENGTH,
+} from "./known-sensitive-values.civet"
 
 const MAX_PLAYWRIGHT_REPORT_BYTES = 16 * 1024 * 1024
 const REDACTION_MARKER = "[REDACTED]"
+const REDACTED_KEY_MARKER = "[REDACTED KEY]"
 const REDACTED_REPORT_BOUND_MESSAGE =
   "Redacted Playwright report exceeds its bound"
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject
+type JsonObject = { [key: string]: JsonValue }
+
+const isRecord = (value: unknown): value is JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value)
 
 const sameIdentity = (
@@ -14,13 +23,13 @@ const sameIdentity = (
   right: Readonly<{ dev: number | bigint, ino: number | bigint }>,
 ): boolean => left.dev === right.dev && left.ino === right.ino
 
-const removeWebServerEnvironment = (config: Record<string, unknown>): void => {
+const removeWebServerEnvironment = (config: JsonObject): void => {
   const webServer = config["webServer"]
   const entries = Array.isArray(webServer) ? webServer : [webServer]
   if (entries.length === 0 || entries.some((entry) => !isRecord(entry))) {
     throw new Error("Playwright report web server configuration is invalid")
   }
-  for (const entry of entries as Record<string, unknown>[]) {
+  for (const entry of entries as JsonObject[]) {
     Reflect.deleteProperty(entry, "env")
   }
 }
@@ -28,8 +37,9 @@ const removeWebServerEnvironment = (config: Record<string, unknown>): void => {
 const replacementWouldExceedReportBound = (
   value: string,
   sensitiveValue: string,
+  replacement: string,
 ): boolean => {
-  const growthPerMatch = REDACTION_MARKER.length - sensitiveValue.length
+  const growthPerMatch = replacement.length - sensitiveValue.length
   if (growthPerMatch <= 0) return false
 
   let redactedLength = value.length
@@ -44,48 +54,129 @@ const replacementWouldExceedReportBound = (
   return false
 }
 
+type CanonicalSensitiveValues = Readonly<{
+  literal: readonly string[]
+  inspected: readonly string[]
+  marker: string
+}>
+
+const containsKnownSensitiveText = (
+  value: string,
+  sensitiveValues: CanonicalSensitiveValues,
+): boolean => {
+  const ranges = knownSensitiveTextRanges(
+    inspectSensitiveText(value),
+    sensitiveValues.inspected,
+  )
+  return ranges === undefined || ranges.length > 0
+}
+
 const redactSensitiveString = (
   value: string,
-  sensitiveValues: readonly string[],
+  sensitiveValues: CanonicalSensitiveValues,
 ): string => {
   let redacted = value
-  for (const sensitiveValue of sensitiveValues) {
-    if (replacementWouldExceedReportBound(redacted, sensitiveValue)) {
+  for (const sensitiveValue of sensitiveValues.literal) {
+    if (replacementWouldExceedReportBound(
+      redacted,
+      sensitiveValue,
+      sensitiveValues.marker,
+    )) {
       throw new Error(REDACTED_REPORT_BOUND_MESSAGE)
     }
-    redacted = redacted.replaceAll(sensitiveValue, REDACTION_MARKER)
+    redacted = redacted.replaceAll(sensitiveValue, sensitiveValues.marker)
   }
-  return redacted
+
+  return containsKnownSensitiveText(redacted, sensitiveValues)
+    ? sensitiveValues.marker
+    : redacted
 }
 
 const redactSensitiveValues = (
-  value: unknown,
-  sensitiveValues: readonly string[],
-): unknown => {
-  if (typeof value === "string") {
-    return redactSensitiveString(value, sensitiveValues)
-  }
+  value: JsonValue,
+  sensitiveValues: CanonicalSensitiveValues,
+): JsonValue => {
   if (Array.isArray(value)) {
     for (let index = 0; index < value.length; index += 1) {
-      value[index] = redactSensitiveValues(value[index], sensitiveValues)
+      value[index] = redactSensitiveValues(value[index]!, sensitiveValues)
     }
     return value
   }
   if (isRecord(value)) {
-    for (const [key, entry] of Object.entries(value)) {
-      value[key] = redactSensitiveValues(entry, sensitiveValues)
+    const entries = Object.entries(value)
+    const sensitiveKeys = entries.map(([key]) =>
+      containsKnownSensitiveText(key, sensitiveValues)
+    )
+    const occupiedKeys = new Set<string>()
+    for (let index = 0; index < entries.length; index += 1) {
+      if (!sensitiveKeys[index]) occupiedKeys.add(entries[index]![0])
     }
+
+    const redacted = Object.create(null) as JsonObject
+    let redactedKeyOrdinal = 1
+    const maximumRedactedKeyOrdinal =
+      entries.length + sensitiveValues.inspected.length + 1
+    for (let index = 0; index < entries.length; index += 1) {
+      const [key, entry] = entries[index]!
+      let redactedKey = key
+      if (sensitiveKeys[index]) {
+        redactedKey = ""
+        while (redactedKeyOrdinal <= maximumRedactedKeyOrdinal) {
+          const ordinal = redactedKeyOrdinal
+          redactedKeyOrdinal += 1
+          const candidate = ordinal === 1
+            ? REDACTED_KEY_MARKER
+            : `[REDACTED KEY ${ordinal}]`
+          if (
+            occupiedKeys.has(candidate)
+            || containsKnownSensitiveText(candidate, sensitiveValues)
+          ) continue
+          redactedKey = candidate
+          break
+        }
+        if (redactedKey.length === 0) {
+          throw new Error("Playwright report key redaction failed safely")
+        }
+      }
+      occupiedKeys.add(redactedKey)
+      redacted[redactedKey] = redactSensitiveValues(entry, sensitiveValues)
+    }
+    return redacted
   }
-  return value
+
+  const scalar = String(value)
+  const redacted = redactSensitiveString(scalar, sensitiveValues)
+  return redacted === scalar ? value : redacted
 }
 
 const canonicalSensitiveValues = (
   values: readonly string[],
-): readonly string[] =>
-  Object.freeze(
-    [...new Set(values.filter((value) => value.length > 0))]
+): CanonicalSensitiveValues => {
+  const unique = [...new Set(values.filter((value) => value.length > 0))]
+  const literal = Object.freeze(
+    unique
+      .filter((value) =>
+        value.length >= MINIMUM_PRECISE_KNOWN_VALUE_LENGTH
+      )
       .sort((left, right) => right.length - left.length),
   )
+  const inspected = Object.freeze(
+    [...new Set(unique.map(inspectSensitiveText))]
+      .filter((value) => value.length > 0)
+      .sort((left, right) => right.length - left.length),
+  )
+  const markerRanges = knownSensitiveTextRanges(
+    inspectSensitiveText(REDACTION_MARKER),
+    inspected,
+  )
+  return Object.freeze({
+    literal,
+    inspected,
+    marker: markerRanges === undefined || markerRanges.length > 0
+      ? ""
+      : REDACTION_MARKER,
+  })
+}
 
 
 export const sanitizePlaywrightJsonReport = async (
@@ -113,9 +204,9 @@ export const sanitizePlaywrightJsonReport = async (
     if (Buffer.byteLength(content, "utf8") > MAX_PLAYWRIGHT_REPORT_BYTES) {
       throw new Error("Playwright report exceeds its redaction bound")
     }
-    let parsed: unknown
+    let parsed: JsonValue
     try {
-      parsed = JSON.parse(content) as unknown
+      parsed = JSON.parse(content) as JsonValue
     } catch {
       throw new Error("Playwright report is malformed")
     }
@@ -123,7 +214,10 @@ export const sanitizePlaywrightJsonReport = async (
       throw new Error("Playwright report configuration is malformed")
     }
     removeWebServerEnvironment(parsed["config"])
-    redactSensitiveValues(parsed, canonicalSensitiveValues(sensitiveValues))
+    parsed = redactSensitiveValues(
+      parsed,
+      canonicalSensitiveValues(sensitiveValues),
+    )
     const rendered = Buffer.from(`${JSON.stringify(parsed)}\n`, "utf8")
     if (rendered.byteLength > MAX_PLAYWRIGHT_REPORT_BYTES) {
       throw new Error(REDACTED_REPORT_BOUND_MESSAGE)

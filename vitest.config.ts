@@ -10,10 +10,10 @@ export default defineConfig({
       reportsDirectory: "coverage",
       reporter: ["text", "json-summary"],
       thresholds: {
-        lines: 87,
-        branches: 84,
-        functions: 84,
-        statements: 86,
+        lines: 100,
+        branches: 100,
+        functions: 100,
+        statements: 100,
       },
       include: [
         "apps/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
@@ -26,9 +26,6 @@ export default defineConfig({
         "**/*.civet.tsx",
         "**/generated/**",
         "apps/web/src/features/generated-navigation.civet",
-        "packages/email/src/server/preview.civet",
-        "scripts/generate-feature/path-safety.civet",
-        "scripts/generate-feature/plan.civet",
       ],
     },
     projects: [

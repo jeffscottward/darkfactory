@@ -4,6 +4,13 @@ import { constants } from "node:fs"
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import {
+  compactSensitiveTextRange,
+  inspectSensitiveText,
+  knownSensitiveTextRanges,
+  MINIMUM_PRECISE_KNOWN_VALUE_LENGTH,
+  type SensitiveTextRange,
+} from "./known-sensitive-values.civet"
+import {
   createArtifactScannerDependencies,
   assertOwnedLifecycleRoots,
   createOwnedLifecyclePaths,
@@ -93,9 +100,11 @@ export const serializeJourneyFailureSummary = (
 
 const INHERITED_PLAYWRIGHT_KEYS = [
   "CI", "COLORTERM", "FORCE_COLOR", "HOME", "LANG", "LC_ALL", "LOGNAME",
-  "NODE_EXTRA_CA_CERTS", "NO_COLOR", "SHELL", "TEMP", "TERM", "TMP", "TMPDIR",
-  "USER",
+  "NODE_EXTRA_CA_CERTS", "NO_COLOR", "PORTLESS_PORT", "SHELL", "TEMP", "TERM",
+  "TMP", "TMPDIR", "USER",
 ] as const
+const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"
+const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT"
 const BLANK_PROVIDER_ENVIRONMENT = Object.freeze({
   GROQ_API_KEY: "",
   GROQ_MODEL: "",
@@ -138,20 +147,31 @@ const pathIsOutsideRepository = (
 }
 type TrustedExecutable = Readonly<{
   command: string
-  pathDirectory?: string
 }>
+type TrustedParentPathExecutable = TrustedExecutable & Readonly<{
+  pathDirectory: string
+}>
+type ExecutableSearch = "fixed" | "parent-path"
+const UNPROVEN_SCANNER_REPORT: ArtifactScanReport = Object.freeze({
+  ok: false,
+  scannedEntries: 0,
+  findings: [],
+  purged: false,
+  reason: "External scanner process-tree termination was not proven",
+  failureCategory: "internal",
+})
 const resolveTrustedExecutable = async (
   name: string,
   repositoryPath: string,
-  searchInheritedPath = false,
-): Promise<TrustedExecutable> => {
+  search: ExecutableSearch,
+): Promise<TrustedParentPathExecutable> => {
   const root = await realpath(repositoryPath)
-  const inheritedDirectories = searchInheritedPath
+  const directories = search === "parent-path"
     ? (process.env["PATH"] ?? "")
       .split(delimiter)
       .filter((directory) => directory.length > 0 && isAbsolute(directory))
-    : []
-  for (const directory of inheritedDirectories) {
+    : FIXED_EXECUTABLE_DIRECTORIES
+  for (const directory of directories) {
     try {
       const candidateDirectory = resolve(directory)
       const canonicalDirectory = await realpath(candidateDirectory)
@@ -171,28 +191,64 @@ const resolveTrustedExecutable = async (
       continue
     }
   }
-  for (const candidate of FIXED_EXECUTABLE_DIRECTORIES.map(
-    (directory) => resolve(directory, name),
-  )) {
-    try {
-      const canonical = await realpath(candidate)
-      if (!pathIsOutsideRepository(root, canonical)) continue
-      await assertExecutableFile(canonical)
-      return Object.freeze({ command: canonical })
-    } catch {
-      continue
-    }
-  }
   throw new Error(`Trusted ${name} executable is unavailable`)
 }
-export const resolveTrustedCorepackExecutable = async (
+export const resolveTrustedPnpmExecutable = async (
   repositoryPath: string,
-): Promise<TrustedExecutable> =>
-  await resolveTrustedExecutable("corepack", repositoryPath, true)
+): Promise<TrustedParentPathExecutable> =>
+  await resolveTrustedExecutable("pnpm", repositoryPath, "parent-path")
+export const resolveTrustedParentNodeExecutable = async (
+  repositoryPath: string,
+): Promise<TrustedParentPathExecutable> =>
+  await resolveTrustedExecutable("node", repositoryPath, "parent-path")
 export const resolveTrustedNodeExecutable = async (
   repositoryPath: string,
-): Promise<TrustedExecutable> =>
-  await resolveTrustedExecutable("node", repositoryPath)
+): Promise<TrustedExecutable> => {
+  const resolved = await resolveTrustedExecutable(
+    "node",
+    repositoryPath,
+    "fixed",
+  )
+  return Object.freeze({ command: resolved.command })
+}
+const isMissingExecutable = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === "ENOENT"
+const resolveOptionalSiblingExecutable = async (
+  sourceDirectory: string,
+  name: "node" | "pnpm",
+): Promise<string | undefined> => {
+  let canonical: string | undefined
+  try {
+    canonical = await realpath(resolve(sourceDirectory, name))
+  } catch (error) {
+    if (!isMissingExecutable(error)) throw error
+  }
+  return canonical
+}
+const assertTrustedPlaywrightExecutablePair = async (
+  pnpm: TrustedParentPathExecutable,
+  node: TrustedParentPathExecutable,
+): Promise<void> => {
+  const siblingNode = await resolveOptionalSiblingExecutable(
+    pnpm.pathDirectory,
+    "node",
+  )
+  const siblingPnpm = await resolveOptionalSiblingExecutable(
+    node.pathDirectory,
+    "pnpm",
+  )
+  const effectiveNode = siblingNode ?? node.command
+  const effectivePnpm = siblingPnpm ?? pnpm.command
+  await assertExecutableFile(effectiveNode)
+  await assertExecutableFile(effectivePnpm)
+  if (
+    effectiveNode !== node.command ||
+    effectivePnpm !== pnpm.command
+  ) throw new Error("Trusted executable directory contains a conflicting sibling")
+}
 export const discoverJourneySpecs = async (
   repositoryPath: string,
 ): Promise<readonly string[]> => {
@@ -209,22 +265,21 @@ export const discoverJourneySpecs = async (
 }
 
 
-const createPlaywrightEnvironmentWithTrustedDirectory = (
+const createPlaywrightEnvironmentWithTrustedDirectories = (
   source: NodeJS.ProcessEnv,
+) => (
   isolated: Readonly<Record<string, string>>,
-  trustedExecutableDirectory?: string,
+) => (
+  trustedExecutableDirectories: readonly string[] = [],
 ): NodeJS.ProcessEnv => {
-  const trustedDirectory = trustedExecutableDirectory === undefined
-    ? undefined
-    : safeExecutableDirectory(trustedExecutableDirectory)
-  const executableDirectories = trustedDirectory === undefined
-    ? FIXED_EXECUTABLE_DIRECTORIES
-    : [trustedDirectory, ...FIXED_EXECUTABLE_DIRECTORIES]
+  const executableDirectories = [...new Set([
+    ...trustedExecutableDirectories.map(safeExecutableDirectory),
+    ...FIXED_EXECUTABLE_DIRECTORIES,
+  ])]
   const environment: NodeJS.ProcessEnv = {
     ...BLANK_PROVIDER_ENVIRONMENT,
     APP_ENV: "test",
     DATABASE_URL: source["DATABASE_URL"] ?? "",
-    PORTLESS_PORT: source["PORTLESS_PORT"] ?? "",
     ...isolated,
     PATH: executableDirectories.join(delimiter),
   }
@@ -240,7 +295,7 @@ export const createPlaywrightEnvironment = (
   source: NodeJS.ProcessEnv,
   isolated: Readonly<Record<string, string>>,
 ): NodeJS.ProcessEnv =>
-  createPlaywrightEnvironmentWithTrustedDirectory(source, isolated)
+  createPlaywrightEnvironmentWithTrustedDirectories(source)(isolated)()
 type LifecycleObservation = Readonly<{
   lifecycleStatus: JourneyLifecycleStatus
   lifecycleStage: JourneyLifecycleStage
@@ -295,8 +350,15 @@ export const observeE2ELifecycle = async (
     lifecycleObservationReason: "observed-state",
   })
 }
+const lifecycleProvesNestedServerTermination = (
+  lifecycle: LifecycleObservation,
+): boolean =>
+  lifecycle.lifecycleStatus === "stopped" &&
+    lifecycle.lifecycleObservation === "state" &&
+    lifecycle.lifecycleObservationReason === "observed-state"
 type FinalizedLifecycleObservation = Readonly<{
   finalizationFailed: boolean
+  nestedServerTerminated: boolean
   lifecycle: LifecycleObservation
 }>
 
@@ -305,7 +367,11 @@ export const finalizeAndObserveE2ELifecycle = async (
   processResult: Readonly<{ exitCode: number; treeTerminated: boolean }>,
   repositoryPath = process.cwd(),
 ): Promise<FinalizedLifecycleObservation> => {
-  // Observe injected rejections before the finalizer can create them.
+  const preFinalizationLifecycle =
+    await observeE2ELifecycle(environment, repositoryPath)
+  const nestedServerTerminated =
+    lifecycleProvesNestedServerTermination(preFinalizationLifecycle)
+  // Keep the authenticated pre-finalization proof immutable across status remapping.
   const finalizationFailed = processResult.treeTerminated
     ? await Promise.resolve().then(
         () => finalizeOwnedLifecycleAfterPlaywright({
@@ -322,7 +388,10 @@ export const finalizeAndObserveE2ELifecycle = async (
     : false
   return Object.freeze({
     finalizationFailed,
-    lifecycle: await observeE2ELifecycle(environment, repositoryPath),
+    nestedServerTerminated,
+    lifecycle: processResult.treeTerminated
+      ? await observeE2ELifecycle(environment, repositoryPath)
+      : preFinalizationLifecycle,
   })
 }
 
@@ -443,13 +512,10 @@ const SENSITIVE_PROCESS_STRUCTURES = [
   /(?:cookie|set-cookie)\s*[:=][^\r\n]*better-auth\.session[_-]?token=[^;\s"']{4,}/giu,
   /["']?(?:database_url|password|private[_-]?key|api[_-]?key|secret)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
   /postgres(?:ql)?:\/\/[^\s"'<>]+/giu,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/gu,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/gu,
 ] as const
 
-type ProcessOutputRange = Readonly<{
-  start: number
-  end: number
-}>
+type ProcessOutputRange = SensitiveTextRange
 
 const processOutputIsOversized = (value: string): boolean =>
   value.length > MAX_PROCESS_OUTPUT_BYTES ||
@@ -462,40 +528,6 @@ const normalizeTerminalControls = (value: string): string | undefined =>
     .replace(ANSI_ESCAPE, "")
   if UNTRUSTED_TERMINAL_CONTROL.test(withoutSequences) return undefined
   return withoutSequences.replace(REMOVABLE_C0, "")
-
-const decodePrintableAsciiUnicodeEscape = (
-  source: string,
-  hexadecimal: string,
-): string =>
-  const code = Number.parseInt(hexadecimal, 16)
-  return code >= 0x20 && code <= 0x7e
-    ? String.fromCharCode(code)
-    : source
-
-const decodePrintableAsciiHtmlEntity = (
-  source: string,
-  hexadecimal: string | undefined,
-  decimal: string | undefined,
-): string =>
-  const code = hexadecimal === undefined
-    ? Number.parseInt(decimal ?? "", 10)
-    : Number.parseInt(hexadecimal, 16)
-  return code >= 0x20 && code <= 0x7e
-    ? String.fromCharCode(code)
-    : source
-
-const inspectProcessOutput = (value: string): string =>
-  value
-    .replace(
-      /&#(?:x([0-9a-f]+)|([0-9]+))?;/giu,
-      decodePrintableAsciiHtmlEntity,
-    )
-    .replace(
-      /\\u00([0-9a-f]{2})/giu,
-      decodePrintableAsciiUnicodeEscape,
-    )
-    .replace(/&quot;|&#34;|&#x22;/giu, '"')
-    .replace(/\\(["'])/gu, "$1")
 
 const directSensitiveProcessRanges = (
   value: string,
@@ -516,22 +548,12 @@ const sensitiveProcessRanges = (value: string): readonly ProcessOutputRange[] =>
   const ranges = [...directRanges]
   const appendCompactGap = (gapStart: number, gapEnd: number): void =>
     if gapStart >= gapEnd return
-    const compactCharacters: string[] = []
-    const sourceOffsets: number[] = []
-    let compacted = false
-    for (let index = gapStart; index < gapEnd; index += 1)
-      const character = value.charAt(index)
-      if character === "\n" || character === " "
-        compacted = true
-        continue
-      compactCharacters.push(character)
-      sourceOffsets.push(index)
-    if !compacted return
+    const compacted = compactSensitiveTextRange(value, gapStart, gapEnd)
+    if compacted === undefined return
 
-    const compact = compactCharacters.join("")
-    for range of directSensitiveProcessRanges(compact)
-      const start = sourceOffsets[range.start]
-      const last = sourceOffsets[range.end - 1]
+    for range of directSensitiveProcessRanges(compacted.inspection)
+      const start = compacted.sourceOffsets[range.start]
+      const last = compacted.sourceOffsets[range.end - 1]
       if start === undefined || last === undefined
         ranges.push({ start: gapStart, end: gapEnd })
         return
@@ -554,94 +576,120 @@ const sensitiveProcessRanges = (value: string): readonly ProcessOutputRange[] =>
   ranges.sort((left, right) => left.start - right.start || left.end - right.end)
   return ranges
 
-const redactSensitiveProcessStructures = (
+
+function redactVisibleProcessValues(value: string): string {
+  let redacted = value.replace(
+    /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]+/giu,
+    "[REDACTED]",
+  )
+  redacted = redacted.replace(
+    /(\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=))[^/?&#\s<"']+/giu,
+    "$1[REDACTED]",
+  )
+  redacted = redacted.replace(
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu,
+    "[REDACTED EMAIL]",
+  )
+  return redacted.replace(
+    /https?:\/\/[^\s"'<>]+/giu,
+    "[REDACTED URL]",
+  )
+}
+
+function redactProcessOutputUnsafe(
   value: string,
-  inspection: string,
-): string =>
-  const ranges = sensitiveProcessRanges(inspection)
-  if ranges.length === 0 return value
+  knownSensitiveValues: readonly string[],
+): string {
+  if processOutputIsOversized(value)
+    return REDACTED_OVERSIZED_PROCESS_OUTPUT
+  const normalized = normalizeTerminalControls(value)
+  if normalized === undefined return REDACTED_SENSITIVE_PROCESS_OUTPUT
 
-  const lines = value.match(PROCESS_OUTPUT_LINES) ?? []
-  const inspectionLines = inspection.match(PROCESS_OUTPUT_LINES) ?? []
-  if lines.length !== inspectionLines.length
-    return REDACTED_SENSITIVE_PROCESS_OUTPUT
+  let knownValuesRedacted = normalized
+  const inspectedKnownValues: string[] = []
+  const normalizedKnownValues: string[] = []
+  for secret of knownSensitiveValues
+    if secret.length === 0 continue
+    const normalizedSecret = normalizeTerminalControls(secret)
+    if (
+      normalizedSecret === undefined ||
+      normalizedSecret.length === 0 ||
+      processOutputIsOversized(normalizedSecret)
+    ) return REDACTED_SENSITIVE_PROCESS_OUTPUT
+    const inspectedSecret = inspectSensitiveText(normalizedSecret)
+    inspectedKnownValues.push(inspectedSecret)
+    if normalizedSecret.length >= MINIMUM_PRECISE_KNOWN_VALUE_LENGTH
+      normalizedKnownValues.push(normalizedSecret)
 
-  const rendered: string[] = []
-  let inspectionOffset = 0
-  let rangeIndex = 0
-  let previousLineWasSensitive = false
-  for (let index = 0; index < lines.length; index += 1)
-    const line = lines[index]!
-    const inspectionLine = inspectionLines[index]!
-    const lineEnd = inspectionOffset + inspectionLine.length
-    while (
-      ranges[rangeIndex] !== undefined &&
-      ranges[rangeIndex]!.end <= inspectionOffset
-    )
-      rangeIndex += 1
-    const range = ranges[rangeIndex]
-    const sensitive = range !== undefined &&
-      range.start < lineEnd &&
-      range.end > inspectionOffset
-    if sensitive
-      if !previousLineWasSensitive
-        rendered.push(REDACTED_SENSITIVE_PROCESS_OUTPUT)
-    else
-      rendered.push(line)
-    previousLineWasSensitive = sensitive
-    inspectionOffset = lineEnd
-  return rendered.join("")
-
-const redactVisibleProcessValues = (value: string): string =>
-  value
-    .replace(
-      /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]+/giu,
+  const literalKnownValues = [...new Set(normalizedKnownValues)]
+    .sort((left, right) => right.length - left.length)
+  for secret of literalKnownValues
+    knownValuesRedacted = knownValuesRedacted.replaceAll(
+      secret,
       "[REDACTED]",
     )
-    .replace(
-      /(\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=))[^/?&#\s<"']+/giu,
-      "$1[REDACTED]",
-    )
-    .replace(
-      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu,
-      "[REDACTED EMAIL]",
-    )
-    .replace(/https?:\/\/[^\s"'<>]+/giu, "[REDACTED URL]")
+  if processOutputIsOversized(knownValuesRedacted)
+    return REDACTED_OVERSIZED_PROCESS_OUTPUT
 
-export const redactProcessOutput = (
+  const inspection = inspectSensitiveText(knownValuesRedacted)
+  const knownRanges = knownSensitiveTextRanges(
+    inspection,
+    inspectedKnownValues,
+  )
+  if knownRanges === undefined return REDACTED_SENSITIVE_PROCESS_OUTPUT
+
+  const ranges = Array.from(sensitiveProcessRanges(inspection))
+    .concat(knownRanges)
+  ranges.sort((left, right) => left.start - right.start || left.end - right.end)
+  let structurallyRedacted = knownValuesRedacted
+  if ranges.length > 0
+    const lines = knownValuesRedacted.match(PROCESS_OUTPUT_LINES) ?? []
+    const inspectionLines = inspection.match(PROCESS_OUTPUT_LINES) ?? []
+    if lines.length !== inspectionLines.length
+      structurallyRedacted = REDACTED_SENSITIVE_PROCESS_OUTPUT
+    else
+      const redactedLines: string[] = []
+      let inspectionOffset = 0
+      let rangeIndex = 0
+      let previousLineWasSensitive = false
+      for (let index = 0; index < lines.length; index += 1)
+        const line = lines[index]!
+        const inspectionLine = inspectionLines[index]!
+        const lineEnd = inspectionOffset + inspectionLine.length
+        while (
+          ranges[rangeIndex] !== undefined &&
+          ranges[rangeIndex]!.end <= inspectionOffset
+        )
+          rangeIndex += 1
+        const range = ranges[rangeIndex]
+        const sensitive = range !== undefined &&
+          range.start < lineEnd &&
+          range.end > inspectionOffset
+        if sensitive
+          if !previousLineWasSensitive
+            redactedLines.push(REDACTED_SENSITIVE_PROCESS_OUTPUT)
+        else
+          redactedLines.push(line)
+        previousLineWasSensitive = sensitive
+        inspectionOffset = lineEnd
+      structurallyRedacted = redactedLines.join("")
+
+  const rendered = redactVisibleProcessValues(structurallyRedacted)
+  return processOutputIsOversized(rendered)
+    ? REDACTED_OVERSIZED_PROCESS_OUTPUT
+    : rendered
+}
+
+export function redactProcessOutput(
   value: string,
   knownSensitiveValues: readonly string[] = [],
-): string =>
-  try
-    if processOutputIsOversized(value)
-      return REDACTED_OVERSIZED_PROCESS_OUTPUT
-    const normalized = normalizeTerminalControls(value)
-    if normalized === undefined return REDACTED_SENSITIVE_PROCESS_OUTPUT
-
-    let knownValuesRedacted = normalized
-    for secret of knownSensitiveValues
-      if secret.length < 6 continue
-      const normalizedSecret = normalizeTerminalControls(secret)
-      if normalizedSecret === undefined
-        return REDACTED_SENSITIVE_PROCESS_OUTPUT
-      if normalizedSecret.length >= 6
-        knownValuesRedacted = knownValuesRedacted.replaceAll(
-          normalizedSecret,
-          "[REDACTED]",
-        )
-    if processOutputIsOversized(knownValuesRedacted)
-      return REDACTED_OVERSIZED_PROCESS_OUTPUT
-
-    const structurallyRedacted = redactSensitiveProcessStructures(
-      knownValuesRedacted,
-      inspectProcessOutput(knownValuesRedacted),
-    )
-    const rendered = redactVisibleProcessValues(structurallyRedacted)
-    return processOutputIsOversized(rendered)
-      ? REDACTED_OVERSIZED_PROCESS_OUTPUT
-      : rendered
-  catch
+): string {
+  try {
+    return redactProcessOutputUnsafe(value, knownSensitiveValues)
+  } catch {
     return REDACTED_SENSITIVE_PROCESS_OUTPUT
+  }
+}
 const boundedDiagnosticLines = (value: string, channel: "stderr" | "stdout"): string[] =>
   value
     .split(/\r?\n/gu)
@@ -664,20 +712,27 @@ export const collectProcessDiagnostics = (
     "stderr",
   ),
 ])
+const decodeDatabaseUrlComponent = (value: string): string =>
+  try
+    return decodeURIComponent(value)
+  catch
+    return value
+
 const databaseUrlSensitiveValues = (value: string): readonly string[] => {
   if (value.length === 0) return []
+  let url: URL
   try {
-    const url = new URL(value)
-    return Object.freeze([
-      value,
-      url.username,
-      url.password,
-      decodeURIComponent(url.username),
-      decodeURIComponent(url.password),
-    ])
+    url = new URL(value)
   } catch {
     return Object.freeze([value])
   }
+  return Object.freeze([...new Set([
+    value,
+    url.username,
+    url.password,
+    decodeDatabaseUrlComponent(url.username),
+    decodeDatabaseUrlComponent(url.password),
+  ])])
 }
 
 
@@ -953,189 +1008,134 @@ const purgeAfterScannerFailure = async (
     })
   }
 }
-
-
-export const runJourneyCli = async (
-  arguments_: readonly string[],
+async function scanArtifactsWithTrustedNode(
   repositoryPath: string,
-  streams: CliStreams,
-  overrides: JourneyCliDependencies = {},
-): Promise<number> => {
-  const mode = arguments_[0]
-  if (arguments_.length !== 1 || (mode !== "e2e" && mode !== "a11y")) {
-    streams.writeError("Usage: e2e-run <e2e|a11y>\n")
-    return 2
-  }
-  let corepack: TrustedExecutable | undefined
-  if (overrides.runPlaywright === undefined) {
-    try {
-      corepack = await resolveTrustedCorepackExecutable(repositoryPath)
-    } catch {
-      streams.writeError("Trusted Corepack executable is unavailable\n")
-      return 1
-    }
-  }
-  let node = ""
-  if (overrides.scanArtifacts === undefined) {
-    try {
-      node = overrides.resolveNodeExecutable === undefined
-        ? (await resolveTrustedNodeExecutable(repositoryPath)).command
-        : await overrides.resolveNodeExecutable(repositoryPath)
-    } catch (_error) {
-      streams.writeError("Trusted Node executable is unavailable\n")
-      return 1
-    }
-  }
-  const defaultScanArtifacts = async (
-    runId: string,
-    purgeOwned: boolean,
-    ownership: string,
-  ): Promise<ArtifactScanReport> => {
-    const reportNonce = randomBytes(32).toString("base64url")
-    const scanner = createArtifactScannerInvocation(repositoryPath, node, {
-      runId,
-      ownership,
-      reportNonce,
-      purgeOwned,
-    })
-    const result = await runOwnedCommand(
-      scanner.command,
-      scanner.arguments,
-      scanner.options,
-    )
-    if (!result.treeTerminated) return Object.freeze({
-      ok: false,
-      scannedEntries: 0,
-      findings: [],
-      purged: false,
-      reason: "External scanner process-tree termination was not proven",
-      failureCategory: "internal",
-    })
-    const parsed = parseExternalScannerReport(
-      result.stdout,
-      result.stderr,
-      reportNonce,
-    )
-    const statusMatches = parsed !== undefined &&
-      result.exitCode === (parsed.ok ? 0 : 1)
-    const purgeMatches = parsed !== undefined &&
-      (!purgeOwned || parsed.purged) &&
-      (parsed.ok || parsed.purged)
-    if (parsed !== undefined && statusMatches && purgeMatches) return parsed
-    return purgeAfterScannerFailure(
-      repositoryPath,
-      runId,
-      ownership,
-      parsed?.failureCategory ?? "internal",
-    )
-  }
-  const defaultRunPlaywright: JourneyDependencies["runPlaywright"] = async (
-    playwrightArguments,
-    isolatedEnvironment,
-  ) => {
-    const environment = createPlaywrightEnvironmentWithTrustedDirectory(
-      process.env,
-      isolatedEnvironment,
-      corepack?.pathDirectory,
-    )
-    const knownSecrets = [
-      ...databaseUrlSensitiveValues(environment["DATABASE_URL"]!),
-      isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
-    ]
-    const result = await runOwnedCommand(corepack!.command, playwrightArguments, {
-      cwd: repositoryPath,
-      env: environment,
-    })
-    let reportSanitized = false
-    const reportPath = environment["PLAYWRIGHT_JSON_OUTPUT_NAME"]
-    if (reportPath !== undefined) {
-      try
-        await sanitizePlaywrightJsonReport(reportPath, knownSecrets)
-        reportSanitized = true
-      catch
-        reportSanitized = false
-    }
-    const finalizedLifecycle = await finalizeAndObserveE2ELifecycle(
-      isolatedEnvironment,
-      result,
-      repositoryPath,
-    )
-    const lifecycleFinalizationFailed =
-      finalizedLifecycle.finalizationFailed
-    const recordedLifecycle = finalizedLifecycle.lifecycle
-    const lifecycle = resolveLifecycleObservation(
-      recordedLifecycle,
-      result.stdout,
-      result.stderr,
-    )
-    const safeStdout = redactProcessOutput(result.stdout, knownSecrets)
-    const safeStderr = redactProcessOutput(result.stderr, knownSecrets)
-    if (safeStdout) streams.writeOutput(safeStdout)
-    if (safeStderr) streams.writeError(safeStderr)
-    return {
-      diagnostics: [
-        ...(result.exitCode === 0 && result.treeTerminated
-          ? []
-          : collectProcessDiagnostics(result.stdout, result.stderr, knownSecrets)),
-        ...(!reportSanitized
-          ? ["Owned Playwright JSON report redaction failed safely"]
-          : []),
-        ...(lifecycleFinalizationFailed
-          ? ["Owned Playwright lifecycle finalization failed safely"]
-          : []),
-      ],
-      lifecycleStatus: lifecycle.lifecycleStatus,
-      lifecycleStage: lifecycle.lifecycleStage,
-      lifecycleObservation: lifecycle.lifecycleObservation,
-      lifecycleObservationReason: lifecycle.lifecycleObservationReason,
-      exitCode: reportSanitized ? result.exitCode : 1,
-      treeTerminated: result.treeTerminated,
-    }
-  }
-  const persistState = overrides.persistState ??
-    ((state: E2ERunnerState): void =>
-      persistE2ERunnerState(repositoryPath, state))
-  let statePersistenceFailed = false
-  let stateFailureReported = false
-  const reportStateFailure = (): void => {
-    statePersistenceFailed = true
-    if (stateFailureReported) return
-    stateFailureReported = true
-    streams.writeError("Error: E2E runner state persistence failed\n")
-  }
-  const writeProgress: NonNullable<JourneyDependencies["reportProgress"]> = (
-    progress,
-  ): void => {
-    if (statePersistenceFailed) return
-    try {
-      persistState({ version: 1, phase: "progress", progress })
-    } catch {
-      reportStateFailure()
-      return
-    }
-    streams.writeError(serializeJourneyProgress(progress))
-  }
-  const dependencies: JourneyDependencies = {
+  node: string,
+  request: Readonly<{ runId: string; purgeOwned: boolean; ownership: string }>,
+): Promise<ArtifactScanReport> {
+  const reportNonce = randomBytes(32).toString("base64url")
+  const scanner = createArtifactScannerInvocation(repositoryPath, node, {
+    runId: request.runId,
+    ownership: request.ownership,
+    reportNonce,
+    purgeOwned: request.purgeOwned,
+  })
+  const result = await runOwnedCommand(
+    scanner.command,
+    scanner.arguments,
+    scanner.options,
+  )
+  if !result.treeTerminated return UNPROVEN_SCANNER_REPORT
+  const parsed = parseExternalScannerReport(
+    result.stdout,
+    result.stderr,
+    reportNonce,
+  )
+  const statusMatches = parsed !== undefined &&
+    result.exitCode === (parsed.ok ? 0 : 1)
+  const purgeMatches = parsed !== undefined &&
+    (!request.purgeOwned || parsed.purged) &&
+    (parsed.ok || parsed.purged)
+  if parsed !== undefined && statusMatches && purgeMatches return parsed
+  return purgeAfterScannerFailure(
     repositoryPath,
-    createRunId: overrides.createRunId ?? (() => randomUUID()),
-    createHmacKey: overrides.createHmacKey ??
-      (() => randomBytes(32).toString("base64url")),
-    prepareRun: overrides.prepareRun ?? (async (runId, artifactProfile) => {
-      const proof = await prepareOwnedRun(repositoryPath, runId, artifactProfile)
-      return Object.freeze({
-        adoption: encodeOwnedRunAdoption(proof),
-        ownership: encodeOwnedRunProof(proof),
-      })
-    }),
-    reportProgress: writeProgress,
-    runPlaywright: overrides.runPlaywright ?? defaultRunPlaywright,
-    listSpecs: overrides.listSpecs ?? (() => discoverJourneySpecs(repositoryPath)),
-    scanArtifacts: overrides.scanArtifacts ?? defaultScanArtifacts,
+    request.runId,
+    request.ownership,
+    parsed?.failureCategory ?? "internal",
+  )
+}
+
+
+type StatePersistenceStatus = Set<null>
+
+const reportStatePersistenceFailure = (
+  status: StatePersistenceStatus,
+  streams: CliStreams,
+): void => {
+  if (status.size === 0)
+    streams.writeError("Error: E2E runner state persistence failed\n")
+  status.add(null)
+}
+
+const writeJourneyProgress = (
+  status: StatePersistenceStatus,
+  persistState: NonNullable<JourneyCliDependencies["persistState"]>,
+  streams: CliStreams,
+  progress: JourneyProgress,
+): void => {
+  if (status.size !== 0) return
+  try {
+    persistState({ version: 1, phase: "progress", progress })
+  } catch {
+    reportStatePersistenceFailure(status, streams)
+    return
   }
-  const report: JourneySuiteReport = await runJourneySuite(
-    mode,
-    dependencies,
-  ).then(
+  streams.writeError(serializeJourneyProgress(progress))
+}
+const createProgressWriter = (
+  status: StatePersistenceStatus,
+  persistState: NonNullable<JourneyCliDependencies["persistState"]>,
+  streams: CliStreams,
+): NonNullable<JourneyDependencies["reportProgress"]> =>
+  writeJourneyProgress.bind(undefined, status, persistState, streams)
+const createDefaultJourneyRunId = (): string => randomUUID()
+
+const createDefaultJourneyHmacKey = (): string =>
+  randomBytes(32).toString("base64url")
+
+type PrepareRunDependency = NonNullable<JourneyDependencies["prepareRun"]>
+
+const prepareDefaultJourneyRun = async (
+  repositoryPath: string,
+  runId: Parameters<PrepareRunDependency>[0],
+  artifactProfile: Parameters<PrepareRunDependency>[1],
+): ReturnType<PrepareRunDependency> => {
+  const proof = await prepareOwnedRun(repositoryPath, runId, artifactProfile)
+  return Object.freeze({
+    adoption: encodeOwnedRunAdoption(proof),
+    ownership: encodeOwnedRunProof(proof),
+  })
+}
+
+type ScanArtifactsDependency = NonNullable<JourneyDependencies["scanArtifacts"]>
+
+const scanDefaultJourneyArtifacts = (
+  repositoryPath: string,
+  node: string,
+  runId: Parameters<ScanArtifactsDependency>[0],
+  purgeOwned: Parameters<ScanArtifactsDependency>[1],
+  ownership: Parameters<ScanArtifactsDependency>[2],
+): ReturnType<ScanArtifactsDependency> =>
+  scanArtifactsWithTrustedNode(
+    repositoryPath,
+    node,
+    { runId, purgeOwned, ownership },
+  )
+const makeDependencies = (
+  repositoryPath: string,
+  node: string,
+  overrides: JourneyCliDependencies,
+  reportProgress: NonNullable<JourneyDependencies["reportProgress"]>,
+  runPlaywright: JourneyDependencies["runPlaywright"],
+): JourneyDependencies => ({
+  repositoryPath,
+  createRunId: overrides.createRunId ?? createDefaultJourneyRunId,
+  createHmacKey: overrides.createHmacKey ?? createDefaultJourneyHmacKey,
+  prepareRun: overrides.prepareRun ??
+    prepareDefaultJourneyRun.bind(undefined, repositoryPath),
+  reportProgress,
+  runPlaywright,
+  listSpecs: overrides.listSpecs ??
+    discoverJourneySpecs.bind(undefined, repositoryPath),
+  scanArtifacts: overrides.scanArtifacts ??
+    scanDefaultJourneyArtifacts.bind(undefined, repositoryPath, node),
+})
+
+const runBoundedJourneySuite = (
+  mode: E2eMode,
+  dependencies: JourneyDependencies,
+): Promise<JourneySuiteReport> =>
+  runJourneySuite(mode, dependencies).then(
     (result) => result,
     () => Object.freeze({
       ok: false,
@@ -1145,6 +1145,12 @@ export const runJourneyCli = async (
       reason: "Serialized E2E runner failed before returning a bounded report",
     }),
   )
+const finalizeJourneyCliReport = (
+  report: JourneySuiteReport,
+  status: StatePersistenceStatus,
+  persistState: NonNullable<JourneyCliDependencies["persistState"]>,
+  streams: CliStreams,
+): number => {
   const rawFailureCategory = [...report.results].reverse().find((result) =>
     result.playwrightExitCode !== 0 || !result.scan.ok
   )?.scan.failureCategory
@@ -1157,17 +1163,17 @@ export const runJourneyCli = async (
   try {
     safeReport = sanitizeE2ERunnerReport(report)
   } catch {
-    reportStateFailure()
+    reportStatePersistenceFailure(status, streams)
     return 1
   }
-  if (!statePersistenceFailed) {
+  if (status.size === 0) {
     try {
       persistState({ version: 1, phase: "result", report: safeReport })
     } catch {
-      reportStateFailure()
+      reportStatePersistenceFailure(status, streams)
     }
   }
-  if (statePersistenceFailed) return 1
+  if (status.size !== 0) return 1
   const rendered = `${JSON.stringify(safeReport)}\n`
   if (safeReport.ok) streams.writeOutput(rendered)
   else {
@@ -1175,4 +1181,158 @@ export const runJourneyCli = async (
     streams.writeError(rendered)
   }
   return report.ok ? 0 : 1
+}
+
+
+
+
+
+
+const runDefaultPlaywright = async (
+  repositoryPath: string,
+  playwrightPnpm: TrustedParentPathExecutable,
+  playwrightNode: TrustedParentPathExecutable,
+  streams: CliStreams,
+  playwrightArguments: readonly string[],
+  isolatedEnvironment: Readonly<Record<string, string>>,
+): ReturnType<JourneyDependencies["runPlaywright"]> => {
+  if (playwrightArguments[0] !== "pnpm") {
+    throw new Error("Playwright arguments must begin with pnpm")
+  }
+  const pnpmArguments = playwrightArguments.slice(1)
+  const trustedExecutableDirectories = [
+    playwrightNode.pathDirectory,
+    playwrightPnpm.pathDirectory,
+  ]
+  const environmentForSource =
+    createPlaywrightEnvironmentWithTrustedDirectories(process.env)
+  const environmentForIsolation = environmentForSource(isolatedEnvironment)
+  const environment = environmentForIsolation(trustedExecutableDirectories)
+  environment[E2E_NODE_EXECUTABLE_KEY] = playwrightNode.command
+  environment[E2E_PNPM_SCRIPT_KEY] = playwrightPnpm.command
+  const knownSecrets = [
+    ...databaseUrlSensitiveValues(environment["DATABASE_URL"]!),
+    isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
+  ]
+  const result = await runOwnedCommand(
+    playwrightNode.command,
+    [playwrightPnpm.command, ...pnpmArguments],
+    {
+      cwd: repositoryPath,
+      env: environment,
+    },
+  )
+  let reportSanitized = false
+  const reportPath = environment["PLAYWRIGHT_JSON_OUTPUT_NAME"]
+  if (reportPath !== undefined)
+    reportSanitized = await sanitizePlaywrightJsonReport(
+      reportPath,
+      knownSecrets,
+    ).then(
+      () => true,
+      () => false,
+    )
+  const finalizedLifecycle = await finalizeAndObserveE2ELifecycle(
+    isolatedEnvironment,
+    result,
+    repositoryPath,
+  )
+  const lifecycleFinalizationFailed = finalizedLifecycle.finalizationFailed
+  const recordedLifecycle = finalizedLifecycle.lifecycle
+  const lifecycle = resolveLifecycleObservation(
+    recordedLifecycle,
+    result.stdout,
+    result.stderr,
+  )
+  const safeStdout = redactProcessOutput(result.stdout, knownSecrets)
+  const safeStderr = redactProcessOutput(result.stderr, knownSecrets)
+  if (safeStdout) streams.writeOutput(safeStdout)
+  if (safeStderr) streams.writeError(safeStderr)
+  return {
+    diagnostics: [
+      ...(result.exitCode === 0 && result.treeTerminated
+        ? []
+        : collectProcessDiagnostics(result.stdout, result.stderr, knownSecrets)),
+      ...(!reportSanitized
+        ? ["Owned Playwright JSON report redaction failed safely"]
+        : []),
+      ...(lifecycleFinalizationFailed
+        ? ["Owned Playwright lifecycle finalization failed safely"]
+        : []),
+    ],
+    lifecycleStatus: lifecycle.lifecycleStatus,
+    lifecycleStage: lifecycle.lifecycleStage,
+    lifecycleObservation: lifecycle.lifecycleObservation,
+    lifecycleObservationReason: lifecycle.lifecycleObservationReason,
+    exitCode: reportSanitized ? result.exitCode : 1,
+    nestedServerTerminated: finalizedLifecycle.nestedServerTerminated,
+    treeTerminated: result.treeTerminated,
+  }
+}
+
+export const runJourneyCli = async (
+  arguments_: readonly string[],
+  repositoryPath: string,
+  streams: CliStreams,
+  overrides: JourneyCliDependencies = {},
+): Promise<number> => {
+  const mode = arguments_[0]
+  if (arguments_.length !== 1 || (mode !== "e2e" && mode !== "a11y")) {
+    streams.writeError("Usage: e2e-run <e2e|a11y>\n")
+    return 2
+  }
+  let runPlaywright = overrides.runPlaywright
+  if (runPlaywright === undefined) {
+    let playwrightPnpm: TrustedParentPathExecutable
+    let playwrightNode: TrustedParentPathExecutable
+    try {
+      playwrightPnpm = await resolveTrustedPnpmExecutable(repositoryPath)
+    } catch {
+      streams.writeError("Trusted pnpm executable is unavailable\n")
+      return 1
+    }
+    try {
+      playwrightNode = await resolveTrustedParentNodeExecutable(repositoryPath)
+    } catch {
+      streams.writeError("Trusted parent-PATH Node executable is unavailable\n")
+      return 1
+    }
+    try {
+      await assertTrustedPlaywrightExecutablePair(
+        playwrightPnpm,
+        playwrightNode,
+      )
+    } catch {
+      streams.writeError(
+        "Trusted Playwright pnpm/Node executable pairing is unavailable\n",
+      )
+      return 1
+    }
+    runPlaywright = runDefaultPlaywright.bind(
+      undefined,
+      repositoryPath,
+      playwrightPnpm,
+      playwrightNode,
+      streams,
+    )
+  }
+  let node = ""
+  if (overrides.scanArtifacts === undefined) {
+    try {
+      node = overrides.resolveNodeExecutable === undefined
+        ? (await resolveTrustedNodeExecutable(repositoryPath)).command
+        : await overrides.resolveNodeExecutable(repositoryPath)
+    } catch (_error) {
+      streams.writeError("Trusted Node executable is unavailable\n")
+      return 1
+    }
+  }
+  const persistState = overrides.persistState ??
+    persistE2ERunnerState.bind(undefined, repositoryPath)
+  const statePersistenceStatus: StatePersistenceStatus = new Set()
+  const progressWriter = createProgressWriter(statePersistenceStatus, persistState, streams)
+  const dependencies =
+    makeDependencies(repositoryPath, node, overrides, progressWriter, runPlaywright)
+  const report = await runBoundedJourneySuite(mode, dependencies)
+  return finalizeJourneyCliReport(report, statePersistenceStatus, persistState, streams)
 }

@@ -1,0 +1,456 @@
+import * as fileSystem from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { PasswordResetEmailInput } from "../index.civet"
+
+const resetInput: PasswordResetEmailInput = {
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  resetUrl:
+    "https://darkfactory.localhost/api/auth/reset-password/fault-test-token" +
+    "?callbackURL=https%3A%2F%2Fdarkfactory.localhost%2Freset-password",
+  expiresInMinutes: 60,
+}
+
+const temporaryDirectories: string[] = []
+
+const createTemporaryDirectory = async (): Promise<string> => {
+  const directory = await fileSystem.mkdtemp(
+    join(tmpdir(), "darkfactory-preview-fault-"),
+  )
+  const canonicalDirectory = await fileSystem.realpath(directory)
+  temporaryDirectories.push(canonicalDirectory)
+  return canonicalDirectory
+}
+
+const injectedError = (code: string): NodeJS.ErrnoException =>
+  Object.assign(new Error("injected filesystem failure"), { code })
+
+const loadPreview = async (
+  overrides: Readonly<Record<string, unknown>>,
+) => {
+  vi.doMock("node:fs/promises", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("node:fs/promises")>()),
+    ...overrides,
+  }))
+  return await import("./preview.civet")
+}
+
+afterEach async ->
+  vi.doUnmock("node:fs/promises")
+  vi.resetModules()
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) =>
+      fileSystem.rm(directory, { force: true, recursive: true })
+    )
+  )
+
+describe "preview filesystem fault handling", ->
+  it.each(["writeFile", "sync", "close"])(
+    "rolls back when a temporary handle %s operation fails",
+    async (operation) =>
+      const directory = await createTemporaryDirectory()
+      const open = async (...args: Parameters<typeof fileSystem.open>) => {
+        const handle = await fileSystem.open(...args)
+        if (!String(args[0]).endsWith(".html.tmp")) return handle
+        return new Proxy(handle, {
+          get(target, property) {
+            if (property === operation) {
+              if (operation === "close") {
+                return async () => {
+                  await target.close()
+                  throw injectedError("EIO")
+                }
+              }
+              return async () => {
+                throw injectedError("EIO")
+              }
+            }
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        })
+      }
+      const { createPreviewEmailPortForTest } = await loadPreview({ open })
+      const email = createPreviewEmailPortForTest({
+        environment: "test",
+        directory,
+        artifactName: () => "fault",
+      })
+
+      const result = await email.sendPasswordReset(resetInput)
+
+      expect(result).toEqual({
+        status: "failed",
+        provider: "preview",
+        code: "EMAIL_PREVIEW_WRITE_FAILED",
+        retryable: false,
+      })
+      expect(await fileSystem.readdir(directory)).toEqual([])
+  )
+
+  it "cleans partial handles and its reservation when a later open fails", async ->
+    const directory = await createTemporaryDirectory()
+    const open = async (...args: Parameters<typeof fileSystem.open>) => {
+      if (String(args[0]).endsWith(".html.tmp")) throw injectedError("EIO")
+      return await fileSystem.open(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ open })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await fileSystem.readdir(directory)).toEqual([])
+
+  it "fails closed when a validated ancestor is reported as non-directory", async ->
+    const directory = await createTemporaryDirectory()
+    const ancestor = join(directory, "..")
+    const realLstat = fileSystem.lstat
+    let canonicalDirectoryValidated = false
+    let ancestorObservedAfterValidation = false
+    let ancestorChecks = 0
+    const realpath = async (
+      path: Parameters<typeof fileSystem.realpath>[0],
+    ): Promise<string> => {
+      const canonicalPath = await fileSystem.realpath(path)
+      if (String(path) === directory) canonicalDirectoryValidated = true
+      return canonicalPath
+    }
+    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) => {
+      const stats = await realLstat(...args)
+      if (String(args[0]) !== ancestor) return stats
+      ancestorChecks += 1
+      ancestorObservedAfterValidation = canonicalDirectoryValidated
+      return new Proxy(stats, {
+        get(target, property, receiver) {
+          if (property === "isDirectory") return () => false
+          return Reflect.get(target, property, receiver)
+        },
+      })
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ lstat, realpath })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "ancestor-race",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })
+    expect(ancestorChecks).toBe(1)
+    expect(ancestorObservedAfterValidation).toBe(true)
+    expect(await fileSystem.readdir(directory)).toEqual([])
+
+  it "maps canonical-directory permission failure without opening artifacts", async ->
+    const directory = await createTemporaryDirectory()
+    const chmod = async (path: Parameters<typeof fileSystem.chmod>[0], mode: number) => {
+      if (String(path) === directory) throw injectedError("EACCES")
+      await fileSystem.chmod(path, mode)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ chmod })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await fileSystem.readdir(directory)).toEqual([])
+
+  it "rolls back a published unit when retention inventory cannot be read", async ->
+    const directory = await createTemporaryDirectory()
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
+      if (String(args[0]) === directory) throw injectedError("EIO")
+      return await (fileSystem.readdir as any)(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ readdir })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await fileSystem.readdir(directory)).toEqual([])
+
+  it "preserves a complete discoverable unit when metadata quarantine faults", async ->
+    const directory = await createTemporaryDirectory()
+    const metadataPath = join(directory, "fault.metadata.json")
+    const deletingPath = join(directory, "fault.deleting.json")
+    const realReaddir = fileSystem.readdir
+    const realRename = fileSystem.rename
+    let retentionReadAttempts = 0
+    let metadataQuarantineAttempts = 0
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
+      if (String(args[0]) === directory) {
+        retentionReadAttempts += 1
+        if (retentionReadAttempts === 1) throw injectedError("EIO")
+      }
+      return await (realReaddir as any)(...args)
+    }
+    const rename = async (...args: Parameters<typeof fileSystem.rename>) => {
+      if (
+        String(args[0]) === metadataPath &&
+        String(args[1]) === deletingPath
+      ) {
+        metadataQuarantineAttempts += 1
+        if (metadataQuarantineAttempts === 1) {
+          throw injectedError("EACCES")
+        }
+      }
+      await realRename(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ readdir, rename })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(retentionReadAttempts).toBe(1)
+    expect(metadataQuarantineAttempts).toBe(1)
+    expect((await fileSystem.readdir(directory)).sort()).toEqual([
+      "fault.html",
+      "fault.metadata.json",
+      "fault.txt",
+    ])
+
+  it "leaves quarantined metadata when published content cleanup is incomplete", async ->
+    const directory = await createTemporaryDirectory()
+    const htmlPath = join(directory, "fault.html")
+    const realReaddir = fileSystem.readdir
+    const realRm = fileSystem.rm
+    let retentionReadAttempts = 0
+    let publishedHtmlCleanupAttempts = 0
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
+      if (String(args[0]) === directory) {
+        retentionReadAttempts += 1
+        if (retentionReadAttempts === 1) throw injectedError("EIO")
+      }
+      return await (realReaddir as any)(...args)
+    }
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
+      if (String(args[0]) === htmlPath) {
+        publishedHtmlCleanupAttempts += 1
+        if (publishedHtmlCleanupAttempts === 1) {
+          throw injectedError("EACCES")
+        }
+      }
+      await (realRm as any)(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ readdir, rm })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(retentionReadAttempts).toBe(1)
+    expect(publishedHtmlCleanupAttempts).toBe(1)
+    expect((await fileSystem.readdir(directory)).sort()).toEqual([
+      "fault.deleting.json",
+      "fault.html",
+    ])
+
+  it "bounds a final quarantined-metadata removal fault", async ->
+    const directory = await createTemporaryDirectory()
+    const deletingPath = join(directory, "fault.deleting.json")
+    const realReaddir = fileSystem.readdir
+    const realRm = fileSystem.rm
+    let retentionReadAttempts = 0
+    let quarantinedRemovalAttempts = 0
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
+      if (String(args[0]) === directory) {
+        retentionReadAttempts += 1
+        if (retentionReadAttempts === 1) throw injectedError("EIO")
+      }
+      return await (realReaddir as any)(...args)
+    }
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
+      if (String(args[0]) === deletingPath) {
+        quarantinedRemovalAttempts += 1
+        if (quarantinedRemovalAttempts === 1) {
+          throw injectedError("EACCES")
+        }
+      }
+      await (realRm as any)(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ readdir, rm })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(retentionReadAttempts).toBe(1)
+    expect(quarantinedRemovalAttempts).toBe(1)
+    expect(await fileSystem.readdir(directory)).toEqual([
+      "fault.deleting.json",
+    ])
+
+  it "recovers when cleanup and inventory entries disappear before lstat", async ->
+    const directory = await createTemporaryDirectory()
+    const vanishedPaths = [
+      join(directory, ".vanished.tmp"),
+      join(directory, "vanished.html"),
+    ]
+    await Promise.all(
+      vanishedPaths.map((path) =>
+        fileSystem.writeFile(path, "partial", "utf8")
+      )
+    )
+    const realLstat = fileSystem.lstat
+    const realRm = fileSystem.rm
+    const pendingPaths = new Set(vanishedPaths)
+    let vanishedLstatAttempts = 0
+    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) => {
+      const path = String(args[0])
+      if (pendingPaths.delete(path)) {
+        vanishedLstatAttempts += 1
+        await realRm(path)
+        throw injectedError("ENOENT")
+      }
+      return await realLstat(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ lstat })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "current",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "previewed",
+    })
+    expect(vanishedLstatAttempts).toBe(2)
+    expect((await fileSystem.readdir(directory)).sort()).toEqual([
+      "current.html",
+      "current.metadata.json",
+      "current.txt",
+    ])
+
+  it "does not misclassify a non-missing inventory lstat failure", async ->
+    const directory = await createTemporaryDirectory()
+    const faultPath = join(directory, ".fault.tmp")
+    await fileSystem.writeFile(faultPath, "partial", "utf8")
+    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) => {
+      if (String(args[0]) === faultPath) throw injectedError("EACCES")
+      return await fileSystem.lstat(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ lstat })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "current",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await fileSystem.readdir(directory)).toEqual([".fault.tmp"])
+
+  it "rolls back when temporary-file cleanup reports a failure", async ->
+    const directory = await createTemporaryDirectory()
+    let injected = false
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
+      if (!injected && String(args[0]).endsWith(".html.tmp")) {
+        injected = true
+        throw injectedError("EIO")
+      }
+      await (fileSystem.rm as any)(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ rm })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await fileSystem.readdir(directory)).toEqual([])
+
+  it "retries reservation cleanup after its first removal fault", async ->
+    const directory = await createTemporaryDirectory()
+    let injected = false
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
+      if (
+        !injected &&
+        String(args[0]).endsWith(".preview.lock")
+      ) {
+        injected = true
+        throw injectedError("EIO")
+      }
+      await (fileSystem.rm as any)(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ rm })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(await fileSystem.readdir(directory)).toEqual([])
+
+  it "ignores a repeated reservation cleanup fault after failing closed", async ->
+    const directory = await createTemporaryDirectory()
+    let reservationRemovalAttempts = 0
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
+      if (String(args[0]).endsWith(".preview.lock")) {
+        reservationRemovalAttempts += 1
+        throw injectedError("EIO")
+      }
+      await (fileSystem.rm as any)(...args)
+    }
+    const { createPreviewEmailPortForTest } = await loadPreview({ rm })
+    const email = createPreviewEmailPortForTest({
+      environment: "test",
+      directory,
+      artifactName: () => "fault",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+    })
+    expect(reservationRemovalAttempts).toBe(2)
+    expect(await fileSystem.readdir(directory)).toEqual([
+      ".fault.preview.lock",
+    ])

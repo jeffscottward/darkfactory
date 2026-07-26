@@ -45,6 +45,7 @@ export type JourneyProcessResult = Readonly<{
   lifecycleStage?: JourneyLifecycleStage
   lifecycleObservation?: JourneyLifecycleObservation
   lifecycleObservationReason?: JourneyLifecycleObservationReason
+  nestedServerTerminated?: boolean
   treeTerminated: boolean
 }>
 export type JourneyStage = "complete" | "execute" | "prepare" | "scan"
@@ -383,6 +384,7 @@ export const runJourneySuite = async (
         lifecycleStage: "unavailable" as const,
         lifecycleObservation: "missing" as const,
         lifecycleObservationReason: "inputs-missing" as const,
+        nestedServerTerminated: false,
       }),
     )
     const observedLifecycleStatus = lifecycleStatus(processResult.lifecycleStatus)
@@ -393,12 +395,16 @@ export const runJourneySuite = async (
     const observedLifecycleObservationReason = lifecycleObservationReason(
       processResult.lifecycleObservationReason,
     )
+    const nestedServerTerminated =
+      processResult.nestedServerTerminated === true
+    const processTreeTerminated =
+      processResult.treeTerminated && nestedServerTerminated
     reportProgress(dependencies, {
       spec,
       runId,
       stage: "playwright-finished",
       playwrightOk: processResult.exitCode === 0,
-      processTreeTerminated: processResult.treeTerminated,
+      processTreeTerminated,
       lifecycleStatus: observedLifecycleStatus,
       lifecycleStage: observedLifecycleStage,
       lifecycleObservation: observedLifecycleObservation,
@@ -421,13 +427,14 @@ export const runJourneySuite = async (
           ]
         : []),
     ])
-    if (!processResult.treeTerminated) {
+    if (!processTreeTerminated) {
       const scan = Object.freeze({
         ok: false,
         scannedEntries: 0,
         findings: [],
         purged: false,
         reason: "Artifact scanning withheld because process-tree termination was not proven",
+        failureCategory: "internal" as const,
       })
       results.push(Object.freeze({
         spec,
@@ -440,7 +447,7 @@ export const runJourneySuite = async (
         lifecycleObservationReason: observedLifecycleObservationReason,
         processState: "unproven",
         stage: "execute",
-        processTreeTerminated: false,
+        processTreeTerminated,
         scan,
       }))
       reportProgress(dependencies, {

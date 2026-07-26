@@ -1956,6 +1956,38 @@ describe("artifact system filesystem fakes", () => {
       await rm(root, { force: true, recursive: true })
     }
   })
+  it("rejects an ownership marker whose content mismatches its adoption", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      const markerPath = join(paths.e2e, ".darkfactory-e2e-owner.json")
+      const expectedContent = JSON.stringify(adoption)
+      const mismatchedContent = `${expectedContent.slice(0, -1)} `
+      const close = vi.fn()
+      const readFile = vi.fn()
+      const stat = vi.fn()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (path !== markerPath) return handle
+          const stats = await handle.stat()
+          close.mockImplementation(() => handle.close())
+          readFile.mockResolvedValue(mismatchedContent)
+          stat.mockResolvedValue(stats)
+          return { close, readFile, stat }
+        },
+      }))
+
+      expect(mismatchedContent).not.toBe(expectedContent)
+      expect(Buffer.byteLength(mismatchedContent)).toBe(Buffer.byteLength(expectedContent))
+      await expect(dynamic.assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
+        /marker identity or capability changed/i,
+      )
+      expect(stat).toHaveBeenCalledTimes(2)
+      expect(readFile).toHaveBeenCalledTimes(1)
+      expect(close).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it("detects an ownership marker replaced while it is being read", async () => {
     await withOwnedRun(async (root, proof) => {
       const { paths } = await lifecycle(root, proof)

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import { isAbsolute } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import type { PrepareSeedIdentities } from "@darkfactory/db/server"
@@ -58,6 +59,40 @@ import {
   type E2EReadinessProbeContext,
 } from "./server-readiness.ts"
 import type { PreviewCaptureServer } from "./preview-capture.civet"
+const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"
+const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT"
+type E2EServerInvocation = Readonly<{
+  command: string
+  arguments: readonly string[]
+}>
+export const createE2EServerInvocation = (
+  source: Readonly<NodeJS.ProcessEnv>,
+): E2EServerInvocation => {
+  const nodeExecutable = source[E2E_NODE_EXECUTABLE_KEY]
+  const pnpmScript = source[E2E_PNPM_SCRIPT_KEY]
+  if (
+    nodeExecutable === undefined ||
+    pnpmScript === undefined ||
+    !isAbsolute(nodeExecutable) ||
+    !isAbsolute(pnpmScript)
+  ) throw new Error("E2E server executable targets are unavailable")
+  return Object.freeze({
+    command: nodeExecutable,
+    arguments: Object.freeze([
+      pnpmScript,
+      "exec",
+      "portless",
+      "darkfactory",
+      nodeExecutable,
+      pnpmScript,
+      "--filter",
+      "@darkfactory/web",
+      "run",
+      "dev",
+    ]),
+  })
+}
+
 const WEB_DIRECTORY = fileURLToPath(new URL("../../../apps/web/", import.meta.url))
 
 const EXPECTED_SEED_IDENTITIES = 3
@@ -201,6 +236,7 @@ const enterLifecycleStage = async (
 }
 
 const start = async (control: LifecycleControl): Promise<void> => {
+  const serverInvocation = createE2EServerInvocation(process.env)
   if (process.env["APP_ENV"] !== "test") {
     throw new Error("E2E lifecycle requires APP_ENV=test")
   }
@@ -325,19 +361,8 @@ const start = async (control: LifecycleControl): Promise<void> => {
   })
   control.checkpoint()
   server = spawnOwnedProcess(
-    "corepack",
-    [
-      "pnpm",
-      "exec",
-      "portless",
-      "darkfactory",
-      "corepack",
-      "pnpm",
-      "--filter",
-      "@darkfactory/web",
-      "run",
-      "dev",
-    ],
+    serverInvocation.command,
+    serverInvocation.arguments,
     { env: environment },
   )
   server.stdout

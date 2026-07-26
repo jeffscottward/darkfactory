@@ -124,6 +124,7 @@ describe("E2E lifecycle CLIs", () => {
           lifecycleStage: "server-ready",
           lifecycleObservation: "state",
           lifecycleObservationReason: "observed-state",
+          nestedServerTerminated: true,
         }),
         scanArtifacts: async () => ({
           ok: true,
@@ -183,6 +184,7 @@ describe("E2E lifecycle CLIs", () => {
         lifecycleStage: "server-ready",
         lifecycleObservation: "state",
         lifecycleObservationReason: "observed-state",
+        nestedServerTerminated: true,
       }),
       scanArtifacts: async () => ({
         ok: false,
@@ -223,6 +225,7 @@ describe("E2E lifecycle CLIs", () => {
           treeTerminated: true,
           lifecycleStatus: "startup-failed",
           lifecycleStage: "module-loading",
+          nestedServerTerminated: true,
           diagnostics: [
             "private@example.test https://domain.test/?token=secret Password123!",
           ],
@@ -887,6 +890,7 @@ describe("E2E lifecycle CLIs", () => {
         treeTerminated: true,
       }, root)).resolves.toEqual({
         finalizationFailed: false,
+        nestedServerTerminated: true,
         lifecycle: {
           lifecycleStatus: "stopped",
           lifecycleStage: "server-ready",
@@ -970,6 +974,7 @@ describe("E2E lifecycle CLIs", () => {
         .find((line) => line.startsWith('{"finalizationFailed"'))
       expect(JSON.parse(observationLine ?? "null")).toEqual({
         finalizationFailed: false,
+        nestedServerTerminated: false,
         lifecycle: {
           lifecycleStatus: "startup-failed",
           lifecycleStage: "server-probed",

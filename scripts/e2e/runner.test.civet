@@ -30,6 +30,7 @@ const stoppedLifecycle = Object.freeze({
   lifecycleStage: "server-ready" as const,
   lifecycleObservation: "state" as const,
   lifecycleObservationReason: "observed-state" as const,
+  nestedServerTerminated: true,
 })
 const adoptionPayload = (
   runId: string,
@@ -131,7 +132,7 @@ describe("serialized E2E journey runner", () => {
     }
   })
 
-  it("continues after ordinary proven failures and aggregates every isolated result", async () => {
+  it("continues after nonzero runs only when both termination proofs are present", async () => {
     let index = 0
     const scans: Array<readonly [string, boolean, string]> = []
     const report = await runJourneySuite("e2e", {
@@ -141,7 +142,15 @@ describe("serialized E2E journey runner", () => {
       createHmacKey: () => "z".repeat(43),
       prepareRun: async (runId) => preparedRun(runId),
       runPlaywright: async () => ({
-        ...(index === 1 ? {} : stoppedLifecycle),
+        ...(index === 1
+          ? {
+              lifecycleStatus: "runtime-failed" as const,
+              lifecycleStage: "server-ready" as const,
+              lifecycleObservation: "state" as const,
+              lifecycleObservationReason: "observed-state" as const,
+              nestedServerTerminated: true,
+            }
+          : stoppedLifecycle),
         diagnostics: index === 1
           ? ["stderr: Error: Process from config.webServer was not able to start. Exit code: 1"]
           : [],
@@ -209,13 +218,13 @@ describe("serialized E2E journey runner", () => {
       prepareRun: async () => preparedRun("webserver_failed_run"),
       reportProgress: (event) => stages.push(event.stage),
       runPlaywright: async () => ({
+        ...stoppedLifecycle,
         diagnostics: [
           "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
         ],
         exitCode: 1,
+        lifecycleStatus: "runtime-failed",
         treeTerminated: true,
-        lifecycleStatus: "startup-failed",
-        lifecycleStage: "module-loading",
       }),
       scanArtifacts: () => {
         throw new Error("private scanner failure value")
@@ -229,8 +238,8 @@ describe("serialized E2E journey runner", () => {
         spec: "tests/e2e/account-admin-theme.spec.ts",
         runId: "webserver_failed_run",
         playwrightExitCode: 1,
-        lifecycleStatus: "startup-failed",
-        lifecycleStage: "module-loading",
+        lifecycleStatus: "runtime-failed",
+        lifecycleStage: "server-ready",
         processState: "terminated",
         processTreeTerminated: true,
         stage: "scan",
@@ -342,6 +351,79 @@ describe("serialized E2E journey runner", () => {
     expect(report.reason).toMatch(/process-tree termination/i)
   })
 
+  it.each([
+    [
+      "cleanup-failed resources retained",
+      {
+        lifecycleStatus: "cleanup-failed" as const,
+        lifecycleStage: "server-ready" as const,
+        lifecycleObservation: "state" as const,
+        lifecycleObservationReason: "observed-state" as const,
+      },
+    ],
+    [
+      "missing nested state",
+      {
+        lifecycleStatus: "unavailable" as const,
+        lifecycleStage: "unavailable" as const,
+        lifecycleObservation: "missing" as const,
+        lifecycleObservationReason: "state-missing" as const,
+      },
+    ],
+    [
+      "invalid nested state",
+      {
+        lifecycleStatus: "unavailable" as const,
+        lifecycleStage: "unavailable" as const,
+        lifecycleObservation: "invalid" as const,
+        lifecycleObservationReason: "state-invalid" as const,
+      },
+    ],
+  ] as const)("withholds scan and purge when nested termination is unproven: %s", async (
+    _case,
+    lifecycle,
+  ) => {
+    const scanArtifacts = vi.fn(async () => cleanScan)
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+      createRunId: () => "nested_unproven_run",
+      createHmacKey: () => "n".repeat(43),
+      prepareRun: async () => preparedRun("nested_unproven_run"),
+      runPlaywright: async () => ({
+        ...lifecycle,
+        exitCode: lifecycle.lifecycleStatus === "cleanup-failed" ? 0 : 1,
+        nestedServerTerminated: false,
+        treeTerminated: true,
+      }),
+      scanArtifacts,
+    })
+
+    expect(scanArtifacts).not.toHaveBeenCalled()
+    expect(report).toMatchObject({
+      ok: false,
+      completed: 1,
+      results: [{
+        ...lifecycle,
+        processState: "unproven",
+        processTreeTerminated: false,
+        stage: "execute",
+        scan: {
+          ok: false,
+          scannedEntries: 0,
+          findings: [],
+          purged: false,
+          failureCategory: "internal",
+        },
+      }],
+    })
+    if (lifecycle.lifecycleStatus === "cleanup-failed") {
+      expect(report.results[0]?.diagnostics).toContain(
+        "E2E lifecycle cleanup failed; resources retained",
+      )
+    }
+  })
+
   it("rejects malformed credentials and invalid or duplicate discovery without launching", async () => {
     const runPlaywright = vi.fn(async () => ({
       ...stoppedLifecycle,
@@ -449,10 +531,13 @@ describe("serialized E2E journey runner", () => {
       createRunId: () => `lifecycle_${index += 1}`,
       createHmacKey: () => "l".repeat(43),
       prepareRun: async (runId) => preparedRun(runId),
-      runPlaywright: async () => observations.shift() ?? {
-        exitCode: 1,
-        treeTerminated: false,
-      },
+      runPlaywright: async () => ({
+        nestedServerTerminated: true,
+        ...(observations.shift() ?? {
+          exitCode: 1,
+          treeTerminated: false,
+        }),
+      }),
       scanArtifacts: async () => cleanScan,
     })
 
@@ -541,6 +626,7 @@ describe("serialized E2E journey runner", () => {
           lifecycleStage: lifecycle.lifecycleStage,
           lifecycleObservation: lifecycle.lifecycleObservation,
           lifecycleObservationReason: lifecycle.lifecycleObservationReason,
+          nestedServerTerminated: lifecycle.expectedOk,
         }),
         scanArtifacts: async (_runId, purgeOwned) => {
           purgeRequests.push(purgeOwned)
@@ -548,7 +634,7 @@ describe("serialized E2E journey runner", () => {
         },
       })
       expect(report.ok).toBe(lifecycle.expectedOk)
-      expect(purgeRequests).toEqual([!lifecycle.expectedOk])
+      expect(purgeRequests).toEqual(lifecycle.expectedOk ? [false] : [])
       expect(report.results[0]?.stage).toBe(
         lifecycle.expectedOk ? "complete" : "execute",
       )
