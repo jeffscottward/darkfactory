@@ -25,7 +25,10 @@ import {
   formatE2ELifecycleFailure,
   type E2ELifecycleDiagnosticStage,
 } from "./lifecycle-diagnostics.ts"
-import { E2E_PROCESS_TERMINATION_OPTIONS } from "./lifecycle-budgets.ts"
+import {
+  E2E_PROCESS_TERMINATION_OPTIONS,
+  E2E_WEB_SERVER_READY_MARKER,
+} from "./lifecycle-budgets.ts"
 import {
   createSerializedLifecycle,
   isIntentionalLifecycleShutdownInterruption,
@@ -370,7 +373,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
     .pipe(process.stdout, { end: false })
   server.stderr
     .pipe(createSensitiveOutputRedactor(environment))
-    .pipe(process.stderr, { end: false })
+    .pipe(process.stdout, { end: false })
   const {
     promise: readinessCommitted,
     resolve: resolveReadinessCommitted,
@@ -427,9 +430,17 @@ const start = async (control: LifecycleControl): Promise<void> => {
           stage: "server-ready",
         }, { signal: context.signal })
       }
+      context.signal.throwIfAborted()
+      control.checkpoint()
+      if (
+        server === undefined ||
+        server.exitCode !== null ||
+        server.signalCode !== null
+      ) throw new Error("E2E server exited before readiness publication")
       lifecycleStage = "server-ready"
       startupStage = "server-ready"
       serverReady = true
+      process.stderr.write(`${E2E_WEB_SERVER_READY_MARKER}\n`)
     } finally {
       resolveReadinessCommitted()
     }

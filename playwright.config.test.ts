@@ -26,6 +26,7 @@ import {
   E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS,
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS,
+  E2E_WEB_SERVER_READY_MARKER,
 } from "./tests/e2e/helpers/lifecycle-budgets";
 import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
 import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts";
@@ -267,9 +268,8 @@ describe("canonical Playwright runtime", () => {
       runId: "test-run",
     } as const;
     const runtimeWebServer = createCanonicalWebServerConfig(runtimeInput);
-    expect(runtimeWebServer.url).toBe(
-      "https://darkfactory.localhost:43123/sign-in"
-    );
+    expect(runtimeWebServer).not.toHaveProperty("url");
+    expect(runtimeWebServer).not.toHaveProperty("port");
     expect(runtimeWebServer).toMatchObject({
       command:
         "node --experimental-strip-types --import ./tests/e2e/helpers/register-civet-loader.mjs ./tests/e2e/helpers/web-server.civet",
@@ -278,6 +278,7 @@ describe("canonical Playwright runtime", () => {
         timeout: E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
       },
       stderr: "pipe",
+      stdout: "pipe",
       env: {
         APP_ENV: "test",
         DATABASE_URL:
@@ -287,9 +288,15 @@ describe("canonical Playwright runtime", () => {
         E2E_RUN_ID: "test-run",
         PORTLESS_PORT: "43123",
       },
-      reuseExistingServer: false,
-      url: "https://darkfactory.localhost:43123/sign-in",
+      wait: {
+        stderr: new RegExp(`^${E2E_WEB_SERVER_READY_MARKER}$`, "mu"),
+      },
     });
+    expect(
+      runtimeWebServer.wait.stderr.test(
+        `prefix-${E2E_WEB_SERVER_READY_MARKER}-suffix`
+      )
+    ).toBe(false);
     for (const unsafeAppUrl of [
       "http://darkfactory.localhost:43123",
       "https://user@darkfactory.localhost:43123",

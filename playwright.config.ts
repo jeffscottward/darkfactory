@@ -3,7 +3,10 @@ import { accessSync, constants, type Stats, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
-import { E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS } from "./tests/e2e/helpers/lifecycle-budgets";
+import {
+  E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
+  E2E_WEB_SERVER_READY_MARKER,
+} from "./tests/e2e/helpers/lifecycle-budgets";
 import {
   assertOwnedE2ERunRootsReady,
   createE2ERunId,
@@ -144,9 +147,10 @@ export const createCanonicalWebServerConfig = ({
       timeout: E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
     },
     stderr: "pipe" as const,
-    ignoreHTTPSErrors: true,
-    url: new URL("/sign-in", appUrl).toString(),
-    reuseExistingServer: false,
+    stdout: "pipe" as const,
+    wait: {
+      stderr: new RegExp(`^${E2E_WEB_SERVER_READY_MARKER}$`, "mu"),
+    },
     timeout: 180_000,
   };
 };
