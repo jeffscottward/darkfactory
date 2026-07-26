@@ -185,7 +185,7 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
       {archiveFailure === null ? null : (
         <FeatureRecoveryAction
           kind={archiveFailure.kind}
-          onRetry={failedArchiveItem === null ? undefined : () => setArchiveCandidate(failedArchiveItem)}
+          onRetry={() => setArchiveCandidate(failedArchiveItem!)}
           returnHref="/feature-items"
         />
       )}

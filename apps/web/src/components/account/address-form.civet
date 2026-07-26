@@ -79,9 +79,10 @@ export const changedAddressUpdateInput = (
   const fields = ["type", "line1", "line2", "city", "region", "postalCode", "country"] as const
   for (const field of fields) {
     const raw = current[field]
+    // Every non-line2 field in this contract is a string; line2's nullable case is handled above.
     const value = field === "line2"
       ? (raw === null || raw.trim().length === 0 ? null : raw.trim())
-      : typeof raw === "string" ? raw.trim() : raw
+      : (raw as string).trim()
     if (value !== initial[field]) patch[field] = value
   }
   return patch as AddressUpdateInput

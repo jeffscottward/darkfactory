@@ -5,10 +5,18 @@ const mocks = vi.hoisted(->
   const close = vi.fn(async () => undefined)
   const finalize = vi.fn(async () => undefined)
   const requestHandler = vi.fn(async () => new Response("handled"))
+  const confirmedSignOutHandler = vi.fn(
+    async () => new Response("signed out", { status: 200 }),
+  )
+  const waitUntil = vi.fn((task: Promise<unknown>) => {
+    void task.catch(() => undefined)
+  })
   return {
     close,
     finalize,
     requestHandler,
+    confirmedSignOutHandler,
+    waitUntil,
     setAppEnvironment: (value: string) => { appEnvironment = value },
     parseServerEnv: vi.fn(() => ({
       APP_ENV: appEnvironment,
@@ -26,16 +34,25 @@ const mocks = vi.hoisted(->
     selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
     createAuth: vi.fn(() => ({ auth: true })),
     createAuthHandler: vi.fn(() => requestHandler),
-    createBackgroundTaskLifecycle: vi.fn(() => ({
-      schedule: vi.fn(),
-      finalize,
-    })),
+    createDatabaseConfirmedSignOutHandler: vi.fn(
+      () => confirmedSignOutHandler,
+    ),
+    createBackgroundTaskLifecycle: vi.fn(
+      (schedule: (task: Promise<unknown>) => void) => ({
+        schedule,
+        finalize,
+      }),
+    ),
   }
 )
 
 vi.mock("@darkfactory/auth/server", -> ({
   createAuth: mocks.createAuth,
   createAuthHandler: mocks.createAuthHandler,
+}))
+vi.mock("@darkfactory/auth/db", -> ({
+  createDatabaseConfirmedSignOutHandler:
+    mocks.createDatabaseConfirmedSignOutHandler,
 }))
 vi.mock("@darkfactory/config/database", -> ({
   composeDatabaseProfile: mocks.composeDatabaseProfile,
@@ -55,8 +72,16 @@ vi.mock("../../../../lib/e2e-fixtures.civet", -> ({
 vi.mock("../../../../lib/background-task-lifecycle.civet", -> ({
   createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
 }))
+vi.mock("cloudflare:workers", -> ({ waitUntil: mocks.waitUntil }))
 
 import { handleAuthRequest } from "./handler.civet"
+import { GET, POST } from "./route.civet"
+import {
+  handleStrictSignOutRequest,
+} from "../strict-sign-out/handler.civet"
+import {
+  POST as strictSignOutPost,
+} from "../strict-sign-out/route.civet"
 
 const request = new Request("https://darkfactory.localhost/api/auth/sign-in/email", {
   method: "POST",
@@ -88,3 +113,65 @@ describe "auth route rate-limit configuration", ->
         rateLimitEnabled: true,
       }))
   )
+
+describe "strict sign-out request composition", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    mocks.setAppEnvironment("test")
+
+  it "builds the database-confirmed handler and finalizes request resources", async ->
+    const schedule = vi.fn()
+    const response = await handleStrictSignOutRequest(request, schedule)
+
+    expect(await response.text()).toBe("signed out")
+    expect(mocks.createDatabaseConfirmedSignOutHandler).toHaveBeenCalledWith({
+      auth: { auth: true },
+      database: { request: true },
+      secret: "configured-secret".repeat(2),
+      trustedOrigin: "https://darkfactory.localhost",
+    })
+    expect(mocks.confirmedSignOutHandler).toHaveBeenCalledWith(request)
+    expect(mocks.createBackgroundTaskLifecycle).toHaveBeenCalledWith(
+      schedule,
+      mocks.close,
+    )
+    expect(mocks.finalize).toHaveBeenCalledOnce()
+
+  it "finalizes resources while preserving a strict sign-out failure", async ->
+    const failure = new Error("confirmed sign-out failed")
+    mocks.confirmedSignOutHandler.mockRejectedValueOnce(failure)
+
+    await expect(
+      handleStrictSignOutRequest(request, vi.fn()),
+    ).rejects.toBe(failure)
+    expect(mocks.finalize).toHaveBeenCalledOnce()
+
+describe "auth Worker route adapters", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    mocks.setAppEnvironment("test")
+
+  it "forwards both Better Auth methods and strict sign-out through waitUntil", async ->
+    const getResponse = await GET(new Request(
+      "https://darkfactory.localhost/api/auth/get-session",
+    ))
+    const postResponse = await POST(request)
+    const strictResponse = await strictSignOutPost(new Request(
+      "https://darkfactory.localhost/api/auth/strict-sign-out",
+      { method: "POST" },
+    ))
+
+    expect(await getResponse.text()).toBe("handled")
+    expect(await postResponse.text()).toBe("handled")
+    expect(await strictResponse.text()).toBe("signed out")
+
+    const schedulers = mocks.createBackgroundTaskLifecycle.mock.calls.map(
+      ([schedule]) => schedule,
+    )
+    expect(schedulers).toHaveLength(3)
+    for (const schedule of schedulers) {
+      const task = Promise.resolve()
+      schedule(task)
+      expect(mocks.waitUntil).toHaveBeenCalledWith(task)
+    }
+    expect(mocks.waitUntil).toHaveBeenCalledTimes(3)

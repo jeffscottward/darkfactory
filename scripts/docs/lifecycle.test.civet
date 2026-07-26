@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process"
-import { readFile } from "node:fs/promises"
+import { access, readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 import { PRE_PUSH_SCRIPTS, runPrePush } from "../hooks/index.civet"
 
 const rootPackage = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
+  packageManager: string
+  engines: Record<string, string>
   scripts: Record<string, string>
   devDependencies: Record<string, string>
 }
@@ -13,6 +15,32 @@ const workspace = await readFile(new URL("../../pnpm-workspace.yaml", import.met
 const workflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
 const ignoreRules = await readFile(new URL("../../.gitignore", import.meta.url), "utf8")
 const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8")
+const bunVersion = await readFile(new URL("../../.bun-version", import.meta.url), "utf8")
+const nodeVersion = await readFile(new URL("../../.nvmrc", import.meta.url), "utf8")
+const makefile = await readFile(new URL("../../Makefile", import.meta.url), "utf8")
+const preCommitHook = await readFile(new URL("../../.husky/pre-commit", import.meta.url), "utf8")
+const prePushHook = await readFile(new URL("../../.husky/pre-push", import.meta.url), "utf8")
+const packageManifests = await Promise.all(
+  [
+    "apps/web",
+    "packages/ai",
+    "packages/analytics",
+    "packages/api",
+    "packages/auth",
+    "packages/config",
+    "packages/db",
+    "packages/email",
+    "packages/jobs",
+    "packages/observability",
+    "packages/shared",
+    "packages/state",
+    "packages/storage",
+    "packages/testkit",
+    "packages/ui",
+  ].map(async (path) => JSON.parse(
+    await readFile(new URL(`../../${path}/package.json`, import.meta.url), "utf8"),
+  ) as { name: string; scripts?: Record<string, string> }),
+)
 const agentFriendlyAssessment = JSON.parse(
   await readFile(
     new URL("../../docs/assessments/agent-friendly-0acd6c2.json", import.meta.url),
@@ -62,7 +90,7 @@ const EXPECTED_DEV_ENV = [
 
 const runScriptNames = (script: string): readonly string[] =>
   script.split(" && ").map((command) =>
-    command.replace(/^corepack pnpm run /, "")
+    command.replace(/^bun run /, "")
   )
 
 const EXPECTED_LANES = {
@@ -85,6 +113,105 @@ const EXPECTED_LANES = {
 } as const
 
 describe("DF-101/106 lifecycle contract", () => {
+  it("keeps Claude policy byte-identical to the canonical agent policy", async () => {
+    const [agentsPolicy, claudePolicy] = await Promise.all([
+      readFile(new URL("../../AGENTS.md", import.meta.url)),
+      readFile(new URL("../../CLAUDE.md", import.meta.url)),
+    ])
+
+    expect(claudePolicy.equals(agentsPolicy)).toBe(true)
+  })
+
+  it("pins the hybrid runtime without giving Bun package-manager ownership", async () => {
+    expect(bunVersion.trim()).toBe("1.3.14")
+    expect(nodeVersion.trim()).toBe("22.13.1")
+    expect(rootPackage).toMatchObject({
+      packageManager: "pnpm@11.16.0",
+      engines: {
+        bun: "1.3.14",
+        node: ">=22.13.0",
+        pnpm: "11.16.0",
+      },
+    })
+    expect(workspace).toMatch(/^packages:\n(?:  - .+\n)+/u)
+    await expect(access(new URL("../../pnpm-lock.yaml", import.meta.url))).resolves.toBeUndefined()
+    await expect(access(new URL("../../bun.lock", import.meta.url))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(access(new URL("../../bun.lockb", import.meta.url))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+  })
+
+  it("keeps Bun orchestration while isolating measured Node compatibility exceptions", () => {
+    const rootScripts = Object.values(rootPackage.scripts)
+    expect(rootPackage.scripts["dev:https"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/dev.civet start",
+    )
+    expect(rootPackage.scripts["test:contract"]).toMatch(
+      /^corepack pnpm exec vitest /,
+    )
+    expect(rootPackage.scripts["test:e2e"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet e2e",
+    )
+    expect(rootPackage.scripts["test:a11y"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet a11y",
+    )
+    expect(rootPackage.scripts["test:coverage"]).toMatch(
+      /^bun run types && corepack pnpm exec vitest .* --coverage /,
+    )
+    expect(rootScripts.some((script) => /(?:^|&& )civet\b/u.test(script))).toBe(false)
+    expect(rootScripts.some((script) => /(?:^|&& )(?:vitest|turbo|tsc|biome|husky)\b/u.test(script))).toBe(false)
+    for (const script of rootScripts) {
+      if (script.includes("vitest")) {
+        expect(script).toMatch(/(?:^|&& )corepack pnpm exec vitest /u)
+      }
+    }
+    expect(rootPackage.scripts["deploy:web"]).toBe(
+      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
+    )
+    expect(rootPackage.scripts["deploy:web:check"]).toBe(
+      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run",
+    )
+    expect(rootPackage.scripts["deploy:web:preview"]).toBe(
+      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --preview",
+    )
+
+    const byName = new Map(packageManifests.map((manifest) => [manifest.name, manifest]))
+    expect(byName.get("@darkfactory/web")?.scripts?.dev).toBe(
+      "bunx --no-install vinext dev",
+    )
+    expect(byName.get("@darkfactory/web")?.scripts?.build).toBe(
+      "bunx --no-install vinext build",
+    )
+    expect(byName.get("@darkfactory/web")?.scripts?.start).toBe(
+      "bunx --bun --no-install vite preview",
+    )
+    expect(byName.get("@darkfactory/auth")?.scripts?.["auth:schema:check"]).toBe(
+      "bun scripts/check-auth-schema.ts",
+    )
+    expect(byName.get("@darkfactory/db")?.scripts?.["db:generate"]).toBe(
+      "bun run db:schema && bunx --bun --no-install drizzle-kit generate --config drizzle.config.ts",
+    )
+    for (const manifest of packageManifests) {
+      for (const script of Object.values(manifest.scripts ?? {})) {
+        if (script.includes("vitest")) {
+          expect(script).toMatch(/(?:^|&& )corepack pnpm exec vitest /u)
+        }
+        expect(script).not.toMatch(/(?:^|&& )pnpm run\b/u)
+        expect(script).not.toMatch(/(?:^|&& )(?:civet|vitest|vinext|drizzle-kit)\b/u)
+      }
+    }
+  })
+
+  it("uses Bun for hooks and setup entrypoints", () => {
+    const hookCommand =
+      "exec bun --preload @danielx/civet/bun-civet scripts/hooks/"
+    expect(preCommitHook).toContain(`${hookCommand}pre-commit.civet`)
+    expect(prePushHook).toContain(`${hookCommand}pre-push.civet`)
+    expect(makefile).toMatch(/setup:\n\tsh scripts\/install-prerequisites\.sh/u)
+  })
+
   it("exposes every required root command while preserving API aliases", () => {
     for (const name of [
       "test:contract",
@@ -108,17 +235,22 @@ describe("DF-101/106 lifecycle contract", () => {
 
   it("composes the complete lifecycle from exact, unique verification lanes", () => {
     const laneNames = Object.keys(EXPECTED_LANES)
-    expect(rootPackage.scripts.ci).toBe("corepack pnpm run verify")
+    expect(rootPackage.scripts.ci).toBe("bun run verify")
     expect(turboConfig.globalDependencies).toContain("package.json")
     expect(runScriptNames(rootPackage.scripts.verify)).toEqual(laneNames)
-    expect(rootPackage.scripts["test:unit"]).toBe("turbo run test:unit --concurrency=50%")
+    expect(rootPackage.scripts["test:unit"]).toBe(
+      "bunx --no-install turbo run test:unit --concurrency=50%",
+    )
+    for (const scriptName of ["dev", "build", "types", "typecheck", "test:unit"]) {
+      expect(rootPackage.scripts[scriptName]).not.toContain("bunx --bun --no-install turbo")
+    }
     expect(rootPackage.scripts["test:contract"]).toContain("--project contract")
     expect(rootPackage.scripts["test:operations"]).toContain("--project operations")
     expect(rootPackage.scripts["test:operations"]).toContain("--project e2e-helpers")
     expect(rootPackage.scripts["test:operations"]).toContain("--maxWorkers=1")
     expect(rootPackage.scripts["test:operations"]).toContain("--no-file-parallelism")
     expect(rootPackage.scripts["test:coverage"]).toMatch(
-      /^corepack pnpm run types && vitest run /,
+      /^bun run types && corepack pnpm exec vitest run /,
     )
     expect(vitestConfig).toContain('"**/*contract.test.civet"')
     expect(vitestConfig).toContain('name: "contract"')
@@ -138,8 +270,12 @@ describe("DF-101/106 lifecycle contract", () => {
       leafScripts.push(...observed)
     }
     expect(new Set(leafScripts).size).toBe(leafScripts.length)
-    expect(rootPackage.scripts["test:e2e"]).toBe("civet scripts/e2e/run.civet e2e")
-    expect(rootPackage.scripts["test:a11y"]).toBe("civet scripts/e2e/run.civet a11y")
+    expect(rootPackage.scripts["test:e2e"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet e2e",
+    )
+    expect(rootPackage.scripts["test:a11y"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet a11y",
+    )
   })
 
   it("allowlists exactly the authored coverage sources while ignoring generated output", async () => {
@@ -181,7 +317,16 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toContain("matrix:")
     expect(workflow).toContain("lane: [core, coverage, integration, graph, browser]")
     expect(workflow).toContain("fail-fast: false")
-    expect(workflow).toContain('corepack pnpm run "verify:${{ matrix.lane }}"')
+    expect(workflow).toContain('bun run "verify:${{ matrix.lane }}"')
+    expect(workflow).toContain(
+      "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
+    )
+    expect(workflow).toContain("bun-version-file: .bun-version")
+    expect(workflow).toContain("corepack pnpm install --frozen-lockfile")
+    expect(workflow).toContain(
+      "bunx --bun --no-install playwright install --with-deps chromium",
+    )
+    expect(workflow).toContain("bunx --bun --no-install portless proxy start")
     expect(workflow).toContain("scripts/graph/requirements.lock")
     expect(workflow).toContain("--require-hashes")
     expect(workflow).toContain('python-version: "3.12.11"')
@@ -199,6 +344,37 @@ describe("DF-101/106 lifecycle contract", () => {
     for (const action of workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g)) {
       expect(action[1]).toMatch(/^[0-9a-f]{40}$/)
     }
+  })
+
+  it("presents the exact health badge set without a separate Scorecard score", () => {
+    const healthTable = readme.match(
+      /\| Category \| Status \|\n\| --- \| --- \|\n(?<rows>(?:\|.*\|\n){3})/,
+    )?.groups?.rows
+    const badges = [...(healthTable?.matchAll(
+      /\[!\[(?<label>[^\]]+)\]\((?<image>[^)]+)\)\]\((?<target>[^)]+)\)/g,
+    ) ?? [])]
+
+    expect(healthTable).toBeDefined()
+    expect(badges).toHaveLength(12)
+    expect(badges.map((badge) => badge.groups?.label)).not.toContain(
+      "OpenSSF Scorecard",
+    )
+    expect(healthTable).not.toContain("securityscorecards.dev")
+    expect(badges.find((badge) =>
+      badge.groups?.label === "OpenSSF Best Practices 100%"
+    )?.groups).toMatchObject({
+      image: "https://img.shields.io/badge/OpenSSF%20Best%20Practices-100%25-2ea44f",
+      target: "https://www.bestpractices.dev/projects/13782",
+    })
+    expect(badges.find((badge) =>
+      badge.groups?.label === "Bun 1.3.14"
+    )?.groups).toMatchObject({
+      image: "https://img.shields.io/badge/Bun-1.3.14-fbf0df",
+      target: "https://bun.sh/",
+    })
+    expect(readme).toContain(
+      "they are not a production-readiness, deployment, coverage-completeness, or security certification",
+    )
   })
 
   it("links a truthful versioned Agent Friendly score to exact evidence", () => {

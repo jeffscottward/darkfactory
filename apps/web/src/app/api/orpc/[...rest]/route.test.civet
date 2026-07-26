@@ -70,7 +70,9 @@ const mocks = vi.hoisted(->
       POSTHOG_KEY: "configured-posthog-key",
       POSTHOG_HOST: "https://analytics.configured.test",
     })),
-    createAuth: vi.fn(() => ({ auth: true })),
+    createAuth: vi.fn((_options: Readonly<{
+      scheduleBackgroundTask: (task: Promise<unknown>) => void
+    }>) => ({ auth: true })),
     requireSession: vi.fn(),
     requireRole: vi.fn(),
     selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
@@ -128,7 +130,7 @@ vi.mock("@darkfactory/observability/server/otel", -> ({
 vi.mock("./handler.civet", -> ({ handleOrpcRequest: mocks.handleOrpcRequest }))
 
 import { CONTACT_REQUEST_MAX_BYTES } from "./contact-runtime.civet"
-import { POST } from "./route.civet"
+import { DELETE, GET, PATCH, POST } from "./route.civet"
 
 describe "oRPC Worker route provider composition", ->
   beforeEach ->
@@ -139,6 +141,7 @@ describe "oRPC Worker route provider composition", ->
     mocks.createSemanticEventFanout.mockClear()
     mocks.createApiContext.mockClear()
     mocks.createRequestDatabase.mockClear()
+    mocks.createAuth.mockClear()
     mocks.createContactThrottleRepository.mockClear()
     mocks.consumeContactThrottle.mockReset()
     mocks.consumeContactThrottle.mockResolvedValue({
@@ -207,7 +210,69 @@ describe "oRPC Worker route provider composition", ->
     const secondFanoutOptions = mocks.createSemanticEventFanout.mock.calls[1]![0]
     expect(firstFanoutOptions.resolveConsent()).toBe("granted")
     expect(secondFanoutOptions.resolveConsent()).toBe("unknown")
+
+
+    const contextDependencies = mocks.createApiContext.mock.calls[0]?.[1]
+    const authHeaders = new Headers({ authorization: "Bearer opaque" })
+    await contextDependencies?.requireSession(authHeaders)
+    await contextDependencies?.requireRole(authHeaders, "admin")
+    expect(mocks.requireSession).toHaveBeenCalledWith(
+      { auth: true },
+      authHeaders,
+    )
+    expect(mocks.requireRole).toHaveBeenCalledWith(
+      { auth: true },
+      authHeaders,
+      "admin",
+    )
   
+  it "keeps the request database open until an auth background task settles", async ->
+    let resolveTask!: () => void
+    const task = new Promise<void>((resolve) => { resolveTask = resolve })
+    mocks.handleOrpcRequest.mockImplementationOnce(async () => {
+      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0]
+      if (!authOptions) throw new Error("Expected auth options")
+      authOptions.scheduleBackgroundTask(task)
+      return new Response("handled", { status: 202 })
+    })
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
+    )
+
+    await expect(POST(request)).resolves.toMatchObject({ status: 202 })
+    expect(mocks.close).not.toHaveBeenCalled()
+
+    resolveTask()
+    await Promise.allSettled(
+      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
+    )
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "preserves handler rejection while draining its auth background task", async ->
+    let resolveTask!: () => void
+    const task = new Promise<void>((resolve) => { resolveTask = resolve })
+    const applicationError = new Error("application failure")
+    mocks.handleOrpcRequest.mockImplementationOnce(async () => {
+      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0]
+      if (!authOptions) throw new Error("Expected auth options")
+      authOptions.scheduleBackgroundTask(task)
+      throw applicationError
+    })
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
+    )
+
+    await expect(POST(request)).rejects.toBe(applicationError)
+    expect(mocks.close).not.toHaveBeenCalled()
+
+    resolveTask()
+    await Promise.allSettled(
+      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
+    )
+    expect(mocks.close).toHaveBeenCalledOnce()
+
   it "preserves a successful response when database close rejects", async ->
     mocks.close.mockRejectedValueOnce(new Error("private close failure"))
     const request = new Request(
@@ -229,6 +294,17 @@ describe "oRPC Worker route provider composition", ->
     )
 
     await expect(POST(request)).rejects.toBe(applicationError)
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "preserves a successful response when database close rejects with a primitive", async ->
+    mocks.close.mockRejectedValueOnce("primitive database close failure")
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
+    )
+
+    await expect(POST(request)).resolves.toMatchObject({ status: 202 })
     expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
     expect(mocks.close).toHaveBeenCalledOnce()
 
@@ -407,3 +483,60 @@ describe "oRPC Worker route provider composition", ->
     })
     expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
     expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "serves every exported HTTP method through the same bounded composition", async ->
+    const cases = [
+      [
+        GET,
+        new Request("https://darkfactory.localhost/api/orpc/dashboard/summary"),
+      ],
+      [
+        PATCH,
+        new Request(
+          "https://darkfactory.localhost/api/orpc/featureItems/update",
+          {
+            method: "PATCH",
+            headers: { origin: "https://darkfactory.localhost" },
+          },
+        ),
+      ],
+      [
+        DELETE,
+        new Request(
+          "https://darkfactory.localhost/api/orpc/featureItems/archive",
+          {
+            method: "DELETE",
+            headers: { origin: "https://darkfactory.localhost" },
+          },
+        ),
+      ],
+    ] as const
+
+    for (const [handler, request] of cases) {
+      await expect(handler(request)).resolves.toMatchObject({ status: 202 })
+    }
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(3)
+    expect(mocks.close).toHaveBeenCalledTimes(3)
+
+  it "omits optional telemetry and analytics configuration when absent", async ->
+    const configured = mocks.parseServerEnv()
+    mocks.parseServerEnv.mockReturnValueOnce({
+      ...configured,
+      OTEL_EXPORTER_OTLP_ENDPOINT: undefined,
+      POSTHOG_KEY: undefined,
+      POSTHOG_HOST: undefined,
+    } as never)
+    mocks.initializeTelemetry.mockClear()
+    mocks.createPostHogAnalyticsPort.mockClear()
+    vi.resetModules()
+    const freshRoute = await import("./route.civet")
+
+    await expect(freshRoute.GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).resolves.toMatchObject({ status: 202 })
+
+    expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
+      enabled: true,
+      serviceName: "darkfactory-web",
+    })
+    expect(mocks.createPostHogAnalyticsPort).toHaveBeenCalledWith({})

@@ -126,3 +126,8 @@ describe "observability package boundaries", ->
         "default",
       ])
     }
+
+  it "executes the browser poison module as a fail-closed boundary", async ->
+    await expect(import("./unsupported.civet")).rejects.toThrow(
+      "@darkfactory/observability server adapters are unavailable in browser bundles"
+    )

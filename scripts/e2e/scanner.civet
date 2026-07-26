@@ -170,7 +170,7 @@ const PATTERNS: readonly Readonly<{
   }),
   Object.freeze({
     category: "session-cookie",
-    expression: /(?:(?:__Secure-)?better-auth\.session[_-]?token(?:(?!\r?\n).){0,512}(?:value|[:=])\s*["']?(?!\[REDACTED\])[^"',;\s}]+|(?:cookie|set-cookie)\s*[:=][^\r\n]*(?:__Secure-)?better-auth\.session[_-]?token=(?!\[REDACTED\])[^;\s"']+|["']?value["']?\s*[:=]\s*["'](?!\[REDACTED\])[^"']{4,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["'](?:__Secure-)?better-auth\.session[_-]?token["'])/i,
+    expression: /(?:(?:__Secure-)?better-auth\.session[_-]?token["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',;\s}]+|["']?name["']?\s*[:=]\s*["'](?:__Secure-)?better-auth\.session[_-]?token["'](?:(?!\r?\n).){0,512}["']?value["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',;\s}]+|(?:cookie|set-cookie)\s*[:=][^\r\n]*(?:__Secure-)?better-auth\.session[_-]?token=(?!\[REDACTED\])[^;\s"']+|["']?value["']?\s*[:=]\s*["'](?!\[REDACTED\])[^"']{4,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["'](?:__Secure-)?better-auth\.session[_-]?token["'])/i,
   }),
   Object.freeze({
     category: "authorization-header",
@@ -186,10 +186,186 @@ const PATTERNS: readonly Readonly<{
   }),
 ])
 
-const normalizeInspection = (value: string): string => value
-  .replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "")
+const decodeNumericHtmlEntity = (
+  entity: string,
+  hexadecimal: string | undefined,
+  decimal: string | undefined,
+): string => {
+  const encoded = (hexadecimal ?? decimal) as string
+  const codePoint = Number.parseInt(encoded, hexadecimal === undefined ? 10 : 16)
+  return codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+    ? String.fromCodePoint(codePoint)
+    : entity
+}
+
+const stripOperatingSystemCommands = (value: string): string => {
+  const chunks: string[] = []
+  let chunkStart = 0
+  let index = 0
+  while (index < value.length) {
+    const escapedIntroducer = value.charCodeAt(index) === 0x1b
+      && value.charCodeAt(index + 1) === 0x5d
+    const c1Introducer = value.charCodeAt(index) === 0x9d
+    if (!escapedIntroducer && !c1Introducer) {
+      index += 1
+      continue
+    }
+    chunks.push(value.slice(chunkStart, index))
+    index += escapedIntroducer ? 2 : 1
+    while (index < value.length) {
+      const code = value.charCodeAt(index)
+      if (code === 0x07 || code === 0x9c) {
+        index += 1
+        break
+      }
+      if (code === 0x1b && value.charCodeAt(index + 1) === 0x5c) {
+        index += 2
+        break
+      }
+      index += 1
+    }
+    chunkStart = index
+  }
+  if (chunks.length === 0) return value
+  chunks.push(value.slice(chunkStart))
+  return chunks.join("")
+}
+
+const decodeInspection = (value: string): string => value
   .replace(/&(?:amp;)?quot;|&#34;|&#x22;/giu, '"')
+  .replace(
+    /&(?:amp;)?#(?:x([0-9a-f]{1,6})|([0-9]{1,7}));/giu,
+    decodeNumericHtmlEntity,
+  )
   .replace(/\\+(["'\\])/gu, "$1")
+
+const normalizeDecodedInspection = (
+  value: string,
+  preserveTerminalPayload: boolean,
+): string => {
+  const terminalNormalized = preserveTerminalPayload
+    ? value
+    : stripOperatingSystemCommands(value)
+      .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/gu, "")
+  return terminalNormalized.replace(/[\p{Cc}\p{Cf}]/gu, "")
+}
+
+const normalizeInspection = (value: string): string =>
+  normalizeDecodedInspection(decodeInspection(value), false)
+const normalizeInspectionPayload = (value: string): string =>
+  normalizeDecodedInspection(decodeInspection(value), true)
+
+const normalizedIdentifier = (value: string): string =>
+  normalizeInspection(value).trim().toLowerCase()
+const normalizedPayloadIdentifier = (value: string): string =>
+  normalizeInspectionPayload(value).trim().toLowerCase()
+const isAuthorizationName = (value: string): boolean =>
+  normalizedIdentifier(value) === "authorization"
+  || normalizedPayloadIdentifier(value) === "authorization"
+const SESSION_COOKIE_NAME = /^(?:__secure-)?better-auth\.session[_-]?token$/u
+const isSessionCookieName = (value: string): boolean =>
+  SESSION_COOKIE_NAME.test(normalizedIdentifier(value))
+  || SESSION_COOKIE_NAME.test(normalizedPayloadIdentifier(value))
+const AUTHORIZATION_VALUE = /^(?:bearer|basic)\s+(?!\[redacted\])[^"']{8,}/iu
+const isSensitiveAuthorizationValue = (value: string): boolean =>
+  [normalizeInspection(value), normalizeInspectionPayload(value)]
+    .some((normalized) => AUTHORIZATION_VALUE.test(normalized.trim()))
+const isSensitiveNormalizedSessionValue = (
+  value: string,
+  minimumLength: number,
+): boolean => value.length >= minimumLength && !/^\[redacted\]/iu.test(value)
+const isSensitiveSessionValue = (value: string, minimumLength: number): boolean =>
+  [normalizeInspection(value), normalizeInspectionPayload(value)]
+    .some((normalized) =>
+      isSensitiveNormalizedSessionValue(normalized.trim(), minimumLength)
+    )
+const SESSION_COOKIE_VALUE =
+  /(?:__secure-)?better-auth\.session[_-]?token=(?!\[redacted\])[^;\s"']+/iu
+const containsSensitiveSessionCookie = (value: string): boolean =>
+  [normalizeInspection(value), normalizeInspectionPayload(value)].some(
+    (normalized) => SESSION_COOKIE_VALUE.test(normalized),
+  )
+
+const MAX_STRUCTURED_NORMALIZATION_DEPTH = 4
+const STRUCTURED_JSON_PREFIX = /^[\t\n\r ]*(?:\[|\{|")/u
+const parseNormalizedStructuredContent = (
+  content: string,
+  deadline: number,
+): unknown | undefined =>
+  let candidate = content
+  for (let depth = 0; depth < MAX_STRUCTURED_NORMALIZATION_DEPTH; depth += 1)
+    assertWithinDeadline(deadline)
+    const normalized = normalizeInspectionPayload(candidate)
+    const candidates = normalized === candidate
+      ? [candidate]
+      : [candidate, normalized]
+    let parsed = false
+    let parsedValue: unknown
+    for source of candidates
+      if !STRUCTURED_JSON_PREFIX.test(source) then continue
+      try
+        parsedValue = JSON.parse(source) as unknown
+        parsed = true
+        break
+      catch
+        continue
+    if !parsed then return undefined
+    if typeof parsedValue !== "string" then return parsedValue
+    candidate = parsedValue
+  return undefined
+
+const inspectStructuredContent = (
+  content: string,
+  deadline: number,
+): readonly ArtifactFindingCategory[] =>
+  const parsed = parseNormalizedStructuredContent(content, deadline)
+  if parsed === undefined then return []
+
+  const pending: unknown[] = [parsed]
+  let authorizationHeader = false
+  let sessionCookie = false
+  let operations = 0
+  while pending.length > 0 && (!authorizationHeader || !sessionCookie)
+    operations += 1
+    if (operations & 0xff) === 0 then assertWithinDeadline(deadline)
+    const current = pending.pop()
+    if current === null || typeof current !== "object" then continue
+    if Array.isArray(current)
+      for child of current
+        operations += 1
+        if (operations & 0xff) === 0 then assertWithinDeadline(deadline)
+        pending.push(child)
+      continue
+
+    let authorizationName = false
+    let sessionName = false
+    const pairedValues: string[] = []
+    for [rawKey, child] of Object.entries(current as Record<string, unknown>)
+      operations += 1
+      if (operations & 0xff) === 0 then assertWithinDeadline(deadline)
+      if child !== null && typeof child === "object" then pending.push(child)
+      if typeof child !== "string" then continue
+      const key = normalizedIdentifier(rawKey)
+      if key === "name"
+        authorizationName ||= isAuthorizationName(child)
+        sessionName ||= isSessionCookieName(child)
+      else if key === "value"
+        pairedValues.push(child)
+      authorizationHeader ||= isAuthorizationName(rawKey)
+        && isSensitiveAuthorizationValue(child)
+      sessionCookie ||= isSessionCookieName(rawKey)
+        && isSensitiveSessionValue(child, 1)
+      sessionCookie ||= (key === "cookie" || key === "set-cookie")
+        && containsSensitiveSessionCookie(child)
+    authorizationHeader ||= authorizationName
+      && pairedValues.some(isSensitiveAuthorizationValue)
+    sessionCookie ||= sessionName
+      && pairedValues.some((value) => isSensitiveSessionValue(value, 4))
+
+  const categories: ArtifactFindingCategory[] = []
+  if authorizationHeader then categories.push("authorization-header")
+  if sessionCookie then categories.push("session-cookie")
+  return categories
 
 export const inspectArtifactEntries = (
   entries: readonly ArtifactEntry[],
@@ -197,23 +373,40 @@ export const inspectArtifactEntries = (
 ): readonly ArtifactFinding[] => {
   const findings: ArtifactFinding[] = []
   const recorded = new Set<string>()
+  const recordFinding = (
+    category: ArtifactFindingCategory,
+    opaquePath: string,
+  ): boolean => {
+    const key = `${category}\u0000${opaquePath}`
+    if (recorded.has(key)) return false
+    recorded.add(key)
+    findings.push(Object.freeze({ category, path: opaquePath }))
+    return findings.length >= MAX_FINDINGS
+  }
   for (const entry of entries) {
     assertWithinDeadline(deadline)
-    const inspected = normalizeInspection(`${entry.path}\n${entry.content}`)
     const opaquePath = `artifact-${createHash("sha256")
       .update(entry.path, "utf8")
       .digest("hex")
       .slice(0, 16)}`
+    for (const category of inspectStructuredContent(entry.content, deadline)) {
+      if (recordFinding(category, opaquePath)) {
+        return Object.freeze(findings.sort((left, right) =>
+          left.path < right.path ? -1 : left.path > right.path ? 1 : left.category.localeCompare(right.category)))
+      }
+    }
+    const decodedPath = decodeInspection(entry.path)
+    const decodedContent = decodeInspection(entry.content)
+    const inspected = `${normalizeDecodedInspection(decodedPath, false)}\n${normalizeDecodedInspection(decodedContent, false)}`
+    const payloadInspection = `${normalizeDecodedInspection(decodedPath, true)}\n${normalizeDecodedInspection(decodedContent, true)}`
     for (const pattern of PATTERNS) {
       assertWithinDeadline(deadline)
-      const key = `${pattern.category}\u0000${opaquePath}`
-      if (pattern.expression.test(inspected) && !recorded.has(key)) {
-        recorded.add(key)
-        findings.push(Object.freeze({ category: pattern.category, path: opaquePath }))
-        if (findings.length >= MAX_FINDINGS) {
-          return Object.freeze(findings.sort((left, right) =>
-            left.path < right.path ? -1 : left.path > right.path ? 1 : left.category.localeCompare(right.category)))
-        }
+      const matched = pattern.expression.test(inspected)
+        || (payloadInspection !== inspected
+          && pattern.expression.test(payloadInspection))
+      if (matched && recordFinding(pattern.category, opaquePath)) {
+        return Object.freeze(findings.sort((left, right) =>
+          left.path < right.path ? -1 : left.path > right.path ? 1 : left.category.localeCompare(right.category)))
       }
     }
   }
@@ -454,6 +647,13 @@ export const scanArtifactPaths = async (
     reason: "E2E run identifier is invalid",
   })
   const scanDeadline = Date.now() + dependencies.deadlineMs
+  const purgeOwnedRunSafely = (): Promise<boolean> =>
+    Promise.resolve()
+      .then(() => dependencies.purgeOwnedRun(runId))
+      .then(
+        () => true,
+        () => false,
+      )
   try {
     if (
       !Number.isSafeInteger(dependencies.deadlineMs) ||
@@ -469,7 +669,10 @@ export const scanArtifactPaths = async (
     if (findings.length === 0) {
       assertExpectedReports(entries, runId, dependencies.artifactProfile, scanDeadline)
       assertWithinDeadline(scanDeadline)
-      if (purgeOwnedAfterScan) await dependencies.purgeOwnedRun(runId)
+      if (purgeOwnedAfterScan) {
+        const purgeSucceeded = await purgeOwnedRunSafely()
+        if (!purgeSucceeded) throw new Error("Artifact scanner owned-run purge failed")
+      }
       return Object.freeze({
         ok: true,
         scannedEntries: entries.length,
@@ -480,7 +683,8 @@ export const scanArtifactPaths = async (
           : "E2E artifacts passed external secret scanning",
       })
     }
-    await dependencies.purgeOwnedRun(runId)
+    const purgeSucceeded = await purgeOwnedRunSafely()
+    if (!purgeSucceeded) throw new Error("Artifact scanner owned-run purge failed")
     return Object.freeze({
       ok: false,
       scannedEntries: 0,
@@ -492,14 +696,9 @@ export const scanArtifactPaths = async (
   } catch (error) {
     const initialFailureCategory = classifyArtifactScannerFailure(error)
     const cleanupUnsafe = initialFailureCategory === "cleanup"
-    let purged = false
-    let purgeFailed = false
-    try {
-      await dependencies.purgeOwnedRun(runId)
-      purged = !cleanupUnsafe
-    } catch {
-      purgeFailed = true
-    }
+    const purgeSucceeded = await purgeOwnedRunSafely()
+    const purged = purgeSucceeded && !cleanupUnsafe
+    const purgeFailed = !purgeSucceeded
     return Object.freeze({
       ok: false,
       scannedEntries: 0,

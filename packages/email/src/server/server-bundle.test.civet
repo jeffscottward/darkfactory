@@ -2,7 +2,7 @@ import civet from "@danielx/civet/vite"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { build } from "vite"
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
@@ -53,4 +53,95 @@ describe "email server browser bundle", ->
         "@darkfactory/email/server is unavailable in browser bundles",
       )
     finally
+      await rm(tempDir, { recursive: true, force: true })
+
+  it "folds filesystem preview transports closed in a production Worker bundle", async ->
+    vi.stubEnv("NODE_ENV", "production")
+    const tempDir = await mkdtemp(join(packageRoot, ".server-production-bundle-"))
+    const entry = join(tempDir, "entry.mjs")
+    const previewDirectory = JSON.stringify(join(tempDir, "previews"))
+
+    try
+      await writeFile(
+        entry,
+        `
+import { selectContactEmailPort, selectEmailPort } from "@darkfactory/email/server"
+export const emailResult = await selectEmailPort({
+  environment: "development",
+  transport: "preview",
+  previewDirectory: ${previewDirectory},
+  trustedAppOrigin: "https://darkfactory.localhost",
+}).sendPasswordReset({
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  resetUrl: "https://darkfactory.localhost/reset-password?token=redacted",
+  expiresInMinutes: 60,
+})
+export const contactResult = await selectContactEmailPort({
+  environment: "development",
+  transport: "preview",
+  recipient: "support@example.test",
+  previewDirectory: ${previewDirectory},
+}).sendContact({
+  name: "Ada Lovelace",
+  email: "ada@example.test",
+  subject: "Architecture review",
+  message: "Please review the deployment boundary.",
+})
+`,
+      )
+      const buildResult = await build({
+        configFile: false,
+        logLevel: "silent",
+        mode: "production",
+        plugins: [civet({ ts: "esbuild" })],
+        resolve: {
+          conditions: ["workerd", "worker"],
+        },
+        ssr: {
+          noExternal: true,
+          target: "webworker",
+          resolve: {
+            conditions: ["workerd", "worker"],
+          },
+        },
+        build: {
+          outDir: join(tempDir, "dist"),
+          ssr: true,
+          target: "esnext",
+          write: false,
+          rollupOptions: {
+            input: entry,
+            output: {
+              inlineDynamicImports: true,
+            },
+          },
+        },
+      })
+      vi.unstubAllEnvs()
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      const bundle = builds
+        .flatMap((result) => {
+          if (!("output" in result)) throw new Error("Vite build did not finish")
+          return result.output
+        })
+        .filter((output) => output.type === "chunk")
+        .map((chunk) => chunk.code)
+        .join("\n")
+      const moduleUrl =
+        `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`
+      const bundled = await import(moduleUrl)
+
+      expect(bundled.emailResult).toMatchObject({
+        status: "failed",
+        provider: "disabled",
+        code: "EMAIL_DELIVERY_DISABLED",
+      })
+      expect(bundled.contactResult).toMatchObject({
+        status: "not-delivered",
+        provider: "disabled",
+        code: "CONTACT_DELIVERY_DISABLED",
+      })
+    finally
+      vi.unstubAllEnvs()
       await rm(tempDir, { recursive: true, force: true })

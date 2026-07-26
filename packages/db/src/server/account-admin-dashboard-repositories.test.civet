@@ -7,6 +7,10 @@ import {
 } from "./admin-users-repository.civet"
 import type { Database } from "./client.civet"
 import {
+  DashboardPersistenceError,
+  createDashboardRepository,
+} from "./dashboard-repository.civet"
+import {
   InvalidRepositoryInputError,
   createFeatureItemRepository,
 } from "./repositories.civet"
@@ -58,3 +62,134 @@ describe "feature list bounds", ->
       InvalidRepositoryInputError,
     )
   })
+
+type DashboardCountRow = Readonly<{
+  status: "draft" | "active" | "archived"
+  value: number
+}>
+
+const createDashboardDatabaseDouble = ({
+  counts = [],
+  recent = [],
+  countError,
+  recentError,
+}: {
+  counts?: readonly DashboardCountRow[]
+  recent?: readonly Record<string, unknown>[]
+  countError?: unknown
+  recentError?: unknown
+} = {}) => {
+  const groupBy = vi.fn(async () => {
+    if (countError !== undefined) throw countError
+    return counts
+  })
+  const countWhere = vi.fn(() => ({ groupBy }))
+  const countFrom = vi.fn(() => ({ where: countWhere }))
+  const limit = vi.fn(async (_recentLimit: number) => {
+    if (recentError !== undefined) throw recentError
+    return recent
+  })
+  const orderBy = vi.fn(() => ({ limit }))
+  const recentWhere = vi.fn(() => ({ orderBy }))
+  const recentFrom = vi.fn(() => ({ where: recentWhere }))
+  const select = vi.fn()
+    .mockReturnValueOnce({ from: countFrom })
+    .mockReturnValueOnce({ from: recentFrom })
+
+  return {
+    database: { select } as unknown as Database,
+    groupBy,
+    limit,
+    select,
+  }
+}
+
+describe "dashboard feature summary", ->
+  it "aggregates available statuses and preserves deterministic recent rows", async ->
+    const recent = [
+      { id: "feature-2", status: "active" },
+      { id: "feature-1", status: "draft" },
+    ]
+    const double = createDashboardDatabaseDouble({
+      counts: [
+        { status: "draft", value: 2 },
+        { status: "active", value: 3 },
+      ],
+      recent,
+    })
+
+    await expect(
+      createDashboardRepository(double.database).getFeatureSummary("owner-1", 2),
+    ).resolves.toEqual({
+      total: 5,
+      draft: 2,
+      active: 3,
+      archived: 0,
+      recent,
+    })
+    expect(double.groupBy).toHaveBeenCalledOnce()
+    expect(double.limit).toHaveBeenCalledWith(2)
+
+  it "returns an empty summary at both accepted recent-limit boundaries", async ->
+    for (const recentLimit of [0, 100]) {
+      const double = createDashboardDatabaseDouble()
+      await expect(
+        createDashboardRepository(double.database).getFeatureSummary(
+          "owner-1",
+          recentLimit,
+        ),
+      ).resolves.toEqual({
+        total: 0,
+        draft: 0,
+        active: 0,
+        archived: 0,
+        recent: [],
+      })
+      expect(double.limit).toHaveBeenCalledWith(recentLimit)
+    }
+
+  it "rejects blank owners and invalid recent limits before querying", async ->
+    const select = vi.fn()
+    const repository = createDashboardRepository(
+      { select } as unknown as Database,
+    )
+    for (const [ownerId, recentLimit] of [
+      [" ", 10],
+      ["owner-1", -1],
+      ["owner-1", 101],
+      ["owner-1", 1.5],
+      ["owner-1", Number.NaN],
+      ["owner-1", Number.POSITIVE_INFINITY],
+    ] as const)
+      await expect(
+        repository.getFeatureSummary(ownerId, recentLimit),
+      ).rejects.toBeInstanceOf(DashboardPersistenceError)
+    expect(select).not.toHaveBeenCalled()
+
+  it "maps provider failures while preserving an existing persistence error", async ->
+    const providerError = new Error("provider detail")
+    const countFailure = createDashboardDatabaseDouble({
+      countError: providerError,
+    })
+    let mapped: unknown
+    try {
+      await createDashboardRepository(
+        countFailure.database,
+      ).getFeatureSummary("owner-1", 10)
+    } catch (error) {
+      mapped = error
+    }
+    expect(mapped).toBeInstanceOf(DashboardPersistenceError)
+    expect(mapped).not.toBe(providerError)
+    expect(String(mapped)).not.toContain("provider detail")
+
+    const existing = new DashboardPersistenceError()
+    const recentFailure = createDashboardDatabaseDouble({
+      recentError: existing,
+    })
+    await expect(
+      createDashboardRepository(recentFailure.database).getFeatureSummary(
+        "owner-1",
+        10,
+      ),
+    ).rejects.toBe(existing)

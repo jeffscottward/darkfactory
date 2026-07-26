@@ -1,2 +1,2 @@
 #!/bin/sh
-exec node --import @danielx/civet/register scripts/hooks/pre-commit.civet
+exec bun --preload @danielx/civet/bun-civet scripts/hooks/pre-commit.civet

@@ -7,6 +7,12 @@ import {
   applyGenerationPlan,
   type ApplyGenerationOptions,
 } from "../../scripts/generate-feature/apply.civet"
+import {
+  renderContractRegistry,
+  renderPublicRegistry,
+  renderRouterRegistry,
+  renderSchemaRegistry,
+} from "../../scripts/generate-feature/live-templates.civet"
 import { createGenerationPlan } from "../../scripts/generate-feature/plan.civet"
 import type { GenerationPlan, PlannedFile } from "../../scripts/generate-feature/types.civet"
 import { validateFeatureName } from "../../scripts/generate-feature/validate.civet"
@@ -160,3 +166,17 @@ describe "DF-069 live feature registration", ->
       code: "VERIFICATION_FAILED",
     })
   )
+
+  it "renders canonical empty registries before the first live feature", ->
+    const header = "// Generator-owned. Edit through `pnpm generate:feature` only.\n"
+    expect({
+      contracts: renderContractRegistry([]),
+      publicApi: renderPublicRegistry([]),
+      routers: renderRouterRegistry([]),
+      schema: renderSchemaRegistry([]),
+    }).toEqual({
+      contracts: `${header}export const generatedFeatureContracts = Object.freeze({\n})\n`,
+      publicApi: `${header}export const GENERATED_API_FEATURES = Object.freeze([] as const)\n`,
+      routers: `${header}export const generatedFeatureRouters = Object.freeze({})\n`,
+      schema: `${header}export const generatedFeatureTables = Object.freeze({\n})\n`,
+    })

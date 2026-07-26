@@ -230,13 +230,19 @@ const start = async (control: LifecycleControl): Promise<void> => {
 
   await enterLifecycleStage("module-loading")
   // Dynamic imports are intentional: resolution failures must enter the sanitized cleanup path.
-  const [authModule, databaseModule, testkitModule, previewCaptureModule] =
-    await Promise.all([
-      import("@darkfactory/auth/server"),
-      import("@darkfactory/db/server"),
-      import("@darkfactory/testkit/postgres"),
-      import("./preview-capture.civet"),
-    ])
+  const [
+    authModule,
+    databaseModule,
+    databaseMigrationModule,
+    testkitModule,
+    previewCaptureModule,
+  ] = await Promise.all([
+    import("@darkfactory/auth/server"),
+    import("@darkfactory/db/server"),
+    import("@darkfactory/db/server/migration"),
+    import("@darkfactory/testkit/postgres"),
+    import("./preview-capture.civet"),
+  ])
   dropDatabase = testkitModule.dropPostgresTestDatabase
   control.checkpoint()
 
@@ -256,7 +262,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
   })
   try {
     await enterLifecycleStage("database-migrate")
-    await databaseModule.migrate(resource.db)
+    await databaseMigrationModule.migrate(resource.db)
     control.checkpoint()
 
     await enterLifecycleStage("database-reset")

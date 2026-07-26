@@ -22,8 +22,8 @@
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/index.civet src/postgres.civet",
-    "typecheck": "civet --typecheck src/index.civet src/postgres.civet"
+    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet src/postgres.civet",
+    "typecheck": "bunx --bun --no-install civet --typecheck src/index.civet src/postgres.civet"
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",

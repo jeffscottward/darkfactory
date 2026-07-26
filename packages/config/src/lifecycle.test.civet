@@ -23,9 +23,11 @@ const lifecycleStages = (command: string): string[][] =>
 describe("root lifecycle orchestration", () => {
   it("bounds the canonical unit stage without skip or timeout overrides", async () => {
     const { scripts } = await readRootManifest()
-    const canonicalUnitInvocation = ["corepack", "pnpm", "run", "test:unit"]
+    const canonicalUnitInvocation = ["bun", "run", "test:unit"]
 
     expect(tokenize(scripts["test:unit"])).toEqual([
+      "bunx",
+      "--no-install",
       "turbo",
       "run",
       "test:unit",
@@ -33,14 +35,12 @@ describe("root lifecycle orchestration", () => {
     ])
     expect(lifecycleStages(scripts["verify:core"])).toContainEqual(canonicalUnitInvocation)
     expect(lifecycleStages(scripts.verify)).toContainEqual([
-      "corepack",
-      "pnpm",
+      "bun",
       "run",
       "verify:core",
     ])
     expect(tokenize(scripts.ci)).toEqual([
-      "corepack",
-      "pnpm",
+      "bun",
       "run",
       "verify",
     ])

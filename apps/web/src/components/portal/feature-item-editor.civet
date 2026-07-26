@@ -128,9 +128,8 @@ export interface FeatureItemEditorProps {
   readonly gateway?: FeatureItemGateway
 }
 
-const statusTone = (status: FeatureItemStatus): "neutral" | "success" | "warning" => {
+const statusTone = (status: FeatureItemStatus): "neutral" | "success" => {
   if (status === "active") return "success"
-  if (status === "archived") return "warning"
   return "neutral"
 }
 
@@ -368,7 +367,7 @@ export const FeatureItemEditor = ({ gateway: suppliedGateway, id }: FeatureItemE
               <p className="mt-2 text-sm leading-6 text-muted-foreground" id="editor-archive-description">The record remains available in archived views.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button disabled={isMutating} onClick={closeArchiveConfirmation} ref={cancelArchiveRef} size="compact" variant="ghost"><X aria-hidden="true" className="size-4" />Cancel</Button>
-                <Button loading={archiving} loadingLabel="Archiving feature item" onClick={archive} size="compact" variant="destructive"><Archive aria-hidden="true" className="size-4" />Archive</Button>
+                <Button disabled={isMutating} loading={archiving} loadingLabel="Archiving feature item" onClick={archive} size="compact" variant="destructive"><Archive aria-hidden="true" className="size-4" />Archive</Button>
               </div>
             </section>
           ) : (

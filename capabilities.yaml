@@ -10,6 +10,7 @@ project:
 
 workspace:
   package_manager: pnpm
+  script_runtime: bun
   orchestration: turborepo
 
 deployment:

@@ -127,3 +127,68 @@ describe "recording observability ports", ->
 
     expect(sink.events).toEqual([semanticEvent])
     expect(Object.isFrozen(sink.events[0])).toBe(true)
+
+  it.each([
+    [new DOMException("private abort detail", "AbortError"), "aborted"],
+    [new DOMException("private DOM detail", "DataError"), "application"],
+    [new TypeError("private type detail"), "type"],
+    [new RangeError("private range detail"), "range"],
+  ] as const)("records the safe $expectedCategory failure category", async (error, expectedCategory) => {
+    const telemetry = createRecordingTelemetry()
+
+    await expect(
+      telemetry.withSpan(
+        {
+          name: "failure.category",
+          correlation: { requestId: `request_${expectedCategory}` },
+        },
+        () => {
+          throw error
+        },
+      ),
+    ).rejects.toBe(error)
+
+    expect(telemetry.spans[0]).toMatchObject({
+      outcome: "failure",
+      errorCategory: expectedCategory,
+    })
+    expect(JSON.stringify(telemetry.spans)).not.toContain("private")
+  })
+
+  it "preserves a parent, falls back to correlation procedure, and clamps negative duration", async ->
+    const times = [20, 10]
+    const telemetry = createRecordingTelemetry({
+      now: () => times.shift() ?? 10,
+      createTraceId: () => "unused-trace",
+      createSpanId: () => "3333333333333333",
+    })
+
+    await telemetry.withSpan(
+      {
+        name: "child.operation",
+        correlation: {
+          requestId: "request_child",
+          traceId: "11111111111111111111111111111111",
+          spanId: "2222222222222222",
+          procedure: "feature.child",
+        },
+      },
+      () => undefined,
+    )
+    await telemetry.withSpan(
+      {
+        name: "procedure.omitted",
+        correlation: { requestId: "request_without_procedure" },
+      },
+      () => undefined,
+    )
+
+    expect(telemetry.spans[0]).toMatchObject({
+      traceId: "11111111111111111111111111111111",
+      parentSpanId: "2222222222222222",
+      procedure: "feature.child",
+      durationMs: 0,
+      outcome: "success",
+    })
+    expect(telemetry.spans[0]).not.toHaveProperty("attributes")
+    expect(telemetry.spans[1]).not.toHaveProperty("procedure")

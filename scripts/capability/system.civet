@@ -1,6 +1,6 @@
 import { constants } from "node:fs"
 import { lstat, open, realpath } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+import { relative, resolve, sep } from "node:path"
 
 import type { CapabilityFileSystem } from "./capability.civet"
 import { guardedWrite, type GuardHooks } from "../docs/filesystem-guard.civet"
@@ -11,24 +11,48 @@ type Identity = Readonly<{ dev: number; ino: number }>
 const sameIdentity = (left: Identity, right: Identity): boolean =>
   left.dev === right.dev && left.ino === right.ino
 
+type CapabilityManifestMetadata = Readonly<{
+  size: number
+  isFile: () => boolean
+}>
+
+export type CapabilityManifestHandle = Readonly<{
+  stat: () => Promise<CapabilityManifestMetadata>
+  readFile: (options: Readonly<{ encoding: "utf8" }>) => Promise<string>
+  close: () => Promise<void>
+}>
+
+export type CapabilitySystemDependencies = Readonly<{
+  openManifest: (
+    path: string,
+    flags: number,
+  ) => Promise<CapabilityManifestHandle>
+}>
+
+export const nodeCapabilitySystemDependencies: CapabilitySystemDependencies =
+  Object.freeze({
+    openManifest: open,
+  })
+
 export const createCapabilityFileSystem = async (
   repositoryPath: string,
   hooks: GuardHooks = {},
+  dependencies: CapabilitySystemDependencies = nodeCapabilitySystemDependencies,
 ): Promise<CapabilityFileSystem> => {
   const root = await realpath(repositoryPath)
   const manifestPath = resolve(root, "capabilities.yaml")
   const contained = (path: string): string => {
     const target = resolve(root, path)
     const relation = relative(root, target)
-    if (relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    if (relation === ".." || relation.startsWith(`..${sep}`)) {
       throw new Error("Capability path escapes repository")
     }
     return target
   }
   const readManifest = async (): Promise<string> => {
-    const handle = await open(
+    const handle = await dependencies.openManifest(
       manifestPath,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      constants.O_RDONLY | constants.O_NOFOLLOW,
     )
     try {
       const stats = await handle.stat()

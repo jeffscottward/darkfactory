@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest"
 import {
   processExists,
   spawnOwnedProcess,
-  type TaskkillResult,
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
 } from "../../../scripts/e2e/owned-process-tree.civet"
@@ -127,100 +126,45 @@ describe("owned process-tree lifecycle", () => {
     if (cleanupError !== undefined) throw cleanupError
   }, 15_000)
 
-  it("bounds a hung Windows taskkill before force escalation fails closed", async () => {
-    const attempts: boolean[] = []
-    const child = shortLivedOwnedProcess(100)
-    const startedAt = Date.now()
-    await expect(terminateOwnedProcessTree(child, {
-      forceTimeoutMillis: 10,
-      gracefulTimeoutMillis: 10,
-      platform: "win32",
-      taskkillRunner: async (_pid, force): Promise<TaskkillResult> => {
-        attempts.push(force)
-        return await new Promise<TaskkillResult>(() => undefined)
-      },
-      taskkillTimeoutMillis: 10,
-    })).rejects.toThrow("Failed to terminate owned process tree")
-    expect(attempts).toEqual([false, true])
-    expect(Date.now() - startedAt).toBeLessThan(1_000)
-    await waitForOwnedExit(child)
-  })
-
-  it("rejects partial Windows taskkill failure after the root exits", async () => {
-    const attempts: boolean[] = []
-    const child = shortLivedOwnedProcess(25)
-    await expect(terminateOwnedProcessTree(child, {
-      platform: "win32",
-      taskkillRunner: async (_pid, force) => {
-        attempts.push(force)
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        return { exitCode: 5, signal: null }
-      },
-      taskkillTimeoutMillis: 100,
-    })).rejects.toThrow("Failed to terminate owned process tree")
-    expect(attempts).toEqual([false, true])
-    await waitForOwnedExit(child)
-  })
-
-
-  it("waits for force completion after graceful taskkill reports success", async () => {
-    const attempts: boolean[] = []
+  it("rejects live Windows termination without signaling the process", async () => {
     const child = shortLivedOwnedProcess(5_000)
-    await terminateOwnedProcessTree(child, {
-      forceTimeoutMillis: 200,
-      gracefulTimeoutMillis: 20,
-      platform: "win32",
-      taskkillRunner: async (pid, force) => {
-        attempts.push(force)
-        if (force) {
-          setTimeout(() => process.kill(-pid, "SIGTERM"), 25)
-        }
-        return { exitCode: 0, signal: null }
-      },
-      taskkillTimeoutMillis: 100,
-    })
-    expect(attempts).toEqual([false, true])
-    expect(processExists(child.pid!)).toBe(false)
-  })
-
-  it("retains resources when owned process-tree termination is unproven", async () => {
-    const child = shortLivedOwnedProcess(25)
-    let cleaned = false
-    await expect(terminateOwnedProcessTreeThen(
-      child,
-      async () => {
-        cleaned = true
-        return undefined
-      },
-      {
+    try {
+      const startedAt = Date.now()
+      await expect(terminateOwnedProcessTree(child, {
         platform: "win32",
-        taskkillRunner: async () => ({ exitCode: 5, signal: null }),
-        taskkillTimeoutMillis: 100,
-      },
-    )).rejects.toThrow("Failed to terminate owned process tree")
-    expect(cleaned).toBe(false)
-    await waitForOwnedExit(child)
-  })
-  it("memoizes concurrent and repeated termination to one signal path", async () => {
-    const attempts: boolean[] = []
-    const child = shortLivedOwnedProcess(5_000)
-    const options = {
-      platform: "win32" as const,
-      taskkillRunner: async (pid: number, force: boolean) => {
-        attempts.push(force)
-        process.kill(-pid, "SIGTERM")
-        return { exitCode: 0, signal: null }
-      },
+      })).rejects.toThrow(/termination is unproven on Windows/i)
+      expect(Date.now() - startedAt).toBeLessThan(1_000)
+      expect(processExists(child.pid!)).toBe(true)
+    } finally {
+      await terminateOwnedProcessTree(child).catch(() => undefined)
     }
+  })
 
-    await Promise.all([
-      terminateOwnedProcessTree(child, options),
-      terminateOwnedProcessTree(child, options),
-    ])
-    await terminateOwnedProcessTree(child, options)
+  it("rejects preclosed Windows termination without a PID action", async () => {
+    const child = shortLivedOwnedProcess(25)
+    await waitForOwnedExit(child)
+    await expect(terminateOwnedProcessTree(child, {
+      platform: "win32",
+    })).rejects.toThrow(/termination is unproven on Windows/i)
+  })
 
-    expect(attempts).toEqual([false])
-    expect(processExists(child.pid!)).toBe(false)
+  it("retains resources when Windows containment is unproven", async () => {
+    const child = shortLivedOwnedProcess(5_000)
+    let cleaned = false
+    try {
+      await expect(terminateOwnedProcessTreeThen(
+        child,
+        async () => {
+          cleaned = true
+          return undefined
+        },
+        { platform: "win32" },
+      )).rejects.toThrow(/termination is unproven on Windows/i)
+      expect(cleaned).toBe(false)
+      expect(processExists(child.pid!)).toBe(true)
+    } finally {
+      await terminateOwnedProcessTree(child).catch(() => undefined)
+    }
   })
   return undefined
 })

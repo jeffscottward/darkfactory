@@ -27,6 +27,11 @@ describe "database package boundaries", ->
       worker: "./src/server/index.civet",
       browser: "./src/server/unsupported.civet",
     })
+    expect(manifest.exports["./server/migration"]).toEqual({
+      types: "./src/server/migration.civet.d.ts",
+      import: "./src/server/migration.civet",
+      default: "./src/server/migration.civet",
+    })
     expect(manifest.sideEffects).toEqual(["./src/server/unsupported.civet"])
 
     const poisonSource = await readFile(
@@ -60,6 +65,16 @@ describe "database package boundaries", ->
       stderr: "",
     })
     expect(worker.stdout).toMatch(/\/src\/server\/index\.civet$/)
+
+  it "keeps Node-only migration code out of the Worker runtime entry", async ->
+    const [entrySource, clientSource] = await Promise.all([
+      readFile(new URL("./index.civet", import.meta.url), "utf8"),
+      readFile(new URL("./client.civet", import.meta.url), "utf8"),
+    ])
+    expect(entrySource).not.toMatch(/\bmigrate\b|migration\.civet/)
+    expect(clientSource).not.toMatch(
+      /node:url|node-postgres\/migrator|fileURLToPath|\brunMigrations\b/,
+    )
 
   it "keeps the schema export free of Node and PostgreSQL client imports", async ->
     const schemaSource = await readFile(

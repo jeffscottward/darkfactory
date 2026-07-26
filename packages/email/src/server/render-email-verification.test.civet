@@ -98,3 +98,41 @@ describe "renderEmailVerificationEmail", ->
         expiresInMinutes: 1.5,
       }),
     ).rejects.toThrowError("expiresInMinutes must be a positive integer")
+
+  it "uses a generic greeting and singular expiry guidance when no name is available", async ->
+    const rendered = await renderEmailVerificationEmail({
+      to: verificationInput.to,
+      verificationUrl: verificationInput.verificationUrl,
+      expiresInMinutes: 1,
+    })
+
+    expect(rendered.text).toContain("Hello,")
+    expect(rendered.text).toContain("1 minute")
+    expect(rendered.text).not.toContain("1 minutes")
+
+  it "rejects malformed configured origins, verification URLs, and callback URLs", async ->
+    for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"]) {
+      await expect(renderEmailVerificationEmail(verificationInput, {
+        trustedAppOrigin,
+      })).rejects.toThrowError(
+        "verificationUrl must be a trusted email verification URL",
+      )
+    }
+
+    await expect(renderEmailVerificationEmail({
+      ...verificationInput,
+      verificationUrl: "not a URL",
+    })).rejects.toThrowError(
+      "verificationUrl must be a trusted email verification URL",
+    )
+
+    const malformedCallbackUrl = verificationUrl.replace(
+      encodeURIComponent(callbackUrl),
+      encodeURIComponent("http://["),
+    )
+    await expect(renderEmailVerificationEmail({
+      ...verificationInput,
+      verificationUrl: malformedCallbackUrl,
+    })).rejects.toThrowError(
+      "verificationUrl must be a trusted email verification URL",
+    )

@@ -74,11 +74,10 @@ const registerWaitUntil = (
   task: Promise<unknown>,
 ): void => {
   if (waitUntil === undefined) return
+  // Emission still awaits the task, so a broken lifetime hook cannot retry it.
   try {
     waitUntil(task)
-  } catch {
-    // The emission still awaits the task; a broken lifetime hook must not retry it.
-  }
+  } catch (_error) {}
 }
 
 const recordOnSpan = (

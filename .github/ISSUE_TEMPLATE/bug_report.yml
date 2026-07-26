@@ -43,11 +43,11 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include the DarkFactory revision, operating system, and relevant Node.js, pnpm, Docker, database, or browser versions.
+      description: Include the DarkFactory revision, operating system, and relevant Bun, Node.js, pnpm, Docker, database, or browser versions.
       placeholder: |
         Revision:
         Operating system:
-        Node.js and pnpm:
+        Bun, Node.js, and pnpm:
         Other relevant versions:
     validations:
       required: true

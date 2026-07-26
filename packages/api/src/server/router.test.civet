@@ -4,6 +4,8 @@ import {
   type SafeAuthSession,
 } from "@darkfactory/auth/server"
 import {
+  AdminUsersPersistenceError,
+  DashboardPersistenceError,
   DatabaseConflictError,
   DatabasePersistenceError,
   InvalidRepositoryInputError,
@@ -475,7 +477,7 @@ describe "account router behavior", ->
   it "does not fail a successful account mutation when observability is unavailable", async ->
     const repos = repositories()
     const semanticEvents: SemanticEventPort = {
-      emit: vi.fn(async () => { throw new Error("event adapter unavailable") }),
+      emit: vi.fn().mockRejectedValue(null),
     }
     const client = clientFor(contextFor({ repositories: repos, semanticEvents }))
 
@@ -611,3 +613,448 @@ describe "optional router capabilities", ->
     await expect(client.contact.submit(contactInput)).resolves.toEqual({ status: "sent" })
     expect(throttle.consume).toHaveBeenCalledWith("k".repeat(64))
     expect(delivery.sendContact).toHaveBeenCalledOnce()
+
+describe "router status and serialization boundaries", ->
+  it "accepts description-only and metadata-only feature updates", async ->
+    const repos = repositories()
+    const client = clientFor(contextFor({ repositories: repos }))
+
+    await expect(client.featureItems.update({
+      id: "item-1",
+      description: "Description-only update",
+    })).resolves.toMatchObject({
+      id: "item-1",
+      description: "Description-only update",
+    })
+    await expect(client.featureItems.update({
+      id: "item-1",
+      metadata: {
+        nested: { enabled: true, values: [null, "stable"] },
+      },
+    })).resolves.toMatchObject({
+      id: "item-1",
+      metadata: {
+        nested: { enabled: true, values: [null, "stable"] },
+      },
+    })
+    expect(repos.featureItems.update).toHaveBeenCalledTimes(2)
+
+  it "maps every feature mutation and admin feature read failure", async ->
+    const updateRepos = repositories()
+    vi.mocked(updateRepos.featureItems.update).mockRejectedValue(
+      new DatabaseConflictError("feature item"),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: updateRepos })).featureItems.update({
+        id: "item-1",
+        description: "Conflicting update",
+      }),
+      "CONFLICT",
+      409,
+    )
+
+    await expectDefinedError(
+      clientFor(contextFor()).featureItems.changeStatus({
+        id: "item-1",
+        status: "draft",
+      }),
+      "CONFLICT",
+      409,
+    )
+
+    const archiveRepos = repositories()
+    vi.mocked(archiveRepos.featureItems.archive).mockRejectedValue(
+      new DatabasePersistenceError("private archive details"),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: archiveRepos })).featureItems.archive({
+        id: "item-1",
+      }),
+      "STORAGE_ERROR",
+      503,
+    )
+
+    const adminRepos = repositories()
+    const adminClient = clientFor(contextFor({
+      repositories: adminRepos,
+      requireRole: vi.fn(async () => adminSession),
+    }))
+    await expect(adminClient.admin.featureItems.list({
+      ownerId: "member-1",
+    })).resolves.toEqual([featureItem()])
+    vi.mocked(adminRepos.featureItems.listByOwner).mockRejectedValue(
+      new DatabasePersistenceError("private admin list details"),
+    )
+    await expectDefinedError(
+      adminClient.admin.featureItems.list({ ownerId: "member-1" }),
+      "STORAGE_ERROR",
+      503,
+    )
+
+  it "maps remaining account, directory, and dashboard failures", async ->
+    const profileRepos = repositories()
+    vi.mocked(profileRepos.profiles.findByUserId).mockRejectedValue(
+      new Error("private profile adapter details"),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: profileRepos })).account.profile.get({}),
+      "STORAGE_ERROR",
+      503,
+    )
+
+    const createRepos = repositories()
+    vi.mocked(createRepos.addresses.create).mockRejectedValue(
+      new InvalidRepositoryInputError("private invalid address"),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: createRepos })).account.addresses.create({
+        type: "home",
+        line1: "1 Main St",
+        city: "Paris",
+        region: "Ile-de-France",
+        postalCode: "75001",
+        country: "FR",
+      }),
+      "VALIDATION_ERROR",
+      422,
+    )
+
+    const removeRepos = repositories()
+    vi.mocked(removeRepos.addresses.removeOptimistic).mockResolvedValue(false)
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: removeRepos })).account.addresses.remove({
+        id: "missing-address",
+        expectedUpdatedAt: NOW,
+      }),
+      "NOT_FOUND",
+      404,
+    )
+
+    const primaryRepos = repositories()
+    vi.mocked(primaryRepos.addresses.setPrimaryOptimistic).mockResolvedValue(null)
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: primaryRepos }))
+        .account.addresses.setPrimary({
+          id: "missing-address",
+          expectedUpdatedAt: NOW,
+        }),
+      "NOT_FOUND",
+      404,
+    )
+
+    const preferencesGetRepos = repositories()
+    vi.mocked(preferencesGetRepos.userPreferences.findByUserId).mockRejectedValue(
+      new Error("private preferences adapter details"),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({ repositories: preferencesGetRepos })).preferences.get({}),
+      "STORAGE_ERROR",
+      503,
+    )
+
+    const preferencesUpdateRepos = repositories()
+    vi.mocked(
+      preferencesUpdateRepos.userPreferences.updateOptimistic,
+    ).mockRejectedValue(new DatabaseConflictError("preferences"))
+    await expectDefinedError(
+      clientFor(contextFor({
+        repositories: preferencesUpdateRepos,
+      })).preferences.update({
+        expectedUpdatedAt: NOW,
+        emailNotifications: true,
+      }),
+      "CONFLICT",
+      409,
+    )
+
+    const themeGetRepos = repositories()
+    vi.mocked(themeGetRepos.userPreferences.findThemeByUserId).mockRejectedValue(
+      new DatabasePersistenceError("private theme read details"),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({
+        repositories: themeGetRepos,
+      })).preferences.theme.get({}),
+      "STORAGE_ERROR",
+      503,
+    )
+
+    const adminUsersRepos = repositories()
+    vi.mocked(adminUsersRepos.adminUsers.search).mockRejectedValue(
+      new AdminUsersPersistenceError(),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({
+        repositories: adminUsersRepos,
+        requireRole: vi.fn(async () => adminSession),
+      })).admin.users.list({}),
+      "STORAGE_ERROR",
+      503,
+    )
+
+    const dashboardRepos = repositories()
+    vi.mocked(dashboardRepos.dashboard.getFeatureSummary).mockRejectedValue(
+      new DashboardPersistenceError(),
+    )
+    await expectDefinedError(
+      clientFor(contextFor({
+        repositories: dashboardRepos,
+      })).dashboard.summary({}),
+      "STORAGE_ERROR",
+      503,
+    )
+
+  it "preserves unexpected infrastructure and serialization failures", async ->
+    const accountFailure = new Error("unexpected address serializer failure")
+    const accountRepos = repositories()
+    const poisonedAddress = new Proxy(address(), {
+      get: (target, property, receiver) => {
+        if (property === "id") throw accountFailure
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    vi.mocked(accountRepos.addresses.listByUserId).mockResolvedValue([
+      poisonedAddress,
+    ])
+    await expect(
+      clientFor(contextFor({
+        repositories: accountRepos,
+      })).account.addresses.list({}),
+    ).rejects.toBe(accountFailure)
+
+    const adminFailure = new Error("unexpected admin repository boundary failure")
+    const adminRepos = repositories()
+    Object.defineProperty(adminRepos, "adminUsers", {
+      get: () => {
+        throw adminFailure
+      },
+    })
+    await expect(
+      clientFor(contextFor({
+        repositories: adminRepos,
+        requireRole: vi.fn(async () => adminSession),
+      })).admin.users.list({}),
+    ).rejects.toBe(adminFailure)
+
+    const dashboardFailure = new Error("unexpected dashboard serializer failure")
+    const dashboardRepos = repositories()
+    const poisonedSummary = new Proxy({
+      total: 0,
+      draft: 0,
+      active: 0,
+      archived: 0,
+      recent: [] as FeatureItem[],
+    }, {
+      get: (target, property, receiver) => {
+        if (property === "recent") throw dashboardFailure
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    vi.mocked(dashboardRepos.dashboard.getFeatureSummary).mockResolvedValue(
+      poisonedSummary,
+    )
+    await expect(
+      clientFor(contextFor({
+        repositories: dashboardRepos,
+      })).dashboard.summary({}),
+    ).rejects.toBe(dashboardFailure)
+
+    const contactFailure = new Error("unexpected contact context failure")
+    const contactContext = contextFor({
+      contactThrottle: contactThrottle(),
+      contactThrottleKey: "k".repeat(64),
+    })
+    Object.defineProperty(contactContext, "contactDelivery", {
+      get: () => {
+        throw contactFailure
+      },
+    })
+    await expect(
+      clientFor(contactContext).contact.submit(contactInput),
+    ).rejects.toBe(contactFailure)
+
+describe "router event failure and lifetime boundaries", ->
+  it "passes account and contact event lifetime context without leaking payloads", async ->
+    const span: NonNullable<ApiContext["span"]> = {
+      correlation: {
+        requestId: "trace-request",
+        traceId: "11111111111111111111111111111111",
+        spanId: "2222222222222222",
+      },
+      addEvent: vi.fn(),
+      recordMetric: vi.fn(),
+    }
+    const waitUntil: NonNullable<ApiContext["waitUntil"]> =
+      vi.fn((promise: Promise<unknown>) => void promise)
+    const accountEmit = vi.fn(async () => ({
+      structuredEvent: "emitted" as const,
+      span: "skipped" as const,
+      analytics: "skipped" as const,
+    }))
+    const accountEvents: SemanticEventPort = { emit: accountEmit }
+
+    await expect(
+      clientFor(contextFor({
+        semanticEvents: accountEvents,
+        span,
+        waitUntil,
+      })).account.addresses.create({
+        type: "home",
+        line1: "1 Main St",
+        city: "Paris",
+        region: "Ile-de-France",
+        postalCode: "75001",
+        country: "FR",
+      }),
+    ).resolves.toMatchObject({ id: "address-1" })
+    expect(accountEmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityId: "address-1",
+        correlation: expect.objectContaining({
+          requestId: "request-router-1",
+          traceId: "11111111111111111111111111111111",
+          spanId: "2222222222222222",
+        }),
+      }),
+      { span, waitUntil },
+    )
+
+    const contactEmit = vi.fn().mockRejectedValue(false)
+    const contactEvents: SemanticEventPort = { emit: contactEmit }
+    const delivery = contactDelivery()
+    await expect(
+      clientFor(contextFor({
+        semanticEvents: contactEvents,
+        span,
+        waitUntil,
+        contactDelivery: delivery,
+        contactThrottle: contactThrottle(),
+        contactThrottleKey: "k".repeat(64),
+      })).contact.submit(contactInput),
+    ).resolves.toEqual({ status: "sent" })
+    expect(contactEmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "contact.submitted",
+        correlation: expect.objectContaining({
+          requestId: "request-router-1",
+          traceId: "11111111111111111111111111111111",
+        }),
+      }),
+      { span, waitUntil },
+    )
+    expect(JSON.stringify(vi.mocked(contactEmit).mock.calls[0]?.[0])).not.toContain(
+      contactInput.email,
+    )
+
+  it "classifies typed feature and unexpected theme event failures", async ->
+    const featureRepos = repositories()
+    vi.mocked(featureRepos.featureItems.create).mockRejectedValue(
+      new DatabaseConflictError("private feature conflict"),
+    )
+    const featureEmit = vi.fn(async () => ({
+      structuredEvent: "emitted" as const,
+      span: "skipped" as const,
+      analytics: "skipped" as const,
+    }))
+    const featureEvents: SemanticEventPort = { emit: featureEmit }
+    await expectDefinedError(
+      clientFor(contextFor({
+        repositories: featureRepos,
+        semanticEvents: featureEvents,
+      })).featureItems.create({
+        name: "Conflicting item",
+        description: "Must not be created",
+      }),
+      "CONFLICT",
+      409,
+    )
+    expect(featureEmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "failure",
+        errorCategory: "conflict",
+      }),
+      {},
+    )
+
+    const themeFailure = new Error("private unexpected theme failure")
+    const themeSpan: NonNullable<ApiContext["span"]> = {
+      correlation: {
+        requestId: "theme-trace-request",
+        traceId: "33333333333333333333333333333333",
+        spanId: "4444444444444444",
+      },
+      addEvent: vi.fn(),
+      recordMetric: vi.fn(),
+    }
+    const themeWaitUntil: NonNullable<ApiContext["waitUntil"]> =
+      vi.fn((promise: Promise<unknown>) => void promise)
+    const themeRepos = repositories()
+    vi.mocked(themeRepos.userPreferences.upsertTheme).mockRejectedValue(
+      themeFailure,
+    )
+    const themeEmit = vi.fn(async () => ({
+      structuredEvent: "emitted" as const,
+      span: "skipped" as const,
+      analytics: "skipped" as const,
+    }))
+    const themeEvents: SemanticEventPort = { emit: themeEmit }
+    await expect(
+      clientFor(contextFor({
+        repositories: themeRepos,
+        semanticEvents: themeEvents,
+        span: themeSpan,
+        waitUntil: themeWaitUntil,
+      })).preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+        expectedUpdatedAt: NOW,
+      }),
+    ).rejects.toBe(themeFailure)
+    expect(themeEmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "failure",
+        errorCategory: "unexpected",
+      }),
+      { span: themeSpan, waitUntil: themeWaitUntil },
+    )
+  it "keeps feature and theme mutations successful when observability rejects", async ->
+    const featureRepos = repositories()
+    const featureEmit = vi.fn().mockRejectedValue(
+      "private feature observability failure",
+    )
+    const featureEvents: SemanticEventPort = { emit: featureEmit }
+
+    await expect(
+      clientFor(contextFor({
+        repositories: featureRepos,
+        semanticEvents: featureEvents,
+      })).featureItems.create({
+        name: "Observable feature",
+        description: "Persists independently of observability",
+      }),
+    ).resolves.toMatchObject({
+      id: "item-1",
+      name: "Observable feature",
+    })
+    expect(featureRepos.featureItems.create).toHaveBeenCalledOnce()
+    expect(featureEmit).toHaveBeenCalledOnce()
+
+    const themeRepos = repositories()
+    const themeEmit = vi.fn().mockRejectedValue(503)
+    const themeEvents: SemanticEventPort = { emit: themeEmit }
+
+    await expect(
+      clientFor(contextFor({
+        repositories: themeRepos,
+        semanticEvents: themeEvents,
+      })).preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+        expectedUpdatedAt: NOW,
+      }),
+    ).resolves.toMatchObject({
+      themeMode: "dark",
+      palette: "violet",
+    })
+    expect(themeRepos.userPreferences.upsertTheme).toHaveBeenCalledOnce()
+    expect(themeEmit).toHaveBeenCalledOnce()

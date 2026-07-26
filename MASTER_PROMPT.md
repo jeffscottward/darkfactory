@@ -75,10 +75,10 @@ Non-goals unless a new accepted requirement says otherwise:
 
 Treat the live manifests and lockfile as version truth. Do not copy version numbers from this prompt into code or docs. Preserve this baseline unless a verified compatibility change is part of the task:
 
-- pnpm is the only package manager and lockfile owner.
-- Turborepo owns the workspace task graph.
-- Authored application, feature, UI, contract, service, adapter, script, and test source is Civet.
-- TypeScript is limited to tool-required configuration, declarations, generated compatibility surfaces, migrations, and runner entrypoints.
+- Bun 1.3.14 is the primary script and TypeScript runtime.
+- pnpm 11.16.0 is the only package manager, workspace resolver, and lockfile owner.
+- Node >=22.13 remains compatibility for Corepack/pnpm, PM2/Portless, and measured tool exceptions; Cloudflare Workers remains production.
+- Turborepo owns the workspace task graph, and authored application, script, and test source is Civet.
 - Vite/vinext implements the application and `@vinext/cloudflare` is the only web deployer.
 - React, Tailwind CSS, shadcn/Radix composition, and semantic design tokens implement UI.
 - oRPC plus Zod owns contracts, typed errors, transport validation, and OpenAPI generation.
@@ -258,7 +258,7 @@ The root generator accepts one feature name and optional `--dry-run`/`--json`. I
 
 ### Local developer experience
 
-The canonical local URL is <https://darkfactory.localhost>. Portless owns the hidden route; PM2 owns exactly one `darkfactory-web-dev` process running the repository's canonical command. `dev:https` is idempotent and the status/log/stop scripts address the stable identity. Portless trust is primary. mkcert installation/generation is fallback-only and private keys remain ignored.
+The canonical local URL is <https://darkfactory.localhost>. Portless owns the hidden route; PM2 owns exactly one `darkfactory-web-dev` process running `portless darkfactory bun run dev`. `bun run dev:https` is idempotent and status/log/stop address that exact versioned identity. Portless trust is primary; mkcert is fallback-only.
 
 The doctor must truthfully inspect the live prerequisites and capability states without printing secrets. Database seed/reset require explicit development/test environment and a disposable target.
 
@@ -329,9 +329,9 @@ If a new data field is proposed, define authority, purpose, collection boundary,
 
 The web application deploys only through official `@vinext/cloudflare`.
 
-- `pnpm build` performs local compilation.
-- `pnpm deploy:web:check` performs the adapter's non-building, non-deploying dry-run setup validation.
-- `pnpm deploy:web:preview` and `pnpm deploy:web` are explicit credentialed Cloudflare operations.
+- `bun run build` performs local compilation.
+- `bun run deploy:web:check` performs the adapter's non-building, non-deploying dry-run setup validation.
+- `bun run deploy:web:preview` and `bun run deploy:web` are explicit credentialed Cloudflare operations.
 - The current CI workflow is verification-only unless the live workflow proves otherwise.
 - A deployment claim requires an authorized target, exact SHA, terminal prerequisite CI, deploy output, runtime probe, secret boundary, and rollback evidence.
 
@@ -368,21 +368,21 @@ Verify Civet discovery/type declarations, server/client bundle boundaries, vinex
 Run focused checks while iterating. Before integration/release, use the live root scripts, including as applicable:
 
 ```bash
-pnpm auth:schema:check
-pnpm api:openapi:check
-pnpm db:check
-pnpm typecheck
-pnpm build
-pnpm test:unit
-pnpm test:integration
-pnpm test:e2e
-pnpm graph:check
-pnpm graph:verify
-pnpm verify
-pnpm run ci
+bun run auth:schema:check
+bun run api:openapi:check
+bun run db:check
+bun run typecheck
+bun run build
+bun run test:unit
+bun run test:integration
+bun run test:e2e
+bun run graph:check
+bun run graph:verify
+bun run verify
+bun run ci
 ```
 
-Use `pnpm run ci`, never bare `pnpm ci` as a lifecycle gate. Start isolated PostgreSQL and load test environment values through the documented Varlock flow. Do not run a formatter, broad suite, database reset, browser, or deploy operation when the task scope does not authorize it.
+Use `bun run ci` for the lifecycle. pnpm remains the frozen package/workspace owner; package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs. Start isolated PostgreSQL and load test environment values through the documented Varlock flow. Do not run a formatter, broad suite, database reset, browser, or deploy operation when the task scope does not authorize it.
 
 ## Documentation and evidence
 
@@ -562,7 +562,7 @@ DarkFactory is done only when all applicable statements are true for one exact r
 
 - Live manifests, lockfile, route discovery, Civet/TypeScript boundaries, build, exports, doctor, local HTTPS/PM2, database scripts, generator, and Graphify are reproducible.
 - Unit, contract, integration, E2E, accessibility, security smoke, build/runtime, generator, generated-artifact, graph, and docs gates pass as required.
-- Hooks and `pnpm run ci` remain authoritative and unweakened.
+- Hooks and `bun run ci` remain authoritative and unweakened.
 - CI is terminal green for the exact final SHA, or the system is explicitly not done.
 - Deployment is evidenced if required/authorized; otherwise it is explicitly marked not executed/pending and no deployment claim is made.
 - Every DF item has implementation, verification, runtime/external evidence, reviewer, and terminal status.

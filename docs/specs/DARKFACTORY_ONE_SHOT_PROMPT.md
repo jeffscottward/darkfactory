@@ -85,7 +85,7 @@ Later decisions are authoritative. Use this table in review and reject regressio
 
 | Superseded or rejected choice | Final decision |
 | --- | --- |
-| npm, Yarn, or Bun as dependency manager; dual lockfiles | **pnpm** owns dependencies, workspaces, and the sole lockfile. Bun may run compatible local scripts only and is not required for correctness. |
+| npm, Yarn, or Bun as dependency manager; dual lockfiles | **Bun 1.3.14** runs scripts and TypeScript; **pnpm 11.16.0** owns dependencies, workspaces, and the sole lockfile; Node >=22.13 remains compatibility. |
 | A single-app repository with no workspace shell | **Turborepo + pnpm workspaces** at the root so sibling apps/services can be added without restructuring. Only `apps/web` is active in v0.1. |
 | Standard Next build as the only runtime, OpenNext, TanStack Start, or a vinext-later placeholder | **Vite + vinext now**, exposing Next.js-compatible App Router conventions and retaining portability to standard Next tooling. |
 | TypeScript/TSX as the normal authored app language; Civet used selectively | **Civet for authored application code**. TypeScript remains required where tooling requires exact `.ts`/`.tsx`, including configuration, generated code, third-party entrypoints, Cloudflare bindings, and Playwright test/harness/config files, or where external publication compatibility demands it. |
@@ -219,13 +219,13 @@ Pin versions through the pnpm workspace catalog or a single root policy. Confirm
 
 ### Toolchain compatibility contract
 
-- Require Node `>=22.13` and pnpm `11`; declare them in the root engine/package-manager metadata and verify them in `pnpm doctor` and CI.
+- Require Bun `1.3.14`, Node `>=22.13`, and pnpm `11.16.0`; declare them in root metadata and verify Bun and Node independently in `bun run doctor` and CI.
 - Pin the reviewed green-path compatibility baseline: vinext `1.0.0-beta.3` and Alchemy `0.93.12`, unless a later verified version is adopted with recorded compatibility evidence.
 - Configure Next-compatible routing so `pageExtensions` explicitly includes `civet` alongside any required JavaScript/TypeScript extensions. Prove `.civet` layouts, pages, loading/error boundaries, and route-adjacent authored modules are discovered.
 - In Vite's plugin array, run the Civet Vite plugin **before** the vinext plugin so Civet transforms are available to vinext. Add a build/runtime test that fails if the order regresses.
 - Keep TypeScript for configuration, generated artifacts, Cloudflare/tool entrypoints, and Playwright harness/spec/config files. Do not force those tooling boundaries into Civet.
 - Use the official `@vinext/cloudflare` package for the web deploy. Alchemy `0.93.12` has no documented first-class vinext resource; do not invent or locally wrap one and call it official.
-- pnpm `11.16` reserves `pnpm ci` as its built-in clean-install command. The repository lifecycle script is still named `ci`, but it MUST always be invoked unambiguously as `pnpm run ci` in docs, hooks, agents, and workflows.
+- Root lifecycle scripts MUST use `bun run`; Civet entrypoints use the Bun Civet preload and compatible local CLIs use `bunx --bun --no-install`. pnpm remains the sole package and lockfile owner. Every Vitest invocation is an explicit package-local Node exception through `corepack pnpm exec`, measured for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
 
 ## 7. Exact target repository tree
 
@@ -680,9 +680,9 @@ Required operations: list current user's items, get one, create, update, change 
 Implement:
 
 ```bash
-pnpm generate:feature inventory
-pnpm generate:feature strategy
-pnpm generate:feature property
+bun run generate:feature inventory
+bun run generate:feature strategy
+bun run generate:feature property
 ```
 
 The generator must be idempotent/fail safely, validate names, show a plan, and update directory names, symbols, contracts, route registration, table names/migration plan, tests, package exports, docs, and Graphify. It must not silently overwrite an existing feature. Its internal flow is:
@@ -1035,7 +1035,7 @@ Rules:
 
 - Client-safe environment values are explicitly allowlisted; never spread server env into client code.
 - `APP_ENV=production` forbids default seed password, preview-only assumptions, weak auth secrets, and development seed execution.
-- `pnpm doctor` reports present/missing/disabled without printing secret values.
+- `bun run doctor` reports present/missing/disabled without printing secret values.
 - Capability enablement validates required environment before changing code/config.
 - Provider selection occurs in a composition root, not scattered conditionals.
 
@@ -1053,26 +1053,26 @@ Long-lived development services must run under **PM2** through portless. Provide
 
 ```bash
 portless trust
-pm2 start \"portless darkfactory pnpm dev\" --name \"darkfactory-web-dev\"
+pm2 start "portless darkfactory bun run dev" --name "darkfactory-web-dev"
 pm2 save
 ```
 
 The repository scripts must hide process-manager details behind clear commands such as:
 
 ```bash
-pnpm dev:https
-pnpm dev:status
-pnpm dev:logs
-pnpm dev:stop
+bun run dev:https
+bun run dev:status
+bun run dev:logs
+bun run dev:stop
 ```
 
-`pnpm dev:https` must be idempotent: detect an existing healthy `darkfactory-web-dev` PM2 process instead of launching duplicates. `dev:status`, `dev:logs`, and `dev:stop` must address that stable PM2 name. The actual bound port is an implementation detail discoverable through portless, not a public contract.
+`bun run dev:https` must be idempotent: detect an existing healthy, current-version `darkfactory-web-dev` PM2 process instead of launching duplicates. Status/log/stop must address that exact stable identity.
 
 Keep **mkcert** only as the custom/local certificate fallback when `portless trust` is unavailable or insufficient for the environment. Implement:
 
 ```bash
-pnpm certs:install
-pnpm certs:generate
+bun run certs:install
+bun run certs:generate
 ```
 
 Fallback generation is equivalent to:
@@ -1095,7 +1095,7 @@ Requirements:
 - Use separate stable portless service names for any future optional app rather than reserving numbered ports.
 - Treat `portless trust` as the primary local trust path. Wire mkcert-generated cert/key into Vite/vinext only on the documented fallback path.
 - Ignore `certs/*.pem`, `certs/*.key`, the local CA, and all private material. Commit `certs/README.md` and scripts, not generated keys.
-- `pnpm doctor` verifies Node >=22.13, pnpm 11, portless, PM2, the named route, process health, HTTPS trust, and auth-origin consistency. It checks mkcert/certificate SANs/expiry only when the fallback is selected.
+- `bun run doctor` independently verifies Bun 1.3.14 and Node >=22.13, plus pnpm 11.16.0, Portless, PM2, the named route, process health, HTTPS trust, and auth-origin consistency.
 - Verify secure cookies, browser secure context, auth redirects, no certificate warning, and no user-facing raw-port URL.
 - Provide local Postgres through the repository's minimal supported approach, with health check and isolated test database. Do not add unrelated service containers.
 
@@ -1104,41 +1104,41 @@ Requirements:
 Expose these root commands. Each must do real work or clearly report that a disabled optional capability is not applicable; no success-only placeholders.
 
 ```text
-pnpm dev
-pnpm dev:https
-pnpm typecheck
-pnpm build
-pnpm lint
-pnpm format
-pnpm format:check
-pnpm test
-pnpm test:unit
-pnpm test:integration
-pnpm test:contract
-pnpm test:e2e
-pnpm test:a11y
-pnpm graph:build
-pnpm graph:update
-pnpm graph:check
-pnpm graph:verify
-pnpm docs:generate
-pnpm docs:check
-pnpm openapi:generate
-pnpm openapi:check
-pnpm db:generate
-pnpm db:migrate
-pnpm db:seed
-pnpm db:reset
-pnpm certs:install
-pnpm certs:generate
-pnpm capability:add
-pnpm generate:feature <name>
-pnpm doctor
-pnpm verify
-pnpm run ci
+bun run dev
+bun run dev:https
+bun run typecheck
+bun run build
+bun run lint
+bun run format
+bun run format:check
+bun run test
+bun run test:unit
+bun run test:integration
+bun run test:contract
+bun run test:e2e
+bun run test:a11y
+bun run graph:build
+bun run graph:update
+bun run graph:check
+bun run graph:verify
+bun run docs:generate
+bun run docs:check
+bun run openapi:generate
+bun run openapi:check
+bun run db:generate
+bun run db:migrate
+bun run db:seed
+bun run db:reset
+bun run certs:install
+bun run certs:generate
+bun run capability:add
+bun run generate:feature <name>
+bun run doctor
+bun run verify
+bun run ci
 ```
 
-`pnpm verify` is the complete local lifecycle and `pnpm run ci` invokes the same composition. Implement the lifecycle as independently runnable core, integration, Graphify, and browser/a11y lanes. GitHub Actions executes all lanes concurrently with `fail-fast: false`; this preserves complete coverage while preventing environment-heavy work from serializing or hiding independent results.
+`bun run verify` is the complete local lifecycle and `bun run ci` invokes the same composition. GitHub Actions installs the frozen pnpm workspace, then executes Bun/Turbo-orchestrated lanes concurrently. Vitest alone runs through the package-local `corepack pnpm exec` path under Node because Bun 1.3.14 misloads Vitest's Vite `zod` dependency and lacks the V8 `node:inspector` coverage APIs.
 
 Keep `turbo.json` simple:
 
@@ -1238,10 +1238,10 @@ Graphify is a core developer-context capability. Commit its configuration and ge
 Required commands:
 
 ```bash
-pnpm graph:build
-pnpm graph:update
-pnpm graph:check
-pnpm graph:verify
+bun run graph:build
+bun run graph:update
+bun run graph:check
+bun run graph:verify
 ```
 
 `AGENTS.md` is the repository constitution and must instruct agents to:
@@ -1335,21 +1335,21 @@ Green gate:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm build
-pnpm lint
-pnpm format:check
-pnpm doctor
+bun run typecheck
+bun run build
+bun run lint
+bun run format:check
+bun run doctor
 ```
 
 Acceptance:
 
 - Only pnpm lockfile exists.
 - A minimal app compiles through Civet → Vite/vinext.
-- Node >=22.13 and pnpm 11 are enforced; Next `pageExtensions` includes `civet`; the Civet Vite plugin runs before vinext.
+- Bun 1.3.14, Node >=22.13, and pnpm 11.16.0 are enforced; Next `pageExtensions` includes `civet`; the Civet Vite plugin runs before vinext.
 - The web deploy path resolves through official `@vinext/cloudflare`; Alchemy owns only ancillary supported resources.
 - Root commands dispatch correctly through Turbo.
-- CI invokes the same scripts as local `pnpm run ci`.
+- CI invokes the same scripts as local `bun run ci`.
 - Disabled capabilities are truthful and dependencies are absent.
 
 Commit/push only after this gate is green; follow CI to green.
@@ -1365,16 +1365,16 @@ Run parallel only where file ownership is disjoint, then integrate in this order
 Green gates:
 
 ```bash
-pnpm db:reset
-pnpm db:migrate
-pnpm db:seed
-pnpm test:unit
-pnpm test:contract
-pnpm test:integration
-pnpm openapi:generate
-pnpm openapi:check
-pnpm typecheck
-pnpm build
+bun run db:reset
+bun run db:migrate
+bun run db:seed
+bun run test:unit
+bun run test:contract
+bun run test:integration
+bun run openapi:generate
+bun run openapi:check
+bun run typecheck
+bun run build
 ```
 
 Acceptance:
@@ -1406,11 +1406,11 @@ Build original UI; do not copy. Use only sans-serif typography.
 Green gates:
 
 ```bash
-pnpm typecheck
-pnpm build
-pnpm test:unit
-pnpm test:e2e -- --grep "public|auth|portal|theme"
-pnpm test:a11y
+bun run typecheck
+bun run build
+bun run test:unit
+bun run test:e2e -- --grep "public|auth|portal|theme"
+bun run test:a11y
 ```
 
 Browser acceptance:
@@ -1432,15 +1432,15 @@ Use contract-first TDD. Implement the full vertical slice and safe generator.
 Green gate:
 
 ```bash
-pnpm test:unit -- --runInBand
-pnpm test:contract
-pnpm test:integration
-pnpm test:e2e -- --grep "feature item"
-pnpm generate:feature verification-fixture
-pnpm graph:update
-pnpm graph:check
-pnpm typecheck
-pnpm build
+bun run test:unit -- --runInBand
+bun run test:contract
+bun run test:integration
+bun run test:e2e -- --grep "feature item"
+bun run generate:feature verification-fixture
+bun run graph:update
+bun run graph:check
+bun run typecheck
+bun run build
 ```
 
 Run generator verification in a disposable fixture, not by leaving `verification-fixture` in the product tree.
@@ -1465,15 +1465,15 @@ Commit/push only after green; follow CI.
 Green gates:
 
 ```bash
-pnpm certs:generate
-pnpm doctor
-pnpm graph:build
-pnpm graph:check
-pnpm docs:generate
-pnpm docs:check
-pnpm openapi:check
-pnpm capability:add --help
-pnpm dev:https
+bun run certs:generate
+bun run doctor
+bun run graph:build
+bun run graph:check
+bun run docs:generate
+bun run docs:check
+bun run openapi:check
+bun run capability:add --help
+bun run dev:https
 ```
 
 Browser/smoke acceptance:
@@ -1494,11 +1494,11 @@ Commit/push only after green; follow CI.
 Commands:
 
 ```bash
-pnpm db:reset
-pnpm db:migrate
-pnpm db:seed
-pnpm verify
-pnpm run ci
+bun run db:reset
+bun run db:migrate
+bun run db:seed
+bun run verify
+bun run ci
 ```
 
 Then exercise the built app through portless-managed `https://darkfactory.localhost` in a real browser, including all routes and seeded roles. Validate the official `@vinext/cloudflare` build/deploy preview path and the separate Alchemy ancillary-resource plan without leaking or requiring production secrets; do not invent an Alchemy vinext adapter.
@@ -1508,7 +1508,7 @@ Acceptance:
 - Full matrix is green.
 - No console errors, failed network requests, certificate warnings, hydration errors, or accessibility blockers in exercised paths.
 - All generated files are current.
-- `pnpm run ci` matches GitHub Actions.
+- `bun run ci` matches GitHub Actions.
 - Latest pushed commit has green CI.
 - Evidence bundle and definition-of-done checklist are complete.
 

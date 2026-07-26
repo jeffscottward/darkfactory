@@ -171,70 +171,62 @@ export const runCoverageAction = async (
   const failed = (reason: string, changed = false): CoverageReport =>
     report(action, false, changed, reason)
 
+  let rawSummary: string
   try {
-    let rawSummary: string
-    try {
-      rawSummary = await dependencies.files.readRawSummary()
-    } catch (error) {
-      if (error instanceof CoverageSummaryMissingError) {
-        return failed(failureReasons.missingSummary)
-      }
-      return failed(error instanceof Error ? failureReasons.rawRead : failureReasons.unknown)
+    rawSummary = await dependencies.files.readRawSummary()
+  } catch (error) {
+    if (error instanceof CoverageSummaryMissingError) {
+      return failed(failureReasons.missingSummary)
     }
-
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(rawSummary)
-    } catch {
-      return failed(failureReasons.invalidJson)
-    }
-
-    let artifacts: CoverageArtifacts
-    try {
-      artifacts = buildCoverageArtifacts(parsed)
-    } catch (error) {
-      return failed(
-        error instanceof CoverageValidationError
-          ? error.reason
-          : failureReasons.unknown,
-      )
-    }
-
-    const expected = [
-      [COVERAGE_SUMMARY_PATH, serializeCoverageArtifact(artifacts.summary)],
-      [COVERAGE_BADGE_PATH, serializeCoverageBadge(artifacts.badge)],
-    ] as const
-    let current: readonly (string | undefined)[]
-    try {
-      current = await Promise.all(
-        expected.map(([path]) => dependencies.files.readCommitted(path)),
-      )
-    } catch (error) {
-      return failed(error instanceof Error ? failureReasons.committedRead : failureReasons.unknown)
-    }
-    const stale = expected.filter(([, content], index) => current[index] !== content)
-
-    if (action === "check") {
-      return stale.length === 0
-        ? report(action, true, false, "Committed coverage artifacts are current")
-        : failed("Committed coverage artifacts are stale or missing")
-    }
-    let changed = false
-    try {
-      for (const [path, content] of stale) {
-        await dependencies.files.writeCommitted(path, content)
-        changed = true
-      }
-    } catch (error) {
-      return failed(
-        error instanceof Error ? failureReasons.committedWrite : failureReasons.unknown,
-        changed,
-      )
-    }
-    return stale.length === 0
-      ? report(action, true, false, "Committed coverage artifacts are already current")
-      : report(action, true, true, "Committed coverage artifacts were updated")
-  } catch {
-    return failed(failureReasons.unknown)
+    return failed(error instanceof Error ? failureReasons.rawRead : failureReasons.unknown)
   }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawSummary)
+  } catch {
+    return failed(failureReasons.invalidJson)
+  }
+
+  let artifacts: CoverageArtifacts
+  try {
+    artifacts = buildCoverageArtifacts(parsed)
+  } catch (error) {
+    return failed((error as CoverageValidationError).reason)
+  }
+
+  const expected = [
+    [COVERAGE_SUMMARY_PATH, serializeCoverageArtifact(artifacts.summary)],
+    [COVERAGE_BADGE_PATH, serializeCoverageBadge(artifacts.badge)],
+  ] as const
+  let current: readonly (string | undefined)[]
+  try {
+    current = await Promise.all(
+      expected.map(([path]) => dependencies.files.readCommitted(path)),
+    )
+  } catch (error) {
+    return failed(error instanceof Error ? failureReasons.committedRead : failureReasons.unknown)
+  }
+  const stale = expected.filter(([, content], index) => current[index] !== content)
+
+  if (action === "check") {
+    return stale.length === 0
+      ? report(action, true, false, "Committed coverage artifacts are current")
+      : failed("Committed coverage artifacts are stale or missing")
+  }
+  let changed = false
+  try {
+    for (const [path, content] of stale) {
+      await dependencies.files.writeCommitted(path, content)
+      changed = true
+    }
+  } catch (error) {
+    return failed(
+      error instanceof Error ? failureReasons.committedWrite : failureReasons.unknown,
+      changed,
+    )
+  }
+  return stale.length === 0
+    ? report(action, true, false, "Committed coverage artifacts are already current")
+    : report(action, true, true, "Committed coverage artifacts were updated")
 }

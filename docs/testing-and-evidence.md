@@ -10,11 +10,11 @@ Run the narrowest check while iterating, then the complete gate required by the 
 
 | Change | Focused evidence | Follow-through |
 | --- | --- | --- |
-| Pure rule, schema, state transition, or typed error | Owning package's unit test | `pnpm test:unit` plus applicable static checks |
-| Drizzle repository, migration, auth boundary, transaction, or adapter | Real-PostgreSQL integration test | `pnpm test:integration` plus migration/schema checks |
-| Rendered route or user journey | Relevant Playwright project/spec and browser observation | `pnpm test:e2e`; include failure artifacts or screenshots required by the DF item |
-| oRPC contract | Contract test and generated OpenAPI check | `pnpm api:openapi:check`, typecheck, integration tests |
-| Auth schema | Focused auth test | `pnpm auth:schema:check` and relevant integration/E2E flow |
+| Pure rule, schema, state transition, or typed error | Owning package's unit test | `bun run test:unit` plus applicable static checks |
+| Drizzle repository, migration, auth boundary, transaction, or adapter | Real-PostgreSQL integration test | `bun run test:integration` plus migration/schema checks |
+| Rendered route or user journey | Relevant Playwright project/spec and browser observation | `bun run test:e2e`; include failure artifacts or screenshots required by the DF item |
+| oRPC contract | Contract test and generated OpenAPI check | `bun run api:openapi:check`, typecheck, integration tests |
+| Auth schema | Focused auth test | `bun run auth:schema:check` and relevant integration/E2E flow |
 | Feature generator | Disposable fixture or generator test | Generator matrix, static checks, graph update/verify |
 | Documentation only | Scoped link/path review and Markdown lint | No artificial application test |
 | Architecture, symbol, contract, or relationship | Focused behavior gate | Graphify update, check, verify, and representative queries |
@@ -26,8 +26,8 @@ Do not skip, weaken, snapshot away, or delete a failing test to obtain a green r
 The integration and browser suites must use controlled local dependencies, never production providers or credentials.
 
 ```bash
-pnpm db:test:up
-varlock run -- pnpm db:migrate
+bun run db:test:up
+varlock run -- bun run db:migrate
 ```
 
 Use an ignored test environment with `APP_ENV=test`, the local runner `DATABASE_URL`, a non-production Better Auth secret of at least 32 characters, and the canonical local URL. Optional live provider credentials are not needed for core deterministic tests.
@@ -35,65 +35,65 @@ Use an ignored test environment with `APP_ENV=test`, the local runner `DATABASE_
 Install the current Chromium binary when Playwright has not done so on the machine:
 
 ```bash
-pnpm exec playwright install chromium
+bunx --bun --no-install playwright install chromium
 ```
 
 ## Repository commands
 
 ```bash
-varlock run -- pnpm test:unit
-varlock run -- pnpm test:integration
-varlock run -- pnpm test:e2e
+varlock run -- bun run test:unit
+varlock run -- bun run test:integration
+varlock run -- bun run test:e2e
 ```
 
 The aggregate test script runs unit, contract, operations, integration, E2E, and accessibility suites:
 
 ```bash
-varlock run -- pnpm test
+varlock run -- bun run test
 ```
 
 The broad deterministic pre-push lifecycle is:
 
 ```bash
-pnpm verify:core
+bun run verify:core
 ```
 
 Environment-heavy verification remains explicit:
 
 ```bash
-pnpm verify:coverage
-varlock run -- pnpm verify:integration
-pnpm verify:graph
-varlock run -- pnpm verify:browser
+bun run verify:coverage
+varlock run -- bun run verify:integration
+bun run verify:graph
+varlock run -- bun run verify:browser
 ```
 
 The complete sequential local lifecycle and its CI alias are:
 
 ```bash
-varlock run -- pnpm verify
-varlock run -- pnpm run ci
+varlock run -- bun run verify
+varlock run -- bun run ci
 ```
 
-`verify` composes all five lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; coverage enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. Never substitute bare `pnpm ci`; that is pnpm's clean-install command.
+`verify` composes all five lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; coverage enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. pnpm remains limited to installation/workspace selection and the measured Node coverage exception.
 
 Stop the local database after the evidence is captured:
 
 ```bash
-pnpm db:test:down
+bun run db:test:down
 ```
 
 ## Coverage lane
 
-`pnpm test:coverage` runs the Vitest `unit`, `contract`, and `operations` projects serially with the V8 provider. The measured authored-source scope is `apps/*/src`, `packages/*/src`, and `scripts`. Test and spec files, declarations, generated directories, generated `*.civet.tsx` output, the generated feature-navigation registry, and three filesystem-timing-dependent authored modules are excluded explicitly.
+All Vitest invocations use the package-local binary under Node through `corepack pnpm exec`. This is a narrow measured compatibility exception: Bun 1.3.14 misloads Vitest's Vite `zod` dependency during test execution, and it does not implement the `node:inspector` coverage APIs required by `@vitest/coverage-v8`. Bun and Turbo continue to orchestrate the surrounding lifecycle and package tasks. `bun run test:coverage` runs the Vitest `unit`, `contract`, and `operations` projects serially with the V8 provider. The measured authored-source scope is `apps/*/src`, `packages/*/src`, and `scripts`. Test and spec files, declarations, generated directories, generated `*.civet.tsx` output, the generated feature-navigation registry, and three filesystem-timing-dependent authored modules are excluded explicitly.
 
 Tests for the email preview writer and the feature generator's path-safety and planning modules still execute in the unit and operations projects. Only those files' V8 contributions are omitted because repeated identical runs produce different branch and statement counts as asynchronous filesystem operations resolve; retaining them would make the committed byte check nondeterministic. PostgreSQL integration tests, Playwright journeys, accessibility tests, and generated code are not executed. The percentages therefore describe only the stated deterministic unit/contract/operations source scope; they are not evidence of browser, database, deployment, security, or production behavior.
 
 ```bash
-pnpm test:coverage
-pnpm coverage:generate
-pnpm coverage:check
-pnpm coverage:update
-pnpm verify:coverage
+bun run test:coverage
+bun run coverage:generate
+bun run coverage:check
+bun run coverage:update
+bun run verify:coverage
 ```
 
 V8 writes the ignored raw report to `coverage/coverage-summary.json`. `coverage:generate` validates its aggregate metrics and writes path-free, timestamp-free artifacts to `docs/assessments/coverage-summary.json` and `docs/assessments/coverage-badge.json` through same-directory synchronized temporary files and atomic renames. `coverage:check` regenerates both representations in memory and requires an exact byte match, detecting any mixed baseline left by interruption. Rerun `coverage:generate` to recover. `coverage:update` is the deliberate baseline-refresh path; review both artifact changes rather than accepting them automatically. `verify:coverage` reruns the lane and performs the byte check; the root `verify` command composes it with the other four lanes.
@@ -104,13 +104,13 @@ The committed deterministic-scope baseline is 87.68% lines (8,394/9,573), 84.08%
 
 ### Assertion-enabled dynamic analysis
 
-`pnpm test:coverage` executes the application through Vitest with explicit `expect`, rejection, and thrown-error assertions enabled; any failed assertion makes the coverage lane fail. `pnpm verify:browser` separately exercises deployed application behavior with Playwright assertions. These assertions are test-only fault-detection controls and are not enabled in production builds.
+`bun run test:coverage` executes the application through Vitest with explicit `expect`, rejection, and thrown-error assertions enabled; any failed assertion makes the coverage lane fail. `bun run verify:browser` separately exercises deployed application behavior with Playwright assertions. These assertions are test-only fault-detection controls and are not enabled in production builds.
 
 ## Browser evidence
 
 Automated browser coverage currently uses Chromium at <https://darkfactory.localhost>. Playwright starts or reuses the portless route, retains traces and video on failure, and captures screenshots only on failure.
 
-For a DF item that requires visual, responsive, keyboard, authentication, cookie, or network evidence, record more than `pnpm test:e2e`:
+For a DF item that requires visual, responsive, keyboard, authentication, cookie, or network evidence, record more than `bun run test:e2e`:
 
 1. Revision and browser version.
 2. Route and initial database/persona state.
@@ -128,9 +128,9 @@ For a DF item that requires visual, responsive, keyboard, authentication, cookie
 After a change to features, public symbols, contracts, database relationships, or architecture:
 
 ```bash
-pnpm graph:update
-pnpm graph:check
-pnpm graph:verify
+bun run graph:update
+bun run graph:check
+bun run graph:verify
 ```
 
 Both refresh commands clear only Graphify's known generated graph, cache, analysis, and tool-manifest entries before extraction. This prevents absolute snapshot roots from mixing stale and current node identities while preserving unrelated files. A failed refresh leaves freshness and query gates closed.
@@ -142,9 +142,9 @@ Record the Graphify version, graph digest/manifest, source fingerprint, source f
 Generated artifacts are checked against their sources rather than hand-edited:
 
 ```bash
-pnpm auth:schema:check
-pnpm api:openapi:check
-pnpm db:check
+bun run auth:schema:check
+bun run api:openapi:check
+bun run db:check
 ```
 
 For the final bundle, record:
@@ -162,7 +162,7 @@ For the final bundle, record:
 
 The CI badge is a pointer to GitHub Actions, not durable evidence by itself. Final evidence needs the workflow run URL, commit SHA, attempt number, terminal conclusion, and artifact URLs or an explicit statement that no artifact was produced.
 
-The current workflow verifies the repository but does not deploy it. `pnpm deploy:web:preview` and `pnpm deploy:web` are explicit credentialed Cloudflare operations. Do not run them as a documentation check, and do not mark deployment green without an authorized target plus observed deployment output and runtime probe.
+The current workflow verifies the repository but does not deploy it. `bun run deploy:web:preview` and `bun run deploy:web` are explicit credentialed Cloudflare operations. Do not run them as a documentation check, and do not mark deployment green without an authorized target plus observed deployment output and runtime probe.
 
 External or flaky blockers remain failures or blockers. Record the URL/log, owner, rerun count, next action, and stop condition. Never relabel a pending, skipped, cancelled, timed-out, infrastructure-owned, or unobserved result as green.
 
@@ -194,7 +194,7 @@ A final reviewer must be able to reproduce the result from the record without re
 For this documentation set, use a scoped command rather than a project-wide formatter or suite:
 
 ```bash
-pnpm exec markdownlint-cli2 README.md AGENTS.md TODO.md docs/local-development.md docs/testing-and-evidence.md docs/capabilities-and-deployment.md docs/security.md docs/adr/0001-vinext-alchemy-boundary.md docs/evidence-map.md
+bunx --bun --no-install markdownlint-cli2 README.md AGENTS.md TODO.md docs/local-development.md docs/testing-and-evidence.md docs/capabilities-and-deployment.md docs/security.md docs/adr/0001-vinext-alchemy-boundary.md docs/evidence-map.md
 ```
 
 Also verify every repository-relative link and referenced path. External links prove only that the source was consulted, not that an integration was executed.

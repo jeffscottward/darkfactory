@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url"
 import { ensureDevelopmentSeedIdentity } from "@darkfactory/auth/server"
 import {
   createNodeDatabase,
-  migrate,
   withTransaction,
 } from "@darkfactory/db/server"
+import { migrate } from "@darkfactory/db/server/migration"
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
@@ -48,7 +48,6 @@ const READINESS_TIMEOUT_MILLIS = 150_000
 const WORKER_TERMINATION_OPTIONS = {
   forceTimeoutMillis: 3_000,
   gracefulTimeoutMillis: 3_000,
-  taskkillTimeoutMillis: 2_000,
 } as const
 
 let database: PostgresTestDatabase

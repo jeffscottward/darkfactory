@@ -4,6 +4,7 @@ import {
   buildOpenApiDocument,
   serializeOpenApiDocument,
 } from "./openapi.civet"
+import { FeatureItemMetadataSchema } from "./contract.civet"
 
 const expectedOperations = [
   ["get", "/feature-items", "featureItems.list"],
@@ -69,3 +70,14 @@ describe "DF-051/052 oRPC application contract", ->
 
     expect(first).toBe(second)
     expect(first.endsWith("\n")).toBe(true)
+
+  it "round-trips nested JSON metadata and rejects non-JSON values", ->
+    const metadata = {
+      label: "release",
+      nested: { enabled: true, count: 3, values: [null, "stable"] },
+    }
+
+    expect(FeatureItemMetadataSchema.parse(metadata)).toEqual(metadata)
+    expect(() => FeatureItemMetadataSchema.parse({
+      invalid: undefined,
+    } as never)).toThrow()

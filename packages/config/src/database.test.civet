@@ -47,12 +47,25 @@ describe "composeDatabaseProfile", ->
       "postgresql://hyperdrive.internal/darkfactory_test"
     const profile = composeDatabaseProfile(serverEnvFor(), {
       connectionString: requestConnectionString,
+      trustedPlatform: "cloudflare-hyperdrive",
     })
 
     expect(profile.connection).toEqual({
       protocol: "postgresql",
       connectionString: requestConnectionString,
     })
+
+  it "rejects request bindings without an explicit trusted platform", ->
+    const compose = () => composeDatabaseProfile(
+      serverEnvFor(),
+      {
+        connectionString: "postgresql://untrusted.internal/darkfactory_test",
+      } as never,
+    )
+
+    expect(compose).toThrow(
+      "request binding must declare the trusted Cloudflare Hyperdrive platform",
+    )
 
   it "keeps DATABASE_URL mandatory even when a request binding is available", ->
     const composeWithoutDatabaseUrl = () =>
@@ -62,7 +75,10 @@ describe "composeDatabaseProfile", ->
           BETTER_AUTH_SECRET,
           CONTACT_THROTTLE_SECRET,
         }),
-        { connectionString: "postgresql://hyperdrive.internal/darkfactory_test" },
+        {
+          connectionString: "postgresql://hyperdrive.internal/darkfactory_test",
+          trustedPlatform: "cloudflare-hyperdrive",
+        },
       )
 
     expect(composeWithoutDatabaseUrl).toThrow("DATABASE_URL")
@@ -97,6 +113,7 @@ describe "composeDatabaseProfile", ->
     const composeWithInvalidBinding = () =>
       composeDatabaseProfile(serverEnvFor(), {
         connectionString: invalidConnectionString,
+        trustedPlatform: "cloudflare-hyperdrive",
       })
 
     expect(composeWithInvalidBinding).toThrow(DatabaseConfigurationError)
@@ -107,10 +124,28 @@ describe "composeDatabaseProfile", ->
     try
       composeDatabaseProfile(serverEnvFor(), {
         connectionString: invalidConnectionString,
+        trustedPlatform: "cloudflare-hyperdrive",
       })
     catch error
       expect(String(error)).not.toContain(invalidConnectionString)
 
+
+  it "rejects a syntactically malformed request binding without reflecting it", ->
+    const malformedConnectionString = "not a database URL"
+    const compose = () => composeDatabaseProfile(serverEnvFor(), {
+      connectionString: malformedConnectionString,
+      trustedPlatform: "cloudflare-hyperdrive",
+    })
+
+    expect(compose).toThrow(DatabaseConfigurationError)
+    expect(compose).toThrow(
+      "request binding connectionString must be a PostgreSQL URL",
+    )
+    try {
+      compose()
+    } catch (error) {
+      expect(String(error)).not.toContain(malformedConnectionString)
+    }
   it "does not add database configuration or secrets to client config", ->
     const env = serverEnvFor("planetscale")
     const clientEnv = toClientEnv(env)

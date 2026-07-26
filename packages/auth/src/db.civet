@@ -45,18 +45,120 @@ const unauthenticated = (): Response => Response.json(
   { status: 401, headers: { "cache-control": "no-store" } },
 )
 
-const isConfirmedCookieExpiry = async (response: Response): Promise<boolean> => {
-  if (!response.ok || !response.headers.get("set-cookie")) return false
-  try {
+const BETTER_AUTH_SESSION_COOKIE_NAMES = new Set([
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+])
+
+type SessionCookieExpiry = "unrelated" | "cleared" | "not-cleared"
+
+const sessionCookieExpiry = (
+  setCookie: string,
+  now: number,
+): SessionCookieExpiry =>
+  const [cookiePair = "", ...attributes] = setCookie.split(";")
+  const pairSeparator = cookiePair.indexOf("=")
+  const cookieName = (
+    pairSeparator === -1
+      ? cookiePair
+      : cookiePair.slice(0, pairSeparator)
+  ).trim()
+  if (!BETTER_AUTH_SESSION_COOKIE_NAMES.has(cookieName))
+    return "unrelated"
+  if (pairSeparator <= 0 || cookiePair.slice(0, pairSeparator) !== cookieName)
+    return "not-cleared"
+  if (cookiePair.includes(","))
+    return "not-cleared"
+
+  let maxAgeClears: boolean | undefined
+  let expiresClears: boolean | undefined
+  let hasRootPath = false
+  let hasSecure = false
+  for rawAttribute of attributes
+    const attribute = rawAttribute.trim()
+    if (!attribute) continue
+    const attributeSeparator = attribute.indexOf("=")
+    const attributeName = (
+      attributeSeparator === -1
+        ? attribute
+        : attribute.slice(0, attributeSeparator)
+    ).trim().toLowerCase()
+    if (attribute.includes(",") && attributeName !== "expires")
+      return "not-cleared"
+
+    if (attributeName === "max-age")
+      if (attributeSeparator === -1 || maxAgeClears !== undefined)
+        return "not-cleared"
+      const value = attribute.slice(attributeSeparator + 1).trim()
+      if (!/^-?\d+$/.test(value))
+        return "not-cleared"
+      const maxAge = Number(value)
+      if (!Number.isSafeInteger(maxAge))
+        return "not-cleared"
+      maxAgeClears = maxAge <= 0
+    else if (attributeName === "expires")
+      if (attributeSeparator === -1 || expiresClears !== undefined)
+        return "not-cleared"
+      const value = attribute.slice(attributeSeparator + 1).trim()
+      const expiresAt = Date.parse(value)
+      if (
+        !Number.isFinite(expiresAt)
+        || new Date(expiresAt).toUTCString() !== value
+      )
+        return "not-cleared"
+      expiresClears = expiresAt <= now
+    else if (attributeName === "path")
+      if (attributeSeparator === -1 || hasRootPath)
+        return "not-cleared"
+      if (attribute.slice(attributeSeparator + 1).trim() !== "/")
+        return "not-cleared"
+      hasRootPath = true
+    else if (attributeName === "domain")
+      return "not-cleared"
+    else if (attributeName === "partitioned")
+      return "not-cleared"
+    else if (attributeName === "secure")
+      if (attributeSeparator !== -1 || hasSecure)
+        return "not-cleared"
+      hasSecure = true
+
+  if (!hasRootPath)
+    return "not-cleared"
+  if (cookieName === "__Secure-better-auth.session_token" && !hasSecure)
+    return "not-cleared"
+  if (
+    maxAgeClears !== undefined
+    && expiresClears !== undefined
+    && maxAgeClears !== expiresClears
+  )
+    return "not-cleared"
+  maxAgeClears === true || expiresClears === true
+    ? "cleared"
+    : "not-cleared"
+
+const hasConfirmedSessionCookieExpiry = (
+  headers: Headers,
+  now = Date.now(),
+): boolean =>
+  let foundSessionCookie = false
+  for setCookie of headers.getSetCookie()
+    const expiry = sessionCookieExpiry(setCookie, now)
+    if (expiry === "unrelated") continue
+    if (foundSessionCookie || expiry !== "cleared") return false
+    foundSessionCookie = true
+  foundSessionCookie
+
+const isConfirmedCookieExpiry = async (response: Response): Promise<boolean> =>
+  if (!response.ok) return false
+  try
+    if (!hasConfirmedSessionCookieExpiry(response.headers)) return false
     const body = await response.clone().json() as unknown
     return typeof body === "object"
       && body !== null
       && !Array.isArray(body)
       && (body as Record<string, unknown>)["success"] === true
-  } catch {
+  catch
     return false
-  }
-}
 
 const isSameOriginPost = (
   request: Request,

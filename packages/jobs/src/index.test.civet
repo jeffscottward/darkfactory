@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   MAX_JOB_PAYLOAD_BYTES,
@@ -172,13 +172,15 @@ describe "recording jobs adapter", ->
     let getterCalls = 0
     const cyclic: Record<string, unknown> = {}
     cyclic["self"] = cyclic
-    Object.defineProperty(cyclic, "secret", {
+    const accessorContainer = {}
+    Object.defineProperty(accessorContainer, "secret", {
       enumerable: true,
       get: () => {
         getterCalls += 1
         return "secret"
       },
     })
+    cyclic["zAccessor"] = accessorContainer
     const jobs = createRecordingJobPort()
 
     const receipt = await jobs.enqueue(jsonJob, asPayload(cyclic))
@@ -218,6 +220,24 @@ describe "recording jobs adapter", ->
     })
     expect(descriptorCalls).toBe(0)
   
+
+  it "fails closed when a recorded payload can no longer be verified", async ->
+    const jobs = createRecordingJobPort()
+    await jobs.enqueue(uppercaseJob, { value: "original" })
+    const prototypeSpy = vi.spyOn(Object, "getPrototypeOf").mockReturnValue({})
+    let thrown: unknown
+
+    try
+      jobs.getEnvelopes()
+    catch error
+      thrown = error
+    finally
+      prototypeSpy.mockRestore()
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toBe(
+      "recorded job payload invariant violated"
+    )
   it "returns envelope snapshots that cannot mutate prior recordings", async ->
     const jobs = createRecordingJobPort()
     const payload = { value: "original" }
@@ -226,6 +246,74 @@ describe "recording jobs adapter", ->
 
     const snapshots = jobs.getEnvelopes()
     expect(snapshots[0]?.payload).toEqual({ value: "original" })
+
+  it "covers primitive roots, JSON numeric canonicalization, and reflective array invariants", ->
+    const valid = snapshotJobPayload({
+      disabled: false,
+      negativeZero: -0,
+    })
+    expect(valid.status).toBe("valid")
+    if (valid.status === "valid") {
+      expect(valid.payload["disabled"]).toBe(false)
+      expect(valid.payload["negativeZero"]).toBe(0)
+      expect(Object.is(valid.payload["negativeZero"], -0)).toBe(false)
+    }
+
+    for (const primitive of [null, "root", 1, false]) {
+      expect(snapshotJobPayload(primitive)).toEqual({ status: "invalid" })
+    }
+
+    const sparse = new Array(1)
+    const outOfOrder = new Proxy([0], {
+      ownKeys: () => ["length", "0"],
+    })
+    const describeMisindexed = (target: number[], key: string | symbol) =>
+      if key === "1"
+        return {
+          configurable: true,
+          enumerable: true,
+          value: 0,
+          writable: true,
+        }
+      Reflect.getOwnPropertyDescriptor(target, key)
+    const misindexed = new Proxy([0], {
+      ownKeys: () => ["1", "length"],
+      getOwnPropertyDescriptor: describeMisindexed,
+    })
+    let accessorReads = 0
+    const accessor = [0]
+    Object.defineProperty(accessor, "0", {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        accessorReads += 1
+        return 0
+      },
+    })
+    const hidden = [0]
+    Object.defineProperty(hidden, "0", {
+      configurable: true,
+      enumerable: false,
+      value: 0,
+      writable: true,
+    })
+    const disappearing = new Proxy([0], {
+      getOwnPropertyDescriptor: (target, key) => key === "0" ? undefined : Reflect.getOwnPropertyDescriptor(target, key),
+    })
+
+    for (const array of [
+      sparse,
+      outOfOrder,
+      misindexed,
+      accessor,
+      hidden,
+      disappearing,
+    ]) {
+      expect(snapshotJobPayload({ values: array })).toEqual({
+        status: "invalid",
+      })
+    }
+    expect(accessorReads).toBe(0)
 
 describe "jobs dependency inventory", ->
   it "contains no runtime, optional, or peer dependencies", async ->

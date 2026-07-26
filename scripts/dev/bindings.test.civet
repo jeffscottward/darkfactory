@@ -1,6 +1,8 @@
 import {
   chmod,
+  link,
   lstat,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -9,10 +11,15 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({ spawnSync: vi.fn() }))
+
+vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
 
 import {
   listTemporaryBindingFiles,
+  materializeWorkerBindings,
   writeWorkerBindings,
 } from "./bindings.civet"
 
@@ -25,11 +32,17 @@ const validBindings = [
   "",
 ].join("\n")
 
+const MAX_BINDING_BYTES = 128 * 1024
+
 const directory = async (): Promise<string> => {
   const path = await mkdtemp(join(tmpdir(), "darkfactory-bindings-"))
   directories.push(path)
   return path
 }
+
+beforeEach(() => {
+  mocks.spawnSync.mockReset()
+})
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => (
@@ -72,3 +85,109 @@ describe "development Worker bindings", ->
       "DATABASE_URL=postgresql://local.invalid/database\n",
     )).rejects.toThrow("malformed or incomplete")
     await expect(lstat(target)).rejects.toMatchObject({ code: "ENOENT" })
+
+  it "accepts the exact byte boundary and rejects empty, oversized, and malformed assignments", async ->
+    const root = await directory()
+    const target = join(root, ".dev.vars")
+    const prefix = `${validBindings}PADDING=`
+    const exactBindings = `${prefix}${"x".repeat(
+      MAX_BINDING_BYTES - Buffer.byteLength(prefix, "utf8"),
+    )}`
+
+    await writeWorkerBindings(target, exactBindings)
+    expect(Buffer.byteLength(await readFile(target), "utf8")).toBe(MAX_BINDING_BYTES)
+
+    for (const invalid of [
+      "",
+      "\n",
+      `${exactBindings}x`,
+      "lowercase=value\nDATABASE_URL=database\nBETTER_AUTH_SECRET=secret\nCONTACT_THROTTLE_SECRET=secret\n",
+      "DATABASE_URL=database\nBETTER_AUTH_SECRET=\nCONTACT_THROTTLE_SECRET=secret\n",
+      "DATABASE_URL=database\nBETTER_AUTH_SECRET=secret\n",
+    ]) {
+      await expect(writeWorkerBindings(target, invalid)).rejects.toThrow(
+        /empty|safe size|malformed|incomplete/i,
+      )
+    }
+
+  it "rejects directory and multiply-linked targets", async ->
+    const root = await directory()
+    const directoryTarget = join(root, "directory-target")
+    await mkdir(directoryTarget)
+    await expect(writeWorkerBindings(directoryTarget, validBindings)).rejects.toThrow(
+      "Existing Worker bindings path is unsafe",
+    )
+
+    const source = join(root, "linked-source")
+    const linkedTarget = join(root, "linked-target")
+    await writeFile(source, "unchanged")
+    await link(source, linkedTarget)
+    await expect(writeWorkerBindings(linkedTarget, validBindings)).rejects.toThrow(
+      "Existing Worker bindings path is unsafe",
+    )
+    expect(await readFile(source, "utf8")).toBe("unchanged")
+
+  it "returns only temporary binding files with both required name boundaries", async ->
+    const root = await directory()
+    await Promise.all([
+      writeFile(join(root, ".dev.vars.first.tmp"), ""),
+      writeFile(join(root, "prefix.dev.vars.second.tmp"), ""),
+      writeFile(join(root, ".dev.vars.third.txt"), ""),
+      writeFile(join(root, "unrelated.tmp"), ""),
+    ])
+
+    expect([...(await listTemporaryBindingFiles(root))].sort()).toEqual([
+      ".dev.vars.first.tmp",
+      "prefix.dev.vars.second.tmp",
+    ])
+
+  it "materializes validated Varlock output at the repository boundary", async ->
+    const root = await directory()
+    await mkdir(join(root, "apps", "web"), { recursive: true })
+    mocks.spawnSync.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      stdout: validBindings,
+    })
+
+    await materializeWorkerBindings(root)
+
+    expect(mocks.spawnSync).toHaveBeenCalledWith(
+      "varlock",
+      ["load", "--format", "env", "--compact"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: MAX_BINDING_BYTES,
+        timeout: 30_000,
+        windowsHide: true,
+      },
+    )
+    expect(await readFile(join(root, "apps", "web", ".dev.vars"), "utf8")).toBe(
+      validBindings,
+    )
+    expect(await listTemporaryBindingFiles(join(root, "apps", "web"))).toEqual([])
+
+  it "rejects both nonzero and spawn-error Varlock outcomes without writing output", async ->
+    const root = await directory()
+    await mkdir(join(root, "apps", "web"), { recursive: true })
+    mocks.spawnSync.mockReturnValueOnce({
+      status: 1,
+      error: undefined,
+      stdout: validBindings,
+    })
+    await expect(materializeWorkerBindings(root)).rejects.toThrow(
+      "Unable to resolve validated Worker bindings",
+    )
+
+    mocks.spawnSync.mockReturnValueOnce({
+      status: 0,
+      error: new Error("spawn failed"),
+      stdout: validBindings,
+    })
+    await expect(materializeWorkerBindings(root)).rejects.toThrow(
+      "Unable to resolve validated Worker bindings",
+    )
+    await expect(lstat(join(root, "apps", "web", ".dev.vars"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })

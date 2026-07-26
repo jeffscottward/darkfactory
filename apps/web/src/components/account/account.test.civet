@@ -7,7 +7,13 @@ import type {
   ProfileUpdateInput,
 } from "@darkfactory/api"
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/account/security",
+}))
+
 import { AccountNavigation } from "./account-navigation.civet"
+import { AccountNavigationClient } from "./account-navigation-client.civet"
+import { AccountFeedbackMessage } from "./account-feedback.civet"
 import {
   accountFailureKind,
   createAccountGateway,
@@ -80,6 +86,11 @@ describe "account navigation", ->
     expect(html).toContain("flex-wrap")
     expect(html).not.toContain("overflow-x-auto")
     expect(html).not.toContain("min-w-max")
+
+  it "binds the client navigation to the current pathname accessibly", ->
+    const html = renderToStaticMarkup(<AccountNavigationClient />)
+    expect(html).toContain('href="/account/security"')
+    expect(html).toContain('aria-current="page"')
 
 describe "typed account gateway", ->
   it "constructs and server-renders loading state without a browser window", ->
@@ -181,6 +192,30 @@ describe "typed account gateway", ->
     expect(apiPreferences.get).toHaveBeenCalledWith({})
     expect(apiPreferences.update).toHaveBeenCalledWith(preferencesInput)
 
+
+  it "uses the browser origin resolver when only a client factory is injected", async ->
+    vi.stubGlobal("window", {
+      location: { origin: "https://owner.example.test" },
+    })
+    try {
+      const accountProfile = {
+        identity: { email: "alice@domain.test", emailVerified: true },
+        profile,
+      }
+      const get = vi.fn(async () => accountProfile)
+      const createClient = vi.fn(() => ({
+        account: { profile: { get } },
+      } as never))
+      const gateway = createBrowserAccountGateway({ createClient })
+
+      await expect(gateway.getProfile()).resolves.toBe(accountProfile)
+      expect(createClient).toHaveBeenCalledWith({
+        baseUrl: "https://owner.example.test",
+      })
+      expect(get).toHaveBeenCalledWith({})
+    } finally {
+      vi.unstubAllGlobals()
+    }
   it "uses the real profile and full-preference procedures", async ->
     const accountProfile = {
       identity: { email: "alice@domain.test", emailVerified: true },
@@ -303,6 +338,13 @@ describe "persisted account forms", ->
       locale: "en-GB",
       dateOfBirth: null,
     })
+    expect(changedProfileInput(profile, {
+      ...profile,
+      firstName: null,
+    })).toEqual({
+      expectedUpdatedAt: profile.updatedAt,
+      firstName: null,
+    })
 
   it "renders complete durable preferences without a reduced-motion setting", ->
     const html = renderToStaticMarkup(<PreferencesForm initialPreferences={preferences} onSave={vi.fn()} />)
@@ -323,3 +365,26 @@ describe "persisted account forms", ->
       expectedUpdatedAt: preferences.updatedAt,
       productUpdates: true,
     })
+
+describe "account feedback accessibility", ->
+  it "renders nothing for explicit absence and maps every tone to stable live semantics", ->
+    expect(renderToStaticMarkup(<AccountFeedbackMessage feedback={null} />)).toBe("")
+
+    const error = renderToStaticMarkup(
+      <AccountFeedbackMessage feedback={{ tone: "error", message: "Save failed." }} />,
+    )
+    expect(error).toContain('role="alert"')
+    expect(error).toContain("border-destructive")
+
+    const success = renderToStaticMarkup(
+      <AccountFeedbackMessage feedback={{ tone: "success", message: "Saved." }} />,
+    )
+    expect(success).toContain('role="status"')
+    expect(success).toContain("border-primary")
+
+    const info = renderToStaticMarkup(
+      <AccountFeedbackMessage feedback={{ tone: "info", message: "Review this change." }} />,
+    )
+    expect(info).toContain('role="status"')
+    expect(info).toContain("border-border-strong")
+    expect(info).toContain('aria-live="polite"')

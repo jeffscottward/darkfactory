@@ -16,7 +16,6 @@ const LOCK_TIMEOUT_MILLISECONDS = 5_000
 const UNSAFE_TARGET_PATTERN = /(?:^|[_-])(prod|production|live)(?:$|[_-])/i
 const SAFE_IDENTIFIER_PATTERN = /^[a-z0-9_]+$/
 const SAFE_TEST_HOSTS = new Set([
-  "",
   "localhost",
   "127.0.0.1",
   "::1",
@@ -118,6 +117,12 @@ const parseDatabaseUrl = (databaseUrl: string): ValidatedDatabaseUrl => {
   }
 
   const hostname = normalizeHostname(parsedUrl.hostname.toLowerCase())
+
+  if (hostname.length === 0) {
+    throw new Error(
+      "Postgres test DATABASE_URL must include an explicit local host",
+    )
+  }
   const databaseName = decodeUrlComponent(parsedUrl.pathname.slice(1), "database name")
   const username = decodeUrlComponent(parsedUrl.username, "username")
   const password = decodeUrlComponent(parsedUrl.password, "password")
@@ -159,7 +164,7 @@ const parseDatabaseUrl = (databaseUrl: string): ValidatedDatabaseUrl => {
   return {
     parsedUrl,
     clientConfig: {
-      host: hostname.length === 0 ? undefined : hostname,
+      host: hostname,
       port: parsedPort,
       database: databaseName,
       user: username,
@@ -380,7 +385,7 @@ export const createPostgresTestDatabase = async (
       }
 
       const client = new Client(isolatedConfig)
-      let resolveTermination: (error: Error) => void = () => undefined
+      let resolveTermination!: (error: Error) => void
       const termination = new Promise<Error>((resolve) => {
         resolveTermination = resolve
       })
@@ -475,7 +480,11 @@ export const dropPostgresTestDatabase = async (
     await forceDropAndVerifyDatabase(state.maintenanceConfig, state.databaseName)
     databaseDropped = true
   } catch (dropError) {
-    cleanupErrors.push(dropError)
+    if (dropError instanceof AggregateError) {
+      cleanupErrors.push(...dropError.errors)
+    } else {
+      cleanupErrors.push(dropError)
+    }
   }
 
   if (databaseDropped) {

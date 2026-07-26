@@ -196,13 +196,16 @@ describe("doctor bounded filesystem adapter", () => {
 })
 
 describe("doctor dependency discovery", () => {
-  it("exposes current runtime paths and treats only nonempty environment values as configured", () => {
+  it("exposes injected runtime paths and treats only nonempty environment values as configured", () => {
     vi.stubEnv("EMPTY_DOCTOR_VALUE", "")
     vi.stubEnv("SPACE_DOCTOR_VALUE", " ")
-    const dependencies = nodeDoctorDependencies()
+    const dependencies = nodeDoctorDependencies({
+      cwd: () => "/workspace/darkfactory",
+      versions: { node: "26.3.1" },
+    })
 
-    expect(dependencies.nodeVersion).toBe(process.versions.node)
-    expect(dependencies.workingDirectory).toBe(process.cwd())
+    expect(dependencies.nodeVersion).toBe("26.3.1")
+    expect(dependencies.workingDirectory).toBe("/workspace/darkfactory")
     expect(dependencies.environmentHas("MISSING_DOCTOR_VALUE")).toBe(false)
     expect(dependencies.environmentHas("EMPTY_DOCTOR_VALUE")).toBe(false)
     expect(dependencies.environmentHas("SPACE_DOCTOR_VALUE")).toBe(true)

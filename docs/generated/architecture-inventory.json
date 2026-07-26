@@ -136,7 +136,8 @@
       "directory": "packages/db",
       "publicExports": [
         "./schema",
-        "./server"
+        "./server",
+        "./server/migration"
       ],
       "workspaceDependencies": []
     },

@@ -162,6 +162,129 @@ describe "resolveOtlpSignalUrls", ->
       )
     ).toBeUndefined()
 
+  it "classifies every private-network boundary without treating numeric-looking public hosts as private", ->
+    const publicCollectors = [
+      ["https://a.b.c.d", "a.b.c.d"],
+      ["https://-1.2.3.example", "-1.2.3.example"],
+      ["https://256.1.1.example", "256.1.1.example"],
+      ["https://100.63.0.1", "100.63.0.1"],
+      ["https://100.128.0.1", "100.128.0.1"],
+      ["https://169.253.0.1", "169.253.0.1"],
+      ["https://172.15.0.1", "172.15.0.1"],
+      ["https://172.32.0.1", "172.32.0.1"],
+      ["https://192.167.0.1", "192.167.0.1"],
+      ["https://198.17.0.1", "198.17.0.1"],
+      ["https://198.20.0.1", "198.20.0.1"],
+    ] as const
+    for (const [endpoint, allowedHost] of publicCollectors) {
+      expect(resolveOtlpSignalUrls(endpoint, {
+        allowedHosts: [allowedHost],
+      })).toEqual({
+        traces: `${endpoint}/v1/traces`,
+        metrics: `${endpoint}/v1/metrics`,
+      })
+    }
+
+    for (const [endpoint, allowedHost] of [
+      ["https://100.127.0.1", "100.127.0.1"],
+      ["https://172.31.0.1", "172.31.0.1"],
+      ["https://198.19.0.1", "198.19.0.1"],
+      ["https://[::]", "::"],
+    ] as const) {
+      expect(resolveOtlpSignalUrls(endpoint, {
+        allowedHosts: [allowedHost],
+        allowInsecureLocalhost: true,
+      })).toBeUndefined()
+    }
+
+describe "initialize telemetry edge paths", ->
+
+  it "ignores inherited-looking header enumeration without accepting an unknown header", async ->
+    let descriptorReads = 0
+    const headers = new Proxy({}, {
+      ownKeys: () => ["coverage-inherited-header"],
+      getOwnPropertyDescriptor: () => {
+        descriptorReads += 1
+        return descriptorReads === 1
+          ? {
+              configurable: true,
+              enumerable: true,
+              value: "ignored",
+              writable: true,
+            }
+          : undefined
+      },
+    }) as Readonly<Record<string, string>>
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpHeaders: headers,
+      testExport: true,
+    })
+
+    expect(runtime.state).toEqual({ status: "in-memory" })
+    expect(descriptorReads).toBe(2)
+    await runtime.dispose()
+
+  it "applies an explicit insecure-loopback policy during initialization", async ->
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpEndpoint: "http://localhost:4318",
+      otlpAllowedHosts: ["localhost"],
+      allowInsecureOtlpLocalhost: true,
+      testExport: true,
+    })
+
+    expect(runtime.state).toEqual({ status: "in-memory" })
+    await runtime.dispose()
+
+  it "contains non-record span attributes and accessor metric metadata", async ->
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+    })
+    let accessorReads = 0
+    const metricAttributes = {}
+    Object.defineProperties(metricAttributes, {
+      eventName: {
+        enumerable: true,
+        get: () => {
+          accessorReads += 1
+          return "feature-item.created"
+        },
+      },
+      outcome: {
+        enumerable: true,
+        get: () => {
+          accessorReads += 1
+          return "success"
+        },
+      },
+    })
+
+    for (const attributes of [null, [], "private scalar"] as const) {
+      await runtime.withSpan(
+        {
+          name: "non-record.attributes",
+          correlation: { requestId: "request_non_record" },
+          attributes: attributes as never,
+        },
+        (span) => {
+          span.recordMetric({
+            name: "darkfactory.semantic_event",
+            value: 1,
+            attributes: metricAttributes,
+          })
+        },
+      )
+    }
+    await runtime.forceFlush()
+
+    expect(accessorReads).toBe(0)
+    expect(runtime.testExports?.traces.getFinishedSpans()).toHaveLength(3)
+    await runtime.dispose()
 describe "initializeTelemetry", ->
   it "reports explicit disabled, unconfigured, and no-export states", async ->
     const disabled = initializeTelemetry({ enabled: false })
@@ -372,6 +495,18 @@ describe "initializeTelemetry", ->
         },
       }
     )
+    let disappearingDescriptorReads = 0
+    const disappearingHeaders = new Proxy(
+      { authorization: "credential-marker" },
+      {
+        getOwnPropertyDescriptor: (target, key) => {
+          disappearingDescriptorReads += 1
+          return disappearingDescriptorReads === 3
+            ? undefined
+            : Reflect.getOwnPropertyDescriptor(target, key)
+        },
+      },
+    )
     const invalidHeaders: unknown[] = [
       Object.assign(Object.create({ inherited: true }), {
         authorization: "credential-marker",
@@ -384,6 +519,19 @@ describe "initializeTelemetry", ->
       { authorization: "a".repeat(4_097) },
       { authorization: "first-line\nsecond-line" },
       { authorization: 42 },
+      { "x-unknown": "credential-marker" },
+      Object.fromEntries([
+        ["authorization", "Bearer raw-authorization-secret"],
+        ["x-api-key", "raw-api-key-secret"],
+        ["x-honeycomb-dataset", "raw-dataset-secret"],
+        ["x-honeycomb-team", "raw-team-secret"],
+        ["x-otlp-api-key", "raw-otlp-secret"],
+        ["x-unknown-1", "raw-header-secret-1"],
+        ["x-unknown-2", "raw-header-secret-2"],
+        ["x-unknown-3", "raw-header-secret-3"],
+        ["x-unknown-4", "raw-header-secret-4"],
+      ]),
+      disappearingHeaders,
       accessorHeaders,
       throwingHeaders,
     ]

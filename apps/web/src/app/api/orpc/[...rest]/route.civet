@@ -30,6 +30,7 @@ import {
 import { createSemanticEventFanout } from "@darkfactory/observability/server/fanout"
 import { initializeTelemetry } from "@darkfactory/observability/server/otel"
 
+import { createBackgroundTaskLifecycle } from "../../../../lib/background-task-lifecycle.civet"
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
 import { handleOrpcRequest } from "./handler.civet"
 import {
@@ -133,6 +134,16 @@ const handleOrpc = async (request: Request): Promise<Response> => {
       const database = await createRequestDatabase({
         connectionString: databaseProfile.connection.connectionString,
       })
+      const backgroundTasks = createBackgroundTaskLifecycle(
+        waitUntil,
+        async () => {
+          try {
+            await database.close()
+          } catch (_error) {
+            // Closure is best-effort after the request result has been determined.
+          }
+        },
+      )
 
       try {
         const contactThrottle = isContactSubmission
@@ -199,7 +210,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
           secret: env.BETTER_AUTH_SECRET,
           baseURL: env.BETTER_AUTH_URL,
           trustedOrigins: [env.APP_URL],
-          scheduleBackgroundTask: (task) => waitUntil(task),
+          scheduleBackgroundTask: backgroundTasks.schedule,
         })
         const sink = createEvlogSink({
           runtime: evlogFor(env),
@@ -228,11 +239,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
         })
         return await handleOrpcRequest(effectiveRequest, context)
       } finally {
-        try {
-          await database.close()
-        } catch {
-          // Closure is best-effort after the request result has been determined.
-        }
+        await backgroundTasks.finalize()
       }
     },
   )

@@ -73,6 +73,57 @@ describe "auth request guard", ->
     expect(firstRun.settle).not.toHaveBeenCalled()
     expect(secondRun.settle).toHaveBeenCalledOnce()
 
+  it "invalidates an active request and allows the next request to recover", async ->
+    const guard = createRequestGuard()
+    const stale = deferred<string>()
+    const staleCommit = vi.fn()
+    const staleRun = run(guard, stale.promise, staleCommit)
+
+    guard.invalidate()
+    stale.resolve("stale")
+
+    await expect(staleRun.completion).resolves.toBe(false)
+    expect(staleCommit).not.toHaveBeenCalled()
+    expect(staleRun.settle).not.toHaveBeenCalled()
+
+    const currentCommit = vi.fn()
+    await expect(
+      runGuardedRequest({
+        guard,
+        request: async () => "recovered",
+        commit: currentCommit,
+      }),
+    ).resolves.toBe(true)
+    expect(currentCommit).toHaveBeenCalledWith("recovered")
+
+  it "settles a failed current request and keeps the guard reusable", async ->
+    const guard = createRequestGuard()
+    const failure = new Error("request failed")
+    const commit = vi.fn()
+    const settle = vi.fn()
+
+    await expect(
+      runGuardedRequest({
+        guard,
+        request: async () => {
+          throw failure
+        },
+        commit,
+        settle,
+      }),
+    ).rejects.toBe(failure)
+    expect(commit).not.toHaveBeenCalled()
+    expect(settle).toHaveBeenCalledOnce()
+
+    await expect(
+      runGuardedRequest({
+        guard,
+        request: async () => "next request",
+        commit,
+      }),
+    ).resolves.toBe(true)
+    expect(commit).toHaveBeenCalledWith("next request")
+
   it "binds both redirecting auth forms to the shared guarded controller", ->
     expect(signInRequestController).toBe(runGuardedRequest)
     expect(resetPasswordRequestController).toBe(runGuardedRequest)

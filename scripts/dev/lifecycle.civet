@@ -2,7 +2,7 @@ export const PROCESS_NAME = "darkfactory-web-dev"
 export const ROUTE_NAME = "darkfactory"
 export const CANONICAL_URL = "https://darkfactory.localhost"
 export const MAX_COMMAND_OUTPUT_BYTES = 1_048_576
-export const PM2_ENVIRONMENT_VERSION = "1"
+export const PM2_ENVIRONMENT_VERSION = "2"
 
 export const PM2_ENVIRONMENT_VERSION_KEY = "DARKFACTORY_PM2_ENVIRONMENT_VERSION"
 const SENSITIVE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
@@ -125,10 +125,11 @@ export const parsePm2ProcessList = (
     ? executable.replaceAll("\\", "/").split("/").at(-1)
     : undefined
   const validArguments = Array.isArray(arguments_) &&
-    arguments_.length === 3 &&
+    arguments_.length === 4 &&
     arguments_[0] === ROUTE_NAME &&
-    arguments_[1] === "pnpm" &&
-    arguments_[2] === "dev"
+    arguments_[1] === "bun" &&
+    arguments_[2] === "run" &&
+    arguments_[3] === "dev"
   if (
     !Number.isSafeInteger(processId) ||
     Number(processId) < 0 ||
@@ -250,12 +251,9 @@ const runSimpleAction = async (
   command: string,
   arguments_: readonly string[],
   success: string,
-  interactive = false,
   options: CommandOptions = commandOptions,
 ): Promise<DevelopmentReport> => {
-  const result = interactive
-    ? await process.runInteractive(command, arguments_, options)
-    : await process.run(command, arguments_, options)
+  const result = await process.runInteractive(command, arguments_, options)
   return Object.freeze({
     action,
     ok: result.exitCode === 0,
@@ -276,7 +274,7 @@ const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | n
   })
   return proxy.exitCode === 0
     ? null
-    : "Canonical HTTPS proxy failed; run pnpm dev:trust and retry"
+    : "Canonical HTTPS proxy failed; run bun run dev:trust and retry"
 }
 
 const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
@@ -336,7 +334,7 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
   }
 
   const startArguments = initial.processStatus === "absent"
-    ? ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "pnpm", "dev"]
+    ? ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"]
     : ["start", String(initial.processId)]
   const started = await process.run("pm2", startArguments, {
     ...commandOptions,
@@ -467,12 +465,11 @@ export const runDevelopmentAction = async (
       "portless",
       ["trust"],
       "portless trust configured",
-      true,
       { ...commandOptions, environment: { PORTLESS_PORT: "443" } },
     )
   }
   if (action === "certs-install") {
-    return runSimpleAction(action, process, "mkcert", ["-install"], "mkcert fallback trust configured", true)
+    return runSimpleAction(action, process, "mkcert", ["-install"], "mkcert fallback trust configured")
   }
 
   if (!files) {

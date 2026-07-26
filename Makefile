@@ -1,15 +1,13 @@
-PNPM := corepack pnpm@11.16.0
-
 .PHONY: setup lint test verify
 
 setup:
-	$(PNPM) install --frozen-lockfile
+	sh scripts/install-prerequisites.sh
 
 lint:
-	$(PNPM) run lint
+	bun run lint
 
 test:
-	$(PNPM) run test:unit
+	bun run test:unit
 
 verify:
-	$(PNPM) run verify
+	bun run verify

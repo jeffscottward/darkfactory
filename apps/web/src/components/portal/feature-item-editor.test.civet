@@ -98,6 +98,9 @@ const hookRuntime = vi.hoisted(() => {
         }
       }
     },
+    unmount: () => {
+      for (const slot of effectSlots) slot.cleanup?.()
+    },
     lastFocus: (): string | undefined => focusHistory.at(-1),
     reset: () => {
       for (const slot of effectSlots) slot.cleanup?.()
@@ -277,6 +280,7 @@ const mountEditor = (gateway: FeatureItemGateway) => ({
     hookRuntime.commit(tree)
     return tree
   },
+  unmount: hookRuntime.unmount,
 })
 
 const flushMicrotasks = async ->
@@ -353,8 +357,13 @@ describe "feature item editor", ->
     const saveRequest = deferred<FeatureItemOutput>()
     const update = vi.fn(() => saveRequest.promise)
     const changeStatus = vi.fn(async (_id, status) => item({ status }))
-    const mount = mountEditor(gatewayWith({ update, changeStatus }))
+    const archive = vi.fn()
+    const mount = mountEditor(gatewayWith({ archive, update, changeStatus }))
     let tree = await renderLoadedEditor(mount)
+
+    click(tree, "Archive feature item")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Archive this item?")
 
     changeValue(tree, "edit-feature-name", "Changed once")
     tree = mount.render()
@@ -366,8 +375,14 @@ describe "feature item editor", ->
     expect(elementById(tree, "edit-feature-name").props["disabled"]).toBe(true)
     expect(elementById(tree, "edit-feature-description").props["disabled"]).toBe(true)
     expect(elementById(tree, "edit-feature-status").props["disabled"]).toBe(true)
+    const disabledSave = click(tree, "Save changes") as Promise<void>
+    const disabledArchive = click(tree, "Archive") as Promise<void>
+    await Promise.all([disabledSave, disabledArchive])
+    expect(update).toHaveBeenCalledOnce()
+    expect(archive).not.toHaveBeenCalled()
     expect(controlByText(tree, "Save changes")?.props["loading"]).toBe(true)
-    expect(controlByText(tree, "Archive feature item")?.props["disabled"]).toBe(true)
+    expect(controlByText(tree, "Save changes")?.props["disabled"]).toBe(true)
+    expect(controlByText(tree, "Archive")?.props["disabled"]).toBe(true)
     expect(markup(tree)).toContain("Saving changes")
 
     changeValue(tree, "edit-feature-status", "active")
@@ -403,6 +418,49 @@ describe "feature item editor", ->
 
     await (changeValue(tree, "edit-feature-status", "active") as Promise<void>)
     expect(changeStatus).toHaveBeenCalledTimes(2)
+
+  it "serializes duplicate status mutations through the synchronous guard", async ->
+    const statusRequest = deferred<FeatureItemOutput>()
+    const changeStatus = vi.fn(() => statusRequest.promise)
+    const mount = mountEditor(gatewayWith({ changeStatus }))
+    const tree = await renderLoadedEditor(mount)
+
+    const firstChange = changeValue(tree, "edit-feature-status", "active") as Promise<void>
+    const duplicateChange = changeValue(tree, "edit-feature-status", "active") as Promise<void>
+    expect(changeStatus).toHaveBeenCalledOnce()
+
+    statusRequest.resolve(item({ status: "active" }))
+    await Promise.all([firstChange, duplicateChange])
+    expect(changeStatus).toHaveBeenCalledWith("item-1", "active")
+
+  it "ignores a successful initial load after unmount", async ->
+    const request = deferred<FeatureItemOutput>()
+    const get = vi.fn(() => request.promise)
+    const mount = mountEditor(gatewayWith({ get }))
+    let tree = mount.render()
+    expect(markup(tree)).toContain("Loading feature item")
+
+    mount.unmount()
+    request.resolve(item({ name: "Stale success" }))
+    await flushMicrotasks()
+    tree = mount.render()
+    expect(markup(tree)).toContain("Loading feature item")
+    expect(markup(tree)).not.toContain("Stale success")
+    expect(get).toHaveBeenCalledOnce()
+
+  it "ignores a rejected initial load after unmount", async ->
+    const request = deferred<FeatureItemOutput>()
+    const get = vi.fn(() => request.promise)
+    const mount = mountEditor(gatewayWith({ get }))
+    mount.render()
+
+    mount.unmount()
+    request.reject({ code: "STORAGE_ERROR" })
+    await flushMicrotasks()
+    const tree = mount.render()
+    expect(markup(tree)).toContain("Loading feature item")
+    expect(markup(tree)).not.toContain("Feature item unavailable")
+    expect(get).toHaveBeenCalledOnce()
 
   const loadRecoveryCases = [
     {
@@ -482,6 +540,27 @@ describe "feature item editor", ->
         expect(get).toHaveBeenCalledTimes(2)
       }
   }
+
+  it "keeps a failed retry in the safe load-recovery state", async ->
+    const get = vi.fn()
+      .mockRejectedValueOnce({ code: "STORAGE_ERROR" })
+      .mockRejectedValueOnce({ code: "CONFLICT" })
+    const mount = mountEditor(gatewayWith({ get }))
+    mount.render()
+    await flushMicrotasks()
+    let tree = mount.render()
+    const retry = recoveryElement(tree)?.props["onRetry"] as (
+      () => Promise<void>
+    ) | undefined
+    expect(retry).toBeTypeOf("function")
+
+    await retry!()
+    tree = mount.render()
+    expect(markup(tree)).toContain(
+      "The feature item changed elsewhere. Reload and try again.",
+    )
+    expect(recoveryElement(tree)?.props["kind"]).toBe("conflict")
+    expect(get).toHaveBeenCalledTimes(2)
 
   const authorizationMutationCases = [
     {
@@ -563,6 +642,9 @@ describe "feature item editor", ->
     ))
     expect(region).toBeDefined()
     const onKeyDown = region!.props["onKeyDown"] as (event: { key: string }) => void
+    onKeyDown({ key: "Enter" })
+    tree = mount.render()
+    expect(markup(tree)).toContain("Archive this item?")
     onKeyDown({ key: "Escape" })
     tree = mount.render()
     expect(markup(tree)).not.toContain("Archive this item?")
@@ -582,16 +664,22 @@ describe "feature item editor", ->
     expect(markup(tree)).not.toContain("Archive this item?")
     expect(hookRuntime.lastFocus()).toBe("Archive feature item")
 
-  it "navigates to the collection after a confirmed archive", async ->
+  it "navigates once after duplicate confirmed archive actions", async ->
     const assign = vi.fn()
     vi.stubGlobal("window", { location: { assign } })
-    const archive = vi.fn(async () => item({ status: "archived" }))
+    const archiveRequest = deferred<FeatureItemOutput>()
+    const archive = vi.fn(() => archiveRequest.promise)
     const mount = mountEditor(gatewayWith({ archive }))
     let tree = await renderLoadedEditor(mount)
 
     click(tree, "Archive feature item")
     tree = mount.render()
-    await (click(tree, "Archive") as Promise<void>)
+    const firstArchive = click(tree, "Archive") as Promise<void>
+    const duplicateArchive = click(tree, "Archive") as Promise<void>
+    expect(archive).toHaveBeenCalledOnce()
 
+    archiveRequest.resolve(item({ status: "archived" }))
+    await Promise.all([firstArchive, duplicateArchive])
     expect(archive).toHaveBeenCalledWith("item-1")
+    expect(assign).toHaveBeenCalledOnce()
     expect(assign).toHaveBeenCalledWith("/feature-items")

@@ -94,4 +94,8 @@ describe("analytics package boundaries", () => {
       )
     },
   )
+  it("executes the browser poison module as a fail-closed boundary", async () => {
+    await expect(import("./server/unsupported.js")).rejects.toThrow(browserError)
+  })
+
 })

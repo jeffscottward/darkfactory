@@ -1,14 +1,75 @@
-import { randomUUID } from "node:crypto"
-import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createHash, randomUUID } from "node:crypto"
+import { access, link, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ execFile: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  execFile: vi.fn(),
+  fileSystem: {
+    lstat: vi.fn(),
+    open: vi.fn(),
+    readdir: vi.fn(),
+    realpath: vi.fn(),
+    rm: vi.fn(),
+    writeFile: vi.fn(),
+  },
+  fileSystemActual: {} as Pick<
+    typeof import("node:fs/promises"),
+    "lstat" | "mkdir" | "open" | "readdir" | "realpath" | "rename" | "rm" | "writeFile"
+  >,
+  compileCivetSnapshot: vi.fn(),
+  resetFileSystem: (): void => undefined,
+  resetCompiler: (): void => undefined,
+}))
 vi.mock("node:child_process", () => ({ execFile: mocks.execFile }))
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  Object.assign(mocks.fileSystemActual, {
+    lstat: actual.lstat,
+    mkdir: actual.mkdir,
+    open: actual.open,
+    readdir: actual.readdir,
+    realpath: actual.realpath,
+    rename: actual.rename,
+    rm: actual.rm,
+    writeFile: actual.writeFile,
+  })
+  const reset = (): void => {
+    mocks.fileSystem.lstat.mockReset().mockImplementation(actual.lstat)
+    mocks.fileSystem.open.mockReset().mockImplementation(actual.open)
+    mocks.fileSystem.readdir.mockReset().mockImplementation(actual.readdir)
+    mocks.fileSystem.realpath.mockReset().mockImplementation(actual.realpath)
+    mocks.fileSystem.rm.mockReset().mockImplementation(actual.rm)
+    mocks.fileSystem.writeFile.mockReset().mockImplementation(actual.writeFile)
+  }
+  mocks.resetFileSystem = reset
+  reset()
+  return {
+    ...actual,
+    lstat: mocks.fileSystem.lstat,
+    open: mocks.fileSystem.open,
+    readdir: mocks.fileSystem.readdir,
+    realpath: mocks.fileSystem.realpath,
+    rm: mocks.fileSystem.rm,
+    writeFile: mocks.fileSystem.writeFile,
+  }
+})
+vi.mock("./corpus.civet", async () => {
+  const actual = await vi.importActual<typeof import("./corpus.civet")>("./corpus.civet")
+  const reset = (): void => {
+    mocks.compileCivetSnapshot.mockReset().mockImplementation(actual.compileCivetSnapshot)
+  }
+  mocks.resetCompiler = reset
+  reset()
+  return { ...actual, compileCivetSnapshot: mocks.compileCivetSnapshot }
+})
 
 import { parseGraphConfig } from "./graph.civet"
 import {
+  createNodeGraphFileSystem,
   graphProcessEnvironment,
   isGraphSourceExcluded,
   nodeGraphFileSystem,
@@ -29,6 +90,8 @@ const previous = Object.fromEntries(
 )
 
 afterEach(() => {
+  mocks.resetFileSystem()
+  mocks.resetCompiler()
   vi.clearAllMocks()
   for (const [name, value] of Object.entries(previous)) {
     if (value === undefined) delete process.env[name]
@@ -44,18 +107,43 @@ const exists = async (path: string): Promise<boolean> => {
     return false
   }
 }
-const snapshotConfig = (root: string) => parseGraphConfig(JSON.stringify({
+const snapshotConfig = (
+  root: string,
+  extensions: readonly string[] = [".ts"],
+) => parseGraphConfig(JSON.stringify({
   version: 1,
   graphPath: "graphify-out/graph.json",
   manifestPath: ".graphify/manifest.json",
   source: {
     roots: [root],
     files: ["package.json"],
+    extensions,
+    excludes: ["node_modules"],
+  },
+  verificationPath: ["from", "to"],
+}))
+const configuredSourceConfig = (
+  roots: readonly string[],
+  files: readonly string[],
+) => parseGraphConfig(JSON.stringify({
+  version: 1,
+  graphPath: "graphify-out/graph.json",
+  manifestPath: ".graphify/manifest.json",
+  source: {
+    roots,
+    files,
     extensions: [".ts"],
     excludes: ["node_modules"],
   },
   verificationPath: ["from", "to"],
 }))
+const isolatedSnapshotFileSystem = () => {
+  const namespace = randomUUID()
+  return {
+    fileSystem: createNodeGraphFileSystem(namespace),
+    path: `.graphify/source-snapshot-${createHash("sha256").update(namespace).digest("hex")}`,
+  }
+}
 
 describe("Graphify source snapshot", () => {
   it("uses a deterministic repo-relative path and removes its owned snapshot", async () => {
@@ -63,10 +151,11 @@ describe("Graphify source snapshot", () => {
     const source = join(root, "source.ts")
     await mkdir(root, { recursive: true })
     await writeFile(source, "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
 
     try {
-      const snapshot = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig(root))
-      expect(snapshot.path).toBe(".graphify/source-snapshot")
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+      expect(snapshot.path).toBe(isolated.path)
       await expect(readFile(join(snapshot.path, source), "utf8")).resolves.toBe(
         "export const source = true\n",
       )
@@ -74,18 +163,175 @@ describe("Graphify source snapshot", () => {
       await expect(exists(snapshot.path)).resolves.toBe(false)
     } finally {
       await rm(root, { force: true, recursive: true })
-      await rm(".graphify/source-snapshot", { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a symlink in an ancestor of a configured source root", async () => {
+    const root = join("scripts", "graph", `system-root-symlink-${randomUUID()}`)
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-graph-outside-"))
+    const configuredRoot = join(root, "escape", "nested")
+    const absoluteRoot = join(process.cwd(), configuredRoot)
+    await mkdir(root, { recursive: true })
+    await mkdir(join(outside, "nested"), { recursive: true })
+    await writeFile(join(outside, "nested", "outside.ts"), "outside-root-sentinel")
+    await symlink(outside, join(root, "escape"))
+    const config = parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots: [configuredRoot],
+        files: ["package.json"],
+        extensions: [".ts"],
+        excludes: ["node_modules"],
+      },
+      verificationPath: ["from", "to"],
+    }))
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(config))
+        .rejects.toThrow(/symbolic link|symlink/i)
+      expect(mocks.fileSystem.readdir.mock.calls.some(
+        ([path]) => String(path) === absoluteRoot,
+      )).toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a nested-parent source symlink without reading or snapshotting outside bytes", async () => {
+    const root = join("scripts", "graph", `system-file-symlink-${randomUUID()}`)
+    const safeRoot = join(root, "safe")
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-graph-outside-"))
+    const sentinel = "outside-secret-sentinel"
+    const configuredSource = join(root, "escape", "nested", "secret")
+    const absoluteSource = join(process.cwd(), configuredSource)
+    await mkdir(safeRoot, { recursive: true })
+    await mkdir(join(outside, "nested"), { recursive: true })
+    await writeFile(join(outside, "nested", "secret"), sentinel)
+    await symlink(outside, join(root, "escape"))
+    const config = parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots: [safeRoot],
+        files: [configuredSource],
+        extensions: [".ts"],
+        excludes: ["node_modules"],
+      },
+      verificationPath: ["from", "to"],
+    }))
+    const isolated = isolatedSnapshotFileSystem()
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/symbolic link|symlink/i)
+      expect(mocks.fileSystem.open.mock.calls.some(
+        (call) => String(call[0]) === absoluteSource,
+      )).toBe(false)
+      expect(mocks.fileSystem.writeFile.mock.calls.some(
+        (call) => String(call[0]).startsWith(isolated.path) && String(call[1]).includes(sentinel),
+      )).toBe(false)
+      await expect(exists(isolated.path)).resolves.toBe(false)
+      await expect(readFile(join(outside, "nested", "secret"), "utf8")).resolves.toBe(sentinel)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+      await rm(isolated.path, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a source swapped before open without reading the replacement bytes", async () => {
+    const root = join("scripts", "graph", `system-open-race-${randomUUID()}`)
+    const safeRoot = join(root, "safe")
+    const source = join(root, "source.ts")
+    const absoluteSource = join(process.cwd(), source)
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-graph-outside-"))
+    const outsideSource = join(outside, "secret")
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(source, "export const source = true\n")
+    await writeFile(outsideSource, "outside-replacement-sentinel")
+    const config = parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots: [safeRoot],
+        files: [source],
+        extensions: [".ts"],
+        excludes: ["node_modules"],
+      },
+      verificationPath: ["from", "to"],
+    }))
+    const isolated = isolatedSnapshotFileSystem()
+    const replacement = await mocks.fileSystemActual.open(outsideSource, "r")
+    const replacementRead = vi.spyOn(replacement, "read")
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === absoluteSource
+        ? replacement
+        : Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+    )
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/source identity changed/i)
+      expect(replacementRead).not.toHaveBeenCalled()
+      await expect(exists(isolated.path)).resolves.toBe(false)
+    } finally {
+      await replacement.close().catch(() => undefined)
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+      await rm(isolated.path, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured source whose canonical file path escapes the repository", async () => {
+    const root = join("scripts", "graph", `system-canonical-${randomUUID()}`)
+    const safeRoot = join(root, "safe")
+    const source = join(root, "source.ts")
+    const absoluteSource = join(process.cwd(), source)
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(source, "export const source = true\n")
+    const config = parseGraphConfig(JSON.stringify({
+      version: 1,
+      graphPath: "graphify-out/graph.json",
+      manifestPath: ".graphify/manifest.json",
+      source: {
+        roots: [safeRoot],
+        files: [source],
+        extensions: [".ts"],
+        excludes: ["node_modules"],
+      },
+      verificationPath: ["from", "to"],
+    }))
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === absoluteSource
+        ? join(process.cwd(), "..")
+        : Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    )
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(config))
+        .rejects.toThrow(/source path escapes the repository/i)
+      expect(mocks.fileSystem.open.mock.calls.some(
+        ([path]) => String(path) === absoluteSource,
+      )).toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 
   it("refuses a snapshot path collision without deleting existing content", async () => {
-    const snapshotRoot = ".graphify/source-snapshot"
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshotRoot = isolated.path
     const preserved = join(snapshotRoot, "preserved.txt")
     await mkdir(snapshotRoot, { recursive: true })
     await writeFile(preserved, "preserve")
 
     try {
-      const result = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig("scripts/graph"))
+      const result = await isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph"))
         .then((snapshot) => snapshot, (error: unknown) => error)
       if (!(result instanceof Error)) await result.cleanup()
 
@@ -100,7 +346,8 @@ describe("Graphify source snapshot", () => {
     const root = join("scripts", "graph", `system-snapshot-${randomUUID()}`)
     await mkdir(root, { recursive: true })
     await writeFile(join(root, "source.ts"), "export const source = true\n")
-    const snapshot = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig(root))
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
     await writeFile(join(snapshot.path, ".owner"), "different-owner")
 
     try {
@@ -109,6 +356,475 @@ describe("Graphify source snapshot", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
       await rm(snapshot.path, { force: true, recursive: true })
+    }
+  })
+  it("preserves a foreign snapshot root installed during failed publication", async () => {
+    const root = join("scripts", "graph", `system-snapshot-race-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    const displaced = `${isolated.path}-displaced`
+    let replaced = false
+    mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (!replaced && path.startsWith(isolated.path) && path !== join(isolated.path, ".owner")) {
+        replaced = true
+        await mocks.fileSystemActual.rename(isolated.path, displaced)
+        await mocks.fileSystemActual.mkdir(isolated.path)
+        await mocks.fileSystemActual.writeFile(join(isolated.path, "foreign.txt"), "foreign")
+        throw new Error("snapshot publication failed")
+      }
+      return Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig(root)))
+        .rejects.toThrow(/snapshot ownership changed/i)
+      await expect(readFile(join(isolated.path, "foreign.txt"), "utf8")).resolves.toBe("foreign")
+      await expect(exists(displaced)).resolves.toBe(true)
+    } finally {
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(isolated.path, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(displaced, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a replacement root even when it carries the original owner marker", async () => {
+    const root = join("scripts", "graph", `system-snapshot-root-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const displaced = `${snapshot.path}-displaced`
+    await mocks.fileSystemActual.rename(snapshot.path, displaced)
+    await mocks.fileSystemActual.mkdir(snapshot.path)
+    await mocks.fileSystemActual.rename(
+      join(displaced, ".owner"),
+      join(snapshot.path, ".owner"),
+    )
+    await mocks.fileSystemActual.writeFile(join(snapshot.path, "foreign.txt"), "foreign")
+
+    try {
+      await expect(snapshot.cleanup()).rejects.toThrow(/snapshot ownership changed/i)
+      await expect(readFile(join(snapshot.path, "foreign.txt"), "utf8")).resolves.toBe("foreign")
+      await expect(exists(displaced)).resolves.toBe(true)
+    } finally {
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(snapshot.path, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(displaced, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a same-token owner marker installed on a different inode", async () => {
+    const root = join("scripts", "graph", `system-snapshot-marker-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const ownerPath = join(snapshot.path, ".owner")
+    const owner = await readFile(ownerPath, "utf8")
+    await mocks.fileSystemActual.rm(ownerPath)
+    await mocks.fileSystemActual.writeFile(ownerPath, owner)
+
+    try {
+      await expect(snapshot.cleanup()).rejects.toThrow(/marker ownership changed/i)
+      await expect(readFile(ownerPath, "utf8")).resolves.toBe(owner)
+    } finally {
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(snapshot.path, { force: true, recursive: true })
+    }
+  })
+  it("removes its owned root when owner marker creation fails", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const ownerPath = join(isolated.path, ".owner")
+    mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === ownerPath) throw new Error("owner marker write failed")
+      return Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
+    })
+
+    await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+      .rejects.toThrow(/owner marker write failed/i)
+    await expect(exists(isolated.path)).resolves.toBe(false)
+  })
+})
+
+describe("Graph source containment revalidation", () => {
+  it("rejects a canonical escape at an ancestor before root enumeration", async () => {
+    const base = join("scripts", "graph", `system-ancestor-escape-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const absoluteBase = join(process.cwd(), base)
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    await mkdir(sourceRoot, { recursive: true })
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === absoluteBase
+        ? join(process.cwd(), "..")
+        : Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    )
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/source path escapes the repository/i)
+      expect(mocks.fileSystem.readdir.mock.calls.some(
+        (call) => String(call[0]) === absoluteSourceRoot,
+      )).toBe(false)
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a canonical source ancestor that resolves to a regular file", async () => {
+    const base = join("scripts", "graph", `system-ancestor-file-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const canonicalFile = join(base, "canonical-file")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    const absoluteCanonicalFile = join(process.cwd(), canonicalFile)
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(canonicalFile, "not a directory")
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === absoluteSourceRoot
+        ? absoluteCanonicalFile
+        : Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    )
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/ancestor identity changed/i)
+      expect(mocks.fileSystem.readdir).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a regular file in a configured source ancestor chain", async () => {
+    const base = join("scripts", "graph", `system-ancestor-kind-${randomUUID()}`)
+    const regularFile = join(base, "regular")
+    const sourceRoot = join(regularFile, "source")
+    await mkdir(base, { recursive: true })
+    await writeFile(regularFile, "not a directory")
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/ancestor is not a regular directory/i)
+      expect(mocks.fileSystem.readdir).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a canonical source ancestor with a different directory identity", async () => {
+    const base = join("scripts", "graph", `system-ancestor-directory-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const canonicalDirectory = join(base, "canonical-directory")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    const absoluteCanonicalDirectory = join(process.cwd(), canonicalDirectory)
+    await mkdir(sourceRoot, { recursive: true })
+    await mkdir(canonicalDirectory)
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === absoluteSourceRoot
+        ? absoluteCanonicalDirectory
+        : Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    )
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/ancestor identity changed/i)
+      expect(mocks.fileSystem.readdir).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a canonical ancestor that changes during root validation", async () => {
+    const base = join("scripts", "graph", `system-ancestor-retarget-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const replacement = join(base, "replacement")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    const absoluteReplacement = join(process.cwd(), replacement)
+    await mkdir(sourceRoot, { recursive: true })
+    await mkdir(replacement)
+    let sourceRootResolutions = 0
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === absoluteSourceRoot) {
+        sourceRootResolutions += 1
+        if (sourceRootResolutions >= 3) return absoluteReplacement
+      }
+      return Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/ancestor identity changed/i)
+      expect(mocks.fileSystem.readdir).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an ancestor replaced by a symlink after root enumeration", async () => {
+    const base = join("scripts", "graph", `system-ancestor-symlink-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const replacement = join(base, "replacement")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    const absoluteReplacement = join(process.cwd(), replacement)
+    await mkdir(sourceRoot, { recursive: true })
+    await mkdir(replacement)
+    mocks.fileSystem.readdir.mockImplementation(async (...arguments_) => {
+      const entries = await Reflect.apply(mocks.fileSystemActual.readdir, undefined, arguments_)
+      if (String(arguments_[0]) === absoluteSourceRoot) {
+        await rm(sourceRoot, { force: true, recursive: true })
+        await symlink(absoluteReplacement, sourceRoot, "dir")
+      }
+      return entries
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/source path contains a symbolic link/i)
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a canonical ancestor escape during root revalidation", async () => {
+    const base = join("scripts", "graph", `system-ancestor-revalidation-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    await mkdir(sourceRoot, { recursive: true })
+    let sourceRootResolutions = 0
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === absoluteSourceRoot) {
+        sourceRootResolutions += 1
+        if (sourceRootResolutions >= 3) return join(process.cwd(), "..")
+      }
+      return Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/source path escapes the repository/i)
+      expect(mocks.fileSystem.readdir).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured root that becomes a regular file during validation", async () => {
+    const base = join("scripts", "graph", `system-root-kind-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const regularFile = join(base, "regular.ts")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(regularFile, "export {}")
+    const regularFileStats = await mocks.fileSystemActual.lstat(regularFile)
+    let sourceRootInspections = 0
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === absoluteSourceRoot) {
+        sourceRootInspections += 1
+        if (sourceRootInspections === 3) return regularFileStats
+      }
+      return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/source root is not a regular directory/i)
+      expect(mocks.fileSystem.readdir).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured file whose canonical identity becomes a symlink", async () => {
+    const base = join("scripts", "graph", `system-source-canonical-${randomUUID()}`)
+    const safeRoot = join(base, "safe")
+    const source = join(base, "source.ts")
+    const absoluteSource = join(process.cwd(), source)
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(source, "export {}")
+    let sourceInspections = 0
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      if (String(arguments_[0]) === absoluteSource && ++sourceInspections === 2) {
+        return Object.assign(stats, { isSymbolicLink: () => true })
+      }
+      return stats
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([safeRoot], [source]),
+      )).rejects.toThrow(/source identity changed/i)
+      expect(mocks.fileSystem.open).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured source that is itself a symbolic link", async () => {
+    const base = join("scripts", "graph", `system-source-symlink-${randomUUID()}`)
+    const safeRoot = join(base, "safe")
+    const target = join(base, "target.ts")
+    const source = join(base, "source.ts")
+    const absoluteSource = join(process.cwd(), source)
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(target, "export {}")
+    await symlink(join(process.cwd(), target), source, "file")
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([safeRoot], [source]),
+      )).rejects.toThrow(/source path contains a symbolic link/i)
+      expect(mocks.fileSystem.realpath.mock.calls.some(
+        (call) => String(call[0]) === absoluteSource,
+      )).toBe(false)
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured file whose identity changes after canonical validation", async () => {
+    const base = join("scripts", "graph", `system-source-identity-${randomUUID()}`)
+    const safeRoot = join(base, "safe")
+    const source = join(base, "source.ts")
+    const absoluteSource = join(process.cwd(), source)
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(source, "export {}")
+    let sourceInspections = 0
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      if (String(arguments_[0]) === absoluteSource && ++sourceInspections === 3) {
+        return Object.assign(stats, { ino: stats.ino + 1 })
+      }
+      return stats
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([safeRoot], [source]),
+      )).rejects.toThrow(/source identity changed/i)
+      expect(mocks.fileSystem.open).not.toHaveBeenCalled()
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("canonicalizes the repository root while preserving regular explicit files", async () => {
+    mocks.fileSystem.readdir.mockResolvedValueOnce([])
+
+    await expect(nodeGraphFileSystem.listSourceFiles(
+      configuredSourceConfig(["."], ["package.json"]),
+    )).resolves.toEqual(["package.json"])
+  })
+
+  it("rejects an opened source whose descriptor identity changes after reading", async () => {
+    const base = join("scripts", "graph", `system-descriptor-race-${randomUUID()}`)
+    const safeRoot = join(base, "safe")
+    const source = join(base, "source.ts")
+    const absoluteSource = join(process.cwd(), source)
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(source, "export {}")
+    const isolated = isolatedSnapshotFileSystem()
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      if (String(arguments_[0]) === absoluteSource) {
+        const originalStat = handle.stat.bind(handle)
+        let descriptorInspections = 0
+        Object.defineProperty(handle, "stat", {
+          configurable: true,
+          value: async () => {
+            const stats = await originalStat()
+            descriptorInspections += 1
+            return descriptorInspections === 2
+              ? Object.assign(stats, { ino: stats.ino + 1 })
+              : stats
+          },
+        })
+      }
+      return handle
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(
+        configuredSourceConfig([safeRoot], [source]),
+      )).rejects.toThrow(/source identity changed/i)
+      await expect(exists(isolated.path)).resolves.toBe(false)
+    } finally {
+      await rm(base, { force: true, recursive: true })
+      await rm(isolated.path, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a source whose canonical path changes to a contained hard link while reading", async () => {
+    const base = join("scripts", "graph", `system-source-retarget-${randomUUID()}`)
+    const safeRoot = join(base, "safe")
+    const source = join(base, "source.ts")
+    const replacement = join(base, "replacement.ts")
+    const absoluteSource = join(process.cwd(), source)
+    const absoluteReplacement = join(process.cwd(), replacement)
+    await mkdir(safeRoot, { recursive: true })
+    await writeFile(source, "export {}")
+    await link(source, replacement)
+    const isolated = isolatedSnapshotFileSystem()
+    let sourceResolutions = 0
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === absoluteSource) {
+        sourceResolutions += 1
+        if (sourceResolutions >= 3) return absoluteReplacement
+      }
+      return Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(
+        configuredSourceConfig([safeRoot], [source]),
+      )).rejects.toThrow(/source identity changed/i)
+      await expect(exists(isolated.path)).resolves.toBe(false)
+    } finally {
+      await rm(base, { force: true, recursive: true })
+      await rm(isolated.path, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured root that becomes a regular file after enumeration", async () => {
+    const base = join("scripts", "graph", `system-root-enumeration-${randomUUID()}`)
+    const sourceRoot = join(base, "source")
+    const regularFile = join(base, "regular")
+    const absoluteSourceRoot = join(process.cwd(), sourceRoot)
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(regularFile, "not a directory")
+    const regularFileStats = await mocks.fileSystemActual.lstat(regularFile)
+    let enumerated = false
+    let postEnumerationChecks = 0
+    mocks.fileSystem.readdir.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === absoluteSourceRoot) {
+        enumerated = true
+        return []
+      }
+      return Reflect.apply(mocks.fileSystemActual.readdir, undefined, arguments_)
+    })
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      if (enumerated && String(arguments_[0]) === absoluteSourceRoot) {
+        postEnumerationChecks += 1
+        if (postEnumerationChecks === 2) return regularFileStats
+      }
+      return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(
+        configuredSourceConfig([sourceRoot], ["package.json"]),
+      )).rejects.toThrow(/ancestor identity changed/i)
+      expect(postEnumerationChecks).toBe(2)
+    } finally {
+      await rm(base, { force: true, recursive: true })
     }
   })
 })
@@ -303,7 +1019,11 @@ describe("Graph node filesystem boundaries", () => {
     try {
       const sources = await nodeGraphFileSystem.listSourceFiles(configFor(
         [root],
-        [join(root, "explicit.ts"), join(root, "a.ts")],
+        [
+          join(root, "explicit.ts"),
+          join(root, "a.ts"),
+          join(root, "excluded", "generated.ts"),
+        ],
       ))
       expect(sources).toEqual([
         join(root, "a.ts"),
@@ -351,11 +1071,12 @@ describe("Graph node filesystem boundaries", () => {
       },
       verificationPath: ["from", "to"],
     }))
+    const isolated = isolatedSnapshotFileSystem()
 
     try {
-      const snapshot = await nodeGraphFileSystem.createSourceSnapshot(config)
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(config)
       try {
-        expect(snapshot.path).toBe(".graphify/source-snapshot")
+        expect(snapshot.path).toBe(isolated.path)
         await expect(readFile(
           join(snapshot.path, root, "src/consumer.tsx"),
           "utf8",
@@ -366,7 +1087,6 @@ describe("Graph node filesystem boundaries", () => {
       }
     } finally {
       await rm(root, { force: true, recursive: true })
-      await rm(".graphify/source-snapshot", { force: true, recursive: true })
     }
   })
 
@@ -386,18 +1106,19 @@ describe("Graph node filesystem boundaries", () => {
       },
       verificationPath: ["from", "to"],
     }))
+    const invalidSnapshot = isolatedSnapshotFileSystem()
     try {
-      await expect(nodeGraphFileSystem.createSourceSnapshot(invalidConfig)).rejects.toThrow()
-      await expect(exists(".graphify/source-snapshot")).resolves.toBe(false)
+      await expect(invalidSnapshot.fileSystem.createSourceSnapshot(invalidConfig)).rejects.toThrow()
+      await expect(exists(invalidSnapshot.path)).resolves.toBe(false)
     } finally {
       await rm(invalidPackage, { force: true, recursive: true })
-      await rm(".graphify/source-snapshot", { force: true, recursive: true })
     }
 
     const root = join("scripts", "graph", `system-owner-${randomUUID()}`)
     await mkdir(root, { recursive: true })
     await writeFile(join(root, "source.ts"), "export const source = true\n")
-    const snapshot = await nodeGraphFileSystem.createSourceSnapshot(snapshotConfig(root))
+    const missingOwnerSnapshot = isolatedSnapshotFileSystem()
+    const snapshot = await missingOwnerSnapshot.fileSystem.createSourceSnapshot(snapshotConfig(root))
     await rm(join(snapshot.path, ".owner"))
     try {
       await expect(snapshot.cleanup()).rejects.toThrow(/ownership marker is missing/i)
@@ -405,6 +1126,254 @@ describe("Graph node filesystem boundaries", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
       await rm(snapshot.path, { force: true, recursive: true })
+    }
+  })
+  it("classifies special files and rejects content that grows after inspection", async () => {
+    const root = join("scripts", "graph", `system-race-${randomUUID()}`)
+    const sourcePath = join(root, "source.txt")
+    const absoluteSourcePath = join(process.cwd(), sourcePath)
+    const socketPath = join(root, "source.socket")
+    await mkdir(root, { recursive: true })
+    await writeFile(sourcePath, "value")
+    const server = createServer()
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socketPath, resolve)
+    })
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(
+        mocks.fileSystemActual.open,
+        undefined,
+        arguments_,
+      ) as Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
+      if (String(arguments_[0]) === absoluteSourcePath) {
+        const originalStat = handle.stat.bind(handle)
+        Object.defineProperty(handle, "stat", {
+          configurable: true,
+          value: async () => {
+            const stats = await originalStat()
+            return Object.assign(stats, { size: 4 })
+          },
+        })
+      }
+      return handle
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.inspect(socketPath)).resolves.toMatchObject({
+        kind: "other",
+      })
+      await expect(nodeGraphFileSystem.readText(sourcePath, 4))
+        .rejects.toThrow(/read exceeds its bound/i)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve())
+      })
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a platform-specific canonical parent escape", async () => {
+    const root = join("scripts", "graph", `system-parent-${randomUUID()}`)
+    const parent = join(root, "parent")
+    const absoluteParent = join(process.cwd(), parent)
+    await mkdir(parent, { recursive: true })
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === absoluteParent
+        ? join(process.cwd(), "..\\outside")
+        : Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    )
+
+    try {
+      await expect(nodeGraphFileSystem.writeText(join(parent, "manifest.json"), "{}"))
+        .rejects.toThrow(/write target escapes the repository/i)
+      await expect(exists(join(parent, "manifest.json"))).resolves.toBe(false)
+    } finally {
+      platform.mockRestore()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves the write failure when descriptor and temporary cleanup also fail", async () => {
+    const root = join("scripts", "graph", `system-write-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(
+        mocks.fileSystemActual.open,
+        undefined,
+        arguments_,
+      ) as Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
+      if (String(arguments_[0]).includes(".graphify-manifest-")) {
+        const originalClose = handle.close.bind(handle)
+        Object.defineProperties(handle, {
+          close: {
+            configurable: true,
+            value: async () => {
+              await originalClose()
+              throw new Error("descriptor cleanup failed")
+            },
+          },
+          writeFile: {
+            configurable: true,
+            value: async () => { throw new Error("manifest write failed") },
+          },
+        })
+      }
+      return handle
+    })
+    mocks.fileSystem.rm.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]).includes(".graphify-manifest-")) {
+        await Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+        throw new Error("temporary cleanup failed")
+      }
+      return Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+    })
+
+    try {
+      await expect(nodeGraphFileSystem.writeText(join(root, "manifest.json"), "{}"))
+        .rejects.toThrow(/manifest write failed/i)
+      await expect(exists(join(root, "manifest.json"))).resolves.toBe(false)
+      await expect(mocks.fileSystemActual.readdir(root)).resolves.toEqual([])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a configured source count above the filesystem boundary", async () => {
+    const root = join("scripts", "graph", `system-count-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    const entries = Array.from({ length: 20_001 }, (_, index) => ({
+      name: `source-${index}.ts`,
+      isSymbolicLink: () => false,
+      isDirectory: () => false,
+      isFile: () => true,
+    }))
+    mocks.fileSystem.readdir.mockResolvedValueOnce(entries as never)
+
+    try {
+      await expect(nodeGraphFileSystem.listSourceFiles(snapshotConfig(root)))
+        .rejects.toThrow(/too many files/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a recursive source count above the traversal boundary", async () => {
+    const files = Array.from({ length: 20_000 }, (_, index) => ({
+      name: `source-${index}.ts`,
+      isSymbolicLink: () => false,
+      isDirectory: () => false,
+      isFile: () => true,
+    }))
+    const rootEntries = [
+      {
+        name: "a-child",
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+        isFile: () => false,
+      },
+      {
+        name: "z.ts",
+        isSymbolicLink: () => false,
+        isDirectory: () => false,
+        isFile: () => true,
+      },
+    ]
+    const canonicalRoot = await mocks.fileSystemActual.realpath(process.cwd())
+    const child = join(canonicalRoot, "a-child")
+    const rootStats = await mocks.fileSystemActual.lstat(canonicalRoot)
+    const childStats = await mocks.fileSystemActual.lstat(join(canonicalRoot, "scripts"))
+    const fileStats = await mocks.fileSystemActual.lstat(join(canonicalRoot, "package.json"))
+    mocks.fileSystem.readdir.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (path === canonicalRoot) return rootEntries as never
+      if (path === child) return files as never
+      return Reflect.apply(mocks.fileSystemActual.readdir, undefined, arguments_)
+    })
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0])
+    )
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (path === canonicalRoot) return rootStats
+      if (path === child) return childStats
+      return fileStats
+    })
+
+    await expect(nodeGraphFileSystem.listSourceFiles(
+      configuredSourceConfig(["."], ["package.json"]),
+    )).rejects.toThrow(/too many files/i)
+  })
+
+  it("rejects source and compiled file size boundaries before publication", async () => {
+    const largeRoot = join("scripts", "graph", `system-large-${randomUUID()}`)
+    const largeSource = join(largeRoot, "source.ts")
+    await mkdir(largeRoot, { recursive: true })
+    await writeFile(largeSource, "")
+    await truncate(largeSource, 8_388_609)
+    const largeSnapshot = isolatedSnapshotFileSystem()
+
+    try {
+      await expect(largeSnapshot.fileSystem.createSourceSnapshot(snapshotConfig(largeRoot)))
+        .rejects.toThrow(/source file is too large/i)
+      await expect(exists(largeSnapshot.path)).resolves.toBe(false)
+    } finally {
+      await rm(largeRoot, { force: true, recursive: true })
+    }
+
+    const civetRoot = join("scripts", "graph", `system-compile-${randomUUID()}`)
+    await mkdir(civetRoot, { recursive: true })
+    await writeFile(join(civetRoot, "source.civet"), "export const value = 1")
+    const config = snapshotConfig(civetRoot, [".civet"])
+    const compiledSnapshot = isolatedSnapshotFileSystem()
+    try {
+      mocks.compileCivetSnapshot.mockRejectedValueOnce(new Error("compiler unavailable"))
+      await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/compilation failed.*compiler unavailable/i)
+
+      mocks.compileCivetSnapshot.mockRejectedValueOnce("private compiler failure")
+      await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/compilation failed.*unknown/i)
+
+      mocks.compileCivetSnapshot.mockResolvedValueOnce({
+        path: join(civetRoot, "source.tsx"),
+        content: "x".repeat(8_388_609),
+      })
+      await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/compiled source file is too large/i)
+      await expect(exists(compiledSnapshot.path)).resolves.toBe(false)
+    } finally {
+      await rm(civetRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a compiled corpus above the aggregate boundary", async () => {
+    const root = join("scripts", "graph", `system-total-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await Promise.all(Array.from(
+      { length: 17 },
+      (_, index) => writeFile(join(root, `source-${index}.civet`), "export {}"),
+    ))
+    const atFileLimit = "x".repeat(8_388_608)
+    mocks.compileCivetSnapshot.mockImplementation(async (path: string) => ({
+      path: path.replace(/\.civet$/, ".tsx"),
+      content: atFileLimit,
+    }))
+    mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]).startsWith(".graphify/source-snapshot") &&
+        String(arguments_[0]).endsWith(".tsx")
+        ? undefined
+        : Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
+    )
+    const isolated = isolatedSnapshotFileSystem()
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig(root, [".civet"])))
+        .rejects.toThrow(/source corpus is too large/i)
+      await expect(exists(isolated.path)).resolves.toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 })

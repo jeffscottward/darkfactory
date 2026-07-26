@@ -80,23 +80,23 @@ function selectMarkdownPaths(paths) {
   )
 }
 
-type PnpmScriptRunner = (scripts: readonly string[], paths?: readonly string[]) => number
+type BunScriptRunner = (scripts: readonly string[], paths?: readonly string[]) => number
 
-function runPnpmScripts(scripts: readonly string[], paths: readonly string[] = []) {
+function runBunScripts(scripts: readonly string[], paths: readonly string[] = []) {
   const safePaths = paths.map((path) => `./${path}`)
 
   for (const script of scripts) {
     const arguments_ =
       safePaths.length === 0
-        ? ["pnpm", "run", script]
-        : ["pnpm", "run", script, "--", ...safePaths]
-    const result = spawnSync("corepack", arguments_, {
+        ? ["run", script]
+        : ["run", script, "--", ...safePaths]
+    const result = spawnSync("bun", arguments_, {
       shell: false,
       stdio: "inherit",
     })
 
     if (result.status !== 0) {
-      return failureExitCode("corepack", arguments_, result)
+      return failureExitCode("bun", arguments_, result)
     }
   }
 
@@ -116,7 +116,7 @@ export function runPreCommit() {
   if (biomePaths.length === 0 && markdownPaths.length === 0) {
     if (staged.paths.some(isCivetPath)) {
       console.error(
-        "[hook] staged Civet validation is deferred to mandatory corepack pnpm run verify:core before push.",
+        "[hook] staged Civet validation is deferred to mandatory bun run verify:core before push.",
       )
     }
 
@@ -124,7 +124,7 @@ export function runPreCommit() {
   }
 
   if (biomePaths.length > 0) {
-    const biomeExitCode = runPnpmScripts(
+    const biomeExitCode = runBunScripts(
       ["format:staged", "lint:staged"],
       biomePaths,
     )
@@ -135,7 +135,7 @@ export function runPreCommit() {
   }
 
   if (markdownPaths.length > 0) {
-    return runPnpmScripts(["lint:markdown:staged"], markdownPaths)
+    return runBunScripts(["lint:markdown:staged"], markdownPaths)
   }
 
   return 0
@@ -143,6 +143,6 @@ export function runPreCommit() {
 
 export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
 
-export function runPrePush(runScripts: PnpmScriptRunner = runPnpmScripts) {
+export function runPrePush(runScripts: BunScriptRunner = runBunScripts) {
   return runScripts(PRE_PUSH_SCRIPTS)
 }

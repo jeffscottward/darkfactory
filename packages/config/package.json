@@ -45,10 +45,10 @@
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/client.civet src/server.civet src/database.civet src/capabilities.civet src/server/capabilities.civet src/server/capabilities-loader.civet src/server/capability-readiness.civet",
-    "typecheck": "civet --typecheck src/client.civet src/server.civet src/database.civet src/capabilities.civet src/server/capabilities.civet src/server/capabilities-loader.civet src/server/capability-readiness.civet src/*.test.civet",
-    "test": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src/*.test.civet",
-    "test:unit": "pnpm run types && vitest run --config ../../vitest.config.ts --project unit src/*.test.civet"
+    "types": "bunx --bun --no-install civet --emit-declaration src/client.civet src/server.civet src/database.civet src/capabilities.civet src/server/capabilities.civet src/server/capabilities-loader.civet src/server/capability-readiness.civet",
+    "typecheck": "bunx --bun --no-install civet --typecheck src/client.civet src/server.civet src/database.civet src/capabilities.civet src/server/capabilities.civet src/server/capabilities-loader.civet src/server/capability-readiness.civet src/*.test.civet",
+    "test": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet",
+    "test:unit": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet"
   },
   "engines": {
     "node": ">=22.13"

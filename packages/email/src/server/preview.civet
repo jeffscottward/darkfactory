@@ -35,9 +35,8 @@ import {
 
 const DEFAULT_MAX_ARTIFACTS = 20
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024
-const DEFAULT_PREVIEW_DIRECTORY = fileURLToPath(
-  new URL("../../previews/", import.meta.url),
-)
+const defaultPreviewDirectory = (): string =>
+  fileURLToPath(new URL("../../previews/", import.meta.url))
 
 export type PreviewEmailBinding = Readonly<{
   runId: string
@@ -411,7 +410,7 @@ const createPreviewPort = (
     throw new Error("Preview email transport is unavailable in production")
   }
 
-  const directory = options.directory ?? DEFAULT_PREVIEW_DIRECTORY
+  const directory = options.directory ?? defaultPreviewDirectory()
   const maxArtifacts = options.maxArtifacts ?? DEFAULT_MAX_ARTIFACTS
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES
   const binding = resolveBinding(options.binding)

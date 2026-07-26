@@ -84,14 +84,19 @@ const runTypesScript = async (packageDirectory: string): Promise<void> => {
   const command = manifest.scripts?.["types"]
   if typeof command !== "string"
     throw new Error(`Missing types script in ${packageDirectory}`)
-  const [executable, ...arguments_] = command.split(" ")
-  if executable !== "civet"
-    throw new Error(`Types script must directly invoke Civet in ${packageDirectory}`)
+  const tokens = command.split(" ")
+  const civetIndex = tokens[0] === "civet"
+    ? 0
+    : tokens.slice(0, 4).join(" ") === "bunx --bun --no-install civet"
+      ? 3
+      : -1
+  if civetIndex === -1
+    throw new Error(`Types script must invoke Civet through the supported toolchain in ${packageDirectory}`)
   await execFileAsync(
     process.execPath,
     [
       join(projectRoot, "node_modules", "@danielx", "civet", "dist", "civet"),
-      ...arguments_,
+      ...tokens.slice(civetIndex + 1),
     ],
     { cwd: packageDirectory, timeout: 60_000 },
   )
@@ -560,6 +565,11 @@ describe "type export audit", ->
         subpath: "./server",
         target: "./src/server/index.civet.d.ts",
       },
+      {
+        packageName: "@darkfactory/db",
+        subpath: "./server/migration",
+        target: "./src/server/migration.civet.d.ts",
+      },
     ])
 
     await writeFile(
@@ -580,7 +590,8 @@ describe "type export audit", ->
         'import * as authTypes from "@darkfactory/auth/types"',
         'import * as databaseSchema from "@darkfactory/db/schema"',
         'import * as databaseServer from "@darkfactory/db/server"',
-        "void [authClient, authDatabase, authServer, authTypes, databaseSchema, databaseServer]",
+        'import * as databaseMigration from "@darkfactory/db/server/migration"',
+        "void [authClient, authDatabase, authServer, authTypes, databaseSchema, databaseServer, databaseMigration]",
         "",
       ].join("\n"),
     )

@@ -155,7 +155,7 @@ const sanitizedDiagnostics = (
     const lifecycle = LIFECYCLE_FAILURE.exec(diagnostic)
     if (
       lifecycle !== null &&
-      LIFECYCLE_STAGES.has(lifecycle[2] ?? "")
+      LIFECYCLE_STAGES.has(lifecycle[2]!)
     ) {
       safe.push(
         `E2E lifecycle ${lifecycle[1]} failed during ${lifecycle[2]}`,
@@ -334,7 +334,10 @@ export const persistE2ERunnerState = (
     }
   } catch (error) {
     if (descriptor !== undefined) {
-      try { closeSync(descriptor) } catch { /* best-effort close */ }
+      try
+        closeSync(descriptor)
+      catch
+        undefined
     }
     rmSync(temporary, { force: true })
     throw error

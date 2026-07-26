@@ -63,6 +63,14 @@ describe "account, preferences, dashboard, and admin contracts", ->
     expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, timezone: "" })).toThrow()
     expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, dateOfBirth: "2023-02-29" })).toThrow()
     expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, email: "victim@example.test" })).toThrow()
+    expect(ProfileUpdateSchema.parse({
+      expectedUpdatedAt: null,
+      biography: null,
+    })).toEqual({ expectedUpdatedAt: null, biography: null })
+    expect(() => ProfileUpdateSchema.parse({
+      expectedUpdatedAt: null,
+      dateOfBirth: "not-a-date",
+    })).toThrow()
 
   it "normalizes countries and enforces bounded nonempty address patches", ->
     expect(AddressCreateSchema.parse({

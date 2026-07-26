@@ -278,6 +278,7 @@ describe("type export audit", () => {
     const root = await createRoot([
       "./build/*",
       "apps/?onsole",
+      "apps/console*",
       "tools/**",
       "node_modules/**",
       ".git/**",
@@ -330,6 +331,16 @@ describe("type export audit", () => {
         target: "./types/index.d.ts",
       },
     ])
+  })
+
+  it("matches a workspace segment whose exact value leaves a trailing star", async () => {
+    const root = await createRoot(["apps/console*"])
+    await createPackage(root, "apps", "console", {
+      name: "@fixture/console",
+      exports: {},
+    })
+
+    await expect(auditTypeExports(root)).resolves.toEqual([])
   })
 
   it("reports and formats missing targets in deterministic package, subpath, and target order", async () => {
@@ -441,18 +452,27 @@ describe("type export audit", () => {
   it("rejects duplicate package names with sorted, collision-free paths", async () => {
     const root = await createRoot()
     await createPackage(root, "packages", "zeta", {
-      name: "@fixture/duplicate",
+      name: "@fixture/zeta",
       exports: {},
     })
     await createPackage(root, "apps", "alpha", {
-      name: "@fixture/duplicate",
+      name: "@fixture/zeta",
+      exports: {},
+    })
+    await createPackage(root, "packages", "gamma", {
+      name: "@fixture/alpha",
+      exports: {},
+    })
+    await createPackage(root, "apps", "beta", {
+      name: "@fixture/alpha",
       exports: {},
     })
 
     await expect(auditTypeExports(root)).rejects.toThrow(
       [
         "Duplicate workspace package names:",
-        "- @fixture/duplicate: apps/alpha, packages/zeta",
+        "- @fixture/alpha: apps/beta, packages/gamma",
+        "- @fixture/zeta: apps/alpha, packages/zeta",
       ].join("\n"),
     )
   })
@@ -564,12 +584,29 @@ describe("type export audit", () => {
       "Unsupported pnpm workspace glob syntax: [packages/*]",
     )
 
+    const malformedItemRoot = await createRoot()
+    await writeFile(
+      join(malformedItemRoot, "pnpm-workspace.yaml"),
+      "packages:\n  packages/*\n",
+    )
+    await expect(auditTypeExports(malformedItemRoot)).rejects.toThrow(
+      "Unsupported pnpm workspace package pattern: packages/*",
+    )
+
     const malformedManifestRoot = await createRoot()
     const malformedDirectory = join(malformedManifestRoot, "packages", "malformed")
     await mkdir(malformedDirectory, { recursive: true })
     await writeFile(join(malformedDirectory, "package.json"), "{")
     await expect(auditTypeExports(malformedManifestRoot)).rejects.toThrow(
       "Workspace manifest packages/malformed/package.json is invalid JSON",
+    )
+
+    const missingNameRoot = await createRoot()
+    await createPackage(missingNameRoot, "packages", "missing-name", {
+      exports: {},
+    })
+    await expect(auditTypeExports(missingNameRoot)).rejects.toThrow(
+      "Workspace manifest packages/missing-name/package.json must have a package name",
     )
 
     const unnamedManifestRoot = await createRoot()
@@ -964,6 +1001,125 @@ describe("type export audit", () => {
       "Type export audit failed:",
       "- @fixture/control\\u0000 ./line\\u000abreak -> ./types/\\u202eindex.d.ts: bad\\u2028reason",
     ].join("\n"))
+
+    const astralFormatCharacter = String.fromCodePoint(0xe0001)
+    expect(formatTypeExportTargets([
+      {
+        packageName: `@fixture/astral${astralFormatCharacter}`,
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+    ])).toBe([
+      "Type export audit passed (1 targets):",
+      "- @fixture/astral\\u{e0001} . -> ./types/index.d.ts",
+    ].join("\n"))
+  })
+
+  it("parses single-quoted and unquoted patterns, comments, and the next YAML section", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, "pnpm-workspace.yaml"), [
+      "# workspace fixture",
+      "packages: # configured workspaces",
+      "  # pattern comment",
+      "  - 'packages/*' # single quoted",
+      "  - apps/*",
+      "catalog:",
+      "  ignored: ignored/*",
+      "",
+    ].join("\n"))
+    const packageDirectory = await createPackage(root, "packages", "library", {
+      name: "@fixture/library",
+      exports: { ".": { types: "./types/index.d.ts" } },
+    })
+    const appDirectory = await createPackage(root, "apps", "console", {
+      name: "@fixture/console",
+      exports: { ".": { types: "./types/index.d.ts" } },
+    })
+    await Promise.all([
+      createDeclaration(packageDirectory, "./types/index.d.ts"),
+      createDeclaration(appDirectory, "./types/index.d.ts"),
+    ])
+
+    await expect(auditTypeExports(root)).resolves.toEqual([
+      {
+        packageName: "@fixture/console",
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+      {
+        packageName: "@fixture/library",
+        subpath: ".",
+        target: "./types/index.d.ts",
+      },
+    ])
+  })
+
+  it("rejects each unsafe workspace pattern form before discovery", async () => {
+    for (const [pattern, rendered] of [
+      ["!", "!"],
+      ["packages\\*", "packages\\\\*"],
+      ["/packages/*", "/packages/*"],
+      ["C:/packages/*", "C:/packages/*"],
+    ] as const) {
+      const root = await createRoot([pattern])
+      await expect(auditTypeExports(root)).rejects.toThrow(
+        `Unsafe pnpm workspace package pattern: ${rendered}`,
+      )
+    }
+  })
+
+  it("reports an empty relative target and ignores non-string type conditions", async () => {
+    const root = await createRoot(["packages/*"])
+    await createPackage(root, "packages", "target-shapes", {
+      name: "@fixture/target-shapes",
+      exports: {
+        "./empty": { types: "./" },
+        "./non-string": { types: 42 },
+      },
+    })
+
+    await expect(inspectTypeExports(root)).resolves.toEqual({
+      targets: [{
+        packageName: "@fixture/target-shapes",
+        subpath: "./empty",
+        target: "./",
+      }],
+      problems: [{
+        packageName: "@fixture/target-shapes",
+        subpath: "./empty",
+        target: "./",
+        reason: "missing or not a regular file",
+      }],
+    })
+  })
+
+  it("allows non-workspace and pruned symlinks but rejects a nested workspace symlink", async () => {
+    if (process.platform === "win32") return
+
+    const allowedRoot = await createRoot(["packages/*"])
+    const allowedPackage = await createPackage(allowedRoot, "packages", "allowed", {
+      name: "@fixture/allowed",
+      exports: {},
+    })
+    const externalFile = join(allowedRoot, "external.txt")
+    await writeFile(externalFile, "external\n")
+    await symlink(externalFile, join(allowedPackage, "asset"), "file")
+    const externalModules = join(allowedRoot, "external-modules")
+    await mkdir(externalModules)
+    await symlink(externalModules, join(allowedRoot, "node_modules"), "dir")
+    await expect(auditTypeExports(allowedRoot)).resolves.toEqual([])
+
+    const rejectedRoot = await createRoot(["packages/**"])
+    const rejectedPackage = await createPackage(rejectedRoot, "packages", "rejected", {
+      name: "@fixture/rejected",
+      exports: {},
+    })
+    const nestedExternal = join(rejectedRoot, "nested-external.txt")
+    await writeFile(nestedExternal, "external\n")
+    await symlink(nestedExternal, join(rejectedPackage, "nested"), "file")
+    await expect(auditTypeExports(rejectedRoot)).rejects.toThrow(
+      "Symbolic links are not allowed during workspace discovery: packages/rejected/nested",
+    )
   })
 
   it("runs the real CLI boundary successfully against an isolated valid workspace", async () => {

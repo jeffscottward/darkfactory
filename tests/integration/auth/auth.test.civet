@@ -9,7 +9,8 @@ import {
   requireRole,
   requireSession,
 } from "@darkfactory/auth/server"
-import { createNodeDatabase, migrate } from "@darkfactory/db/server"
+import { createNodeDatabase } from "@darkfactory/db/server"
+import { migrate } from "@darkfactory/db/server/migration"
 import type {
   EmailDeliveryResult,
   EmailPort,

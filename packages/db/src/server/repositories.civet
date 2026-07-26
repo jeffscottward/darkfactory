@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   ilike,
+  ne,
   or as orWhere,
   sql,
 } from "drizzle-orm"
@@ -231,10 +232,8 @@ const jsonbNumberText = (value: number): string => {
   const source = String(value)
   if (!source.includes("e") && !source.includes("E")) return source
 
-  const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)
-  if (!match) return invalidJsonMetadata()
-
-  const sign = match[1] ?? ""
+  const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)!
+  const sign = match[1]!
   const whole = match[2]!
   const fraction = match[3] ?? ""
   const exponent = Number(match[4])
@@ -243,9 +242,7 @@ const jsonbNumberText = (value: number): string => {
 
   if (decimalIndex <= 0)
     return `${sign}0.${"0".repeat(-decimalIndex)}${digits}`
-  if (decimalIndex >= digits.length)
-    return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`
-  return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
+  return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`
 }
 
 const jsonbText = (value: JsonValue): string => {
@@ -278,13 +275,6 @@ const validateFeatureMetadata = (
     if (error instanceof InvalidRepositoryInputError) throw error
     return invalidJsonMetadata()
   }
-
-  if (
-    typeof normalized !== "object" ||
-    normalized === null ||
-    Array.isArray(normalized)
-  )
-    return invalidJsonMetadata()
 
   const serialized = jsonbText(normalized)
   if (new TextEncoder().encode(serialized).byteLength > FEATURE_METADATA_LIMIT_BYTES)
@@ -398,7 +388,8 @@ export const createProfileRepository = (
             .returning()
       if (profile === undefined)
         throw new OptimisticConcurrencyError("profile")
-      return profile
+      else
+        return profile
     },
   }
 }
@@ -497,11 +488,20 @@ const clearPrimaryAddress = async (
   transaction: Transaction,
   userId: string,
   updatedAt: Date,
+  excludedId?: string,
 ): Promise<void> => {
   await transaction
     .update(addresses)
     .set({ isPrimary: false, updatedAt })
-    .where(andWhere(eq(addresses.userId, userId), eq(addresses.isPrimary, true)));
+    .where(
+      excludedId === undefined
+        ? andWhere(eq(addresses.userId, userId), eq(addresses.isPrimary, true))
+        : andWhere(
+            eq(addresses.userId, userId),
+            eq(addresses.isPrimary, true),
+            ne(addresses.id, excludedId),
+          ),
+    )
 }
 
 export const createAddressRepository = (
@@ -594,6 +594,13 @@ export const createAddressRepository = (
                 existing.updatedAt,
               )
             : now()
+          if (input.isPrimary === true)
+            await clearPrimaryAddress(
+              transaction,
+              input.userId,
+              updatedAt,
+              input.id,
+            )
 
           const [address] = await transaction
             .update(addresses)
@@ -626,27 +633,87 @@ export const createAddressRepository = (
     updateOptimistic: async (input) => {
       requireNonBlank(input.id, "id")
       requireNonBlank(input.userId, "userId")
-      const [address] = await database
-        .update(addresses)
-        .set({
-          ...(input.type === undefined ? {} : { type: input.type }),
-          ...(input.line1 === undefined ? {} : { line1: input.line1 }),
-          ...(input.line2 === undefined ? {} : { line2: input.line2 }),
-          ...(input.city === undefined ? {} : { city: input.city }),
-          ...(input.region === undefined ? {} : { region: input.region }),
-          ...(input.postalCode === undefined ? {} : { postalCode: input.postalCode }),
-          ...(input.country === undefined ? {} : { country: input.country.toUpperCase() }),
-          updatedAt: nextOptimisticVersion(now(), input.expectedUpdatedAt),
-        })
-        .where(andWhere(
-          eq(addresses.id, input.id),
-          eq(addresses.userId, input.userId),
-          sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
-        ))
-        .returning()
-      if (address !== undefined) return address
-      if (await findAddress(database, input.id, input.userId) === null) return null
-      throw new OptimisticConcurrencyError("address")
+      if (input.line1 !== undefined) requireNonBlank(input.line1, "line1")
+      if (input.country !== undefined && input.country.length !== 2)
+        throw new InvalidRepositoryInputError("country must be a two-letter code")
+
+      const values = {
+        ...(input.type === undefined ? {} : { type: input.type }),
+        ...(input.line1 === undefined ? {} : { line1: input.line1 }),
+        ...(input.line2 === undefined ? {} : { line2: input.line2 }),
+        ...(input.city === undefined ? {} : { city: input.city }),
+        ...(input.region === undefined ? {} : { region: input.region }),
+        ...(input.postalCode === undefined
+          ? {}
+          : { postalCode: input.postalCode }),
+        ...(input.country === undefined
+          ? {}
+          : { country: input.country.toUpperCase() }),
+        ...(input.isPrimary === undefined
+          ? {}
+          : { isPrimary: input.isPrimary }),
+      }
+
+      try {
+        if (input.isPrimary === true)
+          return await withTransaction(database, async (transaction) => {
+            await lockAddressOwner(transaction, input.userId)
+            const existing = await findAddress(
+              transaction,
+              input.id,
+              input.userId,
+            )
+            if (existing === null) return null
+            if (
+              existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
+            )
+              throw new OptimisticConcurrencyError("address")
+
+            const updatedAt = await nextPrimaryMutationVersion(
+              transaction,
+              input.userId,
+              now(),
+              existing.updatedAt,
+            )
+            await clearPrimaryAddress(
+              transaction,
+              input.userId,
+              updatedAt,
+              input.id,
+            )
+            const [address] = await transaction
+              .update(addresses)
+              .set({ ...values, updatedAt })
+              .where(andWhere(
+                eq(addresses.id, input.id),
+                eq(addresses.userId, input.userId),
+                sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
+              ))
+              .returning()
+            if (address === undefined)
+              throw new OptimisticConcurrencyError("address")
+            return address
+          })
+
+        const [address] = await database
+          .update(addresses)
+          .set({
+            ...values,
+            updatedAt: nextOptimisticVersion(now(), input.expectedUpdatedAt),
+          })
+          .where(andWhere(
+            eq(addresses.id, input.id),
+            eq(addresses.userId, input.userId),
+            sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
+          ))
+          .returning()
+        if (address !== undefined) return address
+        if (await findAddress(database, input.id, input.userId) === null)
+          return null
+        throw new OptimisticConcurrencyError("address")
+      } catch (error) {
+        return mapConflict(error, "address")
+      }
     },
 
     remove: async (id, userId) => {
@@ -683,7 +750,7 @@ export const createAddressRepository = (
             now(),
             existing.updatedAt,
           )
-          await clearPrimaryAddress(transaction, userId, updatedAt)
+          await clearPrimaryAddress(transaction, userId, updatedAt, id)
           const [address] = await transaction
             .update(addresses)
             .set({ isPrimary: true, updatedAt })
@@ -709,7 +776,12 @@ export const createAddressRepository = (
           now(),
           existing.updatedAt,
         )
-        await clearPrimaryAddress(transaction, input.userId, updatedAt)
+        await clearPrimaryAddress(
+          transaction,
+          input.userId,
+          updatedAt,
+          input.id,
+        )
         const [address] = await transaction
           .update(addresses)
           .set({ isPrimary: true, updatedAt })
@@ -846,7 +918,8 @@ export const createUserPreferencesRepository = (
               })
         if (preference === undefined)
           throw new OptimisticConcurrencyError("theme preference")
-        return preference
+        else
+          return preference
       } catch (error) {
         if (
           error instanceof InvalidRepositoryInputError ||
@@ -908,7 +981,8 @@ export const createUserPreferencesRepository = (
             .returning()
       if (preferences === undefined)
         throw new OptimisticConcurrencyError("user preferences")
-      return preferences
+      else
+        return preferences
     },
   }
 }
@@ -1065,7 +1139,9 @@ export const createFeatureItemRepository = (
       requireNonBlank(input.ownerId, "ownerId")
       requireNonBlank(input.name, "name")
       validateMutationContext(context)
-      const metadata = validateFeatureMetadata(input.metadata ?? {})
+      const metadata = validateFeatureMetadata(
+        input.metadata === undefined ? {} : input.metadata,
+      )
 
       try {
         return await withTransaction(database, async (transaction) => {

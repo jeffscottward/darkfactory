@@ -26,7 +26,9 @@ import {
 } from "./system.civet"
 import {
   ArtifactScannerCleanupError,
+  classifyArtifactScannerFailure,
   inspectArtifactEntries,
+  playwrightReportHasExecutedResult,
   scanArtifactPaths,
 } from "./scanner.civet"
 
@@ -155,6 +157,27 @@ const requiredEntries = (runId: string) => [
   entry(`test-results/evidence/${runId}/${evidenceRecord.path}`, "image"),
 ]
 
+const opaqueBearerValue = `Bearer ${"a".repeat(24)}`
+const opaqueSessionValue = "s".repeat(24)
+const prettyPlaywrightReportWithHeaders = (
+  authorizationValue = opaqueBearerValue,
+  sessionValue = opaqueSessionValue,
+): string => JSON.stringify({
+  ...playwrightReport,
+  headers: [
+    {
+      name: "authorization",
+      separation: "x".repeat(768),
+      value: authorizationValue,
+    },
+    {
+      name: "better-auth.session_token",
+      separation: "x".repeat(768),
+      value: sessionValue,
+    },
+  ],
+}, null, 2)
+
 describe("external E2E artifact scanner", () => {
   it("detects content and filename secrets while returning only opaque paths", () => {
     const findings = inspectArtifactEntries([
@@ -201,6 +224,172 @@ describe("external E2E artifact scanner", () => {
     expect(findings.every((finding) => /^artifact-[a-f0-9]{16}$/u.test(finding.path))).toBe(true)
     expect(JSON.stringify(findings)).not.toMatch(/opaque-|BrowserAuth|entity-access|escaped-session/u)
   })
+  it("scans pretty Playwright header pairs across the whole bounded entry", () => {
+    const findings = inspectArtifactEntries([
+      entry("playwright-report.json", prettyPlaywrightReportWithHeaders()),
+    ])
+
+    expect(findings.map((finding) => finding.category).sort()).toEqual([
+      "authorization-header",
+      "session-cookie",
+    ])
+  })
+
+  it("normalizes terminal, control, format, JSON, and HTML-encoded header names", () => {
+    const findings = inspectArtifactEntries([
+      entry("control-headers.json", JSON.stringify({
+        headers: [
+          {
+            name: `authori\u001b]8;;ignored\u0007za\u200btion`,
+            value: `Bea\u0000rer ${"b".repeat(24)}`,
+          },
+          {
+            name: "better-auth.sess\u0001ion_\u2060token",
+            value: opaqueSessionValue,
+          },
+        ],
+      }, null, 2)),
+      entry("escaped-headers.json", String.raw`[
+        {"name":"\u0061uthorization","value":"${opaqueBearerValue}"},
+        {"name":"better-auth.session_t\u006fken","value":"${opaqueSessionValue}"}
+      ]`),
+      entry("entity-headers.json", JSON.stringify([
+        { name: "authoriz&#97;tion", value: opaqueBearerValue },
+        { name: "better-auth.session_t&#x6f;ken", value: opaqueSessionValue },
+      ])),
+    ])
+
+    expect(findings.map((finding) => finding.category).sort()).toEqual([
+      "authorization-header",
+      "authorization-header",
+      "authorization-header",
+      "session-cookie",
+      "session-cookie",
+      "session-cookie",
+    ])
+  })
+
+  it("scans credentials inside every bounded OSC representation", () => {
+    const findings = inspectArtifactEntries([
+      entry("terminated-osc.log", `\u001b]0;authorization: ${opaqueBearerValue}\u0007`),
+      entry("unterminated-osc.log", `\u001b]0;authorization: ${opaqueBearerValue}`),
+      entry("c1-osc.log", `\u009d0;authorization: ${opaqueBearerValue}\u009c`),
+      entry("st-osc.log", `\u001b]0;authorization: ${opaqueBearerValue}\u001b\\`),
+    ])
+
+    expect(findings.map((finding) => finding.category)).toEqual([
+      "authorization-header",
+      "authorization-header",
+      "authorization-header",
+      "authorization-header",
+    ])
+  })
+
+  it("parses normalized and nested serialized JSON beyond the pair window", () => {
+    const content = String.raw`{\\"name\\":\\"\\u0061uthorization\\",\\"padding\\":\\"${"x".repeat(768)}\\",\\"value\\":\\"${opaqueBearerValue}\\"}`
+    const nested = JSON.stringify(JSON.stringify({
+      name: "authorization",
+      value: opaqueBearerValue,
+    }))
+
+    expect(inspectArtifactEntries([
+      entry("double-serialized-header.json", content),
+      entry("nested-serialized-header.json", nested),
+    ]).map((finding) => finding.category)).toEqual([
+      "authorization-header",
+      "authorization-header",
+    ])
+  })
+
+  it("bounds nested JSON normalization for redacted metadata", () => {
+    let content = JSON.stringify({
+      name: "authorization",
+      value: "[REDACTED]",
+    })
+    for (let depth = 0; depth < 4; depth += 1) {
+      content = JSON.stringify(content)
+    }
+
+    expect(inspectArtifactEntries([
+      entry("bounded-nested-header.json", content),
+    ])).toEqual([])
+  })
+
+  it("keeps ordinary multiline and structurally redacted reports clean", () => {
+    expect(inspectArtifactEntries([
+      entry(
+        "playwright-report.json",
+        prettyPlaywrightReportWithHeaders("[REDACTED]", "[REDACTED]"),
+      ),
+      entry("ordinary-report.txt", "suite completed\nrequest metadata omitted\nstatus: passed"),
+    ])).toEqual([])
+  })
+
+  it("does not treat intervening safe metadata as a session value", () => {
+    expect(inspectArtifactEntries([
+      entry("redacted-session.json", JSON.stringify({
+        name: "better-auth.session_token",
+        metadata: "ordinary report metadata",
+        value: "[REDACTED]",
+      }, null, 2)),
+    ])).toEqual([])
+  })
+
+  it("preserves invalid numeric entities as inert report text", () => {
+    expect(inspectArtifactEntries([
+      entry("invalid-entity.json", JSON.stringify({
+        name: "authoriz&#xd800;ation",
+        value: opaqueBearerValue,
+      })),
+    ])).toEqual([])
+  })
+
+  it("detects direct structured headers and cookie properties", () => {
+    const findings = inspectArtifactEntries([
+      entry("direct-headers.json", JSON.stringify({
+        authorization: opaqueBearerValue,
+        "better-auth.session_token": opaqueSessionValue,
+      })),
+      entry("cookie-header.json", JSON.stringify({
+        cookie: `better-auth.session_token=${opaqueSessionValue}`,
+      })),
+    ])
+
+    expect(findings.map((finding) => finding.category).sort()).toEqual([
+      "authorization-header",
+      "secret-assignment",
+      "secret-assignment",
+      "session-cookie",
+      "session-cookie",
+    ])
+  })
+
+  it("purges multiline Playwright metadata instead of retaining it as clean", async () => {
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    const contaminatedEntries = requiredEntries("run_safe").map((artifact) =>
+      artifact.path.endsWith("/playwright-report.json")
+        ? entry(artifact.path, prettyPlaywrightReportWithHeaders())
+        : artifact
+    )
+
+    const report = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => contaminatedEntries,
+      purgeOwnedRun,
+    })
+
+    expect(report).toMatchObject({
+      ok: false,
+      purged: true,
+      failureCategory: "evidence-contamination",
+    })
+    expect(report.findings.map((finding) => finding.category).sort()).toEqual([
+      "authorization-header",
+      "session-cookie",
+    ])
+    expect(purgeOwnedRun).toHaveBeenCalledOnce()
+  })
 
 
   it("accepts structurally redacted fixtures", () => {
@@ -213,12 +402,89 @@ describe("external E2E artifact scanner", () => {
     ])).toEqual([])
   })
 
-  it("caps finding output before the runner report limit", () => {
+  it("caps and deterministically orders multi-category findings", () => {
     const findings = inspectArtifactEntries(Array.from(
-      { length: 10_001 },
-      (_unused, index) => entry(`worker-${index}.json`, `HMAC_KEY=value-${String(index).padStart(16, "0")}`),
+      { length: 5_001 },
+      (_unused, index) => {
+        const suffix = String(index).padStart(16, "0")
+        return entry(
+          `worker-${index}.json`,
+          `authorization: Bearer opaque-${suffix}\nHMAC_KEY=value-${suffix}`,
+        )
+      },
     ))
     expect(findings).toHaveLength(10_000)
+    expect(new Set(findings.map((finding) => finding.path)).size).toBe(5_000)
+    expect(findings.some((finding, index) =>
+      index > 0 &&
+      findings[index - 1]!.path === finding.path &&
+      findings[index - 1]!.category !== finding.category
+    )).toBe(true)
+  })
+
+  it("caps findings discovered during structured classification", () => {
+    const findings = inspectArtifactEntries(Array.from(
+      { length: 5_001 },
+      (_unused, index) => {
+        const suffix = String(index).padStart(16, "0")
+        return entry(`structured-worker-${index}.json`, JSON.stringify({
+          headers: [
+            { name: "authorization", value: `Bearer opaque-${suffix}` },
+            {
+              name: "better-auth.session_token",
+              value: `session-${suffix}`,
+            },
+          ],
+        }))
+      },
+    ))
+
+    expect(findings).toHaveLength(10_000)
+    expect(new Set(findings.map((finding) => finding.path)).size).toBe(5_000)
+    expect(findings.some((finding, index) =>
+      index > 0 &&
+      findings[index - 1]!.path === finding.path &&
+      findings[index - 1]!.category !== finding.category
+    )).toBe(true)
+  })
+
+  it("recognizes only bounded nested Playwright execution results", () => {
+    for (const status of ["failed", "interrupted", "passed", "timedOut"]) {
+      expect(playwrightReportHasExecutedResult({
+        suites: [{
+          specs: [{ tests: [{ results: [{ status }] }] }],
+        }],
+      })).toBe(true)
+    }
+    for (const report of [
+      null,
+      {},
+      { suites: "not-an-array" },
+      { suites: [null] },
+      { suites: [{ specs: [null] }] },
+      { suites: [{ specs: [{ tests: [null] }] }] },
+      { suites: [{ specs: [{ tests: [{ results: [null] }] }] }] },
+      {
+        suites: [{
+          specs: [{ tests: [{ results: [{ status: "skipped" }] }] }],
+        }],
+      },
+    ]) {
+      expect(playwrightReportHasExecutedResult(report)).toBe(false)
+    }
+
+    const executed = {
+      specs: [{ tests: [{ results: [{ status: "passed" }] }] }],
+    }
+    expect(playwrightReportHasExecutedResult({
+      suites: [{ suites: [executed] }],
+    })).toBe(true)
+
+    let tooDeep: Record<string, unknown> = executed
+    for (let depth = 0; depth < 34; depth += 1) {
+      tooDeep = { suites: [tooDeep] }
+    }
+    expect(playwrightReportHasExecutedResult({ suites: [tooDeep] })).toBe(false)
   })
 
   it("requires a valid evidence manifest and Playwright JSON report", async () => {
@@ -329,6 +595,184 @@ describe("external E2E artifact scanner", () => {
     expect(expired).toMatchObject({ ok: false, purged: true })
   })
 
+  it("rejects every malformed manifest record and Playwright stats boundary", async () => {
+    const required = requiredEntries("run_safe")
+    const reportPath = "test-results/e2e-runs/run_safe/playwright-report.json"
+    const manifestPath =
+      "test-results/evidence/run_safe/manifests/journey.json"
+    const actual = required[2]!
+    const serialize = (value: unknown): string => JSON.stringify(value) ?? ""
+    const scan = async (entries: readonly ReturnType<typeof entry>[]) =>
+      await scanArtifactPaths("run_safe", ["ignored"], {
+        artifactProfile: "no-binary",
+        deadlineMs: 30_000,
+        collectEntries: async () => entries,
+        purgeOwnedRun: async () => undefined,
+      })
+    const entriesForManifest = (
+      manifest: unknown,
+      artifacts: readonly ReturnType<typeof entry>[] = [actual],
+    ) => [
+      required[0]!,
+      entry(manifestPath, serialize(manifest)),
+      ...artifacts,
+    ]
+    const malformedManifests = [
+      null,
+      [],
+      { version: 2, runId: "run_safe", artifacts: [evidenceRecord] },
+      { version: 1, runId: "other_run", artifacts: [evidenceRecord] },
+      { version: 1, runId: "run_safe", artifacts: "none" },
+      { version: 1, runId: "run_safe", artifacts: [] },
+      { version: 1, runId: "run_safe", artifacts: [null] },
+      { version: 1, runId: "run_safe", artifacts: [[]] },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, extra: true }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, kind: "video" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: 7 }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: "" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: "/absolute.json" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: "journey\\axe.json" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: "journey/../axe.json" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: "journey//axe.json" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, path: "journey/\u0001axe.json" }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, sha256: 7 }],
+      },
+      {
+        version: 1,
+        runId: "run_safe",
+        artifacts: [{ ...evidenceRecord, sha256: "A".repeat(64) }],
+      },
+    ]
+    for (const manifest of malformedManifests) {
+      await expect(scan(entriesForManifest(manifest))).resolves.toMatchObject({
+        ok: false,
+        purged: true,
+        failureCategory: "evidence-contract-validation",
+      })
+    }
+    await expect(scan(entriesForManifest({
+      version: 1,
+      runId: "run_safe",
+      artifacts: Array.from({ length: 20_001 }, () => null),
+    }))).resolves.toMatchObject({
+      ok: false,
+      purged: true,
+      failureCategory: "bounds",
+    })
+
+    await expect(scan(entriesForManifest({
+      version: 1,
+      runId: "run_safe",
+      artifacts: [evidenceRecord],
+    }, []))).resolves.toMatchObject({
+      ok: false,
+      purged: true,
+      failureCategory: "evidence-contract-validation",
+    })
+    await expect(scan(entriesForManifest({
+      version: 1,
+      runId: "run_safe",
+      artifacts: [evidenceRecord],
+    }, [{ ...actual, binary: "unsupported" }]))).resolves.toMatchObject({
+      ok: false,
+      purged: true,
+      failureCategory: "evidence-contract-validation",
+    })
+    await expect(scan([
+      ...entriesForManifest({
+        version: 1,
+        runId: "run_safe",
+        artifacts: [evidenceRecord],
+      }),
+      {
+        path: "test-results/evidence/run_safe/unreferenced.bin",
+        content: "safe",
+        binary: "unsupported",
+      },
+    ])).resolves.toMatchObject({
+      ok: false,
+      purged: true,
+      failureCategory: "evidence-contract-validation",
+    })
+
+    const invalidReports = [
+      "",
+      "{",
+      "[]",
+      serialize({ suites: playwrightReport.suites }),
+      serialize({
+        ...playwrightReport,
+        stats: { expected: 0, skipped: 0, unexpected: 0, flaky: 0 },
+      }),
+      serialize({
+        ...playwrightReport,
+        stats: { expected: -1, skipped: 0, unexpected: 0, flaky: 0 },
+      }),
+      serialize({
+        ...playwrightReport,
+        stats: { expected: 1, skipped: 1.5, unexpected: 0, flaky: 0 },
+      }),
+      serialize({
+        ...playwrightReport,
+        stats: { expected: 1, skipped: 0, unexpected: 1_000_001, flaky: 0 },
+      }),
+      serialize({
+        ...playwrightReport,
+        stats: { expected: 1, skipped: 0, unexpected: 0, flaky: "0" },
+      }),
+    ]
+    for (const content of invalidReports) {
+      await expect(scan([
+        entry(reportPath, content),
+        required[1]!,
+        actual,
+      ])).resolves.toMatchObject({
+        ok: false,
+        purged: true,
+        failureCategory: "evidence-contract-validation",
+      })
+    }
+  })
+
   it("validates exact bounded structured evidence for both artifact profiles", async () => {
     const structured = {
       version: 1,
@@ -388,14 +832,44 @@ describe("external E2E artifact scanner", () => {
 
     await expect(scan(structured)).resolves.toMatchObject({ ok: true })
     await expect(scan(structured, "anonymous-public-visual")).resolves.toMatchObject({ ok: true })
+    await expect(scan({
+      ...structured,
+      context: { persona: "member", state: "ready" },
+      focus: { tag: "button", role: "button" },
+    })).resolves.toMatchObject({ ok: true })
 
     const invalid = [
       { ...structured, search: "forbidden" },
-      { ...structured, test: {} },
+      { ...structured, version: 2 },
       { ...structured, status: "failed" },
-      { ...structured, viewport: { width: 16_385, height: 720 } },
-      { ...structured, test: { title: "password=super-secret-value" } },
+      { ...structured, test: {} },
+      { ...structured, test: { title: 7 } },
+      { ...structured, test: { title: "<unsafe-title>" } },
+      { ...structured, context: null },
+      { ...structured, context: { persona: "owner", state: "ready" } },
+      { ...structured, context: { persona: "admin", state: "loading" } },
+      { ...structured, route: null },
+      { ...structured, route: { pathname: 7 } },
+      { ...structured, route: { pathname: "%ZZ" } },
+      { ...structured, route: { pathname: `/${"a".repeat(512)}` } },
+      { ...structured, route: { pathname: "/pricing?private=true" } },
+      { ...structured, route: { pathname: "/safe/../private" } },
+      { ...structured, route: { pathname: "/safe%00" } },
       { ...structured, route: { pathname: "/api/auth/reset-password/raw-token" } },
+      { ...structured, viewport: null },
+      { ...structured, viewport: { width: 16_385, height: 720 } },
+      { ...structured, viewport: { width: 1_280, height: 0 } },
+      { ...structured, document: null },
+      {
+        ...structured,
+        document: { ...structured.document, scrollHeight: 16_385 },
+      },
+      { ...structured, counts: null },
+      { ...structured, counts: { ...structured.counts, controls: 10_001 } },
+      { ...structured, focus: null },
+      { ...structured, focus: { tag: "script", role: null } },
+      { ...structured, focus: { tag: "button", role: "dialog" } },
+      { ...structured, test: { title: "password=super-secret-value" } },
       {
         version: structured.version,
         status: structured.status,
@@ -488,10 +962,88 @@ describe("external E2E artifact scanner", () => {
       true,
     )).resolves.toMatchObject({ ok: false, purged: true })
 
+    const strictHeader = Buffer.alloc(13)
+    strictHeader.writeUInt32BE(1, 0)
+    strictHeader.writeUInt32BE(1, 4)
+    strictHeader[8] = 8
+    strictHeader[9] = 6
+    const pngFromChunks = (...chunks: readonly Buffer[]): Buffer => Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ...chunks,
+    ])
+    const strictImageData = deflateSync(Buffer.alloc(5))
+    const duplicateHeader = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IDAT", strictImageData),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const emptyPalette = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("PLTE", Buffer.alloc(0)),
+      pngChunk("IDAT", strictImageData),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const emptyImageData = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IDAT", Buffer.alloc(0)),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const missingImageData = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const missingTerminator = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IDAT", strictImageData),
+    )
+    const invalidDeflate = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IDAT", Buffer.from("not-deflate")),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const wrongPixelCount = pngFromChunks(
+      pngChunk("IHDR", strictHeader),
+      pngChunk("IDAT", deflateSync(Buffer.alloc(4))),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const invalidFirstChunk = pngFromChunks(
+      pngChunk("IDAT", strictImageData),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const invalidColorHeader = Buffer.from(strictHeader)
+    invalidColorHeader[9] = 3
+    const invalidColorType = pngFromChunks(
+      pngChunk("IHDR", invalidColorHeader),
+      pngChunk("IDAT", strictImageData),
+      pngChunk("IEND", Buffer.alloc(0)),
+    )
+    const truncatedChunk = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(8),
+    ])
+    const unsafeChunkLength = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0, 0, 0, 1]),
+      Buffer.from("IHDR", "ascii"),
+      Buffer.alloc(4),
+    ])
     for (const [runId, content] of [
       ["metadata_png", pngFixture(1, { name: "tEXt", data: Buffer.from("secret") })],
       ["oversize_png", pngFixture(8_193)],
+      ["zero_width_png", pngFixture(0)],
       ["corrupt_png", Buffer.from(validPng).fill(0, validPng.byteLength - 4)],
+      ["truncated_chunk_png", truncatedChunk],
+      ["unsafe_length_png", unsafeChunkLength],
+      ["invalid_header_png", invalidFirstChunk],
+      ["invalid_color_png", invalidColorType],
+      ["duplicate_header_png", duplicateHeader],
+      ["empty_palette_png", emptyPalette],
+      ["empty_image_png", emptyImageData],
+      ["missing_image_png", missingImageData],
+      ["missing_terminator_png", missingTerminator],
+      ["invalid_deflate_png", invalidDeflate],
+      ["wrong_pixel_count_png", wrongPixelCount],
     ] as const) {
       const unsafe = await fixture(runId, "anonymous-public-visual")
       await writePngEvidence(unsafe.root, unsafe.runId, content)
@@ -778,5 +1330,139 @@ describe("external E2E artifact scanner", () => {
     })
     await expect(dependencies.collectEntries(paths)).rejects.toThrow(/unsafe archive/i)
     expect(calls).toHaveLength(1)
+  })
+  it("classifies bounded failures and fails closed when purge cannot be proven", async () => {
+    expect(classifyArtifactScannerFailure(null)).toBe("internal")
+    expect(classifyArtifactScannerFailure(new Error("private failure"))).toBe("internal")
+    expect(classifyArtifactScannerFailure(
+      new ArtifactScannerCleanupError(),
+    )).toBe("cleanup")
+    expect(classifyArtifactScannerFailure(
+      new Error("Artifact scan deadline is invalid"),
+    )).toBe("deadline")
+    expect(classifyArtifactScannerFailure(
+      new Error("Artifact scan limits are invalid"),
+    )).toBe("bounds")
+    expect(classifyArtifactScannerFailure(
+      new Error("Owned E2E root identity changed"),
+    )).toBe("ownership-path-safety")
+    expect(classifyArtifactScannerFailure(
+      new Error("Structured evidence schema is invalid"),
+    )).toBe("evidence-contract-validation")
+    expect(classifyArtifactScannerFailure(
+      new Error("PNG terminator is missing"),
+    )).toBe("archive-validation")
+
+    const collectEntries = vi.fn(async () => requiredEntries("unsafe/run"))
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    await expect(scanArtifactPaths("unsafe/run", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries,
+      purgeOwnedRun,
+    })).resolves.toEqual({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "E2E run identifier is invalid",
+    })
+    expect(collectEntries).not.toHaveBeenCalled()
+    expect(purgeOwnedRun).not.toHaveBeenCalled()
+
+    for (const deadlineMs of [-1, 1.5, 30_001]) {
+      const purge = vi.fn(async () => undefined)
+      await expect(scanArtifactPaths("run_safe", ["ignored"], {
+        artifactProfile: "no-binary",
+        deadlineMs,
+        collectEntries: async () => requiredEntries("run_safe"),
+        purgeOwnedRun: purge,
+      })).resolves.toMatchObject({
+        ok: false,
+        purged: true,
+        failureCategory: "deadline",
+      })
+      expect(purge).toHaveBeenCalledWith("run_safe")
+    }
+
+    const failedPurge = vi.fn(async () => {
+      throw new Error("private purge failure")
+    })
+    await expect(scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => {
+        throw new Error("Artifact entry count exceeds scan bound")
+      },
+      purgeOwnedRun: failedPurge,
+    })).resolves.toEqual({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "E2E artifact scanning and owned-run purge failed safely",
+      failureCategory: "cleanup",
+    })
+  })
+
+  it("bounds clean and contaminated purge rejection to one cleanup retry", async () => {
+    const failedCleanPurge = vi.fn(async () => {
+      throw new Error("private clean purge failure")
+    })
+    await expect(scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => requiredEntries("run_safe"),
+      purgeOwnedRun: failedCleanPurge,
+    }, true)).resolves.toEqual({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "E2E artifact scanning and owned-run purge failed safely",
+      failureCategory: "cleanup",
+    })
+    expect(failedCleanPurge).toHaveBeenCalledTimes(2)
+
+    const failedContaminatedPurge = vi.fn(async () => {
+      throw new Error("private contaminated purge failure")
+    })
+    const contaminated = await scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => [
+        ...requiredEntries("run_safe"),
+        entry("network.json", "authorization: Bearer private-token-value"),
+      ],
+      purgeOwnedRun: failedContaminatedPurge,
+    })
+    expect(contaminated).toEqual({
+      ok: false,
+      scannedEntries: 0,
+      findings: [],
+      purged: false,
+      reason: "E2E artifact scanning and owned-run purge failed safely",
+      failureCategory: "cleanup",
+    })
+    expect(failedContaminatedPurge).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(contaminated)).not.toContain("private-token-value")
+  })
+
+  it("purges clean failed-run evidence only when explicitly requested", async () => {
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    await expect(scanArtifactPaths("run_safe", ["ignored"], {
+      artifactProfile: "no-binary",
+      deadlineMs: 30_000,
+      collectEntries: async () => requiredEntries("run_safe"),
+      purgeOwnedRun,
+    }, true)).resolves.toEqual({
+      ok: true,
+      scannedEntries: 3,
+      findings: [],
+      purged: true,
+      reason: "Artifacts were clean; failed-run evidence was purged",
+    })
+    expect(purgeOwnedRun).toHaveBeenCalledOnce()
+    expect(purgeOwnedRun).toHaveBeenCalledWith("run_safe")
   })
 })

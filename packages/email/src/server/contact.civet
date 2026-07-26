@@ -239,6 +239,14 @@ export const selectContactEmailPort = (
         binding: options.previewBinding,
       })
     }
+    if (
+      (process.env as { readonly NODE_ENV?: string }).NODE_ENV === "production"
+    ) {
+      return fixedContactPort(contactFailure(
+        "disabled",
+        "CONTACT_DELIVERY_DISABLED",
+      ))
+    }
     const previewOptions: PreviewContactEmailPortOptions = {
       environment: options.environment,
       directory: options.previewDirectory,

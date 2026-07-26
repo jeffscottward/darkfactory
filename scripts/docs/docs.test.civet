@@ -78,12 +78,109 @@ describe("architecture inventory docs", () => {
     expect(stale.writes).toHaveLength(0)
   })
 
+  it("does not rewrite current generated metadata", async () => {
+    const expected = serializeArchitectureInventory(buildArchitectureInventory(
+      [...manifests.entries()].map(([path, source]) => ({ path, source })),
+    ))
+    const current = fixture(expected)
+
+    await expect(runDocsAction("generate", current.dependencies)).resolves.toEqual({
+      action: "generate",
+      ok: true,
+      changed: false,
+      reason: "Generated architecture inventory is already current",
+      packageCount: 3,
+    })
+    expect(current.writes).toHaveLength(0)
+  })
+
+  it("reports discovery, read, write, and non-Error operation failures deterministically", async () => {
+    const validSources = [...manifests.entries()].map(([path, source]) => ({ path, source }))
+    const failing = (
+      overrides: Partial<DocsDependencies["files"]>,
+    ): DocsDependencies => ({
+      files: {
+        discoverPackageManifests: async () => validSources,
+        readGenerated: async () => undefined,
+        writeGenerated: async () => undefined,
+        ...overrides,
+      },
+    })
+
+    await expect(runDocsAction("check", failing({
+      discoverPackageManifests: async () => { throw new Error("manifest discovery failed") },
+    }))).resolves.toMatchObject({ ok: false, reason: "manifest discovery failed" })
+    await expect(runDocsAction("check", failing({
+      readGenerated: async () => { throw new Error("generated read failed") },
+    }))).resolves.toMatchObject({ ok: false, reason: "generated read failed" })
+    await expect(runDocsAction("generate", failing({
+      writeGenerated: async () => { throw new Error("generated write failed") },
+    }))).resolves.toMatchObject({ ok: false, reason: "generated write failed" })
+    await expect(runDocsAction("check", failing({
+      discoverPackageManifests: () => Promise.reject("non-error failure"),
+    }))).resolves.toMatchObject({
+      ok: false,
+      reason: "Documentation generation failed",
+      packageCount: undefined,
+    })
+  })
+
   it("rejects malformed and duplicate package manifests", () => {
     expect(() => buildArchitectureInventory([{ path: "package.json", source: "{" }])).toThrow(/package manifest/i)
     expect(() => buildArchitectureInventory([
       { path: "a/package.json", source: JSON.stringify({ name: "same", version: "1" }) },
       { path: "b/package.json", source: JSON.stringify({ name: "same", version: "1" }) },
     ])).toThrow(/duplicate/i)
+  })
+
+  it.each([
+    ["an array root", "[]"],
+    ["a null root", "null"],
+    ["a missing name", JSON.stringify({ version: "1.0.0" })],
+    ["an empty name", JSON.stringify({ name: "", version: "1.0.0" })],
+    ["a missing version", JSON.stringify({ name: "package" })],
+    ["an empty version", JSON.stringify({ name: "package", version: "" })],
+  ])("rejects %s package manifest", (_name, source) => {
+    expect(() => buildArchitectureInventory([
+      { path: "package.json", source },
+    ])).toThrow(/invalid package manifest/i)
+  })
+
+  it("merges only string-valued workspace dependencies across dependency sections", () => {
+    const inventory = buildArchitectureInventory([
+      {
+        path: "package.json",
+        source: JSON.stringify({
+          name: "@darkfactory/root",
+          version: "0.1.0",
+          scripts: ["not", "a", "record"],
+        }),
+      },
+      {
+        path: "packages/consumer/package.json",
+        source: JSON.stringify({
+          name: "@darkfactory/consumer",
+          version: "0.1.0",
+          exports: ["not", "a", "record"],
+          dependencies: { "@darkfactory/api": "workspace:*" },
+          peerDependencies: { "@darkfactory/db": "workspace:^" },
+          optionalDependencies: {
+            "@darkfactory/storage": "workspace:~",
+            "@darkfactory/ignored": 42,
+          },
+        }),
+      },
+    ])
+
+    expect(inventory.rootScripts).toEqual([])
+    expect(inventory.packages.find(({ name }) => name === "@darkfactory/consumer")).toMatchObject({
+      publicExports: [],
+      workspaceDependencies: [
+        "@darkfactory/api",
+        "@darkfactory/db",
+        "@darkfactory/storage",
+      ],
+    })
   })
 
   it("maps fresh, stale, and invalid CLI invocations to deterministic exit codes", async () => {
@@ -98,6 +195,10 @@ describe("architecture inventory docs", () => {
     await expect(runDocsCli(["check"], fixture(expected).dependencies, streams)).resolves.toBe(0)
     await expect(runDocsCli(["check"], fixture("{}\n").dependencies, streams)).resolves.toBe(1)
     await expect(runDocsCli(["unknown"], fixture().dependencies, streams)).resolves.toBe(2)
+    await expect(runDocsCli([], fixture().dependencies, streams)).resolves.toBe(2)
+    await expect(runDocsCli(["check", "extra"], fixture().dependencies, streams)).resolves.toBe(2)
+    await expect(runDocsCli(["generate"], fixture().dependencies, streams)).resolves.toBe(0)
+    expect(output.join("")).toMatch(/current|stale|updated|Usage/)
   })
 
   it("rejects an ancestor symlink swap without publishing outside the repository", async () => {

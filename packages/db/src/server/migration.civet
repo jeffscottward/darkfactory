@@ -1,0 +1,21 @@
+import { fileURLToPath } from "node:url"
+import { migrate as runMigrations } from "drizzle-orm/node-postgres/migrator"
+
+import type { Database } from "./client.civet"
+
+export type MigrationOptions = Readonly<{
+  migrationsFolder?: string
+}>
+
+const defaultMigrationsFolder = fileURLToPath(
+  new URL("../../migrations", import.meta.url),
+)
+
+export const migrate = async (
+  database: Database,
+  options: MigrationOptions = {},
+): Promise<void> => {
+  await runMigrations(database, {
+    migrationsFolder: options.migrationsFolder ?? defaultMigrationsFolder,
+  })
+}

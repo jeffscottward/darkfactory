@@ -83,6 +83,20 @@ describe "auth form surface", ->
     expect(replace).toHaveBeenCalledOnce()
     expect(replace).toHaveBeenCalledWith("/dashboard")
 
+
+  it "does not navigate for non-redirecting success or error results", ->
+    const replace = vi.fn()
+
+    completeSuccessfulSignInNavigation(
+      { status: "success", message: "Check your inbox." },
+      replace,
+    )
+    completeSuccessfulSignInNavigation(
+      { status: "error", message: "Sign-in failed." },
+      replace,
+    )
+
+    expect(replace).not.toHaveBeenCalled()
   it "renders sign-up with name, email, two password controls, and truthful verification guidance", ->
     const html = markup(createElement(SignUpForm, { auth: client }))
 
@@ -144,6 +158,12 @@ describe "auth form surface", ->
         history,
       ),
     ).toBeUndefined()
+    expect(captureAndScrubResetToken("", history)).toBeUndefined()
+    expect(replaceState).toHaveBeenLastCalledWith(
+      history.state,
+      "",
+      "/reset-password",
+    )
 
   it "removes hydrated route scripts that retain the captured reset token", ->
     const sensitiveScript = {
@@ -158,6 +178,10 @@ describe "auth form surface", ->
 
     expect(sensitiveScript.remove).toHaveBeenCalledOnce()
     expect(safeScript.remove).not.toHaveBeenCalled()
+
+    const querySelectorAll = vi.fn(() => [sensitiveScript])
+    scrubResetTokenMarkup(undefined, { querySelectorAll })
+    expect(querySelectorAll).not.toHaveBeenCalled()
 
 describe "signed-in auth route redirect", ->
   it "gates interactive auth children behind an initial session check", ->

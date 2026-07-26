@@ -144,3 +144,84 @@ describe "Worker oRPC runtime composition", ->
     ).toEqual(["collector.example.test"])
     expect(configuredOtlpAllowedHosts(undefined)).toEqual([])
     expect(configuredOtlpAllowedHosts("not a url")).toEqual([])
+
+  it "ignores unrelated and separator-free cookie segments", ->
+    const request = new Request("https://darkfactory.localhost/api/orpc", {
+      headers: { cookie: "flag; other=value" },
+    })
+
+    expect(resolveAnalyticsConsent(request)).toBe("unknown")
+
+  it "falls back when telemetry omits its callback and isolates rejected flushing", async ->
+    const forceFlush = vi.fn(async () => {
+      throw new Error("provider flush unavailable")
+    })
+    const telemetry = runtime(
+      (async () => undefined) as TelemetryRuntime["withSpan"],
+      forceFlush,
+    )
+    const waitUntil = vi.fn(() => {
+      throw new Error("execution context closed")
+    })
+    const operation = vi.fn((fallbackSpan: SpanHandle) => {
+      fallbackSpan.addEvent({
+        eventId: "event-1",
+        name: "fallback",
+        occurredAt: "2026-07-25T00:00:00.000Z",
+        correlation: fallbackSpan.correlation,
+      })
+      fallbackSpan.recordMetric({ name: "fallback.metric", value: 1 })
+      return "handled"
+    })
+
+    await expect(runWithRequestTelemetry(
+      telemetry,
+      {
+        name: "orpc.request",
+        correlation: { requestId: "request-1", route: "/api/orpc" },
+      },
+      waitUntil,
+      operation,
+    )).resolves.toBe("handled")
+    expect(operation).toHaveBeenCalledOnce()
+    expect(forceFlush).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledOnce()
+
+  it "rethrows primitive telemetry failures instead of treating them as provider outages", async ->
+    const failure = "telemetry primitive failure"
+    const forceFlush = vi.fn(async () => undefined)
+    const telemetry = runtime(async () => {
+      throw failure
+    }, forceFlush)
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise)
+    const operation = vi.fn(async () => "not reached")
+
+    await expect(runWithRequestTelemetry(
+      telemetry,
+      { name: "orpc.request", correlation: { requestId: "request-1" } },
+      waitUntil,
+      operation,
+    )).rejects.toBe(failure)
+    expect(operation).not.toHaveBeenCalled()
+    expect(forceFlush).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledOnce()
+
+  it "rethrows primitive execution-context failures during flush scheduling", async ->
+    const failure = "execution context primitive failure"
+    const telemetry = runtime(async (_input, run) => run(span))
+    const waitUntil = vi.fn(() => {
+      throw failure
+    })
+    const operation = vi.fn(async () => "handled")
+
+    await expect(runWithRequestTelemetry(
+      telemetry,
+      { name: "orpc.request", correlation: { requestId: "request-1" } },
+      waitUntil,
+      operation,
+    )).rejects.toBe(failure)
+    expect(operation).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledOnce()
+
+  it "does not derive an allowlist entry from a hostname-free URL", ->
+    expect(configuredOtlpAllowedHosts("file:///tmp/traces")).toEqual([])

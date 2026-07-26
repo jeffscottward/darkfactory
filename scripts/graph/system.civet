@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
 import {
   lstat,
@@ -9,9 +9,10 @@ import {
   realpath,
   rename,
   rm,
+  rmdir,
   writeFile,
 } from "node:fs/promises"
-import { dirname, extname, join, relative, resolve } from "node:path"
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import {
   compileCivetSnapshot,
@@ -33,6 +34,13 @@ const SNAPSHOT_ROOT = ".graphify/source-snapshot"
 const SNAPSHOT_OWNER = ".owner"
 const repositoryRoot = await realpath(process.cwd())
 
+type GraphIdentity = Readonly<{ dev: number; ino: number }>
+const graphIdentity = (stats: Readonly<{ dev: number; ino: number }>): GraphIdentity =>
+  Object.freeze({ dev: stats.dev, ino: stats.ino })
+const sameGraphIdentity = (
+  left: Readonly<{ dev: number; ino: number }>,
+  right: Readonly<{ dev: number; ino: number }>,
+): boolean => left.dev === right.dev && left.ino === right.ino
 const portable = (path: string): string => path.replaceAll("\\", "/")
 const containedPath = (path: string): string => {
   const absolute = resolve(repositoryRoot, path)
@@ -41,6 +49,126 @@ const containedPath = (path: string): string => {
     throw new Error("Graph path escapes the repository")
   }
   return absolute
+}
+
+type GraphSourceKind = "file" | "directory"
+type GraphSourceAncestor = Readonly<{
+  path: string
+  canonical: string
+  dev: number
+  ino: number
+}>
+type ValidatedGraphSource = Readonly<{
+  path: string
+  absolute: string
+  identity: GraphIdentity
+  ancestors: readonly GraphSourceAncestor[]
+  size: number
+}>
+type GraphSourceStats = Readonly<{
+  dev: number
+  ino: number
+  isDirectory: () => boolean
+  isFile: () => boolean
+}>
+const graphSourceRelation = (absolute: string): string | undefined => {
+  const relation = relative(repositoryRoot, absolute)
+  return isAbsolute(relation) || relation === ".." || relation.startsWith(`..${sep}`)
+    ? undefined
+    : relation
+}
+const graphSourceKindError = (path: string, kind: GraphSourceKind): Error =>
+  new Error(kind === "directory"
+    ? `Graph source root is not a regular directory: ${path}`
+    : `Graph source file is not regular: ${path}`)
+const hasGraphSourceAncestorIdentity = (
+  expected: Readonly<{ dev: number; ino: number }>,
+  actual: GraphSourceStats,
+): boolean => actual.isDirectory() && sameGraphIdentity(expected, actual)
+const hasGraphSourceKind = (
+  kind: GraphSourceKind,
+  stats: GraphSourceStats,
+): boolean => kind === "directory" ? stats.isDirectory() : stats.isFile()
+const snapshotGraphSourceAncestors = async (
+  directory: string,
+): Promise<readonly GraphSourceAncestor[]> => {
+  const relation = relative(repositoryRoot, directory)
+  const paths = [repositoryRoot]
+  let current = repositoryRoot
+  if (relation.length > 0) {
+    for (const segment of relation.split(sep)) {
+      current = join(current, segment)
+      paths.push(current)
+    }
+  }
+  const snapshots: GraphSourceAncestor[] = []
+  for (const ancestor of paths) {
+    const stats = await lstat(ancestor)
+    if (stats.isSymbolicLink()) throw new Error("Graph source path contains a symbolic link")
+    if (!stats.isDirectory()) throw new Error("Graph source ancestor is not a regular directory")
+    const canonical = await realpath(ancestor)
+    if (graphSourceRelation(canonical) === undefined) throw new Error("Graph source path escapes the repository")
+    const canonicalStats = await lstat(canonical)
+    if (!hasGraphSourceAncestorIdentity(stats, canonicalStats)) throw new Error("Graph source ancestor identity changed")
+    snapshots.push(Object.freeze({
+      path: ancestor,
+      canonical,
+      dev: stats.dev,
+      ino: stats.ino,
+    }))
+  }
+  return Object.freeze(snapshots)
+}
+const assertGraphSourceAncestors = async (
+  snapshots: readonly GraphSourceAncestor[],
+): Promise<void> => {
+  for (const snapshot of snapshots) {
+    const stats = await lstat(snapshot.path)
+    if (stats.isSymbolicLink()) throw new Error("Graph source path contains a symbolic link")
+    if (!hasGraphSourceAncestorIdentity(snapshot, stats)) throw new Error("Graph source ancestor identity changed")
+    const canonical = await realpath(snapshot.path)
+    if (graphSourceRelation(canonical) === undefined) throw new Error("Graph source path escapes the repository")
+    if (canonical !== snapshot.canonical) throw new Error("Graph source ancestor identity changed")
+  }
+}
+const validateGraphSource = async (
+  path: string,
+  kind: GraphSourceKind,
+): Promise<ValidatedGraphSource> => {
+  try {
+    const absolute = containedPath(path)
+    const ancestors = await snapshotGraphSourceAncestors(
+      kind === "directory" ? absolute : dirname(absolute),
+    )
+    const stats = await lstat(absolute)
+    if (stats.isSymbolicLink()) throw new Error("Graph source path contains a symbolic link")
+    if (!hasGraphSourceKind(kind, stats)) throw graphSourceKindError(path, kind)
+    const canonical = await realpath(absolute)
+    const canonicalRelation = graphSourceRelation(canonical)
+    if (canonicalRelation === undefined) throw new Error("Graph source path escapes the repository")
+    const canonicalPath = portable(canonicalRelation) || "."
+    const canonicalStats = await lstat(canonical)
+    if (
+      canonicalStats.isSymbolicLink() ||
+      !sameGraphIdentity(stats, canonicalStats)
+    ) throw new Error("Graph source identity changed")
+    await assertGraphSourceAncestors(ancestors)
+    const current = await lstat(absolute)
+    if (
+      current.isSymbolicLink() ||
+      !sameGraphIdentity(stats, current)
+    ) throw new Error("Graph source identity changed")
+    return Object.freeze({
+      path: canonicalPath,
+      absolute: canonical,
+      identity: graphIdentity(current),
+      ancestors,
+      size: current.size,
+    })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw graphSourceKindError(path, kind)
+    throw error
+  }
 }
 export const isGraphSourceExcluded = (path: string, excludes: readonly string[]): boolean =>
   excludes.some((excluded) => {
@@ -66,10 +194,18 @@ const inspectPath = async (path: string): Promise<GraphFileInfo> => {
   }
 }
 
-const readBounded = async (path: string, maximumBytes = 67_108_864): Promise<string> => {
+const readBounded = async (
+  path: string,
+  maximumBytes = 67_108_864,
+  expectedIdentity?: GraphIdentity,
+  validatePath?: () => Promise<void>,
+): Promise<string> => {
   const handle = await open(containedPath(path), constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
     const stats = await handle.stat()
+    if (expectedIdentity && !sameGraphIdentity(expectedIdentity, stats)) {
+      throw new Error("Graph source identity changed")
+    }
     if (!stats.isFile() || stats.size > maximumBytes) throw new Error("Graph read exceeds its bound")
     const chunks: Buffer[] = []
     let total = 0
@@ -81,34 +217,74 @@ const readBounded = async (path: string, maximumBytes = 67_108_864): Promise<str
       if (total > maximumBytes) throw new Error("Graph read exceeds its bound")
       chunks.push(buffer.subarray(0, bytesRead))
     }
+    await validatePath?.()
+    if (expectedIdentity && !sameGraphIdentity(expectedIdentity, await handle.stat())) {
+      throw new Error("Graph source identity changed")
+    }
     return Buffer.concat(chunks, total).toString("latin1")
   } finally {
     await handle.close()
   }
 }
 
-const collectDirectory = async (root: string, config: GraphConfig, collected: string[]): Promise<void> => {
-  const entries = await readdir(containedPath(root), { withFileTypes: true })
+const readGraphSourceBounded = async (
+  path: string,
+  maximumBytes: number,
+): Promise<string> => {
+  const source = await validateGraphSource(path, "file")
+  if (source.size > maximumBytes) throw new Error("Architectural source file is too large")
+  return readBounded(source.path, maximumBytes, source.identity, async () => {
+    await assertGraphSourceAncestors(source.ancestors)
+    const current = await validateGraphSource(source.path, "file")
+    if (
+      current.absolute !== source.absolute ||
+      !sameGraphIdentity(source.identity, current.identity)
+    ) throw new Error("Graph source identity changed")
+  })
+}
+
+const collectDirectory = async (
+  directory: ValidatedGraphSource,
+  config: GraphConfig,
+  collected: string[],
+): Promise<void> => {
+  await assertGraphSourceAncestors(directory.ancestors)
+  const entries = await readdir(directory.absolute, { withFileTypes: true })
+  await assertGraphSourceAncestors(directory.ancestors)
+  const immediateFileCount = entries.reduce((count, entry) => {
+    const path = portable(join(directory.path, entry.name)).replace(/^\.\//, "")
+    return !isGraphSourceExcluded(path, config.source.excludes) &&
+      !entry.isSymbolicLink() &&
+      entry.isFile() &&
+      config.source.extensions.includes(extname(entry.name).toLowerCase())
+      ? count + 1
+      : count
+  }, 0)
+  if (collected.length + immediateFileCount > MAX_SOURCE_FILES) {
+    throw new Error("Architectural source corpus has too many files")
+  }
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const path = portable(join(root, entry.name)).replace(/^\.\//, "")
+    const path = portable(join(directory.path, entry.name)).replace(/^\.\//, "")
     if (isGraphSourceExcluded(path, config.source.excludes) || entry.isSymbolicLink()) continue
-    if (entry.isDirectory()) await collectDirectory(path, config, collected)
-    else if (entry.isFile() && config.source.extensions.includes(extname(entry.name).toLowerCase())) {
-      collected.push(path)
+    if (entry.isDirectory()) {
+      await collectDirectory(await validateGraphSource(path, "directory"), config, collected)
+    } else if (entry.isFile() && config.source.extensions.includes(extname(entry.name).toLowerCase())) {
+      const source = await validateGraphSource(path, "file")
+      collected.push(source.path)
       if (collected.length > MAX_SOURCE_FILES) throw new Error("Architectural source corpus has too many files")
     }
   }
+  await assertGraphSourceAncestors(directory.ancestors)
 }
 
 const listConfiguredSourceFiles = async (config: GraphConfig): Promise<readonly string[]> => {
   const collected: string[] = []
   for (const root of config.source.roots) {
-    if ((await inspectPath(root)).kind !== "directory") throw new Error(`Graph source root is not a regular directory: ${root}`)
-    await collectDirectory(root, config, collected)
+    await collectDirectory(await validateGraphSource(root, "directory"), config, collected)
   }
   for (const path of config.source.files) {
-    if ((await inspectPath(path)).kind !== "file") throw new Error(`Graph source file is not regular: ${path}`)
-    if (!isGraphSourceExcluded(path, config.source.excludes)) collected.push(path)
+    const source = await validateGraphSource(path, "file")
+    if (!isGraphSourceExcluded(source.path, config.source.excludes)) collected.push(source.path)
   }
   return Object.freeze([...new Set(collected)].sort())
 }
@@ -141,7 +317,7 @@ const writeAtomic = async (path: string, content: string): Promise<void> => {
   }
 }
 
-export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
+const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.freeze({
   exists: async (path) => (await inspectPath(path)).kind !== "missing",
   inspect: inspectPath,
   readText: readBounded,
@@ -168,15 +344,44 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
   },
   listSourceFiles: listConfiguredSourceFiles,
   createSourceSnapshot: async (config) => {
-    const snapshotRoot = SNAPSHOT_ROOT
     const ownerPath = join(snapshotRoot, SNAPSHOT_OWNER)
     const owner = randomUUID()
     let ownsSnapshot = false
+    let snapshotIdentity: GraphIdentity | undefined
+    let markerIdentity: GraphIdentity | undefined
+    const removeOwnedSnapshot = async (): Promise<void> => {
+      const expectedSnapshot = snapshotIdentity as GraphIdentity
+      const currentSnapshot = await lstat(snapshotRoot)
+      if (!sameGraphIdentity(expectedSnapshot, currentSnapshot)) {
+        throw new Error("Graph source snapshot ownership changed")
+      }
+      if (!markerIdentity) {
+        await rmdir(snapshotRoot)
+        return
+      }
+      let currentMarker: Readonly<{ dev: number; ino: number }>
+      let recordedOwner: string
+      try {
+        currentMarker = await lstat(ownerPath)
+        recordedOwner = await readBounded(ownerPath, 128)
+      } catch {
+        throw new Error("Graph source snapshot ownership marker is missing")
+      }
+      if (!sameGraphIdentity(markerIdentity, currentMarker)) {
+        throw new Error("Graph source snapshot marker ownership changed")
+      }
+      if (recordedOwner !== owner) {
+        throw new Error("Graph source snapshot ownership changed")
+      }
+      await rm(snapshotRoot, { recursive: true })
+    }
     let total = 0
     try {
       await mkdir(snapshotRoot, { mode: 0o700 })
+      snapshotIdentity = graphIdentity(await lstat(snapshotRoot))
       ownsSnapshot = true
       await writeFile(ownerPath, owner, { flag: "wx", mode: 0o600 })
+      markerIdentity = graphIdentity(await lstat(ownerPath))
       const sourcePaths = await listConfiguredSourceFiles(config)
       const workspaceManifests = await Promise.all(
         sourcePaths
@@ -184,7 +389,7 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
           .map(async (path) => ({
             directory: dirname(path),
             source: Buffer.from(
-              await readBounded(path, MAX_SOURCE_FILE_BYTES),
+              await readGraphSourceBounded(path, MAX_SOURCE_FILE_BYTES),
               "latin1",
             ).toString("utf8"),
           })),
@@ -192,9 +397,7 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
       const aliases = deriveWorkspaceAliases(workspaceManifests)
 
       for (const path of sourcePaths) {
-        const info = await inspectPath(path)
-        if (info.size > MAX_SOURCE_FILE_BYTES) throw new Error("Architectural source file is too large")
-        const raw = await readBounded(path, MAX_SOURCE_FILE_BYTES)
+        const raw = await readGraphSourceBounded(path, MAX_SOURCE_FILE_BYTES)
         let snapshot: Readonly<{ path: string; content: string }>
         try {
           snapshot = path.endsWith(".civet")
@@ -219,24 +422,20 @@ export const nodeGraphFileSystem: GraphFileSystem = Object.freeze({
         await writeFile(destination, encoded, { flag: "wx", mode: 0o600 })
       }
       async function cleanup(): Promise<void> {
-        let recordedOwner: string
-        try {
-          recordedOwner = await readBounded(ownerPath, 128)
-        } catch {
-          throw new Error("Graph source snapshot ownership marker is missing")
-        }
-        if (recordedOwner !== owner) {
-          throw new Error("Graph source snapshot ownership changed")
-        }
-        await rm(snapshotRoot, { recursive: true })
+        await removeOwnedSnapshot()
       }
       return Object.freeze({ path: snapshotRoot, cleanup })
     } catch (error) {
-      if (ownsSnapshot) await rm(snapshotRoot, { force: true, recursive: true })
+      if (ownsSnapshot) await removeOwnedSnapshot()
       throw error
     }
   },
 })
+
+export const createNodeGraphFileSystem = (snapshotNamespace: string): GraphFileSystem =>
+  graphFileSystemAt(`${SNAPSHOT_ROOT}-${createHash("sha256").update(snapshotNamespace).digest("hex")}`)
+
+export const nodeGraphFileSystem = graphFileSystemAt(SNAPSHOT_ROOT)
 
 const ALLOWED_ENV = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"] as const
 export const graphProcessEnvironment = (

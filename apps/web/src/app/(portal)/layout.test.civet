@@ -1,3 +1,9 @@
+import {
+  Children,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() -> ({
@@ -23,6 +29,67 @@ vi.mock("../../components/portal-shell.civet", () -> ({
 }))
 
 import PortalLayout from "./layout.civet"
+import AccountPage from "./account/page.civet"
+import AccountError from "./account/error.civet"
+import AccountLayout from "./account/layout.civet"
+import AccountLoading from "./account/loading.civet"
+import AddressPage from "./account/address/page.civet"
+import PreferencesPage from "./account/preferences/page.civet"
+import ProfilePage from "./account/profile/page.civet"
+import SecurityPage from "./account/security/page.civet"
+import AdminError from "./admin/error.civet"
+import AdminLoading from "./admin/loading.civet"
+import AdminPage from "./admin/page.civet"
+import AdminUsersPage from "./admin/users/page.civet"
+import DashboardError from "./dashboard/error.civet"
+import DashboardLoading from "./dashboard/loading.civet"
+import FeatureItemsError from "./feature-items/error.civet"
+import FeatureItemsLoading from "./feature-items/loading.civet"
+import FeatureItemsPage, {
+  metadata as featureItemsMetadata,
+} from "./feature-items/page.civet"
+import FeatureItemPage, {
+  metadata as featureItemMetadata,
+} from "./feature-items/[id]/page.civet"
+import NewFeatureItemPage, {
+  metadata as newFeatureItemMetadata,
+} from "./feature-items/new/page.civet"
+import { AccountNavigationClient } from "../../components/account/account-navigation-client.civet"
+import { AddressPageClient } from "../../components/account/address-page-client.civet"
+import { PreferencesPageClient } from "../../components/account/preferences-page-client.civet"
+import { ProfilePageClient } from "../../components/account/profile-page-client.civet"
+import { SecurityPageClient } from "../../components/account/security-page-client.civet"
+import { AdminUsersPageClient } from "../../components/admin/admin-users-page-client.civet"
+import { FeatureItemCreateWorkflow } from "../../components/portal/feature-item-create-workflow.civet"
+import { FeatureItemEditor } from "../../components/portal/feature-item-editor.civet"
+import { FeatureItemsWorkspace } from "../../components/portal/feature-items-workspace.civet"
+
+type RuntimeElement = ReactElement<{
+  readonly action?: ReactNode
+  readonly actions?: ReactNode
+  readonly children?: ReactNode
+  readonly href?: string
+  readonly id?: string
+  readonly onClick?: (() => void) | undefined
+}>
+
+const runtimeElements = (node: ReactNode): readonly RuntimeElement[] => {
+  if (!isValidElement<RuntimeElement["props"]>(node)) return []
+  return [
+    node,
+    ...Children.toArray([
+      node.props.children,
+      node.props.action,
+      node.props.actions,
+    ]).flatMap(runtimeElements),
+  ]
+}
+
+const runtimeElement = (
+  node: ReactNode,
+  type: RuntimeElement["type"],
+): RuntimeElement | undefined =>
+  runtimeElements(node).find((element) => element.type === type)
 
 beforeEach ->
   vi.clearAllMocks()
@@ -83,3 +150,87 @@ describe "PortalLayout", ->
     expect(result.props.isAdmin).toBe(isAdmin)
     expect(result.props.availableRoutes).toEqual(availableRoutes)
   )
+
+describe "portal route leaf composition", ->
+  it "renders the account index, layout, and all account client leaves", ->
+    const account = AccountPage()
+    expect(
+      runtimeElements(account)
+        .filter((element) => element.type === "a")
+        .map((element) => element.props.href),
+    ).toEqual([
+      "/account/profile",
+      "/account/address",
+      "/account/preferences",
+      "/account/security",
+    ])
+
+    const layout = AccountLayout({ children: "account content" })
+    expect(runtimeElement(layout, AccountNavigationClient)).toBeDefined()
+    expect(layout.props.children).toBeDefined()
+
+    expect(runtimeElement(AddressPage(), AddressPageClient)).toBeDefined()
+    expect(
+      runtimeElement(PreferencesPage(), PreferencesPageClient),
+    ).toBeDefined()
+    expect(runtimeElement(ProfilePage(), ProfilePageClient)).toBeDefined()
+    expect(runtimeElement(SecurityPage(), SecurityPageClient)).toBeDefined()
+
+  it "renders feature-item list, detail, and creation leaves with metadata", async ->
+    const list = FeatureItemsPage()
+    expect(runtimeElement(list, FeatureItemsWorkspace)).toBeDefined()
+    expect(
+      runtimeElements(list).some((element) ->
+        element.type is "a" and
+          element.props.href is "/feature-items/new"
+      )
+    ).toBe(true)
+
+    const detail = await FeatureItemPage({
+      params: Promise.resolve({ id: "item/with-delimiter" }),
+    })
+    expect(runtimeElement(detail, FeatureItemEditor)?.props.id).toBe(
+      "item/with-delimiter",
+    )
+
+    const create = NewFeatureItemPage()
+    expect(runtimeElement(create, FeatureItemCreateWorkflow)).toBeDefined()
+    expect(featureItemsMetadata).toEqual({ title: "Feature items" })
+    expect(featureItemMetadata).toEqual({ title: "Feature item details" })
+    expect(newFeatureItemMetadata).toEqual({ title: "Create feature item" })
+
+  it "renders the administrator directory and redirects its index", ->
+    expect(runtimeElement(AdminUsersPage(), AdminUsersPageClient)).toBeDefined()
+    expect(() => AdminPage()).toThrow("REDIRECT:/admin/users")
+    expect(mocks.redirect).toHaveBeenCalledWith("/admin/users")
+
+  it "wires every portal error boundary to its supplied retry action", ->
+    const reset = vi.fn()
+    const boundaries = [
+      AccountError({ error: new Error("account"), reset }),
+      AdminError({ error: new Error("admin"), reset }),
+      DashboardError({ reset }),
+      FeatureItemsError({ reset }),
+    ]
+
+    for (const boundary of boundaries) {
+      const retry = runtimeElements(boundary).find(
+        (element) => element.props.onClick === reset,
+      )
+      expect(retry).toBeDefined()
+      retry?.props.onClick?.()
+    }
+    expect(reset).toHaveBeenCalledTimes(boundaries.length)
+
+  it "announces every portal loading boundary without exposing live data", ->
+    for (const loading of [
+      AccountLoading(),
+      AdminLoading(),
+      DashboardLoading(),
+      FeatureItemsLoading(),
+    ]) {
+      expect(loading.props).toMatchObject({
+        "aria-busy": "true",
+        role: "status",
+      })
+    }

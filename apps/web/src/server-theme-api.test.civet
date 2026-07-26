@@ -160,3 +160,89 @@ describe "server theme API forwarding", ->
     await expect(load(async () => {
       throw new Error("upstream unavailable")
     })).resolves.toBe(INDETERMINATE_THEME)
+
+  it "requires the forwarding origin to be one clean HTTPS origin", async ->
+    const fetchRequest = vi.fn(async () => new Response(null, { status: 204 }))
+    for (const trustedOrigin of [
+      "http://darkfactory.example",
+      "https://darkfactory.example/path",
+    ]) {
+      await expect(forwardThemeApiRequest({
+        cookieHeader: "session=trusted",
+        fetchRequest,
+        request: new Request("https://darkfactory.example/api/orpc"),
+        requestId: null,
+        trustedOrigin,
+      })).rejects.toThrow("Theme transport requires a clean HTTPS app origin")
+    }
+    expect(fetchRequest).not.toHaveBeenCalled()
+
+  it "executes the client transport through bounded same-origin forwarding", async ->
+    const fetchRequest = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      expect(request.headers.get("cookie")).toBe("session=trusted")
+      expect(request.headers.get("x-request-id")).toBe("request-transport")
+      return Response.json({
+        themeMode: "dark",
+        palette: "rose",
+        updatedAt: null,
+      })
+    })
+    type ClientOptions = Parameters<
+      NonNullable<ThemeApiRequestOptions["clientFactory"]>
+    >[0]
+    const clientFactory = ((options: ClientOptions) => ({
+      preferences: {
+        theme: {
+          get: async () => {
+            const response = await options.fetch!(new Request(
+              new URL("/api/orpc", options.baseUrl),
+              {
+                headers: {
+                  accept: "application/json",
+                  "x-orpc-procedure": "preferences.theme.get",
+                },
+              },
+            ))
+            return response.json()
+          },
+        },
+      },
+    })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>
+
+    await expect(loadApiThemePreference({
+      appUrl: "https://darkfactory.example",
+      clientFactory,
+      cookieHeader: "session=trusted",
+      fetch: fetchRequest,
+      requestId: "request-transport",
+    })).resolves.toEqual({
+      themeMode: "dark",
+      palette: "rose",
+      updatedAt: null,
+    })
+    expect(fetchRequest).toHaveBeenCalledOnce()
+
+  it "does not treat partial or primitive failures as unauthorized", async ->
+    const load = (failure: unknown) => loadApiThemePreference({
+      appUrl: "https://darkfactory.example",
+      clientFactory: (() => ({
+        preferences: {
+          theme: {
+            get: async () => {
+              throw failure
+            },
+          },
+        },
+      })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>,
+      cookieHeader: null,
+      requestId: null,
+    })
+
+    for (const failure of [
+      null,
+      { status: 401, code: "OTHER" },
+      { status: 403, code: "UNAUTHORIZED" },
+    ]) {
+      await expect(load(failure)).resolves.toBe(INDETERMINATE_THEME)
+    }

@@ -234,11 +234,10 @@ const reportProgress = (
   dependencies: JourneyDependencies,
   progress: JourneyProgress,
 ): void => {
-  try {
+  try
     dependencies.reportProgress?.(Object.freeze(progress))
-  } catch {
-    // Progress is best-effort diagnostics and cannot alter lifecycle ownership.
-  }
+  catch
+    undefined
 }
 
 

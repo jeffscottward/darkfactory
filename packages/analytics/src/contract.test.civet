@@ -8,6 +8,7 @@ import {
   createAnalyticsCapture,
   createRecordingAnalyticsPort,
 } from "./test.civet"
+import { snapshotAnalyticsCapture } from "./validation.civet"
 
 const plainCapture = (): AnalyticsCapture => ({
   consent: "granted",
@@ -239,4 +240,95 @@ describe("AnalyticsPort contract", () => {
       await analytics.capture(createAnalyticsCapture({ consent: "unknown" })),
     ).toEqual({ status: "skipped", reason: "consent-unknown" })
   })
+  it.each([
+    null,
+    "capture",
+    1,
+    true,
+    [],
+  ])("rejects non-record top-level captures %#", (input) => {
+    expect(snapshotAnalyticsCapture(input)).toBeUndefined()
+  })
+
+  it "accepts only canonical ISO timestamps", ->
+    const canonical = "2026-07-23T12:34:56.000Z"
+
+    expect(snapshotAnalyticsCapture({
+      ...plainCapture(),
+      timestamp: canonical,
+    })?.timestamp).toBe(canonical)
+    expect(snapshotAnalyticsCapture({
+      ...plainCapture(),
+      timestamp: "2026-07-23",
+    })).toBeUndefined()
+    expect(snapshotAnalyticsCapture({
+      ...plainCapture(),
+      timestamp: 1,
+    })).toBeUndefined()
+
+  it "rejects unknown consent before snapshotting", ->
+    expect(snapshotAnalyticsCapture({
+      ...plainCapture(),
+      consent: "maybe",
+    })).toBeUndefined()
+
+  it "rejects unsafe event identifiers before snapshotting", ->
+    expect(snapshotAnalyticsCapture({
+      ...plainCapture(),
+      eventId: "event id",
+    })).toBeUndefined()
+
+  it "omits absent optional properties from the canonical snapshot", ->
+    const snapshot = snapshotAnalyticsCapture({
+      ...plainCapture(),
+      properties: {},
+    })
+
+    expect(snapshot).toEqual({
+      consent: "granted",
+      distinctId: "actor-001",
+      event: "feature-item.created",
+      eventId: "event-001",
+      properties: {},
+    })
+    expect(Object.isFrozen(snapshot)).toBe(true)
+    expect(Object.isFrozen(snapshot?.properties)).toBe(true)
+
+  it.each([
+    { entityId: "entity with spaces" },
+    { entityType: "entity type" },
+    { traceId: "trace with spaces" },
+    { source: "browser" },
+    { source: 1 },
+  ])("rejects unsafe optional property values %#", async (properties) => {
+    const analytics = createRecordingAnalyticsPort()
+
+    await expect(
+      analytics.capture(createAnalyticsCapture({ properties: properties as never })),
+    ).resolves.toEqual({
+      status: "failed",
+      category: "invalid-capture",
+      retryable: false,
+    })
+    expect(analytics.captures).toEqual([])
+  })
+
+  it "rejects disappearing and non-enumerable data fields without reading them", ->
+    const disappearing = new Proxy(plainCapture(), {
+      getOwnPropertyDescriptor: (target, key) => {
+        if (key === "event") return undefined
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    })
+    const hidden = plainCapture()
+    Object.defineProperty(hidden, "event", {
+      configurable: true,
+      enumerable: false,
+      value: "feature-item.created",
+      writable: true,
+    })
+
+    expect(snapshotAnalyticsCapture(disappearing)).toBeUndefined()
+    expect(snapshotAnalyticsCapture(hidden)).toBeUndefined()
+
 })

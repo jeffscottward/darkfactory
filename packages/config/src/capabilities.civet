@@ -84,6 +84,7 @@ export const capabilityManifestSchema = z
     workspace: z
       .object({
         package_manager: z.literal("pnpm"),
+        script_runtime: z.literal("bun"),
         orchestration: z.literal("turborepo"),
       })
       .strict(),

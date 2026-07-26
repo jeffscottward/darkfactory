@@ -169,6 +169,7 @@ const MANIFEST_PATH_SEGMENTS = new Set([
   "runtime",
   "workspace",
   "package_manager",
+  "script_runtime",
   "orchestration",
   "deployment",
   "web",
@@ -262,7 +263,12 @@ const sanitizedPath = (path: readonly PropertyKey[]): string => {
   return segments.join(".")
 }
 
-const hasValueAtPath = (input: unknown, path: readonly PropertyKey[]): boolean => {
+const MISSING_PATH_VALUE = Symbol("missing path value")
+
+const valueAtPath = (
+  input: unknown,
+  path: readonly PropertyKey[],
+): unknown => {
   let current = input
   for (const segment of path) {
     if (
@@ -270,16 +276,23 @@ const hasValueAtPath = (input: unknown, path: readonly PropertyKey[]): boolean =
       typeof current !== "object" ||
       !Object.hasOwn(current, segment)
     ) {
-      return false
+      return MISSING_PATH_VALUE
     }
     current = (current as Record<PropertyKey, unknown>)[segment]
   }
-  return true
+  return current
+}
+
+const runtimeType = (value: unknown): string => {
+  if (value === null) return "null"
+  if (Array.isArray(value)) return "array"
+  return typeof value
 }
 
 type SchemaIssue = Readonly<{
   code: string
   path: readonly PropertyKey[]
+  values?: readonly unknown[]
 }>
 
 const sanitizedSchemaIssue = (
@@ -287,6 +300,7 @@ const sanitizedSchemaIssue = (
   input: unknown,
 ): CapabilityManifestIssue => {
   const path = sanitizedPath(issue.path)
+  const pathValue = valueAtPath(input, issue.path)
   if (issue.code === "unrecognized_keys") {
     return {
       code: "unknown_key",
@@ -294,7 +308,7 @@ const sanitizedSchemaIssue = (
       message: "Manifest contains an unknown key",
     }
   }
-  if (!hasValueAtPath(input, issue.path)) {
+  if (pathValue === MISSING_PATH_VALUE) {
     return {
       code: "missing_requirement",
       path,
@@ -309,11 +323,21 @@ const sanitizedSchemaIssue = (
     }
   }
   if (issue.code === "invalid_value") {
-    return {
-      code: "unsupported_value",
-      path,
-      message: "Manifest value is not supported",
-    }
+    const inputType = runtimeType(pathValue)
+    const hasSupportedType = issue.values?.some(
+      (allowedValue) => runtimeType(allowedValue) === inputType,
+    )
+    return hasSupportedType
+      ? {
+          code: "unsupported_value",
+          path,
+          message: "Manifest value is not supported",
+        }
+      : {
+          code: "invalid_type",
+          path,
+          message: "Manifest value has an invalid type",
+        }
   }
   if (issue.code === "custom") {
     return {

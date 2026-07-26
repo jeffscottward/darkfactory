@@ -115,6 +115,11 @@ export default defineConfig({
       clientFiles: ["./src/components/portal-shell.civet"],
     },
   },
+  preview: {
+    host,
+    ...(port === undefined ? {} : { port }),
+    strictPort: true,
+  },
   plugins: [
     civetVitePlugin({
       ts: "esbuild",

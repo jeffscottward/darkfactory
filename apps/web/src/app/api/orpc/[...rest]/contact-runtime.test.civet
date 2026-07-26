@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   CONTACT_REQUEST_MAX_BYTES,
@@ -43,6 +43,21 @@ describe "DF-076 contact throttle hashing", ->
     expect(
       await createContactThrottleKey(requestWith("2001:0db8:0:0:0:0:0:1"), secret),
     ).toBe(key)
+
+  it "fails closed when the runtime URL adapter returns a non-bracketed IPv6 hostname", async ->
+    const candidate = requestWith("2001:db8::1")
+    const absent = requestWith()
+    vi.stubGlobal("URL", class {
+      readonly hostname = "2001:db8::1"
+    })
+
+    try {
+      expect(await createContactThrottleKey(candidate, secret)).toBe(
+        await createContactThrottleKey(absent, secret),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
 
 describe "DF-076 bounded contact request body", ->
   it "rebuilds a bounded request when Content-Length is absent", async ->
@@ -123,5 +138,121 @@ describe "DF-076 bounded contact request body", ->
     )
 
     await expect(bufferContactRequest(request)).resolves.toMatchObject({
+      tooLarge: true,
+    })
+
+  it "rejects throttle secrets that cannot provide the required entropy", async ->
+    await expect(
+      createContactThrottleKey(requestWith("203.0.113.42"), "too-short"),
+    ).rejects.toThrow(
+      "contact throttle secret must contain at least 32 characters",
+    )
+
+  it "canonicalizes IPv4 and fails closed for malformed IP address shapes", async ->
+    const canonical = await createContactThrottleKey(
+      requestWith("203.000.113.042"),
+      secret,
+    )
+    expect(canonical).toBe(
+      await createContactThrottleKey(requestWith("203.0.113.42"), secret),
+    )
+
+    const unknown = await createContactThrottleKey(requestWith(), secret)
+    for (const candidate of [
+      "203.0.113",
+      "203.0.113.256",
+      "203.0.x.42",
+      "2001:db8::1%en0",
+      "x".repeat(46) + ":",
+    ]) {
+      expect(
+        await createContactThrottleKey(requestWith(candidate), secret),
+      ).toBe(unknown)
+    }
+
+  it "passes through bodyless requests without manufacturing a payload", async ->
+    const request = requestWith("203.0.113.42")
+
+    await expect(bufferContactRequest(request)).resolves.toEqual({
+      request,
+      tooLarge: false,
+    })
+
+  it "fails closed even when oversized stream cancellation rejects", async ->
+    const declaredCancel = vi.fn(async () => {
+      throw new Error("declared cancellation unavailable")
+    })
+    const declaredStream = new ReadableStream<Uint8Array>({
+      cancel: declaredCancel,
+    })
+    const declaredRequest = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: {
+          "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
+        },
+        body: declaredStream,
+        duplex: "half",
+      } as RequestInit,
+    )
+
+    await expect(bufferContactRequest(declaredRequest)).resolves.toMatchObject({
+      tooLarge: true,
+    })
+    expect(declaredCancel).toHaveBeenCalledOnce()
+
+    const chunkedCancel = vi.fn(async () => {
+      throw new Error("chunked cancellation unavailable")
+    })
+    const chunkedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(CONTACT_REQUEST_MAX_BYTES + 1))
+      },
+      cancel: chunkedCancel,
+    })
+    const chunkedRequest = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        body: chunkedStream,
+        duplex: "half",
+      } as RequestInit,
+    )
+
+    await expect(bufferContactRequest(chunkedRequest)).resolves.toMatchObject({
+      tooLarge: true,
+    })
+    expect(chunkedCancel).toHaveBeenCalledOnce()
+
+  it "streams bodies with bounded or non-numeric declared lengths", async ->
+    for (const declaredLength of ["7", "not-declared"]) {
+      const request = new Request(
+        "https://darkfactory.localhost/api/orpc/contact/submit",
+        {
+          method: "POST",
+          headers: { "content-length": declaredLength },
+          body: "bounded",
+        },
+      )
+
+      const result = await bufferContactRequest(request)
+      expect(result.tooLarge).toBe(false)
+      expect(await result.request.text()).toBe("bounded")
+      expect(result.request.headers.get("content-length")).toBe("7")
+    }
+
+  it "rejects a declared oversized request even when it has no body", async ->
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        headers: {
+          "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
+        },
+      },
+    )
+
+    await expect(bufferContactRequest(request)).resolves.toEqual({
+      request,
       tooLarge: true,
     })

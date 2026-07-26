@@ -33,6 +33,7 @@ import { PasswordField } from "./password-field.civet"
 
 afterEach ->
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 
 const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
   signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
@@ -131,6 +132,15 @@ describe "normalizeAuthDestination", ->
     expect(normalizeAuthDestination("  /feature-items?status=active#results  ")).toBe(
       "/feature-items?status=active#results",
     )
+
+  it "falls back when the runtime URL parser rejects an otherwise local destination", ->
+    vi.stubGlobal("URL", class {
+      constructor() {
+        throw new TypeError("URL parser unavailable")
+      }
+    })
+
+    expect(normalizeAuthDestination("/feature-items")).toBe("/dashboard")
 
 
   it "prevents auth loops and auth API callbacks", ->

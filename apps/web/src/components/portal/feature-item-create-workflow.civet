@@ -258,8 +258,6 @@ export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureI
   }
 
   const retry = async () => {
-    const outcomeIsUnknown = creationOutcomeUnknown
-    if (outcomeIsUnknown) return
     actor.send({ type: "RETRY" })
     await performSubmission()
   }

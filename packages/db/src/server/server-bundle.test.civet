@@ -54,3 +54,51 @@ describe "database server browser bundle", ->
       )
     finally
       await rm(tempDir, { recursive: true, force: true })
+
+  it "keeps Node-only migration code out of a Worker-conditioned client bundle", async ->
+    const tempDir = await mkdtemp(join(packageRoot, ".server-worker-bundle-"))
+    const entry = join(tempDir, "entry.mjs")
+
+    try
+      await writeFile(
+        entry,
+        'import * as database from "@darkfactory/db/server"\nglobalThis.__darkfactoryDatabase = database\n',
+      )
+      const buildResult = await build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [civet({ ts: "esbuild" })],
+        resolve: {
+          conditions: ["workerd", "worker"],
+        },
+        ssr: {
+          noExternal: true,
+          resolve: {
+            conditions: ["workerd", "worker"],
+          },
+        },
+        build: {
+          outDir: join(tempDir, "dist"),
+          ssr: true,
+          target: "esnext",
+          write: false,
+          rollupOptions: {
+            input: entry,
+          },
+        },
+      })
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      const bundle = builds
+        .flatMap((result) => {
+          if (!("output" in result)) throw new Error("Vite build did not finish")
+          return result.output
+        })
+        .filter((output) => output.type === "chunk")
+        .map((chunk) => chunk.code)
+        .join("\n")
+
+      expect(bundle).not.toMatch(
+        /fileURLToPath|node-postgres\/migrator|packages\/db\/migrations/,
+      )
+    finally
+      await rm(tempDir, { recursive: true, force: true })

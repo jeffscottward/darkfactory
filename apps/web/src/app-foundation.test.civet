@@ -1,12 +1,30 @@
 import { access } from "node:fs/promises"
 import { runInNewContext } from "node:vm"
-import { createElement, type ReactNode } from "react"
+import {
+  Children,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { PALETTES } from "@darkfactory/state"
-vi.mock("next/headers", () => ({ headers: async () => new Headers() }))
-vi.mock("next/navigation", () => ({ usePathname: () => "" }))
+const layoutMocks = vi.hoisted(() => ({
+  headers: vi.fn(async () => new Headers()),
+  loadApiThemePreference: vi.fn(async () => undefined as unknown),
+}))
+const navigationMocks = vi.hoisted(() => ({
+  pathname: "" as string | null,
+}))
+vi.mock("next/headers", () => ({ headers: layoutMocks.headers }))
+vi.mock("./lib/server-theme-api.civet", () => ({
+  loadApiThemePreference: layoutMocks.loadApiThemePreference,
+}))
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigationMocks.pathname,
+}))
 vi.mock("next/link", () => ({ default: "a" }))
 vi.mock("@darkfactory/ui/client/toaster", () => ({ Toaster: () => null }))
 vi.mock("./components/theme-menu.civet", () => ({
@@ -26,7 +44,7 @@ vi.mock("@darkfactory/ui/client/dialog", () => ({
   DialogTrigger: ({ children }: { children: ReactNode }) => children,
 }))
 
-import {
+import RootLayout, {
   RootDocument,
   metadata,
   themeRootAttributes,
@@ -36,7 +54,8 @@ import { GET as getThemeBootstrap } from "./app/theme-bootstrap.js/route.civet"
 import robots from "./app/robots.civet"
 import HomePage from "./app/(public)/page.civet"
 import { AuthShell } from "./components/auth-shell.civet"
-import { PortalShell } from "./components/portal-shell.civet"
+import { NavigationLinks } from "./components/navigation-links.civet"
+import { PortalShell, PortalTopbar } from "./components/portal-shell.civet"
 import {
   PublicShell,
   getPublicNavigationModel,
@@ -71,10 +90,20 @@ import {
 } from "./lib/theme.civet"
 import {
   createAnonymousUiStateSnapshot,
+  parseAnonymousThemeSnapshot,
   parseAnonymousThemePreference,
   serializeAnonymousThemePreference,
+  useUiState,
+  useUiStoreApi,
 } from "./lib/ui-store.civet"
 import { UiStateProvider } from "./lib/ui-store.civet"
+
+afterEach ->
+  vi.clearAllMocks()
+  vi.unstubAllEnvs()
+  layoutMocks.headers.mockResolvedValue(new Headers())
+  layoutMocks.loadApiThemePreference.mockResolvedValue(undefined)
+  navigationMocks.pathname = ""
 
 const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
   renderToStaticMarkup(component)
@@ -84,6 +113,37 @@ const withUiState = (children: ReactNode) => createElement(UiStateProvider, {
   children,
   initialPreference: DEFAULT_ANONYMOUS_THEME,
 })
+
+const UiStateProbe = () => createElement(
+  "span",
+  {},
+  useUiState((state) => `${state.themeMode}:${state.palette}`),
+)
+
+const MissingUiStateProviderProbe = () => {
+  useUiStoreApi()
+  return null
+}
+
+type PortalElement = ReactElement<{
+  readonly availableRoutes?: readonly string[]
+  readonly children?: ReactNode
+  readonly mobile?: boolean
+  readonly onNavigate?: (() => void) | undefined
+}>
+
+const findPortalElement = (
+  node: ReactNode,
+  predicate: (element: PortalElement) => boolean,
+): PortalElement | undefined => {
+  if (!isValidElement<PortalElement["props"]>(node)) return undefined
+  if (predicate(node)) return node
+  for (const child of Children.toArray(node.props.children)) {
+    const match = findPortalElement(child, predicate)
+    if (match !== undefined) return match
+  }
+  return undefined
+}
 
 const runThemeBootstrap = ({
   cookieStatus,
@@ -421,6 +481,32 @@ describe "shared shell semantics", ->
     expect(fanoutHtml).not.toContain('href="/contact"')
     expect(fanoutHtml).not.toContain('href="/legal/privacy"')
     expect(fanoutHtml).not.toContain('href="/legal/terms"')
+  it "renders an explicitly active link with accessible current-page state", ->
+    const dashboard = PORTAL_NAVIGATION[0]
+    expect(dashboard).toBeDefined()
+    const html = markup(createElement(NavigationLinks, {
+      currentPath: "/dashboard",
+      items: [dashboard!],
+      orientation: "vertical",
+      showIcons: true,
+    }))
+    expect(html).toContain('aria-current="page"')
+    expect(html).toContain("bg-primary-subtle")
+    expect(html).toContain(", current page")
+
+  it "leaves links inactive when neither the caller nor framework supplies a path", ->
+    navigationMocks.pathname = null
+    const dashboard = PORTAL_NAVIGATION[0]
+    expect(dashboard).toBeDefined()
+
+    const html = markup(createElement(NavigationLinks, {
+      items: [dashboard!],
+    }))
+
+    expect(html).toContain('href="/dashboard"')
+    expect(html).not.toContain("aria-current")
+    expect(html).not.toContain(", current page")
+
   it "links the hero CTA to a substantive, focusable capability section", ->
     const home = markup(createElement(HomePage))
     expect(home).toContain('href="#foundation-capabilities"')
@@ -468,3 +554,182 @@ describe "shared shell semantics", ->
     expect(adminPortal).not.toContain('href="/account/preferences"')
     expect(adminPortal).not.toContain('href="/account/security"')
     expect(auth).toContain("<main")
+
+  it "keeps the portal shell useful while no destinations are exposed", ->
+    const portal = markup(withUiState(createElement(PortalShell, {
+      availableRoutes: [],
+      children: createElement("h1", {}, "Unavailable portal"),
+    })))
+
+    expect(portal).toContain(
+      "Portal destinations appear as their page implementations become available.",
+    )
+    expect(portal).toContain("Unavailable portal")
+    expect(portal).not.toContain('href="/dashboard"')
+
+  it "closes mobile navigation only when the popover exposes a hide method", ->
+    const mobileNavigation = findPortalElement(
+      PortalTopbar({ availableRoutes: ["/dashboard"] }),
+      (element) => element.props.mobile === true,
+    )
+    expect(mobileNavigation).toBeDefined()
+    if (mobileNavigation === undefined || typeof mobileNavigation.type !== "function") {
+      throw new Error("Expected the mobile portal navigation component")
+    }
+    const renderNavigation = mobileNavigation.type as (
+      props: PortalElement["props"],
+    ) => ReactNode
+    const navigationTree = renderNavigation(mobileNavigation.props)
+    const links = findPortalElement(
+      navigationTree,
+      (element) => element.type === NavigationLinks,
+    )
+    expect(links).toBeDefined()
+    const onNavigate = links?.props.onNavigate
+    if (onNavigate === undefined) {
+      throw new Error("Expected mobile navigation links to close the popover")
+    }
+
+    const hidePopover = vi.fn()
+    const popover = { hidePopover }
+    const getElementById = vi.fn(
+      (): { readonly hidePopover: unknown } | null => popover,
+    )
+    getElementById.mockReturnValueOnce(popover)
+    getElementById.mockReturnValueOnce(null)
+    getElementById.mockReturnValueOnce({ hidePopover: "not callable" })
+    vi.stubGlobal("document", { getElementById })
+
+    try {
+      onNavigate()
+      expect(() => onNavigate()).not.toThrow()
+      expect(() => onNavigate()).not.toThrow()
+      expect(getElementById).toHaveBeenCalledTimes(3)
+      expect(getElementById).toHaveBeenNthCalledWith(1, "portal-navigation")
+      expect(getElementById).toHaveBeenNthCalledWith(2, "portal-navigation")
+      expect(getElementById).toHaveBeenNthCalledWith(3, "portal-navigation")
+      expect(hidePopover).toHaveBeenCalledOnce()
+      expect(hidePopover.mock.contexts[0]).toBe(popover)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+describe "root layout request composition", ->
+  it "loads the trusted request theme with bounded request identity", async ->
+    vi.stubEnv("APP_URL", "https://darkfactory.example")
+    layoutMocks.headers.mockResolvedValueOnce(new Headers({
+      cookie: "darkfactory-theme=dark%3Arose",
+      "x-request-id": "request-layout",
+    }))
+    layoutMocks.loadApiThemePreference.mockResolvedValueOnce({
+      themeMode: "light",
+      palette: "blue",
+      updatedAt: null,
+    })
+
+    const result = await RootLayout({ children: "protected content" })
+
+    expect(layoutMocks.loadApiThemePreference).toHaveBeenCalledWith({
+      appUrl: new URL("https://darkfactory.example"),
+      cookieHeader: "darkfactory-theme=dark%3Arose",
+      requestId: "request-layout",
+    })
+    expect(result.type).toBe(RootDocument)
+    expect(result.props).toMatchObject({
+      children: "protected content",
+      cookieStatus: "valid",
+      initialTheme: { themeMode: "light", palette: "blue" },
+      themeAuthority: "trusted",
+    })
+
+  it "uses the canonical origin for blank configuration and rejects HTTP", async ->
+    vi.stubEnv("APP_URL", "   ")
+    const canonical = await RootLayout({ children: "canonical" })
+
+    expect(canonical.type).toBe(RootDocument)
+    expect(layoutMocks.loadApiThemePreference).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appUrl: new URL("https://darkfactory.localhost"),
+      }),
+    )
+
+    vi.stubEnv("APP_URL", "http://darkfactory.localhost")
+    await expect(RootLayout({ children: "insecure" })).rejects.toThrow(
+      "APP_URL must use HTTPS",
+    )
+
+describe "theme and UI runtime boundaries", ->
+  it "rejects anonymous snapshot type, size, shape, and version mismatches", ->
+    for (const malformed of [
+      1,
+      "x".repeat(129),
+      "[]",
+      '{"version":2,"themeMode":"dark","palette":"rose"}',
+      '{"version":1,"themeMode":"dark","palette":"rose","extra":true}',
+    ]) {
+      expect(parseAnonymousThemeSnapshot(malformed)).toBeNull()
+    }
+    expect(parseAnonymousThemeSnapshot(
+      '{"version":1,"themeMode":"dark","palette":"rose"}',
+    )).toEqual({
+      version: 1,
+      themeMode: "dark",
+      palette: "rose",
+    })
+
+  it "requires provider context and projects selected state through the store hook", ->
+    expect(() => markup(createElement(MissingUiStateProviderProbe))).toThrow(
+      "UiStateProvider is required.",
+    )
+    expect(markup(withUiState(createElement(UiStateProbe)))).toContain(
+      "system:neutral",
+    )
+
+  it "covers missing, malformed, empty, and extra-field theme cookies", ->
+    for (const missing of [undefined, null, ""]) {
+      expect(parseThemeCookieHeader(missing)).toEqual({ status: "missing" })
+    }
+    for (const malformed of [
+      {},
+      "darkfactory-theme",
+      "darkfactory-theme=",
+      "darkfactory-theme=dark%3Arose%3Aextra",
+    ]) {
+      expect(parseThemeCookieHeader(malformed)).toEqual({ status: "invalid" })
+    }
+    expect(
+      parseThemeCookieHeader(
+        "other=value; darkfactory-theme=dark%3Arose; preference=ignored",
+      ),
+    ).toEqual({
+      status: "valid",
+      preference: { themeMode: "dark", palette: "rose" },
+    })
+
+  it "fails closed for non-record and invalid-date trusted preferences", async ->
+    for (const preference of [
+      null,
+      [],
+      {
+        themeMode: "dark",
+        palette: "rose",
+        updatedAt: new Date(Number.NaN),
+      },
+      {
+        themeMode: "dark",
+        palette: "rose",
+        updatedAt: "2026-07-25T00:00:00.000Z",
+      },
+    ]) {
+      await expect(resolveRequestTheme({
+        cookieHeader: null,
+        loadTrustedPreference: async () => preference,
+      })).resolves.toMatchObject({
+        authority: "trusted",
+        preference: DEFAULT_ANONYMOUS_THEME,
+      })
+    }
+
+  it "evaluates route exposure against an explicit runtime manifest", ->
+    expect(isRouteExposed("/future", ["/future"])).toBe(true)
+    expect(isRouteExposed("/future", [])).toBe(false)

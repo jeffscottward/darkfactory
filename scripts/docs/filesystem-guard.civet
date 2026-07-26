@@ -180,7 +180,8 @@ export const guardedWrite = async (
           }
         }
       } catch {
-        // Refuse unsafe rollback after ancestor or target ownership changes.
+        // Preserve the triggering failure when safe rollback is no longer possible.
+        throw error
       }
       throw error
     } finally {

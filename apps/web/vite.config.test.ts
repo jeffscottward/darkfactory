@@ -50,7 +50,7 @@ describe("Civet build type-check isolation", () => {
     );
 
     expect(packageJson.scripts.typecheck).toBe(
-      "civet --config civet.typecheck.json --typecheck"
+      "bunx --bun --no-install civet --config civet.typecheck.json --typecheck"
     );
     // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for this index-signature key.
     expect(typecheckConfig.tsConfig["extends"]).toBe(
@@ -189,6 +189,13 @@ describe("Vite application plugin contract", () => {
         exclude: ["custom-exclude"],
         include: ["custom-include"],
       },
+    });
+  });
+
+  it("binds production preview to the same validated Portless endpoint", () => {
+    expect(viteConfig.preview).toEqual({
+      host: "127.0.0.1",
+      strictPort: true,
     });
   });
 

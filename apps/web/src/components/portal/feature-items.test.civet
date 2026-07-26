@@ -1,6 +1,25 @@
 import type { ApiClient, FeatureItemOutput } from "@darkfactory/api"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const browserApiRuntime = vi.hoisted(() => ({
+  client: null as ApiClient | null,
+  options: [] as Array<Readonly<{ baseUrl: string }>>,
+}))
+
+vi.mock("@darkfactory/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@darkfactory/api")>()
+  return {
+    ...actual,
+    createApiClient: vi.fn((options: Readonly<{ baseUrl: string }>) => {
+      browserApiRuntime.options.push(options)
+      if (browserApiRuntime.client === null) {
+        throw new Error("Configure the browser API client before invoking the lazy gateway.")
+      }
+      return browserApiRuntime.client
+    }),
+  }
+})
 
 import { createSetupFlowActor } from "@darkfactory/state/flow"
 import {
@@ -14,6 +33,7 @@ import {
 import { FeatureItemsCollection } from "./feature-items-collection.civet"
 import { FeatureItemsWorkspace } from "./feature-items-workspace.civet"
 import { CreateWorkflowStep, FeatureItemCreateWorkflow } from "./feature-item-create-workflow.civet"
+import { FeatureItemEditor } from "./feature-item-editor.civet"
 
 const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
   id: "item-1",
@@ -25,6 +45,12 @@ const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => 
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
   ...overrides,
+})
+
+afterEach(() => {
+  browserApiRuntime.client = null
+  browserApiRuntime.options.length = 0
+  vi.unstubAllGlobals()
 })
 
 describe "typed feature item gateway", ->
@@ -58,12 +84,56 @@ describe "typed feature item gateway", ->
     expect(featureItems.update).toHaveBeenCalledWith({ id: "item-1", name: "Updated" })
     expect(featureItems.changeStatus).toHaveBeenCalledWith({ id: "item-1", status: "active" })
     expect(featureItems.archive).toHaveBeenCalledWith({ id: "item-1" })
+
+  it "lazily shares one browser client across every feature item operation", async ->
+    const featureItems = {
+      list: vi.fn(async -> [item()]),
+      get: vi.fn(async -> item()),
+      create: vi.fn(async (input) -> item({ name: input.name, description: input.description })),
+      update: vi.fn(async (input) -> item({
+        name: input.name ?? item().name,
+        description: input.description ?? item().description,
+      })),
+      changeStatus: vi.fn(async (input) -> item({ status: input.status })),
+      archive: vi.fn(async -> item({ status: "archived" })),
+    }
+    browserApiRuntime.client = { featureItems } as unknown as ApiClient
+    vi.stubGlobal("window", { location: { origin: "https://portal.example" } })
+
+    const gateway = createBrowserFeatureItemGateway()
+    expect(Object.isFrozen(gateway)).toBe(true)
+    await expect(gateway.list()).resolves.toHaveLength(1)
+    await expect(gateway.list({ limit: 7, query: "starter", status: "active" })).resolves.toHaveLength(1)
+    await expect(gateway.get("item-1")).resolves.toMatchObject({ id: "item-1" })
+    await expect(gateway.create({ name: "Created", description: "Description" })).resolves.toMatchObject({ name: "Created" })
+    await expect(gateway.update("item-1", { description: "Updated description" })).resolves.toMatchObject({ description: "Updated description" })
+    await expect(gateway.changeStatus("item-1", "active")).resolves.toMatchObject({ status: "active" })
+    await expect(gateway.archive("item-1")).resolves.toMatchObject({ status: "archived" })
+
+    expect(browserApiRuntime.options).toEqual([{ baseUrl: "https://portal.example" }])
+    expect(featureItems.list).toHaveBeenNthCalledWith(1, {})
+    expect(featureItems.list).toHaveBeenNthCalledWith(2, {
+      limit: 7,
+      query: "starter",
+      status: "active",
+    })
+    expect(featureItems.get).toHaveBeenCalledWith({ id: "item-1" })
+    expect(featureItems.create).toHaveBeenCalledWith({ name: "Created", description: "Description" })
+    expect(featureItems.update).toHaveBeenCalledWith({ id: "item-1", description: "Updated description" })
+    expect(featureItems.changeStatus).toHaveBeenCalledWith({ id: "item-1", status: "active" })
+    expect(featureItems.archive).toHaveBeenCalledWith({ id: "item-1" })
   
-  it "constructs and server-renders loading state without a browser window", ->
+  it "constructs and server-renders default loading workflows without a browser window", ->
     expect("window" in globalThis).toBe(false)
     expect(() => createBrowserFeatureItemGateway()).not.toThrow()
     expect(renderToStaticMarkup(<FeatureItemsWorkspace />)).toContain(
       "Loading feature items",
+    )
+    expect(renderToStaticMarkup(<FeatureItemEditor id="item-1" />)).toContain(
+      "Loading feature item",
+    )
+    expect(renderToStaticMarkup(<FeatureItemCreateWorkflow />)).toContain(
+      "Describe the item",
     )
 
   it "maps failures to safe actionable feedback without exposing raw details", ->
@@ -80,6 +150,9 @@ describe "typed feature item gateway", ->
     expect(updated.map((entry) -> entry.name)).toEqual(["Changed", "Second"])
     expect(withoutFeatureItem(updated, "item-1").map((entry) -> entry.id)).toEqual(["item-2"])
     expect(original.map((entry) -> entry.name)).toEqual(["Starter checklist", "Second"])
+    const inserted = upsertFeatureItem(original, item({ id: "item-3", name: "Newest" }))
+    expect(inserted.map((entry) -> entry.id)).toEqual(["item-3", "item-1", "item-2"])
+    expect(original.map((entry) -> entry.id)).toEqual(["item-1", "item-2"])
 
 describe "feature item collection states", ->
   it "renders a geometry-preserving loading state", ->

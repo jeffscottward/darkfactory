@@ -16,6 +16,7 @@ export type DatabaseConnectionContract = Readonly<{
 /** Structural request input so runtime bindings do not leak platform-specific types. */
 export type DatabaseRequestBinding = Readonly<{
   connectionString: string
+  trustedPlatform: "cloudflare-hyperdrive"
 }>
 
 export type DatabaseCompositionProfile = Readonly<{
@@ -46,6 +47,14 @@ const getConnectionString = (
   env: ServerEnv,
   requestBinding?: DatabaseRequestBinding,
 ): string => {
+  if (
+    requestBinding &&
+    requestBinding.trustedPlatform !== "cloudflare-hyperdrive"
+  ) {
+    throw new DatabaseConfigurationError(
+      "request binding must declare the trusted Cloudflare Hyperdrive platform",
+    )
+  }
   if (!requestBinding) return env.DATABASE_URL
 
   const connectionString = requestBinding.connectionString.trim()

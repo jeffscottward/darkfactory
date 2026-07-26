@@ -6,6 +6,7 @@ import {
   portalSignInHref,
   resolvePortalCallbackPath,
   resolvePortalAppUrl,
+  safePortalCallbackPath,
 } from "./server-session.civet"
 
 const activeSession = {
@@ -145,3 +146,188 @@ describe "getPortalSession", ->
       timeoutMs: 5,
     })).resolves.toBeNull()
     expect(fetchSession.mock.calls[0]?.[0].signal.aborted).toBe(true)
+
+  it "accepts the canonical fallback and rejects every non-origin URL shape", ->
+    expect(resolvePortalAppUrl("").protocol).toBe("https:")
+    for (const configured of [
+      "https://portal.example.test/path",
+      "https://portal.example.test?query=1",
+      "https://portal.example.test#fragment",
+      "not a URL",
+    ]) {
+      expect(() => resolvePortalAppUrl(configured)).toThrow(
+        "Portal application URL must be a clean HTTPS origin",
+      )
+    }
+
+  it "accepts Date expirations and trims bounded administrator names", ->
+    const expiresAt = new Date("2030-01-01T00:00:00.000Z")
+    expect(parsePortalSession({
+      user: {
+        id: "admin-1",
+        name: "  Example Admin  ",
+        role: "admin",
+        status: "active",
+      },
+      session: { expiresAt },
+    }, new Date("2029-01-01T00:00:00.000Z"))).toEqual({
+      userId: "admin-1",
+      name: "Example Admin",
+      role: "admin",
+      status: "active",
+      expiresAt,
+    })
+
+  it.each([
+    [],
+    { ...activeSession, user: [] },
+    { ...activeSession, session: [] },
+    { ...activeSession, user: { ...activeSession.user, id: "" } },
+    {
+      ...activeSession,
+      user: { ...activeSession.user, id: "x".repeat(257) },
+    },
+    { ...activeSession, user: { ...activeSession.user, name: " " } },
+    {
+      ...activeSession,
+      user: { ...activeSession.user, name: "x".repeat(201) },
+    },
+    { ...activeSession, session: { expiresAt: 123 } },
+    { ...activeSession, session: { expiresAt: new Date(Number.NaN) } },
+    {
+      ...activeSession,
+      session: { expiresAt: "2029-01-01T00:00:00.000Z" },
+    },
+  ])("rejects malformed session field boundaries", (value) ->
+    expect(
+      parsePortalSession(value, new Date("2029-01-01T00:00:00.000Z")),
+    ).toBeNull()
+  )
+
+  it "validates callback values directly and selects the first safe request header", ->
+    for (const value of [
+      null,
+      "",
+      "dashboard",
+      "//attacker.invalid/path",
+      "/dashboard#fragment",
+      "/dashboard\\nested",
+      "/dashboard\u0000",
+      `/${"x".repeat(2_048)}`,
+    ]) {
+      expect(safePortalCallbackPath(value)).toBeNull()
+    }
+    expect(safePortalCallbackPath("/admin/users?cursor=next")).toBe(
+      "/admin/users?cursor=next",
+    )
+
+    const fallbackHeaders = new Headers({
+      "x-pathname": "/public",
+      "x-invoke-path": "/account/security?tab=sessions",
+      "next-url": "/dashboard",
+    })
+    expect(resolvePortalCallbackPath(fallbackHeaders)).toBe(
+      "/account/security?tab=sessions",
+    )
+    fallbackHeaders.set("x-pathname", "/admin/users")
+    expect(resolvePortalCallbackPath(fallbackHeaders)).toBe("/admin/users")
+
+  it "does not call the session endpoint without a usable cookie", async ->
+    const fetchSession = vi.fn(async () => Response.json(activeSession))
+
+    await expect(getPortalSession({
+      cookieHeader: null,
+      fetch: fetchSession,
+    })).resolves.toBeNull()
+    await expect(getPortalSession({
+      cookieHeader: "   ",
+      fetch: fetchSession,
+    })).resolves.toBeNull()
+    expect(fetchSession).not.toHaveBeenCalled()
+
+  it "fails closed for bodyless, empty, malformed, and declared-oversized responses", async ->
+    const responses = [
+      () => new Response(null),
+      () => new Response(null, {
+        headers: { "content-length": "16385" },
+      }),
+      () => new Response(""),
+      () => new Response("{"),
+      () => new Response(JSON.stringify(activeSession), {
+        headers: { "content-length": "16385" },
+      }),
+    ]
+
+    for (const response of responses) {
+      await expect(getPortalSession({
+        cookieHeader: "better-auth.session_token=opaque",
+        fetch: vi.fn(async () => response()),
+        now: new Date("2029-01-01T00:00:00.000Z"),
+      })).resolves.toBeNull()
+    }
+
+  it "clamps finite deadlines and uses the default for non-finite input", async ->
+    for (const timeoutMs of [-10, 20_000, Number.NaN]) {
+      await expect(getPortalSession({
+        cookieHeader: "better-auth.session_token=opaque",
+        fetch: vi.fn(async () => new Response(
+          JSON.stringify(activeSession),
+          { headers: { "content-length": "not-declared" } },
+        )),
+        now: new Date("2029-01-01T00:00:00.000Z"),
+        timeoutMs,
+      })).resolves.toMatchObject({
+        userId: "user-1",
+        role: "member",
+      })
+    }
+
+  it "uses the global session transport when no fetch override is supplied", async ->
+    const fetchSession = vi.fn(async () => Response.json(activeSession))
+    vi.stubGlobal("fetch", fetchSession)
+    try {
+      await expect(getPortalSession({
+        cookieHeader: "better-auth.session_token=opaque",
+        now: new Date("2029-01-01T00:00:00.000Z"),
+      })).resolves.toMatchObject({ userId: "user-1", role: "member" })
+      expect(fetchSession).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+  it "cancels a response body that arrives only after the session deadline", async ->
+    vi.useFakeTimers()
+    const cancel = vi.fn()
+    try {
+      const pending = getPortalSession({
+        cookieHeader: "better-auth.session_token=opaque",
+        fetch: (request) => new Promise<Response>((resolve) => {
+          request.signal.addEventListener("abort", () => {
+            resolve(new Response(new ReadableStream<Uint8Array>({ cancel })))
+          }, { once: true })
+        }),
+        timeoutMs: 5,
+      })
+
+      await vi.advanceTimersByTimeAsync(5)
+
+      await expect(pending).resolves.toBeNull()
+      expect(cancel).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+
+  it "fails closed if URL parsing throws after callback prevalidation", ->
+    const NativeUrl = URL
+    class ThrowingUrl extends NativeUrl {
+      constructor(value: string | URL, base?: string | URL) {
+        if (value === "/dashboard") throw new TypeError("URL parser unavailable")
+        super(value, base)
+      }
+    }
+    vi.stubGlobal("URL", ThrowingUrl)
+    try {
+      expect(safePortalCallbackPath("/dashboard")).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }

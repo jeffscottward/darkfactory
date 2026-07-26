@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   assertOwnedE2ERunRootsReady,
   createE2ERunPaths,
@@ -342,14 +342,14 @@ describe("E2E lifecycle CLIs", () => {
   }, 30_000)
 
   it("launches the scanner directly without a package-manager proxy", () => {
-    const scanner = createArtifactScannerInvocation("/workspace", {
+    const scanner = createArtifactScannerInvocation("/workspace", "/trusted/node", {
       runId: "run_safe",
       ownership: "[ownership]",
       reportNonce: "[nonce]",
       purgeOwned: true,
     })
 
-    expect(scanner.command).toBe(process.execPath)
+    expect(scanner.command).toBe("/trusted/node")
     expect(scanner.options).toMatchObject({
       maxOutputBytes: 1024 * 1024,
       timeoutMillis: 45_000,
@@ -397,7 +397,7 @@ describe("E2E lifecycle CLIs", () => {
         `{"version":1,"runId":"${runId}","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}`,
       )
 
-      const scanner = createArtifactScannerInvocation(repositoryPath, {
+      const scanner = createArtifactScannerInvocation(repositoryPath, process.execPath, {
         runId,
         ownership: encodeOwnedRunProof(proof),
         reportNonce,
@@ -613,7 +613,7 @@ describe("E2E lifecycle CLIs", () => {
     expect(environment["HOME"]).toBe("/safe-home")
     expect(environment["E2E_RUN_ID"]).toBe("run_1")
     expect(environment["E2E_EMAIL_PREVIEW_HMAC_KEY"]).toBe("isolated-hmac")
-    expect(environment["DEBUG"]).toBe("pw:webserver")
+    expect(environment["DEBUG"]).toBeUndefined()
     expect(environment["GROQ_API_KEY"]).toBe("")
     expect(environment["OPENAI_API_KEY"]).toBeUndefined()
     expect(environment["NODE_OPTIONS"]).toBeUndefined()
@@ -672,6 +672,11 @@ describe("E2E lifecycle CLIs", () => {
       lifecycleObservation: "stderr",
       lifecycleObservationReason: "observed-stderr",
     })
+    expect(resolveLifecycleObservation(
+      missing,
+      "ordinary browser output",
+      "ordinary browser error",
+    )).toBe(missing)
   })
 
   it("observes the exact adopted lifecycle state before scanner cleanup", async () => {
@@ -1246,7 +1251,316 @@ describe("E2E lifecycle CLIs", () => {
     )
     expect(url).not.toContain("opaque-token")
     expect(redactProcessOutput("safe failure summary")).toBe("safe failure summary")
+    expect(redactProcessOutput("")).toBe("")
   })
+
+  it "redacts pretty-printed multiline authorization, session, and token structures", () =>
+    for unsafe of [
+      [
+        "{",
+        '  "name": "authorization",',
+        '  "value": "Bearer OpaqueAuthorizationValue123456789"',
+        "}",
+      ].join("\n"),
+      [
+        "{",
+        '  "name": "__Secure-better-auth.session_token",',
+        '  "value": "OpaqueSessionValue123456789"',
+        "}",
+      ].join("\n"),
+      [
+        "{",
+        '  "resetToken":',
+        '    "OpaqueResetTokenValue123456789"',
+        "}",
+      ].join("\n"),
+    ]
+      const rendered = redactProcessOutput(
+        `safe diagnostic before\n${unsafe}\nsafe diagnostic after\n`,
+      )
+      expect(rendered).toContain("safe diagnostic before\n")
+      expect(rendered).toContain("safe diagnostic after\n")
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toMatch(
+        /Opaque(?:AuthorizationValue|SessionValue|ResetTokenValue)123456789/u,
+      )
+
+  it "redacts authorization and session pairs across the full bounded output", () =>
+    for [name, value] of [
+      ["authorization", "Bearer OpaqueLongAuthorizationValue123456789"],
+      [
+        "__Secure-better-auth.session_token",
+        "OpaqueLongSessionValue123456789",
+      ],
+    ]
+      const unsafe = [
+        "{",
+        `  "name": "${name}",`,
+        `  "padding": "${"a".repeat(513)}",`,
+        `  "value": "${value}"`,
+        "}",
+      ].join("\n")
+      const rendered = redactProcessOutput(
+        `safe long diagnostic\n${unsafe}\nsafe long tail\n`,
+      )
+      expect(rendered).toContain("safe long diagnostic\n")
+      expect(rendered).toContain("safe long tail\n")
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toContain(value)
+
+  it "fails closed for Unicode format controls in sensitive structures", () =>
+    for unsafe of [
+      "safe diagnostic\nauthori\u200bzation: Bearer OpaqueZeroWidthValue123456789",
+      "safe diagnostic\nsession\u202e_token=OpaqueBidiValue123456789",
+    ]
+      const rendered = redactProcessOutput(unsafe)
+      expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toMatch(/safe diagnostic|Opaque|authorization|session/u)
+
+  it "redacts context-free Bearer and Basic credentials", () =>
+    for [scheme, credential] of [
+      ["Bearer", "OpaqueContextBearerValue123456789"],
+      ["Basic", "Q29udGV4dEJhc2ljVmFsdWUxMjM0NTY3ODk="],
+    ]
+      const rendered = redactProcessOutput(
+        `safe credential diagnostic\nx-obfuscated: ${scheme} ${credential}\nsafe credential tail\n`,
+      )
+      expect(rendered).toContain("safe credential diagnostic\n")
+      expect(rendered).toContain("safe credential tail\n")
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toContain(credential)
+
+  it "redacts a compact-only credential ending at the final byte", () =>
+    const credential = "OpaqueCompactCredential123456789"
+    const rendered = redactProcessOutput(
+      `authori zation: Bea rer ${credential}`,
+    )
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+    expect(rendered).not.toContain(credential)
+
+  it "redacts a multiline compact credential ending at the final byte", () =>
+    const credential = "OpaqueMultilineCompactCredential123456789"
+    const rendered = redactProcessOutput(
+      `authori\nzation: Bea\nrer ${credential}`,
+    )
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+    expect(rendered).not.toContain(credential)
+
+  it "redacts a split credential after an overlapping direct decoy", () =>
+    const direct = "OpaqueDirectCredential123456789"
+    const split = "OpaqueSplitCredential123456789"
+    const rendered = redactProcessOutput(
+      `authorization: ${direct}\nauthori\nzation: Bea\nrer ${split}`,
+    )
+    expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+    expect(rendered).not.toContain(direct)
+    expect(rendered).not.toContain(split)
+
+  it "inspects printable ASCII escapes without mutating safe output", () =>
+    for [unsafe, credential] of [
+      [
+        String.raw`{"authoriz\u0061tion":"OpaqueEscapedAuthorization123456789"}`,
+        "OpaqueEscapedAuthorization123456789",
+      ],
+      [
+        String.raw`{"name":"better-auth.\u0073ession_token","value":"OpaqueEscapedSession123456789"}`,
+        "OpaqueEscapedSession123456789",
+      ],
+      [
+        "{name:&quot;better-auth.sess&#105;on_token&quot;,value:&quot;OpaqueDecimalEntitySession123456789&quot;}",
+        "OpaqueDecimalEntitySession123456789",
+      ],
+      [
+        "{name:&quot;better-auth.sess&#x69;on_token&quot;,value:&quot;OpaqueHexEntitySession123456789&quot;}",
+        "OpaqueHexEntitySession123456789",
+      ],
+    ]
+      const rendered = redactProcessOutput(
+        `safe escaped diagnostic\n${unsafe}\nsafe escaped tail\n`,
+      )
+      expect(rendered).toContain("safe escaped diagnostic\n")
+      expect(rendered).toContain("safe escaped tail\n")
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toContain(credential)
+
+    const safeLiteral = String.raw`safe literal \u0041 diagnostic`
+    expect(redactProcessOutput(safeLiteral)).toBe(safeLiteral)
+    const safeEntity = "safe literal &#65; diagnostic"
+    expect(redactProcessOutput(safeEntity)).toBe(safeEntity)
+
+  it "redacts relative auth-route tokens across the full bounded query", () =>
+    for route of ["reset-password", "verify-email"]
+      const rendered = redactProcessOutput(
+        `safe route diagnostic\n/${route}?padding=${"a".repeat(513)}&token=shortSecret\nsafe route tail\n`,
+      )
+      expect(rendered).toContain("safe route diagnostic\n")
+      expect(rendered).toContain("safe route tail\n")
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toContain("shortSecret")
+
+  it "normalizes OSC and interleaved C0 controls before structural redaction", () =>
+    for unsafe of [
+      '{"authori\u001b]0;terminal-title\u0007zation":"Be\u0000arer Opa\u0008queAuthorizationValue123456789"}',
+      '{"name":"__Secure-better-auth.sess\u0000ion_token","value":"OpaqueSess\u0008ionValue123456789"}',
+      '{"access\u001b]8;;https://safe.invalid\u001b\\_token":"OpaqueAccess\u0007TokenValue123456789"}',
+      '{"authori\nzation":"Bea\nrer OpaqueLineSplitValue123456789"}',
+    ]
+      const rendered = redactProcessOutput(
+        `safe control diagnostic\n${unsafe}\nsafe control tail\n`,
+      )
+      expect(rendered).toContain("safe control diagnostic\n")
+      expect(rendered).toContain("safe control tail\n")
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toMatch(
+        /Opaque|terminal-title|safe\.invalid|[\u0000-\u0009\u000b-\u001f\u007f]/u,
+      )
+
+  it "fails closed for untrusted terminal normalization and aggregate oversize output", () =>
+    for unsafe of [
+      "safe diagnostic\nauthorization: Bearer OpaqueUntrustedOsc123456789\u001b]0;unterminated",
+      "safe diagnostic\nauthorization: Bearer OpaqueUntrustedCsi123456789\u001b[31",
+    ]
+      const rendered = redactProcessOutput(unsafe)
+      expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+      expect(rendered).not.toMatch(/safe diagnostic|OpaqueUntrusted|authorization/u)
+
+    const aggregateOversize = Array.from(
+      { length: 17 },
+      () => "x".repeat(1_024),
+    ).join("\n")
+    expect(redactProcessOutput(aggregateOversize)).toBe(
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n",
+    )
+
+  it "preserves nonprintable encoded literals in safe diagnostics", () =>
+    for safe of [
+      String.raw`safe Unicode literal \u001f`,
+      "safe decimal entity &#31;",
+      "safe hexadecimal entity &#x7f;",
+      "safe malformed entity &#;",
+    ]
+      expect(redactProcessOutput(safe)).toBe(safe)
+
+  it "fails closed when structural matching metadata cannot be trusted", () =>
+    const originalMatchAll = String.prototype.matchAll
+    const missingText = Object.assign([], {
+      index: 0,
+    }) as unknown as RegExpMatchArray
+    const recordSpy = vi.spyOn(String.prototype, "matchAll")
+      .mockImplementationOnce(() => [missingText].values() as never)
+    try
+      expect(redactProcessOutput("safe matcher input")).toBe(
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
+      )
+    finally
+      recordSpy.mockRestore()
+
+    const outsideSource = Object.assign(
+      ["authorization:OpaqueMatcherCredential123456789"],
+      { index: 999 },
+    ) as unknown as RegExpMatchArray
+    const offsetSpy = vi.spyOn(String.prototype, "matchAll")
+      .mockImplementation(function (
+        this: string,
+        pattern: RegExp,
+      ): ReturnType<typeof String.prototype.matchAll> {
+        if (String(this) === "safecompact")
+          return [outsideSource].values() as never
+        return originalMatchAll.call(this, pattern)
+      })
+    try
+      expect(redactProcessOutput("safe compact")).toBe(
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
+      )
+    finally
+      offsetSpy.mockRestore()
+
+  it "fails closed when normalized and emitted line views disagree", () =>
+    const unsafe = "authorization: OpaqueLineViewCredential123456789"
+    const missingOutputLines = vi.spyOn(String.prototype, "match")
+      .mockReturnValueOnce(null)
+    try
+      expect(redactProcessOutput(unsafe)).toBe(
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
+      )
+    finally
+      missingOutputLines.mockRestore()
+
+    const missingInspectionLines = vi.spyOn(String.prototype, "match")
+      .mockReturnValueOnce([unsafe] as RegExpMatchArray)
+      .mockReturnValueOnce(null)
+    try
+      expect(redactProcessOutput(unsafe)).toBe(
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
+      )
+    finally
+      missingInspectionLines.mockRestore()
+
+  it "bounds expansion and fails closed for untrusted known values", () =>
+    const malformedKnown = "secret\u001b]unterminated"
+    expect(redactProcessOutput("safe", [malformedKnown])).toBe(
+      "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
+    )
+
+    const controlCompactedKnown = "a\u0000b\u0000c\u0000"
+    expect(redactProcessOutput("safe", [controlCompactedKnown])).toBe("safe")
+
+    expect(redactProcessOutput(
+      "secret".repeat(2_000),
+      ["secret"],
+    )).toBe("[REDACTED OVERSIZED PROCESS OUTPUT]\n")
+    expect(redactProcessOutput(
+      "a@b.co ".repeat(2_000),
+    )).toBe("[REDACTED OVERSIZED PROCESS OUTPUT]\n")
+
+    const throwingValues = new Proxy([] as string[], {
+      get(target, property, receiver) {
+        if (property === Symbol.iterator)
+          throw new Error("Injected known-value iterator failure")
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    expect(redactProcessOutput("safe", throwingValues)).toBe(
+      "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
+    )
+
+  it "preserves safe lines around adjacent and separated sensitive blocks", () =>
+    const rendered = redactProcessOutput([
+      "safe before",
+      "authorization: Bearer OpaqueFirstCredential123456789",
+      "authorization: Basic Q29tcGFjdFNlY29uZENyZWRlbnRpYWw=",
+      "safe middle",
+      "api_key=OpaqueApiKeyCredential123456789",
+      "safe after",
+      "",
+    ].join("\n"))
+    expect(rendered).toBe([
+      "safe before",
+      "[REDACTED SENSITIVE PROCESS OUTPUT]",
+      "safe middle",
+      "[REDACTED SENSITIVE PROCESS OUTPUT]",
+      "safe after",
+      "",
+    ].join("\n"))
+    expect(redactProcessOutput("plain")).toBe("plain")
+
+  it "fails closed when a compact credential has an untrusted boundary", () =>
+    const credential = "OpaqueBoundaryCredential123456789"
+    const rendered = redactProcessOutput(
+      `authori zation: ${credential}\u00a0unsafe-boundary`,
+    )
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
+    expect(rendered).not.toContain(credential)
+
+  it "attributes safe diagnostics with default redaction values", () =>
+    expect(collectProcessDiagnostics(
+      "plain stdout",
+      "plain stderr",
+    )).toEqual([
+      "stdout: plain stdout",
+      "stderr: plain stderr",
+    ])
+    expect(collectProcessDiagnostics("", "")).toEqual([])
 
   it("retains only bounded redacted failure tails for per-spec reports", () => {
     const diagnostics = collectProcessDiagnostics(

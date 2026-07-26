@@ -7,7 +7,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   createArtifactScannerInvocation,
@@ -22,6 +22,7 @@ import {
   type JourneyCliDependencies,
 } from "./cli.civet"
 import type {
+  JourneyDependencies,
   JourneyResult,
   JourneySuiteReport,
 } from "./runner.civet"
@@ -223,6 +224,31 @@ describe("CLI invocation validation", () => {
     })
     expect(cli.errors.join("")).not.toContain(ownership)
   })
+
+  it("fails safely when a structurally complete invocation omits ownership", async () => {
+    const cli = streams()
+    const arguments_ = [
+      "--run-id",
+      "safe_run",
+      "--ownership",
+      undefined,
+      "--report-nonce",
+      REPORT_NONCE,
+    ] as unknown as readonly string[]
+
+    await expect(runArtifactScannerCli(
+      arguments_,
+      "/unused",
+      cli.streams,
+    )).resolves.toBe(1)
+    expect(cli.output).toEqual([])
+    expect(parseScannerReport(cli.errors.join(""), REPORT_NONCE)).toMatchObject({
+      ok: false,
+      purged: false,
+      failureCategory: "ownership-path-safety",
+    })
+    expect(cli.errors.join("")).not.toContain("undefined")
+  })
 })
 
 describe("CLI argument and environment forwarding", () => {
@@ -320,14 +346,14 @@ describe("CLI argument and environment forwarding", () => {
     ["omits purge", false],
     ["forwards purge", true],
   ] as const)("builds a direct scanner invocation that %s", (_case, purgeOwned) => {
-    const invocation = createArtifactScannerInvocation("/workspace", {
+    const invocation = createArtifactScannerInvocation("/workspace", "/trusted/node", {
       runId: "safe_run",
       ownership: "ownership-capability",
       reportNonce: REPORT_NONCE,
       purgeOwned,
     })
 
-    expect(invocation.command).toBe(process.execPath)
+    expect(invocation.command).toBe("/trusted/node")
     expect(invocation.arguments).toEqual([
       "--experimental-strip-types",
       "--import",
@@ -370,17 +396,67 @@ describe("CLI argument and environment forwarding", () => {
       PORTLESS_PORT: "43123",
       HOME: "/safe-home",
       E2E_RUN_ID: "safe_run",
-      DEBUG: "pw:webserver",
       GROQ_API_KEY: "",
       RESEND_API_KEY: "",
       OTEL_ENABLED: "false",
     })
     expect(environment["NODE_OPTIONS"]).toBeUndefined()
+    expect(environment["DEBUG"]).toBeUndefined()
 
     const defaults = createPlaywrightEnvironment({}, {})
     expect(defaults["DATABASE_URL"]).toBe("")
     expect(defaults["PORTLESS_PORT"]).toBe("")
     expect(defaults["HOME"]).toBeUndefined()
+  })
+
+  it("uses the default bounded identity, capability, and discovery providers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-defaults-"))
+    const cli = streams()
+    const persisted: unknown[] = []
+    try {
+      await mkdir(join(root, "tests", "e2e"), { recursive: true })
+      await writeFile(join(root, "tests", "e2e", "auth.spec.ts"), "export {}")
+      const runPlaywright = vi.fn(async (
+        _arguments: readonly string[],
+        environment: Readonly<Record<string, string>>,
+      ) => {
+        expect(environment["E2E_RUN_ID"]).toMatch(/^[A-Za-z0-9_-]{1,128}$/u)
+        expect(environment["E2E_EMAIL_PREVIEW_HMAC_KEY"]).toMatch(
+          /^[A-Za-z0-9_-]{43}$/u,
+        )
+        expect(environment["E2E_RUN_ADOPTION"]).toMatch(/^[A-Za-z0-9_-]+$/u)
+        return stoppedProcess
+      })
+      const scanArtifacts = vi.fn(async (
+        runId: string,
+        purgeOwned: boolean,
+        ownership: string,
+      ) => {
+        expect(runId).toMatch(/^[A-Za-z0-9_-]{1,128}$/u)
+        expect(purgeOwned).toBe(false)
+        expect(ownership).toMatch(/^[A-Za-z0-9_-]+$/u)
+        return cleanScan
+      })
+
+      await expect(runJourneyCli(["e2e"], root, cli.streams, {
+        persistState: (state) => persisted.push(state),
+        runPlaywright,
+        scanArtifacts,
+      })).resolves.toBe(0)
+      expect(runPlaywright).toHaveBeenCalledOnce()
+      expect(scanArtifacts).toHaveBeenCalledOnce()
+      expect(persisted.at(-1)).toMatchObject({
+        version: 1,
+        phase: "result",
+        report: { ok: true, completed: 1 },
+      })
+      expect(JSON.parse(cli.output.join(""))).toMatchObject({
+        ok: true,
+        completed: 1,
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })
 
@@ -543,6 +619,20 @@ describe("scanner envelope parsing", () => {
         findings: [
           { category: "browser-password", path: "artifact-0123456789abcdef" },
           { category: "token-url", path: "artifact-0123456789abcdef" },
+        ],
+        purged: true,
+        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        failureCategory: "evidence-contamination",
+      },
+    ],
+    [
+      "distinct paths in canonical path order",
+      {
+        ok: false,
+        scannedEntries: 0,
+        findings: [
+          { category: "token-url", path: "artifact-0123456789abcdef" },
+          { category: "browser-password", path: "artifact-fedcba9876543210" },
         ],
         purged: true,
         reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
@@ -733,6 +823,28 @@ describe("CLI dependency failures", () => {
     expect(cli.errors.join("")).not.toContain("private final write failure")
   })
 
+  it("reports repeated persistence failures only once while sanitization fails", async () => {
+    const cli = streams()
+    const persistState = vi.fn(() => {
+      throw new Error("private repeated state failure")
+    })
+
+    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
+      persistState,
+      scanArtifacts: async () => ({
+        ...cleanScan,
+        scannedEntries: -1,
+      }),
+    }))).resolves.toBe(1)
+    expect(persistState).toHaveBeenCalledOnce()
+    expect(cli.output).toEqual([])
+    expect(cli.errors.filter((line) =>
+      line === "Error: E2E runner state persistence failed\n"
+    )).toHaveLength(1)
+    expect(cli.errors.join("")).not.toContain("private repeated state failure")
+    expect(cli.errors.join("")).not.toContain("-1")
+  })
+
   it("fails closed when an injected result cannot be sanitized", async () => {
     const cli = streams()
 
@@ -747,5 +859,741 @@ describe("CLI dependency failures", () => {
       "Error: E2E runner state persistence failed\n",
     )
     expect(cli.errors.join("")).not.toContain("1.5")
+  })
+})
+
+const isolatedCliOverrides = (
+  overrides: JourneyCliDependencies = {},
+  omitted?: "runPlaywright" | "scanArtifacts",
+): JourneyCliDependencies => {
+  const dependencies = {
+    createHmacKey: () => "h".repeat(43),
+    createRunId: () => "isolated_cli_run",
+    listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+    persistState: () => undefined,
+    prepareRun: async () => ({
+      adoption: "private-adoption",
+      ownership: "private-ownership",
+    }),
+    resolveNodeExecutable: async () => "/trusted/node",
+    runPlaywright: async () => stoppedProcess,
+    scanArtifacts: async () => cleanScan,
+    ...overrides,
+  }
+  if (omitted !== undefined) Reflect.deleteProperty(dependencies, omitted)
+  return dependencies
+}
+
+describe("default CLI dependency fakes", () => {
+  afterEach(() => {
+    vi.doUnmock("node:crypto")
+    vi.doUnmock("node:fs/promises")
+    vi.doUnmock("./playwright-report.civet")
+    vi.doUnmock("./process.civet")
+    vi.doUnmock("./runner.civet")
+    vi.doUnmock("./system.civet")
+    vi.resetModules()
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+  })
+
+  it("redacts a primitive trusted Node resolver rejection", async () => {
+    const cli = streams()
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
+    const resolveNodeExecutable = vi.fn((_repositoryPath: string) =>
+      Promise.reject("private trusted Node resolver failure")
+    )
+
+    await expect(runJourneyCli(
+      ["e2e"],
+      "/workspace",
+      cli.streams,
+      isolatedCliOverrides({
+        listSpecs,
+        resolveNodeExecutable,
+      }, "scanArtifacts"),
+    )).resolves.toBe(1)
+
+    expect(resolveNodeExecutable).toHaveBeenCalledOnce()
+    expect(resolveNodeExecutable).toHaveBeenCalledWith("/workspace")
+    expect(listSpecs).not.toHaveBeenCalled()
+    expect(cli.output).toEqual([])
+    expect(cli.errors).toEqual([
+      "Trusted Node executable is unavailable\n",
+    ])
+    expect(cli.errors.join("")).not.toContain(
+      "private trusted Node resolver failure",
+    )
+  })
+
+  it("rejects a Node executable contained by the repository root", async () => {
+    const cli = streams()
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
+    const overrides = isolatedCliOverrides({ listSpecs }, "scanArtifacts")
+    Reflect.deleteProperty(overrides, "resolveNodeExecutable")
+
+    await expect(runJourneyCli(
+      ["e2e"],
+      "/",
+      cli.streams,
+      overrides,
+    )).resolves.toBe(1)
+
+    expect(listSpecs).not.toHaveBeenCalled()
+    expect(cli.output).toEqual([])
+    expect(cli.errors).toEqual([
+      "Trusted Node executable is unavailable\n",
+    ])
+  })
+
+  it("withholds scanner parsing when its process tree is not proven dead", async () => {
+    vi.resetModules()
+    const runOwnedCommand = vi.fn(async () => ({
+      exitCode: 0,
+      stdout: scannerEnvelope({
+        ok: true,
+        scannedEntries: 3,
+        findings: [],
+        purged: false,
+        reason: "E2E artifacts passed external secret scanning",
+      }),
+      stderr: "",
+      treeTerminated: false,
+      reason: "termination-unproven" as const,
+    }))
+    const createArtifactScannerDependencies = vi.fn()
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return { ...actual, createArtifactScannerDependencies }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+    const cli = streams()
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      cli.streams,
+      isolatedCliOverrides({}, "scanArtifacts"),
+    )).resolves.toBe(1)
+
+    expect(runOwnedCommand).toHaveBeenCalledOnce()
+    expect(createArtifactScannerDependencies).not.toHaveBeenCalled()
+    expect(cli.output).toEqual([])
+    expect(cli.errors.join("")).toContain("scanFailureCategory=internal")
+    expect(cli.errors.join("")).not.toContain(REPORT_NONCE)
+  })
+
+  it("reports cleanup when the parent cannot purge after a malformed scanner result", async () => {
+    vi.resetModules()
+    const runOwnedCommand = vi.fn(async () => ({
+      exitCode: 1,
+      stdout: "private scanner wrapper output",
+      stderr: "not an authenticated scanner envelope",
+      treeTerminated: true,
+      reason: "completed" as const,
+    }))
+    const purgeOwnedRun = vi.fn(async () => {
+      throw new Error("private parent purge failure")
+    })
+    const createArtifactScannerDependencies = vi.fn(async () => ({
+      artifactProfile: "no-binary" as const,
+      deadlineMs: 30_000,
+      collectEntries: async () => [],
+      purgeOwnedRun,
+    }))
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return {
+        ...actual,
+        createArtifactScannerDependencies,
+        decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
+      }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+    const cli = streams()
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      cli.streams,
+      isolatedCliOverrides({}, "scanArtifacts"),
+    )).resolves.toBe(1)
+
+    expect(createArtifactScannerDependencies).toHaveBeenCalledOnce()
+    expect(purgeOwnedRun).toHaveBeenCalledWith("isolated_cli_run")
+    expect(cli.output).toEqual([])
+    expect(cli.errors.join("")).toContain("scanFailureCategory=cleanup")
+    expect(cli.errors.join("")).not.toContain("private scanner wrapper")
+    expect(cli.errors.join("")).not.toContain("private parent purge")
+  })
+
+  it("runs the default Playwright adapter through success and sanitized failure paths", async () => {
+    vi.resetModules()
+    const databaseUrl =
+      "postgresql://private%2Duser:private%2Dpassword@127.0.0.1/darkfactory"
+    vi.stubEnv("DATABASE_URL", databaseUrl)
+    const runOwnedCommand = vi.fn()
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "browser passed\n",
+        stderr: "",
+        treeTerminated: true,
+        reason: "completed",
+      })
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: "browser failed safely\n",
+        stderr: "Error: Process from config.webServer was not able to start. Exit code: 1\n",
+        treeTerminated: true,
+        reason: "completed",
+      })
+    const sanitizePlaywrightJsonReport = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce("private redaction failure")
+    const finalizeOwnedLifecycleAfterPlaywright = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("private finalization failure"))
+    const readOwnedLifecycleState = vi.fn(async () => ({
+      version: 1 as const,
+      status: "stopped",
+      stage: "server-ready",
+    }))
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      return {
+        ...actual,
+        access: vi.fn(async () => undefined),
+        realpath: vi.fn(async (path: string) => path),
+      }
+    })
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./playwright-report.civet", () => ({
+      sanitizePlaywrightJsonReport,
+    }))
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return {
+        ...actual,
+        assertOwnedLifecycleRoots: vi.fn(async () => undefined),
+        createOwnedLifecyclePaths: vi.fn(async () => ({
+          repository: "/workspace",
+          e2e: "/workspace/test-results/e2e-runs/isolated_cli_run",
+          evidence: "/workspace/test-results/evidence/isolated_cli_run",
+        })),
+        decodeOwnedRunAdoption: vi.fn(() => ({})),
+        finalizeOwnedLifecycleAfterPlaywright,
+        readOwnedLifecycleState,
+      }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+
+    const passing = streams()
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      passing.streams,
+      isolatedCliOverrides({}, "runPlaywright"),
+    )).resolves.toBe(0)
+    expect(passing.output.join("")).toContain("browser passed")
+    expect(sanitizePlaywrightJsonReport).toHaveBeenNthCalledWith(
+      1,
+      "/workspace/test-results/e2e-runs/isolated_cli_run/playwright-report.json",
+      expect.arrayContaining([
+        databaseUrl,
+        "private%2Duser",
+        "private%2Dpassword",
+        "private-user",
+        "private-password",
+      ]),
+    )
+
+    const failing = streams()
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      failing.streams,
+      isolatedCliOverrides({}, "runPlaywright"),
+    )).resolves.toBe(1)
+    expect(failing.output.join("")).toContain("browser failed safely")
+    expect(failing.errors.join("")).toContain(
+      "Playwright webServer process failed before tests",
+    )
+    expect(failing.errors.join("")).not.toContain("private redaction failure")
+    expect(failing.errors.join("")).not.toContain("private finalization failure")
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(2)
+    expect(readOwnedLifecycleState).toHaveBeenCalledTimes(2)
+  })
+
+  it("uses only outside executables and fails closed without report inputs", async () => {
+    vi.resetModules()
+    vi.stubEnv("DATABASE_URL", "")
+    const candidates = [
+      "/workspace/tools/corepack",
+      "/",
+      "/trusted/corepack",
+    ]
+    const realpath = vi.fn(async (path: string) => {
+      if (path === "/workspace") return path
+      return candidates.shift() ?? "/trusted/corepack"
+    })
+    const access = vi.fn(async (path: string) => {
+      if (path === "/") throw new Error("parent candidate is not executable")
+    })
+    const runOwnedCommand = vi.fn(async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      treeTerminated: true,
+      reason: "completed" as const,
+    }))
+    const finalizeOwnedLifecycleAfterPlaywright = vi.fn(async () => undefined)
+    let adapterCalls = 0
+    const runJourneySuite = vi.fn(async (
+      mode: "e2e" | "a11y",
+      dependencies: JourneyDependencies,
+    ): Promise<JourneySuiteReport> => {
+      const processResult = await dependencies.runPlaywright(["pnpm"], {})
+      adapterCalls += 1
+      expect(processResult).toEqual({
+        diagnostics: ["Owned Playwright JSON report redaction failed safely"],
+        lifecycleStatus: "unavailable",
+        lifecycleStage: "unavailable",
+        lifecycleObservation: "missing",
+        lifecycleObservationReason: "inputs-missing",
+        exitCode: 1,
+        treeTerminated: true,
+      })
+      return Object.freeze({
+        ok: false,
+        mode,
+        completed: 0,
+        results: [],
+        reason: "bounded adapter fixture",
+      })
+    })
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      return { ...actual, access, realpath }
+    })
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./runner.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./runner.civet")>()
+      return { ...actual, runJourneySuite }
+    })
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return { ...actual, finalizeOwnedLifecycleAfterPlaywright }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      streams().streams,
+      isolatedCliOverrides({}, "runPlaywright"),
+    )).resolves.toBe(1)
+    vi.stubEnv("DATABASE_URL", "not a database URL")
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      streams().streams,
+      isolatedCliOverrides({}, "runPlaywright"),
+    )).resolves.toBe(1)
+
+    expect(adapterCalls).toBe(2)
+    expect(runOwnedCommand).toHaveBeenCalledTimes(2)
+    expect(runOwnedCommand).toHaveBeenNthCalledWith(
+      1,
+      "/trusted/corepack",
+      ["pnpm"],
+      expect.objectContaining({
+        cwd: "/workspace",
+        env: expect.objectContaining({ DATABASE_URL: "" }),
+      }),
+    )
+    expect(runOwnedCommand).toHaveBeenNthCalledWith(
+      2,
+      "/trusted/corepack",
+      ["pnpm"],
+      expect.objectContaining({
+        cwd: "/workspace",
+        env: expect.objectContaining({ DATABASE_URL: "not a database URL" }),
+      }),
+    )
+    expect(access.mock.calls.map((call) => call[0])).toEqual([
+      "/",
+      "/trusted/corepack",
+      "/trusted/corepack",
+    ])
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(2)
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        encodedAdoption: "",
+        runId: "",
+        treeTerminated: true,
+      }),
+    )
+  })
+
+  it("fails before discovery when no trusted Corepack executable resolves", async () => {
+    vi.resetModules()
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      return {
+        ...actual,
+        access: vi.fn(async () => {
+          throw new Error("unreachable")
+        }),
+        realpath: vi.fn(async (path: string) => {
+          if (path === "/workspace") return path
+          throw new Error("missing executable")
+        }),
+      }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+    const cli = streams()
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      cli.streams,
+      isolatedCliOverrides({
+        listSpecs,
+      }, "runPlaywright"),
+    )).resolves.toBe(1)
+
+    expect(listSpecs).not.toHaveBeenCalled()
+    expect(cli.output).toEqual([])
+    expect(cli.errors).toEqual([
+      "Trusted Corepack executable is unavailable\n",
+    ])
+  })
+  it("uses a proven parent purge after an unauthenticated scanner result", async () => {
+    vi.resetModules()
+    const runOwnedCommand = vi.fn(async () => ({
+      exitCode: 1,
+      stdout: "not-json",
+      stderr: "",
+      treeTerminated: true,
+      reason: "completed" as const,
+    }))
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    const createArtifactScannerDependencies = vi.fn(async () => ({
+      artifactProfile: "no-binary" as const,
+      deadlineMs: 30_000,
+      collectEntries: async () => [],
+      purgeOwnedRun,
+    }))
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return {
+        ...actual,
+        createArtifactScannerDependencies,
+        decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
+      }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+    const cli = streams()
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      cli.streams,
+      isolatedCliOverrides({}, "scanArtifacts"),
+    )).resolves.toBe(1)
+
+    expect(purgeOwnedRun).toHaveBeenCalledWith("isolated_cli_run")
+    expect(cli.errors.join("")).toContain("scanFailureCategory=internal")
+    expect(cli.errors.join("")).not.toContain("scanFailureCategory=cleanup")
+  })
+
+  it("maps every lifecycle observation and finalization failure with system fakes", async () => {
+    vi.resetModules()
+    const createOwnedLifecyclePaths = vi.fn(async (
+      _repositoryPath: string,
+      runId: string,
+    ) => {
+      if (runId === "paths_fail") throw new Error("private paths failure")
+      return {
+        repository: "/workspace",
+        e2e: runId,
+        evidence: `${runId}-evidence`,
+      }
+    })
+    const decodeOwnedRunAdoption = vi.fn((encoded: string, runId: string) => {
+      if (encoded === "decode-fail") throw new Error("private adoption failure")
+      return { runId }
+    })
+    const assertOwnedLifecycleRoots = vi.fn(async (
+      _paths: unknown,
+      adoption: { runId: string },
+    ) => {
+      if (adoption.runId === "assert_fail") {
+        throw new Error("private root failure")
+      }
+    })
+    const readOwnedLifecycleState = vi.fn(async (
+      paths: { e2e: string },
+    ) => {
+      if (paths.e2e === "state_fail") throw new Error("private state failure")
+      if (paths.e2e === "state_missing") return undefined
+      return { version: 1, status: "stopped", stage: "server-ready" }
+    })
+    const finalizeOwnedLifecycleAfterPlaywright = vi.fn(async (
+      options: { runId: string },
+    ) => {
+      if (options.runId === "finalize_fail") {
+        throw new Error("private finalization failure")
+      }
+    })
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return {
+        ...actual,
+        assertOwnedLifecycleRoots,
+        createOwnedLifecyclePaths,
+        decodeOwnedRunAdoption,
+        finalizeOwnedLifecycleAfterPlaywright,
+        readOwnedLifecycleState,
+      }
+    })
+    const {
+      finalizeAndObserveE2ELifecycle,
+      observeE2ELifecycle,
+    } = await import("./cli.civet")
+    const environment = (
+      runId: string,
+      adoption = "adoption",
+    ): Readonly<Record<string, string>> => ({
+      E2E_RUN_ADOPTION: adoption,
+      E2E_RUN_ID: runId,
+    })
+
+    await expect(observeE2ELifecycle({}, "/workspace")).resolves.toEqual({
+      lifecycleStatus: "unavailable",
+      lifecycleStage: "unavailable",
+      lifecycleObservation: "missing",
+      lifecycleObservationReason: "inputs-missing",
+    })
+    await expect(observeE2ELifecycle(
+      environment("paths_fail"),
+      "/workspace",
+    )).resolves.toMatchObject({
+      lifecycleObservation: "invalid",
+      lifecycleObservationReason: "paths-failed",
+    })
+    await expect(observeE2ELifecycle(
+      environment("decode_fail", "decode-fail"),
+      "/workspace",
+    )).resolves.toMatchObject({
+      lifecycleObservation: "invalid",
+      lifecycleObservationReason: "adoption-invalid",
+    })
+    await expect(observeE2ELifecycle(
+      environment("assert_fail"),
+      "/workspace",
+    )).resolves.toMatchObject({
+      lifecycleObservation: "invalid",
+      lifecycleObservationReason: "adoption-invalid",
+    })
+    await expect(observeE2ELifecycle(
+      environment("state_fail"),
+      "/workspace",
+    )).resolves.toMatchObject({
+      lifecycleObservation: "invalid",
+      lifecycleObservationReason: "state-invalid",
+    })
+    await expect(observeE2ELifecycle(
+      environment("state_missing"),
+      "/workspace",
+    )).resolves.toMatchObject({
+      lifecycleObservation: "missing",
+      lifecycleObservationReason: "state-missing",
+    })
+    await expect(observeE2ELifecycle(
+      environment("observed"),
+      "/workspace",
+    )).resolves.toEqual({
+      lifecycleStatus: "stopped",
+      lifecycleStage: "server-ready",
+      lifecycleObservation: "state",
+      lifecycleObservationReason: "observed-state",
+    })
+
+    await expect(finalizeAndObserveE2ELifecycle(
+      environment("state_missing"),
+      { exitCode: 1, treeTerminated: false },
+      "/workspace",
+    )).resolves.toMatchObject({
+      finalizationFailed: false,
+      lifecycle: { lifecycleObservationReason: "state-missing" },
+    })
+    expect(finalizeOwnedLifecycleAfterPlaywright).not.toHaveBeenCalled()
+
+    await expect(finalizeAndObserveE2ELifecycle(
+      environment("finalize_fail"),
+      { exitCode: 1, treeTerminated: true },
+      "/workspace",
+    )).resolves.toMatchObject({
+      finalizationFailed: true,
+      lifecycle: {
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+      },
+    })
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledOnce()
+  })
+
+  it("bounds an unexpected serialized runner rejection before persistence", async () => {
+    vi.resetModules()
+    vi.doMock("./runner.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./runner.civet")>()
+      return {
+        ...actual,
+        runJourneySuite: vi.fn(async () => {
+          throw new Error("private serialized runner failure")
+        }),
+      }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+    const cli = streams()
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      cli.streams,
+      isolatedCliOverrides(),
+    )).resolves.toBe(1)
+
+    expect(cli.output).toEqual([])
+    expect(cli.errors.join("")).toContain(
+      "Error: E2E runner failed before result",
+    )
+    expect(cli.errors.join("")).not.toContain(
+      "private serialized runner failure",
+    )
+  })
+  it("accepts a nonce-bound scanner result and parent-purges status mismatches", async () => {
+    vi.resetModules()
+    const reportNonce = Buffer.alloc(32, 1).toString("base64url")
+    const cleanReport = {
+      ok: true,
+      scannedEntries: 3,
+      findings: [],
+      purged: false,
+      reason: "E2E artifacts passed external secret scanning",
+    }
+    const contaminatedReport = {
+      ok: false,
+      scannedEntries: 0,
+      findings: [{
+        category: "token-url",
+        path: "artifact-0123456789abcdef",
+      }],
+      purged: true,
+      reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+      failureCategory: "evidence-contamination",
+    }
+    const scannerContamination = {
+      exitCode: 1,
+      stdout: scannerEnvelope(contaminatedReport, reportNonce),
+      stderr: "",
+      treeTerminated: true,
+      reason: "completed" as const,
+    }
+    const scannerSuccess = {
+      exitCode: 0,
+      stdout: scannerEnvelope(cleanReport, reportNonce),
+      stderr: "",
+      treeTerminated: true,
+      reason: "completed" as const,
+    }
+    const runOwnedCommand = vi.fn()
+      .mockResolvedValueOnce(scannerSuccess)
+      .mockResolvedValueOnce({ ...scannerSuccess, exitCode: 1 })
+      .mockResolvedValueOnce(scannerSuccess)
+      .mockResolvedValueOnce(scannerContamination)
+    const purgeOwnedRun = vi.fn(async () => undefined)
+    const createArtifactScannerDependencies = vi.fn(async () => ({
+      artifactProfile: "no-binary" as const,
+      deadlineMs: 30_000,
+      collectEntries: async () => [],
+      purgeOwnedRun,
+    }))
+    vi.doMock("node:crypto", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:crypto")>()
+      return {
+        ...actual,
+        randomBytes: () => Buffer.alloc(32, 1),
+      }
+    })
+    vi.doMock("./process.civet", () => ({ runOwnedCommand }))
+    vi.doMock("./system.civet", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./system.civet")>()
+      return {
+        ...actual,
+        createArtifactScannerDependencies,
+        decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
+      }
+    })
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.civet")
+
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      streams().streams,
+      isolatedCliOverrides({}, "scanArtifacts"),
+    )).resolves.toBe(0)
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      streams().streams,
+      isolatedCliOverrides({}, "scanArtifacts"),
+    )).resolves.toBe(1)
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      streams().streams,
+      isolatedCliOverrides({
+        runPlaywright: async () => ({
+          exitCode: 1,
+          treeTerminated: true,
+          lifecycleStatus: "startup-failed",
+          lifecycleStage: "server-spawn",
+          lifecycleObservation: "state",
+          lifecycleObservationReason: "observed-state",
+        }),
+      }, "scanArtifacts"),
+    )).resolves.toBe(1)
+    const contaminationCli = streams()
+    await expect(runIsolatedCli(
+      ["e2e"],
+      "/workspace",
+      contaminationCli.streams,
+      isolatedCliOverrides({
+        runPlaywright: async () => ({
+          exitCode: 1,
+          treeTerminated: true,
+          lifecycleStatus: "startup-failed",
+          lifecycleStage: "server-spawn",
+          lifecycleObservation: "state",
+          lifecycleObservationReason: "observed-state",
+        }),
+      }, "scanArtifacts"),
+    )).resolves.toBe(1)
+    expect(contaminationCli.errors.join("")).toContain(
+      "scanFailureCategory=evidence-contamination",
+    )
+
+    expect(runOwnedCommand).toHaveBeenCalledTimes(4)
+    expect(createArtifactScannerDependencies).toHaveBeenCalledTimes(2)
+    expect(purgeOwnedRun).toHaveBeenCalledTimes(2)
+    expect(purgeOwnedRun).toHaveBeenNthCalledWith(1, "isolated_cli_run")
+    expect(purgeOwnedRun).toHaveBeenNthCalledWith(2, "isolated_cli_run")
   })
 })

@@ -1,0 +1,149 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  lstat: vi.fn(),
+  open: vi.fn(),
+  randomUUID: vi.fn(() => "fixed-uuid"),
+  readdir: vi.fn(),
+  rename: vi.fn(),
+  rm: vi.fn(),
+  spawnSync: vi.fn(),
+}))
+
+vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
+vi.mock("node:crypto", () => ({ randomUUID: mocks.randomUUID }))
+vi.mock("node:fs/promises", () => ({
+  lstat: mocks.lstat,
+  open: mocks.open,
+  readdir: mocks.readdir,
+  rename: mocks.rename,
+  rm: mocks.rm,
+}))
+
+import {
+  materializeWorkerBindings,
+  writeWorkerBindings,
+} from "./bindings.civet"
+
+const validBindings = [
+  "DATABASE_URL=postgresql://local.invalid/database",
+  "BETTER_AUTH_SECRET=development-auth-secret-at-least-32",
+  "CONTACT_THROTTLE_SECRET=development-contact-secret-at-least-32",
+  "",
+].join("\n")
+
+const errno = (code: string): NodeJS.ErrnoException =>
+  Object.assign(new Error(code), { code })
+
+const regularMetadata = (overrides: Record<string, unknown> = {}) => ({
+  isFile: () => true,
+  isSymbolicLink: () => false,
+  nlink: 1,
+  ...overrides,
+})
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.lstat.mockRejectedValue(errno("ENOENT"))
+  mocks.rename.mockResolvedValue(undefined)
+  mocks.rm.mockResolvedValue(undefined)
+})
+
+describe("Worker binding failure cleanup", () => {
+  it("rejects a symbolic identity even when metadata also reports a file", async () => {
+    mocks.lstat.mockResolvedValueOnce(regularMetadata({
+      isSymbolicLink: () => true,
+    }))
+
+    await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toThrow(
+      "Existing Worker bindings path is unsafe",
+    )
+    expect(mocks.open).not.toHaveBeenCalled()
+  })
+
+  it("preserves unexpected filesystem inspection errors", async () => {
+    const unclassified = new Error("inspection failed")
+    mocks.lstat.mockRejectedValueOnce(unclassified)
+    await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toBe(
+      unclassified,
+    )
+
+    mocks.lstat.mockRejectedValueOnce("raw inspection failure")
+    await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toBe(
+      "raw inspection failure",
+    )
+
+    const denied = errno("EACCES")
+    mocks.lstat.mockRejectedValueOnce(denied)
+    await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toBe(
+      denied,
+    )
+  })
+
+  it("closes and removes a temporary file even when both cleanup operations reject", async () => {
+    const primaryFailure = new Error("write failed")
+    const handle = {
+      writeFile: vi.fn(async () => { throw primaryFailure }),
+      chmod: vi.fn(),
+      sync: vi.fn(),
+      close: vi.fn(async () => { throw new Error("close failed") }),
+    }
+    mocks.open.mockResolvedValueOnce(handle)
+    mocks.rm.mockRejectedValueOnce(new Error("remove failed"))
+
+    await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toThrow(
+      "Unable to materialize Worker bindings safely",
+    )
+    expect(mocks.open).toHaveBeenCalledWith(
+      "/repo/.dev.vars.fixed-uuid.tmp",
+      "wx",
+      0o600,
+    )
+    expect(handle.close).toHaveBeenCalledOnce()
+    expect(mocks.rm).toHaveBeenCalledWith(
+      "/repo/.dev.vars.fixed-uuid.tmp",
+      { force: true },
+    )
+  })
+
+  it("removes a completed temporary file when the atomic rename fails", async () => {
+    const handle = {
+      writeFile: vi.fn(async () => undefined),
+      chmod: vi.fn(async () => undefined),
+      sync: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    }
+    mocks.open.mockResolvedValueOnce(handle)
+    mocks.rename.mockRejectedValueOnce(new Error("rename failed"))
+
+    await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toThrow(
+      "Unable to materialize Worker bindings safely",
+    )
+    expect(handle.writeFile).toHaveBeenCalledWith(validBindings, "utf8")
+    expect(handle.chmod).toHaveBeenCalledWith(0o600)
+    expect(handle.sync).toHaveBeenCalledOnce()
+    expect(handle.close).toHaveBeenCalledOnce()
+    expect(mocks.rm).toHaveBeenCalledWith(
+      "/repo/.dev.vars.fixed-uuid.tmp",
+      { force: true },
+    )
+  })
+
+  it("uses the current working directory by default without continuing after resolver failure", async () => {
+    mocks.spawnSync.mockReturnValueOnce({
+      status: 1,
+      error: undefined,
+      stdout: "",
+    })
+
+    await expect(materializeWorkerBindings()).rejects.toThrow(
+      "Unable to resolve validated Worker bindings",
+    )
+    expect(mocks.spawnSync).toHaveBeenCalledWith(
+      "varlock",
+      ["load", "--format", "env", "--compact"],
+      expect.objectContaining({ cwd: process.cwd() }),
+    )
+    expect(mocks.lstat).not.toHaveBeenCalled()
+  })
+})

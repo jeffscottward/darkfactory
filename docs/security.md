@@ -32,7 +32,7 @@ Keep authorization on the server. Route groups, navigation visibility, client st
 Use Varlock to validate/inject values without treating `.env` as shell code:
 
 ```bash
-varlock run -- pnpm doctor
+varlock run -- bun run doctor
 ```
 
 When sharing diagnostic output, redact values and retain only variable names/state.
@@ -49,7 +49,7 @@ PostgreSQL owns durable application state; features access it through Drizzle re
 
 The seed identities and `Development123!` password are public test fixtures. Seed/reset commands are permitted only with `APP_ENV=development` or `APP_ENV=test`, and only after confirming the database is disposable. Never put customer, employee, production, or copied personal data in a seed fixture. Use fictional `.test` addresses and placeholders from <https://placehold.co/>.
 
-`pnpm db:reset` is destructive. Environment-name validation does not replace target verification, a snapshot, or human approval for any non-disposable data operation.
+`bun run db:reset` is destructive. Environment-name validation does not replace target verification, a snapshot, or human approval for any non-disposable data operation.
 
 ## API, provider, and observability rules
 

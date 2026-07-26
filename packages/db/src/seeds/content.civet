@@ -89,7 +89,10 @@ const matchesAddress = (
   current.country === expected.country.toUpperCase() &&
   current.isPrimary === (expected.isPrimary ?? false)
 
-const addressUpdate = (expected: CreateAddressInput): UpdateAddressInput => ({
+const addressUpdate = (
+  current: Address,
+  expected: CreateAddressInput,
+): UpdateAddressInput => ({
   id: expected.id!,
   userId: expected.userId,
   type: expected.type,
@@ -99,7 +102,9 @@ const addressUpdate = (expected: CreateAddressInput): UpdateAddressInput => ({
   region: expected.region,
   postalCode: expected.postalCode,
   country: expected.country,
-  isPrimary: expected.isPrimary ?? false,
+  ...(current.isPrimary === (expected.isPrimary ?? false)
+    ? {}
+    : { isPrimary: expected.isPrimary ?? false }),
 })
 
 const matchesFeatureItem = (
@@ -127,21 +132,32 @@ const mutationContext = (ownerId: string): FeatureMutationContext => ({
   requestId: `development-seed:${ownerId}`,
 })
 
+export type DevelopmentContentSeed = Readonly<{
+  addresses: readonly CreateAddressInput[]
+  featureItems: readonly CreateFeatureItemInput[]
+}>
+
+const DEFAULT_DEVELOPMENT_CONTENT: DevelopmentContentSeed = {
+  addresses: DEVELOPMENT_ADDRESSES,
+  featureItems: DEVELOPMENT_FEATURE_ITEMS,
+}
+
 export const convergeDevelopmentContent = async (
   database: DatabaseExecutor,
+  content: DevelopmentContentSeed = DEFAULT_DEVELOPMENT_CONTENT,
 ): Promise<void> => {
   const addresses = createAddressRepository(database)
-  for (const expected of DEVELOPMENT_ADDRESSES) {
+  for (const expected of content.addresses) {
     const current = await addresses.findByIdForUser(expected.id!, expected.userId)
     if (!current) {
       await addresses.create(expected)
     } else if (!matchesAddress(current, expected)) {
-      await addresses.update(addressUpdate(expected))
+      await addresses.update(addressUpdate(current, expected))
     }
   }
 
   const features = createFeatureItemRepository(database)
-  for (const expected of DEVELOPMENT_FEATURE_ITEMS) {
+  for (const expected of content.featureItems) {
     const current = await features.findByIdForOwner(expected.id!, expected.ownerId)
     const context = mutationContext(expected.ownerId)
     if (!current) {

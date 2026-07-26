@@ -225,3 +225,24 @@ describe "config package boundaries", ->
     expect(parseServerEnv).toBeTypeOf("function")
     expect(composeDatabaseProfile).toBeTypeOf("function")
     expect(loadCapabilityManifest).toBeTypeOf("function")
+
+  it "executes each dependency-free poison module in the instrumented test runtime", async ->
+    const poisonModules = [
+      {
+        specifier: "./server/unsupported.js",
+        message: "@darkfactory/config/server is unavailable in browser bundles",
+      },
+      {
+        specifier: "./database/unsupported.js",
+        message: "@darkfactory/config/database is unavailable in browser bundles",
+      },
+      {
+        specifier: "./server/capabilities-unsupported.js",
+        message:
+          "@darkfactory/config/server/capabilities is unavailable in browser bundles",
+      },
+    ]
+
+    for (const { specifier, message } of poisonModules) {
+      await expect(import(specifier)).rejects.toThrowError(message)
+    }

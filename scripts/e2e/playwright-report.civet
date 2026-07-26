@@ -2,6 +2,9 @@ import { constants } from "node:fs"
 import { lstat, open } from "node:fs/promises"
 
 const MAX_PLAYWRIGHT_REPORT_BYTES = 16 * 1024 * 1024
+const REDACTION_MARKER = "[REDACTED]"
+const REDACTED_REPORT_BOUND_MESSAGE =
+  "Redacted Playwright report exceeds its bound"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -22,15 +25,35 @@ const removeWebServerEnvironment = (config: Record<string, unknown>): void => {
   }
 }
 
+const replacementWouldExceedReportBound = (
+  value: string,
+  sensitiveValue: string,
+): boolean => {
+  const growthPerMatch = REDACTION_MARKER.length - sensitiveValue.length
+  if (growthPerMatch <= 0) return false
+
+  let redactedLength = value.length
+  let searchOffset = 0
+  while (searchOffset < value.length) {
+    const matchOffset = value.indexOf(sensitiveValue, searchOffset)
+    if (matchOffset < 0) return false
+    redactedLength += growthPerMatch
+    if (redactedLength > MAX_PLAYWRIGHT_REPORT_BYTES) return true
+    searchOffset = matchOffset + sensitiveValue.length
+  }
+  return false
+}
+
 const redactSensitiveString = (
   value: string,
   sensitiveValues: readonly string[],
 ): string => {
   let redacted = value
   for (const sensitiveValue of sensitiveValues) {
-    if (sensitiveValue.length > 0) {
-      redacted = redacted.split(sensitiveValue).join("[REDACTED]")
+    if (replacementWouldExceedReportBound(redacted, sensitiveValue)) {
+      throw new Error(REDACTED_REPORT_BOUND_MESSAGE)
     }
+    redacted = redacted.replaceAll(sensitiveValue, REDACTION_MARKER)
   }
   return redacted
 }
@@ -103,7 +126,7 @@ export const sanitizePlaywrightJsonReport = async (
     redactSensitiveValues(parsed, canonicalSensitiveValues(sensitiveValues))
     const rendered = Buffer.from(`${JSON.stringify(parsed)}\n`, "utf8")
     if (rendered.byteLength > MAX_PLAYWRIGHT_REPORT_BYTES) {
-      throw new Error("Redacted Playwright report exceeds its bound")
+      throw new Error(REDACTED_REPORT_BOUND_MESSAGE)
     }
     let offset = 0
     while (offset < rendered.byteLength) {

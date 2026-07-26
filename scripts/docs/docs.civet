@@ -73,7 +73,7 @@ export const buildArchitectureInventory = (
         .map(([dependency]) => dependency)
         .sort(),
     })
-  }).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+  }).sort((left, right) => left.name < right.name ? -1 : 1)
   return Object.freeze({ version: 1, rootScripts: Object.freeze(rootScripts), packages: Object.freeze(packages) })
 }
 

@@ -44,7 +44,7 @@ PostgreSQL is the default home for durable/data-related behavior. Add external d
 ## 3. Settled stack and compatibility boundary
 
 ```text
-Workspace/runtime       Node >=22.13; pnpm 11; Turborepo; one pnpm lockfile
+Workspace/runtime       Bun 1.3.14 scripts/TS; Node >=22.13 compatibility; pnpm 11.16 packages/workspaces/sole lockfile
 Authored app language   Civet
 Tool boundaries         TypeScript for config/generated/Cloudflare/Playwright/tool-required files
 Framework API           Next.js-compatible App Router
@@ -75,7 +75,7 @@ Toolchain requirements:
 - `.civet` pages, layouts, loading/error boundaries, components, contracts, services, scripts, and ordinary tests MUST compile and be discovered.
 - TypeScript remains at exact tooling boundaries: `vite.config.ts`, `next.config.ts`, `playwright.config.ts`, Playwright specs/harness files, `drizzle.config.ts`, `alchemy.run.ts`, generated OpenAPI clients, generated Cloudflare bindings, environment declarations, and migration artifacts.
 - No undocumented Alchemy vinext resource or locally invented adapter may be represented as official.
-- pnpm 11.16 reserves bare `pnpm ci` for its built-in clean-install command. The repository lifecycle script remains named `ci` but MUST be invoked as `pnpm run ci` everywhere to avoid dispatching the built-in command.
+- Root lifecycle scripts MUST use `bun run`; compatible local CLIs MUST use `bunx --bun --no-install`; Civet entrypoints MUST preload `@danielx/civet/bun-civet`. pnpm remains the sole package and lockfile owner. Every Vitest invocation is an explicit package-local Node exception through `corepack pnpm exec`, measured for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
 
 ## 4. Superseded-decision registry
 
@@ -83,7 +83,7 @@ Checklist items cite these IDs.
 
 | Ref | Superseded decision | Authoritative decision |
 | --- | --- | --- |
-| **S01** | npm, Yarn, Bun package management, or dual lockfiles | pnpm 11 owns packages/workspaces and the sole lockfile; Bun is optional script runtime only. |
+| **S01** | npm, Yarn, Bun package management, or dual lockfiles | Bun 1.3.14 is primary scripts/TS runtime; pnpm 11.16 owns packages/workspaces and the sole lockfile; Node >=22.13 remains compatibility. |
 | **S02** | Flat/single-app repository with no workspace shell | pnpm workspaces + Turborepo root; only `apps/web` is active in v0.1. |
 | **S03** | Standard Next-only build, OpenNext, TanStack Start, Convex, or vinext-later placeholder | Vite + vinext now, retaining portable Next-compatible conventions. |
 | **S04** | TypeScript/TSX as normal authored application language | Civet for authored app code; TypeScript only at named tooling/generated boundaries. |
@@ -255,7 +255,7 @@ Core provider ports: persistence/repositories, auth, analytics, telemetry/loggin
 
 `.env.schema` and `.env.example` define safe public contracts for application URL, database, Better Auth, Groq, Resend/preview email, PostHog, OTel, and disabled capabilities. Client env is allowlisted. No secrets, private cert keys, production credentials, or raw env dumps enter Git/logs/client bundles.
 
-Canonical local URL is `https://darkfactory.localhost`. Portless owns the named route and hidden assigned port. PM2 owns the long-lived `darkfactory-web-dev` process through `portless darkfactory pnpm dev`. `pnpm dev:https` is idempotent; `dev:status`, `dev:logs`, and `dev:stop` address the stable PM2 name. `portless trust` is primary. mkcert certificate install/generation remains only the fallback when portless trust is insufficient; generated keys are ignored.
+Canonical local URL is `https://darkfactory.localhost`. Portless owns the named route and hidden assigned port. PM2 owns the long-lived `darkfactory-web-dev` process through `portless darkfactory bun run dev`. `bun run dev:https` is idempotent; status/log/stop address the exact versioned identity. Trust and mkcert fallback remain explicit manual actions.
 
 Web deployment uses official `@vinext/cloudflare`. Alchemy 0.93.12 defines ancillary supported Cloudflare resources only. A deployment preview/build MUST prove this boundary without production secrets.
 
@@ -264,23 +264,23 @@ Web deployment uses official `@vinext/cloudflare`. Alchemy 0.93.12 defines ancil
 Required root scripts:
 
 ```text
-pnpm dev                 pnpm dev:https          pnpm dev:status
-pnpm dev:logs            pnpm dev:stop           pnpm doctor
-pnpm typecheck           pnpm build              pnpm lint
-pnpm format              pnpm format:check       pnpm test
-pnpm test:unit           pnpm test:contract      pnpm test:integration
-pnpm test:e2e            pnpm test:a11y          pnpm graph:build
-pnpm graph:update        pnpm graph:check        pnpm graph:verify
-pnpm docs:generate       pnpm docs:check         pnpm openapi:generate
-pnpm openapi:check       pnpm db:generate        pnpm db:migrate
-pnpm db:seed             pnpm db:reset           pnpm certs:install
-pnpm certs:generate      pnpm capability:add     pnpm generate:feature <name>
-pnpm verify:core         pnpm verify:coverage    pnpm verify:integration
-pnpm verify:graph        pnpm verify:browser     pnpm verify
-pnpm run ci
+bun run dev                 bun run dev:https          bun run dev:status
+bun run dev:logs            bun run dev:stop           bun run doctor
+bun run typecheck           bun run build              bun run lint
+bun run format              bun run format:check       bun run test
+bun run test:unit           bun run test:contract      bun run test:integration
+bun run test:e2e            bun run test:a11y          bun run graph:build
+bun run graph:update        bun run graph:check        bun run graph:verify
+bun run docs:generate       bun run docs:check         bun run openapi:generate
+bun run openapi:check       bun run db:generate        bun run db:migrate
+bun run db:seed             bun run db:reset           bun run certs:install
+bun run certs:generate      bun run capability:add     bun run generate:feature <name>
+bun run verify:core         bun run verify:coverage    bun run verify:integration
+bun run verify:graph        bun run verify:browser     bun run verify
+bun run ci
 ```
 
-`pnpm verify` remains the complete sequential local lifecycle, composed from independently runnable core, coverage, integration, graph, and browser lanes. `pnpm run ci` invokes that complete composition. Husky pre-commit stays staged/focused; pre-push executes the broad deterministic core lane. GitHub Actions executes all five lanes concurrently with isolated dependencies and `fail-fast: false`, so environment-heavy Graphify or browser work cannot serialize or obscure independent results. Coverage is a deterministic unit/contract/operations baseline, not whole-system evidence. Commit/push only focused core-green increments; after every push follow every CI lane to a terminal state or document an exact blocker.
+`bun run verify` remains the complete sequential local lifecycle, and `bun run ci` invokes it. Husky pre-commit stays staged/focused; pre-push executes the broad deterministic core lane. GitHub Actions executes all five lanes concurrently after pinned Bun/Node/Corepack setup and frozen pnpm installation. Bun and Turbo still orchestrate those lanes; Vitest alone runs through the package-local `corepack pnpm exec` path under Node because Bun 1.3.14 misloads Vitest's Vite `zod` dependency and lacks the V8 `node:inspector` coverage APIs.
 
 Tests cover unit, contract, database/auth/feature/provider integration, component behavior, E2E public/auth/portal/admin/feature journeys, accessibility, visual/responsive themes, security smoke, build/runtime, and generator behavior. No live production providers in default tests.
 
@@ -396,7 +396,7 @@ Every item is mandatory unless explicitly classified Capability and disabled. `A
 - [ ] **DF-066 · Core · P4/F · depends: DF-062–DF-065.** Feature UI handles list/search/filter/create/edit/status/archive and all pending/empty/validation/403/404/server/success states. **Accept/evidence:** component and E2E journeys. **Supersedes:** S09.
 - [ ] **DF-067 · Convention · P4/F · depends: DF-066.** XState is used only for a meaningful feature workflow; durable transitions remain Postgres. **Accept/evidence:** machine transition tests and persistence proof. **Supersedes:** none.
 - [ ] **DF-068 · Convention · P4/F · depends: DF-066.** Zustand is used only for a real ephemeral view concern; server/URL/durable data stay out. **Accept/evidence:** state ownership review/tests. **Supersedes:** none.
-- [ ] **DF-069 · Core · P4/F · depends: DF-061–DF-068.** `pnpm generate:feature <name>` validates, plans, applies, verifies, updates names/contracts/routes/tables/tests/exports/docs/Graphify, and never overwrites. **Accept/evidence:** disposable fixture generation and duplicate/rollback tests. **Supersedes:** S09.
+- [ ] **DF-069 · Core · P4/F · depends: DF-061–DF-068.** `bun run generate:feature <name>` validates, plans, applies, verifies, updates names/contracts/routes/tables/tests/exports/docs/Graphify, and never overwrites. **Accept/evidence:** disposable fixture generation and duplicate/rollback tests. **Supersedes:** S09.
 - [ ] **DF-070 · Convention · P4/F · depends: DF-069.** Generator internals compose parse→validate→plan→apply→verify→report; CLI contains no business logic. **Accept/evidence:** unit tests and code review. **Supersedes:** none.
 
 ### Public routes and marketing design — DF-071 through DF-080
@@ -430,10 +430,10 @@ Every item is mandatory unless explicitly classified Capability and disabled. `A
 - [ ] **DF-091 · Core · P1/W · depends: DF-029.** `.env.schema`/`.env.example` cover app, DB, auth, AI, email, analytics, OTel, disabled capabilities without secrets. **Accept/evidence:** config parsing/docs/secret scan. **Supersedes:** none.
 - [ ] **DF-092 · Convention · P1/W · depends: DF-091.** Client env is explicit allowlist; production forbids weak/default seeds/preview assumptions. **Accept/evidence:** bundle inspection and production-config failure tests. **Supersedes:** none.
 - [ ] **DF-093 · Implementation · P5a/X · depends: DF-014.** Canonical local URL is `https://darkfactory.localhost` through portless; raw port is hidden. **Accept/evidence:** browser URL, `portless get`, no fixed user-facing URL search. **Supersedes:** S12.
-- [ ] **DF-094 · Implementation · P5a/X · depends: DF-093.** PM2 runs long-lived `darkfactory-web-dev` via `portless darkfactory pnpm dev`; scripts are idempotent and expose status/logs/stop. **Accept/evidence:** repeated start creates no duplicate; PM2/portless health output. **Supersedes:** S12.
+- [ ] **DF-094 · Implementation · P5a/X · depends: DF-093.** PM2 runs long-lived `darkfactory-web-dev` via `portless darkfactory bun run dev`; scripts are idempotent and expose status/logs/stop. **Accept/evidence:** repeated start creates no duplicate; PM2/portless health output. **Supersedes:** S12.
 - [ ] **DF-095 · Implementation · P5a/X · depends: DF-093.** `portless trust` is primary; mkcert install/generate/Vite cert wiring is documented fallback only; private keys ignored. **Accept/evidence:** no-warning HTTPS and fallback policy/key-ignore check. **Supersedes:** S12.
 - [ ] **DF-096 · Core · P5a/X · depends: DF-042, DF-093.** Auth origins/callbacks/secure cookies/browser secure context work at canonical HTTPS URL. **Accept/evidence:** browser/network/cookie E2E. **Supersedes:** S12.
-- [ ] **DF-097 · Core · P5a/X · depends: DF-012, DF-091, DF-093–DF-095.** `pnpm doctor` checks Node/pnpm, Docker/Postgres, Cloudflare, provider config status, portless/PM2 route/process/trust, Graphify, enabled tools, and mkcert only if fallback. **Accept/evidence:** healthy and missing-prerequisite fixture outputs with no secrets. **Supersedes:** S12.
+- [ ] **DF-097 · Core · P5a/X · depends: DF-012, DF-091, DF-093–DF-095.** `bun run doctor` checks Bun/Node/pnpm, Docker/Postgres, Cloudflare, provider config status, portless/PM2 route/process/trust, Graphify, enabled tools, and mkcert only if fallback. **Accept/evidence:** healthy and missing-prerequisite fixture outputs with no secrets. **Supersedes:** S12.
 - [ ] **DF-098 · Implementation · P6/L · depends: DF-014.** Web green path builds/deploys through official `@vinext/cloudflare`. **Accept/evidence:** package/script/config and safe deploy-preview artifact. **Supersedes:** S08.
 - [ ] **DF-099 · Implementation · P6/L · depends: DF-098.** Alchemy 0.93.12 owns only actual supported ancillary Cloudflare resources. **Accept/evidence:** plan/config contains no vinext web resource or fictional wrapper. **Supersedes:** S08.
 - [ ] **DF-100 · Capability · P5b/G · depends: DF-029.** Manifest validates enabled/configured/available/unknown/incompatible states; disabled capabilities uninstalled and truthful. **Accept/evidence:** parser tests and dependency inventory. **Supersedes:** S07, S10, S16.
@@ -441,7 +441,7 @@ Every item is mandatory unless explicitly classified Capability and disabled. `A
 ### Scripts, hooks, CI, delivery — DF-101 through DF-110
 
 - [ ] **DF-101 · Core · P1/W · depends: DF-011–DF-020.** All listed root scripts exist and perform real work or truthful not-applicable result. **Accept/evidence:** script inventory and focused command transcripts. **Supersedes:** none.
-- [ ] **DF-102 · Core · P1/W · depends: DF-019, DF-101.** `pnpm verify` composes the complete lifecycle from independently runnable core, coverage, integration, graph, and browser lanes; `pnpm run ci` unambiguously invokes that composition and mirrors the GitHub Actions lane set. **Accept/evidence:** task/workflow comparison plus clean focused lane invocations. **Supersedes:** the original serial-only lifecycle after the user-directed traffic-jam correction.
+- [ ] **DF-102 · Core · P1/W · depends: DF-019, DF-101.** `bun run verify` composes the complete lifecycle from independently runnable core, coverage, integration, graph, and browser lanes; `bun run ci` unambiguously invokes that composition and mirrors the GitHub Actions lane set. **Accept/evidence:** task/workflow comparison plus clean focused lane invocations. **Supersedes:** the original serial-only lifecycle after the user-directed traffic-jam correction.
 - [ ] **DF-103 · Core · P1/W · depends: DF-101.** Husky pre-commit is staged/focused and calls scripts; pre-push calls the broad deterministic core lane, while environment-heavy gates remain mandatory concurrent CI lanes. **Accept/evidence:** hook fixture behavior; no duplicated logic. **Supersedes:** the original environment-heavy pre-push sequence.
 - [ ] **DF-104 · Convention · P1/W · depends: DF-103.** Hooks/tests/gates are never bypassed, weakened, skipped, or snapshot-deleted for green. Splitting gates into lanes changes scheduling, not required coverage. **Accept/evidence:** AGENTS/conventions and review history. **Supersedes:** none.
 - [ ] **DF-105 · Core · P1/W · depends: DF-102.** CI uses frozen pnpm install, safe caches, isolated Postgres, migrations/seeds, config validation, and all deterministic gates in five concurrent lanes with `fail-fast: false`. **Accept/evidence:** workflow and terminal result for every matrix lane. **Supersedes:** S01.

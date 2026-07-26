@@ -81,7 +81,7 @@ export const ProfilePageClient = () => {
         try {
           const account = await gateway.getProfile()
           setState((current) => current.type === "ready" ? { ...current, account } : current)
-        } catch {
+        } catch (_error) {
           // The current form stays mounted with its unsaved values.
         }
         setFeedback({ tone: "error", message: "This profile changed elsewhere. Your entries are preserved; review them and save again." })

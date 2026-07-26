@@ -167,3 +167,20 @@ describe "createUiStore", ->
     expect(first).not.toBe(second)
     expect(first?.state).not.toBe(second?.state)
     expect(UI_STATE_VERSION).toBe(1)
+
+  it "toggles from both sidebar states and ignores invalid runtime setter input", ->
+    const store = createUiStore()
+    const initialSnapshot = store.getState().dehydrate()
+
+    store.getState().toggleSidebar()
+    expect(store.getState().sidebar).toBe("collapsed")
+    store.getState().toggleSidebar()
+    expect(store.getState().sidebar).toBe("expanded")
+
+    store.getState().setSidebar("open" as never)
+    store.getState().setMobileNavigationOpen("true" as never)
+    store.getState().setThemeMode("auto" as never)
+    store.getState().setPalette("studio" as never)
+    store.getState().setConsent("pending" as never)
+
+    expect(store.getState().dehydrate()).toEqual(initialSnapshot)

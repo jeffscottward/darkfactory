@@ -1,4 +1,5 @@
 import type { ApiClient, FeatureItemOutput } from "@darkfactory/api"
+import type { ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 
@@ -31,6 +32,45 @@ const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => 
   ...overrides,
 })
 
+type ElementRecord = Readonly<{ props: Record<string, unknown>; type: unknown }>
+
+const textOf = (node: unknown): string => {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (typeof node !== "object" || node === null) return ""
+  const props = Reflect.get(node, "props")
+  if (typeof props !== "object" || props === null) return ""
+  return textOf(Reflect.get(props, "children"))
+}
+
+const findElement = (
+  tree: unknown,
+  predicate: (element: ElementRecord) => boolean,
+): ElementRecord | undefined => {
+  const seen = new WeakSet<object>()
+  const visit = (node: unknown): ElementRecord | undefined => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = visit(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return undefined
+    const element = node as ElementRecord
+    if (predicate(element)) return element
+    for (const value of Object.values(element.props)) {
+      const found = visit(value)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  return visit(tree)
+}
+
 describe "partial create recovery", ->
   it "updates a retained durable draft with current edits before activation retry", async ->
     const update = vi.fn(async (input) -> item({
@@ -57,6 +97,23 @@ describe "partial create recovery", ->
       name: "Edited name",
       description: "Edited description",
     })
+
+  it "reuses an unchanged retained draft without issuing an update", async ->
+    const update = vi.fn()
+    const gateway = createFeatureItemGateway({
+      featureItems: {
+        list: vi.fn(), get: vi.fn(), create: vi.fn(), update,
+        changeStatus: vi.fn(), archive: vi.fn(),
+      },
+    } as unknown as ApiClient)
+    const retained = item()
+
+    await expect(synchronizeRetainedFeatureItem(
+      gateway,
+      retained,
+      { name: "  Original name  ", description: "Original description" },
+    )).resolves.toBe(retained)
+    expect(update).not.toHaveBeenCalled()
   
   it "labels activation failure as a persisted draft and an unknown create outcome as non-retryable", ->
     const partial = renderToStaticMarkup(
@@ -84,6 +141,20 @@ describe "partial create recovery", ->
     )
     expect(unknown).toContain("Check the feature item list before trying again")
 
+  it "uses safe fallback copy for a retained draft with no description or transport message", ->
+    const html = renderToStaticMarkup(
+      <CreateWorkflowStep
+        description=""
+        name="Current name"
+        partialCreated
+        state="failure"
+        status="active"
+      />,
+    )
+    expect(html).toContain("Draft created; activation failed")
+    expect(html).toContain("The request could not be completed.")
+    expect(html).toContain("None provided")
+
 describe "archive serialization", ->
   it "keeps the pending row visible and disables every archive action", ->
     const html = renderToStaticMarkup(
@@ -101,6 +172,52 @@ describe "archive serialization", ->
     expect(html).toContain("Archiving Original name")
     expect((html.match(/disabled=""/g) ?? [])).toHaveLength(2)
 
+  it "invokes reset and archive actions while preserving optional no-op handlers", ->
+    const resetFilters = vi.fn()
+    const filteredTree = FeatureItemsCollection({
+      isFiltered: true,
+      onResetFilters: resetFilters,
+      state: { type: "ready", items: [] },
+    })
+    const reset = findElement(filteredTree, (candidate) => (
+      typeof candidate.props["onClick"] === "function"
+      && textOf(candidate).replace(/\s+/gu, " ").trim() === "Reset filters"
+    ))
+    expect(reset).toBeDefined()
+    ;(reset!.props["onClick"] as () => void)()
+    expect(resetFilters).toHaveBeenCalledOnce()
+
+    const active = item({ description: "", status: "active" })
+    const onArchive = vi.fn()
+    const collectionTree = FeatureItemsCollection({
+      onArchive,
+      state: { type: "ready", items: [active] },
+    })
+    const collectionHtml = renderToStaticMarkup(collectionTree as ReactElement)
+    expect(collectionHtml).toContain("Active")
+    expect(collectionHtml).toContain("No description provided.")
+    const archive = findElement(collectionTree, (candidate) => (
+      candidate.props["aria-label"] === "Archive Original name"
+    ))
+    expect(archive).toBeDefined()
+    const trigger = { focus: vi.fn() } as unknown as HTMLButtonElement
+    ;(archive!.props["onClick"] as (
+      event: { currentTarget: HTMLButtonElement },
+    ) => void)({ currentTarget: trigger })
+    expect(onArchive).toHaveBeenCalledWith(active, trigger)
+
+    const noHandlerTree = FeatureItemsCollection({
+      state: { type: "ready", items: [active] },
+    })
+    const noHandlerArchive = findElement(noHandlerTree, (candidate) => (
+      candidate.props["aria-label"] === "Archive Original name"
+    ))
+    expect(() => {
+      ;(noHandlerArchive!.props["onClick"] as (
+        event: { currentTarget: HTMLButtonElement },
+      ) => void)({ currentTarget: trigger })
+    }).not.toThrow()
+
 describe "single editor mutation lock", ->
   it "locks every editor surface while any mutation is pending", ->
     expect(isEditorMutationLocked({ saving: true, changingStatus: false, archiving: false })).toBe(true)
@@ -115,13 +232,16 @@ describe "single editor mutation lock", ->
       releaseSave = resolve
     })
 
+    expect(guard.isLocked()).toBe(false)
     expect(guard.acquire()).toBe(true)
+    expect(guard.isLocked()).toBe(true)
     const first = delayedSave.finally(guard.release)
     expect(guard.acquire()).toBe(false)
     releaseSave?.()
     await first
     expect(guard.acquire()).toBe(true)
     guard.release()
+    expect(guard.isLocked()).toBe(false)
   
   it "associates the empty-name error with the field and exposes invalid state", ->
     const html = renderToStaticMarkup(
@@ -141,6 +261,15 @@ describe "typed recovery actions", ->
     expect(classifyFeatureFailure({ code: "FORBIDDEN" }).kind).toBe("forbidden")
     expect(classifyFeatureFailure({ code: "NOT_FOUND" }).kind).toBe("not-found")
     expect(classifyFeatureFailure(new Error("private transport detail")).kind).toBe("unknown")
+    expect(classifyFeatureFailure("transport failed").kind).toBe("unknown")
+    expect(classifyFeatureFailure(null).kind).toBe("unknown")
+    expect(classifyFeatureFailure({ data: null }).kind).toBe("unknown")
+    expect(classifyFeatureFailure({ data: { code: 42 } }).kind).toBe("unknown")
+    expect(classifyFeatureFailure({
+      code: 42,
+      data: { code: "BAD_REQUEST" },
+    }).kind).toBe("validation")
+    expect(classifyFeatureFailure({ code: "BAD_REQUEST" }).kind).toBe("validation")
 
     const unauthorized = renderToStaticMarkup(
       <FeatureRecoveryAction kind="unauthorized" returnHref="/feature-items" />,
@@ -158,10 +287,19 @@ describe "typed recovery actions", ->
       <FeatureRecoveryAction kind="transient" returnHref="/feature-items" />,
     )
     expect(transient).toContain("Try again")
+
+    const dashboardReturn = renderToStaticMarkup(
+      <FeatureRecoveryAction kind="forbidden" returnHref="/dashboard" />,
+    )
+    expect(dashboardReturn).toContain("Return to dashboard")
+    expect(dashboardReturn).toContain("href=\"/dashboard\"")
   
   it "restores focus to the initiating control after inline confirmation closes", async ->
     const focus = vi.fn()
     restorePortalFocus({ focus })
+    await Promise.resolve()
+    expect(focus).toHaveBeenCalledOnce()
+    restorePortalFocus(null)
     await Promise.resolve()
     expect(focus).toHaveBeenCalledOnce()
 

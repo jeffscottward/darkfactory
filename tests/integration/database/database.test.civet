@@ -9,9 +9,11 @@ import {
   OptimisticConcurrencyError,
   InvalidRepositoryInputError,
   createUserPreferencesRepository,
-  migrate,
   withTransaction,
+  type Database,
+  type Transaction,
 } from "@darkfactory/db/server"
+import { migrate } from "@darkfactory/db/server/migration"
 import {
   ADDRESS_TYPES,
   COLOR_SCHEMES,
@@ -1021,6 +1023,161 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
         (address) => address.isPrimary,
       ),
     ).toHaveLength(1)
+
+  it "DF-035 serializes overlapping optimistic primary updates by owner and version", async ->
+    const initialVersion = new Date("2027-01-01T00:00:00.000Z")
+    const winnerVersion = new Date(initialVersion.getTime() + 1)
+    const userId = "address-optimistic-concurrency-user-01"
+    const otherUserId = "address-optimistic-concurrency-other-01"
+    await createAuthUser(
+      userId,
+      "address-optimistic-concurrency-01@example.test",
+    )
+    await createAuthUser(
+      otherUserId,
+      "address-optimistic-concurrency-other-01@example.test",
+    )
+    const repository = createAddressRepository(databaseResource.db, {
+      now: () => initialVersion,
+    })
+    const originalPrimary = await repository.create({
+      id: "address-optimistic-original-primary",
+      userId,
+      type: "home",
+      line1: "1 Original Primary Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90020",
+      country: "US",
+      isPrimary: true,
+    })
+    const target = await repository.create({
+      id: "address-optimistic-target",
+      userId,
+      type: "work",
+      line1: "2 Optimistic Target Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90021",
+      country: "US",
+    })
+    const otherPrimary = await repository.create({
+      id: "address-optimistic-other-primary",
+      userId: otherUserId,
+      type: "home",
+      line1: "3 Other Owner Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90022",
+      country: "US",
+      isPrimary: true,
+    })
+
+    const createLockControlledDatabase = (
+      control: (acquire: () => Promise<unknown>) => Promise<unknown>,
+    ): Database => {
+      const transaction = (
+        operation: (transaction: Transaction) => Promise<unknown>,
+      ) =>
+        databaseResource.db.transaction(async (transaction) => {
+          const controlledTransaction = new Proxy(transaction, {
+            get: (target, property) => {
+              if (property === "execute")
+                return async (
+                  statement: Parameters<Transaction["execute"]>[0],
+                ) => control(() => target.execute(statement))
+              const value = Reflect.get(target, property, target)
+              return typeof value === "function"
+                ? value.bind(target)
+                : value
+            },
+          }) as Transaction
+          return operation(controlledTransaction)
+        })
+      return { transaction } as unknown as Database
+    }
+
+    const deferred = () => {
+      let resolve!: () => void
+      const promise = new Promise<void>((settle) => {
+        resolve = settle
+      })
+      return { promise, resolve }
+    }
+    const winnerLockAcquired = deferred()
+    const releaseWinner = deferred()
+    const loserLockAttempted = deferred()
+    const winnerRepository = createAddressRepository(
+      createLockControlledDatabase(async (acquire) => {
+        const result = await acquire()
+        winnerLockAcquired.resolve()
+        await releaseWinner.promise
+        return result
+      }),
+      { now: () => initialVersion },
+    )
+    const loserRepository = createAddressRepository(
+      createLockControlledDatabase(async (acquire) => {
+        const pending = acquire()
+        loserLockAttempted.resolve()
+        return pending
+      }),
+      { now: () => initialVersion },
+    )
+
+    const winnerMutation = winnerRepository.updateOptimistic({
+      id: target.id,
+      userId,
+      city: "Winner City",
+      isPrimary: true,
+      expectedUpdatedAt: target.updatedAt,
+    })
+    await winnerLockAcquired.promise
+    const loserMutation = loserRepository.updateOptimistic({
+      id: target.id,
+      userId,
+      city: "Loser City",
+      isPrimary: true,
+      expectedUpdatedAt: target.updatedAt,
+    })
+    await loserLockAttempted.promise
+    releaseWinner.resolve()
+
+    const [winnerResult, loserResult] = await Promise.allSettled([
+      winnerMutation,
+      loserMutation,
+    ])
+    if (winnerResult.status !== "fulfilled") throw winnerResult.reason
+    expect(winnerResult.value).toMatchObject({
+      id: target.id,
+      city: "Winner City",
+      isPrimary: true,
+      updatedAt: winnerVersion,
+    })
+    if (loserResult.status !== "rejected")
+      throw new Error("expected the overlapping optimistic mutation to lose")
+    expect(loserResult.reason).toBeInstanceOf(OptimisticConcurrencyError)
+
+    const persisted = await repository.listByUserId(userId)
+    expect(persisted.filter(({ isPrimary }) => isPrimary)).toEqual([
+      expect.objectContaining({
+        id: target.id,
+        city: "Winner City",
+        updatedAt: winnerVersion,
+      }),
+    ])
+    expect(
+      persisted.find(({ id }) => id === originalPrimary.id),
+    ).toMatchObject({
+      isPrimary: false,
+      updatedAt: winnerVersion,
+    })
+    await expect(
+      repository.findByIdForUser(otherPrimary.id, otherUserId),
+    ).resolves.toMatchObject({
+      isPrimary: true,
+      updatedAt: initialVersion,
+    })
 
   it "bounds concurrent address creation to the atomic per-user quota", async ->
     const userId = "address-quota-user-01"

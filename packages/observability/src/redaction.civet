@@ -49,6 +49,7 @@ const SENSITIVE_KEYS = new Set([
   "emailhtml",
   "emailtext",
   "headers",
+  "hmackey",
   "password",
   "passwd",
   "passcode",
@@ -66,11 +67,16 @@ const SENSITIVE_KEYS = new Set([
 const SAFE_SENSITIVE_FIELD_NAMES = new Set([
   ...SENSITIVE_KEYS,
   "accesstoken",
+  "accesskey",
   "address",
   "apikey",
   "birthdate",
   "clientsecret",
+  "currentpassword",
+  "dbpassword",
   "dateofbirth",
+  "newpassword",
+  "passwordconfirmation",
   "postalcode",
   "providerpayload",
   "providerrequest",
@@ -99,6 +105,13 @@ const isSensitiveKey = (key: string): boolean => {
     normalized.includes("token") ||
     normalized.includes("secret") ||
     normalized.includes("apikey") ||
+    normalized.includes("accesskey") ||
+    normalized.includes("hmackey") ||
+    normalized.includes("password") ||
+    normalized.includes("passwd") ||
+    normalized.includes("passcode") ||
+    normalized.includes("passphrase") ||
+    normalized.includes("privatekey") ||
     normalized.includes("address") ||
     normalized.includes("birthdate") ||
     normalized.includes("dateofbirth") ||
@@ -110,12 +123,98 @@ const isSensitiveKey = (key: string): boolean => {
   )
 }
 
+const BASIC_CREDENTIAL_MAX_LENGTH = DEFAULT_MAX_STRING_LENGTH
+
+const BASE64_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/-_"
+
+const base64Digit = (character: string): number => {
+  const digit = BASE64_ALPHABET.indexOf(character)
+  return digit > 63 ? digit - 2 : digit
+}
+
+const isBasicCredential = (token: string): boolean => {
+  if (token.length < 3) return false
+  if (token.length > BASIC_CREDENTIAL_MAX_LENGTH) return true
+
+  const paddingStart = token.indexOf("=")
+  const payloadLength = paddingStart === -1 ? token.length : paddingStart
+  const paddingLength = token.length - payloadLength
+  const remainder = payloadLength % 4
+  if (remainder === 1 || paddingLength > 2) return false
+  if (
+    paddingLength > 0 &&
+    (token.length % 4 !== 0 || paddingLength !== 4 - remainder)
+  )
+    return false
+
+  let bits = 0
+  let buffer = 0
+  let hasColon = false
+  const standardAlphabet = /[+/]/.test(token)
+  const urlAlphabet = /[-_]/.test(token)
+  if (standardAlphabet && urlAlphabet) return false
+  for (let index = 0; index < payloadLength; index += 1) {
+    const digit = base64Digit(token.charAt(index))
+    buffer = (buffer << 6) | digit
+    bits += 6
+    if (bits < 8) continue
+    bits -= 8
+    const byte = (buffer >> bits) & 0xff
+    if (byte === 58) hasColon = true
+    buffer &= (1 << bits) - 1
+  }
+
+  return buffer === 0 && hasColon
+}
+
 const scrubString = (input: string): string =>
   input
-    .replace(/\bBearer\s+[^\s,;]+/gi, `Bearer ${REDACTED}`)
     .replace(
-      /\b(password|passcode|token|secret|api[-_ ]?key|cookie|authorization)\s*[:=]\s*[^\s,;]+/gi,
-      (_match, label: string) => `${label}=${REDACTED}`,
+      /(?<![A-Za-z0-9])(authorization)(["']?\s*[:=]\s*)("(?:Basic|Bearer)\s+[^"]*"|'(?:Basic|Bearer)\s+[^']*'|(?:Basic|Bearer)\s+[^\s,;]+)/gi,
+      (_match, label: string, separator: string, value: string) =>
+        const quote =
+          value.startsWith('"') || value.startsWith("'") ? value[0] : ""
+        return `${label}${separator}${quote}${REDACTED}${quote}`
+    )
+    .replace(/\bBearer\s+[^\s,;"']+/gi, `Bearer ${REDACTED}`)
+    .replace(
+      /\bBasic\s+([A-Za-z0-9+/_-]+={0,2})(?![A-Za-z0-9+/_=-])/gi,
+      (match: string, token: string) => isBasicCredential(token) ? `Basic ${REDACTED}` : match,
+    )
+    .replace(
+      /((?:\/api\/auth\/(?:reset-password|verify-email)|https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email))\/)[^/?#\s<>"']+/gi,
+      (_match, prefix: string) => `${prefix}${REDACTED}`,
+    )
+    .replace(
+      /((?:\/api\/auth\/verify-email|https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email))[?&](?:amp;)?[^#\s"'<>]*?\btoken(?:=|%3D))[^&#\s"'<>]+/gi,
+      (_match, prefix: string) => `${prefix}${REDACTED}`,
+    )
+    .replace(
+      /(?<![A-Za-z0-9_.-])(?=(?:[A-Za-z0-9_.-]{0,127}(?:token|secret|api[_.-]?key|access[_.-]?key|hmac[_.-]?key|password|passwd|passcode|passphrase|private[_.-]?key|address|birthdate|dateofbirth|postalcode|zipcode|providerpayload|providerrequest|providerresponse)[A-Za-z0-9_.-]*|authorization|body|cookie|dob|email(?:body|html|text)?|headers|phone|prompt|completion|requestbody|responsebody|reseturl|setcookie)["']?\s*[:=])([A-Za-z0-9_.-]{1,128})(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi,
+      (_match: string, label: string, separator: string, value: string) =>
+        const quote =
+          value.startsWith('"') || value.startsWith("'") ? value[0] : ""
+        return `${label}${separator}${quote}${REDACTED}${quote}`
+    )
+    .replace(
+      /(?<![A-Za-z0-9])((?:api|private)\s+key)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi,
+      (_match, label: string, separator: string, value: string) =>
+        const quote =
+          value.startsWith('"') || value.startsWith("'") ? value[0] : ""
+        return `${label}${separator}${quote}${REDACTED}${quote}`
+    )
+    .replace(
+      /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi,
+      (_match, scheme: string) => `${scheme}${REDACTED}@`,
+    )
+    .replace(
+      /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----/g,
+      REDACTED,
+    )
+    .replace(
+      /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*/g,
+      REDACTED,
     )
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, REDACTED)
     .replace(
@@ -124,13 +223,11 @@ const scrubString = (input: string): string =>
     )
 
 const boundedString = (input: string, maxLength: number): string => {
-  const bounded = input.slice(0, maxLength)
-  const suffix = input.length > maxLength ? TRUNCATED : ""
-  return `${scrubString(bounded)}${suffix}`
+  if (input.length > maxLength) return TRUNCATED
+  return scrubString(input)
 }
 
 const sanitizeKey = (key: string, maxLength: number): string => {
-  if (key.length > maxLength) return REDACTED_KEY
   const normalized = normalizeKey(key)
   if (
     isSensitiveKey(key) &&
@@ -194,7 +291,6 @@ export const redact = (
     if (typeof value === "bigint") return "[BigInt]"
     if (typeof value === "symbol") return "[Symbol]"
     if (typeof value === "function") return "[Function]"
-    if (typeof value !== "object") return UNSERIALIZABLE
     if (depth >= maxDepth) return TRUNCATED
     if (active.has(value)) return CIRCULAR
 
@@ -380,25 +476,6 @@ const readDataProperty = (
   return descriptor.value
 }
 
-const readAttributesOnce = (
-  record: Record<string, unknown>,
-): unknown => {
-  let descriptor: PropertyDescriptor | undefined
-  try {
-    descriptor = Object.getOwnPropertyDescriptor(record, "attributes")
-  } catch {
-    throw invalidSemanticEvent()
-  }
-  if (descriptor === undefined) return undefined
-  if ("value" in descriptor) return descriptor.value
-  if (typeof descriptor.get !== "function") throw invalidSemanticEvent()
-  try {
-    return descriptor.get.call(record)
-  } catch {
-    throw invalidSemanticEvent()
-  }
-}
-
 const requireEventString = (
   value: unknown,
   maxLength: number,
@@ -494,7 +571,7 @@ export const redactSemanticEvent = (event: SemanticEvent): SemanticEvent => {
     durationValue >= 0
       ? durationValue
       : undefined
-  const attributesValue = readAttributesOnce(input)
+  const attributesValue = readDataProperty(input, "attributes")
   const redactedAttributes =
     attributesValue === undefined
       ? undefined

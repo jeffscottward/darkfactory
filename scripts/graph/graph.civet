@@ -210,8 +210,7 @@ const canonicalJson = (value: unknown): string => {
     return JSON.stringify(value)
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
-  const record = asRecord(value)
-  if (!record) throw new Error("Graph output contains an unsupported value")
+  const record = value as Record<string, unknown>
   return `{${Object.keys(record)
     .sort(compareCanonicalText)
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)

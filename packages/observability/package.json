@@ -58,10 +58,10 @@
     }
   },
   "scripts": {
-    "types": "civet --config civet.types.json --emit-declaration src/port.civet && civet --config civet.types.json --emit-declaration src/redaction.civet && civet --config civet.types.json --emit-declaration src/index.civet && civet --config civet.types.json --emit-declaration src/server/otel.civet && civet --config civet.types.json --emit-declaration src/server/evlog.civet && civet --config civet.types.json --emit-declaration src/server/fanout.civet && civet --config civet.types.json --emit-declaration src/test.civet",
-    "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet"
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/port.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/redaction.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/otel.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/evlog.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/fanout.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
+    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet"
   },
   "dependencies": {
     "@opentelemetry/api": "catalog:",

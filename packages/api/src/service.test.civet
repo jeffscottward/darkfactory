@@ -46,6 +46,10 @@ describe "DF-063 feature service policy", ->
 
     await expect(service.list(principal(), {})).resolves.toEqual([item()])
     expect(listByOwner).toHaveBeenCalledWith("member-1")
+    await expect(
+      service.list(principal(), { ownerId: "member-1" }),
+    ).resolves.toEqual([item()])
+    expect(listByOwner).toHaveBeenLastCalledWith("member-1")
 
   it "rejects a member requesting a different owner", async ->
     const service = createFeatureItemService(repository())
@@ -146,6 +150,17 @@ describe "DF-063 feature service policy", ->
       query: "neutral",
       status: "active",
       limit: 7,
+    })
+
+  it "omits undefined filters from a scoped repository query", async ->
+    const listByOwner = vi.fn(async () => [item()])
+    const service = createFeatureItemService(repository({ listByOwner }))
+
+    await expect(service.list(principal(), {
+      query: "neutral",
+    })).resolves.toEqual([item()])
+    expect(listByOwner).toHaveBeenCalledWith("member-1", {
+      query: "neutral",
     })
 
   it "denies a cross-owner mutation before invoking the repository", async ->

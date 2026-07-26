@@ -6,23 +6,20 @@ This guide expands the safe local workflow from the [README](../README.md). It d
 
 DarkFactory currently expects:
 
-- Node.js 22.13.0 or newer.
-- Corepack selecting pnpm 11.16.0.
-- Docker Engine with Docker Compose.
-- PM2 available on `PATH`.
-- Graphify available on `PATH`.
-- Varlock available for `.env.schema` validation and environment injection.
-- A Chromium-compatible browser for the current Playwright project.
+- Bun 1.3.14 for scripts and TypeScript.
+- Node.js 22.13.0 or newer for Corepack/pnpm and measured compatibility paths.
+- Corepack 0.34.7 selecting pnpm 11.16.0 as the sole package manager and lockfile owner.
+- Docker Engine with Docker Compose and a running daemon.
+- PM2 7.0.3, Portless 0.13.0, Varlock 1.13.0, uv 0.11.32, and Graphify 0.9.2.
+- Workspace Playwright 1.61.1 with Chromium.
 
-Portless, Civet, Turborepo, Vite, vinext, Wrangler, Vitest, and Playwright are workspace dependencies installed by pnpm. The repository doctor checks the reviewed versions.
+Civet, Turborepo, Vite, vinext, Wrangler, Vitest, Portless, and Playwright are workspace dependencies installed from `pnpm-lock.yaml`. The repository doctor checks the reviewed versions.
 
 ```bash
-corepack enable
-corepack install --global pnpm@11.16.0
-pnpm install --frozen-lockfile
+sh scripts/install-prerequisites.sh
 ```
 
-Install PM2 and Graphify through your managed global-tool workflow if they are absent. Do not add them to an application package merely to repair one workstation.
+The bare-POSIX installer supports macOS and Debian/Ubuntu. It installs only missing or incompatible pinned user-space tools, runs the frozen pnpm install, and installs Chromium through Bun. It checks Docker/Compose/daemon and portless trust without starting services or trusting certificates. Docker startup, portless trust, account setup, credentials, and adding the managed local bin directory to `PATH` remain explicit manual blockers. The installer never reads environment secret files, seeds data, or deploys.
 
 ## Environment contract
 
@@ -37,7 +34,7 @@ Keep `.env` ignored. Resolve real values with Varlock and, where available, secr
 For a local command that needs environment values, use:
 
 ```bash
-varlock run -- pnpm <script>
+varlock run -- bun run <script>
 ```
 
 Do not source `.env` as a shell script: environment-file syntax and shell syntax are not interchangeable, and the example contains values with spaces and angle brackets.
@@ -49,7 +46,7 @@ Production configuration must not reuse the development auth secret, local URLs,
 The checked-in Compose service is isolated to loopback and uses tmpfs storage. It is disposable: stopping it with the repository down command removes its volumes.
 
 ```bash
-pnpm db:test:up
+bun run db:test:up
 ```
 
 The disposable local application URL is:
@@ -63,19 +60,19 @@ The unprivileged `darkfactory_app` role owns only the disposable application dat
 Put that value in the ignored `.env`, then apply migrations:
 
 ```bash
-varlock run -- pnpm db:migrate
+varlock run -- bun run db:migrate
 ```
 
 Useful database commands:
 
 | Command | Effect |
 | --- | --- |
-| `pnpm db:generate` | Compile the Drizzle schema and generate migration artifacts. Review generated changes. |
-| `pnpm db:check` | Check the compiled schema and migration history. |
-| `pnpm db:migrate` | Apply checked-in migrations to `DATABASE_URL`. |
-| `pnpm db:seed` | Idempotently create the development personas and sample content. |
-| `pnpm db:reset` | Destructively clear development data. |
-| `pnpm db:test:down` | Stop the Compose service and remove its volumes. |
+| `bun run db:generate` | Compile the Drizzle schema and generate migration artifacts. Review generated changes. |
+| `bun run db:check` | Check the compiled schema and migration history. |
+| `bun run db:migrate` | Apply checked-in migrations to `DATABASE_URL`. |
+| `bun run db:seed` | Idempotently create the development personas and sample content. |
+| `bun run db:reset` | Destructively clear development data. |
+| `bun run db:test:down` | Stop the Compose service and remove its volumes. |
 
 ### Seed and reset safety
 
@@ -98,24 +95,24 @@ The canonical local address is <https://darkfactory.localhost>. Do not document 
 First establish portless trust:
 
 ```bash
-pnpm dev:trust
+bun run dev:trust
 ```
 
 Then materialize the validated values into the ignored Worker binding file and start the long-lived process:
 
 ```bash
-pnpm dev:bindings
-pnpm dev:https
+bun run dev:bindings
+bun run dev:https
 ```
 
-The lifecycle owns exactly one PM2 process, `darkfactory-web-dev`, running `portless darkfactory pnpm dev`. Starting again inspects and reuses the expected process instead of creating a duplicate. A process with the same PM2 name but a different executable, working directory, or arguments is rejected rather than adopted.
+The lifecycle owns exactly one PM2 process, `darkfactory-web-dev`, running `portless darkfactory bun run dev`. Starting again inspects and reuses the expected process instead of creating a duplicate. A process with the same PM2 name but a different executable, working directory, arguments, or environment version is rejected rather than adopted.
 
-Vinext's Cloudflare Worker runtime reads server bindings from `apps/web/.dev.vars`; the parent PM2 environment is deliberately restricted to non-secret process controls. `pnpm dev:bindings` writes a mode-`0600` temporary file and atomically replaces the destination without printing its contents. Regenerate it after `.env` changes and never commit it.
+Vinext's Cloudflare Worker runtime reads server bindings from `apps/web/.dev.vars`; the parent PM2 environment is deliberately restricted to non-secret process controls. `bun run dev:bindings` writes a mode-`0600` temporary file and atomically replaces the destination without printing its contents. Regenerate it after `.env` changes and never commit it.
 
 ```bash
-pnpm dev:status
-pnpm dev:logs
-pnpm dev:stop
+bun run dev:status
+bun run dev:logs
+bun run dev:stop
 ```
 
 - `dev:status` checks PM2 identity, the named portless route, and an HTTPS probe.
@@ -127,9 +124,9 @@ pnpm dev:stop
 Portless trust is primary. Use mkcert only when it is installed and portless trust cannot satisfy the local browser or platform:
 
 ```bash
-pnpm certs:install
-pnpm certs:generate
-varlock run -- pnpm doctor -- --cert-fallback
+bun run certs:install
+bun run certs:generate
+varlock run -- bun run doctor -- --cert-fallback
 ```
 
 The fallback generates `.certs/localhost.pem` and `.certs/localhost-key.pem` for `localhost`, `*.localhost`, `127.0.0.1`, and `::1`. `.certs/`, PEM files, and keys are ignored. Never commit, attach, or paste the private key.
@@ -139,25 +136,25 @@ The fallback generates `.certs/localhost.pem` and `.certs/localhost-key.pem` for
 Run the doctor only after dependencies, environment, PostgreSQL, trust, route, and PM2 process are ready:
 
 ```bash
-varlock run -- pnpm doctor
+varlock run -- bun run doctor
 ```
 
-It checks the capability manifest, Node and pnpm versions, the pinned toolchain, vinext, Docker and PostgreSQL, Wrangler and Cloudflare configuration, required/provider environment status, portless, HTTPS trust, PM2, Graphify, enabled development tools, and mkcert only when the fallback flag is selected. A reported failure is a prerequisite to repair, not a reason to weaken the check.
+It checks the capability manifest, the installed Node and Bun versions independently, Corepack/pnpm, the pinned toolchain, vinext, Docker and PostgreSQL, Wrangler and Cloudflare configuration, required/provider environment status, Portless, HTTPS trust, PM2, Graphify, Varlock, uv, enabled development tools, and mkcert only when the fallback flag is selected. A reported failure is a prerequisite to repair, not a reason to weaken the check.
 
 Machine-readable output is available with:
 
 ```bash
-varlock run -- pnpm doctor -- --json
+varlock run -- bun run doctor -- --json
 ```
 
 ## Common recovery
 
 ### Canonical route is unhealthy
 
-1. Run `pnpm dev:status` and `pnpm dev:logs`.
-2. Stop the owned process with `pnpm dev:stop`.
-3. Run `pnpm dev:trust`.
-4. Regenerate bindings with `pnpm dev:bindings`, then start with `pnpm dev:https`.
+1. Run `bun run dev:status` and `bun run dev:logs`.
+2. Stop the owned process with `bun run dev:stop`.
+3. Run `bun run dev:trust`.
+4. Regenerate bindings with `bun run dev:bindings`, then start with `bun run dev:https`.
 5. Confirm `portless get darkfactory` returns the canonical HTTPS URL.
 
 If another noncanonical portless proxy is active, stop that proxy before retrying. Do not change DarkFactory to a raw port to work around the conflict.
@@ -165,9 +162,9 @@ If another noncanonical portless proxy is active, stop that proxy before retryin
 ### PostgreSQL is unhealthy
 
 ```bash
-pnpm db:test:down
-pnpm db:test:up
-varlock run -- pnpm db:migrate
+bun run db:test:down
+bun run db:test:up
+varlock run -- bun run db:migrate
 ```
 
 This destroys the disposable local database. Seed again only after rechecking `APP_ENV` and `DATABASE_URL`.
@@ -175,8 +172,8 @@ This destroys the disposable local database. Seed again only after rechecking `A
 ### Finish a local session
 
 ```bash
-pnpm dev:stop
-pnpm db:test:down
+bun run dev:stop
+bun run db:test:down
 ```
 
 Do not delete unrelated PM2 processes or global portless routes as part of DarkFactory cleanup.

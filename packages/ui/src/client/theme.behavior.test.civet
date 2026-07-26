@@ -1,0 +1,226 @@
+import { isValidElement, type ReactElement } from "react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+type ThemePreference = Readonly<{ themeMode: string; palette: string }>
+type PreferenceChange = (preference: ThemePreference) => void
+type PreferenceChangeMock = ReturnType<typeof vi.fn<PreferenceChange>>
+
+const themeRuntime = vi.hoisted(() ->
+  let open = false
+  let preference: ThemePreference = {
+    themeMode: "system",
+    palette: "neutral",
+  }
+  let onPreferenceChange: PreferenceChangeMock = vi.fn<PreferenceChange>()
+  const setOpen = vi.fn((next: unknown) ->
+    open = typeof next === "function"
+      ? Boolean((next as (current: boolean) => boolean)(open))
+      : Boolean(next)
+  )
+  const configure = (
+    nextPreference: ThemePreference,
+    nextOnPreferenceChange: PreferenceChangeMock,
+  ): void ->
+    preference = { ...nextPreference }
+    onPreferenceChange = nextOnPreferenceChange
+  const reset = (): void ->
+    open = false
+    preference = { themeMode: "system", palette: "neutral" }
+    onPreferenceChange = vi.fn<PreferenceChange>()
+    setOpen.mockClear()
+  const useContext = () -> ({ onPreferenceChange, preference })
+  const useState = <Value>(
+    _initial: Value | (() => Value),
+  ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] -> [
+    open as Value,
+    setOpen as (next: Value | ((current: Value) => Value)) => void,
+  ]
+
+  return {
+    configure
+    get open(): boolean
+      return open
+    reset
+    setOpen
+    useContext
+    useState
+  }
+)
+
+vi.mock("react", async (importOriginal) ->
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useContext: themeRuntime.useContext,
+    useState: themeRuntime.useState,
+  }
+)
+
+import { ThemePicker } from "./theme.civet"
+
+type ElementRecord = ReactElement<Record<string, unknown>>
+
+const elementsIn = (root: unknown): ElementRecord[] ->
+  const elements: ElementRecord[] = []
+  const visit = (value: unknown): void ->
+    if Array.isArray(value)
+      for child of value
+        visit(child)
+      return
+    unless isValidElement(value)
+      return
+
+    const element = value as ElementRecord
+    elements.push(element)
+    visit(element.props["children"])
+  visit(root)
+  return elements
+
+const requiredElement = (
+  root: unknown,
+  predicate: (element: ElementRecord) => boolean,
+): ElementRecord ->
+  const element = elementsIn(root).find(predicate)
+  if element === undefined
+    throw new Error("Expected theme element was not found")
+  return element
+
+const textOf = (root: unknown): string ->
+  if (root === null || root === undefined || typeof root === "boolean") return ""
+  if (typeof root === "string" || typeof root === "number") return String(root)
+  if Array.isArray(root) then return root.map(textOf).join("")
+  if !isValidElement(root) then return ""
+  return textOf((root as ElementRecord).props["children"])
+
+const invokeValueChange = (element: ElementRecord, value: string): void ->
+  const callback = element.props["onValueChange"]
+  if typeof callback !== "function"
+    throw new Error("Expected onValueChange callback")
+  ;(callback as (next: string) => void)(value)
+
+beforeEach ->
+  themeRuntime.reset()
+
+describe "ThemePicker behavior", ->
+  it "selects only valid modes and palettes through the provider callback", ->
+    const onPreferenceChange = vi.fn<PreferenceChange>()
+    themeRuntime.configure(
+      { themeMode: "dark", palette: "rose" },
+      onPreferenceChange,
+    )
+    const tree = ThemePicker({ idPrefix: "application-theme" })
+    const modeGroup = requiredElement(
+      tree,
+      (element) -> element.props["aria-label"] === "Color mode",
+    )
+    const paletteGroup = requiredElement(
+      tree,
+      (element) -> element.props["aria-label"] === "Color palette",
+    )
+
+    invokeValueChange(modeGroup, "light")
+    invokeValueChange(paletteGroup, "blue")
+    invokeValueChange(modeGroup, "invalid")
+    invokeValueChange(paletteGroup, "invalid")
+
+    expect(onPreferenceChange.mock.calls).toEqual([
+      [{ themeMode: "light", palette: "rose" }],
+      [{ themeMode: "dark", palette: "blue" }],
+    ])
+    const optionValues = elementsIn(tree)
+      .filter((element) -> "disabled" in element.props)
+      .map((element) -> element.props["value"])
+      .filter((value): value is string -> typeof value === "string")
+    expect(optionValues).toEqual([
+      "light",
+      "dark",
+      "system",
+      "neutral",
+      "slate",
+      "blue",
+      "cyan",
+      "green",
+      "amber",
+      "orange",
+      "red",
+      "rose",
+      "violet",
+    ])
+
+  it "exposes open-state ARIA linkage and forwards the controlled root setter", ->
+    themeRuntime.configure(
+      { themeMode: "system", palette: "neutral" },
+      vi.fn<PreferenceChange>(),
+    )
+    let tree = ThemePicker({ idPrefix: "open-theme" })
+    const root = tree as ElementRecord
+    const closedTrigger = requiredElement(
+      tree,
+      (element) -> element.props["id"] === "open-theme-trigger",
+    )
+    expect(closedTrigger.props["aria-controls"]).toBeUndefined()
+
+    const onOpenChange = root.props["onOpenChange"]
+    if typeof onOpenChange !== "function"
+      throw new Error("Expected onOpenChange callback")
+    ;(onOpenChange as (next: boolean) => void)(true)
+    expect(themeRuntime.open).toBe(true)
+
+    tree = ThemePicker({ idPrefix: "open-theme" })
+    const openTrigger = requiredElement(
+      tree,
+      (element) -> element.props["id"] === "open-theme-trigger",
+    )
+    expect(openTrigger.props["aria-controls"]).toBe("open-theme-content")
+
+    const openRoot = tree as ElementRecord
+    ;(openRoot.props["onOpenChange"] as (next: boolean) => void)(false)
+    expect(themeRuntime.open).toBe(false)
+
+  it "honors an override, blocks disabled selection, and renders status branches", ->
+    const providerChange = vi.fn<PreferenceChange>()
+    const overrideChange = vi.fn<PreferenceChange>()
+    themeRuntime.configure(
+      { themeMode: "system", palette: "neutral" },
+      providerChange,
+    )
+    const enabled = ThemePicker({
+      error: "Could not save theme settings.",
+      idPrefix: "override-theme",
+      onPreferenceChange: overrideChange,
+      statusMessage: "Saving theme settings.",
+    })
+    invokeValueChange(
+      requiredElement(enabled, (element) -> element.props["aria-label"] === "Color mode"),
+      "dark",
+    )
+    invokeValueChange(
+      requiredElement(enabled, (element) -> element.props["aria-label"] === "Color palette"),
+      "violet",
+    )
+
+    expect(providerChange).not.toHaveBeenCalled()
+    expect(overrideChange.mock.calls).toEqual([
+      [{ themeMode: "dark", palette: "neutral" }],
+      [{ themeMode: "system", palette: "violet" }],
+    ])
+    expect(textOf(enabled)).toContain("Saving theme settings.")
+    expect(textOf(enabled)).toContain("Could not save theme settings.")
+
+    const disabled = ThemePicker({
+      disabled: true,
+      error: null,
+      idPrefix: "disabled-theme",
+      onPreferenceChange: overrideChange,
+      statusMessage: null,
+    })
+    invokeValueChange(
+      requiredElement(disabled, (element) -> element.props["aria-label"] === "Color mode"),
+      "light",
+    )
+    invokeValueChange(
+      requiredElement(disabled, (element) -> element.props["aria-label"] === "Color palette"),
+      "blue",
+    )
+
+    expect(overrideChange).toHaveBeenCalledTimes(2)

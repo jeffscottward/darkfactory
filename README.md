@@ -6,8 +6,8 @@
 | Category | Status |
 | --- | --- |
 | Verification | [![CI](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml) [![CodeQL](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml) |
-| Project health | [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjeffscottward%2Fdarkfactory%2Fmain%2Fdocs%2Fassessments%2Fcoverage-badge.json)](docs/assessments/coverage-summary.json) [![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-0acd6c2.json) [![Latest release](https://img.shields.io/github/v/release/jeffscottward/darkfactory?display_name=tag&sort=semver)](https://github.com/jeffscottward/darkfactory/releases/latest) [![MIT license](https://img.shields.io/github/license/jeffscottward/darkfactory)](LICENSE) <br> [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jeffscottward/darkfactory/badge)](https://securityscorecards.dev/viewer/?uri=github.com/jeffscottward/darkfactory) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13782/badge)](https://www.bestpractices.dev/projects/13782) |
-| Community and runtime | [![PRs welcome](https://img.shields.io/badge/PRs-welcome-2ea44f)](CONTRIBUTING.md) [![Open issues](https://img.shields.io/github/issues/jeffscottward/darkfactory?label=open%20issues)](https://github.com/jeffscottward/darkfactory/issues) [![Open pull requests](https://img.shields.io/github/issues-pr/jeffscottward/darkfactory?label=open%20pull%20requests)](https://github.com/jeffscottward/darkfactory/pulls) <br> [![Node.js 22.13+](https://img.shields.io/badge/Node.js-%E2%89%A522.13.0-339933?logo=nodedotjs&logoColor=white)](package.json) [![pnpm 11.16](https://img.shields.io/badge/pnpm-11.16.0-F69220?logo=pnpm&logoColor=white)](package.json) |
+| Project health | [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjeffscottward%2Fdarkfactory%2Fmain%2Fdocs%2Fassessments%2Fcoverage-badge.json)](docs/assessments/coverage-summary.json) [![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-0acd6c2.json) [![Latest release](https://img.shields.io/github/v/release/jeffscottward/darkfactory?display_name=tag&sort=semver)](https://github.com/jeffscottward/darkfactory/releases/latest) [![MIT license](https://img.shields.io/github/license/jeffscottward/darkfactory)](LICENSE) <br> [![OpenSSF Best Practices 100%](https://img.shields.io/badge/OpenSSF%20Best%20Practices-100%25-2ea44f)](https://www.bestpractices.dev/projects/13782) |
+| Community and runtime | [![PRs welcome](https://img.shields.io/badge/PRs-welcome-2ea44f)](CONTRIBUTING.md) [![Open issues](https://img.shields.io/github/issues/jeffscottward/darkfactory?label=open%20issues)](https://github.com/jeffscottward/darkfactory/issues) [![Open pull requests](https://img.shields.io/github/issues-pr/jeffscottward/darkfactory?label=open%20pull%20requests)](https://github.com/jeffscottward/darkfactory/pulls) <br> [![Bun 1.3.14](https://img.shields.io/badge/Bun-1.3.14-fbf0df)](https://bun.sh/) [![pnpm 11.16](https://img.shields.io/badge/pnpm-11.16.0-F69220?logo=pnpm&logoColor=white)](package.json) |
 
 DarkFactory is a domain-neutral, Postgres-first application foundation for building AI-assisted products without making an AI provider, business vertical, or optional service part of the core architecture. It combines a public site, authenticated portal, contract-first API, portable PostgreSQL data layer, provider adapters, and an inspectable engineering lifecycle.
 
@@ -50,7 +50,7 @@ The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/ope
 
 | Area | Current implementation |
 | --- | --- |
-| Language and workspace | Civet 0.11.15, TypeScript 6.0.2 at tooling boundaries, pnpm 11.16.0, Turborepo 2.10.6 |
+| Language and workspace | Civet 0.11.15, Bun 1.3.14 for scripts and TypeScript, Node.js >=22.13 compatibility, pnpm 11.16.0 for packages/workspaces, Turborepo 2.10.6 |
 | Web | React 19.2.8, vinext 1.0.0-beta.3, Vite 8.1.5, Cloudflare Workers |
 | UI | Tailwind CSS 4.3.3, shadcn/Radix composition, Manrope and Public Sans |
 | API | oRPC 1.14.8, Zod 4.1.12, generated OpenAPI 3.1.1 |
@@ -64,14 +64,20 @@ Optional providers are not automatically available merely because an adapter exi
 
 ## Prerequisites
 
-- Node.js 22.13.0 or newer and Corepack.
-- pnpm 11.16.0, selected through Corepack.
-- Docker with Compose for the isolated local PostgreSQL service.
-- PM2 for the durable local web process.
-- Varlock for loading the public environment schema and injecting ignored local values.
-- Graphify for repository graph commands and agent context.
-- A browser trusted for the portless local certificate authority.
-- Cloudflare credentials only when an authorized operator intentionally runs a deployment command.
+| Requirement | Supported version or state | Purpose | Installer behavior |
+| --- | --- | --- | --- |
+| Host platform | macOS with Homebrew, or Debian/Ubuntu with `apt` and root/`sudo` | Deterministic workstation bootstrap | Uses the existing platform package manager; never installs Homebrew or guesses an unsupported platform |
+| Bun | Exactly 1.3.14 | Primary script and TypeScript runtime | Installs the exact user-scoped release when absent or mismatched |
+| Node.js | Compatible 22.13 or newer runtime (installer bootstrap target 22.13.1) | Corepack/pnpm, PM2/Portless, Vitest, and measured compatibility paths | Keeps a compatible installed runtime; bootstraps 22.13.1 through Homebrew or pinned `n` 10.2.0 only when Node is missing or too old |
+| Corepack and pnpm | Corepack 0.34.7; pnpm 11.16.0 | Sole dependency/workspace manager and lockfile owner | Activates the pinned pnpm release; installs workspace dependencies from the frozen lockfile |
+| Python and uv | Compatible Python 3.13 or 3.14; uv 0.11.32 | Graphify and Python-backed repository tooling | Keeps a compatible installed Python; installs the exact user-scoped uv release |
+| Docker, Compose, PostgreSQL | Docker and Compose installed; daemon running; isolated PostgreSQL service available | Local integration database | Installs Docker/Compose where supported; an operator must start the daemon before database work |
+| PM2 and Portless | PM2 7.0.3; workspace Portless 0.13.0 | Durable named local process and stable HTTPS URL | Installs exact tool/dependency releases; does not start services or trust certificates |
+| Varlock | 1.13.0 | Environment validation and injection | Installs the exact release |
+| Graphify | `graphifyy` 0.9.2 | Repository graph build/query/verification | Installs the exact Python package through uv |
+| Playwright and Chromium | Workspace Playwright 1.61.1 with its compatible Chromium | Browser and accessibility verification | Installs frozen workspace dependencies and the installer-managed browser once |
+| Local HTTPS trust | Browser trusts the Portless local certificate authority | Warning-free `https://darkfactory.localhost` | Manual: run `bun run dev:trust`; the installer never changes trust stores |
+| Provider/deployment credentials | Required only for an intentionally exercised provider or authorized Cloudflare operation | Optional AI, email, analytics, observability, and deployment paths | Manual and conditional; the installer never inspects accounts or creates credentials |
 
 Provider credentials are optional unless the corresponding provider is being exercised. The local email transport defaults to preview.
 
@@ -80,9 +86,7 @@ Provider credentials are optional unless the corresponding provider is being exe
 ```bash
 git clone https://github.com/jeffscottward/darkfactory.git
 cd darkfactory
-corepack enable
-corepack install --global pnpm@11.16.0
-pnpm install --frozen-lockfile
+sh scripts/install-prerequisites.sh
 cp .env.example .env
 ```
 
@@ -99,41 +103,41 @@ postgresql://darkfactory_app:darkfactory-app-local-only@127.0.0.1:5432/darkfacto
 Then start PostgreSQL and apply the checked-in migrations with Varlock loading the ignored values:
 
 ```bash
-pnpm db:test:up
-varlock run -- pnpm db:migrate
+bun run db:test:up
+varlock run -- bun run db:migrate
 ```
 
 ### Development seed warning
 
-`pnpm db:seed` creates predictable development identities (`admin@domain.test`, `alice@domain.test`, and `bob@domain.test`) with the shared password `Development123!`. These accounts and credentials are deliberately unsafe outside a disposable development or test database. The command requires `APP_ENV=development` or `APP_ENV=test`, but you must still inspect `DATABASE_URL` before running it. Never seed a shared, staging, customer, or production database.
+`bun run db:seed` creates predictable development identities (`admin@domain.test`, `alice@domain.test`, and `bob@domain.test`) with the shared password `Development123!`. These accounts and credentials are deliberately unsafe outside a disposable development or test database. The command requires `APP_ENV=development` or `APP_ENV=test`, but you must still inspect `DATABASE_URL` before running it. Never seed a shared, staging, customer, or production database.
 
 ```bash
-varlock run -- pnpm db:seed
+varlock run -- bun run db:seed
 ```
 
-`pnpm db:reset` is destructive and has the same environment restriction. Use it only against a disposable local/test target.
+`bun run db:reset` is destructive and has the same environment restriction. Use it only against a disposable local/test target.
 
 ## Canonical local HTTPS and PM2
 
 The only canonical human-facing local URL is <https://darkfactory.localhost>. Portless owns the hidden port and trusted HTTPS route. PM2 owns one stable process named `darkfactory-web-dev`.
 
 ```bash
-pnpm dev:trust
-pnpm dev:bindings
-pnpm dev:https
-pnpm dev:status
-pnpm dev:logs
-pnpm dev:stop
+bun run dev:trust
+bun run dev:bindings
+bun run dev:https
+bun run dev:status
+bun run dev:logs
+bun run dev:stop
 ```
 
-`pnpm dev:https` is idempotent and starts `portless darkfactory pnpm dev` through PM2. Run `pnpm dev:trust` first. Use `pnpm certs:install` and `pnpm certs:generate` only as the documented mkcert fallback when portless trust cannot work; generated certificates and keys stay ignored.
+`bun run dev:https` is idempotent and starts `portless darkfactory bun run dev` through PM2. Run `bun run dev:trust` first. Use `bun run certs:install` and `bun run certs:generate` only as the documented mkcert fallback when portless trust cannot work; generated certificates and keys stay ignored.
 
-The Cloudflare Worker runtime reads server bindings from the ignored `apps/web/.dev.vars` file rather than inheriting them from PM2. `pnpm dev:bindings` validates `.env`, writes a same-directory temporary file with mode `0600`, and atomically replaces the binding file without printing its contents. Regenerate it after changing `.env`; never commit it.
+The Cloudflare Worker runtime reads server bindings from the ignored `apps/web/.dev.vars` file rather than inheriting them from PM2. `bun run dev:bindings` validates `.env`, writes a same-directory temporary file with mode `0600`, and atomically replaces the binding file without printing its contents. Regenerate it after changing `.env`; never commit it.
 
 After PostgreSQL, environment values, trust, and the PM2 route are ready, inspect the complete prerequisite report:
 
 ```bash
-varlock run -- pnpm doctor
+varlock run -- bun run doctor
 ```
 
 See [Local development](docs/local-development.md) for installation details, lifecycle recovery, and cleanup.
@@ -143,8 +147,8 @@ See [Local development](docs/local-development.md) for installation details, lif
 Always inspect the plan before writing files:
 
 ```bash
-pnpm generate:feature example-name --dry-run
-pnpm generate:feature example-name
+bun run generate:feature example-name --dry-run
+bun run generate:feature example-name
 ```
 
 The generator accepts one feature name plus optional `--dry-run` and `--json` flags. A generated feature must replace the generic identity everywhere and carry its contract, route registration, persistence, tests, exports, and graph changes. Review the output and run the affected gates; generation is not verification.
@@ -153,31 +157,31 @@ The generator accepts one feature name plus optional `--dry-run` and `--json` fl
 
 | Purpose | Commands |
 | --- | --- |
-| Development | `pnpm dev`, `pnpm dev:https`, `pnpm dev:status`, `pnpm dev:logs`, `pnpm dev:stop`, `pnpm dev:trust` |
-| Certificate fallback | `pnpm certs:install`, `pnpm certs:generate` |
-| Database | `pnpm db:generate`, `pnpm db:check`, `pnpm db:migrate`, `pnpm db:seed`, `pnpm db:reset`, `pnpm db:test:up`, `pnpm db:test:down` |
-| Build and types | `pnpm build`, `pnpm types`, `pnpm types:check`, `pnpm typecheck` |
-| Static checks | `pnpm lint`, `pnpm lint:markdown`, `pnpm format:check` |
-| Generated contracts | `pnpm auth:schema:check`, `pnpm api:openapi:generate`, `pnpm api:openapi:check` |
-| Tests | `pnpm test:unit`, `pnpm test:integration`, `pnpm test:e2e`, `pnpm test` |
-| Full gates | `pnpm verify`, `pnpm run ci` |
-| Graphify | `pnpm graph:build`, `pnpm graph:update`, `pnpm graph:check`, `pnpm graph:verify` |
-| Operations | `pnpm doctor`, `pnpm generate:feature` |
-| Explicit web deployment | `pnpm deploy:web:check`, `pnpm deploy:web:preview`, `pnpm deploy:web` |
+| Development | `bun run dev`, `bun run dev:https`, `bun run dev:status`, `bun run dev:logs`, `bun run dev:stop`, `bun run dev:trust` |
+| Certificate fallback | `bun run certs:install`, `bun run certs:generate` |
+| Database | `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run db:seed`, `bun run db:reset`, `bun run db:test:up`, `bun run db:test:down` |
+| Build and types | `bun run build`, `bun run types`, `bun run types:check`, `bun run typecheck` |
+| Static checks | `bun run lint`, `bun run lint:markdown`, `bun run format:check` |
+| Generated contracts | `bun run auth:schema:check`, `bun run api:openapi:generate`, `bun run api:openapi:check` |
+| Tests | `bun run test:unit`, `bun run test:integration`, `bun run test:e2e`, `bun run test` |
+| Full gates | `bun run verify`, `bun run ci` |
+| Graphify | `bun run graph:build`, `bun run graph:update`, `bun run graph:check`, `bun run graph:verify` |
+| Operations | `bun run doctor`, `bun run generate:feature` |
+| Explicit web deployment | `bun run deploy:web:check`, `bun run deploy:web:preview`, `bun run deploy:web` |
 
-Use `pnpm run ci`, not bare `pnpm ci`: pnpm reserves the latter for clean installation.
+Vitest and Vinext's development, build, and deployment CLIs deliberately run through package-local binaries under Node. These are narrow measured compatibility exceptions: Bun 1.3.14 misloads Vitest's Vite `zod` dependency, its V8 coverage path lacks the `node:inspector` APIs required by `@vitest/coverage-v8`, Vite's development server requires WebSocket events that Bun does not implement, and a Bun-generated Vinext production bundle can report success while returning 404 for authored routes. Bun and Turbo still orchestrate compatible lifecycle and package tasks; pnpm remains the sole package and lockfile owner.
 
 ## Testing and evidence
 
 Start the isolated PostgreSQL service and load the test environment before database-backed checks. Playwright starts or reuses the canonical portless route and stores failure material in `playwright-report/` and `test-results/`.
 
 ```bash
-pnpm db:test:up
-varlock run -- pnpm test:unit
-varlock run -- pnpm test:integration
-varlock run -- pnpm test:e2e
-varlock run -- pnpm verify
-pnpm db:test:down
+bun run db:test:up
+varlock run -- bun run test:unit
+varlock run -- bun run test:integration
+varlock run -- bun run test:e2e
+varlock run -- bun run verify
+bun run db:test:down
 ```
 
 No command is considered successful without its observed exit result. Do not infer a green repository from this README or from a narrower check. See [Testing and evidence](docs/testing-and-evidence.md) and the draft [DF evidence map](docs/evidence-map.md).
@@ -195,16 +199,16 @@ graphify explain "createFeatureItemService"
 Refresh and verify the graph after adding features, moving public symbols, changing contracts or database relationships, or materially changing architecture:
 
 ```bash
-pnpm graph:update
-pnpm graph:check
-pnpm graph:verify
+bun run graph:update
+bun run graph:check
+bun run graph:verify
 ```
 
 `graphify-out/` is generated output and is not hand-edited. Build and update replace only Graphify's known generated entries before extraction so stale snapshot-root node identities cannot survive a refresh.
 
 ## Capabilities and deployment boundary
 
-The web application builds and deploys only through the official `@vinext/cloudflare` adapter. `pnpm deploy:web:check` validates the adapter setup in dry-run mode without building or deploying. The explicit `deploy:web:preview` and `deploy:web` commands are credentialed Cloudflare operations; no automatic deployment workflow or proof of a completed deployment is claimed here.
+The web application builds and deploys only through the official `@vinext/cloudflare` adapter. The package `start` command uses Vite's Cloudflare-faithful production preview rather than Vinext's generic Node wrapper. Stop the canonical development process, regenerate Worker bindings, build, and run `corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start` to preview the built Worker at the configured canonical HTTPS origin. Filesystem email previews are disabled in a production bundle; a real production environment must use its validated Resend configuration. `bun run deploy:web:check` validates adapter setup in dry-run mode without building or deploying. The explicit `bun run deploy:web:preview` and `bun run deploy:web` commands are credentialed Cloudflare operations; no automatic deployment workflow or proof of a completed deployment is claimed here.
 
 Alchemy is reserved only for a real, explicitly enabled ancillary Cloudflare resource. No ancillary resource is enabled, so there is intentionally no `alchemy.run.ts` and no Alchemy deployment step. Alchemy 0.93.12 is a source-reviewed compatibility baseline, not an installed or active deployment layer. See [Capabilities and deployment](docs/capabilities-and-deployment.md) and [ADR 0001](docs/adr/0001-vinext-alchemy-boundary.md).
 

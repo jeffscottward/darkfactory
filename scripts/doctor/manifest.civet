@@ -53,6 +53,9 @@ export const parseCapabilityManifest = (source: string): CapabilityClassificatio
   }
 
   const requiredDeclarations: Readonly<Record<string, string>> = {
+    "project.runtime": "cloudflare-workers",
+    "workspace.package_manager": "pnpm",
+    "workspace.script_runtime": "bun",
     "database.engine": "postgres",
     "deployment.web.provider": "cloudflare",
     "developer_context.code_graph.provider": "graphify",

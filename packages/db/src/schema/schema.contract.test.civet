@@ -1,5 +1,5 @@
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   ADDRESS_TYPES,
   COLOR_SCHEMES,
@@ -11,6 +11,7 @@ import {
   accounts,
   addresses,
   auditRecords,
+  contactRateLimits,
   featureItems,
   outboxEvents,
   profiles,
@@ -159,6 +160,19 @@ describe "Better Auth 1.6.24 schema", ->
     expect(column(sessions, "updated_at").default).toBeUndefined()
     expect(column(accounts, "updated_at").default).toBeDefined()
 
+    const currentTime = new Date("2026-01-02T03:04:05.678Z")
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(currentTime)
+      for table of [users, sessions, accounts, verifications] {
+        const updatedAt = column(table, "updated_at").onUpdateFn!()
+        expect(updatedAt).toEqual(currentTime)
+        expect(updatedAt).not.toBe(currentTime)
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+
 describe "DarkFactory-owned schema", ->
   it "defines the complete profiles contract with deliberate nullability", ->
     expect(columnNames(profiles)).toEqual([
@@ -237,6 +251,24 @@ describe "DarkFactory-owned schema", ->
         "user_preferences_profile_visibility_check",
       ]),
     )
+    expect(foreignKey(userPreferences, "user_id").onDelete).toBe("cascade")
+
+  it "defines bounded contact throttles with an expiry lookup", ->
+    expect(columnNames(contactRateLimits)).toEqual([
+      "key_hash",
+      "window_started_at",
+      "request_count",
+      "expires_at",
+    ])
+    expect(indexNames(contactRateLimits)).toEqual([
+      "contact_rate_limits_expires_at_idx",
+    ])
+    expect(checkNames(contactRateLimits)).toEqual([
+      "contact_rate_limits_key_hash_check",
+      "contact_rate_limits_request_count_check",
+      "contact_rate_limits_window_check",
+    ])
+
 
   it "defines neutral feature items with bounded object metadata and an owner index", ->
     expect(FEATURE_ITEM_STATUSES).toEqual(["draft", "active", "archived"])

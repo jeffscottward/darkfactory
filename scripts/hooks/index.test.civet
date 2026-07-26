@@ -1,0 +1,181 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({ spawnSync: vi.fn() }))
+
+vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
+
+import {
+  PRE_PUSH_SCRIPTS,
+  runPreCommit,
+  runPrePush,
+} from "./index.civet"
+
+const spawnResult = (
+  status: number | null,
+  stdout = "",
+  error?: Error,
+) => ({
+  status,
+  stdout,
+  stderr: "",
+  pid: 123,
+  signal: null,
+  ...(error === undefined ? {} : { error }),
+})
+
+afterEach(() => {
+  mocks.spawnSync.mockReset()
+  vi.restoreAllMocks()
+})
+
+describe("repository hooks", () => {
+  it("runs staged Biome and Markdown scripts with case-insensitive, argument-safe paths", () => {
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(
+        0,
+        "src/file with space.TS\0README.MARKDOWN\0component.CIVET\0notes.txt\0",
+      ))
+      .mockReturnValue(spawnResult(0))
+
+    expect(runPreCommit()).toBe(0)
+    expect(mocks.spawnSync.mock.calls).toEqual([
+      ["git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], {
+        encoding: "utf8",
+        shell: false,
+        stdio: ["ignore", "pipe", "inherit"],
+      }],
+      ["bun", ["run", "format:staged", "--", "./src/file with space.TS"], {
+        shell: false,
+        stdio: "inherit",
+      }],
+      ["bun", ["run", "lint:staged", "--", "./src/file with space.TS"], {
+        shell: false,
+        stdio: "inherit",
+      }],
+      ["bun", ["run", "lint:markdown:staged", "--", "./README.MARKDOWN"], {
+        shell: false,
+        stdio: "inherit",
+      }],
+    ])
+  })
+
+  it("defers Civet-only changes and silently accepts other irrelevant or empty path records", () => {
+    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "src/worker.CIVET\0"))
+
+    expect(runPreCommit()).toBe(0)
+    expect(errorOutput).toHaveBeenCalledWith(expect.stringMatching(/Civet validation is deferred/))
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+
+    mocks.spawnSync.mockReset()
+    errorOutput.mockClear()
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "notes.txt\0\0"))
+
+    expect(runPreCommit()).toBe(0)
+    expect(errorOutput).not.toHaveBeenCalled()
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+  })
+
+  it("maps a failed staged-path lookup without hiding spawn errors or null statuses", () => {
+    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const spawnError = Object.assign(new Error("git executable unavailable"), {
+      code: "ENOENT",
+    })
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(null, "", spawnError))
+
+    expect(runPreCommit()).toBe(1)
+    expect(errorOutput.mock.calls).toEqual([
+      [
+        "[hook] failed (1): \"git\" \"diff\" \"--cached\" \"--name-only\" \"--diff-filter=ACMR\" \"-z\"",
+      ],
+      ["git executable unavailable"],
+    ])
+  })
+
+  it("stops at each failed staged command and reports the exact generated command", () => {
+    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, "src/index.ts\0README.md\0"))
+      .mockReturnValueOnce(spawnResult(4))
+    expect(runPreCommit()).toBe(4)
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
+    expect(errorOutput).toHaveBeenLastCalledWith(
+      "[hook] failed (4): \"bun\" \"run\" \"format:staged\" \"--\" \"./src/index.ts\"",
+    )
+
+    mocks.spawnSync.mockReset()
+    errorOutput.mockClear()
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, "src/index.ts\0README.md\0"))
+      .mockReturnValueOnce(spawnResult(0))
+      .mockReturnValueOnce(spawnResult(5))
+    expect(runPreCommit()).toBe(5)
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(3)
+    expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:staged"))
+
+    mocks.spawnSync.mockReset()
+    errorOutput.mockClear()
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, "README.md\0"))
+      .mockReturnValueOnce(spawnResult(6))
+    expect(runPreCommit()).toBe(6)
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
+    expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:markdown:staged"))
+  })
+
+  it("returns success after a Biome-only staged batch reaches the terminal path", () => {
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, "src/index.ts\0"))
+      .mockReturnValue(spawnResult(0))
+
+    expect(runPreCommit()).toBe(0)
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(3)
+    expect(
+      mocks.spawnSync.mock.calls.slice(1).map(([, arguments_]) => arguments_[1]),
+    ).toEqual(["format:staged", "lint:staged"])
+  })
+
+  it("runs the immutable pre-push script list through injected and default runners", () => {
+    const injected = vi.fn(() => 17)
+    expect(runPrePush(injected)).toBe(17)
+    expect(injected).toHaveBeenCalledWith(["verify:core"])
+    expect(Object.isFrozen(PRE_PUSH_SCRIPTS)).toBe(true)
+
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(0))
+    expect(runPrePush()).toBe(0)
+    expect(mocks.spawnSync).toHaveBeenCalledWith(
+      "bun",
+      ["run", "verify:core"],
+      { shell: false, stdio: "inherit" },
+    )
+  })
+
+  it("wires both executable entrypoints to their hook runner exit codes", async () => {
+    const previousExitCode = process.exitCode
+    try {
+      process.exitCode = undefined
+      mocks.spawnSync.mockReturnValueOnce(spawnResult(0, ""))
+      await import("./pre-commit.civet")
+      expect(process.exitCode).toBe(0)
+      expect(mocks.spawnSync).toHaveBeenLastCalledWith(
+        "git",
+        ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
+        expect.any(Object),
+      )
+
+      mocks.spawnSync.mockClear()
+      mocks.spawnSync.mockReturnValueOnce(spawnResult(9))
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      await import("./pre-push.civet")
+      expect(process.exitCode).toBe(9)
+      expect(mocks.spawnSync).toHaveBeenCalledWith(
+        "bun",
+        ["run", "verify:core"],
+        { shell: false, stdio: "inherit" },
+      )
+    } finally {
+      process.exitCode = previousExitCode
+    }
+  })
+})

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { capabilityManifestSchema } from "./capabilities.civet"
 import {
   CapabilityManifestValidationError,
   loadCapabilityManifest,
@@ -29,7 +30,11 @@ const expectedManifest = {
     language: "civet",
     runtime: "cloudflare-workers",
   },
-  workspace: { package_manager: "pnpm", orchestration: "turborepo" },
+  workspace: {
+    package_manager: "pnpm",
+    script_runtime: "bun",
+    orchestration: "turborepo",
+  },
   deployment: {
     web: { provider: "cloudflare", deployer: "@vinext/cloudflare" },
     ancillary_resources: { provider: "cloudflare", infrastructure: "alchemy" },
@@ -123,6 +128,16 @@ describe("v0.1 capability manifest", () => {
       "unsupported provider",
       (source: string) => source.replace("provider: mintlify", "provider: another-docs-provider"),
       "capabilities.docs.provider",
+    ],
+    [
+      "unsupported script runtime",
+      (source: string) => source.replace("script_runtime: bun", "script_runtime: node"),
+      "workspace.script_runtime",
+    ],
+    [
+      "missing script runtime",
+      (source: string) => source.replace("  script_runtime: bun\n", ""),
+      "workspace.script_runtime",
     ],
     [
       "missing required field",
@@ -277,5 +292,265 @@ describe("v0.1 capability manifest", () => {
       expect(JSON.stringify(error)).not.toContain(secret)
     }
   })
+
+  it "sanitizes an untrusted schema issue path before returning it", ->
+    const privatePath = "PRIVATE-SCHEMA-PATH"
+    const privateValue = "private-schema-failure-detail"
+    const validation = vi.spyOn(capabilityManifestSchema, "safeParse")
+      .mockReturnValue({
+        success: false,
+        error: {
+          issues: [{
+            code: "invalid_type",
+            path: [privatePath],
+            message: privateValue,
+          }],
+        },
+      } as never)
+    let failure: unknown
+    try
+      failure = captureManifestError("safe: true\n")
+    finally
+      validation.mockRestore()
+
+    expect(failure).toMatchObject({
+      issues: [{
+        code: "missing_requirement",
+        path: "manifest",
+        message: "Required manifest value is missing",
+      }],
+    })
+    expect(String(failure)).not.toContain(privatePath)
+    expect(String(failure)).not.toContain(privateValue)
+    expect(JSON.stringify(failure)).not.toContain(privatePath)
+    expect(JSON.stringify(failure)).not.toContain(privateValue)
+
+  it "rejects non-string and empty manifest sources with one stable issue", ->
+    for (const source of [null as never, "   "]) {
+      expect(captureManifestError(source).issues).toEqual([
+        {
+          code: "invalid_yaml",
+          path: "yaml",
+          message: "Manifest must contain valid, unique-key YAML",
+        },
+      ])
+    }
+
+  it.each([
+    ["multi-byte key", `${"é".repeat(65)}: true\n`],
+    ["multi-byte string", `extra: "${"é".repeat(2_049)}"\n`],
+  ])("enforces the UTF-8 byte budget for a $0", (_label, source) ->
+    expect(captureManifestError(source).issues).toEqual([
+      {
+        code: "resource_limit",
+        path: "yaml",
+        message: "Manifest exceeds safe parsing limits",
+      },
+    ])
+  )
+
+  it "rejects non-finite YAML scalars before schema validation", ->
+    expect(captureManifestError("value: .inf\n").issues).toEqual([
+      {
+        code: "invalid_yaml",
+        path: "yaml",
+        message: "Manifest must contain valid, unique-key YAML",
+      },
+    ])
+
+  it.each([
+    ["array", "    provider:\n      - provider-secret-value", "provider-secret-value"],
+    ["number", "    provider: 982451653", "982451653"],
+  ])("classifies a wrong-type $0 without reflecting it", async (
+    _label,
+    replacement,
+    secretValue,
+  ) ->
+    const source = (await readManifest()).replace("    provider: mintlify", replacement)
+    const error = captureManifestError(source)
+
+    expect(error.issues).toContainEqual({
+      code: "invalid_type",
+      path: "capabilities.docs.provider",
+      message: "Manifest value has an invalid type",
+    })
+    expect(JSON.stringify(error)).not.toContain(secretValue)
+  )
+
+  it "classifies a null literal value as an invalid type", async ->
+    const source = (await readManifest()).replace(
+      "    provider: mintlify",
+      "    provider:",
+    )
+
+    expect(captureManifestError(source).issues).toContainEqual({
+      code: "invalid_type",
+      path: "capabilities.docs.provider",
+      message: "Manifest value has an invalid type",
+    })
+
+  it.each([
+    [
+      "string",
+      "  script_runtime: bun",
+      "  script_runtime: unsupported-runtime",
+      "workspace.script_runtime",
+      "unsupported-runtime",
+    ],
+    [
+      "boolean",
+      "  extensions_first: true",
+      "  extensions_first: false",
+      "database.extensions_first",
+      "false",
+    ],
+  ])("classifies an unsupported same-type $0 without reflecting it", async (
+    _label,
+    supported,
+    unsupported,
+    path,
+    secretValue,
+  ) ->
+    const source = (await readManifest()).replace(supported, unsupported)
+    const error = captureManifestError(source)
+
+    expect(error.issues).toContainEqual({
+      code: "unsupported_value",
+      path,
+      message: "Manifest value is not supported",
+    })
+    expect(JSON.stringify(error)).not.toContain(secretValue)
+  )
+
+  it "uses the generic classification for tuple cardinality failures", async ->
+    const source = (await readManifest()).replace(
+      'fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1"]',
+      'fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1", extra]',
+    )
+    const error = captureManifestError(source)
+
+    expect(error.issues).toContainEqual({
+      code: "invalid_manifest",
+      path: "development.https.fallback_hostnames",
+      message: "Manifest value is invalid",
+    })
+
+  it "preserves allowlisted tuple indexes while sanitizing schema paths", async ->
+    const source = (await readManifest()).replace(
+      "users: [admin, alice, bob]",
+      "users: [admin, alice, mallory]",
+    )
+
+    expect(captureManifestError(source).issues).toContainEqual({
+      code: "unsupported_value",
+      path: "development.seeded_accounts.users.2",
+      message: "Manifest value is not supported",
+    })
+
+  it "accepts null scalar structure before reporting the schema contract", ->
+    const error = captureManifestError("value:\n")
+    expect(error).toBeInstanceOf(CapabilityManifestValidationError)
+    expect(error.issues.length).toBeGreaterThan(0)
+
+  it "rejects a comments-only manifest without reflecting its contents", ->
+    const privateComment = "private-comment-content"
+    const error = captureManifestError(`# ${privateComment}\n`)
+
+    expect(error.issues).toEqual([{
+      code: "invalid_type",
+      path: "manifest",
+      message: "Manifest value has an invalid type",
+    }])
+    expect(String(error)).not.toContain(privateComment)
+    expect(JSON.stringify(error)).not.toContain(privateComment)
+
+  it "treats unresolved YAML tag warnings as invalid input", ->
+    expect(captureManifestError("value: !untrusted tagged\n").issues).toEqual([
+      {
+        code: "invalid_yaml",
+        path: "yaml",
+        message: "Manifest must contain valid, unique-key YAML",
+      },
+    ])
+
+  it.each([
+    ["an empty document", "---\n"],
+    ["a finite numeric scalar", "value: 1\n"],
+  ])("accepts safe YAML structure for $0 before schema rejection", (_case, source) ->
+    const error = captureManifestError(source)
+    expect(error).toBeInstanceOf(CapabilityManifestValidationError)
+    expect(error.issues.length).toBeGreaterThan(0)
+  )
+
+  it "rejects an unknown parser node without reflecting its properties", async ->
+    const privateDetail = "private-parser-node-detail"
+    vi.doUnmock("yaml")
+    vi.resetModules()
+    vi.doMock("yaml", async (importOriginal) ->
+      const actual = await importOriginal<typeof import("yaml")>()
+      return {
+        ...actual,
+        parseDocument: -> ({
+          errors: [],
+          warnings: [],
+          contents: { privateDetail },
+          toJS: -> ({}),
+        }),
+      }
+    )
+    let failure: unknown
+    try
+      const isolated = await import("./server/capabilities-loader.civet")
+      try
+        isolated.loadCapabilityManifest("project: {}\n")
+      catch error
+        failure = error
+    finally
+      vi.doUnmock("yaml")
+      vi.resetModules()
+
+    expect(failure).toMatchObject({
+      name: "CapabilityManifestValidationError",
+      issues: [{
+        code: "invalid_yaml",
+        path: "yaml",
+        message: "Manifest must contain valid, unique-key YAML",
+      }],
+    })
+    expect(String(failure)).not.toContain(privateDetail)
+    expect(JSON.stringify(failure)).not.toContain(privateDetail)
+
+  it "sanitizes an unexpected YAML parser failure", async ->
+    const privateDetail = "private-parser-failure-detail"
+    vi.doUnmock("yaml")
+    vi.resetModules()
+    vi.doMock("yaml", async (importOriginal) ->
+      const actual = await importOriginal<typeof import("yaml")>()
+      return {
+        ...actual,
+        parseDocument: -> throw new Error(privateDetail),
+      }
+    )
+    let failure: unknown
+    try
+      const isolated = await import("./server/capabilities-loader.civet")
+      try
+        isolated.loadCapabilityManifest("project: {}\n")
+      catch error
+        failure = error
+    finally
+      vi.doUnmock("yaml")
+      vi.resetModules()
+
+    expect(failure).toMatchObject({
+      name: "CapabilityManifestValidationError",
+      issues: [{
+        code: "invalid_yaml",
+        path: "yaml",
+        message: "Manifest must contain valid, unique-key YAML",
+      }],
+    })
+    expect(String(failure)).not.toContain(privateDetail)
+    expect(JSON.stringify(failure)).not.toContain(privateDetail)
   return undefined
 })

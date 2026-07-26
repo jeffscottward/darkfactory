@@ -1,3 +1,4 @@
+import type { AddressOutput } from "@darkfactory/api"
 import type { ReactElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -107,6 +108,7 @@ const hookRuntime = vi.hoisted(() => {
 })
 
 const gatewayRuntime = vi.hoisted(() => ({ current: null as unknown }))
+const securityGatewayRuntime = vi.hoisted(() => ({ current: null as unknown }))
 const storeRuntime = vi.hoisted(() => ({ current: null as unknown }))
 
 vi.mock("react", async (importOriginal) => {
@@ -131,6 +133,17 @@ vi.mock("./account-client.civet", async (importOriginal) => {
   }
 })
 
+vi.mock("./security-client.civet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./security-client.civet")>()
+  return {
+    ...actual,
+    createBrowserSecurityGateway: () => {
+      if (securityGatewayRuntime.current === null) throw new Error("Configure the security gateway before rendering.")
+      return securityGatewayRuntime.current as never
+    },
+  }
+})
+
 vi.mock("../../lib/ui-store.civet", () => ({
   useUiStoreApi: () => {
     if (storeRuntime.current === null) throw new Error("Configure the UI store before rendering.")
@@ -145,7 +158,9 @@ import { PreferencesForm } from "./preferences-form.civet"
 import { PreferencesPageClient } from "./preferences-page-client.civet"
 import { ProfileForm } from "./profile-form.civet"
 import { ProfilePageClient } from "./profile-page-client.civet"
-import { SecurityPanel } from "./security-panel.civet"
+import { SecurityPageClient } from "./security-page-client.civet"
+import { PasswordForm, SecurityPanel } from "./security-panel.civet"
+import { SignOutAction, SignOutActionView } from "./sign-out-action.civet"
 
 interface ElementRecord {
   readonly key: null | string
@@ -340,6 +355,7 @@ afterEach ->
   hookRuntime.reset()
   gatewayRuntime.current = null
   storeRuntime.current = null
+  securityGatewayRuntime.current = null
   vi.unstubAllGlobals()
 
 describe "profile page client", ->
@@ -462,6 +478,112 @@ describe "profile page client", ->
       message: "The request could not be completed. Try again.",
     })
 
+  it "preserves the profile form and reports the conflict after a primitive reconciliation failure", async ->
+    const reconciliationFailure = "profile reconciliation failed"
+    const getProfile = vi.fn()
+      .mockResolvedValueOnce(account)
+      .mockRejectedValueOnce(reconciliationFailure)
+    gatewayRuntime.current = gatewayWith({
+      getProfile,
+      updateProfile: vi.fn(async () => Promise.reject({ code: "CONFLICT" })),
+    })
+    const mounted = mount(() => ProfilePageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const form = component(tree, ProfileForm)
+
+    await invoke<Promise<void>>(form, "onSave", {
+      expectedUpdatedAt: profile.updatedAt,
+      jobTitle: "Owner draft",
+    })
+
+    tree = mounted.render()
+    const preservedForm = component(tree, ProfileForm)
+    expect(preservedForm.props["initialProfile"]).toBe(profile)
+    expect(preservedForm.props["feedback"]).toEqual({
+      tone: "error",
+      message: "This profile changed elsewhere. Your entries are preserved; review them and save again.",
+    })
+
+  it "keeps an overlapping profile load failure authoritative when a save finishes later", async ->
+    const earlierRetry = deferred<typeof account>()
+    const laterRetry = deferred<typeof account>()
+    const update = deferred<typeof account>()
+    const getProfile = vi.fn()
+      .mockRejectedValueOnce(new Error("initial load failed"))
+      .mockImplementationOnce(() => earlierRetry.promise)
+      .mockImplementationOnce(() => laterRetry.promise)
+    gatewayRuntime.current = gatewayWith({
+      getProfile,
+      updateProfile: vi.fn(() => update.promise),
+    })
+    const mounted = mount(() => ProfilePageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const retry = controlByText(tree, "Try again")
+
+    invoke(retry, "onClick")
+    invoke(retry, "onClick")
+    earlierRetry.resolve(account)
+    await flushMicrotasks()
+    tree = mounted.render()
+    const submission = invoke<Promise<void>>(component(tree, ProfileForm), "onSave", {
+      expectedUpdatedAt: profile.updatedAt,
+      displayName: "Saved owner",
+    })
+
+    laterRetry.reject(new Error("later retry failed"))
+    await flushMicrotasks()
+    update.resolve(account)
+    await submission
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.props["title"] === "Profile unavailable")).toBeDefined()
+    expect(findElement(tree, (element) => element.type === ProfileForm)).toBeUndefined()
+
+  it "keeps an overlapping profile load failure authoritative when conflict reconciliation finishes later", async ->
+    const earlierRetry = deferred<typeof account>()
+    const laterRetry = deferred<typeof account>()
+    const reconciliation = deferred<typeof account>()
+    const getProfile = vi.fn()
+      .mockRejectedValueOnce(new Error("initial load failed"))
+      .mockImplementationOnce(() => earlierRetry.promise)
+      .mockImplementationOnce(() => laterRetry.promise)
+      .mockImplementationOnce(() => reconciliation.promise)
+    gatewayRuntime.current = gatewayWith({
+      getProfile,
+      updateProfile: vi.fn(async () => Promise.reject({ code: "CONFLICT" })),
+    })
+    const mounted = mount(() => ProfilePageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const retry = controlByText(tree, "Try again")
+
+    invoke(retry, "onClick")
+    invoke(retry, "onClick")
+    earlierRetry.resolve(account)
+    await flushMicrotasks()
+    tree = mounted.render()
+    const submission = invoke<Promise<void>>(component(tree, ProfileForm), "onSave", {
+      expectedUpdatedAt: profile.updatedAt,
+      displayName: "Owner draft",
+    })
+    await flushMicrotasks()
+    expect(getProfile).toHaveBeenCalledTimes(4)
+
+    laterRetry.reject(new Error("later retry failed"))
+    await flushMicrotasks()
+    reconciliation.resolve({
+      ...account,
+      profile: { ...profile, displayName: "Authoritative owner" },
+    })
+    await submission
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.props["title"] === "Profile unavailable")).toBeDefined()
+    expect(findElement(tree, (element) => element.type === ProfileForm)).toBeUndefined()
+
 describe "preferences page client", ->
   it "loads owner preferences and replaces the form version only after a successful save", async ->
     const saved = { ...preferences, productUpdates: true, updatedAt: new Date("2026-01-03T00:00:00.000Z") }
@@ -574,6 +696,112 @@ describe "preferences page client", ->
       tone: "error",
       message: "The request could not be completed. Try again.",
     })
+
+  it "preserves the preferences form and reports the conflict after a primitive reconciliation failure", async ->
+    const reconciliationFailure = "preferences reconciliation failed"
+    const getPreferences = vi.fn()
+      .mockResolvedValueOnce(preferences)
+      .mockRejectedValueOnce(reconciliationFailure)
+    gatewayRuntime.current = gatewayWith({
+      getPreferences,
+      updatePreferences: vi.fn(async () => Promise.reject({ code: "CONFLICT" })),
+    })
+    storeRuntime.current = uiStore()
+    const mounted = mount(() => PreferencesPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const form = component(tree, PreferencesForm)
+
+    await invoke<Promise<void>>(form, "onSave", {
+      expectedUpdatedAt: preferences.updatedAt,
+      productUpdates: true,
+    })
+
+    tree = mounted.render()
+    const preservedForm = component(tree, PreferencesForm)
+    expect(preservedForm.props["initialPreferences"]).toBe(preferences)
+    expect(preservedForm.props["feedback"]).toEqual({
+      tone: "error",
+      message: "Preferences changed elsewhere. Your choices are preserved; review them and save again.",
+    })
+
+  it "keeps an overlapping preferences load failure authoritative when a save finishes later", async ->
+    const earlierRetry = deferred<typeof preferences>()
+    const laterRetry = deferred<typeof preferences>()
+    const update = deferred<typeof preferences>()
+    const getPreferences = vi.fn()
+      .mockRejectedValueOnce(new Error("initial load failed"))
+      .mockImplementationOnce(() => earlierRetry.promise)
+      .mockImplementationOnce(() => laterRetry.promise)
+    gatewayRuntime.current = gatewayWith({
+      getPreferences,
+      updatePreferences: vi.fn(() => update.promise),
+    })
+    storeRuntime.current = uiStore()
+    const mounted = mount(() => PreferencesPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const retry = controlByText(tree, "Try again")
+
+    invoke(retry, "onClick")
+    invoke(retry, "onClick")
+    earlierRetry.resolve(preferences)
+    await flushMicrotasks()
+    tree = mounted.render()
+    const submission = invoke<Promise<void>>(component(tree, PreferencesForm), "onSave", {
+      expectedUpdatedAt: preferences.updatedAt,
+      productUpdates: true,
+    })
+
+    laterRetry.reject(new Error("later retry failed"))
+    await flushMicrotasks()
+    update.resolve(preferences)
+    await submission
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.props["title"] === "Preferences unavailable")).toBeDefined()
+    expect(findElement(tree, (element) => element.type === PreferencesForm)).toBeUndefined()
+
+  it "keeps an overlapping preferences load failure authoritative when conflict reconciliation finishes later", async ->
+    const earlierRetry = deferred<typeof preferences>()
+    const laterRetry = deferred<typeof preferences>()
+    const reconciliation = deferred<typeof preferences>()
+    const getPreferences = vi.fn()
+      .mockRejectedValueOnce(new Error("initial load failed"))
+      .mockImplementationOnce(() => earlierRetry.promise)
+      .mockImplementationOnce(() => laterRetry.promise)
+      .mockImplementationOnce(() => reconciliation.promise)
+    gatewayRuntime.current = gatewayWith({
+      getPreferences,
+      updatePreferences: vi.fn(async () => Promise.reject({ code: "CONFLICT" })),
+    })
+    storeRuntime.current = uiStore()
+    const mounted = mount(() => PreferencesPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const retry = controlByText(tree, "Try again")
+
+    invoke(retry, "onClick")
+    invoke(retry, "onClick")
+    earlierRetry.resolve(preferences)
+    await flushMicrotasks()
+    tree = mounted.render()
+    const submission = invoke<Promise<void>>(component(tree, PreferencesForm), "onSave", {
+      expectedUpdatedAt: preferences.updatedAt,
+      productUpdates: true,
+    })
+    await flushMicrotasks()
+    expect(getPreferences).toHaveBeenCalledTimes(4)
+
+    laterRetry.reject(new Error("later retry failed"))
+    await flushMicrotasks()
+    reconciliation.resolve({ ...preferences, productUpdates: true })
+    await submission
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.props["title"] === "Preferences unavailable")).toBeDefined()
+    expect(findElement(tree, (element) => element.type === PreferencesForm)).toBeUndefined()
 
 describe "address page client", ->
   it "locks duplicate creates, publishes an optimistic address, and then accepts authoritative refresh", async ->
@@ -860,3 +1088,704 @@ describe "security panel interaction", ->
     tree = mounted.render()
     expect(findElement(tree, (element) => element.props["role"] === "alertdialog")).toBeUndefined()
     expect(trigger.focus).toHaveBeenCalledTimes(2)
+
+const securitySessions = [
+  {
+    id: "session-current",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt,
+    expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+    userAgent: "Current Browser",
+    isCurrent: true,
+  },
+  {
+    id: "session-other",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt,
+    expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+    userAgent: "Other Browser",
+    isCurrent: false,
+  },
+] as const
+
+const securityGatewayWith = (overrides: Record<string, unknown> = {}) => ({
+  listSessions: vi.fn(async () => ({ sessions: securitySessions })),
+  revokeOtherSessions: vi.fn(async () => undefined),
+  changePassword: vi.fn(async () => undefined),
+  ...overrides,
+})
+
+describe "security page client", ->
+  it "moves from accessible loading through safe failure recovery to the session list", async ->
+    const listSessions = vi.fn()
+      .mockRejectedValueOnce({ code: "UNAUTHORIZED" })
+      .mockResolvedValueOnce({ sessions: securitySessions })
+    securityGatewayRuntime.current = securityGatewayWith({ listSessions })
+    const mounted = mount(() => SecurityPageClient())
+
+    let tree = mounted.render()
+    expect(component(tree, SecurityPanel).props["state"]).toEqual({ type: "loading" })
+    await flushMicrotasks()
+    tree = mounted.render()
+    let panel = component(tree, SecurityPanel)
+    expect(panel.props["state"]).toEqual({
+      type: "error",
+      kind: "unauthorized",
+      message: "Your session ended. Sign in again to continue.",
+    })
+
+    invoke(panel, "onRetry")
+    tree = mounted.render()
+    expect(component(tree, SecurityPanel).props["state"]).toEqual({ type: "loading" })
+    await flushMicrotasks()
+    tree = mounted.render()
+    panel = component(tree, SecurityPanel)
+    expect(panel.props["state"]).toEqual({ type: "ready", sessions: securitySessions })
+    expect(listSessions).toHaveBeenCalledTimes(2)
+
+  it "locks repeated session revocation and publishes the refreshed success state", async ->
+    const revoke = deferred<void>()
+    const currentOnly = [securitySessions[0]]
+    const listSessions = vi.fn()
+      .mockResolvedValueOnce({ sessions: securitySessions })
+      .mockResolvedValueOnce({ sessions: currentOnly })
+    const revokeOtherSessions = vi.fn(() => revoke.promise)
+    securityGatewayRuntime.current = securityGatewayWith({ listSessions, revokeOtherSessions })
+    const mounted = mount(() => SecurityPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+
+    invoke(component(tree, SecurityPanel), "onRevokeOthers")
+    tree = mounted.render()
+    let panel = component(tree, SecurityPanel)
+    expect(panel.props["isRevoking"]).toBe(true)
+    invoke(panel, "onRevokeOthers")
+    expect(revokeOtherSessions).toHaveBeenCalledOnce()
+
+    revoke.resolve()
+    await flushMicrotasks()
+    tree = mounted.render()
+    panel = component(tree, SecurityPanel)
+    expect(panel.props["isRevoking"]).toBe(false)
+    expect(panel.props["state"]).toEqual({ type: "ready", sessions: currentOnly })
+    expect(panel.props["feedback"]).toEqual({
+      tone: "success",
+      message: "Other sessions signed out.",
+    })
+
+  it "distinguishes a saved revocation with a failed refresh from a rejected revocation", async ->
+    const listSessions = vi.fn()
+      .mockResolvedValueOnce({ sessions: securitySessions })
+      .mockRejectedValueOnce(new Error("refresh unavailable"))
+    const revokeOtherSessions = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce({ code: "FORBIDDEN" })
+    securityGatewayRuntime.current = securityGatewayWith({ listSessions, revokeOtherSessions })
+    const mounted = mount(() => SecurityPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+
+    invoke(component(tree, SecurityPanel), "onRevokeOthers")
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, SecurityPanel).props["feedback"]).toEqual({
+      tone: "info",
+      message: "Other sessions were signed out, but the session list could not be refreshed.",
+    })
+
+    invoke(component(tree, SecurityPanel), "onRevokeOthers")
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, SecurityPanel).props["feedback"]).toEqual({
+      tone: "error",
+      message: "This security action is not permitted for the current account.",
+    })
+
+  it "resets the password form after saves and preserves safe feedback across refresh and save failures", async ->
+    const currentOnly = [securitySessions[0]]
+    const listSessions = vi.fn()
+      .mockResolvedValueOnce({ sessions: securitySessions })
+      .mockResolvedValueOnce({ sessions: currentOnly })
+      .mockRejectedValueOnce(new Error("refresh unavailable"))
+    const changePassword = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce({ code: "VALIDATION_ERROR" })
+    securityGatewayRuntime.current = securityGatewayWith({ changePassword, listSessions })
+    const mounted = mount(() => SecurityPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    let form = component(tree, PasswordForm)
+    const input = {
+      currentPassword: "current-password",
+      newPassword: "new-password-long-enough",
+      revokeOtherSessions: true,
+    }
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, PasswordForm)
+    expect(changePassword).toHaveBeenCalledWith(input)
+    expect(form.key).toBe("1")
+    expect(form.props["feedback"]).toEqual({ tone: "success", message: "Password changed." })
+    expect(component(tree, SecurityPanel).props["state"]).toEqual({ type: "ready", sessions: currentOnly })
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, PasswordForm)
+    expect(form.key).toBe("2")
+    expect(component(tree, SecurityPanel).props["feedback"]).toEqual({
+      tone: "info",
+      message: "Password changed, but the session list could not be refreshed.",
+    })
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, PasswordForm)
+    expect(form.key).toBe("2")
+    expect(form.props["feedback"]).toEqual({
+      tone: "error",
+      message: "The security request could not be completed. Try again.",
+    })
+
+describe "mounted sign-out action", ->
+  it "hydrates, locks repeat activation, and uses browser history replacement after confirmation", async ->
+    const replace = vi.fn()
+    vi.stubGlobal("window", { location: { replace } })
+    const result = deferred<{ readonly ok: true }>()
+    const signOut = vi.fn(() => result.promise)
+    const mounted = mount(() => SignOutAction({ gateway: { signOut } }))
+
+    let tree = mounted.render()
+    expect(component(tree, SignOutActionView).props["isHydrated"]).toBe(false)
+    tree = mounted.render()
+    let view = component(tree, SignOutActionView)
+    expect(view.props["isHydrated"]).toBe(true)
+
+    invoke(view, "onSignOut")
+    tree = mounted.render()
+    view = component(tree, SignOutActionView)
+    expect(view.props["state"]).toEqual({ type: "pending" })
+    invoke(view, "onSignOut")
+    expect(signOut).toHaveBeenCalledOnce()
+
+    result.resolve({ ok: true })
+    await flushMicrotasks()
+    expect(replace).toHaveBeenCalledWith("/sign-in")
+
+  it "commits an accessible retry state when current-session revocation is uncertain", async ->
+    const replace = vi.fn()
+    const mounted = mount(() => SignOutAction({
+      gateway: {
+        signOut: vi.fn(async () => ({
+          ok: false as const,
+          message: "Sign out could not be confirmed.",
+        })),
+      },
+      replace,
+    }))
+    mounted.render()
+    let tree = mounted.render()
+    invoke(component(tree, SignOutActionView), "onSignOut")
+    await flushMicrotasks()
+    tree = mounted.render()
+    const view = component(tree, SignOutActionView)
+    expect(view.props["state"]).toEqual({
+      type: "error",
+      message: "Sign out could not be confirmed.",
+    })
+    expect(replace).not.toHaveBeenCalled()
+
+describe "security panel exceptional dismissal", ->
+  it "ignores unrelated dialog keys and safely restores when no trigger target exists", ->
+    vi.stubGlobal("window", {
+      setTimeout: (callback: () => void) => {
+        callback()
+        return 1
+      },
+    })
+    const mounted = mount(() => SecurityPanel({
+      feedback: { tone: "info", message: "Review active sessions." },
+      state: { type: "ready", sessions: securitySessions },
+    }))
+    let tree = mounted.render()
+    invoke(controlByText(tree, "Sign out other sessions"), "onClick", { currentTarget: null })
+    tree = mounted.render()
+    const dialog = findElement(tree, (element) => element.props["role"] === "alertdialog")!
+    invoke<void>(dialog, "onKeyDown", { key: "Enter" })
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.props["role"] === "alertdialog")).toBeDefined()
+    invoke(controlByText(tree, "Cancel"), "onClick")
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.props["role"] === "alertdialog")).toBeUndefined()
+
+describe "address page exceptional mutations", ->
+  it "restores form focus, updates an existing address, and warns when the saved list cannot refresh", async ->
+    const origin = new FocusTarget()
+    stubFocusEnvironment({ activeElement: origin })
+    const updatedAddress = {
+      ...address,
+      city: "Updated City",
+      updatedAt: new Date("2026-01-05T00:00:00.000Z"),
+    }
+    const refresh = deferred<readonly typeof address[]>()
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([address])
+      .mockImplementationOnce(() => refresh.promise)
+    const updateAddress = vi.fn(async () => updatedAddress)
+    gatewayRuntime.current = gatewayWith({ listAddresses, updateAddress })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    let book = component(tree, AddressBook)
+
+    invoke(book, "onEdit", address)
+    tree = mounted.render()
+    invoke(component(tree, AddressForm), "onCancel")
+    expect(origin.focus).toHaveBeenCalledOnce()
+    tree = mounted.render()
+    invoke(controlByText(tree, "Add an address"), "onClick")
+    tree = mounted.render()
+    expect(component(tree, AddressForm).props["initialAddress"]).toBeNull()
+    invoke(component(tree, AddressForm), "onCancel")
+
+    tree = mounted.render()
+    invoke(component(tree, AddressBook), "onEdit", address)
+    tree = mounted.render()
+    await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: updatedAddress.city,
+    })
+    tree = mounted.render()
+    book = component(tree, AddressBook)
+    expect(book.props["state"]).toEqual({ type: "ready", addresses: [updatedAddress] })
+    expect(book.props["feedback"]).toEqual({ tone: "success", message: "Address updated." })
+
+    refresh.reject(new Error("refresh unavailable"))
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AddressBook).props["feedback"]).toEqual({
+      tone: "info",
+      message: "The change was saved, but the address list could not be refreshed.",
+    })
+
+  it "blocks another create after an ambiguous result when reconciliation also fails", async ->
+    stubFocusEnvironment()
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("list unavailable"))
+    gatewayRuntime.current = gatewayWith({
+      createAddress: vi.fn(async () => Promise.reject(new Error("connection ended"))),
+      listAddresses,
+    })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke(component(tree, AddressBook), "onCreate")
+    tree = mounted.render()
+
+    await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
+      type: address.type,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      region: address.region,
+      postalCode: address.postalCode,
+      country: address.country,
+      isPrimary: false,
+    })
+    tree = mounted.render()
+    expect(findElement(tree, (element) => element.type === AddressForm)).toBeUndefined()
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "error",
+      kind: "retryable",
+      message: "The address creation outcome is unknown. Reload the address list before creating another.",
+    })
+
+  it "preserves an edit and sanitizes a non-ambiguous save rejection", async ->
+    stubFocusEnvironment()
+    gatewayRuntime.current = gatewayWith({
+      listAddresses: vi.fn(async () => [address]),
+      updateAddress: vi.fn(async () => Promise.reject({ code: "VALIDATION_ERROR" })),
+    })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke(component(tree, AddressBook), "onEdit", address)
+    tree = mounted.render()
+    const originalForm = component(tree, AddressForm)
+
+    await invoke<Promise<void>>(originalForm, "onSave", {
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: "Rejected City",
+    })
+    tree = mounted.render()
+    const preservedForm = component(tree, AddressForm)
+    expect(preservedForm.key).toBe(originalForm.key)
+    expect(preservedForm.props["initialAddress"]).toBe(address)
+    expect(preservedForm.props["feedback"]).toEqual({
+      tone: "error",
+      message: "Check the highlighted fields and try again.",
+    })
+
+  it "locks primary mutation, reconciles a conflict, and handles an ordinary retry safely", async ->
+    const primary = deferred<typeof address>()
+    const authoritative = [
+      { ...address, isPrimary: false },
+      { ...secondAddress, isPrimary: true },
+    ]
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([address, secondAddress])
+      .mockResolvedValueOnce(authoritative)
+    const setPrimaryAddress = vi.fn()
+      .mockImplementationOnce(() => primary.promise)
+      .mockRejectedValueOnce({ code: "VALIDATION_ERROR" })
+    gatewayRuntime.current = gatewayWith({ listAddresses, setPrimaryAddress })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+
+    invoke(component(tree, AddressBook), "onSetPrimary", secondAddress)
+    tree = mounted.render()
+    invoke(component(tree, AddressBook), "onSetPrimary", secondAddress)
+    expect(setPrimaryAddress).toHaveBeenCalledOnce()
+    primary.reject({ code: "CONFLICT" })
+    await flushMicrotasks()
+    tree = mounted.render()
+    let book = component(tree, AddressBook)
+    expect(book.props["state"]).toEqual({ type: "ready", addresses: authoritative })
+    expect((book.props["feedback"] as { message: string }).message).toContain("changed elsewhere")
+
+    invoke(book, "onSetPrimary", address)
+    await flushMicrotasks()
+    tree = mounted.render()
+    book = component(tree, AddressBook)
+    expect(setPrimaryAddress).toHaveBeenCalledTimes(2)
+    expect(book.props["feedback"]).toEqual({
+      tone: "error",
+      message: "Check the highlighted fields and try again.",
+    })
+
+  it "locks confirmed removal and preserves the address across conflict and ordinary failures", async ->
+    stubFocusEnvironment()
+    const removal = deferred<Readonly<{ removed: true }>>()
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([address])
+      .mockResolvedValueOnce([address])
+    const removeAddress = vi.fn()
+      .mockImplementationOnce(() => removal.promise)
+      .mockRejectedValueOnce({ code: "VALIDATION_ERROR" })
+    gatewayRuntime.current = gatewayWith({ listAddresses, removeAddress })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke(component(tree, AddressBook), "onRequestRemove", address)
+    tree = mounted.render()
+
+    invoke(component(tree, AddressBook), "onConfirmRemove", address)
+    tree = mounted.render()
+    invoke(component(tree, AddressBook), "onConfirmRemove", address)
+    expect(removeAddress).toHaveBeenCalledOnce()
+    removal.reject({ code: "CONFLICT" })
+    await flushMicrotasks()
+    tree = mounted.render()
+    let book = component(tree, AddressBook)
+    expect(book.props["state"]).toEqual({ type: "ready", addresses: [address] })
+    expect((book.props["feedback"] as { message: string }).message).toContain("changed elsewhere")
+
+    invoke(book, "onConfirmRemove", address)
+    await flushMicrotasks()
+    tree = mounted.render()
+    book = component(tree, AddressBook)
+    expect(removeAddress).toHaveBeenCalledTimes(2)
+    expect(book.props["feedback"]).toEqual({
+      tone: "error",
+      message: "Check the highlighted fields and try again.",
+    })
+
+  it "ignores a late refresh after a newer mutation has already committed authority", async ->
+    stubFocusEnvironment()
+    const firstRefresh = deferred<readonly (typeof address | typeof secondAddress)[]>()
+    const secondRefresh = deferred<readonly (typeof address | typeof secondAddress)[]>()
+    const edited = { ...address, city: "Optimistic City" }
+    const primary = { ...secondAddress, isPrimary: true }
+    const authoritative = [{ ...edited, isPrimary: false }, primary]
+    const stale = [address, secondAddress]
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([address, secondAddress])
+      .mockImplementationOnce(() => firstRefresh.promise)
+      .mockImplementationOnce(() => secondRefresh.promise)
+    gatewayRuntime.current = gatewayWith({
+      listAddresses,
+      setPrimaryAddress: vi.fn(async () => primary),
+      updateAddress: vi.fn(async () => edited),
+    })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke(component(tree, AddressBook), "onEdit", address)
+    tree = mounted.render()
+    await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: edited.city,
+    })
+    tree = mounted.render()
+    invoke(component(tree, AddressBook), "onSetPrimary", secondAddress)
+    await flushMicrotasks()
+
+    secondRefresh.resolve(authoritative)
+    await flushMicrotasks()
+    firstRefresh.resolve(stale)
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "ready",
+      addresses: authoritative,
+    })
+
+describe "preferences palette reconciliation", ->
+  it "leaves an already-authoritative mode untouched while applying a conflicting palette", async ->
+    const refreshed = {
+      ...preferences,
+      themeMode: "light" as const,
+      palette: "rose" as const,
+    }
+    const getPreferences = vi.fn()
+      .mockResolvedValueOnce(preferences)
+      .mockResolvedValueOnce(refreshed)
+    const store = uiStore("light", "neutral")
+    gatewayRuntime.current = gatewayWith({
+      getPreferences,
+      updatePreferences: vi.fn(async () => Promise.reject({ code: "CONFLICT" })),
+    })
+    storeRuntime.current = store
+    const mounted = mount(() => PreferencesPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+
+    await invoke<Promise<void>>(component(tree, PreferencesForm), "onSave", {
+      expectedUpdatedAt: preferences.updatedAt,
+      profileVisibility: "public",
+    })
+    tree = mounted.render()
+    expect(store.setThemeMode).not.toHaveBeenCalled()
+    expect(store.setPalette).toHaveBeenCalledWith("rose")
+    expect(component(tree, PreferencesForm).props["initialPreferences"]).toBe(refreshed)
+
+describe "address request ordering", ->
+  it "ignores an older retry rejection after a newer retry has restored the list", async ->
+    const olderRetry = deferred<readonly AddressOutput[]>()
+    const newerRetry = deferred<readonly AddressOutput[]>()
+    const listAddresses = vi.fn()
+      .mockRejectedValueOnce(new Error("initial load failed"))
+      .mockImplementationOnce(() => olderRetry.promise)
+      .mockImplementationOnce(() => newerRetry.promise)
+    gatewayRuntime.current = gatewayWith({ listAddresses })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const failedBook = component(tree, AddressBook)
+    expect((failedBook.props["state"] as { type: string }).type).toBe("error")
+
+    invoke(failedBook, "onRetry")
+    invoke(failedBook, "onRetry")
+    newerRetry.resolve([secondAddress])
+    await flushMicrotasks()
+    olderRetry.reject(new Error("superseded retry failed"))
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "ready",
+      addresses: [secondAddress],
+    })
+    expect(listAddresses).toHaveBeenCalledTimes(3)
+
+  it "keeps a newer retry result when an older retry resolves later", async ->
+    const olderRetry = deferred<readonly AddressOutput[]>()
+    const newerRetry = deferred<readonly AddressOutput[]>()
+    const listAddresses = vi.fn()
+      .mockRejectedValueOnce(new Error("initial load failed"))
+      .mockImplementationOnce(() => olderRetry.promise)
+      .mockImplementationOnce(() => newerRetry.promise)
+    gatewayRuntime.current = gatewayWith({ listAddresses })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    const failedBook = component(tree, AddressBook)
+
+    invoke(failedBook, "onRetry")
+    invoke(failedBook, "onRetry")
+    newerRetry.resolve([secondAddress])
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "ready",
+      addresses: [secondAddress],
+    })
+
+    olderRetry.resolve([address])
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "ready",
+      addresses: [secondAddress],
+    })
+    expect(listAddresses).toHaveBeenCalledTimes(3)
+
+  it "keeps the owner edit mounted when conflict reconciliation no longer contains that address", async ->
+    stubFocusEnvironment()
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([address])
+      .mockResolvedValueOnce([])
+    gatewayRuntime.current = gatewayWith({
+      listAddresses,
+      updateAddress: vi.fn(async () => Promise.reject({ code: "CONFLICT" })),
+    })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke(component(tree, AddressBook), "onEdit", address)
+    tree = mounted.render()
+    const originalForm = component(tree, AddressForm)
+
+    await invoke<Promise<void>>(originalForm, "onSave", {
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: "Owner draft",
+    })
+    tree = mounted.render()
+    const preservedForm = component(tree, AddressForm)
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "ready",
+      addresses: [],
+    })
+    expect(preservedForm.props["initialAddress"]).toBe(address)
+    expect(preservedForm.key).toBe(originalForm.key)
+
+  it "keeps a newly opened form mounted while an earlier mutation refresh commits", async ->
+    stubFocusEnvironment()
+    const refreshedAddress = { ...address, city: "Authoritative City" }
+    const refresh = deferred<readonly typeof address[]>()
+    const listAddresses = vi.fn()
+      .mockResolvedValueOnce([address])
+      .mockImplementationOnce(() => refresh.promise)
+    gatewayRuntime.current = gatewayWith({
+      listAddresses,
+      updateAddress: vi.fn(async () => refreshedAddress),
+    })
+    const mounted = mount(() => AddressPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke(component(tree, AddressBook), "onEdit", address)
+    tree = mounted.render()
+    await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: refreshedAddress.city,
+    })
+    tree = mounted.render()
+    invoke(controlByText(tree, "Add an address"), "onClick")
+    tree = mounted.render()
+    expect(component(tree, AddressForm).props["initialAddress"]).toBeNull()
+
+    refresh.resolve([refreshedAddress])
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AddressForm).props["initialAddress"]).toBeNull()
+    expect(component(tree, AddressBook).props["state"]).toEqual({
+      type: "ready",
+      addresses: [refreshedAddress],
+    })
+    invoke(component(tree, AddressForm), "onCancel")
+
+describe "account page mutation recovery", ->
+  it "clears a profile server error before a successful owner retry resets the form", async ->
+    const saved = {
+      ...account,
+      profile: {
+        ...profile,
+        displayName: "Recovered profile",
+        updatedAt: new Date("2026-01-06T00:00:00.000Z"),
+      },
+    }
+    const updateProfile = vi.fn()
+      .mockRejectedValueOnce({ code: "VALIDATION_ERROR" })
+      .mockResolvedValueOnce(saved)
+    gatewayRuntime.current = gatewayWith({ updateProfile })
+    const mounted = mount(() => ProfilePageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    let form = component(tree, ProfileForm)
+    const input = {
+      expectedUpdatedAt: profile.updatedAt,
+      displayName: "Recovered profile",
+    }
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, ProfileForm)
+    expect(form.props["feedback"]).toEqual({
+      tone: "error",
+      message: "Check the highlighted fields and try again.",
+    })
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, ProfileForm)
+    expect(form.props["initialProfile"]).toBe(saved.profile)
+    expect(form.props["feedback"]).toEqual({ tone: "success", message: "Profile saved." })
+    expect(form.key).toBe("1")
+
+  it "clears a preferences storage error before a successful retry resets the form", async ->
+    const saved = {
+      ...preferences,
+      profileVisibility: "members" as const,
+      updatedAt: new Date("2026-01-06T00:00:00.000Z"),
+    }
+    const updatePreferences = vi.fn()
+      .mockRejectedValueOnce({ code: "STORAGE_ERROR" })
+      .mockResolvedValueOnce(saved)
+    gatewayRuntime.current = gatewayWith({ updatePreferences })
+    storeRuntime.current = uiStore()
+    const mounted = mount(() => PreferencesPageClient())
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    let form = component(tree, PreferencesForm)
+    const input = {
+      expectedUpdatedAt: preferences.updatedAt,
+      profileVisibility: "members" as const,
+    }
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, PreferencesForm)
+    expect(form.props["feedback"]).toEqual({
+      tone: "error",
+      message: "Account storage is temporarily unavailable. Try again.",
+    })
+
+    await invoke<Promise<void>>(form, "onSave", input)
+    tree = mounted.render()
+    form = component(tree, PreferencesForm)
+    expect(form.props["initialPreferences"]).toBe(saved)
+    expect(form.props["feedback"]).toEqual({ tone: "success", message: "Preferences saved." })
+    expect(form.key).toBe("1")

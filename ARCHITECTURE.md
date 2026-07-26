@@ -8,7 +8,7 @@ Every design statement belongs to exactly one class:
 
 | Class | Meaning | Change rule | Examples |
 | --- | --- | --- | --- |
-| **Core** | Required in every DarkFactory project | Change through an explicit architecture decision | pnpm/Turborepo, Civet-first source, Vite/vinext, PostgreSQL/Drizzle, Better Auth, oRPC, Tailwind/shadcn, evlog/OpenTelemetry/PostHog adapter, Graphify, lifecycle gates |
+| **Core** | Required in every DarkFactory project | Change through an explicit architecture decision | Bun script runtime, pnpm/Turborepo workspace, Civet-first source, Vite/vinext, PostgreSQL/Drizzle, Better Auth, oRPC, Tailwind/shadcn, evlog/OpenTelemetry/PostHog adapter, Graphify, lifecycle gates |
 | **Capability** | Optional, enabled intentionally, removable without rewriting the domain | Declare a manifest, port, adapter, config, install/remove path, verification, and docs | storage, AI provider, email delivery, jobs, error tracking, memory graph, database extensions |
 | **Convention** | Rule every contributor and agent follows | Update `AGENTS.md` and `CONVENTIONS.md` with the reason | contract-first work, feature-vertical ownership, test-first behavior changes, provider isolation |
 | **Implementation** | Current replaceable realization | May change while its contract remains stable | Cloudflare Workers, PostHog adapter, Groq adapter, Resend adapter, preview email adapter |
@@ -18,7 +18,7 @@ This distinction prevents a vendor, optional service, or current file layout fro
 ## Core topology
 
 ```text
-pnpm workspace + Turborepo task graph
+Bun scripts + pnpm workspace + Turborepo task graph
 │
 ├── apps/web
 │   ├── src/app                    public, auth, portal, account, admin, and API routes
@@ -159,9 +159,9 @@ Provider configuration belongs in infrastructure. Missing optional credentials m
 
 The root scripts are the supported operator surface:
 
-- `pnpm dev` runs the plain application development task. `pnpm dev:https` idempotently inspects PM2 and portless before starting the stable `darkfactory-web-dev` process; status, logs, stop, and trust commands address the same stable identity and canonical `https://darkfactory.localhost` URL.
-- `pnpm doctor` inspects required and optional workstation/runtime prerequisites without printing environment values or starting infrastructure.
-- `pnpm typecheck`, `pnpm build`, the focused test commands, lint, formatting, generated-schema checks, docs checks, measured coverage, and Graphify checks compose the verification lifecycle. `pnpm verify` remains the complete local lifecycle, while `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser` expose independently runnable lanes. Pre-push runs the broad deterministic `verify:core` lane; GitHub Actions runs all five lanes concurrently with isolated dependencies.
+- `bun run dev` runs the plain application development task. `bun run dev:https` idempotently inspects PM2 and Portless before starting `portless darkfactory bun run dev` as the stable `darkfactory-web-dev` process; status, logs, stop, and trust commands address the same identity and canonical `https://darkfactory.localhost` URL.
+- `bun run doctor` independently probes installed Bun 1.3.14 and Node >=22.13 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
+- `bun run typecheck`, `bun run build`, focused tests, lint, formatting, generated-schema checks, docs checks, measured coverage, and Graphify checks compose the lifecycle. `bun run verify` remains complete; the coverage script is the explicit Node exception because Bun lacks the `node:inspector` APIs used by Vitest V8 coverage.
 - Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Deploy scripts own only the official vinext/Cloudflare path.
 
 Graphify output is generated context rather than an authored runtime dependency. Repository Graphify commands must use the tracked secure wrapper, and graph evidence is valid only after the current source tree passes build/check/verify.
@@ -174,7 +174,7 @@ Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly 
 
 Canonical local development uses `https://darkfactory.localhost` through portless, with PM2 owning the stable `darkfactory-web-dev` process. Portless trust is primary for secure cookies, authentication callbacks, secure-context APIs, and production-like assumptions. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
 
-GitHub Actions runs the same five verification lanes composed by `pnpm run ci`, but executes them concurrently with `fail-fast: false` so one environment-heavy lane cannot hide another lane's result. The coverage lane enforces the documented deterministic unit/contract/operations baseline; its badge is not whole-system or security evidence. Bare `pnpm ci` is pnpm's clean-install command, not the lifecycle gate. Current CI verifies builds, tests, contracts, coverage non-regression, Graphify freshness, browser journeys, and accessibility; it performs neither a deployment dry run nor a deployment. The deployment scripts expose preview, non-deploying check, and deploy actions for an authorized operator, who invokes them only after terminal green CI.
+GitHub Actions runs the same five verification lanes composed by `bun run ci`, but executes them concurrently with `fail-fast: false` so one environment-heavy lane cannot hide another lane's result. pnpm remains the package/workspace/lockfile owner; CI retains Node, Corepack, and the frozen pnpm install before using Bun-backed scripts. Current CI verifies builds, tests, contracts, coverage non-regression, Graphify freshness, browser journeys, and accessibility; it performs neither a deployment dry run nor a deployment.
 
 ## Baseline observability
 
@@ -195,7 +195,7 @@ The following earlier options are not the DarkFactory baseline:
 
 - Traditional Next.js/OpenNext scaffolding and TanStack Start/Convex were superseded by **Vite/vinext on Cloudflare**.
 - Better-T-Stack may inform scaffolding, but DarkFactory is not coupled to it and vinext is not treated as a Better-T-Stack option.
-- Bun was superseded by **pnpm as the only package manager and lockfile owner**; Bun is merely an optional compatible script runtime.
+- Bun 1.3.14 is the **primary script and TypeScript runtime**; pnpm 11.16.0 remains the **only package manager, workspace resolver, and lockfile owner**, while Node >=22.13 remains a measured compatibility runtime and Cloudflare Workers remains production.
 - A flat single-app layout was superseded by **pnpm workspaces with Turborepo at the root**, allowing additional apps without forcing them initially.
 - tRPC was superseded by **contract-first oRPC** for typed errors, OpenAPI, and non-TypeScript consumers.
 - Redis and RabbitMQ defaults, including speculative fallback language, were superseded by the **PostgreSQL-first decision order**.

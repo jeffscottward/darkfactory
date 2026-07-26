@@ -1,3 +1,4 @@
+import { constants } from "node:fs"
 import {
   lstat,
   mkdir,
@@ -11,7 +12,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { JourneyResult, JourneySuiteReport } from "./runner.civet"
 import { persistE2ERunnerState } from "./state.civet"
@@ -198,5 +199,214 @@ describe("atomic E2E runner state", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+})
+
+const stateParentStats = (dev = 1, ino = 2) => ({
+  dev,
+  ino,
+  isDirectory: () => true,
+  isSymbolicLink: () => false,
+})
+
+const stateTemporaryStats = (mode = 0o600) => ({
+  mode,
+  isFile: () => true,
+})
+
+const missingStateTarget = (): NodeJS.ErrnoException =>
+  Object.assign(new Error("missing"), { code: "ENOENT" })
+
+const fakeStateFileSystem = () => {
+  const lstatSync = vi.fn()
+    .mockReturnValueOnce(stateParentStats())
+    .mockImplementationOnce(() => {
+      throw missingStateTarget()
+    })
+    .mockReturnValueOnce(stateParentStats())
+  const openSync = vi.fn()
+    .mockReturnValueOnce(41)
+    .mockReturnValueOnce(42)
+  return {
+    closeSync: vi.fn(),
+    constants: { ...constants, O_NOFOLLOW: undefined },
+    fstatSync: vi.fn(() => stateTemporaryStats()),
+    fsyncSync: vi.fn(),
+    lstatSync,
+    mkdirSync: vi.fn(),
+    openSync,
+    realpathSync: vi.fn((path: string) => path),
+    renameSync: vi.fn(),
+    rmSync: vi.fn(),
+    writeSync: vi.fn((
+      _descriptor: number,
+      _content: Buffer,
+      _offset: number,
+      length: number,
+    ) => length),
+  }
+}
+
+const loadFakeStatePersistence = async (
+  filesystem: ReturnType<typeof fakeStateFileSystem>,
+) => {
+  vi.doUnmock("node:crypto")
+  vi.doUnmock("node:fs")
+  vi.resetModules()
+  vi.doMock("node:crypto", () => ({
+    randomUUID: () => "fixed-state-write",
+  }))
+  vi.doMock("node:fs", () => filesystem)
+  return (await import("./state.civet")).persistE2ERunnerState
+}
+
+const createdProgressState = Object.freeze({
+  version: 1 as const,
+  phase: "progress" as const,
+  progress: Object.freeze({
+    spec: "tests/e2e/auth.spec.ts",
+    runId: "fake_state_run",
+    stage: "created" as const,
+  }),
+})
+
+describe("atomic state filesystem fakes", () => {
+  afterEach(() => {
+    vi.doUnmock("node:crypto")
+    vi.doUnmock("node:fs")
+    vi.resetModules()
+    vi.restoreAllMocks()
+  })
+
+  it("uses portable flags and completes a partial state write", async () => {
+    const filesystem = fakeStateFileSystem()
+    let writes = 0
+    filesystem.writeSync.mockImplementation((
+      _descriptor: number,
+      _content: Buffer,
+      _offset: number,
+      length: number,
+    ) => writes++ === 0 ? 1 : length)
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).not.toThrow()
+
+    expect(filesystem.writeSync).toHaveBeenCalledTimes(2)
+    expect(filesystem.openSync).toHaveBeenNthCalledWith(
+      1,
+      `/workspace/test-results/.e2e-runner-state.${process.pid}-fixed-state-write.tmp`,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+      0o600,
+    )
+    expect(filesystem.openSync).toHaveBeenNthCalledWith(
+      2,
+      "/workspace/test-results",
+      constants.O_RDONLY,
+    )
+    expect(filesystem.renameSync).toHaveBeenCalledOnce()
+    expect(filesystem.fsyncSync).toHaveBeenCalledTimes(2)
+    expect(filesystem.closeSync).toHaveBeenCalledTimes(2)
+    expect(filesystem.rmSync).not.toHaveBeenCalled()
+  })
+
+  it("closes and removes a temporary file with unsafe metadata", async () => {
+    const filesystem = fakeStateFileSystem()
+    filesystem.fstatSync.mockReturnValue(stateTemporaryStats(0o644))
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).toThrow(
+      /temporary is unsafe/i,
+    )
+    expect(filesystem.closeSync).toHaveBeenCalledWith(41)
+    expect(filesystem.rmSync).toHaveBeenCalledWith(
+      expect.stringContaining(".e2e-runner-state."),
+      { force: true },
+    )
+    expect(filesystem.renameSync).not.toHaveBeenCalled()
+  })
+
+  it("preserves a no-progress write error when best-effort close also fails", async () => {
+    const filesystem = fakeStateFileSystem()
+    filesystem.writeSync.mockReturnValue(0)
+    filesystem.closeSync.mockImplementation(() => {
+      throw new Error("private close failure")
+    })
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).toThrow(
+      /write made no progress/i,
+    )
+    expect(filesystem.closeSync).toHaveBeenCalledWith(41)
+    expect(filesystem.rmSync).toHaveBeenCalledOnce()
+    expect(filesystem.renameSync).not.toHaveBeenCalled()
+  })
+
+  it("removes the temporary file when the parent identity changes before publish", async () => {
+    const filesystem = fakeStateFileSystem()
+    filesystem.lstatSync.mockReset()
+      .mockReturnValueOnce(stateParentStats())
+      .mockImplementationOnce(() => {
+        throw missingStateTarget()
+      })
+      .mockReturnValueOnce(stateParentStats(9, 9))
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).toThrow(
+      /parent identity changed/i,
+    )
+    expect(filesystem.renameSync).not.toHaveBeenCalled()
+    expect(filesystem.rmSync).toHaveBeenCalledOnce()
+    expect(filesystem.closeSync).toHaveBeenCalledTimes(1)
+  })
+
+  it("rethrows a non-existence mkdir failure before touching state paths", async () => {
+    const filesystem = fakeStateFileSystem()
+    const failure = Object.assign(new Error("private mkdir failure"), {
+      code: "EACCES",
+    })
+    filesystem.mkdirSync.mockImplementation(() => {
+      throw failure
+    })
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).toThrow(failure)
+    expect(filesystem.lstatSync).not.toHaveBeenCalled()
+    expect(filesystem.openSync).not.toHaveBeenCalled()
+    expect(filesystem.rmSync).not.toHaveBeenCalled()
+  })
+
+  it("removes an unopened temporary path without attempting descriptor cleanup", async () => {
+    const filesystem = fakeStateFileSystem()
+    const failure = Object.assign(new Error("private open failure"), {
+      code: "EACCES",
+    })
+    filesystem.openSync.mockReset().mockImplementationOnce(() => {
+      throw failure
+    })
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).toThrow(failure)
+    expect(filesystem.closeSync).not.toHaveBeenCalled()
+    expect(filesystem.rmSync).toHaveBeenCalledWith(
+      `/workspace/test-results/.e2e-runner-state.${process.pid}-fixed-state-write.tmp`,
+      { force: true },
+    )
+    expect(filesystem.renameSync).not.toHaveBeenCalled()
+  })
+
+  it("preserves the write failure when best-effort close throws a primitive", async () => {
+    const filesystem = fakeStateFileSystem()
+    filesystem.writeSync.mockReturnValue(0)
+    filesystem.closeSync.mockImplementation(() => {
+      throw "private primitive close failure"
+    })
+    const persist = await loadFakeStatePersistence(filesystem)
+
+    expect(() => persist("/workspace", createdProgressState)).toThrow(
+      /write made no progress/i,
+    )
+    expect(filesystem.closeSync).toHaveBeenCalledWith(41)
+    expect(filesystem.rmSync).toHaveBeenCalledOnce()
+    expect(filesystem.renameSync).not.toHaveBeenCalled()
   })
 })

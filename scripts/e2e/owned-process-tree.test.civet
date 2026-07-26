@@ -20,8 +20,6 @@ import {
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
   type OwnedProcess,
-  type TaskkillResult,
-  type TaskkillRunner,
 } from "./owned-process-tree.civet"
 
 type MutableChild = ChildProcess & {
@@ -131,7 +129,7 @@ describe("owned process spawning and existence", () => {
     if (process.platform === "win32") {
       expect(ownedProcessTreeExists(child)).toBe(true)
       child.exitCode = 0
-      expect(ownedProcessTreeExists(child)).toBe(false)
+      expect(ownedProcessTreeExists(child)).toBe(true)
       return
     }
 
@@ -156,6 +154,17 @@ describe("owned process spawning and existence", () => {
     }) as typeof process.kill)
     expect(() => ownedProcessTreeExists(child)).toThrow(failure)
   })
+  it("conservatively treats a Windows PID as possibly containing descendants", () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+    const child = fakeChild()
+
+    expect(ownedProcessTreeExists(child)).toBe(true)
+    child.signalCode = "SIGTERM"
+    expect(ownedProcessTreeExists(child)).toBe(true)
+    child.signalCode = null
+    child.exitCode = 0
+    expect(ownedProcessTreeExists(child)).toBe(true)
+  })
 })
 
 describe("owned process tree termination", () => {
@@ -173,212 +182,27 @@ describe("owned process tree termination", () => {
     })).rejects.toThrow(/has no PID/i)
   })
 
-  it("returns without signaling an already exited Windows tree", async () => {
+  it("rejects an exited Windows child without invoking taskkill", async () => {
     const child = fakeChild(4_321, 0)
     const owned = spawnFake(child)
-    const taskkillRunner = vi.fn<TaskkillRunner>()
 
     await expect(terminateOwnedProcessTree(owned, {
       platform: "win32",
-      taskkillRunner,
-    })).resolves.toBeUndefined()
-    expect(taskkillRunner).not.toHaveBeenCalled()
+    })).rejects.toThrow(/termination is unproven on Windows/i)
+    expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual([
+      "trusted-command",
+    ])
   })
 
-  it("stops a Windows tree gracefully through the injected taskkill runner", async () => {
+  it("rejects a live Windows child without invoking taskkill", async () => {
     const child = fakeChild()
     const owned = spawnFake(child)
-    const taskkillRunner = vi.fn<TaskkillRunner>(async (_pid, force, signal) => {
-      expect(force).toBe(false)
-      expect(signal.aborted).toBe(false)
-      child.exitCode = 0
-      return { exitCode: 0, signal: null }
-    })
 
     await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
       platform: "win32",
-      taskkillRunner,
-      taskkillTimeoutMillis: 100,
-    })).resolves.toBeUndefined()
-    expect(taskkillRunner).toHaveBeenCalledTimes(1)
-    expect(taskkillRunner).toHaveBeenCalledWith(
-      4_321,
-      false,
-      expect.any(AbortSignal),
-    )
-  })
-
-  it("escalates a surviving Windows tree from graceful to forced taskkill", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const forceFlags: boolean[] = []
-    const taskkillRunner = vi.fn<TaskkillRunner>(async (_pid, force) => {
-      forceFlags.push(force)
-      if (force) child.exitCode = 1
-      return { exitCode: 0, signal: null }
-    })
-
-    await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    })).resolves.toBeUndefined()
-    expect(forceFlags).toEqual([false, true])
-  })
-
-  it("falls back to force after a graceful taskkill error", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const gracefulFailure = new Error("graceful taskkill unavailable")
-    const taskkillRunner = vi.fn<TaskkillRunner>(async (_pid, force) => {
-      if (!force) throw gracefulFailure
-      child.exitCode = 1
-      return { exitCode: 0, signal: null }
-    })
-
-    await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    })).resolves.toBeUndefined()
-    expect(taskkillRunner.mock.calls.map((call) => call[1])).toEqual([false, true])
-  })
-
-  it.each([
-    ["a nonzero taskkill exit", { exitCode: 7, signal: null }, /code 7/i],
-    ["a signaled taskkill exit", { exitCode: null, signal: "SIGTERM" }, /signal SIGTERM/i],
-  ] as const)("reports graceful and forced failures from %s", async (
-    _case,
-    result,
-    expectedMessage,
-  ) => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const taskkillRunner = vi.fn<TaskkillRunner>(async () => result as TaskkillResult)
-
-    const error = await captureRejection(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    }))
-    expect(error).toBeInstanceOf(AggregateError)
-    expect((error as AggregateError).message).toMatch(/failed to terminate/i)
-    expect((error as AggregateError).errors).toHaveLength(2)
-    expect((error as AggregateError).errors[0]).toEqual(
-      expect.objectContaining({ message: expect.stringMatching(expectedMessage) }),
-    )
-    expect((error as AggregateError).errors[1]).toEqual(
-      expect.objectContaining({ message: expect.stringMatching(expectedMessage) }),
-    )
-  })
-
-  it("reports only the force error when graceful signaling succeeded", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const forceFailure = new Error("forced taskkill unavailable")
-    const taskkillRunner = vi.fn<TaskkillRunner>(async (_pid, force) => {
-      if (force) throw forceFailure
-      return { exitCode: 0, signal: null }
-    })
-
-    const error = await captureRejection(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    }))
-    expect(error).toBeInstanceOf(AggregateError)
-    expect((error as AggregateError).errors).toEqual([forceFailure])
-  })
-
-  it("fails when a tree still exists after forced termination", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const taskkillRunner = vi.fn<TaskkillRunner>(async () => ({
-      exitCode: 0,
-      signal: null,
-    }))
-
-    await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    })).rejects.toThrow(/did not exit after SIGKILL/i)
-    expect(taskkillRunner.mock.calls.map((call) => call[1])).toEqual([false, true])
-  })
-
-  it("aborts and bounds both hanging taskkill attempts", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const signals: AbortSignal[] = []
-    const taskkillRunner = vi.fn<TaskkillRunner>((_pid, _force, signal) => {
-      signals.push(signal)
-      return new Promise<TaskkillResult>(() => undefined)
-    })
-
-    const termination = terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-      taskkillTimeoutMillis: 10,
-    })
-    const captured = captureRejection(termination)
-    await vi.runAllTimersAsync()
-    const error = await captured
-
-    expect(error).toBeInstanceOf(AggregateError)
-    expect((error as AggregateError).errors).toHaveLength(2)
-    expect((error as AggregateError).errors.every((entry) =>
-      entry instanceof Error && /taskkill timed out/u.test(entry.message)
-    )).toBe(true)
-    expect(signals).toHaveLength(2)
-    expect(signals.every((signal) => signal.aborted)).toBe(true)
-  })
-
-  it("uses the shell-free default taskkill runner and forces after its error event", async () => {
-    const child = fakeChild()
-    childProcess.spawn.mockReturnValueOnce(child)
-    childProcess.spawn.mockImplementation((command, arguments_) => {
-      expect(command).toBe("taskkill")
-      const taskkill = new EventEmitter()
-      const force = (arguments_ as string[]).includes("/F")
-      queueMicrotask(() => {
-        if (!force) {
-          taskkill.emit("error", new Error("graceful taskkill failed"))
-          return
-        }
-        child.exitCode = 1
-        taskkill.emit("exit", 0, null)
-      })
-      return taskkill as never
-    })
-    const owned = spawnOwnedProcess("trusted-command", [], {})
-
-    await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillTimeoutMillis: 100,
-    })).resolves.toBeUndefined()
-
-    expect(childProcess.spawn.mock.calls.slice(1)).toEqual([
-      ["taskkill", ["/PID", "4321", "/T"], {
-        shell: false,
-        signal: expect.any(AbortSignal),
-        stdio: "ignore",
-        windowsHide: true,
-      }],
-      ["taskkill", ["/PID", "4321", "/T", "/F"], {
-        shell: false,
-        signal: expect.any(AbortSignal),
-        stdio: "ignore",
-        windowsHide: true,
-      }],
+    })).rejects.toThrow(/termination is unproven on Windows/i)
+    expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual([
+      "trusted-command",
     ])
   })
 
@@ -418,6 +242,80 @@ describe("owned process tree termination", () => {
     })).resolves.toBeUndefined()
   })
 
+  it("does not signal an already absent POSIX process group", async () => {
+    const child = fakeChild()
+    const owned = spawnFake(child)
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux")
+    const kill = vi.spyOn(process, "kill").mockImplementation((() => {
+      throw errno("ESRCH")
+    }) as typeof process.kill)
+    await expect(terminateOwnedProcessTree(owned)).resolves.toBeUndefined()
+    expect(kill).toHaveBeenCalledOnce()
+    expect(kill).toHaveBeenCalledWith(-4_321, 0)
+  })
+
+  it("uses default deadlines before a forced POSIX exit", async () => {
+    vi.useFakeTimers()
+    const child = fakeChild()
+    const owned = spawnFake(child)
+    let alive = true
+    const delivered: NodeJS.Signals[] = []
+    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+      if (signal === 0) {
+        if (alive) return true
+        throw errno("ESRCH")
+      }
+      delivered.push(signal as NodeJS.Signals)
+      if (signal === "SIGKILL") {
+        setTimeout(() => {
+          alive = false
+        }, 10)
+      }
+      return true
+    }) as typeof process.kill)
+
+    const termination = terminateOwnedProcessTree(owned, { platform: "linux" })
+    await vi.runAllTimersAsync()
+
+    await expect(termination).resolves.toBeUndefined()
+    expect(delivered).toEqual(["SIGTERM", "SIGKILL"])
+  })
+
+  it("fails when a POSIX tree survives forced termination", async () => {
+    const child = fakeChild()
+    const owned = spawnFake(child)
+    const delivered: NodeJS.Signals[] = []
+    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+      if (signal === 0) return true
+      delivered.push(signal as NodeJS.Signals)
+      return true
+    }) as typeof process.kill)
+
+    await expect(terminateOwnedProcessTree(owned, {
+      forceTimeoutMillis: 0,
+      gracefulTimeoutMillis: 0,
+      platform: "linux",
+    })).rejects.toThrow(/did not exit after SIGKILL/i)
+    expect(delivered).toEqual(["SIGTERM", "SIGKILL"])
+  })
+
+  it("reports only the forced POSIX signal failure after graceful signaling", async () => {
+    const child = fakeChild()
+    const owned = spawnFake(child)
+    const forceFailure = errno("EACCES")
+    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+      if (signal === 0 || signal === "SIGTERM") return true
+      throw forceFailure
+    }) as typeof process.kill)
+
+    const error = await captureRejection(terminateOwnedProcessTree(owned, {
+      gracefulTimeoutMillis: 0,
+      platform: "linux",
+    }))
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toEqual([forceFailure])
+  })
+
   it("aggregates unexpected POSIX graceful and forced signal failures", async () => {
     const child = fakeChild()
     const owned = spawnFake(child)
@@ -437,60 +335,90 @@ describe("owned process tree termination", () => {
     ])
   })
 
-  it("shares one in-flight termination across concurrent callers", async () => {
+  it("allows a retry after a transient termination failure", async () => {
     const child = fakeChild()
     const owned = spawnFake(child)
-    let release!: () => void
-    const taskkillRunner = vi.fn<TaskkillRunner>(() =>
-      new Promise<TaskkillResult>((resolve) => {
-        release = () => {
-          child.exitCode = 0
-          resolve({ exitCode: 0, signal: null })
-        }
-      })
-    )
+    let attempt = 0
+    let alive = true
+    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
+      expect(pid).toBe(-4_321)
+      if (signal === 0) {
+        if (alive) return true
+        throw errno("ESRCH")
+      }
+      if (signal === "SIGTERM") {
+        attempt += 1
+        if (attempt === 1) throw errno("EPERM")
+        alive = false
+        return true
+      }
+      if (attempt === 1) throw errno("EACCES")
+      alive = false
+      return true
+    }) as typeof process.kill)
 
-    const first = terminateOwnedProcessTree(owned, {
+    await expect(terminateOwnedProcessTree(owned, {
       gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    })
-    const second = terminateOwnedProcessTree(owned, {
+      platform: "linux",
+    })).rejects.toThrow(/failed to terminate/i)
+    await expect(terminateOwnedProcessTree(owned, {
       gracefulTimeoutMillis: 0,
-      platform: "win32",
-      taskkillRunner,
-    })
-    expect(taskkillRunner).toHaveBeenCalledTimes(1)
-    release()
+      platform: "linux",
+    })).resolves.toBeUndefined()
+    expect(attempt).toBe(2)
+  })
 
+  it("coalesces in-flight termination and memoizes success without another PID probe", async () => {
+    vi.useFakeTimers()
+    const child = fakeChild()
+    const owned = spawnFake(child)
+    let alive = true
+    const delivered: NodeJS.Signals[] = []
+    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
+      expect(pid).toBe(-4_321)
+      if (signal === 0) {
+        if (alive) return true
+        throw errno("ESRCH")
+      }
+      delivered.push(signal as NodeJS.Signals)
+      if (signal === "SIGTERM") {
+        setTimeout(() => {
+          alive = false
+        }, 10)
+      }
+      return true
+    }) as typeof process.kill)
+    const options = {
+      gracefulTimeoutMillis: 50,
+      platform: "linux" as const,
+    }
+
+    const first = terminateOwnedProcessTree(owned, options)
+    const second = terminateOwnedProcessTree(owned, options)
+    expect(delivered).toEqual(["SIGTERM"])
+    await vi.advanceTimersByTimeAsync(25)
     await expect(Promise.all([first, second])).resolves.toEqual([
       undefined,
       undefined,
     ])
-    expect(taskkillRunner).toHaveBeenCalledTimes(1)
+    const callsAfterSuccess = vi.mocked(process.kill).mock.calls.length
+    await expect(terminateOwnedProcessTree(owned, options)).resolves.toBeUndefined()
+    expect(process.kill).toHaveBeenCalledTimes(callsAfterSuccess)
+    expect(delivered).toEqual(["SIGTERM"])
   })
 
-  it("runs cleanup only after termination and propagates cleanup errors", async () => {
+  it("withholds cleanup when Windows containment is unproven", async () => {
     const child = fakeChild()
     const owned = spawnFake(child)
-    const order: string[] = []
-    const taskkillRunner = vi.fn<TaskkillRunner>(async () => {
-      order.push("terminated")
-      child.exitCode = 0
-      return { exitCode: 0, signal: null }
-    })
-    const cleanupFailure = new Error("cleanup failed")
-    const cleanup = vi.fn(async () => {
-      order.push("cleanup")
-      throw cleanupFailure
-    })
+    const cleanup = vi.fn(async () => undefined)
 
     await expect(terminateOwnedProcessTreeThen(owned, cleanup, {
-      gracefulTimeoutMillis: 0,
       platform: "win32",
-      taskkillRunner,
-    })).rejects.toThrow(cleanupFailure)
-    expect(order).toEqual(["terminated", "cleanup"])
+    })).rejects.toThrow(/termination is unproven on Windows/i)
+    expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual([
+      "trusted-command",
+    ])
+    expect(cleanup).not.toHaveBeenCalled()
 
     const refusedCleanup = vi.fn(async () => undefined)
     await expect(terminateOwnedProcessTreeThen(

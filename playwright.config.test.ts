@@ -24,6 +24,7 @@ import {
 import {
   E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
   E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS,
+  E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS,
 } from "./tests/e2e/helpers/lifecycle-budgets";
 import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
@@ -242,6 +243,11 @@ describe("canonical Playwright runtime", () => {
     expect(playwrightConfig.use?.screenshot).toBe("off");
     expect(playwrightConfig.use?.trace).toBe("off");
     expect(playwrightConfig.use?.video).toBe("off");
+    expect(E2E_PROCESS_TERMINATION_OPTIONS).toEqual({
+      forceTimeoutMillis: 2000,
+      gracefulTimeoutMillis: 2000,
+    });
+    expect(E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS).toBe(4000);
     expect(E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS).toBeGreaterThan(
       E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS +
         E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS

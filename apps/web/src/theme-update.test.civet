@@ -53,6 +53,33 @@ describe "trusted theme updates", ->
     expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "violet" })
     expect(store.getState()).not.toHaveProperty("updatedAt")
 
+
+  it "propagates a primitive PATCH failure instead of treating it as a lost response", async ->
+    const store = createUiStore()
+    const failure = "primitive theme update failure"
+    const get = vi.fn(async () => ({
+      themeMode: "system" as const,
+      palette: "neutral" as const,
+      updatedAt: versionA,
+    }))
+
+    await expect(updateTrustedThemePreference({
+      authority: () => "trusted",
+      authorityEpoch: () => 0,
+      get,
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store,
+      update: async () => {
+        throw failure
+      },
+    })).rejects.toBe(failure)
+    expect(get).toHaveBeenCalledOnce()
+    expect(store.getState()).toMatchObject({
+      themeMode: "system",
+      palette: "neutral",
+    })
+
   it "passes a null missing-row version as insert-only expectedUpdatedAt", async ->
     const store = createUiStore()
     const update = vi.fn(async () => ({
@@ -400,3 +427,235 @@ describe "trusted theme updates", ->
     expect(patchGetCount).toBe(2)
     expect(store.getState()).toMatchObject({ themeMode: "system", palette: "neutral" })
     expect(vi.getTimerCount()).toBe(0)
+
+describe "bounded theme API transport", ->
+  afterEach -> vi.useRealTimers()
+
+  it "reconstructs a bounded streaming response with its response metadata", async ->
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"themeMode":'))
+        controller.enqueue(encoder.encode('"dark"}'))
+        controller.close()
+      },
+    })
+
+    const response = await fetchThemeApiRequest({
+      fetchRequest: async () => new Response(body, {
+        headers: { "content-type": "application/json", "x-result": "bounded" },
+        status: 206,
+        statusText: "Partial Content",
+      }),
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })
+
+    expect(response.status).toBe(206)
+    expect(response.statusText).toBe("Partial Content")
+    expect(response.headers.get("x-result")).toBe("bounded")
+    expect(await response.text()).toBe('{"themeMode":"dark"}')
+
+  it "returns a bodyless response without replacing it", async ->
+    const source = new Response(null, { status: 204 })
+
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async () => source,
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })).resolves.toBe(source)
+
+  it "fails closed when cancellation of declared or streamed excess rejects", async ->
+    const declaredCancel = vi.fn(async () => {
+      throw new Error("declared cancellation unavailable")
+    })
+    const declaredBody = new ReadableStream<Uint8Array>({
+      cancel: declaredCancel,
+    })
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async () => new Response(declaredBody, {
+        headers: { "content-length": "16385" },
+      }),
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })).rejects.toThrow("Theme response exceeded the safe size limit")
+    expect(declaredCancel).toHaveBeenCalledOnce()
+
+    const streamedCancel = vi.fn(async () => {
+      throw new Error("stream cancellation unavailable")
+    })
+    const streamedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(16_385))
+      },
+      cancel: streamedCancel,
+    })
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async () => new Response(streamedBody),
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })).rejects.toThrow("Theme response exceeded the safe size limit")
+    expect(streamedCancel).toHaveBeenCalledOnce()
+
+  it "propagates primitive cancellation failures for declared and streamed excess", async ->
+    const declaredFailure = "primitive declared cancellation failure"
+    const declaredCancel = vi.fn(async () => {
+      throw declaredFailure
+    })
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async () => new Response(
+        new ReadableStream<Uint8Array>({ cancel: declaredCancel }),
+        { headers: { "content-length": "16385" } },
+      ),
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })).rejects.toBe(declaredFailure)
+    expect(declaredCancel).toHaveBeenCalledOnce()
+
+    const streamedFailure = "primitive streamed cancellation failure"
+    const streamedCancel = vi.fn(async () => {
+      throw streamedFailure
+    })
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(16_385))
+        },
+        cancel: streamedCancel,
+      })),
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })).rejects.toBe(streamedFailure)
+    expect(streamedCancel).toHaveBeenCalledOnce()
+
+  it "propagates an already-aborted caller signal through the forwarded request", async ->
+    const controller = new AbortController()
+    const reason = new DOMException("caller cancelled", "AbortError")
+    controller.abort(reason)
+    let forwardedSignal: AbortSignal | undefined
+
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async (input, init) => {
+        const forwarded = input instanceof Request
+          ? input
+          : new Request(input, init)
+        forwardedSignal = forwarded.signal
+        return new Response(new ReadableStream<Uint8Array>())
+      },
+      request: new Request("https://darkfactory.example/api/orpc", {
+        signal: controller.signal,
+      }),
+    })).rejects.toBe(reason)
+    expect(forwardedSignal?.aborted).toBe(true)
+
+  it "absorbs body-cancellation failure while preserving the timeout reason", async ->
+    vi.useFakeTimers()
+    const cancel = vi.fn(async () => {
+      throw new Error("deadline cancellation unavailable")
+    })
+    const pending = fetchThemeApiRequest({
+      fetchRequest: async () => new Response(
+        new ReadableStream<Uint8Array>({ cancel }),
+      ),
+      request: new Request("https://darkfactory.example/api/orpc"),
+      timeoutMs: 5,
+    })
+    const rejection = expect(pending).rejects.toMatchObject({
+      message: "Theme preference request timed out",
+      name: "TimeoutError",
+    })
+
+    await vi.advanceTimersByTimeAsync(5)
+    await rejection
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+
+describe "trusted theme fail-closed branches", ->
+  const currentVersion = new Date("2026-07-25T10:00:00.000Z")
+
+  it "supersedes before preflight when trusted authority is already absent", async ->
+    const get = vi.fn()
+    const update = vi.fn()
+    const result = await updateTrustedThemePreference({
+      authority: () => "anonymous",
+      authorityEpoch: () => 0,
+      get,
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store: createUiStore(),
+      update,
+    })
+
+    expect(result).toBe("superseded")
+    expect(get).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+
+  it "preserves supersession when a failed preflight also loses authority", async ->
+    let authority: "trusted" | "anonymous" = "trusted"
+    const result = await updateTrustedThemePreference({
+      authority: () => authority,
+      authorityEpoch: () => 0,
+      get: async () => {
+        authority = "anonymous"
+        throw new Error("preflight unavailable")
+      },
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store: createUiStore(),
+      update: vi.fn(),
+    })
+
+    expect(result).toBe("superseded")
+
+  it "preserves supersession when failed reconciliation loses authority", async ->
+    let authority: "trusted" | "anonymous" = "trusted"
+    let getCount = 0
+    const result = await updateTrustedThemePreference({
+      authority: () => authority,
+      authorityEpoch: () => 0,
+      get: async () => {
+        getCount += 1
+        if (getCount === 1) {
+          return {
+            themeMode: "system" as const,
+            palette: "neutral" as const,
+            updatedAt: currentVersion,
+          }
+        }
+        authority = "anonymous"
+        throw new Error("reconciliation unavailable")
+      },
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store: createUiStore(),
+      update: async () => {
+        throw new Error("save response unavailable")
+      },
+    })
+
+    expect(result).toBe("superseded")
+    expect(getCount).toBe(2)
+
+  it "reports an unconfirmed update when saved and reconciled values are malformed", async ->
+    const get = vi.fn()
+      .mockResolvedValueOnce({
+        themeMode: "system",
+        palette: "neutral",
+        updatedAt: currentVersion,
+      })
+      .mockResolvedValueOnce(null)
+    const result = await updateTrustedThemePreference({
+      authority: () => "trusted",
+      authorityEpoch: () => 0,
+      get,
+      preference: { themeMode: "dark", palette: "rose" },
+      sequence: { current: 0 },
+      store: createUiStore(),
+      update: async () => null as never,
+    })
+
+    expect(result).toBe("unconfirmed")
+    expect(get).toHaveBeenCalledTimes(2)
+
+describe "bodyless declared theme responses", ->
+  it "rejects declared excess without requiring a response body", async ->
+    await expect(fetchThemeApiRequest({
+      fetchRequest: async () => new Response(null, {
+        headers: { "content-length": "16385" },
+      }),
+      request: new Request("https://darkfactory.example/api/orpc"),
+    })).rejects.toThrow("Theme response exceeded the safe size limit")

@@ -58,6 +58,7 @@ export type JourneyCliDependencies = Readonly<
     | "scanArtifacts"
   >> & {
     persistState?: (state: E2ERunnerState) => void
+    resolveNodeExecutable?: (repositoryPath: string) => Promise<string>
   }
 >
 export const serializeJourneyProgress = (progress: JourneyProgress): string => {
@@ -160,8 +161,8 @@ export const createPlaywrightEnvironment = (
     PORTLESS_PORT: source["PORTLESS_PORT"] ?? "",
     PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
     ...isolated,
-    DEBUG: "pw:webserver",
   }
+  delete environment["DEBUG"]
   for (const key of INHERITED_PLAYWRIGHT_KEYS) {
     const value = source[key]
     if (value !== undefined) environment[key] = value
@@ -232,20 +233,21 @@ export const finalizeAndObserveE2ELifecycle = async (
   processResult: Readonly<{ exitCode: number; treeTerminated: boolean }>,
   repositoryPath = process.cwd(),
 ): Promise<FinalizedLifecycleObservation> => {
-  let finalizationFailed = false
-  if (processResult.treeTerminated) {
-    try {
-      await finalizeOwnedLifecycleAfterPlaywright({
-        encodedAdoption: environment["E2E_RUN_ADOPTION"] ?? "",
-        exitCode: processResult.exitCode,
-        repositoryPath,
-        runId: environment["E2E_RUN_ID"] ?? "",
-        treeTerminated: processResult.treeTerminated,
-      })
-    } catch {
-      finalizationFailed = true
-    }
-  }
+  // Observe injected rejections before the finalizer can create them.
+  const finalizationFailed = processResult.treeTerminated
+    ? await Promise.resolve().then(
+        () => finalizeOwnedLifecycleAfterPlaywright({
+          encodedAdoption: environment["E2E_RUN_ADOPTION"] ?? "",
+          exitCode: processResult.exitCode,
+          repositoryPath,
+          runId: environment["E2E_RUN_ID"] ?? "",
+          treeTerminated: processResult.treeTerminated,
+        }),
+      ).then(
+        () => false,
+        () => true,
+      )
+    : false
   return Object.freeze({
     finalizationFailed,
     lifecycle: await observeE2ELifecycle(environment, repositoryPath),
@@ -302,6 +304,7 @@ const scannerEnvironment = (): NodeJS.ProcessEnv => ({
 
 export const createArtifactScannerInvocation = (
   repositoryPath: string,
+  nodeExecutable: string,
   {
     runId,
     ownership,
@@ -328,7 +331,7 @@ export const createArtifactScannerInvocation = (
   ]
   if (purgeOwned) arguments_.push("--purge-owned")
   return Object.freeze({
-    command: process.execPath,
+    command: nodeExecutable,
     arguments: Object.freeze(arguments_),
     options: Object.freeze({
       cwd: repositoryPath,
@@ -339,51 +342,234 @@ export const createArtifactScannerInvocation = (
   })
 }
 
-const hasSensitiveProcessStructure = (value: string): boolean => [
-  /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]{4,}/iu,
-  /\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=)(?!\[REDACTED\])[^/?&#\s<"']{4,}/iu,
-  /https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email)[^\s"'<>]*[?&](?:amp;)?token=(?!\[REDACTED\])[^&\s"'<>]{4,}/iu,
-  /\/(?:reset-password|verify-email)\?(?:token=|[^#\s"'<>]{0,512}&(?:amp;)?token=)(?!\[REDACTED\])[^&#\s"'<>]{4,}/iu,
-  /["']?authorization["']?\s*[:=]\s*["']?(?:bearer|basic)\s+[^"',}\s]{4,}/iu,
-  /["']?name["']?\s*[:=]\s*["']authorization["'](?:(?!\r?\n).){0,512}["']?value["']?\s*[:=]\s*["'](?:bearer|basic)\s+[^"']{4,}/iu,
-  /["']?value["']?\s*[:=]\s*["'](?:bearer|basic)\s+[^"']{4,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["']authorization["']/iu,
-  /better-auth\.session[_-]?token(?:(?!\r?\n).){0,512}(?:value|[:=])\s*["']?[^"',;\s}]{4,}/iu,
-  /["']?value["']?\s*[:=]\s*["']?[^"',;\s}]{4,}["']?(?:(?!\r?\n).){0,512}["']?name["']?\s*[:=]\s*["']?(?:__Secure-)?better-auth\.session[_-]?token["']?/iu,
-  /(?:hmac[_-]?key|(?:access[_-]?)?token|access[_-]?key|api[_-]?key|client[_-]?secret)\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[A-Za-z0-9._~+\/=-]{16,}/iu,
-  /(?:cookie|set-cookie)\s*[:=][^\r\n]*better-auth\.session[_-]?token=[^;\s"']{4,}/iu,
-  /["']?(?:database_url|password|private[_-]?key|api[_-]?key|secret)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/iu,
-  /postgres(?:ql)?:\/\/[^\s"'<>]+/iu,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
-].some((pattern) => pattern.test(value))
+const MAX_PROCESS_OUTPUT_BYTES = 16 * 1024
+const REDACTED_SENSITIVE_PROCESS_OUTPUT =
+  "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+const REDACTED_OVERSIZED_PROCESS_OUTPUT =
+  "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+const OSC_ESCAPE =
+  /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/gu
+const UNTRUSTED_TERMINAL_CONTROL = /\u001b|[\u0080-\u009f]|\p{Cf}/u
+const REMOVABLE_C0 =
+  /[\u0000-\u0009\u000b\u000c\u000e-\u001a\u001c-\u001f\u007f]/gu
+const PROCESS_OUTPUT_LINES = /[^\n]*\n|[^\n]+$/gu
+const COMPACT_PROCESS_BOUNDARY = /["',}\];&]/u
+const SENSITIVE_PROCESS_STRUCTURES = [
+  /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]{4,}/giu,
+  /(?:bearer|basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+\/=-]{4,}/giu,
+  /\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=)(?!\[REDACTED\])[^/?&#\s<"']{4,}/giu,
+  /https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email)[^\s"'<>]*[?&](?:amp;)?token=(?!\[REDACTED\])[^&\s"'<>]{4,}/giu,
+  /\/(?:reset-password|verify-email)\?(?:token=|[^#\s"'<>]{0,16384}&(?:amp;)?token=)(?!\[REDACTED\])[^&#\s"'<>]{4,}/giu,
+  /["']?authorization["']?\s*[:=]\s*["']?(?:(?:bearer|basic)\s+)?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
+  /["']?name["']?\s*[:=]\s*["']authorization["'][\s\S]{0,16384}?["']?value["']?\s*[:=]\s*["']?(?:(?:bearer|basic)\s+)?(?!\[REDACTED\])[^"',}\s]{4,}/giu,
+  /["']?value["']?\s*[:=]\s*["']?(?:(?:bearer|basic)\s+)?(?!\[REDACTED\])[^"',}\s]{4,}["'][\s\S]{0,16384}?["']?name["']?\s*[:=]\s*["']authorization["']/giu,
+  /(?:__Secure-)?better-auth\.session[_-]?token[\s\S]{0,16384}?["']?value["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',;\s}]{4,}/giu,
+  /["']?value["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',;\s}]{4,}["'][\s\S]{0,16384}?["']?name["']?\s*[:=]\s*["']?(?:__Secure-)?better-auth\.session[_-]?token["']?/giu,
+  /["']?session(?:[_-]?token)?["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
+  /["']?session["']?\s*[:=]\s*\{[\s\S]{0,16384}?["']?(?:token|value)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
+  /(?:hmac[_-]?key|(?:access[_-]?)?token|access[_-]?key|api[_-]?key|client[_-]?secret)\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[A-Za-z0-9._~+\/=-]{16,}/giu,
+  /(?:cookie|set-cookie)\s*[:=][^\r\n]*better-auth\.session[_-]?token=[^;\s"']{4,}/giu,
+  /["']?(?:database_url|password|private[_-]?key|api[_-]?key|secret)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
+  /postgres(?:ql)?:\/\/[^\s"'<>]+/giu,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/gu,
+] as const
 
-const redactProcessLine = (line: string): string => {
-  if (Buffer.byteLength(line, "utf8") > 16 * 1024) {
-    return "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
-  }
-  const withoutAnsi = line.replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "")
-  const inspection = withoutAnsi
+type ProcessOutputRange = Readonly<{
+  start: number
+  end: number
+}>
+
+const processOutputIsOversized = (value: string): boolean =>
+  value.length > MAX_PROCESS_OUTPUT_BYTES ||
+    Buffer.byteLength(value, "utf8") > MAX_PROCESS_OUTPUT_BYTES
+
+const normalizeTerminalControls = (value: string): string | undefined =>
+  const withoutSequences = value
+    .replace(/\r\n?/gu, "\n")
+    .replace(OSC_ESCAPE, "")
+    .replace(ANSI_ESCAPE, "")
+  if UNTRUSTED_TERMINAL_CONTROL.test(withoutSequences) return undefined
+  return withoutSequences.replace(REMOVABLE_C0, "")
+
+const decodePrintableAsciiUnicodeEscape = (
+  source: string,
+  hexadecimal: string,
+): string =>
+  const code = Number.parseInt(hexadecimal, 16)
+  return code >= 0x20 && code <= 0x7e
+    ? String.fromCharCode(code)
+    : source
+
+const decodePrintableAsciiHtmlEntity = (
+  source: string,
+  hexadecimal: string | undefined,
+  decimal: string | undefined,
+): string =>
+  const code = hexadecimal === undefined
+    ? Number.parseInt(decimal ?? "", 10)
+    : Number.parseInt(hexadecimal, 16)
+  return code >= 0x20 && code <= 0x7e
+    ? String.fromCharCode(code)
+    : source
+
+const inspectProcessOutput = (value: string): string =>
+  value
+    .replace(
+      /&#(?:x([0-9a-f]+)|([0-9]+))?;/giu,
+      decodePrintableAsciiHtmlEntity,
+    )
+    .replace(
+      /\\u00([0-9a-f]{2})/giu,
+      decodePrintableAsciiUnicodeEscape,
+    )
     .replace(/&quot;|&#34;|&#x22;/giu, '"')
     .replace(/\\(["'])/gu, "$1")
-  if (hasSensitiveProcessStructure(inspection)) {
-    return "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
-  }
-  return withoutAnsi
-    .replace(/Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]+/giu, "[REDACTED]")
-    .replace(/(\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=))[^/?&#\s<"']+/giu, "$1[REDACTED]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[REDACTED EMAIL]")
+
+const directSensitiveProcessRanges = (
+  value: string,
+): readonly ProcessOutputRange[] =>
+  const ranges: ProcessOutputRange[] = []
+  for pattern of SENSITIVE_PROCESS_STRUCTURES
+    for match of value.matchAll(pattern)
+      const start = match.index
+      const matched = match[0] ?? ""
+      if start === undefined || matched.length === 0
+        return [{ start: 0, end: value.length }]
+      ranges.push({ start, end: start + matched.length })
+  return ranges
+
+const sensitiveProcessRanges = (value: string): readonly ProcessOutputRange[] =>
+  const directRanges = [...directSensitiveProcessRanges(value)]
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+  const ranges = [...directRanges]
+  const appendCompactGap = (gapStart: number, gapEnd: number): void =>
+    if gapStart >= gapEnd return
+    const compactCharacters: string[] = []
+    const sourceOffsets: number[] = []
+    let compacted = false
+    for (let index = gapStart; index < gapEnd; index += 1)
+      const character = value.charAt(index)
+      if character === "\n" || character === " "
+        compacted = true
+        continue
+      compactCharacters.push(character)
+      sourceOffsets.push(index)
+    if !compacted return
+
+    const compact = compactCharacters.join("")
+    for range of directSensitiveProcessRanges(compact)
+      const start = sourceOffsets[range.start]
+      const last = sourceOffsets[range.end - 1]
+      if start === undefined || last === undefined
+        ranges.push({ start: gapStart, end: gapEnd })
+        return
+      const end = last + 1
+      const endsAtGap = end === gapEnd
+      if (
+        !endsAtGap &&
+        !COMPACT_PROCESS_BOUNDARY.test(value.charAt(end))
+      )
+        ranges.push({ start: gapStart, end: gapEnd })
+        return
+      ranges.push({ start, end })
+
+  let gapStart = 0
+  for directRange of directRanges
+    if directRange.start > gapStart
+      appendCompactGap(gapStart, directRange.start)
+    gapStart = Math.max(gapStart, directRange.end)
+  appendCompactGap(gapStart, value.length)
+  ranges.sort((left, right) => left.start - right.start || left.end - right.end)
+  return ranges
+
+const redactSensitiveProcessStructures = (
+  value: string,
+  inspection: string,
+): string =>
+  const ranges = sensitiveProcessRanges(inspection)
+  if ranges.length === 0 return value
+
+  const lines = value.match(PROCESS_OUTPUT_LINES) ?? []
+  const inspectionLines = inspection.match(PROCESS_OUTPUT_LINES) ?? []
+  if lines.length !== inspectionLines.length
+    return REDACTED_SENSITIVE_PROCESS_OUTPUT
+
+  const rendered: string[] = []
+  let inspectionOffset = 0
+  let rangeIndex = 0
+  let previousLineWasSensitive = false
+  for (let index = 0; index < lines.length; index += 1)
+    const line = lines[index]!
+    const inspectionLine = inspectionLines[index]!
+    const lineEnd = inspectionOffset + inspectionLine.length
+    while (
+      ranges[rangeIndex] !== undefined &&
+      ranges[rangeIndex]!.end <= inspectionOffset
+    )
+      rangeIndex += 1
+    const range = ranges[rangeIndex]
+    const sensitive = range !== undefined &&
+      range.start < lineEnd &&
+      range.end > inspectionOffset
+    if sensitive
+      if !previousLineWasSensitive
+        rendered.push(REDACTED_SENSITIVE_PROCESS_OUTPUT)
+    else
+      rendered.push(line)
+    previousLineWasSensitive = sensitive
+    inspectionOffset = lineEnd
+  return rendered.join("")
+
+const redactVisibleProcessValues = (value: string): string =>
+  value
+    .replace(
+      /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]+/giu,
+      "[REDACTED]",
+    )
+    .replace(
+      /(\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=))[^/?&#\s<"']+/giu,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu,
+      "[REDACTED EMAIL]",
+    )
     .replace(/https?:\/\/[^\s"'<>]+/giu, "[REDACTED URL]")
-}
 
 export const redactProcessOutput = (
   value: string,
   knownSensitiveValues: readonly string[] = [],
-): string => {
-  let redacted = value
-  for (const secret of knownSensitiveValues) {
-    if (secret.length >= 6) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  }
-  return redacted.match(/[^\n]*\n|[^\n]+$/gu)?.map(redactProcessLine).join("") ?? ""
-}
+): string =>
+  try
+    if processOutputIsOversized(value)
+      return REDACTED_OVERSIZED_PROCESS_OUTPUT
+    const normalized = normalizeTerminalControls(value)
+    if normalized === undefined return REDACTED_SENSITIVE_PROCESS_OUTPUT
+
+    let knownValuesRedacted = normalized
+    for secret of knownSensitiveValues
+      if secret.length < 6 continue
+      const normalizedSecret = normalizeTerminalControls(secret)
+      if normalizedSecret === undefined
+        return REDACTED_SENSITIVE_PROCESS_OUTPUT
+      if normalizedSecret.length >= 6
+        knownValuesRedacted = knownValuesRedacted.replaceAll(
+          normalizedSecret,
+          "[REDACTED]",
+        )
+    if processOutputIsOversized(knownValuesRedacted)
+      return REDACTED_OVERSIZED_PROCESS_OUTPUT
+
+    const structurallyRedacted = redactSensitiveProcessStructures(
+      knownValuesRedacted,
+      inspectProcessOutput(knownValuesRedacted),
+    )
+    const rendered = redactVisibleProcessValues(structurallyRedacted)
+    return processOutputIsOversized(rendered)
+      ? REDACTED_OVERSIZED_PROCESS_OUTPUT
+      : rendered
+  catch
+    return REDACTED_SENSITIVE_PROCESS_OUTPUT
 const boundedDiagnosticLines = (value: string, channel: "stderr" | "stdout"): string[] =>
   value
     .split(/\r?\n/gu)
@@ -459,12 +645,13 @@ export const runArtifactScannerCli = async (
   try {
     const proof = decodeOwnedRunProof(arguments_[3] ?? "")
     if (proof.runId !== arguments_[1]) throw new Error("Owned proof run mismatch")
+    const runId = proof.runId
     const dependencies = await createArtifactScannerDependencies(repositoryPath, proof)
     report = await scanArtifactPaths(
-      arguments_[1] ?? "",
+      runId,
       [
-        `test-results/e2e-runs/${arguments_[1] ?? ""}`,
-        `test-results/evidence/${arguments_[1] ?? ""}`,
+        `test-results/e2e-runs/${runId}`,
+        `test-results/evidence/${runId}`,
       ],
       dependencies,
       purgeOwned,
@@ -716,13 +903,24 @@ export const runJourneyCli = async (
       return 1
     }
   }
+  let node = ""
+  if (overrides.scanArtifacts === undefined) {
+    try {
+      node = overrides.resolveNodeExecutable === undefined
+        ? await executableOutsideRepository("node", repositoryPath)
+        : await overrides.resolveNodeExecutable(repositoryPath)
+    } catch (_error) {
+      streams.writeError("Trusted Node executable is unavailable\n")
+      return 1
+    }
+  }
   const defaultScanArtifacts = async (
     runId: string,
     purgeOwned: boolean,
     ownership: string,
   ): Promise<ArtifactScanReport> => {
     const reportNonce = randomBytes(32).toString("base64url")
-    const scanner = createArtifactScannerInvocation(repositoryPath, {
+    const scanner = createArtifactScannerInvocation(repositoryPath, node, {
       runId,
       ownership,
       reportNonce,
@@ -765,7 +963,7 @@ export const runJourneyCli = async (
   ) => {
     const environment = createPlaywrightEnvironment(process.env, isolatedEnvironment)
     const knownSecrets = [
-      ...databaseUrlSensitiveValues(environment["DATABASE_URL"] ?? ""),
+      ...databaseUrlSensitiveValues(environment["DATABASE_URL"]!),
       isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
     ]
     const result = await runOwnedCommand(corepack, playwrightArguments, {
@@ -775,12 +973,11 @@ export const runJourneyCli = async (
     let reportSanitized = false
     const reportPath = environment["PLAYWRIGHT_JSON_OUTPUT_NAME"]
     if (reportPath !== undefined) {
-      try {
+      try
         await sanitizePlaywrightJsonReport(reportPath, knownSecrets)
         reportSanitized = true
-      } catch {
-        // The command fails closed. CI uploads artifacts only after a green browser lane.
-      }
+      catch
+        reportSanitized = false
     }
     const finalizedLifecycle = await finalizeAndObserveE2ELifecycle(
       isolatedEnvironment,

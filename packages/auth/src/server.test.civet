@@ -86,6 +86,11 @@ type CapturedAuthOptions = Readonly<{
     after: (context: MiddlewareContext) => Promise<unknown>
   }>
   databaseHooks: Readonly<{
+    user: Readonly<{
+      create: Readonly<{
+        after: (user: Readonly<{ id: string; name: string }>) => Promise<unknown>
+      }>
+    }>
     session: Readonly<{
       create: Readonly<{
         before: (session: Readonly<{ userId: string }>) => Promise<unknown>
@@ -192,8 +197,9 @@ const request = (path: string, method = "POST") =>
 
 const handlerAuth = (
   response: Response,
-  session: unknown = null,
+  ...sessions: unknown[]
 ) => {
+  const session = sessions.length === 0 ? null : sessions[0]
   const getSession = vi.fn().mockResolvedValue(session)
   const handler = vi.fn().mockResolvedValue(response)
   return {
@@ -219,6 +225,17 @@ describe("safe authorization sessions", ->
     })
     expect(getSession).toHaveBeenCalledOnce()
     expect(getSession).toHaveBeenCalledWith({ headers })
+  )
+
+  it("returns an authenticated active session", async ->
+    await expect(
+      requireSession(
+        authWithSession(sessionValue("admin", "active")),
+        new Headers(),
+      ),
+    ).resolves.toMatchObject({
+      principal: { userId: "user-1", role: "admin", status: "active" },
+    })
   )
 
   it.each([
@@ -292,6 +309,76 @@ describe("safe authorization sessions", ->
   )
 )
 
+const malformedPresentSessionCases = [
+  ["primitive", -> ({ session: "active", traps: [] })],
+  ["array", -> ({ session: [], traps: [] })],
+  ["missing user", -> ({ session: {}, traps: [] })],
+  ["null user", -> ({ session: { user: null }, traps: [] })],
+  ["non-plain session", -> ({
+    session: Object.create({ user: { status: "active" } }),
+    traps: [],
+  })],
+  ["non-plain user", -> ({
+    session: { user: Object.create({ status: "active" }) },
+    traps: [],
+  })],
+  ["non-plain status container", -> ({
+    session: { user: { status: Object("active") } },
+    traps: [],
+  })],
+  ["session user accessor", ->
+    const accessor = vi.fn(->
+      throw new Error("private session user accessor")
+    )
+    const session = {}
+    Object.defineProperty(session, "user", {
+      enumerable: true,
+      get: accessor,
+    })
+    { session, traps: [accessor] }
+  ],
+  ["user status accessor", ->
+    const accessor = vi.fn(->
+      throw new Error("private user status accessor")
+    )
+    const user = {}
+    Object.defineProperty(user, "status", {
+      enumerable: true,
+      get: accessor,
+    })
+    { session: { user }, traps: [accessor] }
+  ],
+  ["session proxy", ->
+    const trap = vi.fn(->
+      throw new Error("private session proxy trap")
+    )
+    const session = new Proxy(
+      { user: { status: "active" } },
+      {
+        getOwnPropertyDescriptor: trap,
+        getPrototypeOf: trap,
+        ownKeys: trap,
+      },
+    )
+    { session, traps: [trap] }
+  ],
+  ["user proxy", ->
+    const trap = vi.fn(->
+      throw new Error("private user proxy trap")
+    )
+    const user = new Proxy(
+      { status: "active" },
+      {
+        get: trap,
+        getOwnPropertyDescriptor: trap,
+        getPrototypeOf: trap,
+        ownKeys: trap,
+      },
+    )
+    { session: { user }, traps: [trap] }
+  ],
+] as const
+
 describe("createAuth hooks", ->
   it.each([
     "/sign-up/email",
@@ -327,6 +414,26 @@ describe("createAuth hooks", ->
     await expect(before({ path, body, context: {} })).resolves.toBeUndefined()
   )
 
+  it("normalizes email after admitting an active current session", async ->
+    const { database } = createResourceDatabase()
+    const before = createConfiguredAuth(database).options.hooks.before
+
+    const result = await before({
+      path: "/sign-in/email",
+      body: { email: "  ACTIVE@Domain.TEST  ", password: "unchanged" },
+      context: { session: { user: { status: "active" } } },
+    })
+
+    expect(result).toEqual({
+      context: {
+        path: "/sign-in/email",
+        body: { email: "active@domain.test", password: "unchanged" },
+        context: { session: { user: { status: "active" } } },
+      },
+    })
+  )
+
+
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
@@ -361,6 +468,42 @@ describe("createAuth hooks", ->
     })
   )
 
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+  ] as const)("admits a canonically absent %s current session", async (_case, session) ->
+    const { database } = createResourceDatabase()
+    const before = createConfiguredAuth(database).options.hooks.before
+
+    await expect(before({
+      path: "/change-password",
+      context: { session },
+    })).resolves.toBeUndefined()
+  )
+
+  it.each(malformedPresentSessionCases)(
+    "fails closed for a malformed %s current session without leaking private failures",
+    async (_case, createCase) ->
+      const { database } = createResourceDatabase()
+      const before = createConfiguredAuth(database).options.hooks.before
+      const { session, traps } = createCase()
+
+      await expect(before({
+        path: "/change-password",
+        context: { session },
+      })).rejects.toMatchObject({
+        body: {
+          code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+          message: "Account is unavailable",
+        },
+      })
+      if _case.includes("proxy")
+        expect(traps[0]).toHaveBeenCalledOnce()
+      else
+        for (const trap of traps) expect(trap).not.toHaveBeenCalled()
+      return undefined
+  )
+
   it("allows an inactive current session to sign out", async ->
     const { database } = createResourceDatabase()
     const before = createConfiguredAuth(database).options.hooks.before
@@ -369,6 +512,25 @@ describe("createAuth hooks", ->
       path: "/sign-out",
       context: { session: { user: { status: "suspended" } } },
     })).resolves.toBeUndefined()
+  )
+
+  it("exempts sign out before reading a current-session accessor", async ->
+    const { database } = createResourceDatabase()
+    const before = createConfiguredAuth(database).options.hooks.before
+    const accessor = vi.fn(->
+      throw new Error("private sign-out session accessor")
+    )
+    const context = {}
+    Object.defineProperty(context, "session", {
+      enumerable: true,
+      get: accessor,
+    })
+
+    await expect(before({
+      path: "/sign-out",
+      context,
+    })).resolves.toBeUndefined()
+    expect(accessor).not.toHaveBeenCalled()
   )
 
   it("provisions application resources after an email sign-in only", async ->
@@ -392,8 +554,20 @@ describe("createAuth hooks", ->
     expect([...state.preferences]).toEqual(["user-2"])
   )
 
+  it("provisions application resources after Better Auth persists a new user", async ->
+    const { database, state } = createResourceDatabase()
+    const afterUserCreate = createConfiguredAuth(database).options
+      .databaseHooks.user.create.after
+
+    await expect(afterUserCreate({
+      id: "user-created",
+      name: "Created Member",
+    })).resolves.toBeUndefined()
+    expect([...state.profiles]).toEqual([["user-created", "Created Member"]])
+    expect([...state.preferences]).toEqual(["user-created"])
+  )
+
   it.each([
-    [undefined, undefined],
     ["active", undefined],
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
@@ -423,6 +597,29 @@ describe("createAuth hooks", ->
     }
     return undefined
   )
+
+  it("fails closed when the session user lookup returns no row", async ->
+    const database = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+    }
+    const beforeSessionCreate = createConfiguredAuth(database).options
+      .databaseHooks.session.create.before
+
+    await expect(
+      beforeSessionCreate({ userId: "missing-user" }),
+    ).rejects.toMatchObject({
+      body: {
+        code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+        message: "Account is unavailable",
+      },
+    })
+  )
 )
 
 describe("fetch-native auth handler status gate", ->
@@ -438,13 +635,13 @@ describe("fetch-native auth handler status gate", ->
     "/api/auth/reset-password/opaque-reset-token",
   ])("exempts %s so an inactive user can reach the recovery operation", async (path) ->
     const { auth, getSession, handler } = handlerAuth(
-      new Response("delegated", { status: 202 }),
+      new Response("delegated", { status: 422 }),
       { user: { status: "suspended" } },
     )
 
     const response = await createAuthHandler(auth)(request(path))
 
-    expect(response.status).toBe(202)
+    expect(response.status).toBe(422)
     await expect(response.text()).resolves.toBe("delegated")
     expect(getSession).not.toHaveBeenCalled()
     expect(handler).toHaveBeenCalledOnce()
@@ -470,9 +667,8 @@ describe("fetch-native auth handler status gate", ->
   )
 
   it.each([
-    ["missing session", null],
-    ["missing user", {}],
-    ["active user", { user: { status: "active" } }],
+    ["canonical missing session", null],
+    ["plain active user", { user: { status: "active" } }],
   ] as const)("delegates a protected request for %s", async (_case, session) ->
     const { auth, getSession } = handlerAuth(
       new Response("delegated", { status: 207 }),
@@ -505,6 +701,37 @@ describe("fetch-native auth handler status gate", ->
     })
     expect(getSession).toHaveBeenCalledOnce()
     expect(handler).not.toHaveBeenCalled()
+  )
+
+
+  it.each([
+    ["undefined", -> ({ session: undefined, traps: [] })],
+    ...malformedPresentSessionCases,
+  ] as const)(
+    "fails closed for a malformed %s without leaking private failures",
+    async (_case, createCase) ->
+      const { session, traps } = createCase()
+      const { auth, getSession, handler } = handlerAuth(
+        new Response("must not run"),
+        session,
+      )
+
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/change-password"),
+      )
+
+      expect(response.status).toBe(403)
+      await expect(jsonBody(response)).resolves.toEqual({
+        code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+        message: "Account is unavailable",
+      })
+      expect(getSession).toHaveBeenCalledOnce()
+      expect(handler).not.toHaveBeenCalled()
+      if _case.includes("proxy")
+        expect(traps[0]).toHaveBeenCalledOnce()
+      else
+        for (const trap of traps) expect(trap).not.toHaveBeenCalled()
+      return undefined
   )
 
   it("propagates a status lookup failure before invoking Better Auth", async ->
@@ -579,26 +806,87 @@ describe("fetch-native auth response normalization", ->
     await expect(jsonBody(response)).resolves.toEqual(original)
   )
 
-  it("normalizes only the password-reset delivery outage and preserves safe headers", async ->
-    const { auth } = handlerAuth(new Response(JSON.stringify({
+  it("does not parse or relabel a headerless signup rejection", async ->
+    const original = "unprocessable signup response"
+    const { auth } = handlerAuth(new Response(
+      new TextEncoder().encode(original),
+      { status: 422 },
+    ))
+
+    const response = await createAuthHandler(auth)(request("/api/auth/sign-up/email"))
+
+    expect(response.status).toBe(422)
+    expect(response.headers.get("content-type")).toBeNull()
+    await expect(response.text()).resolves.toBe(original)
+  )
+
+  it("makes a reset delivery outage indistinguishable from ordinary success", async ->
+    const { auth: ordinaryAuth } = handlerAuth(new Response(JSON.stringify({
+      status: true,
+      message: "upstream noncanonical success",
+      providerDetail: "must not escape",
+    }), {
+      status: 200,
+      headers: {
+        "cache-control": "private, max-age=60",
+        "content-encoding": "identity",
+        "content-length": "888",
+        "content-type": "application/json; charset=utf-8",
+        "etag": "\"ordinary-provider-secret\"",
+        "retry-after": "15",
+        "set-cookie": "ordinary_provider_session=secret; HttpOnly",
+        "x-provider-request-id": "ordinary-private-provider-id",
+      },
+    }))
+    const { auth: outageAuth } = handlerAuth(new Response(JSON.stringify({
       code: PASSWORD_RESET_DELIVERY_ERROR_CODE,
-      message: "provider details",
+      message: "private provider details",
       token: "provider-token",
     }), {
       status: 503,
       headers: {
-        "content-type": "application/json; charset=utf-8",
+        "cache-control": "public, max-age=300",
+        "content-encoding": "identity",
         "content-length": "999",
+        "content-type": "application/json; charset=utf-8",
+        "etag": "\"provider-secret\"",
         "retry-after": "30",
+        "set-cookie": "provider_session=secret; HttpOnly",
+        "x-provider-request-id": "private-provider-id",
       },
     }))
 
-    const response = await createAuthHandler(auth)(request("/api/auth/request-password-reset"))
+    const ordinary = await createAuthHandler(ordinaryAuth)(
+      request("/api/auth/request-password-reset"),
+    )
+    const normalized = await createAuthHandler(outageAuth)(
+      request("/api/auth/request-password-reset"),
+    )
+    const ordinaryBody = await ordinary.text()
+    const normalizedBody = await normalized.text()
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get("content-length")).toBeNull()
-    expect(response.headers.get("retry-after")).toBe("30")
-    await expect(jsonBody(response)).resolves.toEqual(SAFE_RESET_RESPONSE)
+    expect({
+      status: normalized.status,
+      body: normalizedBody,
+      headers: Object.fromEntries(normalized.headers),
+    }).toEqual({
+      status: ordinary.status,
+      body: ordinaryBody,
+      headers: Object.fromEntries(ordinary.headers),
+    })
+    expect(Object.fromEntries(normalized.headers)).toEqual({
+      "cache-control": "no-store",
+      "content-type": "application/json",
+    })
+    for (const header of [
+      "content-encoding",
+      "content-length",
+      "etag",
+      "retry-after",
+      "set-cookie",
+      "x-provider-request-id",
+    ])
+      expect(normalized.headers.get(header)).toBeNull()
   )
 
   it.each([
@@ -625,6 +913,22 @@ describe("fetch-native auth response normalization", ->
 
     expect(response.status).toBe(503)
     await expect(response.text()).resolves.toBe("provider unavailable")
+  )
+
+  it("does not parse or relabel a headerless reset rejection", async ->
+    const original = "provider unavailable"
+    const { auth } = handlerAuth(new Response(
+      new TextEncoder().encode(original),
+      { status: 503 },
+    ))
+
+    const response = await createAuthHandler(auth)(
+      request("/api/auth/request-password-reset"),
+    )
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("content-type")).toBeNull()
+    await expect(response.text()).resolves.toBe(original)
   )
 
   it.each([
@@ -958,6 +1262,12 @@ describe("development seed identity preparation", ->
     )
 
     await applyIdentity(IDENTITY, false, first.database as never)
+    await applyIdentity(secondIdentity, false, first.database as never)
+    expect(mocks.betterAuth).toHaveBeenCalledOnce()
+    expect([...first.state.profiles.keys()]).toEqual([
+      IDENTITY.userId,
+      secondIdentity.userId,
+    ])
     await expect(
       applyIdentity(secondIdentity, false, second.database as never),
     ).rejects.toThrowError("Prepared seed identities require one transaction")

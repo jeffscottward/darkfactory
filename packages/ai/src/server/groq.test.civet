@@ -148,6 +148,69 @@ describe "createGroqAiPort", ->
       retryable: false,
     })
   
+
+  it "removes a caller abort listener when bounded execution times out", async ->
+    const addEventListener = vi.fn()
+    const removeEventListener = vi.fn()
+    const signal = {
+      aborted: false,
+      addEventListener,
+      removeEventListener,
+    } as unknown as AbortSignal
+    let providerSignal: AbortSignal | undefined
+    const clientFactory = createClientFactory(async (request) => {
+      providerSignal = request.signal
+      return await new Promise(() => {})
+    })
+    const port = createGroqAiPort({
+      ...configuredOptions,
+      timeoutMs: 1,
+      clientFactory,
+    })
+
+    await expect(
+      port.generateText({ prompt: "private prompt", signal })
+    ).resolves.toEqual({
+      status: "failed",
+      category: "timeout",
+      retryable: true,
+    })
+    expect(providerSignal?.aborted).toBe(true)
+    expect(addEventListener).toHaveBeenCalledWith(
+      "abort",
+      expect.any(Function),
+      { once: true },
+    )
+    expect(removeEventListener).toHaveBeenCalledWith(
+      "abort",
+      addEventListener.mock.calls[0]?.[1],
+    )
+
+  it "contains timer scheduling failures without misclassifying them", async ->
+    let providerSignal: AbortSignal | undefined
+    const clientFactory = createClientFactory(async (request) => {
+      providerSignal = request.signal
+      return await new Promise(() => {})
+    })
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+    const timer = vi.spyOn(globalThis, "setTimeout").mockImplementationOnce(() => {
+      throw new Error("raw-timer-scheduler-secret")
+    })
+
+    try
+      const result = await port.generateText({ prompt: "private prompt" })
+
+      expect(result).toEqual({
+        status: "failed",
+        category: "unknown",
+        retryable: false,
+      })
+      expect(providerSignal?.aborted).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(
+        /raw-timer|scheduler-secret|private prompt/
+      )
+    finally
+      timer.mockRestore()
   it "maps network errors without exposing provider details", async ->
     const providerError = Object.assign(new Error("prompt and secret response body"), {
       name: "APIConnectionError",
@@ -212,3 +275,156 @@ describe "createGroqAiPort", ->
       retryable: true,
     })
     expect(JSON.stringify(result)).not.toContain("secret timeout body")
+
+  it.each([
+    [Number.NaN, 5_000],
+    [Number.POSITIVE_INFINITY, 5_000],
+    [-10, 1],
+    [1.9, 1],
+    [10_001, 10_000],
+  ] as const)(
+    "normalizes timeout input $timeoutMs to $expectedTimeoutMs milliseconds",
+    async (timeoutMs, expectedTimeoutMs) => {
+      const clientFactory = createClientFactory(async () => ({ text: "generated" }))
+      const port = createGroqAiPort({
+        ...configuredOptions,
+        timeoutMs,
+        clientFactory,
+      })
+
+      await expect(port.generateText({ prompt: "private prompt" })).resolves.toEqual({
+        status: "generated",
+        text: "generated",
+      })
+      expect(clientFactory).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: expectedTimeoutMs }),
+      )
+    },
+  )
+
+  it.each([
+    [new TypeError("private transport detail"), {
+      status: "failed",
+      category: "network",
+      retryable: true,
+    }],
+    [new DOMException("private abort detail", "AbortError"), {
+      status: "failed",
+      category: "aborted",
+      retryable: false,
+    }],
+    [new RangeError("private application detail"), {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+    [{ status: 399 }, {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+      statusCode: 399,
+    }],
+    [{ status: 599 }, {
+      status: "failed",
+      category: "provider_unavailable",
+      retryable: true,
+      statusCode: 599,
+    }],
+    [{ status: 99 }, {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+    [{ status: 600 }, {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+    [{ status: 429.5 }, {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+    [{ name: 42 }, {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+    [null, {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+    ["private primitive failure", {
+      status: "failed",
+      category: "unknown",
+      retryable: false,
+    }],
+  ] as const)("normalizes provider failure metadata %#", async (providerError, expected) => {
+    const clientFactory = createClientFactory(async () => {
+      throw providerError
+    })
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    const result = await port.generateText({ prompt: "private prompt" })
+
+    expect(result).toEqual(expected)
+    expect(JSON.stringify(result)).not.toMatch(/private|transport|application|primitive/)
+  })
+
+  it "contains hostile provider metadata in a bounded failure result", async ->
+    let metadataReads = 0
+    const nameAccessor = Object.defineProperty({}, "name", {
+      get: () => {
+        metadataReads += 1
+        throw "raw-provider-name-secret"
+      },
+    })
+    const statusAccessor = Object.defineProperty({}, "status", {
+      get: () => {
+        metadataReads += 1
+        throw new Error("raw-provider-status-secret")
+      },
+    })
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+
+    for providerError of [nameAccessor, statusAccessor, revoked.proxy]
+      const clientFactory = createClientFactory(async () => {
+        throw providerError
+      })
+      const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+      const result = await port.generateText({ prompt: "private prompt" })
+
+      expect(result).toEqual({
+        status: "failed",
+        category: "unknown",
+        retryable: false,
+      })
+      expect(JSON.stringify(result)).not.toMatch(
+        /raw-provider|name-secret|status-secret|private prompt/
+      )
+    expect(metadataReads).toBe(2)
+
+  it "honors an abort observed between the public preflight and bounded execution", async ->
+    let abortedReads = 0
+    const signal = {
+      get aborted() {
+        abortedReads += 1
+        return abortedReads > 1
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as AbortSignal
+    const clientFactory = createClientFactory(async () => ({ text: "unused" }))
+    const port = createGroqAiPort({ ...configuredOptions, clientFactory })
+
+    await expect(
+      port.generateText({ prompt: "private prompt", signal }),
+    ).resolves.toEqual({
+      status: "failed",
+      category: "aborted",
+      retryable: false,
+    })
+    expect(abortedReads).toBe(2)
+    expect(clientFactory).not.toHaveBeenCalled()

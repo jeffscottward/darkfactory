@@ -40,12 +40,12 @@
     }
   },
   "scripts": {
-    "auth:schema:generate": "node --experimental-strip-types scripts/check-auth-schema.ts --write",
-    "auth:schema:check": "node --experimental-strip-types scripts/check-auth-schema.ts",
-    "types": "civet --config civet.types.json --emit-declaration src/types.civet src/server.civet src/rate-limit-storage.civet src/client.civet src/db.civet",
-    "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/db.test.civet src/server-bundle.test.civet src/verification-config.test.civet",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/db.test.civet src/server-bundle.test.civet src/verification-config.test.civet"
+    "auth:schema:generate": "bun scripts/check-auth-schema.ts --write",
+    "auth:schema:check": "bun scripts/check-auth-schema.ts",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/types.civet src/server.civet src/rate-limit-storage.civet src/client.civet src/db.civet",
+    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/db.test.civet src/server-bundle.test.civet src/verification-config.test.civet",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/db.test.civet src/server-bundle.test.civet src/verification-config.test.civet"
   },
   "engines": {
     "node": ">=22.13"

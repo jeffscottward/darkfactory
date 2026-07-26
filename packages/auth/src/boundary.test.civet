@@ -91,3 +91,9 @@ describe "auth package boundaries", ->
       "AUTHORIZATION_ERROR_CODES",
       "AuthAuthorizationError",
     ])
+
+  it "executes the dependency-free browser poison in the instrumented runtime", async ->
+    const specifier: string = "./server/unsupported.js"
+    await expect(import(specifier)).rejects.toThrowError(
+      browserError,
+    )

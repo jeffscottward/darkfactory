@@ -3,6 +3,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+const resendMocks = vi.hoisted(() => ({
+  send: vi.fn(),
+}))
+
+vi.mock("resend", () => ({
+  Resend: class {
+    emails = { send: resendMocks.send }
+  },
+}))
+
 import type { PasswordResetEmailInput } from "../index.civet"
 import {
   createResendEmailPort,
@@ -19,6 +29,16 @@ const resetInput: PasswordResetEmailInput = {
   expiresInMinutes: 60,
 }
 
+const verificationInput = {
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  verificationUrl:
+    "https://darkfactory.localhost/api/auth/verify-email" +
+    "?token=header.payload.signature" +
+    "&callbackURL=%2Fverify-email%3Fverified%3D1",
+  expiresInMinutes: 60,
+}
+
 const temporaryDirectories: string[] = []
 
 const createTemporaryDirectory = async (): Promise<string> => {
@@ -30,7 +50,9 @@ const createTemporaryDirectory = async (): Promise<string> => {
 }
 
 afterEach async ->
+  resendMocks.send.mockReset()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true })
@@ -109,6 +131,54 @@ describe "selectEmailPort", ->
       retryable: false,
     })
 
+  it "disables filesystem preview delivery in a production bundle", async ->
+    vi.stubEnv("NODE_ENV", "production")
+    const email = selectEmailPort({
+      environment: "development",
+      transport: "preview",
+      previewDirectory: await createTemporaryDirectory(),
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_DELIVERY_DISABLED",
+      retryable: false,
+    })
+
+  it "requires a binding for remote capture and otherwise selects the exact test endpoint", async ->
+    vi.stubEnv("NODE_ENV", "production")
+    expect(() => selectEmailPort({
+      environment: "test",
+      transport: "preview",
+      previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
+    })).toThrowError("Remote preview transport requires a binding")
+
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 201 }),
+    )
+    const binding = {
+      runId: "provider_remote_preview",
+      hmacKey: Buffer.alloc(32, 3).toString("base64url"),
+    }
+    const email = selectEmailPort({
+      environment: "test",
+      transport: "preview",
+      previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
+      previewBinding: binding,
+    })
+
+    await expect(email.sendEmailVerification(verificationInput)).resolves.toEqual({
+      status: "previewed",
+      provider: "preview",
+      artifactPath: "e2e-preview-capture",
+    })
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      operation: "verify-email",
+      input: verificationInput,
+    })
+
 describe "createResendEmailPort", ->
   it "does not call Resend when the adapter is disabled", async ->
     const send = vi.fn()
@@ -127,6 +197,13 @@ describe "createResendEmailPort", ->
       code: "EMAIL_DELIVERY_DISABLED",
     })
     expect(send).not.toHaveBeenCalled()
+
+    await expect(email.sendEmailVerification(verificationInput)).resolves.toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_DELIVERY_DISABLED",
+      retryable: false,
+    })
 
   it "rejects recipient injection without calling the provider", async ->
     const send = vi.fn()
@@ -278,3 +355,107 @@ describe "createResendEmailPort", ->
     expect(consoleLog).not.toHaveBeenCalled()
     expect(consoleWarn).not.toHaveBeenCalled()
     expect(consoleError).not.toHaveBeenCalled()
+
+  it "requires both provider credentials without constructing the SDK", async ->
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "  ",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_PROVIDER_NOT_CONFIGURED",
+      retryable: false,
+    })
+    expect(resendMocks.send).not.toHaveBeenCalled()
+
+  it "maps renderer and invalid provider responses to operation-safe failures", async ->
+    const send = vi.fn().mockResolvedValue({ data: null, error: null })
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "noreply@domain.test",
+      client: { emails: { send } },
+    })
+
+    await expect(email.sendPasswordReset({
+      ...resetInput,
+      resetUrl: "https://attacker.test/reset",
+    })).resolves.toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_RENDER_FAILED",
+      retryable: false,
+    })
+    expect(send).not.toHaveBeenCalled()
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_PROVIDER_INVALID_RESPONSE",
+      retryable: false,
+    })
+    expect(send).toHaveBeenCalledOnce()
+
+  it "treats a provider error without a name as a non-retryable rejection", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: null,
+      error: { statusCode: 422 },
+    })
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "noreply@domain.test",
+      client: { emails: { send } },
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "failed",
+      provider: "resend",
+      code: "EMAIL_PROVIDER_REJECTED",
+      retryable: false,
+    })
+
+  it "delivers verification mail through the operation-specific callback", async ->
+    const send = vi.fn().mockResolvedValue({
+      data: { id: "verification_123" },
+      error: null,
+    })
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "noreply@domain.test",
+      client: { emails: { send } },
+    })
+
+    await expect(email.sendEmailVerification(verificationInput)).resolves.toEqual({
+      status: "sent",
+      provider: "resend",
+      messageId: "verification_123",
+    })
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      subject: "Verify your DarkFactory email",
+      to: ["member@domain.test"],
+    }))
+
+  it "adapts the default Resend SDK response without reaching the network", async ->
+    resendMocks.send.mockResolvedValue({
+      data: { id: "sdk_reset_123" },
+      error: null,
+    })
+    const email = createResendEmailPort({
+      enabled: true,
+      apiKey: "re_test_key",
+      from: "noreply@domain.test",
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "sent",
+      provider: "resend",
+      messageId: "sdk_reset_123",
+    })
+    expect(resendMocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ["member@domain.test"] }),
+    )

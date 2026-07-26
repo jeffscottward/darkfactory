@@ -17,10 +17,10 @@
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/index.civet",
-    "typecheck": "civet --typecheck src/index.civet src/index.test.civet",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/index.test.civet",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/index.test.civet"
+    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet",
+    "typecheck": "bunx --bun --no-install civet --typecheck src/index.civet src/index.test.civet",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.civet",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.civet"
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",

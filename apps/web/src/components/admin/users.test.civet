@@ -1,17 +1,151 @@
+import type { AdminUserSummaryOutput, AdminUsersListOutput } from "@darkfactory/api"
+import type { ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const hookRuntime = vi.hoisted(() => {
+  type Effect = () => void | (() => void)
+  type DependencySlot<Value> = Readonly<{
+    deps: readonly unknown[] | undefined
+    value: Value
+  }>
+  type PendingEffect = Readonly<{
+    deps: readonly unknown[] | undefined
+    effect: Effect
+    index: number
+  }>
+
+  const stateSlots: Array<{ value: unknown }> = []
+  const callbackSlots: Array<DependencySlot<unknown>> = []
+  const effectSlots: Array<DependencySlot<(() => void) | undefined>> = []
+  const pendingEffects: PendingEffect[] = []
+  let stateCursor = 0
+  let callbackCursor = 0
+  let effectCursor = 0
+
+  const dependenciesChanged = (
+    previous: readonly unknown[] | undefined,
+    next: readonly unknown[] | undefined,
+  ): boolean => (
+    previous === undefined
+    || next === undefined
+    || previous.length !== next.length
+    || previous.some((value, index) => !Object.is(value, next[index]))
+  )
+
+  return {
+    begin: (): void => {
+      stateCursor = 0
+      callbackCursor = 0
+      effectCursor = 0
+      pendingEffects.length = 0
+    },
+    commit: (): void => {
+      for (const pending of pendingEffects.splice(0)) {
+        effectSlots[pending.index]?.value?.()
+        const cleanup = pending.effect()
+        effectSlots[pending.index] = {
+          deps: pending.deps,
+          value: typeof cleanup === "function" ? cleanup : undefined,
+        }
+      }
+    },
+    reset: (): void => {
+      for (const slot of effectSlots) slot.value?.()
+      stateSlots.length = 0
+      callbackSlots.length = 0
+      effectSlots.length = 0
+      pendingEffects.length = 0
+      stateCursor = 0
+      callbackCursor = 0
+      effectCursor = 0
+    },
+    useCallback: <Callback>(callback: Callback, deps?: readonly unknown[]): Callback => {
+      const index = callbackCursor++
+      const previous = callbackSlots[index]
+      if (previous !== undefined && !dependenciesChanged(previous.deps, deps)) {
+        return previous.value as Callback
+      }
+      callbackSlots[index] = { deps, value: callback }
+      return callback
+    },
+    useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+      const index = effectCursor++
+      const previous = effectSlots[index]
+      if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
+        pendingEffects.push({ deps, effect, index })
+      }
+    },
+    useState: <Value>(
+      initializer: Value | (() => Value),
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+      const index = stateCursor++
+      stateSlots[index] ??= {
+        value: typeof initializer === "function"
+          ? (initializer as () => Value)()
+          : initializer,
+      }
+      const slot = stateSlots[index]!
+      return [
+        slot.value as Value,
+        (next) => {
+          slot.value = typeof next === "function"
+            ? (next as (current: Value) => Value)(slot.value as Value)
+            : next
+        },
+      ]
+    },
+  }
+})
+
+const apiClientRuntime = vi.hoisted(() => ({ create: vi.fn() }))
+const gatewayRuntime = vi.hoisted(() => ({ current: null as unknown }))
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useCallback: hookRuntime.useCallback,
+    useEffect: hookRuntime.useEffect,
+    useState: hookRuntime.useState,
+  }
+})
+
+vi.mock("@darkfactory/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@darkfactory/api")>()
+  return {
+    ...actual,
+    createApiClient: apiClientRuntime.create,
+  }
+})
+
+vi.mock("./admin-users-client.civet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./admin-users-client.civet")>()
+  return {
+    ...actual,
+    createBrowserAdminUsersGateway: () => (
+      gatewayRuntime.current === null
+        ? actual.createBrowserAdminUsersGateway()
+        : gatewayRuntime.current as never
+    ),
+  }
+})
 
 import {
+  adminFailureKind,
   createAdminUsersGateway,
   createBrowserAdminUsersGateway,
   createAdminRequestGuard,
   normalizeAdminQuery,
   safeAdminFeedback,
 } from "./admin-users-client.civet"
-import { AdminUsersDirectory } from "./admin-users-directory.civet"
+import {
+  AdminUsersDirectory,
+  type AdminUsersDirectoryState,
+} from "./admin-users-directory.civet"
 import { AdminUsersPageClient } from "./admin-users-page-client.civet"
 
-const user = {
+const user: AdminUserSummaryOutput = {
   id: "user-1",
   name: "Alice Adams",
   email: "alice@domain.test",
@@ -28,6 +162,152 @@ const user = {
   },
 }
 
+const suspendedUser: AdminUserSummaryOutput = {
+  ...user,
+  id: "user-2",
+  name: "Bob Brown",
+  email: "bob@domain.test",
+  emailVerified: false,
+  role: "admin",
+  status: "suspended",
+  profile: null,
+}
+
+const deactivatedUser: AdminUserSummaryOutput = {
+  ...user,
+  id: "user-3",
+  name: "Dana Deactivated",
+  email: "dana@domain.test",
+  emailVerified: false,
+  status: "deactivated",
+  profile: {
+    displayName: null,
+    avatarUrl: null,
+    businessName: null,
+    jobTitle: "",
+  },
+}
+
+const directoryPage = (
+  items: AdminUserSummaryOutput[],
+  nextCursor: string | null,
+): AdminUsersListOutput => ({ items, nextCursor })
+
+interface ElementRecord {
+  readonly key: null | string
+  readonly props: Record<string, unknown>
+  readonly type: unknown
+}
+
+const textOf = (node: unknown): string => {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (typeof node !== "object" || node === null) return ""
+  const props = Reflect.get(node, "props")
+  if (typeof props !== "object" || props === null) return ""
+  return textOf(Reflect.get(props, "children"))
+}
+
+const findElement = (
+  tree: unknown,
+  predicate: (element: ElementRecord) => boolean,
+): ElementRecord | undefined => {
+  const seen = new WeakSet<object>()
+  const visit = (node: unknown): ElementRecord | undefined => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = visit(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
+    seen.add(node)
+    const props = Reflect.get(node, "props")
+    if (typeof props !== "object" || props === null) return undefined
+    const element = node as ElementRecord
+    if (predicate(element)) return element
+    for (const value of Object.values(element.props)) {
+      const found = visit(value)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  return visit(tree)
+}
+
+const component = (tree: unknown, type: unknown): ElementRecord => {
+  const element = findElement(tree, (candidate) => candidate.type === type)
+  expect(element, "Expected rendered component").toBeDefined()
+  return element!
+}
+
+const controlByText = (tree: unknown, label: string): ElementRecord => {
+  const control = findElement(tree, (candidate) => (
+    typeof candidate.props["onClick"] === "function"
+    && textOf(candidate).replace(/\s+/gu, " ").trim() === label
+  ))
+  expect(control, `Expected control named ${label}`).toBeDefined()
+  return control!
+}
+
+const invoke = <Result>(element: ElementRecord, name: string, value?: unknown): Result => {
+  const callback = element.props[name]
+  if (typeof callback !== "function") throw new Error(`Expected ${name} callback.`)
+  return (callback as (argument?: unknown) => Result)(value)
+}
+
+const mount = (renderComponent: () => ReactElement) => ({
+  render: (): ReactElement => {
+    hookRuntime.begin()
+    const tree = renderComponent()
+    hookRuntime.commit()
+    return tree
+  },
+})
+
+const flushMicrotasks = async (): Promise<void> ->
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+
+const deferred = <Value>() => {
+  let resolvePromise = (_value: Value): void => {
+    throw new Error("Deferred promise was not initialized.")
+  }
+  let rejectPromise = (_reason: unknown): void => {
+    throw new Error("Deferred promise was not initialized.")
+  }
+  const promise = new Promise<Value>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
+  })
+  return { promise, reject: rejectPromise, resolve: resolvePromise }
+}
+
+const renderSearchForm = (
+  props: Parameters<typeof AdminUsersDirectory>[0],
+): ReactElement => {
+  const tree = AdminUsersDirectory(props)
+  const searchForm = findElement(tree, (candidate) => (
+    typeof candidate.type === "function"
+    && Reflect.get(candidate.type, "name") === "SearchForm"
+  ))
+  expect(searchForm, "Expected search form component").toBeDefined()
+  const render = searchForm!.type as (input: Record<string, unknown>) => ReactElement
+  return render(searchForm!.props)
+}
+
+const directoryState = (tree: unknown): AdminUsersDirectoryState =>
+  component(tree, AdminUsersDirectory).props["state"] as AdminUsersDirectoryState
+
+afterEach ->
+  hookRuntime.reset()
+  gatewayRuntime.current = null
+  apiClientRuntime.create.mockReset()
+  vi.unstubAllGlobals()
+
 describe "typed read-only admin users gateway", ->
   it "passes bounded search and cursor input to admin.users.list", async ->
     const list = vi.fn(async -> ({ items: [user], nextCursor: "cursor-2" }))
@@ -38,8 +318,24 @@ describe "typed read-only admin users gateway", ->
     await expect(gateway.list({ query: "alice", cursor: "cursor-1", limit: 20 })).resolves.toMatchObject({ nextCursor: "cursor-2" })
     expect(list).toHaveBeenCalledWith({ query: "alice", cursor: "cursor-1", limit: 20 })
 
-  it "constructs the browser gateway lazily during server rendering", ->
-    expect(() => createBrowserAdminUsersGateway()).not.toThrow()
+  it "constructs the browser gateway lazily and reuses one origin-scoped client", async ->
+    const list = vi.fn(async -> directoryPage([user], null))
+    apiClientRuntime.create.mockReturnValue({
+      admin: { users: { list } },
+    })
+    vi.stubGlobal("window", { location: { origin: "https://admin.darkfactory.test" } })
+
+    const gateway = createBrowserAdminUsersGateway()
+    expect(apiClientRuntime.create).not.toHaveBeenCalled()
+    await expect(gateway.list({ limit: 20 })).resolves.toEqual(directoryPage([user], null))
+    await gateway.list({ query: "alice", limit: 10 })
+
+    expect(apiClientRuntime.create).toHaveBeenCalledTimes(1)
+    expect(apiClientRuntime.create).toHaveBeenCalledWith({
+      baseUrl: "https://admin.darkfactory.test",
+    })
+    expect(list).toHaveBeenNthCalledWith(1, { limit: 20 })
+    expect(list).toHaveBeenNthCalledWith(2, { query: "alice", limit: 10 })
     expect(() => renderToStaticMarkup(<AdminUsersPageClient />)).not.toThrow()
 
   it "keeps private search text out of URL helpers and normalizes it in memory", ->
@@ -54,13 +350,27 @@ describe "typed read-only admin users gateway", ->
     expect(requests.isLatest(search)).toBe(false)
     expect(requests.isLatest(pagination)).toBe(true)
 
-  it.each([
-    ["UNAUTHORIZED", "Sign in"],
-    ["FORBIDDEN", "permission"],
-    ["STORAGE_ERROR", "temporarily unavailable"],
-  ])("maps %s without raw detail", (code, expected) ->
-    expect(safeAdminFeedback({ code })).toContain(expected)
-  )
+  it "classifies direct, nested, absent, and malformed failure codes", ->
+    expect(adminFailureKind({ code: "UNAUTHORIZED" })).toBe("unauthorized")
+    expect(adminFailureKind({ data: { code: "FORBIDDEN" } })).toBe("forbidden")
+    expect(adminFailureKind({ code: "NOT_FOUND" })).toBe("not-found")
+    expect(adminFailureKind({ data: { code: "CONFLICT" } })).toBe("retryable")
+    expect(adminFailureKind("network unavailable")).toBe("retryable")
+    expect(adminFailureKind(null)).toBe("retryable")
+
+  it "maps every safe feedback family without exposing transport detail", ->
+    expect(safeAdminFeedback({ code: "UNAUTHORIZED" })).toContain("Sign in")
+    expect(safeAdminFeedback({ code: "FORBIDDEN" })).toContain("permission")
+    expect(safeAdminFeedback({ code: "VALIDATION_ERROR" })).toContain("search could not be applied")
+    expect(safeAdminFeedback({ code: 400, data: { code: "BAD_REQUEST" } })).toContain("search could not be applied")
+    expect(safeAdminFeedback({ code: "STORAGE_ERROR" })).toContain("temporarily unavailable")
+
+    const generic = "The user directory could not be loaded. Try again."
+    expect(safeAdminFeedback({ code: 500, data: { code: 500 } })).toBe(generic)
+    expect(safeAdminFeedback({ code: 500, data: null })).toBe(generic)
+    expect(safeAdminFeedback({ code: 500, data: "postgres://secret" })).toBe(generic)
+    expect(safeAdminFeedback("postgres://secret")).toBe(generic)
+    expect(safeAdminFeedback(null)).toBe(generic)
 
 describe "admin user directory states", ->
   it "renders a stable loading directory", ->
@@ -68,12 +378,68 @@ describe "admin user directory states", ->
     expect(html).toContain("Loading users")
     expect(html).toContain("aria-busy=\"true\"")
 
+  it "submits the directory query and tolerates an omitted search callback", ->
+    let submittedValue: string | null = "  Alice Adams  "
+    const getValue = vi.fn((_name: string): string | null => submittedValue)
+    class StubFormData {
+      readonly get = getValue
+    }
+    vi.stubGlobal("FormData", StubFormData)
+    const onSearch = vi.fn()
+    const form = renderSearchForm({
+      onSearch,
+      query: "",
+      state: { type: "loading" },
+    })
+    const preventDefault = vi.fn()
+
+    invoke<void>(form as unknown as ElementRecord, "onSubmit", {
+      currentTarget: {},
+      preventDefault,
+    })
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(getValue).toHaveBeenCalledWith("query")
+    expect(onSearch).toHaveBeenCalledWith("  Alice Adams  ")
+
+    submittedValue = null
+    const emptySearch = vi.fn()
+    const emptyForm = renderSearchForm({
+      onSearch: emptySearch,
+      query: "",
+      state: { type: "loading" },
+    })
+    invoke<void>(
+      emptyForm as unknown as ElementRecord,
+      "onSubmit",
+      { currentTarget: {}, preventDefault: vi.fn() },
+    )
+    expect(emptySearch).toHaveBeenCalledWith("")
+
+    const callbackFreeForm = renderSearchForm({
+      query: "",
+      state: { type: "loading" },
+    })
+    expect(() => invoke<void>(
+      callbackFreeForm as unknown as ElementRecord,
+      "onSubmit",
+      { currentTarget: {}, preventDefault: vi.fn() },
+    )).not.toThrow()
+
   it "distinguishes unfiltered and filtered empty results", ->
     const empty = renderToStaticMarkup(<AdminUsersDirectory query="" state={{ type: "ready", items: [], nextCursor: null }} />)
     expect(empty).toContain("No users are available")
     const filtered = renderToStaticMarkup(<AdminUsersDirectory query="alice" state={{ type: "ready", items: [], nextCursor: null }} />)
     expect(filtered).toContain("No users match this search")
     expect(filtered).toContain("Clear search")
+
+    const onClearSearch = vi.fn()
+    const filteredTree = AdminUsersDirectory({
+      onClearSearch,
+      query: "alice",
+      state: { type: "ready", items: [], nextCursor: null },
+    })
+    invoke<void>(controlByText(filteredTree, "Clear search"), "onClick")
+    expect(onClearSearch).toHaveBeenCalledOnce()
 
   it "renders safe role, status, and profile summaries without secret or destructive data", ->
     const html = renderToStaticMarkup(<AdminUsersDirectory query="" state={{ type: "ready", items: [user], nextCursor: "cursor-2" }} />)
@@ -90,14 +456,329 @@ describe "admin user directory states", ->
     expect(html).not.toContain("Suspend")
     expect(html).not.toContain("Change role")
 
-  it "preserves context with retryable safe error feedback", ->
+  it "preserves transport sorting while covering every result presentation branch", ->
     const html = renderToStaticMarkup(
       <AdminUsersDirectory
-        onRetry={vi.fn()}
-        query="alice"
-        state={{ type: "error", kind: "retryable", message: "The user directory is temporarily unavailable." }}
+        isLoadingMore
+        query=""
+        state={{
+          type: "ready",
+          items: [deactivatedUser, user, suspendedUser],
+          nextCursor: "cursor-4",
+        }}
       />,
+    )
+    expect(html).toContain("Dana Deactivated")
+    expect(html).toContain("Alice A.")
+    expect(html).toContain("Bob Brown")
+    expect(html.indexOf("Dana Deactivated")).toBeLessThan(html.indexOf("Alice A."))
+    expect(html.indexOf("Alice A.")).toBeLessThan(html.indexOf("Bob Brown"))
+    expect(html).toContain("No profile summary provided")
+    expect(html).toContain("Email not verified")
+    expect(html).toContain("Admin")
+    expect(html).toContain("Suspended")
+    expect(html).toContain("Deactivated")
+    expect(html).toContain("3 users loaded. More users are available.")
+    expect(html).toContain("Loading more users")
+
+    const complete = renderToStaticMarkup(
+      <AdminUsersDirectory
+        query=""
+        state={{ type: "ready", items: [user], nextCursor: null }}
+      />,
+    )
+    expect(complete).toContain("1 user loaded. End of directory.")
+    expect(complete).not.toContain("Load more")
+
+  it "preserves context and invokes retry with retryable safe error feedback", ->
+    const onRetry = vi.fn()
+    const state = {
+      type: "error",
+      kind: "retryable",
+      message: "The user directory is temporarily unavailable.",
+    } as const
+    const html = renderToStaticMarkup(
+      <AdminUsersDirectory onRetry={onRetry} query="alice" state={state} />,
     )
     expect(html).toContain("The user directory is temporarily unavailable")
     expect(html).toContain("Try again")
     expect(html).toContain("value=\"alice\"")
+
+    const tree = AdminUsersDirectory({ onRetry, query: "alice", state })
+    invoke<void>(controlByText(tree, "Try again"), "onClick")
+    expect(onRetry).toHaveBeenCalledOnce()
+
+  it.each([
+    ["unauthorized", "/sign-in?callbackURL=%2Fadmin%2Fusers", "Sign in"],
+    ["forbidden", "/dashboard", "Back to dashboard"],
+    ["not-found", "/dashboard", "Back to dashboard"],
+  ] as const)("renders the authorization-safe %s recovery action", (kind, href, action) ->
+    const html = renderToStaticMarkup(
+      <AdminUsersDirectory
+        query=""
+        state={{ type: "error", kind, message: `Safe ${kind} feedback.` }}
+      />,
+    )
+    expect(html).toContain(`Safe ${kind} feedback.`)
+    expect(html).toContain(`href="${href}"`)
+    expect(html).toContain(action)
+    expect(html).not.toContain("Try again")
+  )
+
+describe "admin users page client", ->
+  it "loads, guards pagination boundaries, and merges authoritative page mutations by id", async ->
+    const authoritativeUser: AdminUserSummaryOutput = {
+      ...user,
+      emailVerified: false,
+    }
+    const list = vi.fn()
+      .mockResolvedValueOnce(directoryPage([user, suspendedUser], "cursor-2"))
+      .mockResolvedValueOnce(directoryPage([authoritativeUser, deactivatedUser], null))
+    gatewayRuntime.current = { list }
+    const mounted = mount(() => AdminUsersPageClient())
+
+    let tree = mounted.render()
+    expect(directoryState(tree)).toEqual({ type: "loading" })
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    expect(list).toHaveBeenCalledTimes(1)
+
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [user, suspendedUser],
+      nextCursor: "cursor-2",
+    })
+    expect(list).toHaveBeenNthCalledWith(1, { limit: 20 })
+
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    tree = mounted.render()
+    const loadingMoreDirectory = component(tree, AdminUsersDirectory)
+    expect(loadingMoreDirectory.props["isLoadingMore"]).toBe(true)
+    invoke<void>(loadingMoreDirectory, "onLoadMore")
+    expect(list).toHaveBeenCalledTimes(2)
+
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [authoritativeUser, suspendedUser, deactivatedUser],
+      nextCursor: null,
+    })
+    expect(component(tree, AdminUsersDirectory).props["isLoadingMore"]).toBe(false)
+    expect(list).toHaveBeenNthCalledWith(2, {
+      cursor: "cursor-2",
+      limit: 20,
+    })
+
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    expect(list).toHaveBeenCalledTimes(2)
+
+  it "normalizes filters in memory and clears them without URL state", async ->
+    const list = vi.fn()
+      .mockResolvedValueOnce(directoryPage([user, suspendedUser], null))
+      .mockResolvedValueOnce(directoryPage([suspendedUser], null))
+      .mockResolvedValueOnce(directoryPage([user, suspendedUser], null))
+    gatewayRuntime.current = { list }
+    const mounted = mount(() => AdminUsersPageClient())
+
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke<void>(component(tree, AdminUsersDirectory), "onSearch", "  Bob Brown  ")
+
+    tree = mounted.render()
+    expect(component(tree, AdminUsersDirectory).props["query"]).toBe("Bob Brown")
+    expect(directoryState(tree)).toEqual({ type: "loading" })
+    expect(list).toHaveBeenNthCalledWith(2, { query: "Bob Brown", limit: 20 })
+
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [suspendedUser],
+      nextCursor: null,
+    })
+    invoke<void>(component(tree, AdminUsersDirectory), "onClearSearch")
+
+    tree = mounted.render()
+    expect(component(tree, AdminUsersDirectory).props["query"]).toBe("")
+    expect(directoryState(tree)).toEqual({ type: "loading" })
+    expect(list).toHaveBeenNthCalledWith(3, { limit: 20 })
+
+    await flushMicrotasks()
+    expect(directoryState(mounted.render())).toEqual({
+      type: "ready",
+      items: [user, suspendedUser],
+      nextCursor: null,
+    })
+
+  it "sanitizes an authorization failure and retries the initial transport", async ->
+    const list = vi.fn()
+      .mockRejectedValueOnce({ code: "UNAUTHORIZED", detail: "session-cookie=secret" })
+      .mockResolvedValueOnce(directoryPage([user], null))
+    gatewayRuntime.current = { list }
+    const mounted = mount(() => AdminUsersPageClient())
+
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    expect(directoryState(tree)).toEqual({
+      type: "error",
+      kind: "unauthorized",
+      message: "Your session ended. Sign in again to continue.",
+    })
+    expect(JSON.stringify(directoryState(tree))).not.toContain("session-cookie")
+
+    invoke<void>(component(tree, AdminUsersDirectory), "onRetry")
+    tree = mounted.render()
+    expect(directoryState(tree)).toEqual({ type: "loading" })
+    await flushMicrotasks()
+    expect(directoryState(mounted.render())).toEqual({
+      type: "ready",
+      items: [user],
+      nextCursor: null,
+    })
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(list).toHaveBeenNthCalledWith(2, { limit: 20 })
+
+  it "ignores both stale fulfilled and stale rejected search responses", async ->
+    const initial = deferred<AdminUsersListOutput>()
+    const staleSearch = deferred<AdminUsersListOutput>()
+    const latestSearch = deferred<AdminUsersListOutput>()
+    const list = vi.fn()
+      .mockReturnValueOnce(initial.promise)
+      .mockReturnValueOnce(staleSearch.promise)
+      .mockReturnValueOnce(latestSearch.promise)
+    gatewayRuntime.current = { list }
+    const mounted = mount(() => AdminUsersPageClient())
+
+    const firstTree = mounted.render()
+    const directory = component(firstTree, AdminUsersDirectory)
+    invoke<void>(directory, "onSearch", "Bob")
+    invoke<void>(directory, "onSearch", "Carol")
+
+    staleSearch.resolve(directoryPage([suspendedUser], null))
+    initial.reject(new Error("stale transport detail"))
+    await flushMicrotasks()
+    expect(directoryState(mounted.render())).toEqual({ type: "loading" })
+
+    latestSearch.resolve(directoryPage([deactivatedUser], null))
+    await flushMicrotasks()
+    const tree = mounted.render()
+    expect(component(tree, AdminUsersDirectory).props["query"]).toBe("Carol")
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [deactivatedUser],
+      nextCursor: null,
+    })
+    expect(list).toHaveBeenNthCalledWith(2, { query: "Bob", limit: 20 })
+    expect(list).toHaveBeenNthCalledWith(3, { query: "Carol", limit: 20 })
+
+  it "keeps loaded filtered results through pagination transport failure and retry", async ->
+    const list = vi.fn()
+      .mockResolvedValueOnce(directoryPage([user], null))
+      .mockResolvedValueOnce(directoryPage([user], "filtered-cursor"))
+      .mockRejectedValueOnce(new Error("postgres://secret"))
+      .mockResolvedValueOnce(directoryPage([suspendedUser], null))
+    gatewayRuntime.current = { list }
+    const mounted = mount(() => AdminUsersPageClient())
+
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke<void>(component(tree, AdminUsersDirectory), "onSearch", "Alice")
+    await flushMicrotasks()
+    tree = mounted.render()
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    await flushMicrotasks()
+
+    tree = mounted.render()
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [user],
+      nextCursor: "filtered-cursor",
+    })
+    expect(textOf(tree)).toContain("The user directory could not be loaded. Try again.")
+    expect(textOf(tree)).not.toContain("postgres://secret")
+    expect(component(tree, AdminUsersDirectory).props["isLoadingMore"]).toBe(false)
+    expect(list).toHaveBeenNthCalledWith(3, {
+      query: "Alice",
+      cursor: "filtered-cursor",
+      limit: 20,
+    })
+
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    tree = mounted.render()
+    expect(textOf(tree)).not.toContain("The user directory could not be loaded. Try again.")
+    await flushMicrotasks()
+    expect(directoryState(mounted.render())).toEqual({
+      type: "ready",
+      items: [user, suspendedUser],
+      nextCursor: null,
+    })
+    expect(list).toHaveBeenNthCalledWith(4, {
+      query: "Alice",
+      cursor: "filtered-cursor",
+      limit: 20,
+    })
+
+  it "ignores stale pagination success and failure after newer filtered searches", async ->
+    const staleSuccess = deferred<AdminUsersListOutput>()
+    const firstSearch = deferred<AdminUsersListOutput>()
+    const staleFailure = deferred<AdminUsersListOutput>()
+    const latestSearch = deferred<AdminUsersListOutput>()
+    const list = vi.fn()
+      .mockResolvedValueOnce(directoryPage([user], "initial-cursor"))
+      .mockReturnValueOnce(staleSuccess.promise)
+      .mockReturnValueOnce(firstSearch.promise)
+      .mockReturnValueOnce(staleFailure.promise)
+      .mockReturnValueOnce(latestSearch.promise)
+    gatewayRuntime.current = { list }
+    const mounted = mount(() => AdminUsersPageClient())
+
+    mounted.render()
+    await flushMicrotasks()
+    let tree = mounted.render()
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    tree = mounted.render()
+    invoke<void>(component(tree, AdminUsersDirectory), "onSearch", "Bob")
+
+    firstSearch.resolve(directoryPage([suspendedUser], "bob-cursor"))
+    await flushMicrotasks()
+    staleSuccess.resolve(directoryPage([deactivatedUser], null))
+    await flushMicrotasks()
+    tree = mounted.render()
+    expect(component(tree, AdminUsersDirectory).props["query"]).toBe("Bob")
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [suspendedUser],
+      nextCursor: "bob-cursor",
+    })
+
+    invoke<void>(component(tree, AdminUsersDirectory), "onLoadMore")
+    tree = mounted.render()
+    invoke<void>(component(tree, AdminUsersDirectory), "onSearch", "Carol")
+    latestSearch.resolve(directoryPage([deactivatedUser], null))
+    await flushMicrotasks()
+    staleFailure.reject(new Error("stale pagination detail"))
+    await flushMicrotasks()
+
+    tree = mounted.render()
+    expect(component(tree, AdminUsersDirectory).props["query"]).toBe("Carol")
+    expect(component(tree, AdminUsersDirectory).props["isLoadingMore"]).toBe(false)
+    expect(directoryState(tree)).toEqual({
+      type: "ready",
+      items: [deactivatedUser],
+      nextCursor: null,
+    })
+    expect(textOf(tree)).not.toContain("stale pagination detail")
+    expect(list).toHaveBeenNthCalledWith(2, {
+      cursor: "initial-cursor",
+      limit: 20,
+    })
+    expect(list).toHaveBeenNthCalledWith(4, {
+      query: "Bob",
+      cursor: "bob-cursor",
+      limit: 20,
+    })

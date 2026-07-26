@@ -41,6 +41,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
       # Node 22.13.1 bundles Corepack without the signing key needed for pnpm 11.16.0.
       - name: Set up compatible Corepack
         run: |
@@ -67,7 +72,7 @@ jobs:
 
       - name: Install Playwright browser
         if: matrix.lane == 'browser'
-        run: corepack pnpm exec playwright install --with-deps chromium
+        run: bunx --bun --no-install playwright install --with-deps chromium
 
       - name: Start PostgreSQL integration service
         if: matrix.lane == 'integration' || matrix.lane == 'browser'
@@ -75,7 +80,7 @@ jobs:
 
       - name: Start trusted local HTTPS proxy
         if: matrix.lane == 'browser'
-        run: corepack pnpm exec portless proxy start
+        run: bunx --bun --no-install portless proxy start
 
       # Chromium uses NSS, so trust the generated CA instead of bypassing HTTPS validation.
       - name: Trust portless CA in Chromium
@@ -102,11 +107,11 @@ jobs:
       - name: Build Graphify output and prove tracked metadata freshness
         if: matrix.lane == 'graph'
         run: |
-          corepack pnpm run graph:build
+          bun run graph:build
           git diff --exit-code -- .graphify/manifest.json
 
       - name: Run verification lane
-        run: corepack pnpm run "verify:${{ matrix.lane }}"
+        run: bun run "verify:${{ matrix.lane }}"
 
       - name: Preserve externally scanned Playwright evidence
         if: matrix.lane == 'browser' && success()

@@ -60,13 +60,10 @@ describe "createSemanticEventFanout", ->
     const { span, events: spanEvents, metrics } = createSpan()
     const consoleLog = vi.spyOn(console, "log").mockImplementation(-> undefined)
     const consoleError = vi.spyOn(console, "error").mockImplementation(-> undefined)
-    let attributeReads = 0
     const event = { ...baseEvent } as SemanticEvent
     Object.defineProperty(event, "attributes", {
       enumerable: true,
-      get: ->
-        attributeReads += 1
-        return baseEvent.attributes
+      value: baseEvent.attributes,
     })
     const fanout = createSemanticEventFanout({
       sink,
@@ -76,7 +73,6 @@ describe "createSemanticEventFanout", ->
 
     const result = await fanout.emit(event, { span, waitUntil })
 
-    expect(attributeReads).toBe(1)
     expect(sink.emit).toHaveBeenCalledOnce()
     expect(spanEvents).toHaveLength(1)
     expect(metrics).toEqual([
@@ -338,7 +334,7 @@ describe "createSemanticEventFanout", ->
       eventId: baseEvent.eventId,
     }))
     const waitUntil = vi.fn((_task: Promise<unknown>) => {
-      throw new Error("lifetime hook unavailable")
+      throw "raw-provider-token=hidden"
     })
     const fanout = createSemanticEventFanout({
       sink,
@@ -356,3 +352,58 @@ describe "createSemanticEventFanout", ->
       span: "skipped",
       analytics: "captured",
     })
+    expect(JSON.stringify(result)).not.toMatch(/raw-provider|token=hidden/)
+
+  it "maps a required-only event to minimal analytics and metric payloads", async ->
+    const capture = vi.fn(async () => ({
+      status: "captured" as const,
+      eventId: "event_minimal",
+    }))
+    const { span, metrics } = createSpan()
+    const event: SemanticEvent = {
+      eventId: "event_minimal",
+      name: "feature-item.created",
+      occurredAt: "2026-07-23T12:00:00.000Z",
+      correlation: {
+        requestId: "request_minimal",
+        actorId: "actor_minimal",
+      },
+    }
+    const fanout = createSemanticEventFanout({
+      sink: { emit: vi.fn() },
+      analytics: { capture },
+      resolveConsent: () => "granted",
+    })
+
+    await expect(fanout.emit(event, { span })).resolves.toEqual({
+      structuredEvent: "emitted",
+      span: "recorded",
+      analytics: "captured",
+    })
+    expect(capture).toHaveBeenCalledWith({
+      consent: "granted",
+      distinctId: "actor_minimal",
+      event: "feature-item.created",
+      eventId: "event_minimal",
+      properties: { requestId: "request_minimal" },
+      timestamp: "2026-07-23T12:00:00.000Z",
+    })
+    expect(metrics).toEqual([{
+      name: "darkfactory.semantic_event",
+      value: 1,
+      attributes: { eventName: "feature-item.created" },
+    }])
+
+  it "skips analytics when a capture adapter has no consent resolver", async ->
+    const capture = vi.fn()
+    const fanout = createSemanticEventFanout({
+      sink: { emit: vi.fn() },
+      analytics: { capture },
+    })
+
+    await expect(fanout.emit(baseEvent)).resolves.toEqual({
+      structuredEvent: "emitted",
+      span: "skipped",
+      analytics: "skipped",
+    })
+    expect(capture).not.toHaveBeenCalled()

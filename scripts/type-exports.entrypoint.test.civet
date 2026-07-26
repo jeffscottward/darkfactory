@@ -1,0 +1,132 @@
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  runTypeExportsEntrypoint,
+  type TypeExportEntrypointDependencies,
+  type TypeExportReport,
+} from "./type-exports.civet"
+
+const sourcePath = fileURLToPath(new URL("./type-exports.civet", import.meta.url))
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url))
+const emptyReport: TypeExportReport = Object.freeze({
+  targets: [],
+  problems: [],
+})
+
+const invokeEntrypoint = (
+  overrides: Partial<TypeExportEntrypointDependencies> = {},
+) => {
+  const exitState: { exitCode?: number } = {}
+  const inspectTypeExports = vi.fn(async () => emptyReport)
+  const writeOutput = vi.fn()
+  const writeError = vi.fn()
+  const dependencies: TypeExportEntrypointDependencies = {
+    invokedPath: sourcePath,
+    moduleUrl: pathToFileURL(sourcePath).href,
+    rootDirectory: repositoryRoot,
+    inspectTypeExports,
+    writeOutput,
+    writeError,
+    exitState,
+    ...overrides,
+  }
+  return {
+    dependencies,
+    inspectTypeExports,
+    invocation: runTypeExportsEntrypoint(dependencies),
+    writeError,
+    writeOutput,
+  }
+}
+
+describe("type export executable boundary", () => {
+  it("prints the generated success report without assigning a failure status", async () => {
+    const { dependencies, invocation, inspectTypeExports, writeError, writeOutput } =
+      invokeEntrypoint()
+
+    await invocation
+
+    expect(inspectTypeExports).toHaveBeenCalledWith(repositoryRoot)
+    expect(writeOutput).toHaveBeenCalledWith("Type export audit passed (0 targets):\n")
+    expect(writeError).not.toHaveBeenCalled()
+    expect(dependencies.exitState.exitCode).toBeUndefined()
+  })
+
+  it("prints expected audit problems and assigns failure status", async () => {
+    const { dependencies, invocation, writeError, writeOutput } = invokeEntrypoint({
+      inspectTypeExports: async () => ({
+        targets: [],
+        problems: [{
+          packageName: "@fixture/missing",
+          subpath: ".",
+          target: "./types/index.d.ts",
+          reason: "missing or not a regular file",
+        }],
+      }),
+    })
+
+    await invocation
+
+    expect(writeError).toHaveBeenCalledWith(
+      "Type export audit failed:\n- @fixture/missing . -> ./types/index.d.ts: missing or not a regular file\n",
+    )
+    expect(writeOutput).not.toHaveBeenCalled()
+    expect(dependencies.exitState.exitCode).toBe(1)
+  })
+
+  it.each([
+    ["Error", new Error("private workspace read failure at /secret/worktree")],
+    ["non-Error", "private unclassified audit failure"],
+  ] as const)("sanitizes an unexpected %s rejection", async (_kind, failure) => {
+    const { dependencies, invocation, writeError } = invokeEntrypoint({
+      inspectTypeExports: async () => { throw failure },
+    })
+
+    await invocation
+
+    expect(writeError).toHaveBeenCalledWith("Type export audit failed safely\n")
+    expect(writeError).not.toHaveBeenCalledWith(expect.stringContaining("/secret/worktree"))
+    expect(writeError).not.toHaveBeenCalledWith(
+      expect.stringContaining("private unclassified audit failure"),
+    )
+    expect(dependencies.exitState.exitCode).toBe(1)
+  })
+
+  it("does not inspect when argv is absent or names a different module", async () => {
+    for (const invokedPath of [undefined, "/other/script.civet"]) {
+      const { inspectTypeExports, invocation, writeError, writeOutput } =
+        invokeEntrypoint({ invokedPath })
+
+      await invocation
+
+      expect(inspectTypeExports).not.toHaveBeenCalled()
+      expect(writeOutput).not.toHaveBeenCalled()
+      expect(writeError).not.toHaveBeenCalled()
+    }
+  })
+
+  it("continues fail-closed cleanup when diagnostic and exit sinks reject primitives", async () => {
+    const diagnosticFailure = invokeEntrypoint({
+      inspectTypeExports: async () => { throw new Error("private failure") },
+      writeError: () => { throw "diagnostic sink failed" },
+    })
+
+    await expect(diagnosticFailure.invocation).resolves.toBeUndefined()
+    expect(diagnosticFailure.dependencies.exitState.exitCode).toBe(1)
+
+    const rejectingExitState: { exitCode?: number } = {}
+    Object.defineProperty(rejectingExitState, "exitCode", {
+      set: () => { throw "exit sink failed" },
+    })
+    const exitFailure = invokeEntrypoint({
+      exitState: rejectingExitState,
+      inspectTypeExports: async () => { throw new Error("private failure") },
+    })
+
+    await expect(exitFailure.invocation).resolves.toBeUndefined()
+    expect(exitFailure.writeError).toHaveBeenCalledWith(
+      "Type export audit failed safely\n",
+    )
+  })
+})

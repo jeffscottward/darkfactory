@@ -13,12 +13,10 @@ Small fixes can go directly to a pull request. For a substantial feature, archit
 
 ## Local setup
 
-DarkFactory requires Node.js 22.13.0 or newer and pnpm 11.16.0 through Corepack. Docker Compose, PM2, Graphify, Varlock, and a Chromium-compatible browser are needed by particular development and verification paths.
+DarkFactory uses Bun 1.3.14 for scripts and TypeScript, pnpm 11.16.0 through Corepack 0.34.7 for packages/workspaces, and Node.js >=22.13 for compatibility paths. Docker Compose, PM2 7.0.3, Portless 0.13.0, Graphify 0.9.2, Varlock 1.13.0, uv 0.11.32, and Playwright/Chromium 1.61.1 support particular development and verification paths.
 
 ```bash
-corepack enable
-corepack install --global pnpm@11.16.0
-pnpm install --frozen-lockfile
+sh scripts/install-prerequisites.sh
 cp .env.example .env
 ```
 
@@ -36,10 +34,10 @@ The copied environment file is only a starting point. Keep real secrets in ignor
 Useful source-to-artifact checks include:
 
 ```bash
-pnpm auth:schema:check
-pnpm api:openapi:check
-pnpm db:check
-pnpm docs:check
+bun run auth:schema:check
+bun run api:openapi:check
+bun run db:check
+bun run docs:check
 ```
 
 Run only the checks applicable to the change while iterating. The repository's [Testing and evidence guide](docs/testing-and-evidence.md) maps change types to focused and follow-through gates.
@@ -49,24 +47,24 @@ Run only the checks applicable to the change while iterating. The repository's [
 Start with the narrowest meaningful test or contract. Common repository gates are:
 
 ```bash
-pnpm format:check
-pnpm lint
-pnpm typecheck
-pnpm test:unit
-pnpm test:contract
-pnpm test:integration
-pnpm verify:graph
+bun run format:check
+bun run lint
+bun run typecheck
+bun run test:unit
+bun run test:contract
+bun run test:integration
+bun run verify:graph
 ```
 
 Commands that need environment values should run through Varlock, for example:
 
 ```bash
-varlock run -- pnpm test:integration
+varlock run -- bun run test:integration
 ```
 
 Documentation-only changes need scoped link and path review plus Markdown lint; they do not need artificial application tests. Database, browser, provider, and deployment checks have additional prerequisites and safety boundaries documented in [Testing and evidence](docs/testing-and-evidence.md). Do not run credentialed deployment commands merely to validate a contribution.
 
-Before requesting review, run the complete applicable gate and record the exact command and result. `pnpm verify:core` is the broad deterministic pre-push lifecycle. Environment-heavy verification remains explicit; use `pnpm verify` only after its documented prerequisites are ready.
+Before requesting review, run the complete applicable gate and record the exact command and result. `bun run verify:core` is the broad deterministic pre-push lifecycle. Environment-heavy verification remains explicit; use `bun run verify` only after its documented prerequisites are ready. The coverage lane is the measured exception: it invokes Vitest under Node through `corepack pnpm exec` because Bun 1.3.14 lacks the V8 `node:inspector` coverage APIs.
 
 ## Open a pull request
 

@@ -111,8 +111,20 @@ describe "OpenTelemetry exporter lifecycle", ->
       {
         name: "worker.export",
         correlation: { requestId: "request_export" },
+        attributes: {
+          enabled: true,
+          nested: { category: "ignored" },
+        } as unknown as Readonly<
+          Record<string, string | number | boolean>
+        >,
       },
       (span) => {
+        span.addEvent({
+          eventId: "event_export",
+          name: "feature-item.created",
+          occurredAt: "2026-07-23T12:00:00.000Z",
+          correlation: { requestId: "request_export" },
+        })
         span.recordMetric({
           name: "darkfactory.semantic_event",
           value: 1,
@@ -124,6 +136,10 @@ describe "OpenTelemetry exporter lifecycle", ->
 
     const exportedSpan = traceExporter.batches[0]?.[0] as
       | {
+          attributes: Readonly<Record<string, unknown>>
+          events: ReadonlyArray<{
+            attributes: Readonly<Record<string, unknown>>
+          }>
           resource: {
             attributes: Readonly<Record<string, unknown>>
           }
@@ -139,6 +155,12 @@ describe "OpenTelemetry exporter lifecycle", ->
     expect(exportedSpan?.resource.attributes["service.name"]).toBe(
       "darkfactory-worker"
     )
+    expect(exportedSpan?.attributes["enabled"]).toBe(true)
+    expect(exportedSpan?.attributes).not.toHaveProperty("nested")
+    expect(exportedSpan?.events).toHaveLength(1)
+    expect(exportedSpan?.events[0]?.attributes).toEqual({
+      "event.id": "event_export",
+    })
     expect(exportedMetric?.resource.attributes["service.name"]).toBe(
       "darkfactory-worker"
     )

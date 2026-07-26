@@ -185,6 +185,41 @@ const inactiveStatusError = (status: unknown): APIError | undefined => {
   })
 }
 
+const MISSING_PLAIN_DATA_PROPERTY = Symbol("missing plain-data property")
+const INVALID_PLAIN_DATA = Symbol("invalid plain data")
+
+const readPlainDataProperty = (
+  value: unknown,
+  key: PropertyKey,
+): unknown ->
+  try
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Object.getPrototypeOf(value) !== Object.prototype
+    )
+      return INVALID_PLAIN_DATA
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if descriptor === undefined
+      return MISSING_PLAIN_DATA_PROPERTY
+    if !("value" in descriptor)
+      return INVALID_PLAIN_DATA
+    descriptor.value
+  catch
+    INVALID_PLAIN_DATA
+
+const sessionUserStatus = (session: unknown): unknown ->
+  const user = readPlainDataProperty(session, "user")
+  if (
+    user === MISSING_PLAIN_DATA_PROPERTY ||
+    user === INVALID_PLAIN_DATA
+  )
+    return INVALID_PLAIN_DATA
+  const status = readPlainDataProperty(user, "status")
+  if status === MISSING_PLAIN_DATA_PROPERTY
+    return INVALID_PLAIN_DATA
+  status
+
 const requireActiveUserId = async (
   database: Database,
   userId: string,
@@ -194,7 +229,7 @@ const requireActiveUserId = async (
     .from(users)
     .where(eq(users.id, userId))
     .limit(1)
-  const error = user ? inactiveStatusError(user.status) : undefined
+  const error = inactiveStatusError(user?.status)
   if (error) throw error
 }
 
@@ -230,16 +265,22 @@ export const createAuth = (options: AuthFactoryOptions) => {
         : {}),
     },
     hooks: {
-      before: createAuthMiddleware(async (context) => {
-        const currentUser = (
-          context.context as {
-            session?: { user?: { status?: unknown } } | null
-          }
-        ).session?.user
-        if (context.path !== "/sign-out" && currentUser !== undefined) {
-          const statusError = inactiveStatusError(currentUser.status)
-          if (statusError) throw statusError
-        }
+      before: createAuthMiddleware(async (context) ->
+        if context.path !== "/sign-out"
+          const currentSession = readPlainDataProperty(
+            context.context,
+            "session",
+          )
+          if (
+            currentSession !== MISSING_PLAIN_DATA_PROPERTY &&
+            currentSession !== undefined &&
+            currentSession !== null
+          )
+            const statusError = inactiveStatusError(
+              sessionUserStatus(currentSession),
+            )
+            if statusError
+              throw statusError
 
         if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return undefined
         const body = context.body as Record<string, unknown> | undefined
@@ -252,7 +293,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
             body: { ...body, email },
           },
         }
-      }),
+      ),
       after: createAuthMiddleware(async (context) => {
         if (context.path !== "/sign-in/email") return undefined
         const signedInUser = (
@@ -820,11 +861,8 @@ const inactiveSessionResponse = async (
 ): Promise<Response | undefined> => {
   if (isStatusGateExempt(request)) return undefined
   const session = await auth.api.getSession({ headers: request.headers })
-  const user = (
-    session as { user?: { status?: unknown } | null } | null
-  )?.user
-  if (user === undefined || user === null) return undefined
-  const status = user.status
+  if (session === null) return undefined
+  const status = sessionUserStatus(session)
   if (status === "active") return undefined
   const code =
     status === "suspended"
@@ -854,14 +892,14 @@ export const createAuthHandler = (
     }
     if (
       isResetRequest(request) &&
-      (await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE))
+      (
+        response.ok ||
+        await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE)
+      )
     ) {
-      const headers = new Headers(response.headers)
-      headers.set("content-type", "application/json")
-      headers.delete("content-length")
-      response = new Response(JSON.stringify(SAFE_RESET_RESPONSE), {
+      response = Response.json(SAFE_RESET_RESPONSE, {
         status: 200,
-        headers,
+        headers: { "cache-control": "no-store" },
       })
     }
     return await sanitizeTokenResponse(response)

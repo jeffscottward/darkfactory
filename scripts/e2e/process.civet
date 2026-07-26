@@ -55,11 +55,19 @@ export const runOwnedCommand = async (
     env: options.env,
     windowsHide: true,
   })
+  const terminateSafely = (): Promise<boolean> =>
+    Promise.resolve()
+      .then(() => terminateTree(child))
+      .then(
+        (terminated) => terminated,
+        () => false,
+      )
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
   let outputBytes = 0
   let reason: OwnedCommandResult["reason"] = "completed"
   let stopPromise: Promise<boolean> | undefined
+  let observedClose = false
   let observedExitCode: number | undefined
   let settleCompletion: ((exitCode: number) => void) | undefined
   const onError = (): void => {
@@ -70,6 +78,7 @@ export const runOwnedCommand = async (
     observedExitCode = code ?? 1
   }
   const onClose = (code: number | null): void => {
+    observedClose = true
     settleCompletion?.(code ?? observedExitCode ?? 1)
   }
   const completionPromise = new Promise<number>((resolveCompletion) => {
@@ -80,18 +89,15 @@ export const runOwnedCommand = async (
   })
   const stop = (nextReason: OwnedCommandResult["reason"]): Promise<boolean> => {
     if (reason === "completed") reason = nextReason
-    stopPromise ??= terminateTree(child)
-    stopPromise.then(
-      () => settleCompletion?.(1),
-      () => settleCompletion?.(1),
-    )
+    stopPromise ??= terminateSafely()
+    void stopPromise.then(() => settleCompletion?.(1))
     return stopPromise
   }
   const collect = (target: Buffer[], value: Buffer | string): void => {
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
     outputBytes += chunk.byteLength
     if (outputBytes > maxOutputBytes) {
-      stop("output-limit").catch(() => undefined)
+      void stop("output-limit")
       return
     }
     target.push(chunk)
@@ -100,12 +106,14 @@ export const runOwnedCommand = async (
   const collectStderr = (value: Buffer | string): void => collect(stderr, value)
   child.stdout.on("data", collectStdout)
   child.stderr.on("data", collectStderr)
-  const interrupt = (): void => { stop("interrupted").catch(() => undefined) }
+  const interrupt = (): void =>
+    void stop("interrupted")
   signals.on("SIGINT", interrupt)
   signals.on("SIGTERM", interrupt)
-  const timer = setTimeout(() => {
-    stop("timeout").catch(() => undefined)
-  }, timeoutMillis)
+  const timer = setTimeout(
+    () => void stop("timeout"),
+    timeoutMillis,
+  )
 
   let exitCode = 1
   try {
@@ -124,12 +132,16 @@ export const runOwnedCommand = async (
     child.stderr.destroy()
   }
 
-  let treeTerminated = false
-  try {
-    treeTerminated = await (stopPromise ?? terminateTree(child))
-  } catch {
-    treeTerminated = false
-  }
+  const terminated =
+    process.platform === "win32" && reason === "completed"
+      ? false
+      : await (stopPromise ?? terminateSafely())
+  // Forced stops and Windows process trees cannot prove that no descendant escaped.
+  const treeTerminated =
+    process.platform !== "win32" &&
+    reason === "completed" &&
+    observedClose &&
+    terminated
   if (!treeTerminated) reason = "termination-unproven"
   if (reason !== "completed") exitCode = 1
   return Object.freeze({

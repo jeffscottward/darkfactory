@@ -1,6 +1,4 @@
-import { fileURLToPath } from "node:url"
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres"
-import { migrate as runMigrations } from "drizzle-orm/node-postgres/migrator"
 import { Client, Pool } from "pg"
 import * as schema from "../schema/index.civet"
 
@@ -27,9 +25,6 @@ export type DatabaseResource = Readonly<{
   close: () => Promise<void>
 }>
 
-export type MigrationOptions = Readonly<{
-  migrationsFolder?: string
-}>
 
 const drizzleDatabase = (client: Pool | Client): Database =>
   drizzle({ client, schema })
@@ -58,14 +53,16 @@ export const createNodeDatabase = (
   }
 }
 
+const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000
+
 export const createRequestDatabase = async (
   options: RequestDatabaseOptions,
 ): Promise<DatabaseResource> => {
   const client = new Client({
     connectionString: options.connectionString,
-    ...(options.connectionTimeoutMillis === undefined
-      ? {}
-      : { connectionTimeoutMillis: options.connectionTimeoutMillis }),
+    connectionTimeoutMillis:
+      options.connectionTimeoutMillis ??
+      DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS,
   })
 
   try {
@@ -83,18 +80,6 @@ export const createRequestDatabase = async (
   }
 }
 
-const defaultMigrationsFolder = fileURLToPath(
-  new URL("../../migrations", import.meta.url),
-)
-
-export const migrate = async (
-  database: Database,
-  options: MigrationOptions = {},
-): Promise<void> => {
-  await runMigrations(database, {
-    migrationsFolder: options.migrationsFolder ?? defaultMigrationsFolder,
-  });
-}
 
 export const withTransaction = async <Result>(
   database: DatabaseExecutor,

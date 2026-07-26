@@ -13,6 +13,7 @@ vi.mock("@better-auth/drizzle-adapter", () => ({
 import type { EmailDeliveryResult, EmailPort } from "@darkfactory/email"
 import {
   EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
+  PASSWORD_RESET_DELIVERY_ERROR_CODE,
   createAuth,
 } from "./server.civet"
 
@@ -43,11 +44,30 @@ type VerificationEmailCallback = (input: Readonly<{
   token: string
 }>) => Promise<void>
 
+type PasswordResetCallback = (input: Readonly<{
+  user: Readonly<{ id: string; email: string; name: string }>
+  url: string
+  token: string
+}>) => Promise<void>
+
 type CapturedAuthOptions = Readonly<{
+  trustedOrigins: readonly string[]
   advanced: Readonly<{
     ipAddress: Readonly<{ ipAddressHeaders: readonly string[] }>
+    database?: Readonly<{
+      generateId: (options: {
+        model: string
+        size?: number | undefined
+      }) => string
+    }>
   }>
-  emailAndPassword: Readonly<Record<string, unknown>>
+  emailAndPassword: Readonly<{
+    enabled: boolean
+    autoSignIn: boolean
+    requireEmailVerification: boolean
+    resetPasswordTokenExpiresIn: number
+    sendResetPassword: PasswordResetCallback
+  }>
   emailVerification: Readonly<{
     sendOnSignUp: boolean
     sendOnSignIn: boolean
@@ -57,6 +77,7 @@ type CapturedAuthOptions = Readonly<{
   }>
   hooks: Readonly<{ before: unknown }>
   rateLimit: Readonly<{
+    enabled: boolean
     storage: string
     customRules: Readonly<Record<string, Readonly<{ window: number; max: number }>>>
   }>
@@ -131,6 +152,43 @@ describe "Better Auth email verification configuration", ->
       max: 10,
     })
 
+  it "propagates optional origins, adapter IDs, and per-route limits", ->
+    const { email } = createEmail()
+    const database = { transaction: vi.fn() }
+    const generateId = vi.fn(() => "generated-id")
+    const auth = createAuth({
+      database: database as never,
+      secret: "auth-test-secret-with-at-least-32-characters",
+      email,
+      scheduleBackgroundTask: () => undefined,
+      trustedOrigins: [
+        BASE_URL,
+        "https://admin.darkfactory.localhost",
+        BASE_URL,
+      ],
+      resetRateLimitMax: 7,
+      signInRateLimitMax: 11,
+      generateId,
+    }) as unknown as { options: CapturedAuthOptions }
+
+    expect(auth.options.trustedOrigins).toEqual([
+      BASE_URL,
+      "https://admin.darkfactory.localhost",
+    ])
+    expect(auth.options.advanced.database?.generateId).toBe(generateId)
+    expect(auth.options.rateLimit.enabled).toBe(true)
+    expect(
+      auth.options.rateLimit.customRules["/request-password-reset"],
+    ).toEqual({ window: 60, max: 7 })
+    expect(auth.options.rateLimit.customRules["/sign-in/email"]).toEqual({
+      window: 60,
+      max: 11,
+    })
+    expect(mocks.drizzleAdapter).toHaveBeenLastCalledWith(
+      database,
+      expect.objectContaining({ transaction: true }),
+    )
+
   it "uses a validated verification resend limit and rejects invalid configuration", ->
     const { email } = createEmail()
     const configured = createConfiguredAuth(email, 60 * 60, 9)
@@ -147,18 +205,22 @@ describe "Better Auth email verification configuration", ->
       }).toThrowError("verificationRateLimitMax must be a positive integer")
     }
 
-    const invalidSignInOptions = {
-      database: {} as never,
-      secret: "auth-test-secret-with-at-least-32-characters",
-      baseURL: BASE_URL,
-      email,
-      scheduleBackgroundTask: () => undefined,
-      rateLimitEnabled: false,
-      signInRateLimitMax: 0,
+    for (const invalidSignInMax of [
+      0,
+      -1,
+      1.5,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(() => createAuth({
+        database: {} as never,
+        secret: "auth-test-secret-with-at-least-32-characters",
+        baseURL: BASE_URL,
+        email,
+        scheduleBackgroundTask: () => undefined,
+        rateLimitEnabled: false,
+        signInRateLimitMax: invalidSignInMax,
+      })).toThrowError("signInRateLimitMax must be a positive integer")
     }
-    expect(() => createAuth(invalidSignInOptions)).toThrowError(
-      "signInRateLimitMax must be a positive integer",
-    )
 
   it "delegates the exact trusted Better Auth URL to the operation-specific port", async ->
     const { email, sendEmailVerification } = createEmail()
@@ -180,6 +242,54 @@ describe "Better Auth email verification configuration", ->
       recipientName: "Member Example",
       verificationUrl,
       expiresInMinutes: 60,
+    })
+
+  it "delegates reset delivery and converts a typed delivery failure", async ->
+    const sendPasswordReset = vi.fn()
+      .mockResolvedValueOnce({
+        status: "previewed",
+        provider: "preview",
+        artifactPath: "/tmp/reset.html",
+      })
+      .mockResolvedValueOnce({
+        status: "failed",
+        provider: "resend",
+        code: "EMAIL_PROVIDER_UNAVAILABLE",
+        retryable: true,
+      })
+    const email: EmailPort = {
+      sendPasswordReset,
+      sendEmailVerification: vi.fn(),
+    }
+    const auth = createConfiguredAuth(email)
+    const callbackInput = {
+      user: {
+        id: "user-1",
+        email: "member@domain.test",
+        name: "Member Example",
+      },
+      url:
+        `${BASE_URL}/api/auth/reset-password/reset-token` +
+        `?callbackURL=${encodeURIComponent(`${BASE_URL}/reset-password`)}`,
+      token: "reset-token",
+    }
+
+    await expect(
+      auth.options.emailAndPassword.sendResetPassword(callbackInput),
+    ).resolves.toBeUndefined()
+    expect(sendPasswordReset).toHaveBeenLastCalledWith({
+      to: "member@domain.test",
+      recipientName: "Member Example",
+      resetUrl: callbackInput.url,
+      expiresInMinutes: 60,
+    })
+    await expect(
+      auth.options.emailAndPassword.sendResetPassword(callbackInput),
+    ).rejects.toMatchObject({
+      body: {
+        code: PASSWORD_RESET_DELIVERY_ERROR_CODE,
+        message: "Password reset delivery is unavailable",
+      },
     })
 
   it "awaits delivery and reports a redacted failure to Better Auth's scheduler", async ->
@@ -276,9 +386,19 @@ describe "Better Auth email verification configuration", ->
       )
     }
 
-    expect(() => createConfiguredAuth(email, 60 * 60, undefined, 61)).toThrowError(
-      "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
-    )
+    for (const expiresIn of [
+      0,
+      -60,
+      60.5,
+      61,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(() =>
+        createConfiguredAuth(email, 60 * 60, undefined, expiresIn)
+      ).toThrowError(
+        "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
+      )
+    }
 
   it "installs the email normalization hook used by manual verification requests", ->
     const { email } = createEmail()

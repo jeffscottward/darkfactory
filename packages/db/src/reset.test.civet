@@ -1,0 +1,117 @@
+import type { SQL } from "drizzle-orm"
+import { PgDialect } from "drizzle-orm/pg-core"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  DevelopmentResetError,
+  resetDevelopment,
+} from "./reset.civet"
+import type { Database } from "./server/client.civet"
+
+const createResetDatabaseDouble = ({
+  executeError,
+  transactionError,
+}: {
+  executeError?: unknown
+  transactionError?: unknown
+} = {}) => {
+  const lifecycle: string[] = []
+  const execute = vi.fn(async (_statement: unknown) => {
+    if (executeError !== undefined) throw executeError
+    return []
+  })
+  const transactionExecutor = { execute } as unknown as Database
+  const transaction = vi.fn(
+    async (operation: (transaction: Database) => Promise<unknown>) => {
+      lifecycle.push("begin")
+      try {
+        if (transactionError !== undefined) throw transactionError
+        const result = await operation(transactionExecutor)
+        lifecycle.push("commit")
+        return result
+      } catch (error) {
+        lifecycle.push("rollback")
+        throw error
+      }
+    },
+  )
+  return {
+    database: { transaction } as unknown as Database,
+    execute,
+    lifecycle,
+    transaction,
+  }
+}
+
+describe "development database reset", ->
+  it.each(["development", "test"] as const)(
+    "truncates all development-owned tables transactionally in %s",
+    async (environment) => {
+      const double = createResetDatabaseDouble()
+
+      const result = await resetDevelopment(double.database, { environment })
+
+      expect(result).toEqual({ tablesCleared: 10 })
+      expect(Object.isFrozen(result)).toBe(true)
+      expect(double.lifecycle).toEqual(["begin", "commit"])
+      expect(double.transaction).toHaveBeenCalledOnce()
+      expect(double.execute).toHaveBeenCalledOnce()
+      const statement = double.execute.mock.calls[0]![0] as SQL
+      const query = new PgDialect().sqlToQuery(statement).sql
+      expect(query).toContain("TRUNCATE TABLE")
+      for (const table of [
+        "session",
+        "account",
+        "addresses",
+        "profiles",
+        "user_preferences",
+        "feature_items",
+        "audit_records",
+        "user",
+        "verification",
+        "outbox_events",
+      ])
+        expect(query).toContain(`"${table}"`)
+      expect(query).toContain("RESTART IDENTITY")
+    },
+  )
+
+  it "rejects every non-development environment before opening a transaction", async ->
+    for (const environment of ["production", "staging", "", undefined, null]) {
+      const double = createResetDatabaseDouble()
+      let thrown: unknown
+      try {
+        await resetDevelopment(double.database, {
+          environment: environment as never,
+        })
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).toBeInstanceOf(DevelopmentResetError)
+      expect(thrown).toMatchObject({
+        name: "DevelopmentResetError",
+        message: "Development reset requires an explicit development or test environment",
+      })
+      expect(double.transaction).not.toHaveBeenCalled()
+      expect(double.execute).not.toHaveBeenCalled()
+    }
+
+  it "preserves transaction-provider failures and records rollback", async ->
+    const providerError = new Error("transaction provider unavailable")
+    const double = createResetDatabaseDouble({ transactionError: providerError })
+
+    await expect(
+      resetDevelopment(double.database, { environment: "test" }),
+    ).rejects.toBe(providerError)
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    expect(double.execute).not.toHaveBeenCalled()
+
+  it "rolls back when the truncate statement fails", async ->
+    const executeError = new Error("truncate denied")
+    const double = createResetDatabaseDouble({ executeError })
+
+    await expect(
+      resetDevelopment(double.database, { environment: "development" }),
+    ).rejects.toBe(executeError)
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    expect(double.execute).toHaveBeenCalledOnce()

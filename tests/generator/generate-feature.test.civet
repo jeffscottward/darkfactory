@@ -1,13 +1,32 @@
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import {
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  rmdir,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   applyGenerationPlan,
+  type ApplyGenerationDependencies,
   type ApplyGenerationOptions,
 } from "../../scripts/generate-feature/apply.civet"
-import { runFeatureGeneratorCli } from "../../scripts/generate-feature/cli.civet"
+import {
+  assertNoSymlinkPath,
+  hasIdentity,
+  identityAt,
+  pathExists,
+} from "../../scripts/generate-feature/path-safety.civet"
 import { parseGeneratorArguments } from "../../scripts/generate-feature/parse.civet"
 import { createGenerationPlan } from "../../scripts/generate-feature/plan.civet"
 import {
@@ -18,13 +37,29 @@ import {
 import type { GenerationPlan } from "../../scripts/generate-feature/types.civet"
 import { validateFeatureName } from "../../scripts/generate-feature/validate.civet"
 import { verifyGeneration } from "../../scripts/generate-feature/verify.civet"
-import { generateFeature } from "../../scripts/generate-feature/workflow.civet"
 import {
   createGeneratorFixture,
   listFixtureEntries,
   readGeneratedFiles,
   replaceFeaturesDirectoryWithSymlink,
 } from "./fixture.civet"
+type RunFeatureGeneratorCli = typeof import(
+  "../../scripts/generate-feature/cli.civet"
+)["runFeatureGeneratorCli"]
+const runFeatureGeneratorCli = (
+  ...arguments_: Parameters<RunFeatureGeneratorCli>
+): ReturnType<RunFeatureGeneratorCli> =>
+  import("../../scripts/generate-feature/cli.civet")
+    .then(({ runFeatureGeneratorCli: run }) => run(...arguments_))
+type GenerateFeature = typeof import(
+  "../../scripts/generate-feature/workflow.civet"
+)["generateFeature"]
+const generateFeature = (
+  ...arguments_: Parameters<GenerateFeature>
+): ReturnType<GenerateFeature> =>
+  import("../../scripts/generate-feature/workflow.civet")
+    .then(({ generateFeature: generate }) => generate(...arguments_))
+
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -70,12 +105,25 @@ describe "DF-069/DF-070 arguments and canonical names", ->
     expect(() => validateFeatureName(name)).toThrow()
   )
 
+  it "rejects empty and non-string feature names", ->
+    expect(() => validateFeatureName("")).toThrow("Feature name is invalid")
+    expect(() => validateFeatureName(undefined as never)).toThrow("Feature name is invalid")
+
   it "derives stable identifiers", ->
     expect(validateFeatureName("order-item")).toEqual({
       kebab: "order-item", pluralKebab: "order-items",
       camel: "orderItem", pluralCamel: "orderItems",
       pascal: "OrderItem", pluralPascal: "OrderItems",
       snake: "order_item", pluralSnake: "order_items",
+    })
+
+  it "pluralizes consonant-y feature names without losing canonical forms", ->
+    expect(validateFeatureName("activity")).toMatchObject({
+      kebab: "activity",
+      pluralKebab: "activities",
+      pluralCamel: "activities",
+      pluralPascal: "Activities",
+      pluralSnake: "activities",
     })
   it "bounds derived PostgreSQL identifiers", ->
     const maximumSafe = validateFeatureName("a".repeat(49))
@@ -221,6 +269,28 @@ describe "DF-069 transactional live apply and verification", ->
     expect(result.report).toMatchObject({ status: "planned", dryRun: true })
     expect(await listFixtureEntries(root)).toEqual(before)
 
+
+  it "applies, verifies, and reports through the complete workflow", async ->
+    const { root } = await fixture()
+    const result = await generateFeature(["order-item"], { targetRoot: root })
+
+    expect(result.verification).toMatchObject({
+      isValid: true,
+      filesChecked: result.plan.files.length,
+      planId: result.plan.planId,
+    })
+    expect(result.report).toMatchObject({
+      status: "applied",
+      dryRun: false,
+      cleanup: "complete",
+    })
+    expect(await readFile(
+      join(root, "apps/web/src/features/order-item/names.civet"),
+      "utf8",
+    )).toContain('route: "/order-items"')
+    expect(await listFixtureEntries(root)).not.toContain(
+      ".darkfactory/.generate-feature.lock",
+    )
   it "does not follow a feature-directory symlink outside the workspace", async ->
     const { root } = await fixture()
     const outside = await mkdtemp(join(tmpdir(), "darkfactory-generator-outside-"))
@@ -239,6 +309,56 @@ describe "DF-069 transactional live apply and verification", ->
 
     await expect(applyGenerationPlan(plan)).rejects.toThrow(/progress/i)
     await expect(readFile(join(lock, "user-note.txt"), "utf8")).resolves.toBe("preserve me")
+
+  it "rejects a workspace rebound after planning without writing through the alias", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const before = await listFixtureEntries(root)
+    const movedRoot = `${root}-moved`
+    await rename(root, movedRoot)
+    await symlink(movedRoot, root, "dir")
+    cleanups.push(async () => rm(movedRoot, { force: true, recursive: true }))
+
+    await expect(applyGenerationPlan(plan)).rejects.toMatchObject({
+      code: "ANCESTOR_CHANGED",
+    })
+    expect(await listFixtureEntries(movedRoot)).toEqual(before)
+
+  it "rejects a create target introduced after planning and preserves it", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const destination = join(root, "docs/features/order-item.md")
+    await mkdir(join(root, "docs/features"), { recursive: true })
+    await writeFile(destination, "user-authored documentation", "utf8")
+
+    await expect(applyGenerationPlan(plan)).rejects.toMatchObject({
+      code: "TARGET_COLLISION",
+    })
+    await expect(readFile(destination, "utf8")).resolves.toBe(
+      "user-authored documentation",
+    )
+    expect((await listFixtureEntries(root)).some(
+      (entry) => entry.startsWith(".generate-feature-"),
+    )).toBe(false)
+
+  it "rejects missing and stale replacement targets after planning", async ->
+    for (const mutation of ["missing", "stale"] as const) {
+      const { root } = await fixture()
+      const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+      const registryPath = join(root, ".darkfactory/features.json")
+      if (mutation === "missing") await unlink(registryPath)
+      else await writeFile(registryPath, "user registry edit", "utf8")
+      const before = await listFixtureEntries(root)
+
+      await expect(applyGenerationPlan(plan)).rejects.toMatchObject({
+        code: "TARGET_COLLISION",
+      })
+      expect(await listFixtureEntries(root)).toEqual(before)
+      if (mutation === "missing")
+        await expect(readFile(registryPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      else
+        await expect(readFile(registryPath, "utf8")).resolves.toBe("user registry edit")
+    }
 
   it "serializes different features that share generated registries", async ->
     const { root } = await fixture()
@@ -356,6 +476,113 @@ describe "DF-069 transactional live apply and verification", ->
     })).rejects.toMatchObject({ code: "ROLLBACK_UNSAFE" })
     await expect(readFile(firstPath, "utf8")).resolves.toBe(first.content)
 
+  it "preserves a promoted artifact when rollback ownership validation faults", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const created = plan.files.find((file) => file.operation === "create")!
+    const destination = join(plan.targetRoot, ...created.path.split("/"))
+    const registriesBefore = await readGeneratedFiles(plan.targetRoot, registryPaths)
+    let rollbackReady = false
+    let rollbackValidations = 0
+    let promotedIdentity: Awaited<ReturnType<typeof identityAt>> | undefined
+
+    await expect(applyGenerationPlan(plan, {
+      dependencies: {
+        assertNoSymlinkPath: async (targetRoot, relativePath) => {
+          const candidate = join(targetRoot, ...relativePath.split("/"))
+          if (rollbackReady && candidate === destination) {
+            rollbackValidations += 1
+            throw Object.assign(new Error("injected rollback validation failure"), {
+              code: "EIO",
+            })
+          }
+          return assertNoSymlinkPath(targetRoot, relativePath)
+        },
+      },
+      afterFilePromotion: async (file) => {
+        if (file.path !== created.path) return
+        promotedIdentity = await identityAt(destination)
+        rollbackReady = true
+        throw new Error("injected post-promotion failure")
+      },
+    })).rejects.toMatchObject({
+      code: "ROLLBACK_UNSAFE",
+      cause: { message: "injected post-promotion failure" },
+    })
+    expect(rollbackValidations).toBe(1)
+    expect(await hasIdentity(promotedIdentity!)).toBe(true)
+    await expect(readFile(destination, "utf8")).resolves.toBe(created.content)
+    expect(await readGeneratedFiles(plan.targetRoot, registryPaths)).toEqual(
+      registriesBefore,
+    )
+
+  it "restores promoted work when a replacement changes during promotion", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const navigationPath = "apps/web/src/features/generated-navigation.civet"
+    expect(plan.files[2]?.path).toBe(navigationPath)
+    const descriptorBefore = await readFile(
+      join(root, ".darkfactory/features.json"),
+      "utf8",
+    )
+
+    await expect(applyGenerationPlan(plan, {
+      afterFilePromotion: async (_file, index) => {
+        if (index === 1)
+          await writeFile(join(root, navigationPath), "raced user navigation", "utf8")
+      },
+    })).rejects.toMatchObject({ code: "TARGET_COLLISION" })
+
+    await expect(readFile(join(root, navigationPath), "utf8")).resolves.toBe(
+      "raced user navigation",
+    )
+    await expect(readFile(join(root, ".darkfactory/features.json"), "utf8")).resolves.toBe(
+      descriptorBefore,
+    )
+    await expect(readFile(
+      join(root, "apps/web/src/app/(portal)/order-items/page.civet"),
+      "utf8",
+    )).rejects.toMatchObject({ code: "ENOENT" })
+
+  it "rolls back when a staged destination parent disappears before linking", async ->
+    const { root } = await fixture()
+    const beforeEntries = await listFixtureEntries(root)
+    const beforeRegistries = await readGeneratedFiles(root, registryPaths)
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const destinationParent = join(root, "apps/web/src/app/(portal)/order-items")
+
+    await expect(applyGenerationPlan(plan, {
+      beforePromotion: async () => {
+        await rm(destinationParent, { force: true, recursive: true })
+      },
+    })).rejects.toMatchObject({
+      code: "ROLLBACK_UNSAFE",
+      cause: { code: "ANCESTOR_CHANGED" },
+    })
+    expect(await listFixtureEntries(root)).toEqual(beforeEntries)
+    expect(await readGeneratedFiles(root, registryPaths)).toEqual(beforeRegistries)
+
+  it "reports manual cleanup when its staging identity disappears after commit", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const result = await applyGenerationPlan(plan, {
+      afterPromotion: async () => {
+        const stagingEntry = (await listFixtureEntries(root)).find(
+          (entry) => entry.startsWith(".generate-feature-") && !entry.includes("/"),
+        )
+        if (!stagingEntry) throw new Error("Expected generator staging directory")
+        await rm(join(root, stagingEntry), { force: true, recursive: true })
+      },
+    })
+
+    expect(result.cleanup).toBe("manual-cleanup-required")
+    await expect(verifyGeneration(plan)).resolves.toMatchObject({
+      isValid: true,
+      filesChecked: plan.files.length,
+    })
+    expect((await listFixtureEntries(root)).some(
+      (entry) => entry.startsWith(".generate-feature-"),
+    )).toBe(false)
   it "emits valid Drizzle SQL interpolation in generated schemas", async ->
     const { root } = await fixture()
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
@@ -365,6 +592,38 @@ describe "DF-069 transactional live apply and verification", ->
     expect(schema.content).toContain("\${table.name}")
     expect(schema.content).not.toContain("4{table.")
 
+  it "fails safe rather than replacing a registry when backup tracking is unavailable", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const registryPath = ".darkfactory/features.json"
+    expect(plan.files[0]?.path).toBe(registryPath)
+    const originalGet = Map.prototype.get
+    let registryGets = 0
+    const getSpy = vi.spyOn(Map.prototype, "get").mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+    ): unknown {
+      if (key === registryPath && ++registryGets === 2) return undefined
+      return originalGet.call(this, key)
+    })
+
+    try {
+      await expect(applyGenerationPlan(plan, {
+        afterFilePromotion: async (_file, index) => {
+          if (index === 0) throw new Error("injected post-replacement failure")
+        },
+      })).rejects.toMatchObject({
+        code: "ROLLBACK_UNSAFE",
+        cause: { message: "injected post-replacement failure" },
+      })
+      expect(registryGets).toBeGreaterThanOrEqual(2)
+      await expect(readFile(join(root, registryPath), "utf8")).resolves.toBe(
+        plan.files[0]!.content,
+      )
+    } finally {
+      getSpy.mockRestore()
+    }
+
   it "detects generated registry tampering", async ->
     const { root } = await fixture()
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
@@ -372,6 +631,90 @@ describe "DF-069 transactional live apply and verification", ->
     await writeFile(join(root, "packages/api/src/generated/contract-registry.civet"), "stale", "utf8")
 
     await expect(verifyGeneration(plan)).rejects.toMatchObject({ code: "VERIFICATION_FAILED" })
+
+  it "distinguishes non-files from missing artifacts during verification", async ->
+    const nonFileFixture = await fixture()
+    const nonFilePlan = await createGenerationPlan(
+      nonFileFixture.root,
+      validateFeatureName("order-item"),
+    )
+    await applyGenerationPlan(nonFilePlan)
+    const nonFile = nonFilePlan.files.find((file) => file.operation === "create")!
+    const nonFilePath = join(nonFileFixture.root, ...nonFile.path.split("/"))
+    await unlink(nonFilePath)
+    await mkdir(nonFilePath)
+
+    await expect(verifyGeneration(nonFilePlan)).rejects.toMatchObject({
+      code: "VERIFICATION_FAILED",
+      message: "Generated artifact is not a regular file",
+    })
+
+    const missingFixture = await fixture()
+    const missingPlan = await createGenerationPlan(
+      missingFixture.root,
+      validateFeatureName("invoice-item"),
+    )
+    await applyGenerationPlan(missingPlan)
+    const missing = missingPlan.files.at(-1)!
+    await unlink(join(missingFixture.root, ...missing.path.split("/")))
+
+    await expect(verifyGeneration(missingPlan)).rejects.toMatchObject({
+      code: "VERIFICATION_FAILED",
+      message: "Generation verification failed",
+      cause: { code: "ENOENT" },
+    })
+
+  it "uses portable verification flags when O_NOFOLLOW is unavailable", async ->
+    const { root } = await fixture()
+    vi.doMock("node:fs", () => ({
+      constants: { ...constants, O_NOFOLLOW: undefined },
+    }))
+    vi.resetModules()
+
+    try {
+      const [
+        { applyGenerationPlan: applyPortably },
+        { createGenerationPlan: createPortablePlan },
+        { verifyGeneration: verifyPortably },
+      ] = await Promise.all([
+        import("../../scripts/generate-feature/apply.civet"),
+        import("../../scripts/generate-feature/plan.civet"),
+        import("../../scripts/generate-feature/verify.civet"),
+      ])
+      const plan = await createPortablePlan(root, validateFeatureName("order-item"))
+      await applyPortably(plan)
+      await expect(verifyPortably(plan)).resolves.toMatchObject({
+        isValid: true,
+        filesChecked: plan.files.length,
+      })
+    } finally {
+      vi.doUnmock("node:fs")
+      vi.resetModules()
+    }
+
+  it "fails closed if application returns without running verification", async ->
+    const { root } = await fixture()
+    const before = await listFixtureEntries(root)
+    vi.doMock("../../scripts/generate-feature/apply.civet", () => ({
+      applyGenerationPlan: vi.fn(async () => Object.freeze({
+        capsulePath: "unused",
+        promotedFiles: Object.freeze([]),
+        cleanup: "complete" as const,
+      })),
+    }))
+
+    try {
+      const { generateFeature: generateWithoutVerification } = await import(
+        "../../scripts/generate-feature/workflow.civet"
+      )
+      await expect(
+        generateWithoutVerification(["order-item"], { targetRoot: root }),
+      ).rejects.toThrow("Generation verification did not complete")
+      expect(await listFixtureEntries(root)).toEqual(before)
+    } finally {
+      vi.doUnmock("../../scripts/generate-feature/apply.civet")
+      vi.resetModules()
+    }
 
 describe "DF-070 deterministic reports and thin CLI", ->
   it "renders deterministic human and machine reports", async ->
@@ -401,3 +744,327 @@ describe "DF-070 deterministic reports and thin CLI", ->
     expect([invalidCode, missingCode]).toEqual([1, 1])
     expect(errors.join(" ")).not.toContain(dangerous)
     expect(errors.join(" ")).not.toContain(root)
+
+  it "renders the applied human-report branches and default cleanup", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const report = createGenerationReport(plan, "applied", false)
+    const human = formatHumanReport(report)
+
+    expect(report.cleanup).toBe("complete")
+    expect(human).toContain("Feature capsule generated: order-item")
+    expect(human).toContain("The capsule was atomically promoted and verified.")
+    expect(human).not.toContain("No files were written.")
+
+  it "writes successful human and JSON CLI reports", async ->
+    const { root } = await fixture()
+    const humanOutput: string[] = []
+    const humanErrors: string[] = []
+    const humanCode = await runFeatureGeneratorCli(["order-item", "--dry-run"], {
+      targetRoot: root,
+      writeOutput: (value) => humanOutput.push(value),
+      writeError: (value) => humanErrors.push(value),
+    })
+    const jsonOutput: string[] = []
+    const jsonErrors: string[] = []
+    const jsonCode = await runFeatureGeneratorCli(
+      ["order-item", "--dry-run", "--json"],
+      {
+        targetRoot: root,
+        writeOutput: (value) => jsonOutput.push(value),
+        writeError: (value) => jsonErrors.push(value),
+      },
+    )
+
+    expect([humanCode, jsonCode]).toEqual([0, 0])
+    expect(humanErrors).toEqual([])
+    expect(jsonErrors).toEqual([])
+    expect(humanOutput).toHaveLength(1)
+    expect(humanOutput[0]).toContain("Feature generation plan: order-item")
+    expect(JSON.parse(jsonOutput[0]!)).toMatchObject({
+      version: 1,
+      status: "planned",
+      feature: "order-item",
+      dryRun: true,
+    })
+
+  it "writes human typed failures and sanitizes an unexpected output-sink failure", async ->
+    const { root } = await fixture()
+    const humanErrors: string[] = []
+    const typedCode = await runFeatureGeneratorCli(["OrderItem"], {
+      targetRoot: root,
+      writeOutput: () => undefined,
+      writeError: (value) => humanErrors.push(value),
+    })
+    const genericErrors: string[] = []
+    const genericCode = await runFeatureGeneratorCli(
+      ["order-item", "--dry-run", "--json"],
+      {
+        targetRoot: root,
+        writeOutput: () => { throw new Error("private sink failure") },
+        writeError: (value) => genericErrors.push(value),
+      },
+    )
+
+    expect([typedCode, genericCode]).toEqual([1, 1])
+    expect(humanErrors).toEqual([
+      "Feature generation failed [NAME_INVALID]: Feature name must be lowercase kebab-case\n",
+    ])
+    expect(JSON.parse(genericErrors[0]!)).toEqual({
+      version: 1,
+      status: "failed",
+      error: {
+        code: "GENERATION_FAILED",
+        message: "Feature generation could not be completed",
+      },
+    })
+    expect(genericErrors[0]).not.toContain("private sink failure")
+
+describe "DF-069 deterministic filesystem fault handling", ->
+  it "covers safe-parent, lock, owned-root, cleanup, and removal races", async ->
+    const faults = {
+      kind: "none",
+      target: "",
+      code: "EIO",
+      lstatCalls: 0,
+    }
+    const injectedError = (code: string): NodeJS.ErrnoException =>
+      Object.assign(new Error(`injected ${code}`), { code })
+    const configure = (kind: string, target: string, code = "EIO"): void =>
+      faults.kind = kind
+      faults.target = target
+      faults.code = code
+      faults.lstatCalls = 0
+    const observeLstat = async (path: string): Promise<void> =>
+      if faults.kind !== "rollback-disappears" || path !== faults.target then return
+      faults.lstatCalls += 1
+      if faults.lstatCalls === 3
+        await unlink(path)
+    const faultDependencies: Readonly<Partial<ApplyGenerationDependencies>> = {
+      assertNoSymlinkPath: async (root, relativePath) =>
+        await observeLstat(join(root, ...relativePath.split("/")))
+        return assertNoSymlinkPath(root, relativePath)
+      hasIdentity: async (expected) =>
+        await observeLstat(expected.path)
+        return hasIdentity(expected)
+      identityAt: async (path) =>
+        if (
+          faults.kind === "temp-identity-error" &&
+          path.startsWith(join(faults.target, ".generate-feature-"))
+        ) then throw injectedError(faults.code)
+        return identityAt(path)
+      link: async (existingPath, newPath) =>
+        if faults.kind === "link-error" && newPath === faults.target
+          throw injectedError(faults.code)
+        return link(existingPath, newPath)
+      lstat: async (path) =>
+        await observeLstat(path)
+        return lstat(path)
+      mkdir: async (path, options) =>
+        if faults.kind === "mkdir-error" && path === faults.target
+          throw injectedError(faults.code)
+        if faults.kind === "mkdir-eexist-file" && path === faults.target
+          await writeFile(path, "raced parent", "utf8")
+          throw injectedError("EEXIST")
+        if faults.kind === "mkdir-eexist-directory" && path === faults.target
+          await mkdir(path)
+          throw injectedError("EEXIST")
+        return mkdir(path, options)
+      pathExists: async (path) =>
+        await observeLstat(path)
+        return pathExists(path)
+      rm: async (path, options) =>
+        if (
+          faults.kind === "rm-error" &&
+          path.startsWith(join(faults.target, ".generate-feature-"))
+        ) then throw injectedError(faults.code)
+        return rm(path, options)
+      rmdir: async (path) =>
+        if faults.kind === "rmdir-enoent" && path === faults.target
+          await rmdir(path)
+          throw injectedError("ENOENT")
+        return rmdir(path)
+    }
+    const applyWithFaults = (
+      plan: GenerationPlan,
+      options: ApplyGenerationOptions = {},
+    ): ReturnType<typeof applyGenerationPlan> =>
+      applyGenerationPlan(plan, {
+        ...options,
+        dependencies: {
+          ...options.dependencies,
+          ...faultDependencies,
+        },
+      })
+    const planFor = async (root: string): Promise<GenerationPlan> =>
+      configure("none", "")
+      return createGenerationPlan(root, validateFeatureName("order-item"))
+
+    const tempIdentityFixture = await fixture()
+    const tempIdentityPlan = await planFor(tempIdentityFixture.root)
+    configure("temp-identity-error", tempIdentityPlan.targetRoot, "EIO")
+    await expect(applyWithFaults(tempIdentityPlan)).rejects.toMatchObject({
+      code: "ROLLBACK_UNSAFE",
+      cause: { code: "EIO" },
+    })
+    expect((await listFixtureEntries(tempIdentityFixture.root)).some(
+      (entry) => entry.startsWith(".generate-feature-"),
+    )).toBe(true)
+
+    const lockFixture = await fixture()
+    const lockPlan = await planFor(lockFixture.root)
+    const lockBefore = await listFixtureEntries(lockFixture.root)
+    configure(
+      "mkdir-error",
+      join(lockPlan.targetRoot, ".darkfactory/.generate-feature.lock"),
+      "EACCES",
+    )
+    await expect(applyWithFaults(lockPlan)).rejects.toMatchObject({ code: "EACCES" })
+    expect(await listFixtureEntries(lockFixture.root)).toEqual(lockBefore)
+
+    const parentFailureFixture = await fixture()
+    const parentFailurePlan = await planFor(parentFailureFixture.root)
+    const parentFailureBefore = await listFixtureEntries(parentFailureFixture.root)
+    configure(
+      "mkdir-error",
+      join(parentFailurePlan.targetRoot, "apps/web/src/app"),
+      "EACCES",
+    )
+    await expect(applyWithFaults(parentFailurePlan)).rejects.toMatchObject({
+      code: "EACCES",
+    })
+    expect(await listFixtureEntries(parentFailureFixture.root)).toEqual(
+      parentFailureBefore,
+    )
+
+    const parentRaceFixture = await fixture()
+    const parentRacePlan = await planFor(parentRaceFixture.root)
+    const parentRacePath = join(parentRacePlan.targetRoot, "apps/web/src/app")
+    configure("mkdir-eexist-file", parentRacePath)
+    await expect(applyWithFaults(parentRacePlan)).rejects.toMatchObject({
+      code: "SYMLINK_UNSAFE",
+    })
+    await expect(readFile(parentRacePath, "utf8")).resolves.toBe("raced parent")
+
+    const directoryRaceFixture = await fixture()
+    const directoryRacePlan = await planFor(directoryRaceFixture.root)
+    configure(
+      "mkdir-eexist-directory",
+      join(directoryRacePlan.targetRoot, "apps/web/src/app"),
+    )
+    await expect(applyWithFaults(directoryRacePlan)).resolves.toMatchObject({
+      cleanup: "complete",
+    })
+    await expect(readFile(
+      join(directoryRaceFixture.root, "apps/web/src/app/(portal)/order-items/page.civet"),
+      "utf8",
+    )).resolves.toContain("OrderItems")
+
+    const existingParentFixture = await fixture()
+    const existingParentPlan = await planFor(existingParentFixture.root)
+    const existingParentPath = join(existingParentFixture.root, "apps/web/src/app")
+    const movedExistingParentPath = `${existingParentPath}-moved`
+    const existingParentRegistries = await readGeneratedFiles(
+      existingParentFixture.root,
+      registryPaths,
+    )
+    await expect(applyWithFaults(existingParentPlan, {
+      beforePromotion: async () =>
+        await rename(existingParentPath, movedExistingParentPath)
+        await writeFile(existingParentPath, "raced parent", "utf8")
+    })).rejects.toMatchObject({
+      code: "ROLLBACK_UNSAFE",
+      cause: { code: "ANCESTOR_CHANGED" },
+    })
+    await expect(readFile(existingParentPath, "utf8")).resolves.toBe("raced parent")
+    expect(await readGeneratedFiles(
+      existingParentFixture.root,
+      registryPaths,
+    )).toEqual(existingParentRegistries)
+
+    const ownedRootFixture = await fixture()
+    const ownedRootPlan = await planFor(ownedRootFixture.root)
+    const ownedRootBefore = await listFixtureEntries(ownedRootFixture.root)
+    configure(
+      "mkdir-error",
+      join(ownedRootPlan.targetRoot, "apps/web/src/features/order-item"),
+      "EIO",
+    )
+    await expect(applyWithFaults(ownedRootPlan)).rejects.toMatchObject({ code: "EIO" })
+    expect(await listFixtureEntries(ownedRootFixture.root)).toEqual(ownedRootBefore)
+
+    const linkFailureFixture = await fixture()
+    const linkFailurePlan = await planFor(linkFailureFixture.root)
+    const linkFailureBefore = await listFixtureEntries(linkFailureFixture.root)
+    const linkFailureRegistries = await readGeneratedFiles(
+      linkFailureFixture.root,
+      registryPaths,
+    )
+    configure(
+      "link-error",
+      join(linkFailurePlan.targetRoot, "apps/web/src/app/(portal)/order-items/page.civet"),
+      "ENOENT",
+    )
+    await expect(applyWithFaults(linkFailurePlan)).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    expect(await listFixtureEntries(linkFailureFixture.root)).toEqual(
+      linkFailureBefore,
+    )
+    expect(await readGeneratedFiles(linkFailureFixture.root, registryPaths)).toEqual(
+      linkFailureRegistries,
+    )
+
+    const disappearingFixture = await fixture()
+    const disappearingPlan = await planFor(disappearingFixture.root)
+    const disappearingFile = disappearingPlan.files.find(
+      (file) => file.path === "apps/web/src/app/(portal)/order-items/page.civet",
+    )!
+    const disappearingPath = join(
+      disappearingPlan.targetRoot,
+      ...disappearingFile.path.split("/"),
+    )
+    const disappearingDescriptor = await readFile(
+      join(disappearingFixture.root, ".darkfactory/features.json"),
+      "utf8",
+    )
+    await expect(applyWithFaults(disappearingPlan, {
+      afterFilePromotion: async (_file, index) =>
+        if index !== 1 then return
+        configure("rollback-disappears", disappearingPath)
+        throw new Error("injected disappearance")
+    })).rejects.toMatchObject({
+      code: "ROLLBACK_UNSAFE",
+      cause: { message: "injected disappearance" },
+    })
+    expect(faults.lstatCalls).toBeGreaterThanOrEqual(3)
+    await expect(readFile(disappearingPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(readFile(
+      join(disappearingFixture.root, ".darkfactory/features.json"),
+      "utf8",
+    )).resolves.toBe(disappearingDescriptor)
+
+    const lockRemovalFixture = await fixture()
+    const lockRemovalPlan = await planFor(lockRemovalFixture.root)
+    configure(
+      "rmdir-enoent",
+      join(lockRemovalPlan.targetRoot, ".darkfactory/.generate-feature.lock"),
+    )
+    await expect(applyWithFaults(lockRemovalPlan)).resolves.toMatchObject({
+      cleanup: "complete",
+    })
+    expect(await listFixtureEntries(lockRemovalFixture.root)).not.toContain(
+      ".darkfactory/.generate-feature.lock",
+    )
+
+    const cleanupFailureFixture = await fixture()
+    const cleanupFailurePlan = await planFor(cleanupFailureFixture.root)
+    configure("rm-error", cleanupFailurePlan.targetRoot, "EBUSY")
+    await expect(applyWithFaults(cleanupFailurePlan)).resolves.toMatchObject({
+      cleanup: "manual-cleanup-required",
+    })
+    expect((await listFixtureEntries(cleanupFailureFixture.root)).some(
+      (entry) => entry.startsWith(".generate-feature-"),
+    )).toBe(true)

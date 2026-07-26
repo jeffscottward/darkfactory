@@ -249,6 +249,22 @@ describe("createPostHogAnalyticsPort", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("uses the ambient transport by default without contacting it for refused consent", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+    const analytics = createPostHogAnalyticsPort({
+      apiKey: "phc_test_secret_key",
+      host: "https://eu.posthog.com",
+    })
+
+    await expect(
+      analytics.capture(createAnalyticsCapture({ consent: "denied" })),
+    ).resolves.toEqual({
+      status: "skipped",
+      reason: "consent-denied",
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it.each([
     {},
     { apiKey: "phc_test_secret_key" },
@@ -264,12 +280,26 @@ describe("createPostHogAnalyticsPort", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it "gives refused consent precedence over missing provider configuration", async ->
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    const analytics = createPostHogAnalyticsPort({ fetch })
+
+    await expect(
+      analytics.capture(createAnalyticsCapture({ consent: "unknown" }))
+    ).resolves.toEqual({
+      status: "skipped",
+      reason: "consent-unknown",
+    })
+    expect(fetch).not.toHaveBeenCalled()
+
   it.each([
     "http://eu.posthog.com",
     "https://user:password@eu.posthog.com",
+    "https://:password@eu.posthog.com",
     "https://eu.posthog.com/tenant",
     "https://eu.posthog.com/?api_key=secret",
     "not-a-url",
+    "https://eu.posthog.com/#fragment",
   ])("rejects an unsafe or non-HTTPS host without exposing it: %s", (host) => {
     expect(() => {
       createPostHogAnalyticsPort({
@@ -373,6 +403,8 @@ describe("createPostHogAnalyticsPort", () => {
     [400, false],
     [401, false],
     [429, true],
+    [408, true],
+    [425, true],
     [500, true],
     [503, true],
   ] as const)("maps HTTP %s without parsing or exposing the body", async (status, retryable) => {
@@ -392,6 +424,20 @@ describe("createPostHogAnalyticsPort", () => {
     expect(text).not.toHaveBeenCalled()
     expect(json).not.toHaveBeenCalled()
     expect(JSON.stringify(result)).not.toContain("secret provider rejection")
+  })
+
+  it("fails closed for a transport response without an integer status", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      { status: Number.NaN } as Response,
+    )
+
+    await expect(
+      configured(fetch).capture(createAnalyticsCapture()),
+    ).resolves.toEqual({
+      status: "failed",
+      category: "provider-rejected",
+      retryable: false,
+    })
   })
 
   it("does not misclassify a caller-thrown AbortError as its own timeout", async () => {

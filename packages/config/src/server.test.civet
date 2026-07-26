@@ -7,7 +7,7 @@ import {
 } from "./server.civet"
 
 const validCoreEnv = (): Record<string, string> => ({
-  DATABASE_URL: "postgresql://localhost/darkfactory_test",
+  DATABASE_URL: "postgresql://database.example/darkfactory_test?sslmode=verify-full",
   BETTER_AUTH_SECRET: "a".repeat(32),
   CONTACT_THROTTLE_SECRET: "c".repeat(32),
 })
@@ -37,6 +37,12 @@ describe "parseServerEnv", ->
       "BETTER_AUTH_SECRET",
       "CONTACT_THROTTLE_SECRET",
     ])
+
+  it "reports a non-object environment at the stable root path", ->
+    const error = captureValidationError(null as never)
+
+    expect(error.issues).toHaveLength(1)
+    expect(error.issues[0]?.path).toBe("environment")
 
   it "rejects invalid core values without echoing their contents", ->
     const invalidDatabaseUrl = "https://database.invalid/darkfactory"
@@ -135,6 +141,92 @@ describe "parseServerEnv", ->
     })
     expect(error.message).not.toContain(injected)
 
+
+  it.each([
+    ["an oversized sender", "x".repeat(401)],
+    ["a sender without a mailbox", "DarkFactory Support"],
+    ["an empty display name", "<support@example.test>"],
+    ["an oversized display name", `${"x".repeat(101)} <support@example.test>`],
+    ["an invalid display mailbox", "DarkFactory Support <invalid>"],
+  ])("rejects $0 without reflecting it", (_label, value) ->
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      EMAIL_FROM: value,
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "EMAIL_FROM",
+      message: "EMAIL_FROM must be a header-safe mailbox or display mailbox",
+    })
+    expect(error.message).not.toContain(value)
+  )
+
+  it.each([
+    ["a malformed URL", "not a URL"],
+    ["a PostgreSQL URL without a host", "postgresql:///darkfactory"],
+  ])("rejects DATABASE_URL with $0", (_label, value) ->
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      DATABASE_URL: value,
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "DATABASE_URL",
+      message: "DATABASE_URL must be a PostgreSQL URL",
+    })
+    expect(error.message).not.toContain(value)
+  )
+
+
+  it.each(["APP_URL", "BETTER_AUTH_URL"] as const)(
+    "redacts a malformed credential-bearing %s",
+    (name) ->
+      const malformedUrl = "https://private-user:private-password@[invalid"
+      const error = captureValidationError({
+        ...validCoreEnv(),
+        APP_ENV: "production",
+        APP_URL: "https://app.darkfactory.example",
+        BETTER_AUTH_URL: "https://app.darkfactory.example",
+        EMAIL_TRANSPORT: "resend",
+        RESEND_API_KEY: "r".repeat(32),
+        [name]: malformedUrl,
+      })
+
+      expect(error.issues).toContainEqual({
+        path: name,
+        message: `${name} must be a valid URL`,
+      })
+      expect(error.message).not.toContain(malformedUrl)
+      expect(JSON.stringify(error.issues)).not.toContain("private-password")
+  )
+  it "normalizes explicit false booleans and rejects unsupported spellings", ->
+    const env = parseServerEnv({
+      ...validCoreEnv(),
+      OTEL_ENABLED: " FALSE ",
+      STORAGE_ENABLED: "false",
+      DOCS_ENABLED: "False",
+    })
+    expect(env.OTEL_ENABLED).toBe(false)
+    expect(env.STORAGE_ENABLED).toBe(false)
+    expect(env.DOCS_ENABLED).toBe(false)
+
+    expect(captureValidationError({
+      ...validCoreEnv(),
+      OTEL_ENABLED: "enabled",
+    }).issues).toContainEqual({
+      path: "OTEL_ENABLED",
+      message: "OTEL_ENABLED must be true or false",
+    })
+
+  it "requires HTTPS before applying clean-origin validation", ->
+    expect(captureValidationError({
+      ...validCoreEnv(),
+      APP_URL: "http://app.domain.test",
+      BETTER_AUTH_URL: "http://app.domain.test",
+    }).issues).toContainEqual({
+      path: "APP_URL",
+      message: "APP_URL must use HTTPS",
+    })
   it "keeps provider capabilities disabled when required variables are absent", ->
     const env = parseServerEnv({
       ...validCoreEnv(),
@@ -171,6 +263,40 @@ describe "parseServerEnv", ->
       emailDelivery: true,
       analytics: true,
       telemetryExport: true,
+      storage: false,
+      errorTracking: false,
+    })
+
+  it "evaluates short-circuit capability operands without enabling partial providers", ->
+    const env = parseServerEnv(validCoreEnv())
+    expect(getProviderCapabilities(env)).toEqual({
+      ai: false,
+      emailDelivery: false,
+      analytics: false,
+      telemetryExport: false,
+      storage: false,
+      errorTracking: false,
+    })
+
+    const incompleteRuntimeEnv = {
+      ...env,
+      GROQ_MODEL: "configured-model",
+      POSTHOG_HOST: "https://analytics.invalid",
+      OTEL_ENABLED: false,
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.invalid/v1/traces",
+      STORAGE_ENABLED: true,
+      R2_ACCOUNT_ID: "account-reference",
+      R2_ACCESS_KEY_ID: undefined,
+      R2_SECRET_ACCESS_KEY: "secret-reference",
+      R2_BUCKET: "bucket-reference",
+      ERROR_TRACKING_ENABLED: true,
+      ERROR_TRACKING_DSN: undefined,
+    }
+    expect(getProviderCapabilities(incompleteRuntimeEnv)).toEqual({
+      ai: false,
+      emailDelivery: false,
+      analytics: false,
+      telemetryExport: false,
       storage: false,
       errorTracking: false,
     })
@@ -292,6 +418,52 @@ describe "parseServerEnv", ->
       message: "APP_URL cannot use a local origin in production",
     })
   )
+
+  it.each([
+    "postgresql://database.example/darkfactory",
+    "postgresql://database.example/darkfactory?sslmode=disable",
+    "postgresql://database.example/darkfactory?sslmode=require",
+    "postgresql://database.example/darkfactory?sslmode=no-verify",
+    "postgresql://database.example/darkfactory?sslmode=verify-ca",
+    "postgresql://database.example/darkfactory?sslmode=verify-full&sslmode=disable",
+  ])("rejects production DATABASE_URL without verified TLS: %s", (databaseUrl) ->
+    const applicationUrl = "https://app.darkfactory.example"
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      APP_ENV: "production",
+      APP_URL: applicationUrl,
+      BETTER_AUTH_URL: applicationUrl,
+      DATABASE_URL: databaseUrl,
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "r".repeat(32),
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "DATABASE_URL",
+      message: "DATABASE_URL must use sslmode=verify-full in production",
+    })
+  )
+
+  it "redacts a malformed credential-bearing production database URL", ->
+    const malformedDatabaseUrl =
+      "postgresql://private-user:private-password@[invalid"
+    const applicationUrl = "https://app.darkfactory.example"
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      APP_ENV: "production",
+      APP_URL: applicationUrl,
+      BETTER_AUTH_URL: applicationUrl,
+      DATABASE_URL: malformedDatabaseUrl,
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "r".repeat(32),
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "DATABASE_URL",
+      message: "DATABASE_URL must be a PostgreSQL URL",
+    })
+    expect(error.message).not.toContain(malformedDatabaseUrl)
+    expect(JSON.stringify(error.issues)).not.toContain("private-password")
 
   it "accepts complete configurations for every conditional capability", ->
     const applicationUrl = "https://app.darkfactory.example"

@@ -106,6 +106,10 @@ describe("Civet-aware Graphify corpus", () => {
               default: "./src/fallback.civet",
             },
             "./javascript": "./src/index.js",
+            "./unsupported-condition": {
+              import: "./src/index.js",
+              browser: "./src/browser.civet",
+            },
             "./missing": null,
           },
         }),
@@ -165,6 +169,7 @@ describe("Civet-aware Graphify corpus", () => {
       "apps/web/src/route.tsx",
       [
         "export { appContract } from '@darkfactory/api/server'",
+        "export { localOnly }",
         "const load = import(\"@darkfactory/db\")",
         "const database = require('@darkfactory/db/server')",
         "const alias = \"@darkfactory/api\"",
@@ -174,6 +179,7 @@ describe("Civet-aware Graphify corpus", () => {
     )
 
     expect(rewritten).toContain("from '../../../packages/api/src/server/index.tsx'")
+    expect(rewritten).toContain("export { localOnly }")
     expect(rewritten).toContain('import("../../../packages/db/src/index.tsx")')
     expect(rewritten).toContain("require('../../../packages/db/src/server/index.tsx')")
     expect(rewritten).toContain('const alias = "@darkfactory/api"')

@@ -1,8 +1,17 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { sanitizePlaywrightJsonReport } from "./playwright-report.civet"
 
@@ -18,6 +27,31 @@ const report = (environment: Record<string, string>) => ({
   suites: [{ title: "account journey" }],
   stats: { expected: 1 },
 })
+const fileStats = (dev = 1, ino = 2) => ({
+  dev,
+  ino,
+  size: 128,
+  isFile: () => true,
+  isSymbolicLink: () => false,
+})
+
+const mockedFileHandle = (
+  overrides: Record<string, unknown> = {},
+) => ({
+  stat: vi.fn(async () => fileStats()),
+  readFile: vi.fn(async () => JSON.stringify({
+    config: { webServer: {} },
+  })),
+  write: vi.fn(async (
+    _buffer: Buffer,
+    _offset: number,
+    length: number,
+  ) => ({ bytesWritten: length })),
+  truncate: vi.fn(async () => undefined),
+  sync: vi.fn(async () => undefined),
+  close: vi.fn(async () => undefined),
+  ...overrides,
+})
 
 const temporaryDirectories = new Set<string>()
 
@@ -28,6 +62,13 @@ afterEach(async () => {
     ),
   )
   temporaryDirectories.clear()
+})
+
+afterEach(() => {
+  vi.doUnmock("node:fs/promises")
+  vi.doUnmock("node:fs")
+  vi.resetModules()
+  vi.restoreAllMocks()
 })
 
 describe "Playwright JSON report redaction", ->
@@ -87,3 +128,292 @@ describe "Playwright JSON report redaction", ->
     await expect(sanitizePlaywrightJsonReport(linked, [])).rejects.toThrow(
       "Playwright report file is invalid",
     )
+  it "supports web server arrays and canonicalizes overlapping secrets", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-array-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const fixture: Record<string, unknown> = {
+      config: {
+        webServer: [
+          { command: "start-api", env: { TOKEN: "private-token" } },
+          { command: "start-web", env: { TOKEN: "private" } },
+        ],
+      },
+      details: [
+        "private-token/private",
+        { nested: "private-token" },
+        42,
+        null,
+      ],
+    }
+    await writeFile(path, JSON.stringify(fixture))
+
+    await sanitizePlaywrightJsonReport(path, [
+      "",
+      "private",
+      "private-token",
+      "private-token",
+    ])
+
+    const content = await readFile(path, "utf8")
+    const sanitized = JSON.parse(content) as {
+      config: { webServer: Record<string, unknown>[] }
+      details: unknown[]
+    }
+    expect(sanitized.config.webServer).toEqual([
+      { command: "start-api" },
+      { command: "start-web" },
+    ])
+    expect(sanitized.details).toEqual([
+      "[REDACTED]/[REDACTED]",
+      { nested: "[REDACTED]" },
+      42,
+      null,
+    ])
+    expect(content.endsWith("\n")).toBe(true)
+
+  it "rejects empty, oversized, non-file, and malformed configurations", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-bounds-"))
+    temporaryDirectories.add(directory)
+
+    const empty = join(directory, "empty.json")
+    await writeFile(empty, "")
+    await expect(sanitizePlaywrightJsonReport(empty, [])).rejects.toThrow(
+      "Playwright report file is invalid",
+    )
+
+    const oversized = join(directory, "oversized.json")
+    await writeFile(oversized, "{}")
+    await truncate(oversized, (16 * 1024 * 1024) + 1)
+    await expect(sanitizePlaywrightJsonReport(oversized, [])).rejects.toThrow(
+      "Playwright report file is invalid",
+    )
+
+    const nestedDirectory = join(directory, "report-directory")
+    await mkdir(nestedDirectory)
+    await expect(
+      sanitizePlaywrightJsonReport(nestedDirectory, []),
+    ).rejects.toThrow("Playwright report file is invalid")
+
+    for (const [name, fixture, message] of [
+      ["primitive", "null", "Playwright report configuration is malformed"],
+      ["missing-config", "{}", "Playwright report configuration is malformed"],
+      [
+        "missing-web-server",
+        '{"config":{}}',
+        "Playwright report web server configuration is invalid",
+      ],
+      [
+        "empty-web-server-array",
+        '{"config":{"webServer":[]}}',
+        "Playwright report web server configuration is invalid",
+      ],
+      [
+        "invalid-web-server-entry",
+        '{"config":{"webServer":[{},null]}}',
+        "Playwright report web server configuration is invalid",
+      ],
+    ] as const) {
+      const path = join(directory, `${name}.json`)
+      await writeFile(path, fixture)
+      await expect(sanitizePlaywrightJsonReport(path, [])).rejects.toThrow(message)
+      await rm(path)
+    }
+
+  it "fails closed when redaction would expand the report beyond its bound", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-rendered-bound-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    await writeFile(path, JSON.stringify({
+      config: { webServer: {} },
+      output: "a".repeat(2 * 1024 * 1024),
+    }))
+
+    await expect(sanitizePlaywrightJsonReport(path, ["a"])).rejects.toThrow(
+      "Redacted Playwright report exceeds its bound",
+    )
+
+  it "rejects aggregate replacement growth before mutating the report", async ->
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-aggregate-bound-"))
+    temporaryDirectories.add(directory)
+    const path = join(directory, "playwright-report.json")
+    const repeated = "a".repeat(900_000)
+    const original = JSON.stringify({
+      config: { webServer: {} },
+      output: [repeated, repeated],
+    })
+    await writeFile(path, original)
+
+    await expect(sanitizePlaywrightJsonReport(path, ["a"])).rejects.toThrow(
+      "Redacted Playwright report exceeds its bound",
+    )
+    await expect(readFile(path, "utf8")).resolves.toBe(original)
+
+  it "rejects a file-reported symbolic link before opening it", async ->
+    const open = vi.fn()
+    vi.doMock("node:fs/promises", () => ({
+      lstat: vi.fn(async () => ({
+        ...fileStats(),
+        isSymbolicLink: () => true,
+      })),
+      open,
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).rejects.toThrow(
+      "Playwright report file is invalid",
+    )
+    expect(open).not.toHaveBeenCalled()
+
+  it "uses the portable open flags when no no-follow flag is available", async ->
+    const handle = mockedFileHandle()
+    const open = vi.fn(async () => handle)
+    vi.doMock("node:fs", () => ({
+      constants: {
+        ...constants,
+        O_NOFOLLOW: undefined,
+      },
+    }))
+    vi.doMock("node:fs/promises", () => ({
+      lstat: vi.fn(async () => fileStats()),
+      open,
+    }))
+
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).resolves.toBeUndefined()
+    expect(open).toHaveBeenCalledWith("/report.json", constants.O_RDWR)
+    expect(handle.close).toHaveBeenCalledOnce()
+
+  it "closes the report when the opened descriptor is not a file", async ->
+    const handle = mockedFileHandle({
+      stat: vi.fn(async () => ({
+        ...fileStats(),
+        isFile: () => false,
+      })),
+    })
+    vi.doMock("node:fs/promises", () => ({
+      lstat: vi.fn(async () => fileStats()),
+      open: vi.fn(async () => handle),
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).rejects.toThrow(
+      "Playwright report identity changed before redaction",
+    )
+    expect(handle.close).toHaveBeenCalledOnce()
+    expect(handle.readFile).not.toHaveBeenCalled()
+
+  it "closes the report when its identity changes before redaction", async ->
+    const handle = mockedFileHandle({
+      stat: vi.fn(async () => fileStats(1, 99)),
+    })
+    vi.doMock("node:fs/promises", () => ({
+      lstat: vi.fn(async () => fileStats()),
+      open: vi.fn(async () => handle),
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).rejects.toThrow(
+      "Playwright report identity changed before redaction",
+    )
+    expect(handle.close).toHaveBeenCalledOnce()
+    expect(handle.readFile).not.toHaveBeenCalled()
+
+  it "closes the report when its opened content exceeds the read bound", async ->
+    const handle = mockedFileHandle({
+      readFile: vi.fn(async () => "x".repeat((16 * 1024 * 1024) + 1)),
+    })
+    vi.doMock("node:fs/promises", () => ({
+      lstat: vi.fn(async () => fileStats()),
+      open: vi.fn(async () => handle),
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).rejects.toThrow(
+      "Playwright report exceeds its redaction bound",
+    )
+    expect(handle.close).toHaveBeenCalledOnce()
+    expect(handle.write).not.toHaveBeenCalled()
+
+  it "fails and closes the report when a redaction write makes no progress", async ->
+    const handle = mockedFileHandle({
+      write: vi.fn(async () => ({ bytesWritten: 0 })),
+    })
+    vi.doMock("node:fs/promises", () => ({
+      lstat: vi.fn(async () => fileStats()),
+      open: vi.fn(async () => handle),
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).rejects.toThrow(
+      "Playwright report redaction made no progress",
+    )
+    expect(handle.close).toHaveBeenCalledOnce()
+    expect(handle.truncate).not.toHaveBeenCalled()
+
+  it "detects replacement after a complete redaction and cleanup", async ->
+    const handle = mockedFileHandle()
+    const lstat = vi.fn()
+      .mockResolvedValueOnce(fileStats())
+      .mockResolvedValueOnce(fileStats(1, 99))
+    vi.doMock("node:fs/promises", () => ({
+      lstat,
+      open: vi.fn(async () => handle),
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    await expect(sanitize("/report.json", [])).rejects.toThrow(
+      "Playwright report identity changed during redaction",
+    )
+    expect(handle.truncate).toHaveBeenCalledOnce()
+    expect(handle.sync).toHaveBeenCalledOnce()
+    expect(handle.close).toHaveBeenCalledOnce()
+
+  it "rejects non-file and symbolic-link identities after redaction", async ->
+    const handle = mockedFileHandle()
+    const afterStats = [
+      {
+        ...fileStats(),
+        isFile: () => false,
+      },
+      {
+        ...fileStats(),
+        isSymbolicLink: () => true,
+      },
+    ]
+    let lstatCalls = 0
+    const lstat = vi.fn(async () => {
+      const isBefore = lstatCalls % 2 === 0
+      const result = isBefore ? fileStats() : afterStats.shift()!
+      lstatCalls += 1
+      return result
+    })
+    vi.doMock("node:fs/promises", () => ({
+      lstat,
+      open: vi.fn(async () => handle),
+    }))
+    const { sanitizePlaywrightJsonReport: sanitize } = await import(
+      "./playwright-report.civet"
+    )
+
+    for (const path of ["/not-file.json", "/symbolic-link.json"]) {
+      await expect(sanitize(path, [])).rejects.toThrow(
+        "Playwright report identity changed during redaction",
+      )
+    }
+    expect(handle.close).toHaveBeenCalledTimes(2)

@@ -21,6 +21,8 @@ import { AddressBook, type AddressBookState } from "./address-book.civet"
 import { AddressForm } from "./address-form.civet"
 
 type FormTarget = "new" | AddressOutput | null
+// Public mutations exist only in ready UI; concurrent mutation refreshes also commit ready state.
+type ReadyAddressBookState = Extract<AddressBookState, { readonly type: "ready" }>
 const upsertAddress = (
   addresses: readonly AddressOutput[],
   result: AddressOutput,
@@ -99,9 +101,10 @@ export const AddressPageClient = () => {
       const result = "id" in input
         ? await gateway.updateAddress(input)
         : await gateway.createAddress(input)
-      setState((current) => current.type === "ready"
-        ? { type: "ready", addresses: upsertAddress(current.addresses, result) }
-        : current)
+      setState((current) => ({
+        type: "ready",
+        addresses: upsertAddress((current as ReadyAddressBookState).addresses, result),
+      }))
       setFormTarget(null)
       setFormVersion((version) => version + 1)
       setFeedback({ tone: "success", message: addressMutationMessage(input) })
@@ -135,9 +138,10 @@ export const AddressPageClient = () => {
     setFeedback(null)
     try {
       const result = await gateway.setPrimaryAddress(address.id, address.updatedAt)
-      setState((current) => current.type === "ready"
-        ? { type: "ready", addresses: current.addresses.map((entry) => ({ ...entry, isPrimary: entry.id === result.id })) }
-        : current)
+      setState((current) => ({
+        type: "ready",
+        addresses: (current as ReadyAddressBookState).addresses.map((entry) => ({ ...entry, isPrimary: entry.id === result.id })),
+      }))
       setFeedback({ tone: "success", message: "Primary address updated." })
       void refresh(true)
     } catch (error) {
@@ -156,9 +160,10 @@ export const AddressPageClient = () => {
     setFeedback(null)
     try {
       await gateway.removeAddress(address.id, address.updatedAt)
-      setState((current) => current.type === "ready"
-        ? { type: "ready", addresses: current.addresses.filter((entry) => entry.id !== address.id) }
-        : current)
+      setState((current) => ({
+        type: "ready",
+        addresses: (current as ReadyAddressBookState).addresses.filter((entry) => entry.id !== address.id),
+      }))
       setConfirmingRemoveId(null)
       setFeedback({ tone: "success", message: "Address removed." })
       window.setTimeout(() => document.getElementById("add-address")?.focus(), 0)

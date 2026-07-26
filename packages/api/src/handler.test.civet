@@ -9,8 +9,11 @@ import { ORPCError } from "@orpc/client"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApiClient } from "./client.civet"
-import { createApiContext } from "./server/context.civet"
-import { handleApiRequest } from "./server/handler.civet"
+import { createApiContext, resolveApiRequestId } from "./server/context.civet"
+import {
+  handleApiRequest,
+  handleOpenApiRequest,
+} from "./server/handler.civet"
 
 const item: FeatureItem = {
   id: "item-1",
@@ -195,3 +198,45 @@ describe "DF-045/051 production context to middleware to Fetch handler", ->
     )
 
     expect(response.status).toBe(404)
+
+  it "serves matched OpenAPI routes and returns 404 for unmatched routes", async ->
+    const request = new Request(
+      "https://darkfactory.localhost/api/openapi/feature-items",
+    )
+    const context = createApiContext(request, {
+      repositories: repositories(),
+      requestId: "request-openapi-1",
+      capabilities: {
+        ai: false, emailDelivery: false, analytics: false,
+        telemetryExport: false, storage: false, errorTracking: false,
+      },
+      requireSession: async () => session("member"),
+      requireRole: async () => session("admin"),
+    })
+
+    const matched = await handleOpenApiRequest(request, context)
+    expect(matched.status).toBe(200)
+    expect(await matched.text()).toContain('"item-1"')
+
+    const unmatched = await handleOpenApiRequest(
+      new Request("https://darkfactory.localhost/api/openapi/not-a-procedure"),
+      context,
+    )
+    expect(unmatched.status).toBe(404)
+    await expect(unmatched.text()).resolves.toBe("Not Found")
+
+  it "rejects unsafe injected and generated request identifiers", ->
+    const request = new Request("https://darkfactory.localhost/api/orpc")
+
+    expect(() => resolveApiRequestId(request, {
+      requestId: "unsafe request id",
+    })).toThrow("requestId must be 1-128 safe correlation characters")
+    expect(() => resolveApiRequestId(request, {
+      generateRequestId: () => "",
+    })).toThrow("generated requestId must be 1-128 safe correlation characters")
+    expect(resolveApiRequestId(request)).toMatch(/^[A-Za-z0-9._:-]{1,128}$/)
+
+  it "constructs the default-fetch client boundary without issuing a request", ->
+    expect(createApiClient({
+      baseUrl: new URL("https://darkfactory.localhost"),
+    })).toBeDefined()

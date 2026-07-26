@@ -293,18 +293,25 @@ describe "development content seeds", ->
     ["isPrimary", false],
   ] as const)("repairs an address whose %s drifted", async (field, replacement) ->
     const drifted = { ...addressRow(0), [field]: replacement }
+    const promotesPrimary = field === "isPrimary"
+    const repositorySelects: QueryRows[] = [[drifted]]
+    const updateOutcomes: QueryRows[] = []
+    if promotesPrimary
+      repositorySelects.push([{ updatedAt: FIXED_ROW_TIME }])
+      updateOutcomes.push([])
+    updateOutcomes.push([addressRow(0)])
     const double = createContentSeedDatabase({
       select: [
         [drifted],
-        [drifted],
-        [{ updatedAt: FIXED_ROW_TIME }],
+        ...repositorySelects,
         [addressRow(1)],
         [addressRow(2)],
         [featureRow(0)],
         [featureRow(1)],
         [featureRow(2)],
+        ...matchingSelectOutcomes(),
       ],
-      update: [[addressRow(0)]],
+      update: updateOutcomes,
     })
 
     await convergeDevelopmentContent(double.database)
@@ -312,9 +319,13 @@ describe "development content seeds", ->
     const updates = double.operations.filter(
       (operation) => operation.kind === "update" && operation.table === "addresses",
     )
-    expect(updates).toHaveLength(1)
+    let expectedUpdateCount = 1
+    if promotesPrimary
+      expectedUpdateCount = 2
+    expect(updates).toHaveLength(expectedUpdateCount)
     const expected = DEVELOPMENT_ADDRESSES[0]!
-    expect(updates[0]?.value).toMatchObject({
+    const repaired = updates.at(-1)
+    expect(repaired?.value).toMatchObject({
       type: expected.type,
       line1: expected.line1,
       line2: expected.line2 ?? null,
@@ -322,8 +333,23 @@ describe "development content seeds", ->
       region: expected.region,
       postalCode: expected.postalCode,
       country: expected.country.toUpperCase(),
-      isPrimary: expected.isPrimary ?? false,
     })
+    if promotesPrimary
+      expect(updates[0]?.value).toEqual({
+        isPrimary: false,
+        updatedAt: new Date(FIXED_ROW_TIME.getTime() + 1),
+      })
+      expect(repaired?.value).toHaveProperty("isPrimary", true)
+    else
+      expect(repaired?.value).not.toHaveProperty("isPrimary")
+
+    const mutationCount = double.operations.filter(
+      ({ kind }) => kind === "insert" || kind === "update",
+    ).length
+    await convergeDevelopmentContent(double.database)
+    expect(double.operations.filter(
+      ({ kind }) => kind === "insert" || kind === "update",
+    )).toHaveLength(mutationCount)
   )
 
   it.each([
@@ -368,3 +394,97 @@ describe "development content seeds", ->
       metadata: { changedFields: ["name", "description", "status", "metadata"] },
     })
   )
+
+  it "applies omitted address and feature defaults through an explicit content seam", async ->
+    const expectedAddress = {
+      id: "20000000-0000-4000-8000-000000000099",
+      userId: "00000000-0000-4000-8000-000000000099",
+      type: "home" as const,
+      line1: "99 Default Avenue",
+      city: "Example City",
+      region: "WA",
+      postalCode: "00099",
+      country: "us",
+    }
+    const currentAddress = {
+      ...expectedAddress,
+      line2: null,
+      country: "US",
+      isPrimary: true,
+      createdAt: FIXED_ROW_TIME,
+      updatedAt: FIXED_ROW_TIME,
+    }
+    const repairedAddress = {
+      ...currentAddress,
+      isPrimary: false,
+    }
+    const expectedFeature = {
+      id: "30000000-0000-4000-8000-000000000099",
+      ownerId: expectedAddress.userId,
+      name: "Defaulted feature",
+      description: "Optional seed fields use repository defaults.",
+    }
+    const currentFeature = {
+      ...expectedFeature,
+      status: "draft" as const,
+      metadata: { drifted: true },
+      createdAt: FIXED_ROW_TIME,
+      updatedAt: FIXED_ROW_TIME,
+    }
+    const repairedFeature = {
+      ...currentFeature,
+      metadata: {},
+    }
+    const double = createContentSeedDatabase({
+      select: [[currentAddress], [currentAddress], [currentFeature]],
+      update: [[repairedAddress], [repairedFeature]],
+      insert: [[], []],
+    })
+
+    await convergeDevelopmentContent(double.database, {
+      addresses: [expectedAddress],
+      featureItems: [expectedFeature],
+    })
+
+    const addressRepair = double.operations.find(
+      ({ kind, table }) => kind === "update" && table === "addresses",
+    )
+    expect(addressRepair?.value).toMatchObject({
+      line2: null,
+      country: "US",
+      isPrimary: false,
+    })
+    const featureRepair = double.operations.find(
+      ({ kind, table }) => kind === "update" && table === "feature_items",
+    )
+    expect(featureRepair?.value).toMatchObject({
+      status: "draft",
+      metadata: {},
+    })
+    const audit = double.operations.find(
+      ({ kind, table }) => kind === "insert" && table === "audit_records",
+    )
+    expect(audit?.value).toMatchObject({
+      actorUserId: expectedFeature.ownerId,
+      requestId: `development-seed:${expectedFeature.ownerId}`,
+      metadata: {
+        changedFields: ["name", "description", "status", "metadata"],
+      },
+    })
+    expect(double.transaction).toHaveBeenCalledTimes(2)
+
+  it "stops convergence and preserves provider lookup failures", async ->
+    const providerError = new Error("seed provider unavailable")
+    const limit = vi.fn(async () => {
+      throw providerError
+    })
+    const where = vi.fn(() => ({ limit }))
+    const from = vi.fn(() => ({ where }))
+    const select = vi.fn(() => ({ from }))
+    const database = { select } as unknown as Database
+
+    await expect(convergeDevelopmentContent(database)).rejects.toBe(providerError)
+    expect(select).toHaveBeenCalledOnce()
+    expect(from).toHaveBeenCalledWith(addresses)
+    expect(where).toHaveBeenCalledOnce()
+    expect(limit).toHaveBeenCalledWith(1)

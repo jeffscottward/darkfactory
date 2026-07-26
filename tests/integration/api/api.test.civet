@@ -12,8 +12,8 @@ import {
 import {
   createNodeDatabase,
   createRepositories,
-  migrate,
 } from "@darkfactory/db/server"
+import { migrate } from "@darkfactory/db/server/migration"
 import type { EmailPort } from "@darkfactory/email"
 import type { SemanticEvent, SemanticEventPort } from "@darkfactory/observability/port"
 import {

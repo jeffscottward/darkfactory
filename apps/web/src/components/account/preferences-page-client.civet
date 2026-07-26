@@ -85,7 +85,7 @@ export const PreferencesPageClient = () => {
           if (ui.themeMode !== preferences.themeMode) ui.setThemeMode(preferences.themeMode)
           if (ui.palette !== preferences.palette) ui.setPalette(preferences.palette)
           setState((current) => current.type === "ready" ? { ...current, preferences } : current)
-        } catch {
+        } catch (_error) {
           // The mounted form keeps its unsaved values when reconciliation is unavailable.
         }
         setFeedback({ tone: "error", message: "Preferences changed elsewhere. Your choices are preserved; review them and save again." })

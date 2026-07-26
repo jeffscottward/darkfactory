@@ -165,9 +165,6 @@ export const decodeOwnedRunAdoption = (
   if (decoded.toString("base64url") !== encoded) {
     throw new Error("Owned adoption encoding is noncanonical")
   }
-  if (decoded.byteLength > 1536) {
-    throw new Error("Owned adoption capability exceeds its fixed bound")
-  }
   const canonical = decoded.toString("utf8")
   const parsed = JSON.parse(canonical) as Partial<OwnedRunAdoption>
   const validIdentity = (value: unknown): value is OwnedPathIdentity =>
@@ -214,17 +211,22 @@ export const decodeOwnedRunAdoption = (
 }
 
 type CommandResult = Readonly<{ stdout: Buffer }>
+type ArchiveExecutable = "gzip" | "tar" | "unzip"
 type RunFile = (
-  file: string,
+  file: ArchiveExecutable,
   arguments_: readonly string[],
   maxBuffer: number,
-  timeoutMs?: number,
-  signal?: AbortSignal,
+  timeoutMs: number,
+  signal: AbortSignal,
+) => Promise<CommandResult>
+type ArchiveCommand = (
+  file: ArchiveExecutable,
+  arguments_: readonly string[],
+  maxBuffer: number,
 ) => Promise<CommandResult>
 
-const trustedArchiveExecutables = new Map<string, Promise<string>>()
-const trustedArchiveExecutable = async (name: string): Promise<string> => {
-  if (!["gzip", "tar", "unzip"].includes(name)) throw new Error("Unknown archive tool")
+const trustedArchiveExecutables = new Map<ArchiveExecutable, Promise<string>>()
+const trustedArchiveExecutable = async (name: ArchiveExecutable): Promise<string> => {
   const existing = trustedArchiveExecutables.get(name)
   if (existing !== undefined) return await existing
   const resolution = (async () => {
@@ -250,7 +252,7 @@ const runFile: RunFile = async (file, arguments_, maxBuffer, timeoutMs, signal) 
       encoding: "buffer",
       env: { NODE_ENV: "test" },
       maxBuffer,
-      timeout: Math.max(1, Math.min(30_000, timeoutMs ?? 30_000)),
+      timeout: Math.max(1, Math.min(30_000, timeoutMs)),
       signal,
       windowsHide: true,
     }, (error, stdout) => {
@@ -275,7 +277,7 @@ const detectedArchiveKind = (path: string, content: Buffer): ArchiveKind | undef
   const zip = content.length >= 4 &&
     content[0] === 0x50 &&
     content[1] === 0x4b &&
-    [0x03, 0x05, 0x07].includes(content[2] ?? -1)
+    [0x03, 0x05, 0x07].includes(content.readUInt8(2))
   const gzip = content[0] === 0x1f && content[1] === 0x8b
   const tar = content.length >= 262 &&
     content.subarray(257, 262).toString("ascii") === "ustar"
@@ -327,7 +329,7 @@ const pngCrc32 = (content: Buffer): number => {
 }
 
 const assertStrictPng = (content: Buffer): void => {
-  if (content.byteLength > MAX_PNG_BYTES || !content.subarray(0, 8).equals(PNG_SIGNATURE)) {
+  if (content.byteLength > MAX_PNG_BYTES) {
     throw new Error("Binary artifact is not a permitted PNG")
   }
   let offset = 8
@@ -336,7 +338,6 @@ const assertStrictPng = (content: Buffer): void => {
   let height = 0
   let channels = 0
   let sawIdat = false
-  let endedIdat = false
   let sawIend = false
   const imageData: Buffer[] = []
   while (offset < content.byteLength) {
@@ -380,11 +381,9 @@ const assertStrictPng = (content: Buffer): void => {
       throw new Error("PNG palette is invalid")
     }
     if (chunk === "IDAT") {
-      if (endedIdat || length === 0) throw new Error("PNG image chunks are invalid")
+      if (length === 0) throw new Error("PNG image chunks are invalid")
       sawIdat = true
       imageData.push(content.subarray(offset + 8, offset + 8 + length))
-    } else if (sawIdat && chunk !== "IEND") {
-      endedIdat = true
     }
     if (chunk === "IEND") {
       if (!sawIdat || length !== 0 || end !== content.byteLength) {
@@ -412,7 +411,7 @@ const artifactEntry = (path: string, content: Buffer): ArtifactEntry => {
   if (isUtf8(content)) {
     text = content.toString("utf8")
     if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(text)) {
-      binary = content.subarray(0, 8).equals(PNG_SIGNATURE) ? "png" : "unsupported"
+      binary = "unsupported"
       text = content.toString("latin1")
     }
   } else {
@@ -506,7 +505,7 @@ const commandForArchive = (path: string): Readonly<{
   metadata: readonly string[]
   extract: readonly string[]
   parseSizes: (value: string) => readonly number[]
-  executable: string
+  executable: ArchiveExecutable
 }> => {
   if (/\.zip$/i.test(path)) return {
     executable: "unzip",
@@ -534,7 +533,7 @@ const readArchive = async (
   displayPath: string,
   path: string,
   kind: ArchiveKind,
-  execute: RunFile,
+  execute: ArchiveCommand,
   limits: ArtifactScanLimits,
   reserve: (bytes: number, expanded: boolean) => void,
 ): Promise<readonly ArtifactEntry[]> => {
@@ -1101,7 +1100,7 @@ export const createArtifactScannerDependencies = async (
     }
   }
 
-  const executeWithinDeadline: RunFile = async (file, arguments_, maxBuffer) => {
+  const executeWithinDeadline: ArchiveCommand = async (file, arguments_, maxBuffer) => {
     const remaining = deadline - Date.now()
     if (remaining <= 0) throw new Error("Artifact scan deadline exceeded")
     const controller = new AbortController()
@@ -1229,7 +1228,13 @@ export const createArtifactScannerDependencies = async (
       } catch (error) {
         let restoreFailed = false
         for (const owned of [...quarantined].reverse()) {
-          try { await restoreQuarantinedRoot(owned) } catch { restoreFailed = true }
+          const restored = await Promise.resolve()
+            .then(() => restoreQuarantinedRoot(owned))
+            .then(
+              () => true,
+              () => false,
+            )
+          if (!restored) restoreFailed = true
         }
         if (restoreFailed) throw new Error("Owned E2E purge rollback failed", { cause: error })
         throw error

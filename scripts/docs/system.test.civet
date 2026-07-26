@@ -10,10 +10,62 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  constants: {} as Record<string, number>,
+  fileSystem: {
+    lstat: vi.fn(),
+    open: vi.fn(),
+    realpath: vi.fn(),
+  },
+  fileSystemActual: {} as Pick<
+    typeof import("node:fs/promises"),
+    "lstat" | "open" | "realpath"
+  >,
+  resetConstants: (): void => undefined,
+  resetFileSystem: (): void => undefined,
+}))
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs")
+  const reset = (): void => {
+    for (const name of Object.keys(mocks.constants)) delete mocks.constants[name]
+    Object.assign(mocks.constants, actual.constants)
+  }
+  mocks.resetConstants = reset
+  reset()
+  return { ...actual, constants: mocks.constants }
+})
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  Object.assign(mocks.fileSystemActual, {
+    lstat: actual.lstat,
+    open: actual.open,
+    realpath: actual.realpath,
+  })
+  const reset = (): void => {
+    mocks.fileSystem.lstat.mockReset().mockImplementation(actual.lstat)
+    mocks.fileSystem.open.mockReset().mockImplementation(actual.open)
+    mocks.fileSystem.realpath.mockReset().mockImplementation(actual.realpath)
+  }
+  mocks.resetFileSystem = reset
+  reset()
+  return {
+    ...actual,
+    lstat: mocks.fileSystem.lstat,
+    open: mocks.fileSystem.open,
+    realpath: mocks.fileSystem.realpath,
+  }
+})
 
 import { GENERATED_INVENTORY_PATH, runDocsAction } from "./docs.civet"
 import { createDocsFileSystem } from "./system.civet"
+
+afterEach(() => {
+  mocks.resetConstants()
+  mocks.resetFileSystem()
+  vi.clearAllMocks()
+})
 
 const packageManifest = (name: string): string => JSON.stringify({
   name,
@@ -48,6 +100,7 @@ describe("documentation filesystem", () => {
         mkdir(join(root, "apps/web"), { recursive: true }),
         mkdir(join(root, "packages/api"), { recursive: true }),
         mkdir(join(root, "packages/without-manifest"), { recursive: true }),
+        mkdir(join(root, "packages/directory-manifest/package.json"), { recursive: true }),
         mkdir(join(outside, "linked"), { recursive: true }),
       ])
       await Promise.all([
@@ -95,6 +148,7 @@ describe("documentation filesystem", () => {
       await expect(files.readGenerated("docs/generated/directory")).rejects.toThrow(/invalid/i)
       await expect(files.readGenerated("docs/generated/linked.json")).rejects.toThrow()
       await expect(files.readGenerated("../secret.json")).rejects.toThrow(/escapes repository/i)
+      await expect(files.readGenerated(".")).rejects.toThrow(/ancestor escapes repository/i)
       await expect(files.writeGenerated("../secret.json", "changed")).rejects.toThrow(/escapes repository/i)
       await expect(readFile(join(outside, "secret.json"), "utf8")).resolves.toBe("outside")
     } finally {
@@ -154,6 +208,108 @@ describe("documentation filesystem", () => {
 
       await expect(files.discoverPackageManifests()).rejects.toThrow(/ancestor is unsafe/i)
       await expect(exists(join(root, GENERATED_INVENTORY_PATH))).resolves.toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+  it("rejects a canonical ancestor that resolves outside the repository", async () => {
+    const root = await createRepository()
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-docs-canonical-outside-"))
+    const canonicalRoot = await mocks.fileSystemActual.realpath(root)
+    const canonicalOutside = await mocks.fileSystemActual.realpath(outside)
+    const apps = join(canonicalRoot, "apps")
+    mocks.fileSystem.realpath.mockImplementation(async (...arguments_) =>
+      String(arguments_[0]) === apps
+        ? canonicalOutside
+        : Reflect.apply(mocks.fileSystemActual.realpath, undefined, arguments_)
+    )
+
+    try {
+      const files = await createDocsFileSystem(root)
+      await expect(files.discoverPackageManifests())
+        .rejects.toThrow(/ancestor escapes repository/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an ancestor identity that changes after its snapshot", async () => {
+    const root = await createRepository()
+    const apps = join(await mocks.fileSystemActual.realpath(root), "apps")
+    const files = await createDocsFileSystem(root)
+    let appsInspections = 0
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(
+        mocks.fileSystemActual.lstat,
+        undefined,
+        arguments_,
+      ) as Awaited<ReturnType<typeof mocks.fileSystemActual.lstat>>
+      if (String(arguments_[0]) !== apps || ++appsInspections === 1) return stats
+      return Object.assign(stats, { ino: stats.ino + 1 })
+    })
+
+    try {
+      await expect(files.discoverPackageManifests())
+        .rejects.toThrow(/ancestor identity changed/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a manifest that grows after inspection with the no-follow fallback", async () => {
+    const root = await createRepository()
+    const generated = join(root, "docs/generated/growing.json")
+    const canonicalGenerated = join(
+      await mocks.fileSystemActual.realpath(root),
+      "docs/generated/growing.json",
+    )
+    await mkdir(join(root, "docs/generated"), { recursive: true })
+    await writeFile(generated, "x", "utf8")
+    const files = await createDocsFileSystem(root)
+    Reflect.deleteProperty(mocks.constants, "O_NOFOLLOW")
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(
+        mocks.fileSystemActual.open,
+        undefined,
+        arguments_,
+      ) as Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
+      if (String(arguments_[0]) === canonicalGenerated) {
+        Object.defineProperty(handle, "readFile", {
+          configurable: true,
+          value: async () => "x".repeat(262_145),
+        })
+      }
+      return handle
+    })
+
+    try {
+      await expect(files.readGenerated("docs/generated/growing.json"))
+        .rejects.toThrow(/manifest is too large/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("surfaces non-missing manifest discovery failures", async () => {
+    const root = await createRepository()
+    const blockedDirectory = join(root, "packages/blocked")
+    const canonicalBlockedManifest = join(
+      await mocks.fileSystemActual.realpath(root),
+      "packages/blocked/package.json",
+    )
+    await mkdir(blockedDirectory, { recursive: true })
+    const files = await createDocsFileSystem(root)
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === canonicalBlockedManifest) {
+        throw Object.assign(new Error("manifest permission denied"), { code: "EACCES" })
+      }
+      return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+    })
+
+    try {
+      await expect(files.discoverPackageManifests())
+        .rejects.toMatchObject({ code: "EACCES", message: "manifest permission denied" })
     } finally {
       await rm(root, { force: true, recursive: true })
     }

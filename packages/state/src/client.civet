@@ -64,10 +64,15 @@ const isSidebarState = (value: unknown): value is SidebarState =>
   value === "expanded" || value === "collapsed"
 
 const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null => {
-  if (!isRecord(value) || !hasExactKeys(value, snapshotKeys)) return null
-  const version = value["version"]
-  const state = value["state"]
-  if (version !== UI_STATE_VERSION || !isRecord(state)) return null
+  let snapshotValue: Record<string, unknown>
+  if isRecord(value) && hasExactKeys(value, snapshotKeys)
+    snapshotValue = value
+  else
+    return null
+  const version = snapshotValue["version"]
+  const state = snapshotValue["state"]
+  if version !== UI_STATE_VERSION return null
+  if !isRecord(state) return null
   if (!hasExactKeys(state, preferenceKeys)) return null
 
   const sidebar = state["sidebar"]
@@ -97,8 +102,8 @@ const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null => {
 export const parseUiStateSnapshot = (
   serializedSnapshot: unknown,
 ): UiStateSnapshot | null => {
-  if (typeof serializedSnapshot !== "string"
-    || serializedSnapshot.length > MAX_UI_STATE_SNAPSHOT_LENGTH) return null
+  if typeof serializedSnapshot !== "string" return null
+  if serializedSnapshot.length > MAX_UI_STATE_SNAPSHOT_LENGTH return null
 
   try {
     return parseJsonSnapshot(JSON.parse(serializedSnapshot) as unknown)
@@ -125,11 +130,11 @@ export const createUiStore = (): UiStore => createStore<UiState>()((set, get) =>
   toggleSidebar: () => set((state) => ({
     sidebar: state.sidebar === "expanded" ? "collapsed" : "expanded",
   })),
-  setMobileNavigationOpen: (mobileNavigationOpen) => {
-    if (typeof mobileNavigationOpen === "boolean") {
+  setMobileNavigationOpen: (mobileNavigationOpen) =>
+    if typeof mobileNavigationOpen === "boolean"
       set({ mobileNavigationOpen })
-    }
-  },
+    else
+      return
   closeMobileNavigation: () => set({ mobileNavigationOpen: false }),
   setThemeMode: (themeMode) => {
     if (isThemeMode(themeMode)) set({ themeMode })
@@ -143,9 +148,11 @@ export const createUiStore = (): UiStore => createStore<UiState>()((set, get) =>
   reset: () => set(copyPreferences(DEFAULT_UI_PREFERENCES)),
   hydrate: (serializedSnapshot) => {
     const snapshot = parseUiStateSnapshot(serializedSnapshot)
-    if (snapshot === null) return false
-    set(copyPreferences(snapshot.state))
-    return true
+    if snapshot === null
+      return false
+    else
+      set(copyPreferences(snapshot.state))
+      return true
   },
   dehydrate: () => ({
     version: UI_STATE_VERSION,

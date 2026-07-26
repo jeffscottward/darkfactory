@@ -15,6 +15,7 @@ const driver = vi.hoisted(() => {
     transaction: ReturnType<typeof vi.fn>
   }> = []
   let nextConnectionError: unknown
+  let nextEndError: unknown
 
   class Pool {
     options: unknown
@@ -34,7 +35,12 @@ const driver = vi.hoisted(() => {
       nextConnectionError = undefined
       throw error
     })
-    end = vi.fn(async () => undefined)
+    end = vi.fn(async () => {
+      if (nextEndError === undefined) return
+      const error = nextEndError
+      nextEndError = undefined
+      throw error
+    })
 
     constructor(options: unknown) {
       this.options = options
@@ -55,6 +61,14 @@ const driver = vi.hoisted(() => {
   const failNextConnection = (error: unknown): void => {
     nextConnectionError = error
   }
+  const failNextEnd = (error: unknown): void => {
+    nextEndError = error
+  }
+
+  const resetFailures = (): void => {
+    nextConnectionError = undefined
+    nextEndError = undefined
+  }
 
   return {
     Client,
@@ -63,8 +77,10 @@ const driver = vi.hoisted(() => {
     databases,
     drizzle,
     failNextConnection,
+    failNextEnd,
     pools,
     runMigrations,
+    resetFailures,
   }
 })
 
@@ -77,9 +93,9 @@ vi.mock("drizzle-orm/node-postgres/migrator", () => ({
 import {
   createNodeDatabase,
   createRequestDatabase,
-  migrate,
   withTransaction,
 } from "./client.civet"
+import { migrate } from "@darkfactory/db/server/migration"
 
 const CONNECTION_STRING = "postgresql://localhost/darkfactory_test"
 
@@ -90,6 +106,7 @@ describe "database client factories", ->
     driver.pools.length = 0
     driver.drizzle.mockClear()
     driver.runMigrations.mockClear()
+    driver.resetFailures()
 
   it "creates one private Node pool and closes it through a neutral resource", async ->
     const resource = createNodeDatabase({
@@ -141,6 +158,10 @@ describe "database client factories", ->
       createRequestDatabase({ connectionString: CONNECTION_STRING }),
     ).rejects.toBe(connectionFailure)
     expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
+    expect(driver.clients[0]?.options).toEqual({
+      connectionString: CONNECTION_STRING,
+      connectionTimeoutMillis: 10_000,
+    })
 
 
   it "runs migrations from the package folder unless explicitly overridden", async ->
@@ -180,3 +201,42 @@ describe "database client factories", ->
     await expect(
       withTransaction(failingDatabase as never, async () => "unreachable"),
     ).rejects.toBe(rollbackError)
+
+  it "preserves a connection failure when cleanup also fails", async ->
+    const connectionFailure = new Error("connection failed")
+    const cleanupFailure = new Error("cleanup failed")
+    driver.failNextConnection(connectionFailure)
+    driver.failNextEnd(cleanupFailure)
+
+    await expect(
+      createRequestDatabase({ connectionString: CONNECTION_STRING }),
+    ).rejects.toBe(connectionFailure)
+    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
+
+  it "propagates pool and request-client close failures", async ->
+    const poolResource = createNodeDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    const poolFailure = new Error("pool close failed")
+    driver.pools[0]!.end.mockRejectedValueOnce(poolFailure)
+    await expect(poolResource.close()).rejects.toBe(poolFailure)
+
+    const requestResource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    const requestFailure = new Error("request close failed")
+    driver.clients[0]!.end.mockRejectedValueOnce(requestFailure)
+    await expect(requestResource.close()).rejects.toBe(requestFailure)
+
+  it "propagates migration-provider failures without rewriting them", async ->
+    const resource = createNodeDatabase({ connectionString: CONNECTION_STRING })
+    const migrationFailure = new Error("migration provider failed")
+    driver.runMigrations.mockRejectedValueOnce(migrationFailure)
+
+    await expect(migrate(resource.db)).rejects.toBe(migrationFailure)
+    expect(driver.runMigrations).toHaveBeenCalledWith(
+      resource.db,
+      expect.objectContaining({
+        migrationsFolder: expect.stringMatching(/packages\/db\/migrations$/),
+      }),
+    )

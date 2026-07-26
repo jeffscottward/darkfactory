@@ -247,5 +247,93 @@ describe("capability readiness", () => {
     }
     expect(serialized).not.toMatch(/secret-value|private-bucket-name/)
   })
+
+  it("evaluates every manifest and environment enablement branch as ready", async () => {
+    const manifest = await readManifest()
+    const enabledManifest: CapabilityManifest = {
+      ...manifest,
+      capabilities: {
+        ...manifest.capabilities,
+        docs: { ...manifest.capabilities.docs, enabled: true },
+        jobs: { ...manifest.capabilities.jobs, enabled: true },
+        uptime: { ...manifest.capabilities.uptime, enabled: true },
+        error_tracking: {
+          ...manifest.capabilities.error_tracking,
+          enabled: true,
+        },
+        storage: { ...manifest.capabilities.storage, enabled: true },
+        context_graphs: {
+          data: {
+            ...manifest.capabilities.context_graphs.data,
+            enabled: true,
+          },
+        },
+        postgres_extensions: {
+          pgvector: { enabled: true },
+          postgis: { enabled: true },
+          timescaledb: { enabled: true },
+          pg_trgm: { enabled: true },
+          pg_cron: { enabled: true },
+        },
+      },
+    }
+    const allAvailable = {
+      installed: {
+        ...V01_INSTALLED_CAPABILITIES,
+        mintlify: true,
+        celery: true,
+        flower: true,
+        uptimeKuma: true,
+        glitchtip: true,
+        r2: true,
+        memori: true,
+        pgvector: true,
+        postgis: true,
+        timescaledb: true,
+        pgTrgm: true,
+        pgCron: true,
+      },
+      bindings: {
+        ...V01_CAPABILITY_BINDINGS,
+        mintlify: true,
+        celery: true,
+        flower: true,
+        uptimeKuma: true,
+        glitchtip: true,
+        r2: true,
+        memori: true,
+        pgvector: true,
+        postgis: true,
+        timescaledb: true,
+        pgTrgm: true,
+        pgCron: true,
+      },
+    }
+    const result = evaluateCapabilityReadiness(
+      enabledManifest,
+      {
+        DOCS_ENABLED: true,
+        JOBS_ENABLED: true,
+        FLOWER_ENABLED: true,
+        UPTIME_KUMA_ENABLED: true,
+        ERROR_TRACKING_ENABLED: true,
+        ERROR_TRACKING_DSN: "https://errors.invalid/project",
+        STORAGE_ENABLED: true,
+        R2_ACCOUNT_ID: "account-reference",
+        R2_ACCESS_KEY_ID: "access-reference",
+        R2_SECRET_ACCESS_KEY: "secret-reference",
+        R2_BUCKET: "bucket-reference",
+        MEMORI_ENABLED: true,
+      },
+      allAvailable,
+    )
+
+    expect(Object.values(result).map(({ status }) => status)).toEqual(
+      Array.from({ length: 12 }, () => "ready"),
+    )
+    expect(Object.values(result).every(({ reason }) => reason === undefined)).toBe(
+      true,
+    )
+  })
   return undefined
 })

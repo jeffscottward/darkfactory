@@ -7,8 +7,8 @@ import {
   type ReactNode,
 } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { redirect } from "next/navigation"
-import { describe, expect, it, vi } from "vitest"
+import { notFound, redirect } from "next/navigation"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { Button } from "@darkfactory/ui"
 
@@ -16,7 +16,11 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn((href: string): never => {
     throw new Error(`redirect:${href}`)
   }),
+  notFound: vi.fn((): never => {
+    throw new Error("not-found")
+  }),
 }))
+vi.mock("next/link", () => ({ default: "a" }))
 
 import AboutPage from "./about/page.civet"
 import FeaturesPage from "./features/page.civet"
@@ -30,9 +34,19 @@ import LegalTermsPage from "./legal/terms/page.civet"
 import PublicLoading from "./loading.civet"
 import PublicNotFound from "./not-found.civet"
 import PublicError, { PublicErrorContent } from "./error.civet"
+import PublicLayout from "./layout.civet"
+import ErrorSmokePage from "./error-smoke/page.civet"
+import LoadingSmokePage from "./loading-smoke/page.civet"
+import { RecoverableErrorFixture } from "./error-smoke/recoverable-error-fixture.civet"
+import { PublicShell } from "../../components/public-shell.civet"
 
 const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
   renderToStaticMarkup(component)
+
+afterEach ->
+  vi.useRealTimers()
+  vi.unstubAllEnvs()
+  vi.clearAllMocks()
 
 const renderPage = (Page: () => ReturnType<typeof createElement>): string =>
   markup(createElement(Page))
@@ -40,6 +54,8 @@ const renderPage = (Page: () => ReturnType<typeof createElement>): string =>
 type InteractiveElement = ReactElement<{
   readonly children?: ReactNode
   readonly onClick?: () => void
+  readonly ref?: ((element: HTMLElement | null) => void) | undefined
+  readonly tabIndex?: number
 }>
 
 const findButton = (node: ReactNode): InteractiveElement | undefined => {
@@ -47,6 +63,18 @@ const findButton = (node: ReactNode): InteractiveElement | undefined => {
   if (node.type === Button) return node
   for (const child of Children.toArray(node.props.children)) {
     const match = findButton(child)
+    if (match !== undefined) return match
+  }
+  return undefined
+}
+
+const findFocusableSection = (
+  node: ReactNode,
+): InteractiveElement | undefined => {
+  if (!isValidElement<InteractiveElement["props"]>(node)) return undefined
+  if (node.type === "section" && node.props.tabIndex === -1) return node
+  for (const child of Children.toArray(node.props.children)) {
+    const match = findFocusableSection(child)
     if (match !== undefined) return match
   }
   return undefined
@@ -197,6 +225,12 @@ describe "public route states", ->
     expect(resetButton).toBeDefined()
     resetButton?.props.onClick?.()
     expect(reset).toHaveBeenCalledOnce()
+    const focus = vi.fn()
+    const focusableSection = findFocusableSection(errorContent)
+    expect(focusableSection).toBeDefined()
+    focusableSection?.props.ref?.({ focus } as unknown as HTMLElement)
+    focusableSection?.props.ref?.(null)
+    expect(focus).toHaveBeenCalledOnce()
 
     const notFound = renderPage(PublicNotFound)
     const error = markup(errorContent)
@@ -215,3 +249,35 @@ describe "public route states", ->
     expect(error).toContain('autofocus=""')
     expect(error).toContain("<button")
     expect(guardedError).not.toContain("private provider payload")
+
+  it "composes public children through the shared shell", ->
+    const result = PublicLayout({ children: "public content" })
+
+    expect(result.type).toBe(PublicShell)
+    expect(result.props.children).toBe("public content")
+
+  it "hides smoke fixtures outside the isolated E2E process", async ->
+    vi.stubEnv("APP_ENV", "production")
+    vi.stubEnv("E2E_FIXTURES", "0")
+    vi.stubEnv("NODE_ENV", "production")
+
+    expect(() => ErrorSmokePage()).toThrow("not-found")
+    await expect(LoadingSmokePage()).rejects.toThrow("not-found")
+    expect(vi.mocked(notFound)).toHaveBeenCalledTimes(2)
+
+  it "renders enabled error and delayed loading smoke fixtures", async ->
+    vi.useFakeTimers()
+    vi.stubEnv("APP_ENV", "test")
+    vi.stubEnv("E2E_FIXTURES", "1")
+    vi.stubEnv("NODE_ENV", "test")
+
+    const error = ErrorSmokePage()
+    expect(error.type).toBe(RecoverableErrorFixture)
+
+    const pending = LoadingSmokePage()
+    await vi.advanceTimersByTimeAsync(1_500)
+    const loading = markup(await pending)
+    expect(loading).toContain("The loading fixture completed.")
+    expect(loading).toContain(
+      "This route is available only to the isolated end-to-end server.",
+    )

@@ -95,9 +95,19 @@ export const probeTrustedHttps = async (url: string): Promise<HttpsProbeResult> 
   }
 }
 
-export const nodeDoctorDependencies = (): DoctorDependencies => Object.freeze({
-  nodeVersion: process.versions.node,
-  workingDirectory: process.cwd(),
+type DoctorRuntime = Readonly<{
+  cwd: () => string
+  versions: Readonly<{ node: string }>
+}>
+
+type NodeDoctorDependencies = DoctorDependencies &
+  Readonly<{ nodeVersion: string }>
+
+export const nodeDoctorDependencies = (
+  runtime: DoctorRuntime = process,
+): NodeDoctorDependencies => Object.freeze({
+  nodeVersion: runtime.versions.node,
+  workingDirectory: runtime.cwd(),
   pm2DaemonAvailable: pm2DaemonIsLive,
   environmentHas: (name: string) => {
     const value = process.env[name]

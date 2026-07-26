@@ -91,7 +91,7 @@ const readBoundedRegularFile = async (
   if before.size > maximumBytes
     throw new Error(`${label} exceeds ${maximumBytes} bytes`)
 
-  const noFollowFlag = process.platform === "win32" ? 0 : constants.O_NOFOLLOW
+  const noFollowFlag = constants.O_NOFOLLOW
   const handle = await open(path, constants.O_RDONLY | noFollowFlag)
   try {
     const opened = await handle.stat()
@@ -268,8 +268,7 @@ const readWorkspacePackages = async (
   let totalManifestBytes = 0
 
   while (pending.length > 0) {
-    const current = pending.pop()
-    if current === undefined then break
+    const current = pending.pop()!
     directoryCount += 1
     if directoryCount > MAX_WORKSPACE_DIRECTORIES
       throw new Error(
@@ -418,8 +417,7 @@ const collectPackageTargets = (
   let nodeCount = 0
 
   while (pending.length > 0) {
-    const current = pending.pop()
-    if current === undefined then break
+    const current = pending.pop()!
     nodeCount += 1
     budget.exportNodes += 1
     if budget.exportNodes > MAX_TOTAL_EXPORT_NODES
@@ -560,10 +558,9 @@ export const inspectTypeExports = async (
     }
   }
 
-  const locatedTargets = [...uniqueTargets.values()].sort((left, right) => {
-    return compareTargets(left.target, right.target) ||
-      compareText(left.directory, right.directory)
-  })
+  const locatedTargets = [...uniqueTargets.values()].sort((left, right) =>
+    compareTargets(left.target, right.target)
+  )
   const targets = locatedTargets.map(({ target }) => target)
   const problems: TypeExportProblem[] = []
   for (const locatedTarget of locatedTargets) {
@@ -578,9 +575,7 @@ export const inspectTypeExports = async (
 
   return {
     targets,
-    problems: problems.sort((left, right) => {
-      return compareTargets(left, right) || compareText(left.reason, right.reason)
-    }),
+    problems: problems.sort(compareTargets),
   }
 }
 
@@ -611,18 +606,60 @@ export const auditTypeExports = async (
   return report.targets
 }
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+export type TypeExportEntrypointDependencies = Readonly<{
+  invokedPath: string | undefined
+  moduleUrl: string
+  rootDirectory: string
+  inspectTypeExports: (rootDirectory: string) => Promise<TypeExportReport>
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+  exitState: { exitCode?: string | number | null | undefined }
+}>
 
-const main = async (): Promise<void> => {
+const writeEntrypointFailure = (
+  dependencies: TypeExportEntrypointDependencies,
+  message: string,
+): void => {
   try
-    const targets = await auditTypeExports(repositoryRoot)
-    process.stdout.write(`${formatTypeExportTargets(targets)}\n`)
-  catch (error)
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-    process.exitCode = 1
+    dependencies.writeError(`${message}\n`)
+  catch
+    undefined
+  try
+    dependencies.exitState.exitCode = 1
+  catch
+    undefined
 }
 
-const invokedPath = process.argv[1]
-if invokedPath !== undefined &&
-  pathToFileURL(resolve(invokedPath)).href === import.meta.url
-  await main()
+export const runTypeExportsEntrypoint = async (
+  dependencies: TypeExportEntrypointDependencies,
+): Promise<void> => {
+  if dependencies.invokedPath === undefined ||
+    pathToFileURL(resolve(dependencies.invokedPath)).href !==
+      dependencies.moduleUrl
+    return
+
+  try
+    const report = await dependencies.inspectTypeExports(
+      dependencies.rootDirectory,
+    )
+    if report.problems.length > 0
+      writeEntrypointFailure(
+        dependencies,
+        formatTypeExportProblems(report.problems),
+      )
+      return
+    dependencies.writeOutput(`${formatTypeExportTargets(report.targets)}\n`)
+  catch
+    writeEntrypointFailure(dependencies, "Type export audit failed safely")
+}
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+await runTypeExportsEntrypoint({
+  invokedPath: process.argv[1],
+  moduleUrl: import.meta.url,
+  rootDirectory: repositoryRoot,
+  inspectTypeExports,
+  writeOutput: process.stdout.write.bind(process.stdout),
+  writeError: process.stderr.write.bind(process.stderr),
+  exitState: process,
+})

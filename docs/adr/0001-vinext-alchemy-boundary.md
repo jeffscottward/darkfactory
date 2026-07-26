@@ -7,7 +7,7 @@
 
 ## Context
 
-DarkFactory's web application is authored for Vite/vinext and Cloudflare Workers. The repository already exposes the official `@vinext/cloudflare` deployer through `pnpm deploy:web:preview` and `pnpm deploy:web`.
+DarkFactory's web application is authored for Vite/vinext and Cloudflare Workers. The repository already exposes the official `@vinext/cloudflare` deployer through `bun run deploy:web:preview` and `bun run deploy:web`.
 
 The capability manifest reserves Alchemy for ancillary Cloudflare infrastructure, but no ancillary resource is currently enabled. Adding an empty program merely to demonstrate the tool would create a destructive reconciliation surface without creating user value.
 

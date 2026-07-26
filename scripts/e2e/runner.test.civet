@@ -656,6 +656,32 @@ describe("serialized E2E journey runner", () => {
     expect(JSON.stringify(report)).not.toContain("private progress sink")
   })
 
+
+  it("ignores primitive progress failures at every boundary", async () => {
+    let progressCalls = 0
+    const report = await runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+      createRunId: () => "primitive_progress_failure",
+      createHmacKey: () => "h".repeat(43),
+      prepareRun: async () => preparedRun("primitive_progress_failure"),
+      reportProgress: () => {
+        progressCalls += 1
+        throw "private primitive progress failure"
+      },
+      runPlaywright: async () => ({
+        ...stoppedLifecycle,
+        exitCode: 0,
+        treeTerminated: true,
+      }),
+      scanArtifacts: async () => cleanScan,
+    })
+
+    expect(report).toMatchObject({ ok: true, completed: 1 })
+    expect(progressCalls).toBe(7)
+    expect(JSON.stringify(report)).not.toContain("private primitive progress")
+  })
+
   it("never allows a caller or auth source to widen the artifact profile", async () => {
     expect(classifyJourneySpecs(discoveredSpecs).e2e).toHaveLength(6)
     expect(artifactProfileForSpec("tests/e2e/public-visual.spec.ts"))
@@ -667,5 +693,84 @@ describe("serialized E2E journey runner", () => {
       "utf8",
     )
     expect(authSource).not.toMatch(/page\.screenshot|screenshotArtifactPath|\.png/iu)
+  })
+  it("rejects empty discovery and every invalid prepared capability boundary", async () => {
+    expect(() => classifyJourneySpecs([])).toThrow(/invalid E2E journey path/i)
+
+    const runPlaywright = vi.fn(async () => ({
+      ...stoppedLifecycle,
+      exitCode: 0,
+      treeTerminated: true,
+    }))
+    const invalidCapabilities = [
+      { adoption: "", ownership: "ownership" },
+      { adoption: "a".repeat(8_193), ownership: "ownership" },
+      { adoption: "adoption", ownership: "" },
+      { adoption: "adoption", ownership: "o".repeat(8_193) },
+    ]
+    for (const prepared of invalidCapabilities) {
+      await expect(runJourneySuite("e2e", {
+        repositoryPath: "/workspace",
+        listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+        createRunId: () => "capability_boundary",
+        createHmacKey: () => "h".repeat(43),
+        prepareRun: async () => prepared,
+        runPlaywright,
+        scanArtifacts: async () => cleanScan,
+      })).resolves.toMatchObject({
+        ok: false,
+        completed: 1,
+        results: [{
+          runId: "capability_boundary",
+          processState: "not-started",
+          stage: "prepare",
+        }],
+        reason: "Unable to prepare isolated owned E2E output roots",
+      })
+    }
+    expect(runPlaywright).not.toHaveBeenCalled()
+
+    await expect(runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => [],
+      createRunId: () => "unused",
+      createHmacKey: () => "h".repeat(43),
+      prepareRun: async () => preparedRun("unused"),
+      runPlaywright,
+      scanArtifacts: async () => cleanScan,
+    })).resolves.toEqual({
+      ok: false,
+      mode: "e2e",
+      completed: 0,
+      results: [],
+      reason: "Unable to classify the exact E2E journey set",
+    })
+  })
+
+  it("fails classification when the selected mode has no journeys", async () => {
+    const createRunId = vi.fn(() => "unused")
+    const runPlaywright = vi.fn(async () => ({
+      ...stoppedLifecycle,
+      exitCode: 0,
+      treeTerminated: true,
+    }))
+
+    await expect(runJourneySuite("e2e", {
+      repositoryPath: "/workspace",
+      listSpecs: async () => ["tests/e2e/public-accessibility.a11y.spec.ts"],
+      createRunId,
+      createHmacKey: () => "h".repeat(43),
+      prepareRun: async () => preparedRun("unused"),
+      runPlaywright,
+      scanArtifacts: async () => cleanScan,
+    })).resolves.toEqual({
+      ok: false,
+      mode: "e2e",
+      completed: 0,
+      results: [],
+      reason: "Unable to classify the exact E2E journey set",
+    })
+    expect(createRunId).not.toHaveBeenCalled()
+    expect(runPlaywright).not.toHaveBeenCalled()
   })
 })

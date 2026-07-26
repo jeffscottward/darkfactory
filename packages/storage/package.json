@@ -22,10 +22,10 @@
     }
   },
   "scripts": {
-    "types": "civet --emit-declaration src/index.civet && civet --emit-declaration src/test.civet",
-    "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/*.test.civet"
+    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet && bunx --bun --no-install civet --emit-declaration src/test.civet",
+    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet"
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",

@@ -191,6 +191,16 @@ describe "recording storage adapter", ->
       },
     })
 
+  it "returns not-found when deleting a missing key and still records the attempt", async ->
+    const storage = createRecordingStoragePort()
+
+    await expect(storage.delete("missing/object")).resolves.toEqual({
+      status: "not-found",
+    })
+    expect(storage.getOperations()).toEqual([
+      { operation: "delete", key: "missing/object" },
+    ])
+
 describe "storage dependency inventory", ->
   it "contains no runtime, optional, or peer dependencies", async ->
     const manifestText = await readFile(new URL("../package.json", import.meta.url), "utf8")

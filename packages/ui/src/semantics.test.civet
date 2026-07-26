@@ -1,22 +1,56 @@
-import { createElement } from "react"
+import { createElement, type ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 
 import { Avatar } from "./avatar.civet"
+import { Badge } from "./badge.civet"
 import { Button } from "./button.civet"
-import { CardTitle } from "./card.civet"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "./card.civet"
 import { EmptyState } from "./empty-state.civet"
 import { PageHeader, SectionHeader } from "./headings.civet"
 import { IconButton } from "./icon-button.civet"
+import { Label } from "./label.civet"
 import { Input } from "./input.civet"
 import { Separator } from "./separator.civet"
 import { Skeleton, SkeletonGroup } from "./skeleton.civet"
 import { StatCard } from "./stat-card.civet"
 import { StatusBadge } from "./status-badge.civet"
 import { Textarea } from "./textarea.civet"
+import {
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+} from "./client/dialog.civet"
+import {
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "./client/dropdown-menu.civet"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "./client/tabs.civet"
+import { Toaster } from "./client/toaster.civet"
 
 const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
   renderToStaticMarkup(component)
+
+const elementProps = (element: ReactElement): Record<string, unknown> =>
+  (element as ReactElement<Record<string, unknown>>).props
 
 describe "semantic server-safe primitives", ->
   it "renders safe button defaults, stable loading states, and accessible icon labels", ->
@@ -125,3 +159,215 @@ describe "semantic server-safe primitives", ->
     expect(avatar).toContain('role="img"')
     expect(avatar).toContain('aria-label="Jeff Scott"')
     expect(separator).toContain("<hr")
+
+  it "renders every card region and optional semantic primitive branch", ->
+    const rendered = markup(
+      createElement(
+        "div",
+        {},
+        createElement(
+          Card,
+          { className: "custom-card" },
+          createElement(CardHeader, {}, "Header"),
+          createElement(CardTitle, {}, "Default title"),
+          createElement(CardDescription, {}, "Description"),
+          createElement(CardContent, {}, "Content"),
+          createElement(CardFooter, {}, "Footer"),
+        ),
+        createElement(Badge, { variant: "outline" }, "Outlined"),
+        createElement(Avatar, {
+          fallback: "JS",
+          imageProps: { loading: "lazy" },
+          name: "Jeff Scott",
+          src: "https://assets.example.test/avatar.png",
+        }),
+        createElement(Label, { optional: true, optionalLabel: "Not required" }, "Alias"),
+        createElement(Separator, { orientation: "vertical" }),
+        createElement(StatCard, {
+          description: "Compared with yesterday",
+          label: "Open items",
+          value: "12",
+        }),
+      ),
+    )
+
+    expect(rendered).toContain("custom-card")
+    expect(rendered).toContain("Header")
+    expect(rendered).toContain("<h3")
+    expect(rendered).toContain("Description")
+    expect(rendered).toContain("Content")
+    expect(rendered).toContain("Footer")
+    expect(rendered).toContain("Outlined")
+    expect(rendered).toContain('alt="Jeff Scott"')
+    expect(rendered).toContain('loading="lazy"')
+    expect(rendered).toContain("Not required")
+    expect(rendered).toContain('aria-orientation="vertical"')
+    expect(rendered).toContain("Compared with yesterday")
+
+  it "renders all optional page and section header regions", ->
+    const rendered = markup(
+      createElement(
+        "div",
+        {},
+        createElement(PageHeader, {
+          actions: createElement("a", { href: "/start" }, "Start"),
+          description: "Public description",
+          eyebrow: "Platform",
+          title: "Public architecture",
+          variant: "public",
+        }),
+        createElement(SectionHeader, {
+          actions: createElement("button", { type: "button" }, "Refresh"),
+          description: "Section description",
+          title: "Recent activity",
+        }),
+      ),
+    )
+
+    for (const text of [
+      "Platform",
+      "Public architecture",
+      "Public description",
+      "Start",
+      "Recent activity",
+      "Section description",
+      "Refresh",
+    ]) {
+      expect(rendered).toContain(text)
+    }
+
+describe "client primitive wrappers", ->
+  it "forwards dropdown props, defaults, indicators, and inset styling", ->
+    const defaultContent = DropdownMenuContent({ children: "Default content" })
+    const customContent = DropdownMenuContent({
+      children: "Custom content",
+      className: "custom-content",
+      sideOffset: 12,
+    })
+    const defaultContentChild = elementProps(defaultContent)["children"] as ReactElement
+    const customContentChild = elementProps(customContent)["children"] as ReactElement
+
+    expect(elementProps(defaultContentChild)["sideOffset"]).toBe(8)
+    expect(elementProps(customContentChild)["sideOffset"]).toBe(12)
+    expect(String(elementProps(customContentChild)["className"])).toContain("custom-content")
+
+    const item = DropdownMenuItem({ children: "Item" })
+    const insetItem = DropdownMenuItem({ children: "Inset item", inset: true })
+    const checkbox = DropdownMenuCheckboxItem({
+      checked: true,
+      children: "Checked item",
+    })
+    const radio = DropdownMenuRadioItem({
+      children: "Radio item",
+      value: "one",
+    })
+    const label = DropdownMenuLabel({ children: "Label" })
+    const insetLabel = DropdownMenuLabel({ children: "Inset label", inset: true })
+    const separator = DropdownMenuSeparator({})
+    const subTrigger = DropdownMenuSubTrigger({ children: "Submenu" })
+    const insetSubTrigger = DropdownMenuSubTrigger({
+      children: "Inset submenu",
+      inset: true,
+    })
+    const subContent = DropdownMenuSubContent({ children: "Submenu content" })
+
+    expect(String(elementProps(item)["className"])).not.toContain("pl-9")
+    expect(String(elementProps(insetItem)["className"])).toContain("pl-9")
+    expect(elementProps(checkbox)["children"]).toBeDefined()
+    expect(elementProps(radio)["children"]).toBeDefined()
+    expect(String(elementProps(label)["className"])).not.toContain("pl-9")
+    expect(String(elementProps(insetLabel)["className"])).toContain("pl-9")
+    expect(String(elementProps(separator)["className"])).toContain("bg-border")
+    expect(String(elementProps(subTrigger)["className"])).not.toContain("pl-9")
+    expect(String(elementProps(insetSubTrigger)["className"])).toContain("pl-9")
+    expect(String(elementProps(subContent)["className"])).toContain("z-popover")
+
+  it "builds both dialog description states and forwards body and footer props", ->
+    const described = DialogContent({
+      children: "Dialog body",
+      className: "custom-dialog",
+      closeLabel: "Dismiss settings",
+      description: "Dialog description",
+      title: "Dialog title",
+    })
+    const undescribed = DialogContent({
+      children: "Dialog body",
+      title: "Dialog title",
+    })
+    const describedPortalChildren = elementProps(described)["children"] as ReactElement[]
+    const undescribedPortalChildren = elementProps(undescribed)["children"] as ReactElement[]
+    const describedContent = describedPortalChildren[1]!
+    const undescribedContent = undescribedPortalChildren[1]!
+    const describedChildren = elementProps(describedContent)["children"] as unknown[]
+    const undescribedChildren = elementProps(undescribedContent)["children"] as unknown[]
+    const describedHeader = describedChildren[0] as ReactElement
+    const undescribedHeader = undescribedChildren[0] as ReactElement
+    const describedHeaderChildren = elementProps(describedHeader)["children"] as unknown[]
+    const undescribedHeaderChildren = elementProps(undescribedHeader)["children"] as unknown[]
+    const close = describedChildren[2] as ReactElement
+    const body = DialogBody({ children: "Body", className: "custom-body" })
+    const footer = DialogFooter({ children: "Footer", className: "custom-footer" })
+
+    expect(describedHeaderChildren[1]).not.toBeNull()
+    expect(undescribedHeaderChildren[1]).toBeNull()
+    expect(elementProps(close)["aria-label"]).toBe("Dismiss settings")
+    expect(String(elementProps(describedContent)["className"])).toContain("custom-dialog")
+    expect(String(elementProps(body)["className"])).toContain("custom-body")
+    expect(String(elementProps(footer)["className"])).toContain("custom-footer")
+
+  it "forwards every tabs wrapper and merges toaster defaults with caller options", ->
+    const tabs = Tabs({ className: "custom-tabs", defaultValue: "one" })
+    const list = TabsList({ className: "custom-list", children: "List" })
+    const trigger = TabsTrigger({
+      className: "custom-trigger",
+      children: "One",
+      value: "one",
+    })
+    const content = TabsContent({
+      className: "custom-tab-content",
+      children: "Panel",
+      value: "one",
+    })
+    const defaults = elementProps(Toaster({}))
+    const customized = elementProps(Toaster({
+      closeButton: false,
+      containerAriaLabel: "Application notices",
+      position: "top-center",
+      theme: "dark",
+      toastOptions: {
+        duration: 1_234,
+        unstyled: false,
+        classNames: {
+          loader: "caller-loader",
+          toast: "caller-toast",
+        },
+      },
+    }))
+    const customizedOptions = customized["toastOptions"] as {
+      duration: number
+      unstyled: boolean
+      classNames: Record<string, string>
+    }
+
+    expect(String(elementProps(tabs)["className"])).toContain("custom-tabs")
+    expect(String(elementProps(list)["className"])).toContain("custom-list")
+    expect(String(elementProps(trigger)["className"])).toContain("custom-trigger")
+    expect(String(elementProps(content)["className"])).toContain("custom-tab-content")
+    expect(defaults).toMatchObject({
+      closeButton: true,
+      containerAriaLabel: "Notifications",
+      position: "bottom-right",
+      richColors: false,
+      theme: "system",
+    })
+    expect(customized).toMatchObject({
+      closeButton: false,
+      containerAriaLabel: "Application notices",
+      position: "top-center",
+      richColors: false,
+      theme: "dark",
+    })
+    expect(customizedOptions.duration).toBe(1_234)
+    expect(customizedOptions.unstyled).toBe(true)
+    expect(customizedOptions.classNames["toast"]).toContain("caller-toast")
+    expect(customizedOptions.classNames["loader"]).toContain("caller-loader")

@@ -62,6 +62,24 @@ describe "DashboardContent", ->
     expect(html).not.toMatch(/<div><dt/u)
     expect(html).not.toMatch(/revenue|growth|customers|conversion/i)
   
+
+  it "labels administrator sessions without changing unavailable summary truth", ->
+    const html = renderToStaticMarkup(
+      <DashboardContent
+        session={{
+          userId: "admin-1",
+          name: "Example Administrator",
+          role: "admin",
+          status: "active",
+          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        }}
+        summaryState={{ type: "error" }}
+      />,
+    )
+
+    expect(html).toContain("Administrator access")
+    expect(html).toContain("Welcome back, Example Administrator")
+    expect(html).toContain("Feature data unavailable")
   it "renders honest empty and unavailable data without inventing a zero metric", ->
     const emptyHtml = renderToStaticMarkup(
       <DashboardContent

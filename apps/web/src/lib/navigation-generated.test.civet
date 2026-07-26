@@ -1,0 +1,28 @@
+import { LayoutList } from "lucide-react"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("../features/generated-navigation.civet", () => ({
+  GENERATED_FEATURE_NAVIGATION: Object.freeze([
+    { label: "Generated reports", href: "/reports" },
+  ]),
+  GENERATED_FEATURE_ROUTE_PATHS: Object.freeze(["/reports"]),
+  GENERATED_FEATURE_ROUTE_PAGE_FILES: Object.freeze({
+    "/reports": "(portal)/reports/page.civet",
+  }),
+}))
+
+import {
+  EXPOSED_ROUTE_PATHS,
+  PORTAL_NAVIGATION,
+  ROUTE_PAGE_FILES,
+} from "./navigation.civet"
+
+describe "generated navigation composition", ->
+  it "projects generated destinations into portal and route manifests", ->
+    expect(PORTAL_NAVIGATION).toContainEqual({
+      label: "Generated reports",
+      href: "/reports",
+      icon: LayoutList,
+    })
+    expect(EXPOSED_ROUTE_PATHS).toContain("/reports")
+    expect(ROUTE_PAGE_FILES["/reports"]).toBe("(portal)/reports/page.civet")

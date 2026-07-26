@@ -1,6 +1,0 @@
-read:
-  - AGENTS.md
-  - ARCHITECTURE.md
-  - CONVENTIONS.md
-lint-cmd: make lint
-test-cmd: make test

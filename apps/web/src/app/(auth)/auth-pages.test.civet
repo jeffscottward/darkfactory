@@ -11,10 +11,23 @@ import SignInPage, { metadata as signInMetadata } from "./sign-in/page.civet"
 import SignUpPage from "./sign-up/page.civet"
 import ForgotPasswordPage from "./forgot-password/page.civet"
 import ResetPasswordPage, { metadata as resetMetadata } from "./reset-password/page.civet"
-import VerifyEmailPage from "./verify-email/page.civet"
+import VerifyEmailPage, { metadata as verifyEmailMetadata } from "./verify-email/page.civet"
+import AuthLayout from "./layout.civet"
+import { AuthShell } from "../../components/auth-shell.civet"
 
-const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string =>
-  renderToStaticMarkup(component)
+type MarkupInput = Parameters<typeof renderToStaticMarkup>[0]
+
+const markup = (component: MarkupInput): string => renderToStaticMarkup(component)
+const childrenOf = (element: unknown): MarkupInput => {
+  if (typeof element !== "object" || element === null) {
+    throw new Error("Expected a React element")
+  }
+  const props = Reflect.get(element, "props")
+  if (typeof props !== "object" || props === null) {
+    throw new Error("Expected React element props")
+  }
+  return Reflect.get(props, "children") as MarkupInput
+}
 const searchParams = (
   values: Readonly<Record<string, string | undefined>> = {},
 ) => Promise.resolve(values)
@@ -75,3 +88,39 @@ describe "auth route pages", ->
 
     expect(invalid).toContain("Verification link needs attention.")
     expect(invalid).not.toContain("Verification link processed.")
+
+  it "renders the default sign-in state without password-reset confirmation", async ->
+    const html = markup(await SignInPage({ searchParams: searchParams() }))
+
+    expect(html).toContain("Welcome back.")
+    expect(html).not.toContain("Your password was updated.")
+
+  it "renders verification request and expired-link branches with bounded copy", async ->
+    const request = markup(
+      await VerifyEmailPage({ searchParams: searchParams() }),
+    )
+    const expiredPage = await VerifyEmailPage({
+      searchParams: searchParams({ error: "TOKEN_EXPIRED" }),
+    })
+    const expired = markup(expiredPage)
+    const expiredAction = markup(childrenOf(childrenOf(expiredPage)))
+
+    expect(verifyEmailMetadata).toEqual({
+      title: "Verify email",
+      description: "Confirm or resend a DarkFactory email verification link.",
+    })
+    expect(request).toContain("Send a verification link.")
+    expect(request).not.toContain('role="alert"')
+    expect(expired).toContain("Request another verification link to continue.")
+    expect(expired).not.toContain('role="alert"')
+    expect(expiredAction).toContain(
+      "This verification link has expired. Request another below.",
+    )
+    expect(expiredAction).toContain('role="alert"')
+    expect(expiredAction).not.toContain("TOKEN_EXPIRED")
+
+  it "composes authentication children through the shared shell", ->
+    const result = AuthLayout({ children: "auth content" })
+
+    expect(result.type).toBe(AuthShell)
+    expect(result.props.children).toBe("auth content")

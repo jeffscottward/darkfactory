@@ -82,3 +82,41 @@ describe "E2E-only route fixtures", ->
       E2E_EMAIL_PREVIEW_DIRECTORY:
         "/repo/test-results/e2e-runs/run_123/previews/auth",
     })).toThrowError("E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL")
+
+  it "rejects missing or non-canonical run identifiers before resolving paths", ->
+    const base = {
+      APP_ENV: "test",
+      E2E_FIXTURES: "1",
+      E2E_EMAIL_PREVIEW_HMAC_KEY: "a".repeat(43),
+      E2E_EMAIL_PREVIEW_ENDPOINT: "http://127.0.0.1:43123/v1/capture",
+      E2E_EMAIL_PREVIEW_DIRECTORY:
+        "/repo/test-results/e2e-runs/run_123/previews/auth",
+    }
+
+    for (const runId of [undefined, "", "../run", "run.with.dot", "x".repeat(129)]) {
+      expect(() => resolveE2eEmailPreviewOptions({
+        ...base,
+        ...(runId === undefined ? {} : { E2E_RUN_ID: runId }),
+      })).toThrowError("E2E_RUN_ID is required for E2E email previews")
+    }
+
+  it "rejects an absent or unparsable preview capture endpoint", ->
+    const base = {
+      APP_ENV: "test",
+      E2E_FIXTURES: "1",
+      E2E_RUN_ID: "run_123",
+      E2E_EMAIL_PREVIEW_HMAC_KEY: "a".repeat(43),
+      E2E_EMAIL_PREVIEW_DIRECTORY:
+        "/repo/test-results/e2e-runs/run_123/previews/auth",
+    }
+
+    for (const endpoint of [undefined, "not a URL"]) {
+      expect(() => resolveE2eEmailPreviewOptions({
+        ...base,
+        ...(endpoint === undefined
+          ? {}
+          : { E2E_EMAIL_PREVIEW_ENDPOINT: endpoint }),
+      })).toThrowError(
+        "E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL",
+      )
+    }

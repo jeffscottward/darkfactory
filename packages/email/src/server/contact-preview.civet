@@ -10,7 +10,7 @@ import {
   type FileHandle,
 } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
-import { dirname, join, parse } from "node:path"
+import { dirname, join, parse, resolve } from "node:path"
 
 import type {
   ContactEmailDeliveryResult,
@@ -20,9 +20,8 @@ import type {
 import { renderContactEmail } from "./render-contact.civet"
 
 const DEFAULT_MAX_ARTIFACTS = 20
-const DEFAULT_PREVIEW_DIRECTORY = fileURLToPath(
-  new URL("../../previews/", import.meta.url),
-)
+const defaultPreviewDirectory = (): string =>
+  fileURLToPath(new URL("../../previews/", import.meta.url))
 
 export type PreviewContactEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production"
@@ -40,15 +39,19 @@ const previewFailure = (
 })
 
 const assertCanonicalDirectory = async (directory: string): Promise<string> => {
-  await mkdir(directory, { recursive: true, mode: 0o700 })
-  const requestedDirectory = await lstat(directory)
+  const requestedPath = resolve(directory)
+  await mkdir(requestedPath, { recursive: true, mode: 0o700 })
+  const requestedDirectory = await lstat(requestedPath)
   if (requestedDirectory.isSymbolicLink() || !requestedDirectory.isDirectory()) {
     throw new Error("Unsafe preview directory")
   }
 
-  const canonicalDirectory = await realpath(directory)
-  const root = parse(canonicalDirectory).root
-  let currentDirectory = canonicalDirectory
+  const canonicalDirectory = await realpath(requestedPath)
+  if (canonicalDirectory !== requestedPath) {
+    throw new Error("Unsafe preview directory ancestry")
+  }
+  const root = parse(requestedPath).root
+  let currentDirectory = requestedPath
   while (currentDirectory !== root) {
     const current = await lstat(currentDirectory)
     if (current.isSymbolicLink() || !current.isDirectory()) {
@@ -102,7 +105,7 @@ export const createPreviewContactEmailPort = (
     throw new Error("Preview contact email transport is unavailable in production")
   }
 
-  const directory = options.directory ?? DEFAULT_PREVIEW_DIRECTORY
+  const directory = options.directory ?? defaultPreviewDirectory()
   const maxArtifacts = options.maxArtifacts ?? DEFAULT_MAX_ARTIFACTS
   if (!Number.isInteger(maxArtifacts) || maxArtifacts <= 0) {
     throw new RangeError("maxArtifacts must be a positive integer")

@@ -8,10 +8,12 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
+import { constants } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { deflateSync } from "node:zlib"
 
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   assertOwnedLifecycleRoots,
@@ -111,6 +113,51 @@ const limits = (
   ...overrides,
 })
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const PNG_CRC_TABLE = Uint32Array.from({ length: 256 }, (_unused, index) => {
+  let value = index
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+  }
+  return value >>> 0
+})
+const pngCrc32 = (content: Buffer): number => {
+  let crc = 0xffffffff
+  for (const byte of content) {
+    crc = (PNG_CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8)
+  }
+  return (crc ^ 0xffffffff) >>> 0
+}
+const pngChunk = (type: string, content: Buffer): Buffer => {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(content.byteLength)
+  const body = Buffer.concat([Buffer.from(type, "ascii"), content])
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE(pngCrc32(body))
+  return Buffer.concat([length, body, checksum])
+}
+const pngFixture = (
+  colorType: 0 | 2 | 4 | 6,
+  beforeImage: readonly Buffer[] = [],
+  afterImage: readonly Buffer[] = [],
+): Buffer => {
+  const channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 4 ? 2 : 4
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(1, 0)
+  header.writeUInt32BE(1, 4)
+  header[8] = 8
+  header[9] = colorType
+  const image = pngChunk("IDAT", deflateSync(Buffer.alloc(1 + channels)))
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", header),
+    ...beforeImage,
+    image,
+    ...afterImage,
+    pngChunk("IEND", Buffer.alloc(0)),
+  ])
+}
+
 describe("owned run capability encoding", () => {
   it("round-trips proof and nonce-free adoption capabilities", () => {
     const proof = proofFixture()
@@ -161,6 +208,16 @@ describe("owned run capability encoding", () => {
     const canonical = JSON.parse(
       Buffer.from(encoded, "base64url").toString("utf8"),
     ) as Record<string, unknown>
+    const noncanonical = [1, 2, 3]
+      .map((count) => `${encoded}${"A".repeat(count)}`)
+      .find((candidate) =>
+        Buffer.from(candidate, "base64url").toString("base64url") !== candidate
+      )
+    expect(noncanonical).toBeDefined()
+    expect(() => decodeOwnedRunAdoption(
+      noncanonical as string,
+      proof.runId,
+    )).toThrow(/noncanonical/i)
 
     expect(() => decodeOwnedRunAdoption(`${encoded}=`, proof.runId)).toThrow(
       /adoption encoding/i,
@@ -191,6 +248,221 @@ describe("owned run capability encoding", () => {
       ...canonical,
       nonceDigest: "A".repeat(64),
     }), proof.runId)).toThrow(/invalid owned E2E adoption/i)
+  })
+
+  it("rejects malformed adoption JSON at the canonical transport boundary", () => {
+    const proof = proofFixture()
+
+    expect(() => decodeOwnedRunAdoption(
+      Buffer.from("{", "utf8").toString("base64url"),
+      proof.runId,
+    )).toThrow(SyntaxError)
+    expect(() => decodeOwnedRunAdoption("A".repeat(2_048), proof.runId)).toThrow(
+      SyntaxError,
+    )
+  })
+  it("rejects malformed proof and adoption fields at every identity boundary", () => {
+    const proof = proofFixture()
+    const invalidProofs = [
+      { ...proof, runId: 7 },
+      { ...proof, nonce: 7 },
+      { ...proof, e2e: undefined },
+      { ...proof, e2e: { ...proof.e2e, marker: null } },
+      { ...proof, evidence: { ...proof.evidence, root: "not-an-identity" } },
+      { ...proof, evidence: { ...proof.evidence, root: { dev: 1 } } },
+    ]
+    for (const candidate of invalidProofs) {
+      expect(() => decodeOwnedRunProof(encodeJson(candidate))).toThrow(
+        /invalid owned E2E proof/i,
+      )
+    }
+
+    const canonical = JSON.parse(
+      Buffer.from(encodeOwnedRunAdoption(proof), "base64url").toString("utf8"),
+    ) as Record<string, unknown>
+    const invalidAdoptions = [
+      [{ ...canonical, runId: "../escape" }, "../escape"],
+      [{ ...canonical, artifactProfile: "all-binary" }, proof.runId],
+      [{ ...canonical, nonceDigest: 7 }, proof.runId],
+      [{ ...canonical, e2e: undefined }, proof.runId],
+      [{ ...canonical, evidence: undefined }, proof.runId],
+      [{
+        ...canonical,
+        e2e: {
+          ...(canonical["e2e"] as Record<string, unknown>),
+          marker: null,
+        },
+      }, proof.runId],
+      [{
+        ...canonical,
+        evidence: {
+          ...(canonical["evidence"] as Record<string, unknown>),
+          root: { dev: 1.5, ino: 2 },
+        },
+      }, proof.runId],
+      [{
+        ...canonical,
+        evidence: {
+          ...(canonical["evidence"] as Record<string, unknown>),
+          marker: { dev: 1, ino: -1 },
+        },
+      }, proof.runId],
+    ] as const
+    for (const [candidate, expectedRunId] of invalidAdoptions) {
+      expect(() => decodeOwnedRunAdoption(
+        encodeJson(candidate),
+        expectedRunId,
+      )).toThrow(/invalid owned E2E adoption/i)
+    }
+  })
+  it("rejects mismatched lifecycle paths and replaced root identities", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      await expect(assertOwnedLifecycleRoots({
+        ...paths,
+        e2e: `${paths.e2e}-other`,
+      }, adoption)).rejects.toThrow(/lifecycle paths are invalid/i)
+
+      await rm(paths.e2e, { force: true, recursive: true })
+      await mkdir(paths.e2e)
+      await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
+        /root identity changed/i,
+      )
+    })
+  })
+
+  it("rejects a replaced ownership marker identity", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      const marker = join(paths.evidence, ".darkfactory-e2e-owner.json")
+      await rm(marker)
+      await writeFile(marker, "{}", { mode: 0o600 })
+
+      await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
+        /marker identity changed/i,
+      )
+    })
+  })
+
+  it("removes partial run roots when the second owned root cannot be created", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-system-partial-"))
+    const e2e = join(root, "test-results", "e2e-runs", "safe_run")
+    const evidence = join(root, "test-results", "evidence", "safe_run")
+    try {
+      await mkdir(evidence, { recursive: true })
+
+      await expect(prepareOwnedRun(root, "safe_run", "no-binary")).rejects.toMatchObject({
+        code: "EEXIST",
+      })
+      await expect(access(e2e)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(access(evidence)).rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+  it("rejects gzip drift and reads bounded TAR metadata through injected tools", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const gzipPath = join(paths.e2e, "trace.gz")
+      await writeFile(gzipPath, Buffer.from([0x1f, 0x8b, 0, 0]))
+
+      const gzipCases = [
+        [
+          "unknown size",
+          "compressed uncompressed ratio name\ninvalid\n",
+          Buffer.alloc(0),
+          /gzip entry size is unknown/i,
+        ],
+        [
+          "changed size",
+          "compressed uncompressed ratio name\n4 5 20% artifact\n",
+          Buffer.from("four"),
+          /gzip size changed/i,
+        ],
+        [
+          "nested payload",
+          "compressed uncompressed ratio name\n4 4 0% artifact\n",
+          Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+          /nested compressed artifacts/i,
+        ],
+      ] as const
+      for (const [_case, metadata, content, message] of gzipCases) {
+        const dependencies = await createArtifactScannerDependencies(
+          root,
+          proof,
+          async (file, arguments_) => {
+            expect(file).toBe("gzip")
+            return arguments_[0] === "-l"
+              ? { stdout: Buffer.from(metadata) }
+              : { stdout: content }
+          },
+          limits(),
+        )
+        await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+          message,
+        )
+      }
+
+      await rm(gzipPath)
+      const tarPath = join(paths.e2e, "trace.tgz")
+      await writeFile(tarPath, Buffer.from([0x1f, 0x8b, 0, 0]))
+      const tarExecutor = vi.fn(async (file: string, arguments_: readonly string[]) => {
+        expect(file).toBe("tar")
+        if (arguments_[0] === "-tf") return { stdout: Buffer.from("a.txt\n") }
+        if (arguments_[0] === "-tvf") {
+          return {
+            stdout: Buffer.from(
+              "-rw-r--r-- user/group 3 2026-07-25 00:00 a.txt\n",
+            ),
+          }
+        }
+        if (arguments_[0] === "-xOf") return { stdout: Buffer.from("ABC") }
+        throw new Error("unexpected TAR operation")
+      })
+      const tarDependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        tarExecutor,
+        limits(),
+      )
+      const entries = await tarDependencies.collectEntries(scannerPaths(proof))
+      expect(entries.find((entry) =>
+        entry.path.endsWith("trace.tgz#contents")
+      )?.content).toBe("a.txt\nABC")
+
+      const tooManyMembers = await createArtifactScannerDependencies(
+        root,
+        proof,
+        async (_file, arguments_) => arguments_[0] === "-tf"
+          ? {
+              stdout: Buffer.from(
+                `${Array.from({ length: 101 }, (_unused, index) => `entry-${index}`).join("\n")}\n`,
+              ),
+            }
+          : { stdout: Buffer.alloc(0) },
+        limits(),
+      )
+      await expect(tooManyMembers.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /archive member count exceeds/i,
+      )
+    })
+  })
+  it("leaves both roots in place when pre-quarantine validation fails", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const dependencies = await createArtifactScannerDependencies(root, proof)
+      await writeFile(
+        join(paths.evidence, ".darkfactory-e2e-owner.json"),
+        "{}",
+        { mode: 0o600 },
+      )
+
+      await expect(dependencies.purgeOwnedRun(proof.runId)).rejects.toThrow(
+        /marker capability mismatch/i,
+      )
+      await expect(access(paths.e2e)).resolves.toBeUndefined()
+      await expect(access(paths.evidence)).resolves.toBeUndefined()
+    })
   })
 })
 
@@ -474,6 +746,7 @@ describe("artifact scanner system dependencies", () => {
     await withOwnedRun(async (root, proof) => {
       const { paths } = await lifecycle(root, proof)
       await writeFile(join(paths.e2e, "note.txt"), "public evidence")
+      await writeFile(join(paths.evidence, "control.bin"), Buffer.from([0]))
       await writeFile(join(paths.evidence, "opaque.bin"), Buffer.from([0xff, 0x00]))
       const png = Buffer.from(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAbitOmMAAAAASUVORK5CYII=",
@@ -494,6 +767,9 @@ describe("artifact scanner system dependencies", () => {
       expect(entries.find((entry) => entry.path.endsWith("opaque.bin"))).toMatchObject({
         binary: "unsupported",
       })
+      expect(entries.find((entry) => entry.path.endsWith("control.bin"))).toMatchObject({
+        binary: "unsupported",
+      })
       expect(entries.find((entry) => entry.path.endsWith("pixel.png"))).toMatchObject({
         binary: "png",
       })
@@ -508,7 +784,7 @@ describe("artifact scanner system dependencies", () => {
     })
   })
 
-  it("rejects symlinks, disguised archives, and unsupported compression", async () => {
+  it("rejects symlinks, false archive extensions, and unsupported compression", async () => {
     await withOwnedRun(async (root, proof) => {
       const { paths } = await lifecycle(root, proof)
       const dependencies = await createArtifactScannerDependencies(
@@ -531,13 +807,16 @@ describe("artifact scanner system dependencies", () => {
       )
       await rm(join(paths.e2e, "fake.zip"))
 
-      await writeFile(
-        join(paths.e2e, "compressed.bin"),
+      for (const magic of [
         Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]),
-      )
-      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
-        /unsupported compressed artifact format/i,
-      )
+        Buffer.from("BZh", "ascii"),
+        Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]),
+      ]) {
+        await writeFile(join(paths.e2e, "compressed.bin"), magic)
+        await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+          /unsupported compressed artifact format/i,
+        )
+      }
     })
   })
 
@@ -766,6 +1045,1415 @@ describe("artifact scanner system dependencies", () => {
       await expect(access(paths.evidence)).rejects.toMatchObject({ code: "ENOENT" })
       await expect(access(join(root, "test-results", "e2e-runs"))).resolves.toBeUndefined()
       await expect(access(join(root, "test-results", "evidence"))).resolves.toBeUndefined()
+    })
+  })
+  it("rejects scanner paths that escape after validation", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const expected = [...scannerPaths(proof)]
+      const paths = new Proxy(expected, {
+        get: (target, property, receiver) => property === Symbol.iterator
+          ? function* () {
+              yield "../escape"
+              yield target[1] as string
+            }
+          : Reflect.get(target, property, receiver),
+      }) as readonly string[]
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(paths)).rejects.toThrow(
+        /escapes or replaces the repository root/i,
+      )
+    })
+  })
+
+  it("reads direct TAR magic with BSD metadata", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const tar = Buffer.alloc(262)
+      tar.write("ustar", 257, "ascii")
+      await writeFile(join(paths.e2e, "portable.bin"), tar)
+      const execute = vi.fn(async (file: string, arguments_: readonly string[]) => {
+        expect(file).toBe("tar")
+        if (arguments_[0] === "-tf") return { stdout: Buffer.from("a.txt\n") }
+        if (arguments_[0] === "-tvf") {
+          return {
+            stdout: Buffer.from("-rw-r--r-- 1 owner group 3 Jan 01 00:00 a.txt\n"),
+          }
+        }
+        if (arguments_[0] === "-xOf") return { stdout: Buffer.from("ABC") }
+        throw new Error("unexpected TAR operation")
+      })
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits(),
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+
+      expect(entries.find((entry) =>
+        entry.path.endsWith("portable.bin#contents")
+      )?.content).toBe("a.txt\nABC")
+      expect(execute).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  it("rejects TAR metadata that omits the expanded size", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const tar = Buffer.alloc(262)
+      tar.write("ustar", 257, "ascii")
+      await writeFile(join(paths.e2e, "missing-size.tar"), tar)
+      const extract = vi.fn(async () => ({ stdout: Buffer.from("A") }))
+      const execute = vi.fn(async (_file: string, arguments_: readonly string[]) => {
+        if (arguments_[0] === "-tf") return { stdout: Buffer.from("a.txt\n") }
+        if (arguments_[0] === "-tvf") {
+          return { stdout: Buffer.from("metadata without an encoded size\n") }
+        }
+        if (arguments_[0] === "-xOf") return await extract()
+        throw new Error("unexpected TAR operation")
+      })
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /archive entry size is unknown/i,
+      )
+      expect(extract).not.toHaveBeenCalled()
+    })
+  })
+
+  it("accepts grayscale and RGB PNGs and rejects strict PNG boundaries", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.evidence, "gray.png"), pngFixture(0))
+      await writeFile(join(paths.evidence, "rgb.png"), pngFixture(2))
+      const generousLimits = limits({
+        maxEntryBytes: 11 * 1024 * 1024,
+        maxTotalBytes: 12 * 1024 * 1024,
+      })
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        generousLimits,
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+      expect(entries.find((entry) => entry.path.endsWith("gray.png"))?.binary).toBe("png")
+      expect(entries.find((entry) => entry.path.endsWith("rgb.png"))?.binary).toBe("png")
+
+      const unsafePath = join(paths.evidence, "unsafe.png")
+      const oversized = Buffer.alloc(10 * 1024 * 1024 + 1)
+      PNG_SIGNATURE.copy(oversized)
+      await writeFile(unsafePath, oversized)
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /not a permitted PNG/i,
+      )
+
+      await writeFile(
+        unsafePath,
+        pngFixture(2, [pngChunk("PLTE", Buffer.alloc(771))]),
+      )
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /palette is invalid/i,
+      )
+
+      await writeFile(
+        unsafePath,
+        pngFixture(2, [pngChunk("PLTE", Buffer.alloc(1))]),
+      )
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /palette is invalid/i,
+      )
+
+      await writeFile(
+        unsafePath,
+        pngFixture(2, [], [pngChunk("PLTE", Buffer.alloc(3))]),
+      )
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /palette is invalid/i,
+      )
+    })
+  })
+
+  it("treats truncated ZIP magic as an ordinary unsupported artifact", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.e2e, "short.bin"), Buffer.from([0x50, 0x4b, 0x03]))
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+
+      expect(entries.find((entry) => entry.path.endsWith("short.bin"))).toMatchObject({
+        binary: "unsupported",
+      })
+    })
+  })
+
+  it("rejects an owned proof whose root identity no longer matches", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const changedProof: OwnedRunProof = {
+        ...proof,
+        e2e: {
+          ...proof.e2e,
+          root: { ...proof.e2e.root, ino: proof.e2e.root.ino + 1 },
+        },
+      }
+      const dependencies = await createArtifactScannerDependencies(
+        root,
+        changedProof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(changedProof))).rejects.toThrow(
+        /root identity changed/i,
+      )
+    })
+  })
+})
+
+type FileSystemPromises = typeof import("node:fs/promises")
+
+const loadSystemWithFileSystem = async (
+  patch: (actual: FileSystemPromises) => Record<string, unknown>,
+) => {
+  vi.doUnmock("node:fs")
+  vi.doUnmock("node:fs/promises")
+  vi.resetModules()
+  vi.doMock("node:fs", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs")>()
+    return {
+      ...actual,
+      constants: { ...actual.constants, O_NOFOLLOW: undefined },
+    }
+  })
+  vi.doMock("node:fs/promises", async (importOriginal) => {
+    const actual = await importOriginal<FileSystemPromises>()
+    return { ...actual, ...patch(actual) }
+  })
+  return await import("./system.civet")
+}
+
+describe("artifact system filesystem fakes", () => {
+  afterEach(() => {
+    vi.doUnmock("node:fs")
+    vi.doUnmock("node:child_process")
+    vi.doUnmock("node:fs/promises")
+    vi.resetModules()
+    vi.restoreAllMocks()
+  })
+
+  it("converts an archive snapshot cleanup failure to its bounded category", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "snapshot.zip"),
+        Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      )
+      let snapshotDirectory: string | undefined
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        mkdtemp: async (prefix: string) => {
+          snapshotDirectory = await actual.mkdtemp(prefix)
+          return snapshotDirectory
+        },
+        open: async (path: string, flags: number, mode?: number) => {
+          if (path.endsWith("/artifact.zip")) {
+            throw new Error("private snapshot open failure")
+          }
+          return await actual.open(path, flags, mode)
+        },
+        rm: async (
+          path: string,
+          options: { force?: boolean; recursive?: boolean },
+        ) => {
+          if (path === snapshotDirectory) {
+            throw new Error("private snapshot cleanup failure")
+          }
+          return await actual.rm(path, options)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      try {
+        await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+          /temporary cleanup failed/i,
+        )
+      } finally {
+        if (snapshotDirectory !== undefined) {
+          await rm(snapshotDirectory, { force: true, recursive: true })
+        }
+      }
+    })
+  })
+
+  it("closes stable-file handles for unsafe metadata and read-time replacement", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const artifactPath = join(paths.e2e, "changing.txt")
+      await writeFile(artifactPath, "stable")
+      let behavior: "changed" | "unsafe" = "unsafe"
+      const closes: ReturnType<typeof vi.fn>[] = []
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          if (path !== artifactPath) return await actual.open(path, flags, mode)
+          const stats = await actual.lstat(path)
+          const close = vi.fn(async () => undefined)
+          closes.push(close)
+          if (behavior === "unsafe") {
+            return {
+              close,
+              readFile: vi.fn(async () => Buffer.from("stable")),
+              stat: vi.fn(async () => ({
+                dev: stats.dev,
+                ino: stats.ino,
+                size: stats.size,
+                isFile: () => false,
+              })),
+            }
+          }
+          return {
+            close,
+            readFile: vi.fn(async () => Buffer.from("stable")),
+            stat: vi.fn()
+              .mockResolvedValueOnce(stats)
+              .mockResolvedValueOnce({
+                dev: stats.dev,
+                ino: stats.ino + 1,
+                size: stats.size,
+              }),
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /identity or size is unsafe/i,
+      )
+      behavior = "changed"
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /identity changed while reading/i,
+      )
+      expect(closes).toHaveLength(2)
+      expect(closes.every((close) => close.mock.calls.length === 1)).toBe(true)
+    })
+  })
+
+  it("ignores vanished entries and counts non-file filesystem nodes", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const vanished = join(paths.e2e, "vanished")
+      const special = join(paths.e2e, "special")
+      const specialDirectory = {
+        [Symbol.asyncIterator]: async function* () {
+          yield { name: "vanished" }
+          yield { name: "special" }
+        },
+      }
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          if (path === vanished) {
+            throw Object.assign(new Error("vanished"), { code: "ENOENT" })
+          }
+          if (path === special) {
+            return {
+              dev: 1,
+              ino: 2,
+              isDirectory: () => false,
+              isFile: () => false,
+              isSymbolicLink: () => false,
+            }
+          }
+          return await actual.lstat(path)
+        },
+        opendir: async (path: string) => {
+          if (path !== paths.e2e) return await actual.opendir(path)
+          return specialDirectory
+        },
+        realpath: async (path: string) => {
+          if (path === special) return special
+          return await actual.realpath(path)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+      expect(entries.every((entry) =>
+        !entry.path.endsWith("vanished") && !entry.path.endsWith("special")
+      )).toBe(true)
+    })
+  })
+
+  it("reports rollback failure when a quarantined root cannot be restored", async () => {
+    await withOwnedRun(async (root, proof) => {
+      await lifecycle(root, proof)
+      let renameCalls = 0
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        rename: async (from: string, to: string) => {
+          renameCalls += 1
+          if (renameCalls === 2) throw new Error("private quarantine failure")
+          if (renameCalls === 3) throw new Error("private rollback failure")
+          await actual.rename(from, to)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+      )
+
+      await expect(dependencies.purgeOwnedRun(proof.runId)).rejects.toThrow(
+        /purge rollback failed/i,
+      )
+    })
+  })
+  it("detects a directory identity change after iteration", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      let runRootStats = 0
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          const stats = await actual.lstat(path)
+          if (path !== paths.e2e || ++runRootStats !== 4) return stats
+          return {
+            dev: stats.dev + 1,
+            ino: stats.ino,
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false,
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /directory identity changed while scanning/i,
+      )
+    })
+  })
+
+  it("removes an unpublished lifecycle update after a rename failure", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await writeFile(playwrightReportPath(paths), JSON.stringify(executedReport))
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        rename: async (from: string, to: string) => {
+          if (from.includes(".lifecycle-state.json.parent-")) {
+            throw new Error("private lifecycle rename failure")
+          }
+          return await actual.rename(from, to)
+        },
+      }))
+
+      await expect(dynamic.finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: dynamic.encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toThrow("private lifecycle rename failure")
+      await expect(dynamic.readOwnedLifecycleState(
+        await dynamic.createOwnedLifecyclePaths(root, proof.runId),
+        dynamic.decodeOwnedRunAdoption(
+          dynamic.encodeOwnedRunAdoption(proof),
+          proof.runId,
+        ),
+      )).resolves.toMatchObject({
+        status: "stopped",
+        stage: "server-spawn",
+      })
+    })
+  })
+
+  it("rejects a Playwright report path that is not a regular file", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await mkdir(playwrightReportPath(paths))
+      const dynamic = await loadSystemWithFileSystem(() => ({}))
+
+      await expect(dynamic.finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: dynamic.encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toThrow(/Playwright report is unsafe/i)
+    })
+  })
+
+  it("refuses to remove a quarantine whose identity changes after rename", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const quarantineStats = new Map<string, number>()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          const stats = await actual.lstat(path)
+          if (!path.includes("/.purge-")) return stats
+          const observations = (quarantineStats.get(path) ?? 0) + 1
+          quarantineStats.set(path, observations)
+          if (observations === 1) return stats
+          return {
+            dev: stats.dev,
+            ino: stats.ino + 1,
+            isSymbolicLink: () => false,
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+      )
+
+      await expect(dependencies.purgeOwnedRun(proof.runId)).rejects.toThrow(
+        /quarantine identity changed/i,
+      )
+      expect(quarantineStats.size).toBe(2)
+    })
+  })
+  it("runs trusted archive commands through the bounded execFile adapter", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "default-executor.gz"),
+        Buffer.from([0x1f, 0x8b, 0, 0]),
+      )
+      type ExecCallback = (error: Error | null, stdout: Buffer) => void
+      const execFile = vi.fn((
+        _file: string,
+        arguments_: readonly string[],
+        _options: Record<string, unknown>,
+        callback: ExecCallback,
+      ) => {
+        callback(
+          null,
+          arguments_[0] === "-l"
+            ? Buffer.from(
+                "compressed uncompressed ratio name\n4 5 20% artifact\n",
+              )
+            : Buffer.from("hello"),
+        )
+        return {}
+      })
+      vi.doMock("node:child_process", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:child_process")>()
+        return { ...actual, execFile }
+      })
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        access: async (path: string, mode?: number) => {
+          if (path === "/usr/bin/gzip") return undefined
+          return await actual.access(path, mode)
+        },
+        realpath: async (path: string) => {
+          if (path === "/usr/bin/gzip") return path
+          return await actual.realpath(path)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+      expect(entries.find((entry) =>
+        entry.path.endsWith("default-executor.gz#uncompressed")
+      )?.content).toBe("hello")
+      expect(execFile).toHaveBeenCalledTimes(2)
+      expect(execFile.mock.calls.every((call) => {
+        const options = call[2]
+        return options["encoding"] === "buffer" &&
+          (options["maxBuffer"] as number) > 0 &&
+          (options["timeout"] as number) > 0 &&
+          options["signal"] instanceof AbortSignal &&
+          options["windowsHide"] === true
+      })).toBe(true)
+
+      execFile.mockImplementation((
+        _file: string,
+        _arguments: readonly string[],
+        _options: Record<string, unknown>,
+        callback: ExecCallback,
+      ) => {
+        callback(new Error("private archive execution failure"), Buffer.alloc(0))
+        return {}
+      })
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        "private archive execution failure",
+      )
+    })
+  })
+  it("falls back to the trusted bin archive path", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "fallback.gz"),
+        Buffer.from([0x1f, 0x8b, 0, 0]),
+      )
+      type ExecCallback = (error: Error | null, stdout: Buffer) => void
+      const execFile = vi.fn((
+        _file: string,
+        arguments_: readonly string[],
+        _options: Record<string, unknown>,
+        callback: ExecCallback,
+      ) => {
+        callback(
+          null,
+          arguments_[0] === "-l"
+            ? Buffer.from("compressed uncompressed ratio name\n4 5 20% artifact\n")
+            : Buffer.from("hello"),
+        )
+        return {}
+      })
+      vi.doMock("node:child_process", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:child_process")>()
+        return { ...actual, execFile }
+      })
+      const candidates: string[] = []
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        access: async (path: string, mode?: number) => path === "/bin/gzip"
+          ? undefined
+          : await actual.access(path, mode),
+        realpath: async (path: string) => {
+          if (path === "/usr/bin/gzip") {
+            candidates.push(path)
+            throw Object.assign(new Error("missing"), { code: "ENOENT" })
+          }
+          if (path === "/bin/gzip") {
+            candidates.push(path)
+            return path
+          }
+          return await actual.realpath(path)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      const entries = await dependencies.collectEntries(scannerPaths(proof))
+
+      expect(entries.find((entry) =>
+        entry.path.endsWith("fallback.gz#uncompressed")
+      )?.content).toBe("hello")
+      expect(candidates).toEqual(["/usr/bin/gzip", "/bin/gzip"])
+      expect(execFile.mock.calls.every(([file]) => file === "/bin/gzip")).toBe(true)
+    })
+  })
+
+  it("fails closed when no trusted archive executable exists", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "unavailable.gz"),
+        Buffer.from([0x1f, 0x8b, 0, 0]),
+      )
+      const candidates: string[] = []
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        realpath: async (path: string) => {
+          if (path === "/usr/bin/gzip" || path === "/bin/gzip") {
+            candidates.push(path)
+            throw Object.assign(new Error("missing"), { code: "ENOENT" })
+          }
+          return await actual.realpath(path)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /trusted gzip executable is unavailable/i,
+      )
+      expect(candidates).toEqual(["/usr/bin/gzip", "/bin/gzip"])
+    })
+  })
+
+  it("closes and removes a snapshot after a write failure", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "write-failure.zip"),
+        Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      )
+      let snapshotDirectory: string | undefined
+      const close = vi.fn()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        mkdtemp: async (prefix: string) => {
+          snapshotDirectory = await actual.mkdtemp(prefix)
+          return snapshotDirectory
+        },
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (!path.endsWith("/artifact.zip")) return handle
+          close.mockImplementation(async () => {
+            await handle.close()
+            throw new Error("private snapshot close failure")
+          })
+          return {
+            close,
+            sync: () => handle.sync(),
+            writeFile: async () => {
+              throw new Error("private snapshot write failure")
+            },
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        vi.fn(async () => ({ stdout: Buffer.alloc(0) })),
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        "private snapshot write failure",
+      )
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(snapshotDirectory).toBeDefined()
+      await expect(access(snapshotDirectory as string)).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    })
+  })
+
+  it("classifies cleanup failure after archive extraction", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "cleanup.zip"),
+        Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      )
+      let snapshotDirectory: string | undefined
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        mkdtemp: async (prefix: string) => {
+          snapshotDirectory = await actual.mkdtemp(prefix)
+          return snapshotDirectory
+        },
+        rm: async (
+          path: string,
+          options: { force?: boolean; recursive?: boolean },
+        ) => {
+          if (path === snapshotDirectory) {
+            throw new Error("private post-extraction cleanup failure")
+          }
+          return await actual.rm(path, options)
+        },
+      }))
+      const execute = vi.fn(async (_file: string, arguments_: readonly string[]) => {
+        if (arguments_[0] === "-Z1" || arguments_[0] === "-Z") {
+          return { stdout: Buffer.alloc(0) }
+        }
+        if (arguments_[0] === "-p") return { stdout: Buffer.alloc(0) }
+        throw new Error("unexpected ZIP operation")
+      })
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits(),
+      )
+
+      try {
+        await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+          /temporary cleanup failed/i,
+        )
+      } finally {
+        if (snapshotDirectory !== undefined) {
+          await rm(snapshotDirectory, { force: true, recursive: true })
+        }
+      }
+    })
+  })
+
+  it("rejects canonical directory ancestry drift", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-ancestry-drift-")))
+    try {
+      const testResults = join(root, "test-results")
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        realpath: async (path: string) => path === testResults
+          ? `${path}-redirected`
+          : await actual.realpath(path),
+      }))
+
+      await expect(dynamic.prepareOwnedRun(
+        root,
+        "safe_run",
+        "no-binary",
+      )).rejects.toThrow(/directory ancestry changed/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("propagates base-directory creation failures other than EEXIST", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-mkdir-fault-")))
+    try {
+      const failure = Object.assign(new Error("private mkdir failure"), { code: "EACCES" })
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        mkdir: async (
+          path: string,
+          options: { mode?: number },
+        ) => {
+          if (path === join(root, "test-results")) throw failure
+          return await actual.mkdir(path, options)
+        },
+      }))
+
+      await expect(dynamic.prepareOwnedRun(
+        root,
+        "safe_run",
+        "no-binary",
+      )).rejects.toBe(failure)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses platform flag fallbacks and tolerates marker close errors", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-marker-close-")))
+    try {
+      const adoptionCloses: ReturnType<typeof vi.fn>[] = []
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (
+            !path.endsWith("/.darkfactory-e2e-owner.json") ||
+            (flags & constants.O_WRONLY) === 0 ||
+            (flags & constants.O_CREAT) !== 0
+          ) return handle
+          const close = vi.fn(async () => {
+            await handle.close()
+            throw new Error("private adoption close failure")
+          })
+          adoptionCloses.push(close)
+          return {
+            close,
+            stat: () => handle.stat(),
+            sync: () => handle.sync(),
+            writeFile: async (content: string, encoding: BufferEncoding) => {
+              await handle.writeFile(content, encoding)
+            },
+          }
+        },
+      }))
+
+      const proof = await dynamic.prepareOwnedRun(root, "safe_run", "no-binary")
+      const paths = await dynamic.createOwnedLifecyclePaths(root, proof.runId)
+      const adoption = dynamic.decodeOwnedRunAdoption(
+        dynamic.encodeOwnedRunAdoption(proof),
+        proof.runId,
+      )
+
+      await expect(dynamic.assertOwnedLifecycleRoots(paths, adoption)).resolves.toBeUndefined()
+      expect(adoptionCloses).toHaveLength(2)
+      expect(adoptionCloses.every((close) => close.mock.calls.length === 1)).toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves the adoption error when best-effort root cleanup also fails", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-adoption-fault-")))
+    try {
+      const e2eRoot = join(root, "test-results", "e2e-runs", "safe_run")
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (
+            !path.endsWith("/.darkfactory-e2e-owner.json") ||
+            (flags & constants.O_WRONLY) === 0 ||
+            (flags & constants.O_CREAT) !== 0
+          ) return handle
+          return {
+            close: () => handle.close(),
+            stat: async () => {
+              const stats = await handle.stat()
+              return { dev: stats.dev, ino: stats.ino + 1, mode: stats.mode }
+            },
+            sync: () => handle.sync(),
+            writeFile: async (content: string, encoding: BufferEncoding) => {
+              await handle.writeFile(content, encoding)
+            },
+          }
+        },
+        rm: async (
+          path: string,
+          options: { force?: boolean; recursive?: boolean },
+        ) => {
+          if (path === e2eRoot) throw new Error("private root cleanup failure")
+          return await actual.rm(path, options)
+        },
+      }))
+
+      await expect(dynamic.prepareOwnedRun(
+        root,
+        "safe_run",
+        "no-binary",
+      )).rejects.toThrow(/marker identity changed during adoption/i)
+      await expect(access(e2eRoot)).resolves.toBeUndefined()
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+  it("detects an ownership marker replaced while it is being read", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const markerPath = join(paths.e2e, ".darkfactory-e2e-owner.json")
+      const close = vi.fn()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (path !== markerPath) return handle
+          const before = await handle.stat()
+          close.mockImplementation(() => handle.close())
+          return {
+            close,
+            readFile: (options: { encoding: "utf8" }) => handle.readFile(options),
+            stat: vi.fn()
+              .mockResolvedValueOnce(before)
+              .mockResolvedValueOnce({ dev: before.dev, ino: before.ino + 1 }),
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /owned E2E marker changed/i,
+      )
+      expect(close).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it("propagates Playwright report open errors other than ENOENT", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await writeFile(playwrightReportPath(paths), JSON.stringify(executedReport))
+      const failure = Object.assign(new Error("private report access failure"), {
+        code: "EACCES",
+      })
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          if (path === playwrightReportPath(paths)) throw failure
+          return await actual.open(path, flags, mode)
+        },
+      }))
+
+      await expect(dynamic.finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: dynamic.encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toBe(failure)
+    })
+  })
+
+  it("rejects a Playwright report replaced while it is being read", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      const reportPath = playwrightReportPath(paths)
+      await writeFile(reportPath, JSON.stringify(executedReport))
+      const close = vi.fn()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (path !== reportPath) return handle
+          const before = await handle.stat()
+          close.mockImplementation(() => handle.close())
+          return {
+            close,
+            readFile: (options: { encoding: "utf8" }) => handle.readFile(options),
+            stat: vi.fn()
+              .mockResolvedValueOnce(before)
+              .mockResolvedValueOnce({
+                dev: before.dev,
+                ino: before.ino,
+                size: before.size + 1,
+              }),
+          }
+        },
+      }))
+
+      await expect(dynamic.finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: dynamic.encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toThrow(/report changed while reading/i)
+      expect(close).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it("detects a lifecycle update that was not durably published", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await writeFile(playwrightReportPath(paths), JSON.stringify(executedReport))
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        rename: async (from: string, to: string) => {
+          await actual.rename(from, to)
+          if (from.includes(".lifecycle-state.json.parent-")) {
+            await writeFile(to, `${JSON.stringify({
+              version: 1,
+              status: "stopped",
+              stage: "server-spawn",
+            })}\n`, { mode: 0o600 })
+            await chmod(to, 0o600)
+          }
+        },
+      }))
+
+      await expect(dynamic.finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: dynamic.encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toThrow(/finalization was not durable/i)
+    })
+  })
+
+  it("suppresses temporary lifecycle cleanup faults without masking the write error", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-spawn",
+      })
+      await writeFile(playwrightReportPath(paths), JSON.stringify(executedReport))
+      let temporaryPath: string | undefined
+      const close = vi.fn()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (!path.includes(".lifecycle-state.json.parent-")) return handle
+          temporaryPath = path
+          close.mockImplementation(async () => {
+            await handle.close()
+            throw new Error("private lifecycle close failure")
+          })
+          return {
+            close,
+            sync: () => handle.sync(),
+            writeFile: async () => {
+              throw new Error("private lifecycle write failure")
+            },
+          }
+        },
+        rm: async (
+          path: string,
+          options: { force?: boolean; recursive?: boolean },
+        ) => {
+          const result = await actual.rm(path, options)
+          if (path === temporaryPath) {
+            throw new Error("private lifecycle cleanup failure")
+          }
+          return result
+        },
+      }))
+
+      await expect(dynamic.finalizeOwnedLifecycleAfterPlaywright({
+        encodedAdoption: dynamic.encodeOwnedRunAdoption(proof),
+        exitCode: 1,
+        repositoryPath: root,
+        runId: proof.runId,
+        treeTerminated: true,
+      })).rejects.toThrow("private lifecycle write failure")
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(temporaryPath).toBeDefined()
+      await expect(access(temporaryPath as string)).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+    })
+  })
+
+  it("rejects lifecycle state replaced while it is being read", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeLifecycleState(paths, {
+        version: 1,
+        status: "stopped",
+        stage: "server-ready",
+      })
+      const statePath = lifecycleStatePath(paths)
+      const close = vi.fn()
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (path !== statePath) return handle
+          const before = await handle.stat()
+          close.mockImplementation(() => handle.close())
+          return {
+            close,
+            readFile: (options: { encoding: "utf8" }) => handle.readFile(options),
+            stat: vi.fn()
+              .mockResolvedValueOnce(before)
+              .mockResolvedValueOnce({
+                dev: before.dev,
+                ino: before.ino + 1,
+                size: before.size,
+              }),
+          }
+        },
+      }))
+      const dynamicPaths = await dynamic.createOwnedLifecyclePaths(root, proof.runId)
+      const adoption = dynamic.decodeOwnedRunAdoption(
+        dynamic.encodeOwnedRunAdoption(proof),
+        proof.runId,
+      )
+
+      await expect(dynamic.readOwnedLifecycleState(
+        dynamicPaths,
+        adoption,
+      )).rejects.toThrow(/lifecycle state changed while reading/i)
+      expect(close).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it("reports quarantine identity drift even when rollback rename fails", async () => {
+    await withOwnedRun(async (root, proof) => {
+      let quarantinePath: string | undefined
+      let renameCalls = 0
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          const stats = await actual.lstat(path)
+          if (path !== quarantinePath) return stats
+          return {
+            dev: stats.dev,
+            ino: stats.ino + 1,
+            isSymbolicLink: () => false,
+          }
+        },
+        rename: async (from: string, to: string) => {
+          renameCalls += 1
+          if (renameCalls === 1) {
+            quarantinePath = to
+            return await actual.rename(from, to)
+          }
+          if (renameCalls === 2) throw new Error("private quarantine rollback failure")
+          return await actual.rename(from, to)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(root, proof)
+
+      await expect(dependencies.purgeOwnedRun(proof.runId)).rejects.toThrow(
+        /root changed during purge/i,
+      )
+      expect(renameCalls).toBe(2)
+      await expect(access(quarantinePath as string)).resolves.toBeUndefined()
+    })
+  })
+
+  it("fails rollback when a quarantined root changes identity before restoration", async () => {
+    await withOwnedRun(async (root, proof) => {
+      let firstQuarantine: string | undefined
+      let quarantineStats = 0
+      let renameCalls = 0
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          const stats = await actual.lstat(path)
+          if (path !== firstQuarantine) return stats
+          quarantineStats += 1
+          if (quarantineStats === 1) return stats
+          return {
+            dev: stats.dev,
+            ino: stats.ino + 1,
+            isSymbolicLink: () => false,
+          }
+        },
+        rename: async (from: string, to: string) => {
+          renameCalls += 1
+          if (renameCalls === 1) {
+            firstQuarantine = to
+            return await actual.rename(from, to)
+          }
+          if (renameCalls === 2) throw new Error("private second quarantine failure")
+          return await actual.rename(from, to)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(root, proof)
+
+      await expect(dependencies.purgeOwnedRun(proof.runId)).rejects.toThrow(
+        /purge rollback failed/i,
+      )
+      expect(quarantineStats).toBe(2)
+    })
+  })
+
+  it("restores the first quarantine before propagating the second failure", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      let renameCalls = 0
+      const failure = new Error("private second quarantine failure")
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        rename: async (from: string, to: string) => {
+          renameCalls += 1
+          if (renameCalls === 2) throw failure
+          return await actual.rename(from, to)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(root, proof)
+
+      await expect(dependencies.purgeOwnedRun(proof.runId)).rejects.toBe(failure)
+      expect(renameCalls).toBe(3)
+      await expect(access(paths.e2e)).resolves.toBeUndefined()
+      await expect(access(paths.evidence)).resolves.toBeUndefined()
+    })
+  })
+
+  it("propagates artifact lstat errors other than ENOENT", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const deniedPath = join(paths.e2e, "denied.txt")
+      await writeFile(deniedPath, "denied")
+      const failure = Object.assign(new Error("private artifact access failure"), {
+        code: "EACCES",
+      })
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          if (path === deniedPath) throw failure
+          return await actual.lstat(path)
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toBe(failure)
+    })
+  })
+
+  it("enforces the deadline when accounting begins after a file stat", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const latePath = join(paths.e2e, "late.txt")
+      await writeFile(latePath, "late")
+      let now = 100
+      let advanced = false
+      vi.spyOn(Date, "now").mockImplementation(() => now)
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        lstat: async (path: string) => {
+          const stats = await actual.lstat(path)
+          if (path === latePath) {
+            now = 111
+            advanced = true
+          }
+          return stats
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits({ deadlineMs: 10 }),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /deadline exceeded/i,
+      )
+      expect(advanced).toBe(true)
+    })
+  })
+
+  it("enforces the deadline before invoking an archive command", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(
+        join(paths.e2e, "late.gz"),
+        Buffer.from([0x1f, 0x8b, 0, 0]),
+      )
+      let now = 100
+      let snapshotCreated = false
+      vi.spyOn(Date, "now").mockImplementation(() => now)
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        mkdtemp: async (prefix: string) => {
+          const directory = await actual.mkdtemp(prefix)
+          now = 111
+          snapshotCreated = true
+          return directory
+        },
+      }))
+      const execute = vi.fn(async () => ({ stdout: Buffer.alloc(0) }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        execute,
+        limits({ deadlineMs: 10 }),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /deadline exceeded/i,
+      )
+      expect(snapshotCreated).toBe(true)
+      expect(execute).not.toHaveBeenCalled()
+    })
+  })
+
+  it("enforces the deadline before walking a newly yielded entry", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.e2e, "late.txt"), "late")
+      let now = 100
+      let yieldedLateEntry = false
+      vi.spyOn(Date, "now").mockImplementation(() => now)
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        opendir: async (path: string) => {
+          const directory = await actual.opendir(path)
+          if (path !== paths.e2e) return directory
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              for await (const entry of directory) {
+                if (entry.name === "late.txt") {
+                  now = 111
+                  yieldedLateEntry = true
+                }
+                yield entry
+              }
+            },
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits({ deadlineMs: 10 }),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /deadline exceeded/i,
+      )
+      expect(yieldedLateEntry).toBe(true)
+    })
+  })
+
+  it("enforces the deadline after the final ownership validation", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      const evidenceMarker = join(paths.evidence, ".darkfactory-e2e-owner.json")
+      let now = 100
+      let markerReads = 0
+      vi.spyOn(Date, "now").mockImplementation(() => now)
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (path !== evidenceMarker) return handle
+          markerReads += 1
+          if (markerReads !== 3) return handle
+          return {
+            close: () => handle.close(),
+            readFile: async (options: { encoding: "utf8" }) => {
+              const content = await handle.readFile(options)
+              now = 111
+              return content
+            },
+            stat: () => handle.stat(),
+          }
+        },
+      }))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits({ deadlineMs: 10 }),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /deadline exceeded/i,
+      )
+      expect(markerReads).toBe(3)
+    })
+  })
+  it("fails closed when the PNG CRC lookup table is unavailable", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { paths } = await lifecycle(root, proof)
+      await writeFile(join(paths.evidence, "crc-fault.png"), pngFixture(6))
+      vi.spyOn(Uint32Array, "from").mockReturnValue(new Uint32Array(0))
+      const dynamic = await loadSystemWithFileSystem(() => ({}))
+      const dependencies = await dynamic.createArtifactScannerDependencies(
+        root,
+        proof,
+        undefined,
+        limits(),
+      )
+
+      await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        /PNG chunk checksum is invalid/i,
+      )
     })
   })
 })

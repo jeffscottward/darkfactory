@@ -7,5 +7,5 @@
     },
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
-  "postCreateCommand": "make setup"
+  "postCreateCommand": "sh scripts/install-prerequisites.sh"
 }

@@ -23,27 +23,23 @@ const makeSemanticEvent = (
 const expectNoSecrets = (
   value: unknown,
   secrets: readonly string[],
-): void => {
+): void =>
   const serialized = JSON.stringify(value)
-  for (const secret of secrets) {
+  for (const secret of secrets)
     expect(serialized).not.toContain(secret)
-  }
-}
 
 const expectInvalidSemanticEvent = (
   input: unknown,
   secret: string,
-): void => {
+): void =>
   let thrown: unknown
-  try {
+  try
     redactSemanticEvent(input as SemanticEvent)
-  } catch (error) {
+  catch error
     thrown = error
-  }
   expect(thrown).toBeInstanceOf(TypeError)
   expect((thrown as TypeError).message).toBe("Invalid semantic event")
   expect(String(thrown)).not.toContain(secret)
-}
 
 describe "redact", ->
   it "recursively removes every prohibited observability field without mutating the input", ->
@@ -109,6 +105,333 @@ describe "redact", ->
     expect(serialized).not.toContain("member@domain.test")
     expect(serialized).not.toContain("eyJhbGci")
 
+  it "redacts only valid bounded bare Basic credentials", ->
+    const standardCredential = "dXNlcjpwYXNz"
+    const urlCredential = "-zpwYXNz"
+    const emptyUsernameCredential = "OnBhc3M="
+    const plusCredential = "+zpwYXNz"
+    const slashCredential = "/zpwYXNz"
+    const underscoreCredential = "_zpwYXNz"
+    const paddedCredential = "YTo="
+    const short = "YQ"
+    const invalidRemainder = "AAAAA"
+    const noncanonical = "YTp"
+    const mixedAlphabet = "+zpw_XNz"
+    const colonless = "Y29uY2VwdHM="
+    const malformed = "YTpi="
+    const longCredential = `dXNlcjp4${"YWFh".repeat(255)}`
+    const raisedBoundCredential = `dXNlcjp4${"YWFh".repeat(600)}`
+    const output = redact({
+      standard: `before Basic ${standardCredential} after`,
+      url: `before Basic ${urlCredential} after`,
+      period: `before Basic ${standardCredential}. after`,
+      exclamation: `before Basic ${urlCredential}! after`,
+      question: `before Basic ${standardCredential}? after`,
+      plus: `before Basic ${plusCredential} after`,
+      slash: `before Basic ${slashCredential} after`,
+      underscore: `before Basic ${underscoreCredential} after`,
+      padded: `before Basic ${paddedCredential} after`,
+      short: `before Basic ${short} after`,
+      invalidRemainder: `before Basic ${invalidRemainder} after`,
+      noncanonical: `before Basic ${noncanonical} after`,
+      mixedAlphabet: `before Basic ${mixedAlphabet} after`,
+      colonless: `before Basic ${colonless} after`,
+      malformed: `before Basic ${malformed} after`,
+      long: `before Basic ${longCredential} after`,
+      nested: {
+        note: `before Basic ${emptyUsernameCredential} after`,
+      },
+      prose: "Basic concepts remain readable.",
+    })
+    const raisedBoundOutput = redact(
+      `before Basic ${raisedBoundCredential}! after`,
+      { maxStringLength: 4_096 },
+    )
+
+    expectNoSecrets(output, [
+      standardCredential,
+      urlCredential,
+      emptyUsernameCredential,
+      plusCredential,
+      slashCredential,
+      underscoreCredential,
+      paddedCredential,
+      longCredential,
+    ])
+    expectNoSecrets(raisedBoundOutput, [raisedBoundCredential])
+    expect(output).toEqual({
+      standard: `before Basic ${REDACTED} after`,
+      url: `before Basic ${REDACTED} after`,
+      period: `before Basic ${REDACTED}. after`,
+      exclamation: `before Basic ${REDACTED}! after`,
+      question: `before Basic ${REDACTED}? after`,
+      plus: `before Basic ${REDACTED} after`,
+      slash: `before Basic ${REDACTED} after`,
+      underscore: `before Basic ${REDACTED} after`,
+      padded: `before Basic ${REDACTED} after`,
+      short: `before Basic ${short} after`,
+      invalidRemainder: `before Basic ${invalidRemainder} after`,
+      noncanonical: `before Basic ${noncanonical} after`,
+      mixedAlphabet: `before Basic ${mixedAlphabet} after`,
+      colonless: `before Basic ${colonless} after`,
+      malformed: `before Basic ${malformed} after`,
+      long: `before Basic ${REDACTED} after`,
+      nested: {
+        note: `before Basic ${REDACTED} after`,
+      },
+      prose: "Basic concepts remain readable.",
+    })
+    expect(raisedBoundOutput).toBe(`before Basic ${REDACTED}! after`)
+
+
+  it "redacts embedded compound credentials while preserving adjacent prose", ->
+    const secrets = [
+      "raw-access-snake",
+      "raw-access-camel",
+      "raw-access-kebab",
+      "raw-client-snake",
+      "raw-client-camel",
+      "raw-client-kebab",
+      "raw-basic-credential",
+      "raw-bearer-credential",
+      "raw-session-underscore",
+      "raw-session-kebab",
+      "raw-secure-session",
+      "raw-hmac-direct",
+      "raw-hmac-snake-direct",
+      "raw-hmac-kebab-direct",
+      "raw-hmac-snake",
+      "raw-hmac-camel",
+      "raw-hmac-kebab",
+      "raw-current-direct",
+      "raw-new-direct",
+      "raw-confirmation-direct",
+      "raw-db-direct",
+      "raw-current-embedded",
+      "raw-new-embedded",
+      "raw-confirmation-embedded",
+      "raw-db-embedded",
+      "raw-postgres-user",
+      "raw-postgres-password",
+      "raw-postgresql-user",
+      "raw-postgresql-password",
+      "raw-private-key-material",
+      "raw-private-key-prefix",
+      "raw-access-key-snake",
+      "raw-access-key-camel",
+      "raw-access-key-kebab",
+      "raw-access-key-direct-camel",
+      "raw-access-key-direct-snake",
+      "raw-access-key-direct-kebab",
+      "raw-reset-route-token",
+      "raw-verify-route-token",
+      "raw-verify-path-token",
+      "raw-encoded-verify-token",
+      "raw-public-reset-token",
+      "raw-public-verify-token",
+      "raw-rsa-private-direct",
+      "raw-private-key-snake",
+      "raw-private-key-camel",
+      "raw-private-key-kebab",
+      "raw-better-auth-secret",
+      "raw-webhook-secret",
+      "raw-preview-hmac",
+      "raw-rsa-private-embedded",
+      "raw-nested-client-secret",
+      "raw-query-access-token",
+      "raw-api-space-key",
+      "raw-private-space-key",
+    ]
+    const safeProse =
+      "Access token guidance, client-secret naming, Basic concepts, and plants that bear fruit remain readable."
+    const safeAssignment = "before display_name=kept-value after"
+    const output = redact({
+      accessSnake: "before access_token=raw-access-snake after",
+      accessCamel: "before accessToken: raw-access-camel after",
+      accessKebab: "before access-token='raw-access-kebab' after",
+      clientSnake: "before client_secret=raw-client-snake after",
+      clientCamel: "before clientSecret: raw-client-camel after",
+      clientKebab: 'before "client-secret":"raw-client-kebab" after',
+      basicJson:
+        'before {"authorization":"Basic raw-basic-credential","next":"kept-basic"} after',
+      bearerJson:
+        'before {"authorization":"Bearer raw-bearer-credential","next":"kept-bearer"} after',
+      sessionUnderscore:
+        "before better-auth.session_token=raw-session-underscore after",
+      sessionKebab:
+        "before better-auth.session-token=raw-session-kebab after",
+      secureSession:
+        "before __Secure-better-auth.session_token=raw-secure-session after",
+      hmacKey: "raw-hmac-direct",
+      hmac_key: "raw-hmac-snake-direct",
+      "hmac-key": "raw-hmac-kebab-direct",
+      hmacSnake: "before hmac_key=raw-hmac-snake after",
+      hmacCamel: "before hmacKey: raw-hmac-camel after",
+      hmacKebab: 'before "hmac-key":"raw-hmac-kebab" after',
+      currentPassword: "raw-current-direct",
+      newPassword: "raw-new-direct",
+      passwordConfirmation: "raw-confirmation-direct",
+      dbPassword: "raw-db-direct",
+      embeddedCurrent:
+        "before currentPassword=raw-current-embedded after",
+      embeddedNew: "before new_password=raw-new-embedded after",
+      embeddedConfirmation:
+        "before confirmPassword=raw-confirmation-embedded after",
+      embeddedDb: 'before "dbPassword":"raw-db-embedded" after',
+      postgresUri:
+        "before postgres://raw-postgres-user:raw-postgres-password@db.example/app after",
+      postgresqlUri:
+        "before postgresql://raw-postgresql-user:raw-postgresql-password@db.example/app after",
+      pemBlock:
+        "before -----BEGIN PRIVATE KEY-----\nraw-private-key-material\n-----END PRIVATE KEY----- after",
+      pemPrefix:
+        "before -----BEGIN PRIVATE KEY-----raw-private-key-prefix",
+      accessKey: "raw-access-key-direct-camel",
+      access_key: "raw-access-key-direct-snake",
+      "access-key": "raw-access-key-direct-kebab",
+      embeddedAccessSnake: "before access_key=raw-access-key-snake after",
+      embeddedAccessCamel: "before accessKey: raw-access-key-camel after",
+      embeddedAccessKebab: 'before "access-key":"raw-access-key-kebab" after',
+      resetRoute:
+        "before /api/auth/reset-password/raw-reset-route-token?next=/portal after",
+      verifyRoute:
+        "before /api/auth/verify-email?token=raw-verify-route-token&next=/portal after",
+      apiVerifyPath:
+        "before /api/auth/verify-email/raw-verify-path-token?next=/portal after",
+      encodedVerifyQuery:
+        "before /api/auth/verify-email?token%3Draw-encoded-verify-token&next=/portal after",
+      publicResetUrl:
+        "before https://auth.example/reset-password/raw-public-reset-token?next=/portal after",
+      publicVerifyUrl:
+        "before https://auth.example/verify-email?token=raw-public-verify-token&next=/portal after",
+      rsaPrivateKey: "raw-rsa-private-direct",
+      embeddedPrivateSnake:
+        "before private_key=raw-private-key-snake after",
+      embeddedPrivateCamel:
+        "before privateKey: raw-private-key-camel after",
+      embeddedPrivateKebab:
+        'before "private-key":"raw-private-key-kebab" after',
+      compoundAuth: "before betterAuthSecret=raw-better-auth-secret after",
+      compoundWebhook: "before webhookSecret=raw-webhook-secret after",
+      compoundHmac: "before previewHmacKey=raw-preview-hmac after",
+      compoundRsa: "before rsaPrivateKey=raw-rsa-private-embedded after",
+      nestedAssignment:
+        "before wrapper=client_secret=raw-nested-client-secret after",
+      credentialQuery:
+        "before https://host.example/?access_token=raw-query-access-token&next=kept after",
+      spacedAssignmentOne: "before api key=raw-api-space-key after",
+      spacedAssignmentTwo: "before private key=raw-private-space-key after",
+      ordinaryAssignment: safeAssignment,
+      prose: safeProse,
+    })
+
+    expectNoSecrets(output, secrets)
+    expect(output).toEqual({
+      accessSnake: `before access_token=${REDACTED} after`,
+      accessCamel: `before accessToken: ${REDACTED} after`,
+      accessKebab: `before access-token='${REDACTED}' after`,
+      clientSnake: `before client_secret=${REDACTED} after`,
+      clientCamel: `before clientSecret: ${REDACTED} after`,
+      clientKebab: `before "client-secret":"${REDACTED}" after`,
+      basicJson:
+        `before {"authorization":"${REDACTED}","next":"kept-basic"} after`,
+      bearerJson:
+        `before {"authorization":"${REDACTED}","next":"kept-bearer"} after`,
+      sessionUnderscore:
+        `before better-auth.session_token=${REDACTED} after`,
+      sessionKebab: `before better-auth.session-token=${REDACTED} after`,
+      secureSession:
+        `before __Secure-better-auth.session_token=${REDACTED} after`,
+      hmacKey: REDACTED,
+      hmac_key: REDACTED,
+      "hmac-key": REDACTED,
+      hmacSnake: `before hmac_key=${REDACTED} after`,
+      hmacCamel: `before hmacKey: ${REDACTED} after`,
+      hmacKebab: `before "hmac-key":"${REDACTED}" after`,
+      currentPassword: REDACTED,
+      newPassword: REDACTED,
+      passwordConfirmation: REDACTED,
+      dbPassword: REDACTED,
+      embeddedCurrent: `before currentPassword=${REDACTED} after`,
+      embeddedNew: `before new_password=${REDACTED} after`,
+      embeddedConfirmation:
+        `before confirmPassword=${REDACTED} after`,
+      embeddedDb: `before "dbPassword":"${REDACTED}" after`,
+      postgresUri:
+        `before postgres://${REDACTED}@db.example/app after`,
+      postgresqlUri:
+        `before postgresql://${REDACTED}@db.example/app after`,
+      pemBlock: `before ${REDACTED} after`,
+      pemPrefix: `before ${REDACTED}`,
+      accessKey: REDACTED,
+      access_key: REDACTED,
+      "access-key": REDACTED,
+      embeddedAccessSnake: `before access_key=${REDACTED} after`,
+      embeddedAccessCamel: `before accessKey: ${REDACTED} after`,
+      embeddedAccessKebab: `before "access-key":"${REDACTED}" after`,
+      resetRoute:
+        `before /api/auth/reset-password/${REDACTED}?next=/portal after`,
+      verifyRoute:
+        `before /api/auth/verify-email?token=${REDACTED}&next=/portal after`,
+      apiVerifyPath:
+        `before /api/auth/verify-email/${REDACTED}?next=/portal after`,
+      encodedVerifyQuery:
+        `before /api/auth/verify-email?token%3D${REDACTED}&next=/portal after`,
+      publicResetUrl:
+        `before https://auth.example/reset-password/${REDACTED}?next=/portal after`,
+      publicVerifyUrl:
+        `before https://auth.example/verify-email?token=${REDACTED}&next=/portal after`,
+      "[REDACTED_KEY]": REDACTED,
+      embeddedPrivateSnake: `before private_key=${REDACTED} after`,
+      embeddedPrivateCamel: `before privateKey: ${REDACTED} after`,
+      embeddedPrivateKebab:
+        `before "private-key":"${REDACTED}" after`,
+      compoundAuth: `before betterAuthSecret=${REDACTED} after`,
+      compoundWebhook: `before webhookSecret=${REDACTED} after`,
+      compoundHmac: `before previewHmacKey=${REDACTED} after`,
+      compoundRsa: `before rsaPrivateKey=${REDACTED} after`,
+      nestedAssignment:
+        `before wrapper=client_secret=${REDACTED} after`,
+      credentialQuery:
+        `before https://host.example/?access_token=${REDACTED}&next=kept after`,
+      spacedAssignmentOne: `before api key=${REDACTED} after`,
+      spacedAssignmentTwo: `before private key=${REDACTED} after`,
+      ordinaryAssignment: safeAssignment,
+      prose: safeProse,
+    })
+
+  it "preserves assignment quotes and removes URI userinfo credentials", ->
+    const safeUri = "before custom+ssh://host.example/path after"
+    const output = redact({
+      singleQuoted:
+        "before webhookSecret='raw-single-quoted-secret' after",
+      doubleQuoted:
+        'before webhookSecret="raw-double-quoted-secret" after',
+      unquoted: "before webhookSecret=raw-unquoted-secret after",
+      uri:
+        "before custom+ssh://raw-uri-user:raw-uri-password@host.example/path after",
+      spacedQuoted:
+        "before api key='raw-spaced-quoted-secret' after",
+      safeUri,
+    })
+
+    expect(output).toEqual({
+      singleQuoted: `before webhookSecret='${REDACTED}' after`,
+      doubleQuoted: `before webhookSecret="${REDACTED}" after`,
+      unquoted: `before webhookSecret=${REDACTED} after`,
+      uri: `before custom+ssh://${REDACTED}@host.example/path after`,
+      spacedQuoted: `before api key='${REDACTED}' after`,
+      safeUri,
+    })
+    expectNoSecrets(output, [
+      "raw-single-quoted-secret",
+      "raw-double-quoted-secret",
+      "raw-unquoted-secret",
+      "raw-uri-user",
+      "raw-uri-password",
+      "raw-spaced-quoted-secret",
+    ])
+
   it "terminates cycles, throwing getters, excessive depth, entries, and strings with deterministic markers", ->
     const cyclic: Record<string, unknown> = { safe: "ok" }
     cyclic["self"] = cyclic
@@ -130,7 +453,7 @@ describe "redact", ->
     expect(output["throwing"]).toBe("[Unserializable]")
     expect(output["deep"]).toEqual({ one: TRUNCATED })
     expect(output["large"]).toEqual([1, 2, 3, TRUNCATED])
-    expect(output["long"]).toBe(`0123456789${TRUNCATED}`)
+    expect(output["long"]).toBe(TRUNCATED)
     expect(JSON.stringify(output)).not.toContain("raw-provider-body")
     expect(JSON.stringify(output)).not.toContain("secret-tail")
 
@@ -197,6 +520,20 @@ describe "redact", ->
     for (const unsafe of [getter, customPrototype, revoked.proxy])
       expect(-> freezeSnapshot(unsafe)).toThrow("Unsafe snapshot value")
 
+    const symbolKey = Symbol("raw-freeze-symbol-secret")
+    const symbolRecord = {
+      safe: "value",
+      [symbolKey]: "raw-freeze-value-secret",
+    }
+    let symbolError: unknown
+    try
+      freezeSnapshot(symbolRecord)
+    catch error
+      symbolError = error
+    expect(symbolError).toBeInstanceOf(TypeError)
+    expect(String(symbolError)).toBe("TypeError: Unsafe snapshot value")
+    expect(String(symbolError)).not.toMatch(/raw-freeze|symbol-secret/)
+
     let excessive: Record<string, unknown> = {}
     const root = excessive
     for index in [0...32]
@@ -204,6 +541,63 @@ describe "redact", ->
       excessive["child"] = child
       excessive = child
     expect(-> freezeSnapshot(root)).toThrow("Unsafe snapshot value")
+
+  it "fails closed on revoked identity checks, oversized snapshots, and descriptor traps", ->
+    const revoked = Proxy.revocable(
+      { value: "raw-revoked-array-check-secret" },
+      {},
+    )
+    revoked.revoke()
+    const revokedOutput = redact(revoked.proxy)
+    expect(revokedOutput).toBe("[Unserializable]")
+    expectNoSecrets(revokedOutput, ["raw-revoked-array-check-secret"])
+
+    let descriptorReads = 0
+    const safeTarget = { child: { value: "kept" } }
+    const safeProxy = new Proxy(safeTarget, {
+      getOwnPropertyDescriptor: (target, key) ->
+        descriptorReads += 1
+        return Reflect.getOwnPropertyDescriptor(target, key)
+    })
+    expect(freezeSnapshot(safeProxy)).toBe(safeProxy)
+    expect(descriptorReads).toBeGreaterThan(0)
+    expect(Object.isFrozen(safeTarget)).toBe(true)
+    expect(Object.isFrozen(safeTarget.child)).toBe(true)
+
+    const excessiveKeys: Record<string, unknown> = {}
+    for index of [0...129]
+      excessiveKeys[`key_${index}`] =
+        index === 128 ? "raw-freeze-key-limit-secret" : index
+    let keyLimitError: unknown
+    try
+      freezeSnapshot(excessiveKeys)
+    catch error
+      keyLimitError = error
+    expect(keyLimitError).toBeInstanceOf(TypeError)
+    expect(String(keyLimitError)).toBe("TypeError: Unsafe snapshot value")
+    expect(String(keyLimitError)).not.toContain(
+      "raw-freeze-key-limit-secret"
+    )
+
+    const descriptorFailure = new Proxy(
+      { child: { value: "raw-freeze-descriptor-secret" } },
+      {
+        getOwnPropertyDescriptor: (target, key) ->
+          if key is "child"
+            throw new Error("descriptor unavailable")
+          return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    )
+    let freezeError: unknown
+    try
+      freezeSnapshot(descriptorFailure)
+    catch error
+      freezeError = error
+    expect(freezeError).toBeInstanceOf(TypeError)
+    expect(String(freezeError)).toBe("TypeError: Unsafe snapshot value")
+    expect(String(freezeError)).not.toContain(
+      "raw-freeze-descriptor-secret"
+    )
 
   it "handles primitives and unsupported values without leaking descriptions", ->
     const secretSymbol = Symbol("raw-secret-description")
@@ -253,13 +647,31 @@ describe "redact", ->
       exactEntries: ["one", "two"],
       overflowEntries: ["one", "two", TRUNCATED],
       exactString: "0123456789",
-      overflowString: `0123456789${TRUNCATED}`,
+      overflowString: TRUNCATED,
     })
     expectNoSecrets(output, [
       "raw-depth-secret",
       "raw-entry-secret",
       "raw-string-secret",
     ])
+
+  it "fails closed when a string bound splits a credential pattern", ->
+    const uriSecret = "cross-boundary-password"
+    const uriPrefix = "postgresql://user:"
+    const uri = `${uriPrefix}${uriSecret}@host.example/database`
+    const jwtClaims = "eyJcrossBoundaryClaims"
+    const jwt = `eyJheader.${jwtClaims}.signature`
+
+    const uriOutput = redact(uri, {
+      maxStringLength: uriPrefix.length + uriSecret.length,
+    })
+    const jwtOutput = redact(jwt, {
+      maxStringLength: jwt.lastIndexOf("."),
+    })
+
+    expect(uriOutput).toBe(TRUNCATED)
+    expect(jwtOutput).toBe(TRUNCATED)
+    expectNoSecrets([uriOutput, jwtOutput], [uriSecret, jwtClaims])
 
     const exactObjectEntries = redact(
       { first: 1, second: 2 },
@@ -567,7 +979,7 @@ describe "redactSemanticEvent", ->
       correlation: {
         requestId: `request ${REDACTED}`,
         traceId: "t".repeat(32),
-        spanId: `${"s".repeat(16)}${TRUNCATED}`,
+        spanId: TRUNCATED,
         actorId: `actor token=${REDACTED}`,
         route: `/members/${REDACTED}`,
         procedure: "p".repeat(256),
@@ -637,12 +1049,12 @@ describe "redactSemanticEvent", ->
       makeSemanticEvent({ correlation: overflowCorrelation }),
     )
     expect(overflowOutput.correlation).toEqual({
-      requestId: `${"r".repeat(256)}${TRUNCATED}`,
-      traceId: `${"t".repeat(32)}${TRUNCATED}`,
-      spanId: `${"s".repeat(16)}${TRUNCATED}`,
-      actorId: `${"a".repeat(256)}${TRUNCATED}`,
-      route: `${"/".repeat(512)}${TRUNCATED}`,
-      procedure: `${"p".repeat(256)}${TRUNCATED}`,
+      requestId: TRUNCATED,
+      traceId: TRUNCATED,
+      spanId: TRUNCATED,
+      actorId: TRUNCATED,
+      route: TRUNCATED,
+      procedure: TRUNCATED,
     })
     expectNoSecrets(overflowOutput, [
       "raw-request-secret",
@@ -699,12 +1111,11 @@ describe "redactSemanticEvent", ->
       [prototypeFailure, "raw-correlation-prototype-trap-secret"],
     ]
 
-    for (const [correlation, secret] of invalid) {
+    for (const [correlation, secret] of invalid)
       expectInvalidSemanticEvent(
         makeSemanticEvent({ correlation, ignored: secret }),
         secret,
       )
-    }
 
   it "rejects missing or invalid request IDs and omits invalid optional correlation fields", ->
     const symbolRequestId = Symbol("raw-request-symbol-secret")
@@ -727,12 +1138,11 @@ describe "redactSemanticEvent", ->
         "raw-request-symbol-secret",
       ],
     ]
-    for (const [correlation, secret] of invalid) {
+    for (const [correlation, secret] of invalid)
       expectInvalidSemanticEvent(
         makeSemanticEvent({ correlation }),
         secret,
       )
-    }
 
     const optionalSymbol = Symbol("raw-optional-correlation-secret")
     const output = redactSemanticEvent(
@@ -816,7 +1226,7 @@ describe "redactSemanticEvent", ->
       "raw-attribute-descriptor-secret",
     )
 
-  it "reads an attributes accessor once and sanitizes holes, cycles, symbols, and secrets", ->
+  it "sanitizes own data-property attributes and omits missing attributes", ->
     const sparse: unknown[] = new Array(2)
     sparse[1] = "member@domain.test"
     const attributes: Record<string, unknown> = {
@@ -833,23 +1243,15 @@ describe "redactSemanticEvent", ->
       },
     )
 
-    let accessorReads = 0
-    const input = makeSemanticEvent() as unknown as Record<string, unknown>
-    Object.defineProperty(input, "attributes", {
-      enumerable: true,
-      get: ->
-        accessorReads += 1
-        return attributes
-    })
+    const output = redactSemanticEvent(makeSemanticEvent({ attributes }))
+    const withoutAttributes = redactSemanticEvent(makeSemanticEvent())
 
-    const output = redactSemanticEvent(input as unknown as SemanticEvent)
-
-    expect(accessorReads).toBe(1)
     expect(output.attributes).toEqual({
       password: REDACTED,
       sparse: ["[Undefined]", REDACTED],
       self: "[Circular]",
     })
+    expect(withoutAttributes.attributes).toBeUndefined()
     expectNoSecrets(output, [
       "member@domain.test",
       "raw-attribute-password",
@@ -857,7 +1259,7 @@ describe "redactSemanticEvent", ->
       "raw-attribute-symbol-value",
     ])
 
-  it "converts throwing or missing attributes getters into the canonical invalid-event error", ->
+  it "rejects own attributes accessors without invoking throwing or pending getters", ->
     let throwingReads = 0
     const throwing = {
       ...makeSemanticEvent(),
@@ -873,7 +1275,24 @@ describe "redactSemanticEvent", ->
       throwing,
       "raw-throwing-attributes-secret",
     )
-    expect(throwingReads).toBe(1)
+    expect(throwingReads).toBe(0)
+
+    let pendingReads = 0
+    const pending = {
+      ...makeSemanticEvent(),
+      ignored: "raw-pending-attributes-secret",
+    } as unknown as Record<string, unknown>
+    Object.defineProperty(pending, "attributes", {
+      enumerable: true,
+      get: ->
+        pendingReads += 1
+        return new Promise<never>(-> undefined)
+    })
+    expectInvalidSemanticEvent(
+      pending,
+      "raw-pending-attributes-secret",
+    )
+    expect(pendingReads).toBe(0)
 
     const setterOnly = {
       ...makeSemanticEvent(),
@@ -932,7 +1351,7 @@ describe "redactSemanticEvent", ->
     ])
 
   it "retains each canonical source and both outcomes", ->
-    for (const source of ["api", "system", "web", "worker"] as const) {
+    for (const source of ["api", "system", "web", "worker"] as const)
       const output = redactSemanticEvent(
         makeSemanticEvent({
           source,
@@ -941,4 +1360,45 @@ describe "redactSemanticEvent", ->
       )
       expect(output.source).toBe(source)
       expect(output.outcome).toBe(source === "api" ? "success" : "failure")
-    }
+
+  it "rejects non-numeric, fractional, and negative reflective array lengths", ->
+    const hostileLengths = ["1", 1.5, -1] as const
+
+    for (const length of hostileLengths)
+      const array = new Proxy([0], {
+        get: (target, key, receiver) ->
+          key === "length" ? length : Reflect.get(target, key, receiver)
+      })
+
+      expect(redact(array)).toBe("[Unserializable]")
+
+  it "skips inherited enumeration and contains a disappearing own descriptor", ->
+    const inheritedKey = "__observability_coverage_inherited__"
+    Object.defineProperty(Object.prototype, inheritedKey, {
+      configurable: true,
+      enumerable: true,
+      value: "raw-inherited-secret",
+    })
+    let inheritedOutput: unknown
+    try
+      inheritedOutput = redact({ safe: "kept" })
+    finally
+      Reflect.deleteProperty(Object.prototype, inheritedKey)
+    expect(inheritedOutput).toEqual({ safe: "kept" })
+
+    let descriptorReads = 0
+    const disappearing = new Proxy(
+      { value: "raw-disappearing-secret" },
+      {
+        getOwnPropertyDescriptor: (target, key) ->
+          if key === "value"
+            descriptorReads += 1
+            return undefined if descriptorReads === 3
+          return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+    )
+
+    expect(redact(disappearing)).toEqual({
+      value: "[Unserializable]",
+    })
+    expect(descriptorReads).toBe(3)

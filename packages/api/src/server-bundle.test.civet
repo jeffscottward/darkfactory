@@ -54,3 +54,8 @@ describe "API server browser bundle", ->
       )
     finally
       await rm(tempDir, { recursive: true, force: true })
+
+  it "throws when the browser-only server poison module is evaluated directly", async ->
+    await expect(import("./server/unsupported.civet")).rejects.toThrow(
+      "@darkfactory/api/server is unavailable in browser bundles",
+    )

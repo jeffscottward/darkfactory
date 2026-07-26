@@ -1,7 +1,7 @@
 import { access, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   parseCapabilityArguments,
@@ -10,7 +10,10 @@ import {
   type CapabilityDependencies,
 } from "./capability.civet"
 import { runCapabilityCli } from "./cli.civet"
-import { createCapabilityFileSystem } from "./system.civet"
+import {
+  createCapabilityFileSystem,
+  nodeCapabilitySystemDependencies,
+} from "./system.civet"
 
 const MANIFEST = `project:\n  name: DarkFactory\n\ncapabilities:\n  docs:\n    provider: mintlify\n    enabled: false\n  uptime:\n    provider: uptime-kuma\n    enabled: false\n  storage:\n    provider: r2\n    enabled: false\n`
 
@@ -36,6 +39,30 @@ describe("capability:add", () => {
     expect(() => parseCapabilityArguments(["bad/name", "--provider", "x"])).toThrow(/name/i)
     expect(() => parseCapabilityArguments(["search", "--provider", "x"])).toThrow(/not supported/i)
     expect(() => parseCapabilityArguments(["uptime", "--provider", "uptime-kuma", "extra"])).toThrow(/argument/i)
+  })
+
+  it.each([
+    ["missing name", [], /name/i],
+    ["missing provider flag", ["uptime"], /provider/i],
+    ["missing provider value", ["uptime", "--provider"], /provider/i],
+    ["duplicate provider", ["uptime", "--provider", "uptime-kuma", "--provider", "uptime-kuma"], /provider/i],
+    ["duplicate apply", ["uptime", "--provider", "uptime-kuma", "--apply", "--apply"], /duplicate/i],
+    ["invalid provider slug", ["uptime", "--provider", "Uptime_Kuma"], /provider/i],
+  ])("rejects the %s argument boundary", (_name, arguments_, expected) => {
+    expect(() => parseCapabilityArguments(arguments_)).toThrow(expected)
+  })
+
+  it("accepts apply before provider without changing the parsed contract", () => {
+    expect(parseCapabilityArguments([
+      "uptime",
+      "--apply",
+      "--provider",
+      "uptime-kuma",
+    ])).toEqual({
+      name: "uptime",
+      provider: "uptime-kuma",
+      apply: true,
+    })
   })
 
   it("plans one disabled descriptor while preserving the strict manifest byte-for-byte", () => {
@@ -64,6 +91,38 @@ describe("capability:add", () => {
       MANIFEST,
       { name: "storage", provider: "r2", apply: false },
     ).descriptorPath).toBe("packages/storage/src/r2/capability.json")
+  })
+
+  it("rejects malformed capability-section boundaries and unsupported direct plans", () => {
+    expect(() => planCapabilityAddition(
+      `${MANIFEST}\ncapabilities:\n  uptime:\n    provider: uptime-kuma\n    enabled: false\n`,
+      { name: "uptime", provider: "uptime-kuma", apply: false },
+    )).toThrow(/one capabilities section/i)
+    expect(() => planCapabilityAddition(
+      "capabilities:",
+      { name: "uptime", provider: "uptime-kuma", apply: false },
+    )).toThrow(/malformed capabilities section/i)
+    expect(() => planCapabilityAddition(
+      MANIFEST.replace(
+        "  uptime:\n    provider: uptime-kuma\n    enabled: false\n",
+        "",
+      ),
+      { name: "uptime", provider: "uptime-kuma", apply: false },
+    )).toThrow(/not declared/i)
+    expect(() => planCapabilityAddition(
+      MANIFEST.replace("    enabled: false\n  storage:", "  storage:"),
+      { name: "uptime", provider: "uptime-kuma", apply: false },
+    )).toThrow(/malformed/i)
+    expect(() => planCapabilityAddition(
+      MANIFEST,
+      { name: "search", provider: "algolia", apply: false },
+    )).toThrow(/not supported/i)
+
+    const withFollowingSection = `${MANIFEST}\nmetadata:\n  owner: platform\n`
+    expect(planCapabilityAddition(
+      withFollowingSection,
+      { name: "storage", provider: "r2", apply: false },
+    ).manifestSource).toBe(withFollowingSection)
   })
 
   it("plans without mutation and applies through one guarded commit", async () => {
@@ -129,6 +188,48 @@ describe("capability:add", () => {
     expect(output.join("\n")).not.toContain("disk failure")
   })
 
+  it("writes successful plan output and supports the short help flag", async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const streams = {
+      writeOutput: (value: string) => stdout.push(value),
+      writeError: (value: string) => stderr.push(value),
+    }
+
+    await expect(runCapabilityCli(["-h"], dependencies().dependencies, streams)).resolves.toBe(0)
+    await expect(runCapabilityCli(
+      ["uptime", "--provider", "uptime-kuma"],
+      dependencies().dependencies,
+      streams,
+    )).resolves.toBe(0)
+    expect(stdout.join("")).toMatch(/Usage:|\"mode\": \"plan\"/)
+    expect(stderr).toHaveLength(0)
+  })
+
+  it("redacts a non-Error failure at the argument command boundary", async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const arguments_ = new Proxy(
+      ["uptime", "--provider", "uptime-kuma"],
+      {
+        get: (target, property, receiver) => {
+          if (property === "0") throw "private argument failure"
+          return Reflect.get(target, property, receiver)
+        },
+      },
+    )
+
+    await expect(runCapabilityCli(arguments_, dependencies().dependencies, {
+      writeOutput: (value) => stdout.push(value),
+      writeError: (value) => stderr.push(value),
+    })).resolves.toBe(2)
+    expect(stdout).toEqual([])
+    expect(stderr.join("")).toMatch(
+      /^Invalid capability arguments\nUsage: pnpm capability:add/,
+    )
+    expect(stderr.join("")).not.toContain("private argument failure")
+  })
+
   it("publishes one real isolated descriptor without changing or overwriting the manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-test-"))
     try {
@@ -149,6 +250,66 @@ describe("capability:add", () => {
         dependencies,
       )).resolves.toMatchObject({ ok: false, changed: false })
       await expect(files.exists("../escape")).rejects.toThrow(/escapes/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects missing roots, invalid manifests, and stale or mutating commit plans", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-system-"))
+    try {
+      await expect(createCapabilityFileSystem(join(root, "missing"))).rejects.toThrow()
+      const manifestPath = join(root, "capabilities.yaml")
+      await writeFile(manifestPath, MANIFEST, "utf8")
+      const files = await createCapabilityFileSystem(root)
+      const plan = planCapabilityAddition(
+        MANIFEST,
+        { name: "uptime", provider: "uptime-kuma", apply: true },
+      )
+
+      await expect(files.exists("services/uptime-kuma/capability.json")).resolves.toBe(false)
+      await expect(files.commit({
+        ...plan,
+        manifestSource: `${MANIFEST}# mutation\n`,
+      })).rejects.toThrow(/cannot mutate/i)
+
+      await writeFile(manifestPath, `${MANIFEST}# concurrent edit\n`, "utf8")
+      await expect(files.commit(plan)).rejects.toThrow(/changed during planning/i)
+
+      await rm(manifestPath)
+      await mkdir(manifestPath)
+      await expect(files.commit(plan)).rejects.toThrow(
+        "Capability manifest identity is unsafe",
+      )
+      await expect(files.readManifest()).rejects.toThrow(/manifest is invalid/i)
+      await rm(manifestPath, { recursive: true })
+      await writeFile(manifestPath, "x".repeat(262_145), "utf8")
+      await expect(files.readManifest()).rejects.toThrow(/manifest is invalid/i)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects manifest bytes that outgrow opened metadata and closes the descriptor", async () => {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-capability-read-"))
+    const close = vi.fn(async () => undefined)
+    try {
+      const files = await createCapabilityFileSystem(root, {}, {
+        ...nodeCapabilitySystemDependencies,
+        openManifest: async () => ({
+          stat: async () => ({
+            size: 1,
+            isFile: () => true,
+          }),
+          readFile: async () => "x".repeat(262_145),
+          close,
+        }),
+      })
+
+      await expect(files.readManifest()).rejects.toThrow(
+        "Capability manifest is too large",
+      )
+      expect(close).toHaveBeenCalledOnce()
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -217,4 +378,32 @@ describe("capability:add", () => {
       await rm(root, { force: true, recursive: true })
     }
   })
+
+  it.each(["beforePublish", "afterPublish"] as const)(
+    "rolls back descriptor publication when manifest content changes during %s",
+    async (phase) => {
+      const root = await mkdtemp(join(tmpdir(), `darkfactory-capability-${phase}-`))
+      try {
+        const manifestPath = join(root, "capabilities.yaml")
+        await writeFile(manifestPath, MANIFEST, "utf8")
+        const mutateManifest = async () => {
+          await writeFile(manifestPath, `${MANIFEST}# concurrent edit\n`, "utf8")
+        }
+        const files = await createCapabilityFileSystem(root, {
+          [phase]: mutateManifest,
+        })
+
+        await expect(runCapabilityAddition(
+          { name: "uptime", provider: "uptime-kuma", apply: true },
+          { files, validateManifest: () => undefined },
+        )).resolves.toMatchObject({ ok: false, changed: false })
+        await expect(access(
+          join(root, "services/uptime-kuma/capability.json"),
+        )).rejects.toMatchObject({ code: "ENOENT" })
+        expect(await readFile(manifestPath, "utf8")).toContain("# concurrent edit")
+      } finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    },
+  )
 })

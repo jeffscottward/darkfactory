@@ -122,3 +122,21 @@ describe "DF-076 contact service", ->
       new ContactServiceError("SERVICE_UNAVAILABLE"),
     )
   )
+
+  it "redacts a provider exception before it crosses the service boundary", async ->
+    const service = createContactService({
+      delivery: {
+        sendContact: vi.fn(async () => {
+          throw new Error("provider secret and recipient payload")
+        }),
+      },
+      throttle: throttle(true),
+      throttleKey: "f".repeat(64),
+    })
+
+    try
+      await service.submit(input)
+      throw new Error("Expected contact delivery to fail")
+    catch error
+      expect(error).toEqual(new ContactServiceError("SERVICE_UNAVAILABLE"))
+      expect(JSON.stringify(error)).not.toContain("provider secret")

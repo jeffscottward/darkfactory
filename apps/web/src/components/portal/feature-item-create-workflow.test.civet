@@ -97,6 +97,12 @@ const hookRuntime = vi.hoisted(() => {
         }
       }
     },
+    disconnectStores: () => {
+      for (let index = 0; index < storeCleanups.length; index += 1) {
+        storeCleanups[index]?.()
+        storeCleanups[index] = undefined
+      }
+    },
     lastFocus: (): string | undefined => focusHistory.at(-1),
     reset: () => {
       for (const slot of effectSlots) slot.cleanup?.()
@@ -374,6 +380,23 @@ describe "feature item create workflow", ->
     tree = mount.render()
     expect(markup(tree)).toContain("Step 2 of 3")
 
+
+  it "keeps the setup actor active when the external-store subscription is replaced", async ->
+    const mount = mountWorkflow(gatewayWith())
+    let tree = mount.render()
+    expect(markup(tree)).toContain("Step 1 of 3")
+
+    hookRuntime.disconnectStores()
+    tree = mount.render()
+    await flushMicrotasks()
+    changeValue(tree, "feature-name", "Resubscribed workflow")
+    tree = mount.render()
+    click(tree, "Continue")
+    tree = mount.render()
+    expect(markup(tree)).toContain("Step 2 of 3")
+
+    hookRuntime.disconnectStores()
+    await flushMicrotasks()
   it "locks duplicate creates through activation and renders submitting and final output states", async ->
     const createRequest = deferred<FeatureItemOutput>()
     const activationRequest = deferred<FeatureItemOutput>()
@@ -421,6 +444,25 @@ describe "feature item create workflow", ->
     expect(completed).toContain("View Server output")
     expect(completed).toContain("/feature-items/item-1")
 
+
+  it "does not activate an item that the create response already marked active", async ->
+    const create = vi.fn(async () => item({
+      name: "Already active",
+      status: "active",
+    }))
+    const changeStatus = vi.fn()
+    const mount = mountWorkflow(gatewayWith({ create, changeStatus }))
+    let tree = reachReview(mount, {
+      name: "Already active",
+      status: "active",
+    })
+
+    await (click(tree, "Create feature item") as Promise<void>)
+    tree = mount.render()
+    expect(create).toHaveBeenCalledOnce()
+    expect(changeStatus).not.toHaveBeenCalled()
+    expect(markup(tree)).toContain("The feature item is ready")
+    expect(markup(tree)).toContain("View Already active")
   it "retries a persisted draft without creating a duplicate", async ->
     const create = vi.fn(async () => item({ name: "Release checklist", description: "Owner-scoped details", status: "draft" }))
     const update = vi.fn(async (_id, input) => item(input))
@@ -463,6 +505,23 @@ describe "feature item create workflow", ->
     expect(failedCreate).not.toContain("View persisted draft")
     expect(controlByText(tree, "Try again")).toBeUndefined()
     expect(create).toHaveBeenCalledOnce()
+
+  it "returns a retryable failure to review without issuing another request", async ->
+    const create = vi.fn().mockRejectedValue({ code: "VALIDATION_ERROR" })
+    const mount = mountWorkflow(gatewayWith({ create }))
+    let tree = reachReview(mount)
+
+    await (click(tree, "Create feature item") as Promise<void>)
+    tree = mount.render()
+    expect(markup(tree)).toContain("Creation was interrupted")
+    expect(controlByText(tree, "Back to review")).toBeDefined()
+
+    click(tree, "Back to review")
+    tree = mount.render()
+    expect(controlByText(tree, "Create feature item")).toBeDefined()
+    expect(markup(tree)).not.toContain("Creation was interrupted")
+    expect(create).toHaveBeenCalledOnce()
+
 
   const recoveryCases = [
     {

@@ -58,8 +58,7 @@ export const parseThemeCookieHeader = (
   if (values.length === 0) return { status: "missing" }
   if (values.length !== 1) return { status: "invalid" }
 
-  const cookie = values[0]
-  if (cookie === undefined) return { status: "invalid" }
+  const cookie = values[0]!
   const separatorIndex = cookie.indexOf("=")
   if (separatorIndex === -1) return { status: "invalid" }
   const encodedValue = cookie.slice(separatorIndex + 1)

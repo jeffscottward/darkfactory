@@ -1,17 +1,48 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { Children, isValidElement, type ReactElement } from "react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("next/headers", () => ({ headers: vi.fn() }))
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
-vi.mock("../../../lib/server-session.civet", () => ({
+const mocks = vi.hoisted(() => ({
   getPortalSession: vi.fn(),
+  headers: vi.fn(),
   portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Fdashboard"),
-  resolvePortalAppUrl: vi.fn(() => new URL("https://darkfactory.localhost")),
+  redirect: vi.fn((href: string): never => {
+    throw new Error(`REDIRECT:${href}`)
+  }),
+  resolvePortalAppUrl: vi.fn(
+    () => new URL("https://darkfactory.localhost"),
+  ),
 }))
 
-import { loadDashboardSummaryState } from "./page.civet"
+vi.mock("next/headers", () => ({ headers: mocks.headers }))
+vi.mock("next/navigation", () => ({ redirect: mocks.redirect }))
+vi.mock("../../../lib/server-session.civet", () => ({
+  getPortalSession: mocks.getPortalSession,
+  portalSignInHref: mocks.portalSignInHref,
+  resolvePortalAppUrl: mocks.resolvePortalAppUrl,
+}))
+
+import DashboardPage, {
+  loadDashboardSummaryState,
+  metadata,
+} from "./page.civet"
+import { DashboardContent } from "../../../components/portal/dashboard-content.civet"
+
+beforeEach ->
+  vi.clearAllMocks()
+  mocks.headers.mockResolvedValue(new Headers({
+    cookie: "better-auth.session_token=opaque",
+  }))
+  mocks.getPortalSession.mockResolvedValue({
+    userId: "user-1",
+    name: "Example Member",
+    role: "member",
+    status: "active",
+    expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+  })
 
 afterEach ->
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 
 describe "dashboard summary loader", ->
   it "fails closed to an unavailable state when the internal oRPC request stalls", async ->
@@ -39,3 +70,89 @@ describe "dashboard summary loader", ->
     await expect(
       loadDashboardSummaryState("better-auth.session_token=opaque", fetcher),
     ).resolves.toEqual({ type: "error" })
+
+  it "returns a ready state for a bounded oRPC dashboard response", async ->
+    const summary = {
+      featureItems: {
+        total: 0,
+        draft: 0,
+        active: 0,
+        archived: 0,
+        recent: [],
+      },
+      capabilities: {
+        ai: false,
+        emailDelivery: false,
+        analytics: false,
+        telemetryExport: false,
+        storage: false,
+        errorTracking: false,
+      },
+    }
+    const fetcher = vi.fn(async () => Response.json({ json: summary }))
+
+    await expect(loadDashboardSummaryState(
+      "better-auth.session_token=opaque",
+      fetcher,
+    )).resolves.toEqual({ type: "ready", summary })
+    expect(fetcher).toHaveBeenCalledOnce()
+
+  it "redirects an anonymous request before rendering protected dashboard data", async ->
+    mocks.getPortalSession.mockResolvedValueOnce(null)
+
+    await expect(DashboardPage()).rejects.toThrow(
+      "REDIRECT:/sign-in?callbackURL=%2Fdashboard",
+    )
+    expect(mocks.portalSignInHref).toHaveBeenCalledWith(
+      expect.any(Headers),
+    )
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      "/sign-in?callbackURL=%2Fdashboard",
+    )
+
+  it "renders an unavailable summary when a mocked active session has no cookie", async ->
+    mocks.headers.mockResolvedValueOnce(new Headers())
+
+    const result = await DashboardPage()
+    const content = Children.toArray(result.props.children).find(
+      (child): child is ReactElement ->
+        isValidElement(child) and child.type is DashboardContent
+    )
+
+    expect(metadata).toEqual({ title: "Dashboard" })
+    expect(content?.props).toMatchObject({
+      summaryState: { type: "error" },
+    })
+
+  it "renders a ready summary for an authenticated request", async ->
+    const summary = {
+      featureItems: {
+        total: 0,
+        draft: 0,
+        active: 0,
+        archived: 0,
+        recent: [],
+      },
+      capabilities: {
+        ai: false,
+        emailDelivery: false,
+        analytics: false,
+        telemetryExport: false,
+        storage: false,
+        errorTracking: false,
+      },
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ json: summary })),
+    )
+
+    const result = await DashboardPage()
+    const content = Children.toArray(result.props.children).find(
+      (child): child is ReactElement ->
+        isValidElement(child) and child.type is DashboardContent
+    )
+
+    expect(content?.props).toMatchObject({
+      summaryState: { type: "ready", summary },
+    })

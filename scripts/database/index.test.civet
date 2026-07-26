@@ -1,0 +1,346 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const databaseCli = vi.hoisted(() => {
+  const database = Object.freeze({ marker: "database" })
+  const identities = Object.freeze([
+    Object.freeze({ id: "admin-id", email: "admin@example.test" }),
+  ])
+  const parsedEnvironment = Object.freeze({
+    APP_URL: "https://darkfactory.localhost",
+    BETTER_AUTH_URL: "https://auth.darkfactory.localhost",
+    BETTER_AUTH_SECRET: "test-secret-at-least-32-characters",
+  })
+  const profile = Object.freeze({
+    connection: Object.freeze({
+      connectionString: "postgresql://isolated.example.test/darkfactory",
+    }),
+  })
+  const seedResult = Object.freeze({
+    identitiesCreated: 1,
+    usersConverged: 1,
+    profilesConverged: 1,
+    preferencesConverged: 1,
+    addressesConverged: 1,
+    featureItemsConverged: 1,
+  })
+  const resetResult = Object.freeze({ tablesCleared: 10 })
+
+  const close = vi.fn(async () => undefined)
+  return {
+    close,
+    composeDatabaseProfile: vi.fn(() => profile),
+    createNodeDatabase: vi.fn(() => ({
+      db: database,
+      close,
+    })),
+    database,
+    ensureDevelopmentSeedIdentity: vi.fn(async () => ({ identitiesCreated: 1 })),
+    identities,
+    parseServerEnv: vi.fn(() => parsedEnvironment),
+    parsedEnvironment,
+    profile,
+    register: vi.fn(),
+    resetDevelopment: vi.fn(async () => resetResult),
+    resetResult,
+    seedDevelopment: vi.fn(async (
+      _database: unknown,
+      options: Readonly<{
+        environment: "development" | "test"
+        prepareIdentity: (identities: typeof identities) => Promise<unknown>
+      }>,
+    ) => {
+      await options.prepareIdentity(identities)
+      return seedResult
+    }),
+    seedResult,
+  }
+})
+
+vi.mock("node:module", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:module")>()
+  return { ...actual, register: databaseCli.register }
+})
+vi.mock("@darkfactory/auth/server", () => ({
+  ensureDevelopmentSeedIdentity: databaseCli.ensureDevelopmentSeedIdentity,
+}))
+vi.mock("@darkfactory/config/server", () => ({
+  parseServerEnv: databaseCli.parseServerEnv,
+}))
+vi.mock("@darkfactory/config/database", () => ({
+  composeDatabaseProfile: databaseCli.composeDatabaseProfile,
+}))
+vi.mock("@darkfactory/db/server", () => ({
+  createNodeDatabase: databaseCli.createNodeDatabase,
+  resetDevelopment: databaseCli.resetDevelopment,
+  seedDevelopment: databaseCli.seedDevelopment,
+}))
+
+const originalArguments = [...process.argv]
+const originalAppEnvironment = process.env["APP_ENV"]
+
+const importDatabaseCli = async (): Promise<unknown> => await import("./index.civet")
+
+const outputSpy = () =>
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+
+beforeEach(() => {
+  databaseCli.close.mockReset().mockResolvedValue(undefined)
+  databaseCli.composeDatabaseProfile.mockReset().mockReturnValue(databaseCli.profile)
+  databaseCli.createNodeDatabase.mockReset().mockImplementation(() => ({
+    db: databaseCli.database,
+    close: databaseCli.close,
+  }))
+  databaseCli.ensureDevelopmentSeedIdentity
+    .mockReset()
+    .mockResolvedValue({ identitiesCreated: 1 })
+  databaseCli.parseServerEnv
+    .mockReset()
+    .mockReturnValue(databaseCli.parsedEnvironment)
+  databaseCli.register.mockReset()
+  databaseCli.resetDevelopment
+    .mockReset()
+    .mockResolvedValue(databaseCli.resetResult)
+  databaseCli.seedDevelopment.mockReset().mockImplementation(async (
+    _database: unknown,
+    options: Readonly<{
+      environment: "development" | "test"
+      prepareIdentity: (identities: typeof databaseCli.identities) => Promise<unknown>
+    }>,
+  ) => {
+    await options.prepareIdentity(databaseCli.identities)
+    return databaseCli.seedResult
+  })
+  process.argv = ["node", "scripts/database/index.civet", "seed"]
+  process.env["APP_ENV"] = "test"
+})
+
+afterEach(() => {
+  process.argv = [...originalArguments]
+  if (originalAppEnvironment === undefined) delete process.env["APP_ENV"]
+  else process.env["APP_ENV"] = originalAppEnvironment
+  vi.restoreAllMocks()
+  vi.resetModules()
+})
+
+describe.sequential("database CLI", () => {
+  it("registers the package Civet loader and runs a test seed to completion", async () => {
+    const stdout = outputSpy()
+
+    await importDatabaseCli()
+
+    expect(databaseCli.register).toHaveBeenCalledOnce()
+    const [loaderUrl, parentUrl] = databaseCli.register.mock.calls[0] ?? []
+    expect(loaderUrl).toEqual(expect.stringMatching(/^data:text\/javascript,/))
+    expect(parentUrl).toEqual(expect.stringContaining("/scripts/database/index.civet"))
+    const loaderSource = decodeURIComponent(
+      String(loaderUrl).slice("data:text/javascript,".length),
+    )
+    expect(loaderSource).toContain("import { load as civetLoad, resolve as civetResolve }")
+    expect(loaderSource).toContain("/\\.civet(?:$|[?#])/.test(resolved.url)")
+    expect(loaderSource).toContain('format: "civet"')
+    expect(loaderSource).toContain('if (context.format !== "civet") return loaded')
+    expect(loaderSource).toContain("ts.transpileModule")
+    expect(loaderSource).toContain("jsx: ts.JsxEmit.ReactJSX")
+    expect(loaderSource).toContain("module: ts.ModuleKind.ESNext")
+    expect(loaderSource).toContain("target: ts.ScriptTarget.ES2023")
+
+    expect(databaseCli.parseServerEnv).toHaveBeenCalledWith(process.env)
+    expect(databaseCli.composeDatabaseProfile).toHaveBeenCalledWith(
+      databaseCli.parsedEnvironment,
+    )
+    expect(databaseCli.createNodeDatabase).toHaveBeenCalledWith({
+      connectionString: databaseCli.profile.connection.connectionString,
+    })
+    expect(databaseCli.seedDevelopment).toHaveBeenCalledWith(
+      databaseCli.database,
+      expect.objectContaining({
+        environment: "test",
+        prepareIdentity: expect.any(Function),
+      }),
+    )
+    expect(databaseCli.ensureDevelopmentSeedIdentity).toHaveBeenCalledWith(
+      {
+        environment: "test",
+        secret: databaseCli.parsedEnvironment.BETTER_AUTH_SECRET,
+        baseURL: databaseCli.parsedEnvironment.BETTER_AUTH_URL,
+        trustedOrigins: [databaseCli.parsedEnvironment.APP_URL],
+      },
+      databaseCli.identities,
+    )
+    expect(databaseCli.resetDevelopment).not.toHaveBeenCalled()
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(stdout).toHaveBeenCalledWith(`${JSON.stringify(databaseCli.seedResult)}\n`)
+    expect(databaseCli.close.mock.invocationCallOrder[0]).toBeLessThan(
+      stdout.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    )
+  })
+
+  it("runs reset in development, closes the resource, and emits its result", async () => {
+    process.argv = ["node", "scripts/database/index.civet", "reset"]
+    process.env["APP_ENV"] = "development"
+    const stdout = outputSpy()
+
+    await importDatabaseCli()
+
+    expect(databaseCli.resetDevelopment).toHaveBeenCalledWith(databaseCli.database, {
+      environment: "development",
+    })
+    expect(databaseCli.seedDevelopment).not.toHaveBeenCalled()
+    expect(databaseCli.ensureDevelopmentSeedIdentity).not.toHaveBeenCalled()
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(stdout).toHaveBeenCalledWith(`${JSON.stringify(databaseCli.resetResult)}\n`)
+  })
+
+  it.each([
+    ["a missing command", undefined],
+    ["an unsupported command", "migrate"],
+  ])("rejects %s before registering a loader or importing packages", async (_label, command) => {
+    process.argv = command === undefined
+      ? ["node", "scripts/database/index.civet"]
+      : ["node", "scripts/database/index.civet", command]
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toThrow(
+      "Database command must be either seed or reset",
+    )
+
+    expect(databaseCli.register).not.toHaveBeenCalled()
+    expect(databaseCli.parseServerEnv).not.toHaveBeenCalled()
+    expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
+    expect(databaseCli.close).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["a missing APP_ENV", undefined],
+    ["an empty APP_ENV", ""],
+    ["a production APP_ENV", "production"],
+  ])("rejects %s before registering the package loader", async (_label, environment) => {
+    if (environment === undefined) delete process.env["APP_ENV"]
+    else process.env["APP_ENV"] = environment
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toThrow(
+      "APP_ENV must be explicitly set to development or test for database seed/reset",
+    )
+
+    expect(databaseCli.register).not.toHaveBeenCalled()
+    expect(databaseCli.parseServerEnv).not.toHaveBeenCalled()
+    expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
+    expect(databaseCli.close).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("propagates configuration parsing failures before acquiring a database resource", async () => {
+    const configurationError = new Error("invalid server environment")
+    databaseCli.parseServerEnv.mockImplementationOnce(() => {
+      throw configurationError
+    })
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(configurationError)
+
+    expect(databaseCli.register).toHaveBeenCalledOnce()
+    expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
+    expect(databaseCli.close).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("propagates database resource construction failures without fake cleanup", async () => {
+    const constructionError = new Error("database construction failed")
+    databaseCli.createNodeDatabase.mockImplementationOnce(() => {
+      throw constructionError
+    })
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(constructionError)
+
+    expect(databaseCli.close).not.toHaveBeenCalled()
+    expect(databaseCli.seedDevelopment).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("closes the resource when seeding fails and does not print a success result", async () => {
+    const seedError = new Error("seed failed")
+    databaseCli.seedDevelopment.mockRejectedValueOnce(seedError)
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(seedError)
+
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(databaseCli.resetDevelopment).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("closes the resource when reset fails and does not print a success result", async () => {
+    process.argv = ["node", "scripts/database/index.civet", "reset"]
+    const resetError = new Error("reset failed")
+    databaseCli.resetDevelopment.mockRejectedValueOnce(resetError)
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(resetError)
+
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(databaseCli.seedDevelopment).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("closes the resource when seed identity preparation fails", async () => {
+    const identityError = new Error("identity preparation failed")
+    databaseCli.ensureDevelopmentSeedIdentity.mockRejectedValueOnce(identityError)
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(identityError)
+
+    expect(databaseCli.seedDevelopment).toHaveBeenCalledOnce()
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("closes the resource when a seed result cannot be serialized", async () => {
+    databaseCli.seedDevelopment.mockResolvedValueOnce({ count: 1n } as never)
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toThrow(/BigInt/)
+
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("surfaces cleanup failure instead of printing an unclosed success", async () => {
+    const closeError = new Error("database close failed")
+    databaseCli.close.mockRejectedValueOnce(closeError)
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(closeError)
+
+    expect(databaseCli.seedDevelopment).toHaveBeenCalledOnce()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("preserves JavaScript finally semantics when operation and cleanup both fail", async () => {
+    const seedError = new Error("seed failed")
+    const closeError = new Error("database close failed")
+    databaseCli.seedDevelopment.mockRejectedValueOnce(seedError)
+    databaseCli.close.mockRejectedValueOnce(closeError)
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toBe(closeError)
+
+    expect(databaseCli.seedDevelopment).toHaveBeenCalledOnce()
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("has already closed the database if stdout rejects the final write", async () => {
+    const outputError = new Error("stdout failed")
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => {
+      throw outputError
+    })
+
+    await expect(importDatabaseCli()).rejects.toBe(outputError)
+
+    expect(databaseCli.close).toHaveBeenCalledOnce()
+    expect(stdout).toHaveBeenCalledOnce()
+  })
+})

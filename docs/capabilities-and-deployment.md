@@ -19,6 +19,7 @@ Unknown and incompatible are never aliases for disabled or available.
 
 The manifest currently declares these core selections:
 
+- Bun for repository scripts, pnpm for package/workspace ownership, and Cloudflare Workers for production runtime.
 - Vite/vinext on Cloudflare Workers for the web runtime.
 - PostgreSQL through Drizzle, with PlanetScale named as the selected portable provider.
 - Contract-first oRPC and generated OpenAPI.
@@ -46,7 +47,7 @@ Disabled capabilities must remain removable and must not leave provider dependen
 Run the manifest and prerequisite inspection with:
 
 ```bash
-varlock run -- pnpm doctor
+varlock run -- bun run doctor
 ```
 
 The doctor reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.
@@ -72,13 +73,16 @@ If safe removal would require rewriting the domain, the boundary is wrong or the
 The authored web application has one deployer: official `@vinext/cloudflare`.
 
 ```bash
-pnpm build
-pnpm deploy:web:check
-pnpm deploy:web:preview
-pnpm deploy:web
+bun run dev:stop
+bun run dev:bindings
+bun run build
+corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start
+bun run deploy:web:check
+bun run deploy:web:preview
+bun run deploy:web
 ```
 
-`pnpm build` is local compilation. `pnpm deploy:web:check` performs the adapter's non-deploying dry-run setup validation. The preview and production deploy commands are explicit, credentialed Cloudflare operations. Run a deploy only with an authorized account, reviewed target, protected environment, correct secrets, a green required CI run for the same SHA, and a rollback owner.
+`bun run build` performs local compilation through the measured Node-backed Vinext compatibility path. The package `start` command serves that output through Vite's Cloudflare Worker preview and inherits Portless's validated `HOST` and `PORT`; it is not deployment evidence. Filesystem email previews are disabled in a production bundle, so a real production configuration must select Resend. `bun run deploy:web:check` performs the adapter's non-deploying dry-run setup validation. The remote preview and production deploy commands are explicit, credentialed Cloudflare operations. Run a deploy only with an authorized account, reviewed target, protected environment, correct secrets, a green required CI run for the same SHA, and a rollback owner.
 
 The repository's current GitHub Actions workflow verifies code and uploads Playwright failure artifacts; it does not contain an automatic deployment job. Therefore this repository does not claim that preview or production deployment has occurred. Deployment evidence remains pending until an operator records the target, SHA, command/run URL, output, runtime probe, and rollback result in [the evidence map](evidence-map.md).
 

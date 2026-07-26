@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   symlink,
@@ -12,9 +13,69 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  constants: {} as Record<string, number>,
+  fileSystem: {
+    link: vi.fn(),
+    mkdir: vi.fn(),
+    open: vi.fn(),
+    rename: vi.fn(),
+    rm: vi.fn(),
+  },
+  fileSystemActual: {} as Pick<
+    typeof import("node:fs/promises"),
+    "link" | "mkdir" | "open" | "rename" | "rm"
+  >,
+  resetConstants: (): void => undefined,
+  resetFileSystem: (): void => undefined,
+}))
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs")
+  const reset = (): void => {
+    for (const name of Object.keys(mocks.constants)) delete mocks.constants[name]
+    Object.assign(mocks.constants, actual.constants)
+  }
+  mocks.resetConstants = reset
+  reset()
+  return { ...actual, constants: mocks.constants }
+})
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  Object.assign(mocks.fileSystemActual, {
+    link: actual.link,
+    mkdir: actual.mkdir,
+    open: actual.open,
+    rename: actual.rename,
+    rm: actual.rm,
+  })
+  const reset = (): void => {
+    mocks.fileSystem.link.mockReset().mockImplementation(actual.link)
+    mocks.fileSystem.mkdir.mockReset().mockImplementation(actual.mkdir)
+    mocks.fileSystem.open.mockReset().mockImplementation(actual.open)
+    mocks.fileSystem.rename.mockReset().mockImplementation(actual.rename)
+    mocks.fileSystem.rm.mockReset().mockImplementation(actual.rm)
+  }
+  mocks.resetFileSystem = reset
+  reset()
+  return {
+    ...actual,
+    link: mocks.fileSystem.link,
+    mkdir: mocks.fileSystem.mkdir,
+    open: mocks.fileSystem.open,
+    rename: mocks.fileSystem.rename,
+    rm: mocks.fileSystem.rm,
+  }
+})
 
 import { guardedWrite } from "./filesystem-guard.civet"
+
+afterEach(() => {
+  mocks.resetConstants()
+  mocks.resetFileSystem()
+  vi.clearAllMocks()
+})
 
 const exists = async (path: string): Promise<boolean> => {
   try {
@@ -51,6 +112,7 @@ describe("filesystem guard", () => {
     const outside = await createRoot()
     try {
       await writeFile(join(root, "existing.json"), "original", "utf8")
+      await writeFile(join(root, "ancestor-file"), "occupied", "utf8")
       await mkdir(join(root, "directory.json"))
       await writeFile(join(outside, "outside.json"), "outside", "utf8")
       await symlink(join(outside, "outside.json"), join(root, "linked.json"))
@@ -59,12 +121,16 @@ describe("filesystem guard", () => {
         .rejects.toThrow(/escapes repository/i)
       await expect(guardedWrite(root, join(outside, "absolute.json"), "unsafe", "create"))
         .rejects.toThrow(/escapes repository/i)
+      await expect(guardedWrite(root, ".", "unsafe", "create"))
+        .rejects.toThrow(/parent escapes repository/i)
       await expect(guardedWrite(root, "existing.json", "changed", "create"))
         .rejects.toThrow(/target is occupied/i)
       await expect(guardedWrite(root, "directory.json", "changed", "upsert"))
         .rejects.toThrow(/target is occupied/i)
       await expect(guardedWrite(root, "linked.json", "changed", "upsert"))
         .rejects.toThrow(/symbolic links/i)
+      await expect(guardedWrite(root, "ancestor-file/inventory.json", "changed", "upsert"))
+        .rejects.toThrow(/ancestor is not a directory/i)
       await expect(readFile(join(root, "existing.json"), "utf8")).resolves.toBe("original")
       await expect(readFile(join(outside, "outside.json"), "utf8")).resolves.toBe("outside")
     } finally {
@@ -215,6 +281,151 @@ describe("filesystem guard", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
+    }
+  })
+  it("rejects an ancestor that is replaced with a file during creation", async () => {
+    const root = await createRoot()
+    const ancestor = join(await realpath(root), "docs")
+    mocks.fileSystem.mkdir.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === ancestor) {
+        await writeFile(ancestor, "foreign ancestor", "utf8")
+        return undefined
+      }
+      return Reflect.apply(mocks.fileSystemActual.mkdir, undefined, arguments_)
+    })
+
+    try {
+      await expect(guardedWrite(root, "docs/inventory.json", "content", "create"))
+        .rejects.toThrow(/ancestor creation failed/i)
+      await expect(readFile(ancestor, "utf8")).resolves.toBe("foreign ancestor")
+      await expect(exists(join(root, ".darkfactory-operations.lock"))).resolves.toBe(false)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses the portable no-follow fallback and contains descriptor close failures", async () => {
+    const root = await createRoot()
+    Reflect.deleteProperty(mocks.constants, "O_NOFOLLOW")
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(
+        mocks.fileSystemActual.open,
+        undefined,
+        arguments_,
+      ) as Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
+      if (String(arguments_[0]).endsWith(".tmp")) {
+        const originalClose = handle.close.bind(handle)
+        Object.defineProperty(handle, "close", {
+          configurable: true,
+          value: async () => {
+            await originalClose()
+            throw new Error("descriptor close failed")
+          },
+        })
+      }
+      return handle
+    })
+
+    try {
+      await expect(guardedWrite(root, "inventory.json", "content", "create"))
+        .resolves.toBeUndefined()
+      await expect(readFile(join(root, "inventory.json"), "utf8")).resolves.toBe("content")
+      await expect(readdir(root)).resolves.toEqual(["inventory.json"])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves foreign lock and temporary symlinks during best-effort cleanup", async () => {
+    const root = await createRoot()
+    const outside = await createRoot()
+    const outsideFile = join(outside, "foreign.txt")
+    await writeFile(outsideFile, "foreign", "utf8")
+    const lock = join(root, ".darkfactory-operations.lock")
+    try {
+      await expect(guardedWrite(root, "blocked.json", "content", "create", {
+        beforePublish: async () => {
+          await rm(lock)
+          await symlink(outsideFile, lock)
+        },
+      })).rejects.toThrow(/symbolic links/i)
+      await expect(readFile(outsideFile, "utf8")).resolves.toBe("foreign")
+      await expect(exists(join(root, "blocked.json"))).resolves.toBe(false)
+
+      await rm(lock)
+      await expect(guardedWrite(root, "docs/inventory.json", "published", "create", {
+        afterPublish: async () => {
+          const temporary = (await readdir(join(root, "docs")))
+            .find((name) => name.endsWith(".tmp"))
+          if (!temporary) throw new Error("temporary file was not created")
+          const temporaryPath = join(root, "docs", temporary)
+          await rm(temporaryPath)
+          await symlink(outsideFile, temporaryPath)
+        },
+      })).resolves.toBeUndefined()
+      await expect(readFile(join(root, "docs/inventory.json"), "utf8"))
+        .resolves.toBe("published")
+      await expect(readFile(outsideFile, "utf8")).resolves.toBe("foreign")
+      expect(await readdir(join(root, "docs"))).toHaveLength(2)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(outside, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects backup and publication identities replaced before validation", async () => {
+    const root = await createRoot()
+    const target = join(root, "inventory.json")
+    await writeFile(target, "original", "utf8")
+    mocks.fileSystem.link.mockImplementationOnce(async (...arguments_) => {
+      await Reflect.apply(mocks.fileSystemActual.link, undefined, arguments_)
+      await mocks.fileSystemActual.rm(arguments_[1])
+      await writeFile(arguments_[1], "foreign backup", "utf8")
+    })
+    try {
+      await expect(guardedWrite(root, "inventory.json", "replacement", "upsert"))
+        .rejects.toThrow(/backup identity mismatch/i)
+      await expect(readFile(target, "utf8")).resolves.toBe("original")
+      await expect(readdir(root)).resolves.toEqual(["inventory.json"])
+
+      mocks.fileSystem.link.mockImplementationOnce(async (...arguments_) => {
+        await Reflect.apply(mocks.fileSystemActual.link, undefined, arguments_)
+        await mocks.fileSystemActual.rm(arguments_[1])
+        await writeFile(arguments_[1], "foreign publication", "utf8")
+      })
+      await expect(guardedWrite(root, "created.json", "published", "create"))
+        .rejects.toThrow(/publication identity mismatch/i)
+      await expect(exists(join(root, "created.json"))).resolves.toBe(false)
+      await expect(readdir(root)).resolves.toEqual(["inventory.json"])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("contains rollback and backup cleanup failures without deleting the publication", async () => {
+    const root = await createRoot()
+    const target = join(root, "inventory.json")
+    await writeFile(target, "original", "utf8")
+    mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]).endsWith(".bak")) throw new Error("rollback rename failed")
+      return Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+    })
+    mocks.fileSystem.rm.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]).endsWith(".bak")) {
+        await Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+        throw new Error("backup cleanup failed")
+      }
+      return Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+    })
+
+    try {
+      await expect(guardedWrite(root, "inventory.json", "replacement", "upsert", {
+        afterPublish: async () => { throw new Error("validation failed") },
+      })).rejects.toThrow(/validation failed/i)
+      await expect(readFile(target, "utf8")).resolves.toBe("replacement")
+      await expect(readdir(root)).resolves.toEqual(["inventory.json"])
+    } finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 })

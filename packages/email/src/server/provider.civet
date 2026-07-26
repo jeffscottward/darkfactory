@@ -232,6 +232,11 @@ export const selectEmailPort = (
         binding: options.previewBinding,
       })
     }
+    if (
+      (process.env as { readonly NODE_ENV?: string }).NODE_ENV === "production"
+    ) {
+      return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
+    }
     const previewOptions: PreviewEmailPortOptions = {
       environment: options.environment,
       directory: options.previewDirectory,

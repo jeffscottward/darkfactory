@@ -218,11 +218,8 @@ const snapshotOtlpHeaders = (
     }
 
     const headers: Record<string, string> = Object.create(null)
-    let count = 0
     for (const rawName in input) {
       if (!Object.hasOwn(input, rawName)) continue
-      count += 1
-      if (count > 8) return Object.freeze({ valid: false })
 
       const name = rawName.toLowerCase()
       if (

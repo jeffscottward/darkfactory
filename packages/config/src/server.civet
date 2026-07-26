@@ -28,8 +28,8 @@ const isHeaderSafeEmailFrom = (value: string): boolean => {
   if (MAILBOX_PATTERN.test(value)) return true
   const displayMailbox = /^([^<>]+)<([^<>]+)>$/.exec(value)
   if (displayMailbox === null) return false
-  const displayName = displayMailbox[1]?.trim() ?? ""
-  const mailbox = displayMailbox[2]?.trim() ?? ""
+  const displayName = displayMailbox[1]!.trim()
+  const mailbox = displayMailbox[2]!.trim()
   return displayName.length > 0 && displayName.length <= 100 && MAILBOX_PATTERN.test(mailbox)
 }
 
@@ -41,6 +41,14 @@ const emailFromSchema = z
     isHeaderSafeEmailFrom,
     "EMAIL_FROM must be a header-safe mailbox or display mailbox",
   )
+
+const parseUrl = (value: string): URL | undefined => {
+  try {
+    return new URL(value)
+  } catch (_error) {
+    return undefined
+  }
+}
 
 const optionalUrl = (name: string) =>
   z.preprocess(
@@ -57,7 +65,7 @@ const httpsUrl = (name: string) =>
     .refine((value) => !value.endsWith("/"), {
       message: `${name} must not have a trailing slash`,
     })
-    .refine((value) => new URL(value).origin === value, {
+    .refine((value) => parseUrl(value)?.origin === value, {
       message: `${name} must be a clean HTTPS origin`,
     })
 const environmentBoolean = (name: string, defaultValue: boolean) =>
@@ -71,7 +79,9 @@ const environmentBoolean = (name: string, defaultValue: boolean) =>
   }, z.boolean({ error: `${name} must be true or false` }).default(defaultValue))
 
 const isLocalProductionOrigin = (value: string): boolean => {
-  const parsedHostname = new URL(value).hostname.toLowerCase()
+  const parsedUrl = parseUrl(value)
+  if (!parsedUrl) return false
+  const parsedHostname = parsedUrl.hostname.toLowerCase()
   const withoutTerminalDot = parsedHostname.endsWith(".")
     ? parsedHostname.slice(0, -1)
     : parsedHostname
@@ -88,15 +98,17 @@ const isLocalProductionOrigin = (value: string): boolean => {
 }
 
 const isPostgresUrl = (value: string): boolean => {
-  try {
-    const url = new URL(value)
-    return (
-      (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
-      url.hostname.length > 0
-    )
-  } catch {
-    return false
-  }
+  const url = parseUrl(value)
+  return (
+    url !== undefined &&
+    (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
+    url.hostname.length > 0
+  )
+}
+
+const usesVerifiedPostgresTls = (value: string): boolean => {
+  const sslModes = parseUrl(value)?.searchParams.getAll("sslmode") ?? []
+  return sslModes.length === 1 && sslModes[0]?.toLowerCase() === "verify-full"
 }
 
 const databaseUrlSchema = z
@@ -186,6 +198,13 @@ export const serverEnvSchema = baseServerEnvSchema.superRefine((env, context): v
         code: "custom",
         path: [name],
         message: `${name} cannot use a local origin in production`,
+      })
+    }
+    if (!usesVerifiedPostgresTls(env.DATABASE_URL)) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATABASE_URL"],
+        message: "DATABASE_URL must use sslmode=verify-full in production",
       })
     }
   }

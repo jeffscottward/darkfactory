@@ -5,11 +5,11 @@ import { fileURLToPath } from "node:url"
 import { ensureDevelopmentSeedIdentity } from "@darkfactory/auth/server"
 import {
   createNodeDatabase,
-  migrate,
   resetDevelopment,
   seedDevelopment,
   type PrepareSeedIdentities,
 } from "@darkfactory/db/server"
+import { migrate } from "@darkfactory/db/server/migration"
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,

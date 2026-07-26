@@ -24,17 +24,22 @@
       "browser": "./src/server/unsupported.civet",
       "import": "./src/server/index.civet",
       "default": "./src/server/index.civet"
+    },
+    "./server/migration": {
+      "types": "./src/server/migration.civet.d.ts",
+      "import": "./src/server/migration.civet",
+      "default": "./src/server/migration.civet"
     }
   },
   "scripts": {
-    "types": "civet --config civet.types.json --emit-declaration src/schema/index.civet src/server/client.civet src/server/repositories.civet src/reset.civet src/seeds/users.civet src/seeds/content.civet src/seeds/preferences.civet src/seeds/profiles.civet src/seeds/index.civet src/server/index.civet",
-    "typecheck": "civet --config civet.typecheck.json --typecheck",
-    "test": "vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet --exclude \"**/*contract.test.civet\"",
-    "test:unit": "vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet --exclude \"**/*contract.test.civet\"",
-    "db:schema": "civet --compile src/schema/index.civet --output .drizzle/src/schema/index.ts && civet --compile src/generated/schema-registry.civet --output .drizzle/src/generated/schema-registry.ts",
-    "db:generate": "corepack pnpm run db:schema && drizzle-kit generate --config drizzle.config.ts",
-    "db:check": "corepack pnpm run db:schema && drizzle-kit check --config drizzle.config.ts",
-    "db:migrate": "corepack pnpm run db:schema && drizzle-kit migrate --config drizzle.config.ts"
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/schema/index.civet src/server/client.civet src/server/migration.civet src/server/repositories.civet src/reset.civet src/seeds/users.civet src/seeds/content.civet src/seeds/preferences.civet src/seeds/profiles.civet src/seeds/index.civet src/server/index.civet",
+    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet --exclude \"**/*contract.test.civet\"",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet --exclude \"**/*contract.test.civet\"",
+    "db:schema": "bunx --bun --no-install civet --compile src/schema/index.civet --output .drizzle/src/schema/index.ts && bunx --bun --no-install civet --compile src/generated/schema-registry.civet --output .drizzle/src/generated/schema-registry.ts",
+    "db:generate": "bun run db:schema && bunx --bun --no-install drizzle-kit generate --config drizzle.config.ts",
+    "db:check": "bun run db:schema && bunx --bun --no-install drizzle-kit check --config drizzle.config.ts",
+    "db:migrate": "bun run db:schema && bunx --bun --no-install drizzle-kit migrate --config drizzle.config.ts"
   },
   "engines": {
     "node": ">=22.13"

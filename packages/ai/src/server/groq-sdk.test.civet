@@ -146,3 +146,55 @@ describe "Groq SDK boundary", ->
     })
     expect(injectedFetch).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(result)).not.toMatch(/secret|private prompt|header|body/i)
+
+  it "supports the SDK named constructor export without crossing provider boundaries", async ->
+    let constructorOptions: unknown
+    const create = vi.fn(async () => ({
+      choices: [{ message: { content: "named SDK generated text" } }],
+    }))
+    const NamedGroq = vi.fn(function (options: unknown) {
+      constructorOptions = options
+      return {
+        chat: { completions: { create } },
+      }
+    })
+    const injectedFetch = vi.fn()
+
+    vi.resetModules()
+    vi.doMock("groq-sdk", () => ({ default: undefined, Groq: NamedGroq }))
+    try
+      const {
+        createGroqAiPort: createNamedExportPort,
+      } = await import("./groq.civet")
+      const port = createNamedExportPort({
+        apiKey: "secret-api-key",
+        model: "test-model",
+        fetch: injectedFetch,
+      })
+
+      const result = await port.generateText({ prompt: "private prompt" })
+
+      expect(result).toEqual({
+        status: "generated",
+        text: "named SDK generated text",
+      })
+      expect(constructorOptions).toEqual({
+        apiKey: "secret-api-key",
+        baseURL: "https://api.groq.com",
+        fetch: injectedFetch,
+        logLevel: "off",
+        maxRetries: 0,
+        timeout: 5_000,
+      })
+      expect(create).toHaveBeenCalledWith(
+        {
+          model: "test-model",
+          messages: [{ role: "user", content: "private prompt" }],
+          stream: false,
+        },
+        { signal: expect.any(AbortSignal) },
+      )
+      expect(JSON.stringify(result)).not.toMatch(/secret-api-key|private prompt/)
+    finally
+      vi.doUnmock("groq-sdk")
+      vi.resetModules()

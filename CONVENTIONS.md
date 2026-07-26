@@ -36,7 +36,7 @@ Author `.civet` for application logic, features, React UI, contracts, schemas, s
 Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication target, or exact filename convention, including `vite.config.ts`, Vitest/Playwright configuration, `drizzle.config.ts`, environment declarations, generated OpenAPI clients, generated Cloudflare bindings, and migration artifacts. Add `alchemy.run.ts` only when a real supported ancillary Cloudflare resource is enabled; while none is enabled, no Alchemy program or dependency belongs in the repository. Keep compatibility files thin and delegate into Civet when possible.
 
 - Register `@danielx/civet/vite` in the Vite compatibility configuration and include `civet` in vinext/Next route `pageExtensions`; vinext does not discover `.civet` routes by default.
-- Pin and verify a mutually compatible Node, Vite, React/RSC, vinext, and Civet toolchain during implementation. Exact versions are Implementation, not architectural invariants.
+- Pin and verify Bun, Node compatibility, Vite, React/RSC, vinext, and Civet together. Bun runs scripts and TypeScript; root Civet entrypoints use `bun --preload @danielx/civet/bun-civet`; compatible local CLIs use `bunx --bun --no-install`. pnpm owns installation, workspace selection, and the sole lockfile. Package-local CLIs run from their owning package context. Explicit Node execution requires a measured incompatibility: Vitest uses Node for V8 coverage; `vinext dev` uses Node because Bun 1.3.14 does not implement the WebSocket events required by Vite's development server; and Vinext build/deploy CLIs use Node because their Bun-generated production bundle omits authored routes despite reporting success.
 
 Never:
 
@@ -128,7 +128,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 - End-to-end tests cover critical user journeys through the rendered application, including authentication and the generic feature flow.
 - Keep tests deterministic, isolated, parallel-safe, and independent of production credentials or live providers. Use explicit test/local adapters, never silent mocks in production code.
 - A regression test must fail if the plausible bug returns. Test names describe behavior and outcome.
-- Run the narrow test while iterating, then the applicable root lifecycle. `pnpm run ci` and GitHub Actions must remain equivalent; never use bare `pnpm ci` as a gate because pnpm reserves it for clean installation.
+- Run the narrow test while iterating, then the applicable root lifecycle. `bun run ci` and GitHub Actions must remain equivalent. pnpm remains the package/workspace owner, and package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
 - Never skip, weaken, snapshot-away, or delete a failing test to obtain green status.
 
 ## UI and accessibility

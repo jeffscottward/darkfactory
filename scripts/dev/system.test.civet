@@ -201,12 +201,23 @@ describe("development Node process adapter", () => {
     await vi.advanceTimersByTimeAsync(20)
     await expect(timeoutResult).resolves.toEqual({ exitCode: 1, stdout: "", stderr: "" })
     expect(timedOut.kill).toHaveBeenCalledWith("SIGTERM")
+
+    const exitedWithoutCode = fakeChild()
+    mocks.spawn.mockReturnValueOnce(exitedWithoutCode)
+    const missingExitCode = nodeProcessAdapter.runInteractive("abrupt", [])
+    exitedWithoutCode.emit("exit", null)
+    await expect(missingExitCode).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    })
   })
 
   it("maps trusted HTTPS status ranges and fetch rejection", async () => {
     const fetchRequest = vi.fn()
       .mockResolvedValueOnce({ status: 204 })
       .mockResolvedValueOnce({ status: 399 })
+      .mockResolvedValueOnce({ status: 199 })
       .mockResolvedValueOnce({ status: 400 })
       .mockRejectedValueOnce(new Error("offline"))
     vi.stubGlobal("fetch", fetchRequest)
@@ -214,6 +225,7 @@ describe("development Node process adapter", () => {
     await expect(nodeProcessAdapter.probeHttps("https://one.localhost")).resolves.toBe(true)
     await expect(nodeProcessAdapter.probeHttps("https://two.localhost")).resolves.toBe(true)
     await expect(nodeProcessAdapter.probeHttps("https://three.localhost")).resolves.toBe(false)
+    await expect(nodeProcessAdapter.probeHttps("https://four.localhost")).resolves.toBe(false)
     await expect(nodeProcessAdapter.probeHttps("https://offline.localhost")).resolves.toBe(false)
     expect(fetchRequest).toHaveBeenNthCalledWith(1, "https://one.localhost", {
       method: "HEAD",
@@ -316,6 +328,15 @@ describe("development certificate filesystem adapter", () => {
       ".certs/localhost-key.pem",
     ])).rejects.toThrow(/regular/i)
 
+    mocks.lstat.mockResolvedValueOnce({
+      ...stats("directory"),
+      isSymbolicLink: () => true,
+    })
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toThrow(/regular/i)
+
     mocks.lstat.mockRejectedValueOnce(errno("EACCES"))
     await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
       ".certs/localhost.pem",
@@ -327,6 +348,24 @@ describe("development certificate filesystem adapter", () => {
       ".certs/localhost.pem",
       ".certs/localhost-key.pem",
     ])).rejects.toThrow(/escapes the repository/i)
+    mocks.realpath.mockResolvedValueOnce("/")
+    await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])).rejects.toThrow(/escapes the repository/i)
+
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" })
+    mocks.realpath.mockResolvedValueOnce("/repo/..\\outside")
+    try {
+      await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+        ".certs/localhost.pem",
+        ".certs/localhost-key.pem",
+      ])).rejects.toThrow(/escapes the repository/i)
+    } finally {
+      Object.defineProperty(process, "platform", platform)
+    }
+
   })
 
   it("rejects wrong counts, traversal, existing outputs, and unexpected access errors", async () => {
@@ -359,6 +398,17 @@ describe("development certificate filesystem adapter", () => {
     ])
     mocks.lstat.mockResolvedValueOnce(stats("symlink"))
     await expect(unsafe.commit()).rejects.toThrow(/unsafe output/i)
+    expect(mocks.rename).not.toHaveBeenCalled()
+
+    const fileSymlink = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
+      ".certs/localhost.pem",
+      ".certs/localhost-key.pem",
+    ])
+    mocks.lstat.mockResolvedValueOnce({
+      ...stats("file"),
+      isSymbolicLink: () => true,
+    })
+    await expect(fileSymlink.commit()).rejects.toThrow(/unsafe output/i)
     expect(mocks.rename).not.toHaveBeenCalled()
 
     const raced = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [

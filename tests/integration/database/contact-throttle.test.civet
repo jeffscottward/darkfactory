@@ -1,8 +1,8 @@
 import {
   createContactThrottleRepository,
   createNodeDatabase,
-  migrate,
 } from "@darkfactory/db/server"
+import { migrate } from "@darkfactory/db/server/migration"
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
