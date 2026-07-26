@@ -109,13 +109,16 @@ varlock run -- bun run db:migrate
 
 ### Development seed warning
 
-`bun run db:seed` creates predictable development identities (`admin@domain.test`, `alice@domain.test`, and `bob@domain.test`) with the shared password `Development123!`. These accounts and credentials are deliberately unsafe outside a disposable development or test database. The command requires `APP_ENV=development` or `APP_ENV=test`, but you must still inspect `DATABASE_URL` before running it. Never seed a shared, staging, customer, or production database.
+`bun run db:seed` creates predictable development identities (`admin@domain.test`, `alice@domain.test`, and `bob@domain.test`) with the shared password `Development123!`. These accounts and credentials are deliberately unsafe outside a disposable development or test database. The command requires a validated `APP_ENV=development` or `APP_ENV=test` and exactly one out-of-band `--confirm-environment=<development|test>` argument that matches it. Bun may load `APP_ENV` from `.env`; dotenv cannot supply the command-line confirmation.
+
+The package scripts intentionally omit confirmation, so append the matching flag after `--`:
 
 ```bash
-varlock run -- bun run db:seed
+varlock run -- bun run db:seed -- --confirm-environment=development
+varlock run -- bun run db:reset -- --confirm-environment=development
 ```
 
-`bun run db:reset` is destructive and has the same environment restriction. Use it only against a disposable local/test target.
+`bun run db:reset` is destructive. The matching confirmation proves only that the invocation was explicit; it does not prove `DATABASE_URL` points to a disposable target. Inspect the destination without printing its password, and never seed or reset a shared, staging, customer, or production database.
 
 ## Canonical local HTTPS and PM2
 

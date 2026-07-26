@@ -8,5 +8,21 @@
     "directory": "dist/client",
     "not_found_handling": "none",
     "binding": "ASSETS"
+  },
+  "env": {
+    "staging": {
+      "name": "darkfactory-web-staging",
+      "workers_dev": true,
+      "vars": {
+        "APP_ENV": "production",
+        "APP_URL": "https://darkfactory-web-staging.jsward-17.workers.dev",
+        "APP_NAME": "DarkFactory Staging",
+        "DATABASE_PROVIDER": "planetscale",
+        "BETTER_AUTH_URL": "https://darkfactory-web-staging.jsward-17.workers.dev",
+        "EMAIL_PROVIDER": "resend",
+        "EMAIL_TRANSPORT": "resend",
+        "EMAIL_FROM": "DarkFactory Staging <onboarding@resend.dev>"
+      }
+    }
   }
 }

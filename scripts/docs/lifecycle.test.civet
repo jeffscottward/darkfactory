@@ -176,6 +176,12 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["deploy:web:preview"]).toBe(
       "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --preview",
     )
+    expect(rootPackage.scripts["deploy:web:staging"]).toBe(
+      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --env staging",
+    )
+    expect(rootPackage.scripts["deploy:web:staging:check"]).toBe(
+      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run --env staging",
+    )
 
     const byName = new Map(packageManifests.map((manifest) => [manifest.name, manifest]))
     expect(byName.get("@darkfactory/web")?.scripts?.dev).toBe(
@@ -312,6 +318,15 @@ describe("DF-101/106 lifecycle contract", () => {
   })
 
   it("runs isolated CI lanes concurrently while preserving only verified browser evidence", () => {
+    const workflowStep = (name: string): string => {
+      const header = `      - name: ${name}\n`
+      expect(workflow.split(header)).toHaveLength(2)
+      const start = workflow.indexOf(header)
+      const next = workflow.indexOf("\n      - ", start + header.length)
+      workflow.slice(start, next === -1 ? undefined : next)
+    }
+    const proxyStart = workflowStep("Start local HTTPS proxy without system trust")
+    const proxyStop = workflowStep("Stop local HTTPS proxy")
     expect(rootPackage.devDependencies["@axe-core/playwright"]).toBe("catalog:")
     expect(workspace).toContain('"@axe-core/playwright": 4.12.1')
     expect(workflow).toContain("matrix:")
@@ -326,7 +341,16 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toContain(
       "bunx --bun --no-install playwright install --with-deps chromium",
     )
-    expect(workflow).toContain("bunx --bun --no-install portless proxy start")
+    expect(proxyStart).toContain("if: matrix.lane == 'browser'")
+    expect(proxyStart).toContain(
+      "timeout --signal=TERM --kill-after=5s 20s bunx --bun --no-install portless proxy start --skip-trust",
+    )
+    expect(proxyStart).toContain(
+      "timeout --signal=TERM --kill-after=2s 10s bash -c",
+    )
+    expect(proxyStart).toContain(
+      'until (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT")',
+    )
     expect(workflow).toContain("scripts/graph/requirements.lock")
     expect(workflow).toContain("--require-hashes")
     expect(workflow).toContain('python-version: "3.12.11"')
@@ -334,10 +358,20 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toMatch(/Install pinned Graphify\n\s+if: matrix\.lane == 'graph'/)
     expect(workflow).toMatch(/Install Playwright browser\n\s+if: matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Start PostgreSQL integration service\n\s+if: matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'/)
-    expect(workflow).toMatch(/Start trusted local HTTPS proxy\n\s+if: matrix\.lane == 'browser'/)
+    expect(workflow).toMatch(/Start local HTTPS proxy without system trust\n\s+if: matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Trust portless CA in Chromium\n\s+if: matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Build Graphify output[\s\S]*matrix\.lane == 'graph'[\s\S]*graph:build[\s\S]*git diff --exit-code/)
     expect(workflow).toMatch(/Preserve externally scanned Playwright evidence[\s\S]*matrix\.lane == 'browser' && success\(\)[\s\S]*playwright-report\/[\s\S]*test-results\//)
+    expect(proxyStop).toContain("if: matrix.lane == 'browser' && always()")
+    expect(proxyStop).toContain(
+      'timeout --signal=TERM --kill-after=5s 15s bunx --bun --no-install portless proxy stop --port "$PORTLESS_PORT" || true',
+    )
+    expect(proxyStop).toContain(
+      "timeout --signal=TERM --kill-after=2s 10s bash -c",
+    )
+    expect(proxyStop).toContain(
+      'while (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT")',
+    )
     expect(workflow).toMatch(/Stop PostgreSQL integration service\n\s+if: \(matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'\) && always\(\)/)
     expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1)
     expect(workflow).toContain("persist-credentials: false")

@@ -78,9 +78,13 @@ jobs:
         if: matrix.lane == 'integration' || matrix.lane == 'browser'
         run: docker compose -f infra/docker/postgres.compose.yml up --detach --wait
 
-      - name: Start trusted local HTTPS proxy
+      - name: Start local HTTPS proxy without system trust
         if: matrix.lane == 'browser'
-        run: bunx --bun --no-install portless proxy start
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 20s bunx --bun --no-install portless proxy start --skip-trust
+          timeout --signal=TERM --kill-after=2s 10s bash -c \
+            'until (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT") 2>/dev/null; do sleep 0.25; done'
 
       # Chromium uses NSS, so trust the generated CA instead of bypassing HTTPS validation.
       - name: Trust portless CA in Chromium
@@ -123,6 +127,14 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Stop local HTTPS proxy
+        if: matrix.lane == 'browser' && always()
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 15s bunx --bun --no-install portless proxy stop --port "$PORTLESS_PORT" || true
+          timeout --signal=TERM --kill-after=2s 10s bash -c \
+            'while (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT") 2>/dev/null; do sleep 0.25; done'
 
       - name: Stop PostgreSQL integration service
         if: (matrix.lane == 'integration' || matrix.lane == 'browser') && always()

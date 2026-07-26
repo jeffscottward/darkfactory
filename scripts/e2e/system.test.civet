@@ -315,7 +315,7 @@ describe("owned run capability encoding", () => {
       )).toThrow(/invalid owned E2E adoption/i)
     }
   })
-  it("rejects mismatched lifecycle paths and replaced root identities", async () => {
+  it("rejects mismatched lifecycle paths and replaced root capabilities", async () => {
     await withOwnedRun(async (root, proof) => {
       const { adoption, paths } = await lifecycle(root, proof)
       await expect(assertOwnedLifecycleRoots({
@@ -326,12 +326,23 @@ describe("owned run capability encoding", () => {
       await rm(paths.e2e, { force: true, recursive: true })
       await mkdir(paths.e2e)
       await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
-        /root identity changed/i,
+        /root identity or capability changed/i,
       )
     })
   })
 
-  it("rejects a replaced ownership marker identity", async () => {
+  it("classifies a vanished lifecycle root as capability drift", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      await rm(paths.e2e, { force: true, recursive: true })
+
+      await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
+        /root identity or capability changed/i,
+      )
+    })
+  })
+
+  it("rejects a replaced ownership marker capability", async () => {
     await withOwnedRun(async (root, proof) => {
       const { adoption, paths } = await lifecycle(root, proof)
       const marker = join(paths.evidence, ".darkfactory-e2e-owner.json")
@@ -339,7 +350,7 @@ describe("owned run capability encoding", () => {
       await writeFile(marker, "{}", { mode: 0o600 })
 
       await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
-        /marker identity changed/i,
+        /marker identity or capability changed/i,
       )
     })
   })
@@ -519,7 +530,7 @@ describe("owned lifecycle filesystem contracts", () => {
     }
   })
 
-  it("detects a marker capability changed after adoption", async () => {
+  it("detects marker capability drift after adoption", async () => {
     await withOwnedRun(async (root, proof) => {
       const { adoption, paths } = await lifecycle(root, proof)
       await writeFile(
@@ -529,7 +540,7 @@ describe("owned lifecycle filesystem contracts", () => {
       )
 
       await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
-        /marker capability changed/i,
+        /marker identity or capability changed/i,
       )
     })
   })

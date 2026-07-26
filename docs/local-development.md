@@ -70,13 +70,20 @@ Useful database commands:
 | `bun run db:generate` | Compile the Drizzle schema and generate migration artifacts. Review generated changes. |
 | `bun run db:check` | Check the compiled schema and migration history. |
 | `bun run db:migrate` | Apply checked-in migrations to `DATABASE_URL`. |
-| `bun run db:seed` | Idempotently create the development personas and sample content. |
-| `bun run db:reset` | Destructively clear development data. |
+| `bun run db:seed` | Idempotently create the development personas and sample content; requires the matching confirmation below. |
+| `bun run db:reset` | Destructively clear development data; requires the matching confirmation below. |
 | `bun run db:test:down` | Stop the Compose service and remove its volumes. |
 
 ### Seed and reset safety
 
-Both seed and reset require `APP_ENV=development` or `APP_ENV=test`; they reject production. That guard does not prove the connection target is disposable. Before either command, inspect the destination host and database name without printing its password.
+Both seed and reset require a validated `APP_ENV=development` or `APP_ENV=test` plus exactly one `--confirm-environment=<development|test>` command-line argument with the same value. Bun may auto-load `APP_ENV` from the root `.env`, but dotenv cannot provide this separate confirmation. The package scripts remain generic; callers append the flag after `--`:
+
+```bash
+varlock run -- bun run db:seed -- --confirm-environment=development
+varlock run -- bun run db:reset -- --confirm-environment=development
+```
+
+Confirmation proves only that the command was invoked explicitly. It does not establish that `DATABASE_URL` is safe or disposable. Before either command, inspect the destination host and database name without printing its password.
 
 The development identities are:
 
@@ -167,7 +174,7 @@ bun run db:test:up
 varlock run -- bun run db:migrate
 ```
 
-This destroys the disposable local database. Seed again only after rechecking `APP_ENV` and `DATABASE_URL`.
+This destroys the disposable local database. After rechecking `APP_ENV` and `DATABASE_URL`, seed again with `varlock run -- bun run db:seed -- --confirm-environment=development`.
 
 ### Finish a local session
 

@@ -110,11 +110,20 @@ const populateSessionAndVerification = async (): Promise<void> => {
 const runCli = async (
   command: "seed" | "reset",
   appEnvironment: string | null = "test",
+  confirmationEnvironment: "development" | "test" | null = null,
 ) => {
   const { APP_ENV: _inheritedAppEnvironment, ...parentEnvironment } = process.env
   return execFileAsync(
     "corepack",
-    ["pnpm", "--silent", "run", `db:${command}`],
+    [
+      "pnpm",
+      "--silent",
+      "run",
+      `db:${command}`,
+      ...(confirmationEnvironment === null
+        ? []
+        : ["--", `--confirm-environment=${confirmationEnvironment}`]),
+    ],
     {
       cwd: PROJECT_ROOT,
       env: {
@@ -197,8 +206,8 @@ describe.sequential "DF-040 development database lifecycle", ->
     expect(await migrationCount()).toBe(journalBefore)
   }, 60_000)
 
-  it("runs seed and reset as rerunnable secret-safe CLI commands", async () => {
-    const firstSeed = await runCli("seed")
+  it("requires out-of-band confirmation and runs seed and reset as rerunnable secret-safe CLI commands", async () => {
+    const firstSeed = await runCli("seed", "test", "test")
     expect(JSON.parse(firstSeed.stdout)).toEqual({
       identitiesCreated: 3,
       usersConverged: 3,
@@ -208,8 +217,15 @@ describe.sequential "DF-040 development database lifecycle", ->
       featureItemsConverged: 3,
     })
     const populated = await tableCounts()
+
+    await expect(runCli("reset", "test")).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        "Database seed/reset requires --confirm-environment=<development|test>",
+      ),
+    })
+    expect(await tableCounts()).toEqual(populated)
+
     for (const [command, environment] of [
-      ["seed", null],
       ["reset", ""],
       ["seed", "staging"],
       ["reset", "production"],
@@ -221,13 +237,13 @@ describe.sequential "DF-040 development database lifecycle", ->
     }
     expectNoUnexpectedStderr(firstSeed.stderr)
 
-    const secondSeed = await runCli("seed")
+    const secondSeed = await runCli("seed", "test", "test")
     expect(JSON.parse(secondSeed.stdout)).toMatchObject({ identitiesCreated: 0 })
     expect(secondSeed.stdout).not.toContain("Development123!")
     expect(secondSeed.stdout).not.toContain(AUTH_SECRET)
     expectNoUnexpectedStderr(secondSeed.stderr)
 
-    const reset = await runCli("reset")
+    const reset = await runCli("reset", "test", "test")
     expect(JSON.parse(reset.stdout)).toEqual({ tablesCleared: 10 })
     expect(reset.stdout).not.toContain("Development123!")
     expect(reset.stdout).not.toContain(AUTH_SECRET)

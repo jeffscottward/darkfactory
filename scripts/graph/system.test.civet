@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
-import { access, link, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises"
+import { access, link, lstat, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, sep } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -10,16 +10,19 @@ const mocks = vi.hoisted(() => ({
   execFile: vi.fn(),
   fileSystem: {
     lstat: vi.fn(),
+    mkdtemp: vi.fn(),
     open: vi.fn(),
     readdir: vi.fn(),
     realpath: vi.fn(),
+    rename: vi.fn(),
     rm: vi.fn(),
     writeFile: vi.fn(),
   },
   fileSystemActual: {} as Pick<
     typeof import("node:fs/promises"),
-    "lstat" | "mkdir" | "open" | "readdir" | "realpath" | "rename" | "rm" | "writeFile"
+    "lstat" | "mkdir" | "mkdtemp" | "open" | "readdir" | "realpath" | "rename" | "rm" | "writeFile"
   >,
+  snapshotPrivateParents: new Set<string>(),
   compileCivetSnapshot: vi.fn(),
   resetFileSystem: (): void => undefined,
   resetCompiler: (): void => undefined,
@@ -30,6 +33,7 @@ vi.mock("node:fs/promises", async () => {
   Object.assign(mocks.fileSystemActual, {
     lstat: actual.lstat,
     mkdir: actual.mkdir,
+    mkdtemp: actual.mkdtemp,
     open: actual.open,
     readdir: actual.readdir,
     realpath: actual.realpath,
@@ -39,9 +43,15 @@ vi.mock("node:fs/promises", async () => {
   })
   const reset = (): void => {
     mocks.fileSystem.lstat.mockReset().mockImplementation(actual.lstat)
+    mocks.fileSystem.mkdtemp.mockReset().mockImplementation(async (...arguments_) => {
+      const parent = await Reflect.apply(actual.mkdtemp, undefined, arguments_)
+      mocks.snapshotPrivateParents.add(parent)
+      return parent
+    })
     mocks.fileSystem.open.mockReset().mockImplementation(actual.open)
     mocks.fileSystem.readdir.mockReset().mockImplementation(actual.readdir)
     mocks.fileSystem.realpath.mockReset().mockImplementation(actual.realpath)
+    mocks.fileSystem.rename.mockReset().mockImplementation(actual.rename)
     mocks.fileSystem.rm.mockReset().mockImplementation(actual.rm)
     mocks.fileSystem.writeFile.mockReset().mockImplementation(actual.writeFile)
   }
@@ -50,9 +60,11 @@ vi.mock("node:fs/promises", async () => {
   return {
     ...actual,
     lstat: mocks.fileSystem.lstat,
+    mkdtemp: mocks.fileSystem.mkdtemp,
     open: mocks.fileSystem.open,
     readdir: mocks.fileSystem.readdir,
     realpath: mocks.fileSystem.realpath,
+    rename: mocks.fileSystem.rename,
     rm: mocks.fileSystem.rm,
     writeFile: mocks.fileSystem.writeFile,
   }
@@ -89,7 +101,12 @@ const previous = Object.fromEntries(
   ),
 )
 
-afterEach(() => {
+afterEach(async () => {
+  const privateParents = [...mocks.snapshotPrivateParents]
+  mocks.snapshotPrivateParents.clear()
+  await Promise.all(privateParents.map((path) =>
+    mocks.fileSystemActual.rm(path, { force: true, recursive: true })
+  ))
   mocks.resetFileSystem()
   mocks.resetCompiler()
   vi.clearAllMocks()
@@ -139,30 +156,279 @@ const configuredSourceConfig = (
 }))
 const isolatedSnapshotFileSystem = () => {
   const namespace = randomUUID()
+  const snapshotKey =
+    `.graphify/source-snapshot-${createHash("sha256").update(namespace).digest("hex")}`
+  const temporaryNamePrefix =
+    `darkfactory-graph-${createHash("sha256").update(snapshotKey).digest("hex").slice(0, 16)}-`
   return {
     fileSystem: createNodeGraphFileSystem(namespace),
-    path: `.graphify/source-snapshot-${createHash("sha256").update(namespace).digest("hex")}`,
+    get privateParents(): ReadonlySet<string> {
+      return new Set(
+        [...mocks.snapshotPrivateParents].filter((parent) =>
+          parent.includes(temporaryNamePrefix)
+        ),
+      )
+    },
+    temporaryNamePrefix,
   }
+}
+const expectPrivateParentsRemoved = async (
+  privateParents: ReadonlySet<string>,
+  expectedCount = 1,
+): Promise<void> => {
+  expect(privateParents.size).toBe(expectedCount)
+  await expect(Promise.all([...privateParents].map(exists)))
+    .resolves.toEqual(Array.from({ length: expectedCount }, () => false))
+}
+const captureSnapshotQuarantines = (snapshotPath: string): string[] => {
+  const quarantines: string[] = []
+  mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+    if (String(arguments_[0]) === snapshotPath) quarantines.push(String(arguments_[1]))
+    return Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+  })
+  return quarantines
 }
 
 describe("Graphify source snapshot", () => {
-  it("uses a deterministic repo-relative path and removes its owned snapshot", async () => {
+  it("creates a mode-0700 private temp snapshot and removes its private parent", async () => {
     const root = join("scripts", "graph", `system-snapshot-${randomUUID()}`)
     const source = join(root, "source.ts")
     await mkdir(root, { recursive: true })
     await writeFile(source, "export const source = true\n")
     const isolated = isolatedSnapshotFileSystem()
+    let privateParent = ""
 
     try {
       const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
-      expect(snapshot.path).toBe(isolated.path)
+      privateParent = dirname(snapshot.path)
+      expect(snapshot.path).toBe(join(privateParent, "active"))
+      expect(privateParent.startsWith(
+        join(await mocks.fileSystemActual.realpath("/tmp"), isolated.temporaryNamePrefix),
+      )).toBe(true)
+      expect((await lstat(privateParent)).mode & 0o777).toBe(0o700)
       await expect(readFile(join(snapshot.path, source), "utf8")).resolves.toBe(
         "export const source = true\n",
       )
       await snapshot.cleanup()
-      await expect(exists(snapshot.path)).resolves.toBe(false)
+      await expect(exists(privateParent)).resolves.toBe(false)
     } finally {
       await rm(root, { force: true, recursive: true })
+      if (privateParent) await rm(privateParent, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a writable non-sticky temporary base before creating a snapshot", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      return String(arguments_[0]) === canonicalTemporaryBase
+        ? Object.assign(stats, {
+            mode: (stats.mode | 0o022) & ~0o1000,
+            uid: 0,
+          })
+        : stats
+    })
+
+    await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+      .rejects.toThrow(/temporary base is unsafe/i)
+    expect(mocks.fileSystem.open).not.toHaveBeenCalled()
+  })
+
+  it("rejects an attacker-owned sticky temporary base", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      return String(arguments_[0]) === canonicalTemporaryBase
+        ? Object.assign(stats, {
+            mode: stats.mode | 0o022 | 0o1000,
+            uid: process.geteuid() + 1,
+          })
+        : stats
+    })
+
+    await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+      .rejects.toThrow(/temporary base is unsafe/i)
+    expect(mocks.fileSystem.open).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when effective user identity is unavailable", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const descriptor = Object.getOwnPropertyDescriptor(process, "geteuid")
+    Object.defineProperty(process, "geteuid", { configurable: true, value: undefined })
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toThrow(/requires effective user identity/i)
+    } finally {
+      if (descriptor) Object.defineProperty(process, "geteuid", descriptor)
+      else Reflect.deleteProperty(process, "geteuid")
+    }
+  })
+
+  it("preserves a private parent whose owner differs from the effective user", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    const expectedPrefix = join(canonicalTemporaryBase, isolated.temporaryNamePrefix)
+    let privateParent = ""
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      const path = String(arguments_[0])
+      if (path.startsWith(expectedPrefix) && dirname(path) === canonicalTemporaryBase) {
+        privateParent = path
+        return Object.assign(stats, { uid: process.geteuid() + 1 })
+      }
+      return stats
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toThrow(/private namespace changed/i)
+      await expect(exists(privateParent)).resolves.toBe(true)
+    } finally {
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it("ignores a hostile TMPDIR and uses the canonical system temp base", async () => {
+    const root = join("scripts", "graph", `system-snapshot-tmpdir-${randomUUID()}`)
+    const source = join(root, "source.ts")
+    const hostile = await mocks.fileSystemActual.mkdtemp(
+      join(tmpdir(), "darkfactory-hostile-tmpdir-"),
+    )
+    const previousTmpdir = process.env.TMPDIR
+    await mkdir(root, { recursive: true })
+    await writeFile(source, "export const source = true\n")
+    process.env.TMPDIR = hostile
+    const isolated = isolatedSnapshotFileSystem()
+    let privateParent = ""
+
+    try {
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+      privateParent = dirname(snapshot.path)
+      const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+      expect(privateParent.startsWith(
+        join(canonicalTemporaryBase, isolated.temporaryNamePrefix),
+      )).toBe(true)
+      expect(privateParent.startsWith(hostile)).toBe(false)
+      expect(mocks.fileSystem.realpath).toHaveBeenCalledWith("/tmp")
+      await snapshot.cleanup()
+    } finally {
+      if (previousTmpdir === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = previousTmpdir
+      await rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(hostile, { force: true, recursive: true })
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it("rejects a writable non-sticky canonical temp ancestor", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    const unsafeAncestor = dirname(canonicalTemporaryBase)
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      return String(arguments_[0]) === unsafeAncestor
+        ? Object.assign(stats, {
+            mode: (stats.mode | 0o022) & ~0o1000,
+            uid: 0,
+          })
+        : stats
+    })
+
+    await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+      .rejects.toThrow(/temporary base is unsafe/i)
+    expect(mocks.fileSystem.open).not.toHaveBeenCalled()
+    expect(mocks.fileSystem.mkdtemp).not.toHaveBeenCalled()
+  })
+
+  it("preserves a private namespace when the pinned temp base path is replaced", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    let baseInspections = 0
+    let baseClosed = false
+    let privateParent = ""
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      if (String(arguments_[0]) !== canonicalTemporaryBase) return stats
+      baseInspections += 1
+      return baseInspections >= 4
+        ? Object.assign(stats, { ino: stats.ino + 1 })
+        : stats
+    })
+    mocks.fileSystem.mkdtemp.mockImplementation(async (...arguments_) => {
+      privateParent = await Reflect.apply(
+        mocks.fileSystemActual.mkdtemp,
+        undefined,
+        arguments_,
+      )
+      return privateParent
+    })
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      if (String(arguments_[0]) === canonicalTemporaryBase) {
+        const close = handle.close.bind(handle)
+        vi.spyOn(handle, "close").mockImplementation(async () => {
+          baseClosed = true
+          await close()
+        })
+      }
+      return handle
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toThrow(/temporary base changed/i)
+      await expect(exists(privateParent)).resolves.toBe(true)
+      expect(baseClosed).toBe(true)
+    } finally {
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it("closes the pinned temp-base handle when marker creation fails", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    const failure = new Error("owner marker open failed")
+    let baseClosed = false
+    let privateParent = ""
+    mocks.fileSystem.mkdtemp.mockImplementation(async (...arguments_) => {
+      privateParent = await Reflect.apply(
+        mocks.fileSystemActual.mkdtemp,
+        undefined,
+        arguments_,
+      )
+      return privateParent
+    })
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active${sep}.owner`)) throw failure
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      if (path === canonicalTemporaryBase) {
+        const close = handle.close.bind(handle)
+        vi.spyOn(handle, "close").mockImplementation(async () => {
+          baseClosed = true
+          await close()
+        })
+      }
+      return handle
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toBe(failure)
+      expect(baseClosed).toBe(true)
+      await expect(exists(privateParent)).resolves.toBe(false)
+    } finally {
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
     }
   })
 
@@ -232,14 +498,13 @@ describe("Graphify source snapshot", () => {
         (call) => String(call[0]) === absoluteSource,
       )).toBe(false)
       expect(mocks.fileSystem.writeFile.mock.calls.some(
-        (call) => String(call[0]).startsWith(isolated.path) && String(call[1]).includes(sentinel),
+        (call) => String(call[0]).includes(isolated.temporaryNamePrefix) && String(call[1]).includes(sentinel),
       )).toBe(false)
-      await expect(exists(isolated.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(isolated.privateParents)
       await expect(readFile(join(outside, "nested", "secret"), "utf8")).resolves.toBe(sentinel)
     } finally {
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-      await rm(isolated.path, { force: true, recursive: true })
     }
   })
 
@@ -278,12 +543,11 @@ describe("Graphify source snapshot", () => {
       await expect(isolated.fileSystem.createSourceSnapshot(config))
         .rejects.toThrow(/source identity changed/i)
       expect(replacementRead).not.toHaveBeenCalled()
-      await expect(exists(isolated.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(isolated.privateParents)
     } finally {
       await replacement.close().catch(() => undefined)
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-      await rm(isolated.path, { force: true, recursive: true })
     }
   })
 
@@ -323,39 +587,111 @@ describe("Graphify source snapshot", () => {
     }
   })
 
-  it("refuses a snapshot path collision without deleting existing content", async () => {
+  it("isolates concurrent snapshots in unique private temp parents", async () => {
+    const root = join("scripts", "graph", `system-snapshot-concurrent-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
     const isolated = isolatedSnapshotFileSystem()
-    const snapshotRoot = isolated.path
-    const preserved = join(snapshotRoot, "preserved.txt")
-    await mkdir(snapshotRoot, { recursive: true })
-    await writeFile(preserved, "preserve")
+    const snapshots = await Promise.all([
+      isolated.fileSystem.createSourceSnapshot(snapshotConfig(root)),
+      isolated.fileSystem.createSourceSnapshot(snapshotConfig(root)),
+    ])
+    const parents = snapshots.map((snapshot) => dirname(snapshot.path))
 
     try {
-      const result = await isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph"))
-        .then((snapshot) => snapshot, (error: unknown) => error)
-      if (!(result instanceof Error)) await result.cleanup()
-
-      expect(result).toBeInstanceOf(Error)
-      await expect(readFile(preserved, "utf8")).resolves.toBe("preserve")
+      expect(snapshots[0]?.path).not.toBe(snapshots[1]?.path)
+      expect(parents[0]).not.toBe(parents[1])
+      const expectedPrefix = join(
+        await mocks.fileSystemActual.realpath("/tmp"),
+        isolated.temporaryNamePrefix,
+      )
+      expect(parents.every((path) => path.startsWith(expectedPrefix))).toBe(true)
+      await expect(Promise.all(parents.map(async (path) =>
+        (await lstat(path)).mode & 0o777
+      ))).resolves.toEqual([0o700, 0o700])
+      await Promise.all(snapshots.map((snapshot) => snapshot.cleanup()))
+      await expect(Promise.all(parents.map(exists))).resolves.toEqual([false, false])
     } finally {
-      await rm(snapshotRoot, { force: true, recursive: true })
+      await rm(root, { force: true, recursive: true })
+      await Promise.all(parents.map((path) => rm(path, { force: true, recursive: true })))
     }
   })
 
-  it("refuses cleanup after its ownership marker changes and preserves the snapshot", async () => {
+  it("refuses cleanup after a same-length ownership token change", async () => {
     const root = join("scripts", "graph", `system-snapshot-${randomUUID()}`)
     await mkdir(root, { recursive: true })
     await writeFile(join(root, "source.ts"), "export const source = true\n")
     const isolated = isolatedSnapshotFileSystem()
     const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
-    await writeFile(join(snapshot.path, ".owner"), "different-owner")
+    const privateParent = dirname(snapshot.path)
+    const quarantines = captureSnapshotQuarantines(snapshot.path)
+    await writeFile(join(snapshot.path, ".owner"), randomUUID())
 
     try {
-      await expect(snapshot.cleanup()).rejects.toThrow(/owner|ownership/i)
-      await expect(exists(join(snapshot.path, root, "source.ts"))).resolves.toBe(true)
+      await expect(snapshot.cleanup()).rejects.toThrow(/snapshot ownership changed/i)
+      expect(quarantines).toHaveLength(1)
+      const quarantine = quarantines[0] as string
+      await expect(exists(join(quarantine, root, "source.ts"))).resolves.toBe(true)
+      await expect(snapshot.cleanup()).rejects.toThrow(/cleanup already attempted/i)
     } finally {
-      await rm(root, { force: true, recursive: true })
-      await rm(snapshot.path, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects repeated cleanup after removing the private snapshot", async () => {
+    const root = join("scripts", "graph", `system-snapshot-single-use-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
+
+    try {
+      await snapshot.cleanup()
+      await expect(exists(privateParent)).resolves.toBe(false)
+      await expect(snapshot.cleanup()).rejects.toThrow(/cleanup already attempted/i)
+    } finally {
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(snapshot.path, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a quarantine replacement detected by final pinned revalidation", async () => {
+    const root = join("scripts", "graph", `system-snapshot-quarantine-race-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
+    let quarantine = ""
+    let displaced = ""
+    let quarantineInspections = 0
+    mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === snapshot.path) quarantine = String(arguments_[1])
+      await Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+    })
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === quarantine && ++quarantineInspections === 4) {
+        displaced = `${quarantine}-displaced`
+        await mocks.fileSystemActual.rename(quarantine, displaced)
+        await mocks.fileSystemActual.mkdir(quarantine)
+        await mocks.fileSystemActual.writeFile(join(quarantine, "foreign.txt"), "foreign")
+      }
+      return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+    })
+
+    try {
+      await expect(snapshot.cleanup()).rejects.toThrow(/snapshot ownership changed/i)
+      await expect(readFile(join(quarantine, "foreign.txt"), "utf8")).resolves.toBe("foreign")
+      await expect(exists(displaced)).resolves.toBe(true)
+      expect(mocks.fileSystem.rm.mock.calls.some(
+        (call) => String(call[0]) === quarantine && call[1]?.recursive === true,
+      )).toBe(false)
+      await expect(snapshot.cleanup()).rejects.toThrow(/cleanup already attempted/i)
+    } finally {
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
     }
   })
   it("preserves a foreign snapshot root installed during failed publication", async () => {
@@ -363,15 +699,32 @@ describe("Graphify source snapshot", () => {
     await mkdir(root, { recursive: true })
     await writeFile(join(root, "source.ts"), "export const source = true\n")
     const isolated = isolatedSnapshotFileSystem()
-    const displaced = `${isolated.path}-displaced`
+    let activeRoot = ""
+    let privateParent = ""
+    let displaced = ""
+    let quarantine = ""
     let replaced = false
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active`)) {
+        activeRoot = path
+        privateParent = dirname(path)
+        displaced = join(privateParent, "displaced")
+      }
+      return handle
+    })
+    mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === activeRoot) quarantine = String(arguments_[1])
+      await Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+    })
     mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) => {
       const path = String(arguments_[0])
-      if (!replaced && path.startsWith(isolated.path) && path !== join(isolated.path, ".owner")) {
+      if (!replaced && activeRoot && path.startsWith(`${activeRoot}${sep}`)) {
         replaced = true
-        await mocks.fileSystemActual.rename(isolated.path, displaced)
-        await mocks.fileSystemActual.mkdir(isolated.path)
-        await mocks.fileSystemActual.writeFile(join(isolated.path, "foreign.txt"), "foreign")
+        await mocks.fileSystemActual.rename(activeRoot, displaced)
+        await mocks.fileSystemActual.mkdir(activeRoot)
+        await mocks.fileSystemActual.writeFile(join(activeRoot, "foreign.txt"), "foreign")
         throw new Error("snapshot publication failed")
       }
       return Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
@@ -379,13 +732,14 @@ describe("Graphify source snapshot", () => {
 
     try {
       await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig(root)))
-        .rejects.toThrow(/snapshot ownership changed/i)
-      await expect(readFile(join(isolated.path, "foreign.txt"), "utf8")).resolves.toBe("foreign")
+        .rejects.toThrow(/snapshot publication failed/i)
+      await expect(readFile(join(quarantine, "foreign.txt"), "utf8")).resolves.toBe("foreign")
       await expect(exists(displaced)).resolves.toBe(true)
     } finally {
       await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
-      await mocks.fileSystemActual.rm(isolated.path, { force: true, recursive: true })
-      await mocks.fileSystemActual.rm(displaced, { force: true, recursive: true })
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
     }
   })
 
@@ -395,7 +749,9 @@ describe("Graphify source snapshot", () => {
     await writeFile(join(root, "source.ts"), "export const source = true\n")
     const isolated = isolatedSnapshotFileSystem()
     const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
     const displaced = `${snapshot.path}-displaced`
+    const quarantines = captureSnapshotQuarantines(snapshot.path)
     await mocks.fileSystemActual.rename(snapshot.path, displaced)
     await mocks.fileSystemActual.mkdir(snapshot.path)
     await mocks.fileSystemActual.rename(
@@ -406,12 +762,13 @@ describe("Graphify source snapshot", () => {
 
     try {
       await expect(snapshot.cleanup()).rejects.toThrow(/snapshot ownership changed/i)
-      await expect(readFile(join(snapshot.path, "foreign.txt"), "utf8")).resolves.toBe("foreign")
+      expect(quarantines).toHaveLength(1)
+      await expect(readFile(join(quarantines[0] as string, "foreign.txt"), "utf8"))
+        .resolves.toBe("foreign")
       await expect(exists(displaced)).resolves.toBe(true)
     } finally {
       await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
-      await mocks.fileSystemActual.rm(snapshot.path, { force: true, recursive: true })
-      await mocks.fileSystemActual.rm(displaced, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
     }
   })
 
@@ -421,6 +778,8 @@ describe("Graphify source snapshot", () => {
     await writeFile(join(root, "source.ts"), "export const source = true\n")
     const isolated = isolatedSnapshotFileSystem()
     const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
+    const quarantines = captureSnapshotQuarantines(snapshot.path)
     const ownerPath = join(snapshot.path, ".owner")
     const owner = await readFile(ownerPath, "utf8")
     await mocks.fileSystemActual.rm(ownerPath)
@@ -428,24 +787,464 @@ describe("Graphify source snapshot", () => {
 
     try {
       await expect(snapshot.cleanup()).rejects.toThrow(/marker ownership changed/i)
-      await expect(readFile(ownerPath, "utf8")).resolves.toBe(owner)
+      expect(quarantines).toHaveLength(1)
+      await expect(readFile(join(quarantines[0] as string, ".owner"), "utf8"))
+        .resolves.toBe(owner)
     } finally {
       await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
-      await mocks.fileSystemActual.rm(snapshot.path, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
     }
   })
-  it("removes its owned root when owner marker creation fails", async () => {
+
+  it.each(["writeFile", "sync", "stat"] as const)(
+    "rolls back its exact partial marker and preserves the primary %s failure",
+    async (operation) => {
+      const isolated = isolatedSnapshotFileSystem()
+      const failure = new Error(`owner marker ${operation} failed`)
+      let privateParent = ""
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+        const path = String(arguments_[0])
+        if (path.endsWith(`${sep}active${sep}.owner`)) {
+          privateParent = dirname(dirname(path))
+          if (operation === "writeFile") vi.spyOn(handle, "writeFile").mockRejectedValueOnce(failure)
+          if (operation === "sync") vi.spyOn(handle, "sync").mockRejectedValueOnce(failure)
+          if (operation === "stat") vi.spyOn(handle, "stat").mockRejectedValueOnce(failure)
+        }
+        return handle
+      })
+
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toBe(failure)
+      await expect(exists(privateParent)).resolves.toBe(false)
+    },
+  )
+
+  it("preserves the primary marker failure when private-parent rollback removal fails", async () => {
     const isolated = isolatedSnapshotFileSystem()
-    const ownerPath = join(isolated.path, ".owner")
-    mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) => {
-      if (String(arguments_[0]) === ownerPath) throw new Error("owner marker write failed")
-      return Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
+    const failure = new Error("owner marker sync failed")
+    let privateParent = ""
+    let rollbackRemovalAttempted = false
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active${sep}.owner`)) {
+        privateParent = dirname(dirname(path))
+        vi.spyOn(handle, "sync").mockRejectedValueOnce(failure)
+      }
+      return handle
+    })
+    mocks.fileSystem.rm.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === privateParent && arguments_[1]?.recursive === true) {
+        rollbackRemovalAttempted = true
+        throw new Error("snapshot rollback removal failed")
+      }
+      return Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toBe(failure)
+      expect(rollbackRemovalAttempted).toBe(true)
+      await expect(exists(privateParent)).resolves.toBe(true)
+    } finally {
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it("removes its private parent when owner marker creation fails", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    let privateParent = ""
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active${sep}.owner`)) {
+        privateParent = dirname(dirname(path))
+        throw new Error("owner marker open failed")
+      }
+      return Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
     })
 
     await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
-      .rejects.toThrow(/owner marker write failed/i)
-    await expect(exists(isolated.path)).resolves.toBe(false)
+      .rejects.toThrow(/owner marker open failed/i)
+    await expect(exists(privateParent)).resolves.toBe(false)
   })
+  it.each([
+    ["temporary base", /temporary base changed/i],
+    ["private parent", /private namespace changed/i],
+    ["snapshot root", /snapshot ownership changed/i],
+    ["ownership marker", /marker ownership changed/i],
+  ] as const)(
+    "preserves the private snapshot when pinned %s descriptor metadata changes",
+    async (role, diagnostic) => {
+      const root = join("scripts", "graph", `system-snapshot-pinned-${randomUUID()}`)
+      await mkdir(root, { recursive: true })
+      await writeFile(join(root, "source.ts"), "export const source = true\n")
+      const isolated = isolatedSnapshotFileSystem()
+      const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+      let target: Awaited<ReturnType<typeof mocks.fileSystemActual.open>> | undefined
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+        const path = String(arguments_[0])
+        const matchesRole =
+          role === "temporary base"
+            ? path === canonicalTemporaryBase
+            : role === "private parent"
+              ? path.startsWith(join(canonicalTemporaryBase, isolated.temporaryNamePrefix)) &&
+                dirname(path) === canonicalTemporaryBase
+              : role === "snapshot root"
+                ? path.endsWith(`${sep}active`)
+                : path.endsWith(`${sep}active${sep}.owner`)
+        if (matchesRole) target = handle
+        return handle
+      })
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+      const privateParent = dirname(snapshot.path)
+      if (!target) throw new Error(`Failed to capture ${role} handle`)
+      const stats = await target.stat()
+      const invalidStats =
+        role === "temporary base"
+          ? Object.assign(stats, { uid: 1 })
+          : role === "private parent"
+            ? Object.assign(stats, { mode: (stats.mode & ~0o777) | 0o755 })
+            : role === "snapshot root"
+              ? Object.assign(stats, { isDirectory: () => false })
+              : Object.assign(stats, { isFile: () => false })
+      vi.spyOn(target, "stat").mockResolvedValueOnce(invalidStats)
+
+      try {
+        await expect(snapshot.cleanup()).rejects.toThrow(diagnostic)
+        await expect(exists(privateParent)).resolves.toBe(true)
+      } finally {
+        await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    },
+  )
+
+  it.each([
+    ["temporary base", /temporary base changed/i],
+    ["private parent", /private namespace changed/i],
+    ["snapshot root", /snapshot ownership changed/i],
+    ["ownership marker", /marker ownership changed/i],
+  ] as const)(
+    "preserves the private snapshot when the pinned %s pathname cannot be inspected",
+    async (role, diagnostic) => {
+      const root = join("scripts", "graph", `system-snapshot-path-${randomUUID()}`)
+      await mkdir(root, { recursive: true })
+      await writeFile(join(root, "source.ts"), "export const source = true\n")
+      const isolated = isolatedSnapshotFileSystem()
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+      const privateParent = dirname(snapshot.path)
+      const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+      let quarantine = ""
+      mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+        if (String(arguments_[0]) === snapshot.path) quarantine = String(arguments_[1])
+        return Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+      })
+      mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+        const path = String(arguments_[0])
+        const faultPath =
+          role === "temporary base"
+            ? canonicalTemporaryBase
+            : role === "private parent"
+              ? privateParent
+              : role === "snapshot root"
+                ? quarantine
+                : join(quarantine, ".owner")
+        if (path === faultPath) {
+          throw Object.assign(new Error(`cannot inspect ${role}`), {
+            code: role === "ownership marker" ? "EACCES" : "ENOENT",
+          })
+        }
+        return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      })
+
+      try {
+        await expect(snapshot.cleanup()).rejects.toThrow(diagnostic)
+        await expect(exists(privateParent)).resolves.toBe(true)
+      } finally {
+        await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    },
+  )
+
+  it.each([
+    "oversized metadata",
+    "short read",
+    "post-read descriptor replacement",
+    "final pathname replacement",
+  ] as const)(
+    "preserves the private snapshot after ownership-marker %s",
+    async (fault) => {
+      const root = join("scripts", "graph", `system-snapshot-marker-read-${randomUUID()}`)
+      await mkdir(root, { recursive: true })
+      await writeFile(join(root, "source.ts"), "export const source = true\n")
+      const isolated = isolatedSnapshotFileSystem()
+      let markerHandle: Awaited<ReturnType<typeof mocks.fileSystemActual.open>> | undefined
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+        if (String(arguments_[0]).endsWith(`${sep}active${sep}.owner`)) markerHandle = handle
+        return handle
+      })
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+      const privateParent = dirname(snapshot.path)
+      if (!markerHandle) throw new Error("Failed to capture ownership-marker handle")
+      let quarantine = ""
+      let ownerPathInspections = 0
+      mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+        if (String(arguments_[0]) === snapshot.path) quarantine = String(arguments_[1])
+        return Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+      })
+      if (fault === "oversized metadata") {
+        const stats = await markerHandle.stat()
+        vi.spyOn(markerHandle, "stat").mockResolvedValueOnce(
+          Object.assign(stats, { size: 129 }),
+        )
+      } else if (fault === "short read") {
+        vi.spyOn(markerHandle, "read").mockResolvedValueOnce({
+          bytesRead: 0,
+          buffer: Buffer.alloc(0),
+        })
+      } else if (fault === "post-read descriptor replacement") {
+        const stat = markerHandle.stat.bind(markerHandle)
+        let inspections = 0
+        vi.spyOn(markerHandle, "stat").mockImplementation(async () => {
+          const stats = await stat()
+          inspections += 1
+          return inspections === 2
+            ? Object.assign(stats, { size: stats.size + 1 })
+            : stats
+        })
+      } else {
+        mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+          const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+          if (String(arguments_[0]) !== join(quarantine, ".owner")) return stats
+          ownerPathInspections += 1
+          return ownerPathInspections === 2
+            ? Object.assign(stats, { ino: stats.ino + 1 })
+            : stats
+        })
+      }
+
+      try {
+        await expect(snapshot.cleanup()).rejects.toThrow(/marker ownership changed/i)
+        expect(quarantine).not.toBe("")
+        await expect(exists(privateParent)).resolves.toBe(true)
+      } finally {
+        await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    },
+  )
+
+  it.each(["foreign marker", "marker inspection failure"] as const)(
+    "preserves the private namespace after marker-open failure with %s",
+    async (fault) => {
+      const isolated = isolatedSnapshotFileSystem()
+      const failure = new Error("owner marker open failed")
+      let privateParent = ""
+      let activeRoot = ""
+      let quarantine = ""
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const path = String(arguments_[0])
+        if (path.endsWith(`${sep}active${sep}.owner`)) {
+          activeRoot = dirname(path)
+          privateParent = dirname(activeRoot)
+          if (fault === "foreign marker") {
+            await mocks.fileSystemActual.writeFile(path, "foreign")
+          }
+          throw failure
+        }
+        return Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      })
+      mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+        if (String(arguments_[0]) === activeRoot) quarantine = String(arguments_[1])
+        return Reflect.apply(mocks.fileSystemActual.rename, undefined, arguments_)
+      })
+      mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+        if (
+          fault === "marker inspection failure" &&
+          String(arguments_[0]) === join(quarantine, ".owner")
+        ) {
+          throw Object.assign(new Error("marker inspection denied"), { code: "EACCES" })
+        }
+        return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      })
+
+      try {
+        await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+          .rejects.toBe(failure)
+        expect(quarantine).not.toBe("")
+        await expect(exists(privateParent)).resolves.toBe(true)
+        if (fault === "foreign marker") {
+          await expect(readFile(join(quarantine, ".owner"), "utf8")).resolves.toBe("foreign")
+        }
+      } finally {
+        if (privateParent) {
+          await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+        }
+      }
+    },
+  )
+
+  it("preserves a cleanup error when closing pinned handles also fails", async () => {
+    const root = join("scripts", "graph", `system-snapshot-cleanup-close-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    let markerHandle: Awaited<ReturnType<typeof mocks.fileSystemActual.open>> | undefined
+    let snapshotHandle: Awaited<ReturnType<typeof mocks.fileSystemActual.open>> | undefined
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active${sep}.owner`)) markerHandle = handle
+      else if (path.endsWith(`${sep}active`)) snapshotHandle = handle
+      return handle
+    })
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
+    const cleanupFailure = new Error("private snapshot removal failed")
+    const markerCloseFailure = new Error("ownership marker close failed")
+    const snapshotCloseFailure = new Error("snapshot root close failed")
+    let removalAttempted = false
+    if (!markerHandle) throw new Error("Failed to capture ownership-marker handle")
+    if (!snapshotHandle) throw new Error("Failed to capture snapshot-root handle")
+    const markerClose = vi.spyOn(markerHandle, "close").mockRejectedValueOnce(markerCloseFailure)
+    const snapshotClose = vi.spyOn(snapshotHandle, "close").mockRejectedValueOnce(snapshotCloseFailure)
+    mocks.fileSystem.rm.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === privateParent && arguments_[1]?.recursive === true) {
+        removalAttempted = true
+        throw cleanupFailure
+      }
+      return Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+    })
+
+    try {
+      await expect(snapshot.cleanup()).rejects.toBe(cleanupFailure)
+      expect(removalAttempted).toBe(true)
+      expect(markerClose).toHaveBeenCalledOnce()
+      expect(snapshotClose).toHaveBeenCalledOnce()
+      await expect(exists(privateParent)).resolves.toBe(true)
+    } finally {
+      await markerHandle.close().catch(() => undefined)
+      await snapshotHandle.close().catch(() => undefined)
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a pre-publication error when rollback and base-handle close fail", async () => {
+    const isolated = isolatedSnapshotFileSystem()
+    const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+    const primaryFailure = new Error("snapshot root open failed")
+    const rollbackFailure = new Error("private parent rollback failed")
+    const closeFailure = new Error("temporary base close failed")
+    let privateParent = ""
+    let rollbackAttempted = false
+    let baseHandle: Awaited<ReturnType<typeof mocks.fileSystemActual.open>> | undefined
+    let baseClose: ReturnType<typeof vi.spyOn> | undefined
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active`)) {
+        privateParent = dirname(path)
+        throw primaryFailure
+      }
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      if (path === canonicalTemporaryBase) {
+        baseHandle = handle
+        baseClose = vi.spyOn(handle, "close").mockRejectedValueOnce(closeFailure)
+      }
+      return handle
+    })
+    mocks.fileSystem.rm.mockImplementation(async (...arguments_) => {
+      if (String(arguments_[0]) === privateParent && arguments_[1]?.recursive === true) {
+        rollbackAttempted = true
+        throw rollbackFailure
+      }
+      return Reflect.apply(mocks.fileSystemActual.rm, undefined, arguments_)
+    })
+
+    try {
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toBe(primaryFailure)
+      expect(rollbackAttempted).toBe(true)
+      expect(baseClose).toHaveBeenCalledOnce()
+      await expect(exists(privateParent)).resolves.toBe(true)
+    } finally {
+      if (baseHandle) await baseHandle.close().catch(() => undefined)
+      if (privateParent) {
+        await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it.each([
+    ["temporary base", /temporary base changed/i, 0],
+    ["snapshot root", /snapshot ownership changed/i, 1],
+    ["ownership marker", /marker ownership changed/i, 1],
+  ] as const)(
+    "rejects invalid initial %s descriptor metadata and rolls back safely",
+    async (role, diagnostic, expectedParents) => {
+      const isolated = isolatedSnapshotFileSystem()
+      const canonicalTemporaryBase = await mocks.fileSystemActual.realpath("/tmp")
+      let faultInjected = false
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+        const path = String(arguments_[0])
+        const matchesRole =
+          role === "temporary base"
+            ? path === canonicalTemporaryBase
+            : role === "snapshot root"
+              ? path.endsWith(`${sep}active`)
+              : path.endsWith(`${sep}active${sep}.owner`)
+        if (matchesRole) {
+          const stat = handle.stat.bind(handle)
+          vi.spyOn(handle, "stat").mockImplementationOnce(async () => {
+            faultInjected = true
+            const stats = await stat()
+            return role === "temporary base"
+              ? Object.assign(stats, { uid: 1 })
+              : role === "snapshot root"
+                ? Object.assign(stats, { isDirectory: () => false })
+                : Object.assign(stats, { isFile: () => false })
+          })
+        }
+        return handle
+      })
+
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph")))
+        .rejects.toThrow(diagnostic)
+      expect(faultInjected).toBe(true)
+      await expectPrivateParentsRemoved(isolated.privateParents, expectedParents)
+    },
+  )
+
+  it("preserves the snapshot when the private-parent pathname metadata changes", async () => {
+    const root = join("scripts", "graph", `system-snapshot-parent-mode-${randomUUID()}`)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, "source.ts"), "export const source = true\n")
+    const isolated = isolatedSnapshotFileSystem()
+    const snapshot = await isolated.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
+    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+      const stats = await Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_)
+      return String(arguments_[0]) === privateParent
+        ? Object.assign(stats, { mode: (stats.mode & ~0o777) | 0o755 })
+        : stats
+    })
+
+    try {
+      await expect(snapshot.cleanup()).rejects.toThrow(/private namespace changed/i)
+      await expect(exists(privateParent)).resolves.toBe(true)
+    } finally {
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
+    }
+  })
+
 })
 
 describe("Graph source containment revalidation", () => {
@@ -755,10 +1554,9 @@ describe("Graph source containment revalidation", () => {
       await expect(isolated.fileSystem.createSourceSnapshot(
         configuredSourceConfig([safeRoot], [source]),
       )).rejects.toThrow(/source identity changed/i)
-      await expect(exists(isolated.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(isolated.privateParents)
     } finally {
       await rm(base, { force: true, recursive: true })
-      await rm(isolated.path, { force: true, recursive: true })
     }
   })
 
@@ -786,10 +1584,9 @@ describe("Graph source containment revalidation", () => {
       await expect(isolated.fileSystem.createSourceSnapshot(
         configuredSourceConfig([safeRoot], [source]),
       )).rejects.toThrow(/source identity changed/i)
-      await expect(exists(isolated.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(isolated.privateParents)
     } finally {
       await rm(base, { force: true, recursive: true })
-      await rm(isolated.path, { force: true, recursive: true })
     }
   })
 
@@ -1076,7 +1873,11 @@ describe("Graph node filesystem boundaries", () => {
     try {
       const snapshot = await isolated.fileSystem.createSourceSnapshot(config)
       try {
-        expect(snapshot.path).toBe(isolated.path)
+        expect(snapshot.path).toBe(join(dirname(snapshot.path), "active"))
+        expect(dirname(snapshot.path).startsWith(join(
+          await mocks.fileSystemActual.realpath("/tmp"),
+          isolated.temporaryNamePrefix,
+        ))).toBe(true)
         await expect(readFile(
           join(snapshot.path, root, "src/consumer.tsx"),
           "utf8",
@@ -1109,7 +1910,7 @@ describe("Graph node filesystem boundaries", () => {
     const invalidSnapshot = isolatedSnapshotFileSystem()
     try {
       await expect(invalidSnapshot.fileSystem.createSourceSnapshot(invalidConfig)).rejects.toThrow()
-      await expect(exists(invalidSnapshot.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(invalidSnapshot.privateParents)
     } finally {
       await rm(invalidPackage, { force: true, recursive: true })
     }
@@ -1119,13 +1920,17 @@ describe("Graph node filesystem boundaries", () => {
     await writeFile(join(root, "source.ts"), "export const source = true\n")
     const missingOwnerSnapshot = isolatedSnapshotFileSystem()
     const snapshot = await missingOwnerSnapshot.fileSystem.createSourceSnapshot(snapshotConfig(root))
+    const privateParent = dirname(snapshot.path)
+    const quarantines = captureSnapshotQuarantines(snapshot.path)
     await rm(join(snapshot.path, ".owner"))
     try {
       await expect(snapshot.cleanup()).rejects.toThrow(/ownership marker is missing/i)
-      await expect(exists(join(snapshot.path, root, "source.ts"))).resolves.toBe(true)
+      expect(quarantines).toHaveLength(1)
+      await expect(exists(join(quarantines[0] as string, root, "source.ts")))
+        .resolves.toBe(true)
     } finally {
-      await rm(root, { force: true, recursive: true })
-      await rm(snapshot.path, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(root, { force: true, recursive: true })
+      await mocks.fileSystemActual.rm(privateParent, { force: true, recursive: true })
     }
   })
   it("classifies special files and rejects content that grows after inspection", async () => {
@@ -1317,7 +2122,7 @@ describe("Graph node filesystem boundaries", () => {
     try {
       await expect(largeSnapshot.fileSystem.createSourceSnapshot(snapshotConfig(largeRoot)))
         .rejects.toThrow(/source file is too large/i)
-      await expect(exists(largeSnapshot.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(largeSnapshot.privateParents)
     } finally {
       await rm(largeRoot, { force: true, recursive: true })
     }
@@ -1342,7 +2147,7 @@ describe("Graph node filesystem boundaries", () => {
       })
       await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
         .rejects.toThrow(/compiled source file is too large/i)
-      await expect(exists(compiledSnapshot.path)).resolves.toBe(false)
+      await expectPrivateParentsRemoved(compiledSnapshot.privateParents, 3)
     } finally {
       await rm(civetRoot, { force: true, recursive: true })
     }
@@ -1355,23 +2160,38 @@ describe("Graph node filesystem boundaries", () => {
       { length: 17 },
       (_, index) => writeFile(join(root, `source-${index}.civet`), "export {}"),
     ))
+    const isolated = isolatedSnapshotFileSystem()
     const atFileLimit = "x".repeat(8_388_608)
+    let activeRoot = ""
+    let suppressedWrites = 0
+    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+      const handle = await Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_)
+      const path = String(arguments_[0])
+      if (path.endsWith(`${sep}active`)) activeRoot = path
+      return handle
+    })
     mocks.compileCivetSnapshot.mockImplementation(async (path: string) => ({
       path: path.replace(/\.civet$/, ".tsx"),
       content: atFileLimit,
     }))
-    mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) =>
-      String(arguments_[0]).startsWith(".graphify/source-snapshot") &&
-        String(arguments_[0]).endsWith(".tsx")
-        ? undefined
-        : Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
-    )
-    const isolated = isolatedSnapshotFileSystem()
+    mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) => {
+      const path = String(arguments_[0])
+      if (
+        activeRoot &&
+        path.startsWith(`${activeRoot}${sep}`) &&
+        path.endsWith(".tsx")
+      ) {
+        suppressedWrites += 1
+        return
+      }
+      return Reflect.apply(mocks.fileSystemActual.writeFile, undefined, arguments_)
+    })
 
     try {
       await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig(root, [".civet"])))
         .rejects.toThrow(/source corpus is too large/i)
-      await expect(exists(isolated.path)).resolves.toBe(false)
+      expect(suppressedWrites).toBe(15)
+      await expectPrivateParentsRemoved(isolated.privateParents)
     } finally {
       await rm(root, { force: true, recursive: true })
     }

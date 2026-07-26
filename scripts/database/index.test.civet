@@ -36,6 +36,7 @@ const databaseCli = vi.hoisted(() => {
     database,
     ensureDevelopmentSeedIdentity: vi.fn(async () => ({ identitiesCreated: 1 })),
     identities,
+    packageImports: [] as string[],
     parseServerEnv: vi.fn(() => parsedEnvironment),
     parsedEnvironment,
     profile,
@@ -60,20 +61,28 @@ vi.mock("node:module", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:module")>()
   return { ...actual, register: databaseCli.register }
 })
-vi.mock("@darkfactory/auth/server", () => ({
-  ensureDevelopmentSeedIdentity: databaseCli.ensureDevelopmentSeedIdentity,
-}))
-vi.mock("@darkfactory/config/server", () => ({
-  parseServerEnv: databaseCli.parseServerEnv,
-}))
-vi.mock("@darkfactory/config/database", () => ({
-  composeDatabaseProfile: databaseCli.composeDatabaseProfile,
-}))
-vi.mock("@darkfactory/db/server", () => ({
-  createNodeDatabase: databaseCli.createNodeDatabase,
-  resetDevelopment: databaseCli.resetDevelopment,
-  seedDevelopment: databaseCli.seedDevelopment,
-}))
+vi.mock("@darkfactory/auth/server", () => {
+  databaseCli.packageImports.push("@darkfactory/auth/server")
+  return {
+    ensureDevelopmentSeedIdentity: databaseCli.ensureDevelopmentSeedIdentity,
+  }
+})
+vi.mock("@darkfactory/config/server", () => {
+  databaseCli.packageImports.push("@darkfactory/config/server")
+  return { parseServerEnv: databaseCli.parseServerEnv }
+})
+vi.mock("@darkfactory/config/database", () => {
+  databaseCli.packageImports.push("@darkfactory/config/database")
+  return { composeDatabaseProfile: databaseCli.composeDatabaseProfile }
+})
+vi.mock("@darkfactory/db/server", () => {
+  databaseCli.packageImports.push("@darkfactory/db/server")
+  return {
+    createNodeDatabase: databaseCli.createNodeDatabase,
+    resetDevelopment: databaseCli.resetDevelopment,
+    seedDevelopment: databaseCli.seedDevelopment,
+  }
+})
 
 const originalArguments = [...process.argv]
 const originalAppEnvironment = process.env["APP_ENV"]
@@ -82,6 +91,17 @@ const importDatabaseCli = async (): Promise<unknown> => await import("./index.ci
 
 const outputSpy = () =>
   vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+
+const expectNoLoaderPackageOrDatabaseAcquisition = (): void => {
+  expect(databaseCli.register).not.toHaveBeenCalled()
+  expect(databaseCli.packageImports).toEqual([])
+  expect(databaseCli.parseServerEnv).not.toHaveBeenCalled()
+  expect(databaseCli.composeDatabaseProfile).not.toHaveBeenCalled()
+  expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
+  expect(databaseCli.seedDevelopment).not.toHaveBeenCalled()
+  expect(databaseCli.resetDevelopment).not.toHaveBeenCalled()
+  expect(databaseCli.close).not.toHaveBeenCalled()
+}
 
 beforeEach(() => {
   databaseCli.close.mockReset().mockResolvedValue(undefined)
@@ -96,6 +116,7 @@ beforeEach(() => {
   databaseCli.parseServerEnv
     .mockReset()
     .mockReturnValue(databaseCli.parsedEnvironment)
+  databaseCli.packageImports.length = 0
   databaseCli.register.mockReset()
   databaseCli.resetDevelopment
     .mockReset()
@@ -110,7 +131,13 @@ beforeEach(() => {
     await options.prepareIdentity(databaseCli.identities)
     return databaseCli.seedResult
   })
-  process.argv = ["node", "scripts/database/index.civet", "seed"]
+  process.argv = [
+    "node",
+    "scripts/database/index.civet",
+    "seed",
+    "--",
+    "--confirm-environment=test",
+  ]
   process.env["APP_ENV"] = "test"
 })
 
@@ -176,7 +203,12 @@ describe.sequential("database CLI", () => {
   })
 
   it("runs reset in development, closes the resource, and emits its result", async () => {
-    process.argv = ["node", "scripts/database/index.civet", "reset"]
+    process.argv = [
+      "node",
+      "scripts/database/index.civet",
+      "reset",
+      "--confirm-environment=development",
+    ]
     process.env["APP_ENV"] = "development"
     const stdout = outputSpy()
 
@@ -204,10 +236,7 @@ describe.sequential("database CLI", () => {
       "Database command must be either seed or reset",
     )
 
-    expect(databaseCli.register).not.toHaveBeenCalled()
-    expect(databaseCli.parseServerEnv).not.toHaveBeenCalled()
-    expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
-    expect(databaseCli.close).not.toHaveBeenCalled()
+    expectNoLoaderPackageOrDatabaseAcquisition()
     expect(stdout).not.toHaveBeenCalled()
   })
 
@@ -224,12 +253,89 @@ describe.sequential("database CLI", () => {
       "APP_ENV must be explicitly set to development or test for database seed/reset",
     )
 
-    expect(databaseCli.register).not.toHaveBeenCalled()
-    expect(databaseCli.parseServerEnv).not.toHaveBeenCalled()
-    expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
-    expect(databaseCli.close).not.toHaveBeenCalled()
+    expectNoLoaderPackageOrDatabaseAcquisition()
     expect(stdout).not.toHaveBeenCalled()
   })
+
+  it("rejects a missing confirmation before loader, package, or database acquisition", async () => {
+    process.argv = ["node", "scripts/database/index.civet", "seed"]
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toThrow(
+      "Database seed/reset requires --confirm-environment=<development|test>",
+    )
+
+    expectNoLoaderPackageOrDatabaseAcquisition()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["a flag without an equals sign", ["--confirm-environment"]],
+    ["a space-separated value", ["--confirm-environment", "test"]],
+    ["an empty value", ["--confirm-environment="]],
+    ["an unsupported value", ["--confirm-environment=production"]],
+    ["an additional argument", ["--confirm-environment=test", "--force"]],
+  ])("rejects malformed confirmation with %s before acquisition", async (
+    _label,
+    confirmationArguments,
+  ) => {
+    process.argv = [
+      "node",
+      "scripts/database/index.civet",
+      "seed",
+      ...confirmationArguments,
+    ]
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toThrow(
+      "Database confirmation must use --confirm-environment=<development|test>",
+    )
+
+    expectNoLoaderPackageOrDatabaseAcquisition()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it("rejects duplicate confirmation before acquisition", async () => {
+    process.argv = [
+      "node",
+      "scripts/database/index.civet",
+      "reset",
+      "--confirm-environment=test",
+      "--confirm-environment=test",
+    ]
+    const stdout = outputSpy()
+
+    await expect(importDatabaseCli()).rejects.toThrow(
+      "Database confirmation must be provided exactly once",
+    )
+
+    expectNoLoaderPackageOrDatabaseAcquisition()
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["test", "development"],
+    ["development", "test"],
+  ] as const)(
+    "rejects %s APP_ENV with a %s confirmation before acquisition",
+    async (environment, confirmation) => {
+      process.env["APP_ENV"] = environment
+      process.argv = [
+        "node",
+        "scripts/database/index.civet",
+        "seed",
+        `--confirm-environment=${confirmation}`,
+      ]
+      const stdout = outputSpy()
+
+      await expect(importDatabaseCli()).rejects.toThrow(
+        "Database confirmation must match APP_ENV exactly",
+      )
+
+      expectNoLoaderPackageOrDatabaseAcquisition()
+      expect(stdout).not.toHaveBeenCalled()
+    },
+  )
 
   it("propagates configuration parsing failures before acquiring a database resource", async () => {
     const configurationError = new Error("invalid server environment")
@@ -273,7 +379,12 @@ describe.sequential("database CLI", () => {
   })
 
   it("closes the resource when reset fails and does not print a success result", async () => {
-    process.argv = ["node", "scripts/database/index.civet", "reset"]
+    process.argv = [
+      "node",
+      "scripts/database/index.civet",
+      "reset",
+      "--confirm-environment=test",
+    ]
     const resetError = new Error("reset failed")
     databaseCli.resetDevelopment.mockRejectedValueOnce(resetError)
     const stdout = outputSpy()

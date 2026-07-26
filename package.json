@@ -76,6 +76,8 @@
     "deploy:web": "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
     "deploy:web:check": "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run",
     "deploy:web:preview": "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --preview",
+    "deploy:web:staging": "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --env staging",
+    "deploy:web:staging:check": "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run --env staging",
     "prepare": "bunx --bun --no-install husky",
     "db:generate": "corepack pnpm --filter @darkfactory/db exec bun run db:generate",
     "db:check": "corepack pnpm --filter @darkfactory/db exec bun run db:check",

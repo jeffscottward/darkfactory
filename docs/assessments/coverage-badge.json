@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "coverage",
-  "message": "99.98% lines, 99.9% branches",
+  "message": "100% lines, 100% branches",
   "color": "brightgreen"
 }

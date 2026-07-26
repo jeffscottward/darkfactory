@@ -47,9 +47,9 @@ Portless trust is primary. mkcert is fallback-only, and generated private keys r
 
 PostgreSQL owns durable application state; features access it through Drizzle repositories and reviewed migrations. Never construct feature-local SQL from untrusted input or mutate production schema at application startup.
 
-The seed identities and `Development123!` password are public test fixtures. Seed/reset commands are permitted only with `APP_ENV=development` or `APP_ENV=test`, and only after confirming the database is disposable. Never put customer, employee, production, or copied personal data in a seed fixture. Use fictional `.test` addresses and placeholders from <https://placehold.co/>.
+The seed identities and `Development123!` password are public test fixtures. Seed/reset commands require a validated `APP_ENV=development` or `APP_ENV=test` and exactly one matching `--confirm-environment=<development|test>` command-line argument. Bun may load `APP_ENV` from `.env`, but dotenv is never authorization and cannot provide the CLI confirmation. Never put customer, employee, production, or copied personal data in a seed fixture. Use fictional `.test` addresses and placeholders from <https://placehold.co/>.
 
-`bun run db:reset` is destructive. Environment-name validation does not replace target verification, a snapshot, or human approval for any non-disposable data operation.
+Package scripts intentionally omit confirmation. Use an explicit invocation such as `varlock run -- bun run db:seed -- --confirm-environment=development` or `varlock run -- bun run db:reset -- --confirm-environment=development`. Reset is destructive, and a matching confirmation proves only deliberate invocation; it does not validate `DATABASE_URL`, prove the target disposable, replace a snapshot, or provide human approval for any non-disposable data operation.
 
 ## API, provider, and observability rules
 

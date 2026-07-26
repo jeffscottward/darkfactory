@@ -2,14 +2,15 @@ import { execFile } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
 import {
+  chmod,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readdir,
   realpath,
   rename,
   rm,
-  rmdir,
   writeFile,
 } from "node:fs/promises"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
@@ -35,6 +36,32 @@ const SNAPSHOT_OWNER = ".owner"
 const repositoryRoot = await realpath(process.cwd())
 
 type GraphIdentity = Readonly<{ dev: number; ino: number }>
+type GraphPathHandle = Awaited<ReturnType<typeof open>>
+type PinnedTemporaryBase = Readonly<{
+  path: string
+  handle: GraphPathHandle
+  identity: GraphIdentity
+}>
+type PinnedPrivateParent = Readonly<{
+  base: PinnedTemporaryBase
+  path: string
+  handle: GraphPathHandle
+  identity: GraphIdentity
+}>
+type PinnedSnapshotRoot = Readonly<{
+  parent: PinnedPrivateParent
+  path: string
+  handle: GraphPathHandle
+  identity: GraphIdentity
+}>
+type InitializedSnapshotMarker = Readonly<{
+  initialized: true
+  handle: GraphPathHandle
+  identity: GraphIdentity
+}>
+type SnapshotMarkerState =
+  | Readonly<{ initialized: false; handle?: GraphPathHandle }>
+  | InitializedSnapshotMarker
 const graphIdentity = (stats: Readonly<{ dev: number; ino: number }>): GraphIdentity =>
   Object.freeze({ dev: stats.dev, ino: stats.ino })
 const sameGraphIdentity = (
@@ -344,44 +371,367 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
   },
   listSourceFiles: listConfiguredSourceFiles,
   createSourceSnapshot: async (config) => {
-    const ownerPath = join(snapshotRoot, SNAPSHOT_OWNER)
     const owner = randomUUID()
-    let ownsSnapshot = false
-    let snapshotIdentity: GraphIdentity | undefined
-    let markerIdentity: GraphIdentity | undefined
-    const removeOwnedSnapshot = async (): Promise<void> => {
-      const expectedSnapshot = snapshotIdentity as GraphIdentity
-      const currentSnapshot = await lstat(snapshotRoot)
-      if (!sameGraphIdentity(expectedSnapshot, currentSnapshot)) {
+    const temporaryNamePrefix =
+      `darkfactory-graph-${createHash("sha256").update(snapshotRoot).digest("hex").slice(0, 16)}-`
+    if (typeof process.geteuid !== "function") {
+      throw new Error("Graph source snapshot requires effective user identity")
+    }
+    const effectiveUserId = process.geteuid()
+    let cleanupStarted = false
+    let privateContext: PinnedPrivateParent | undefined
+    let snapshotContext: PinnedSnapshotRoot | undefined
+    let initializedMarker: InitializedSnapshotMarker | undefined
+    let privateHandle: GraphPathHandle | undefined
+    let snapshotHandle: GraphPathHandle | undefined
+    let markerHandle: GraphPathHandle | undefined
+    let temporaryBaseHandle: GraphPathHandle | undefined
+    const isTrustedTemporaryDirectory = (
+      stats: Awaited<ReturnType<typeof lstat>>,
+    ): boolean =>
+      !stats.isSymbolicLink() &&
+      stats.isDirectory() &&
+      stats.uid === 0 &&
+      (
+        (stats.mode & 0o022) === 0 ||
+        (stats.mode & 0o1000) !== 0
+      )
+    const pinnedTemporaryBaseStats = async (base: PinnedTemporaryBase) => {
+      try {
+        const stats = await base.handle.stat()
+        if (
+          !isTrustedTemporaryDirectory(stats) ||
+          !sameGraphIdentity(base.identity, stats)
+        ) throw new Error("Graph source snapshot temporary base changed")
+        return stats
+      } catch {
+        throw new Error("Graph source snapshot temporary base changed")
+      }
+    }
+    const assertPinnedTemporaryBasePath = async (
+      base: PinnedTemporaryBase,
+    ): Promise<void> => {
+      const pinned = await pinnedTemporaryBaseStats(base)
+      let current: Awaited<ReturnType<typeof lstat>>
+      try {
+        current = await lstat(base.path)
+      } catch {
+        throw new Error("Graph source snapshot temporary base changed")
+      }
+      if (
+        !isTrustedTemporaryDirectory(current) ||
+        !sameGraphIdentity(pinned, current)
+      ) throw new Error("Graph source snapshot temporary base changed")
+    }
+    const pinnedPrivateStats = async (parent: PinnedPrivateParent) => {
+      try {
+        const stats = await parent.handle.stat()
+        if (
+          !stats.isDirectory() ||
+          (stats.mode & 0o777) !== 0o700 ||
+          stats.uid !== effectiveUserId ||
+          !sameGraphIdentity(parent.identity, stats)
+        ) throw new Error("Graph source snapshot private namespace changed")
+        return stats
+      } catch {
+        throw new Error("Graph source snapshot private namespace changed")
+      }
+    }
+    const assertPinnedPrivatePath = async (
+      parent: PinnedPrivateParent,
+    ): Promise<void> => {
+      const pinned = await pinnedPrivateStats(parent)
+      let current: Awaited<ReturnType<typeof lstat>>
+      try {
+        current = await lstat(parent.path)
+      } catch {
+        throw new Error("Graph source snapshot private namespace changed")
+      }
+      if (
+        current.isSymbolicLink() ||
+        !current.isDirectory() ||
+        (current.mode & 0o777) !== 0o700 ||
+        current.uid !== effectiveUserId ||
+        !sameGraphIdentity(pinned, current)
+      ) throw new Error("Graph source snapshot private namespace changed")
+    }
+    const pinnedSnapshotStats = async (snapshot: PinnedSnapshotRoot) => {
+      try {
+        const stats = await snapshot.handle.stat()
+        if (!stats.isDirectory() || !sameGraphIdentity(snapshot.identity, stats)) {
+          throw new Error("Graph source snapshot ownership changed")
+        }
+        return stats
+      } catch {
         throw new Error("Graph source snapshot ownership changed")
       }
-      if (!markerIdentity) {
-        await rmdir(snapshotRoot)
-        return
-      }
-      let currentMarker: Readonly<{ dev: number; ino: number }>
-      let recordedOwner: string
+    }
+    const assertPinnedSnapshotPath = async (
+      snapshot: PinnedSnapshotRoot,
+      path: string,
+    ): Promise<void> => {
+      const pinned = await pinnedSnapshotStats(snapshot)
+      let current: Awaited<ReturnType<typeof lstat>>
       try {
-        currentMarker = await lstat(ownerPath)
-        recordedOwner = await readBounded(ownerPath, 128)
+        current = await lstat(path)
       } catch {
-        throw new Error("Graph source snapshot ownership marker is missing")
+        throw new Error("Graph source snapshot ownership changed")
       }
-      if (!sameGraphIdentity(markerIdentity, currentMarker)) {
+      if (
+        current.isSymbolicLink() ||
+        !current.isDirectory() ||
+        !sameGraphIdentity(pinned, current)
+      ) throw new Error("Graph source snapshot ownership changed")
+    }
+    const pinnedMarkerStats = async (
+      handle: GraphPathHandle,
+      expected?: GraphIdentity,
+    ) => {
+      try {
+        const stats = await handle.stat()
+        if (
+          !stats.isFile() ||
+          (expected !== undefined && !sameGraphIdentity(expected, stats))
+        ) throw new Error("Graph source snapshot marker ownership changed")
+        return stats
+      } catch {
         throw new Error("Graph source snapshot marker ownership changed")
       }
-      if (recordedOwner !== owner) {
+    }
+    const ownerPathStats = async (
+      path: string,
+    ): Promise<Awaited<ReturnType<typeof lstat>>> => {
+      try {
+        return await lstat(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new Error("Graph source snapshot ownership marker is missing")
+        }
+        throw new Error("Graph source snapshot marker ownership changed")
+      }
+    }
+    const readPinnedOwner = async (
+      handle: GraphPathHandle,
+      expected: Readonly<{ dev: number; ino: number; size: number }>,
+    ): Promise<string> => {
+      if (
+        !Number.isSafeInteger(expected.size) ||
+        expected.size < 0 ||
+        expected.size > 128
+      ) throw new Error("Graph source snapshot marker ownership changed")
+      const content = Buffer.alloc(expected.size)
+      let offset = 0
+      try {
+        while (offset < content.length) {
+          const { bytesRead } = await handle.read(
+            content,
+            offset,
+            content.length - offset,
+            offset,
+          )
+          if (bytesRead === 0) break
+          offset += bytesRead
+        }
+        const current = await handle.stat()
+        if (
+          offset !== content.length ||
+          !current.isFile() ||
+          current.size !== expected.size ||
+          !sameGraphIdentity(expected, current)
+        ) throw new Error("Graph source snapshot marker ownership changed")
+      } catch {
+        throw new Error("Graph source snapshot marker ownership changed")
+      }
+      return content.toString("utf8")
+    }
+    const assertPinnedMarkerPath = async (
+      path: string,
+      marker: SnapshotMarkerState,
+    ): Promise<void> => {
+      const handle = marker.handle
+      if (!handle) {
+        try {
+          await lstat(path)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+          throw new Error("Graph source snapshot marker ownership changed")
+        }
+        throw new Error("Graph source snapshot marker ownership changed")
+      }
+      const expected = marker.initialized ? marker.identity : undefined
+      const pinned = await pinnedMarkerStats(handle, expected)
+      const current = await ownerPathStats(path)
+      if (
+        current.isSymbolicLink() ||
+        !current.isFile() ||
+        !sameGraphIdentity(pinned, current)
+      ) throw new Error("Graph source snapshot marker ownership changed")
+      if (marker.initialized && await readPinnedOwner(handle, pinned) !== owner) {
         throw new Error("Graph source snapshot ownership changed")
       }
-      await rm(snapshotRoot, { recursive: true })
+      const pinnedAfterRead = await pinnedMarkerStats(handle, expected)
+      const currentAfterRead = await ownerPathStats(path)
+      if (
+        currentAfterRead.isSymbolicLink() ||
+        !currentAfterRead.isFile() ||
+        !sameGraphIdentity(pinnedAfterRead, currentAfterRead)
+      ) throw new Error("Graph source snapshot marker ownership changed")
+    }
+    const assertOwnedSnapshot = async (
+      snapshot: PinnedSnapshotRoot,
+      path: string,
+      marker: SnapshotMarkerState,
+    ): Promise<void> => {
+      await assertPinnedSnapshotPath(snapshot, path)
+      await assertPinnedMarkerPath(join(path, SNAPSHOT_OWNER), marker)
+      await assertPinnedSnapshotPath(snapshot, path)
+    }
+    const removeOwnedPrivateParent = async (
+      parent: PinnedPrivateParent,
+    ): Promise<void> => {
+      await assertPinnedTemporaryBasePath(parent.base)
+      await assertPinnedPrivatePath(parent)
+      await assertPinnedTemporaryBasePath(parent.base)
+      await rm(parent.path, { recursive: true })
+    }
+    const removeOwnedSnapshot = async (
+      snapshot: PinnedSnapshotRoot,
+      marker: SnapshotMarkerState,
+    ): Promise<void> => {
+      const parent = snapshot.parent
+      await assertPinnedTemporaryBasePath(parent.base)
+      await assertPinnedPrivatePath(parent)
+      const quarantinePath = join(parent.path, `.quarantine-${randomUUID()}`)
+      await rename(snapshot.path, quarantinePath)
+      await assertOwnedSnapshot(snapshot, quarantinePath, marker)
+      await assertOwnedSnapshot(snapshot, quarantinePath, marker)
+      // The root-owned temp chain and this 0700 namespace isolate other UIDs and concurrent runs.
+      // The trusted Graphify child shares our UID; hostile same-UID mutation is out of scope.
+      await removeOwnedPrivateParent(parent)
+    }
+    const closePinnedHandles = async (): Promise<void> => {
+      const handles = [markerHandle, snapshotHandle, privateHandle, temporaryBaseHandle]
+      markerHandle = undefined
+      snapshotHandle = undefined
+      privateHandle = undefined
+      temporaryBaseHandle = undefined
+      let closeFailure: unknown
+      for (const handle of handles) {
+        if (!handle) continue
+        try {
+          await handle.close()
+        } catch (error) {
+          if (closeFailure === undefined) closeFailure = error
+        }
+      }
+      if (closeFailure !== undefined) throw closeFailure
     }
     let total = 0
     try {
-      await mkdir(snapshotRoot, { mode: 0o700 })
-      snapshotIdentity = graphIdentity(await lstat(snapshotRoot))
-      ownsSnapshot = true
-      await writeFile(ownerPath, owner, { flag: "wx", mode: 0o600 })
-      markerIdentity = graphIdentity(await lstat(ownerPath))
+      const canonicalTemporaryBase = await realpath("/tmp")
+      const temporaryPaths: string[] = []
+      let temporaryPath = canonicalTemporaryBase
+      while (true) {
+        temporaryPaths.push(temporaryPath)
+        const parentPath = dirname(temporaryPath)
+        if (parentPath === temporaryPath) break
+        temporaryPath = parentPath
+      }
+      for (const path of temporaryPaths.reverse()) {
+        const stats = await lstat(path)
+        if (!isTrustedTemporaryDirectory(stats)) {
+          throw new Error("Graph source snapshot temporary base is unsafe")
+        }
+      }
+      const openedTemporaryBase = await open(
+        canonicalTemporaryBase,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY,
+      )
+      temporaryBaseHandle = openedTemporaryBase
+      const pinnedTemporaryBase = await openedTemporaryBase.stat()
+      const currentTemporaryBase = await lstat(canonicalTemporaryBase)
+      if (
+        !isTrustedTemporaryDirectory(pinnedTemporaryBase) ||
+        !isTrustedTemporaryDirectory(currentTemporaryBase) ||
+        !sameGraphIdentity(pinnedTemporaryBase, currentTemporaryBase)
+      ) throw new Error("Graph source snapshot temporary base changed")
+      const base: PinnedTemporaryBase = Object.freeze({
+        path: canonicalTemporaryBase,
+        handle: openedTemporaryBase,
+        identity: graphIdentity(pinnedTemporaryBase),
+      })
+      await assertPinnedTemporaryBasePath(base)
+      const parentPath = await mkdtemp(join(canonicalTemporaryBase, temporaryNamePrefix))
+      await assertPinnedTemporaryBasePath(base)
+      await chmod(parentPath, 0o700)
+      const openedPrivateParent = await open(
+        parentPath,
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      )
+      privateHandle = openedPrivateParent
+      const pinnedPrivate = await openedPrivateParent.stat()
+      const currentPrivate = await lstat(parentPath)
+      if (
+        !pinnedPrivate.isDirectory() ||
+        (pinnedPrivate.mode & 0o777) !== 0o700 ||
+        pinnedPrivate.uid !== effectiveUserId ||
+        currentPrivate.isSymbolicLink() ||
+        !currentPrivate.isDirectory() ||
+        (currentPrivate.mode & 0o777) !== 0o700 ||
+        currentPrivate.uid !== effectiveUserId ||
+        !sameGraphIdentity(pinnedPrivate, currentPrivate)
+      ) throw new Error("Graph source snapshot private namespace changed")
+      const parent: PinnedPrivateParent = Object.freeze({
+        base,
+        path: parentPath,
+        handle: openedPrivateParent,
+        identity: graphIdentity(pinnedPrivate),
+      })
+      privateContext = parent
+      const rootPath = join(parentPath, "active")
+      await mkdir(rootPath, { mode: 0o700 })
+      const openedSnapshotRoot = await open(
+        rootPath,
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      )
+      snapshotHandle = openedSnapshotRoot
+      const pinnedSnapshot = await openedSnapshotRoot.stat()
+      const currentSnapshot = await lstat(rootPath)
+      if (
+        !pinnedSnapshot.isDirectory() ||
+        currentSnapshot.isSymbolicLink() ||
+        !currentSnapshot.isDirectory() ||
+        !sameGraphIdentity(pinnedSnapshot, currentSnapshot)
+      ) throw new Error("Graph source snapshot ownership changed")
+      const ownedSnapshot: PinnedSnapshotRoot = Object.freeze({
+        parent,
+        path: rootPath,
+        handle: openedSnapshotRoot,
+        identity: graphIdentity(pinnedSnapshot),
+      })
+      snapshotContext = ownedSnapshot
+      const openedMarker = await open(
+        join(rootPath, SNAPSHOT_OWNER),
+        constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW |
+          constants.O_RDWR,
+        0o600,
+      )
+      markerHandle = openedMarker
+      await openedMarker.writeFile(owner, "utf8")
+      await openedMarker.sync()
+      const pinnedMarker = await openedMarker.stat()
+      if (!pinnedMarker.isFile()) {
+        throw new Error("Graph source snapshot marker ownership changed")
+      }
+      const ownedMarker: InitializedSnapshotMarker =
+        Object.freeze({
+          initialized: true,
+          handle: openedMarker,
+          identity: graphIdentity(pinnedMarker),
+        })
+      initializedMarker = ownedMarker
       const sourcePaths = await listConfiguredSourceFiles(config)
       const workspaceManifests = await Promise.all(
         sourcePaths
@@ -417,16 +767,39 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
         if (encoded.byteLength > MAX_SOURCE_FILE_BYTES) throw new Error("Compiled source file is too large")
         total += encoded.byteLength
         if (total > MAX_SOURCE_TOTAL_BYTES) throw new Error("Architectural source corpus is too large")
-        const destination = join(snapshotRoot, snapshot.path)
+        const destination = join(rootPath, snapshot.path)
         await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
         await writeFile(destination, encoded, { flag: "wx", mode: 0o600 })
       }
+      await assertPinnedPrivatePath(parent)
+      await assertOwnedSnapshot(ownedSnapshot, rootPath, ownedMarker)
+      await assertPinnedPrivatePath(parent)
       async function cleanup(): Promise<void> {
-        await removeOwnedSnapshot()
+        if (cleanupStarted) {
+          throw new Error("Graph source snapshot cleanup already attempted")
+        }
+        cleanupStarted = true
+        try {
+          await removeOwnedSnapshot(ownedSnapshot, ownedMarker)
+        } catch (error) {
+          await closePinnedHandles().catch(() => undefined)
+          throw error
+        }
+        await closePinnedHandles()
       }
-      return Object.freeze({ path: snapshotRoot, cleanup })
+      return Object.freeze({ path: rootPath, cleanup })
     } catch (error) {
-      if (ownsSnapshot) await removeOwnedSnapshot()
+      const marker: SnapshotMarkerState = initializedMarker ??
+        (markerHandle
+          ? Object.freeze({ initialized: false, handle: markerHandle })
+          : Object.freeze({ initialized: false }))
+      if (snapshotContext) {
+        cleanupStarted = true
+        await removeOwnedSnapshot(snapshotContext, marker).catch(() => undefined)
+      } else if (privateContext) {
+        await removeOwnedPrivateParent(privateContext).catch(() => undefined)
+      }
+      await closePinnedHandles().catch(() => undefined)
       throw error
     }
   },

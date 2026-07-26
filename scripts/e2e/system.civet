@@ -789,32 +789,42 @@ const assertAdoptedLifecycleRoot = async (
   expected: OwnedRunAdoption["e2e"],
   adoption: OwnedRunAdoption,
 ): Promise<void> => {
-  await assertDirectory(path)
-  const rootStats = await lstat(path)
-  if (!sameIdentity(expected.root, rootStats)) {
-    throw new Error("Owned lifecycle root identity changed")
-  }
-  const marker = await open(
-    join(path, OWNER_FILE),
-    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
-  )
   try {
-    const before = await marker.stat()
-    if (
-      !before.isFile() ||
-      !sameIdentity(expected.marker, before) ||
-      before.size > 512 ||
-      (before.mode & 0o777) !== 0o600
-    ) throw new Error("Owned lifecycle marker identity changed")
-    const content = await marker.readFile({ encoding: "utf8" })
-    const after = await marker.stat()
-    if (
-      !sameIdentity(expected.marker, after) ||
-      before.size !== after.size ||
-      content !== JSON.stringify(adoption)
-    ) throw new Error("Owned lifecycle marker capability changed")
-  } finally {
-    await marker.close()
+    await assertDirectory(path)
+    const rootStats = await lstat(path)
+    if (!sameIdentity(expected.root, rootStats)) {
+      throw new Error("Owned lifecycle root identity or capability changed")
+    }
+    const marker = await open(
+      join(path, OWNER_FILE),
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    )
+    try {
+      const before = await marker.stat()
+      if (
+        !before.isFile() ||
+        !sameIdentity(expected.marker, before) ||
+        before.size > 512 ||
+        (before.mode & 0o777) !== 0o600
+      ) throw new Error("Owned lifecycle marker identity or capability changed")
+      const content = await marker.readFile({ encoding: "utf8" })
+      const after = await marker.stat()
+      if (
+        !sameIdentity(expected.marker, after) ||
+        before.size !== after.size ||
+        content !== JSON.stringify(adoption)
+      ) throw new Error("Owned lifecycle marker identity or capability changed")
+    } finally {
+      await marker.close()
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        "Owned lifecycle root identity or capability changed",
+        { cause: error },
+      )
+    }
+    throw error
   }
 }
 

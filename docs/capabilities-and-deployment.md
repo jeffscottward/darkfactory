@@ -78,11 +78,13 @@ bun run dev:bindings
 bun run build
 corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start
 bun run deploy:web:check
+bun run deploy:web:staging:check
+bun run deploy:web:staging
 bun run deploy:web:preview
 bun run deploy:web
 ```
 
-`bun run build` performs local compilation through the measured Node-backed Vinext compatibility path. The package `start` command serves that output through Vite's Cloudflare Worker preview and inherits Portless's validated `HOST` and `PORT`; it is not deployment evidence. Filesystem email previews are disabled in a production bundle, so a real production configuration must select Resend. `bun run deploy:web:check` performs the adapter's non-deploying dry-run setup validation. The remote preview and production deploy commands are explicit, credentialed Cloudflare operations. Run a deploy only with an authorized account, reviewed target, protected environment, correct secrets, a green required CI run for the same SHA, and a rollback owner.
+`bun run build` performs local compilation through the measured Node-backed Vinext compatibility path. The package `start` command serves that output through Vite's Cloudflare Worker preview and inherits Portless's validated `HOST` and `PORT`; it is not deployment evidence. Filesystem email previews are disabled in a production bundle, so a real production configuration must select Resend. `bun run deploy:web:check` validates the top-level Worker configuration without deployment; `bun run deploy:web:staging:check` validates the explicit isolated `staging` environment, and `bun run deploy:web:staging` is its credentialed deploy command. The remote preview and production deploy commands remain separate explicit Cloudflare operations. Run a deploy only with an authorized account, reviewed target, protected environment, correct secrets, a green required CI run for the same SHA, and a rollback owner.
 
 The repository's current GitHub Actions workflow verifies code and uploads Playwright failure artifacts; it does not contain an automatic deployment job. Therefore this repository does not claim that preview or production deployment has occurred. Deployment evidence remains pending until an operator records the target, SHA, command/run URL, output, runtime probe, and rollback result in [the evidence map](evidence-map.md).
 

@@ -22,6 +22,8 @@
     "deploy:web",
     "deploy:web:check",
     "deploy:web:preview",
+    "deploy:web:staging",
+    "deploy:web:staging:check",
     "dev",
     "dev:bindings",
     "dev:https",
