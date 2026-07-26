@@ -538,14 +538,43 @@ describe("CLI argument and environment forwarding", () => {
     }
   })
 
-  it("runs one collision-free parent Node/pnpm script pair into a bounded result", async () => {
+  it("runs the workflow-paired private toolchain before Corepack and action PATH entries", async () => {
     const repository = await mkdtemp(join(tmpdir(), "darkfactory-static-cli-root-"))
-    const tools = await mkdtemp(join(tmpdir(), "darkfactory-static-cli-tools-"))
-    const canonicalTools = await realpath(tools)
+    const nodeInstallation = await mkdtemp(
+      join(tmpdir(), "darkfactory-node-installation-"),
+    )
+    const actionInstallation = await mkdtemp(
+      join(tmpdir(), "darkfactory-setup-pnpm-"),
+    )
+    const privateToolchain = await mkdtemp(
+      join(tmpdir(), "darkfactory-browser-toolchain-"),
+    )
+    const nodeBin = join(nodeInstallation, "bin")
+    const corepackProgram = join(
+      nodeInstallation,
+      "lib",
+      "node_modules",
+      "corepack",
+      "dist",
+      "pnpm.js",
+    )
+    const actionBin = join(actionInstallation, "node_modules", ".bin")
+    const pnpmProgram = join(
+      actionInstallation,
+      "node_modules",
+      "pnpm",
+      "bin",
+      "pnpm.mjs",
+    )
+    await Promise.all([
+      mkdir(nodeBin, { recursive: true }),
+      mkdir(dirname(corepackProgram), { recursive: true }),
+      mkdir(actionBin, { recursive: true }),
+      mkdir(dirname(pnpmProgram), { recursive: true }),
+      chmod(privateToolchain, 0o700),
+    ])
+    const canonicalPrivateToolchain = await realpath(privateToolchain)
     const nodeExecutable = await realpath(process.execPath)
-    const nodeLink = join(canonicalTools, "node")
-    const pnpmExecutable = join(canonicalTools, "pnpm.cjs")
-    const pnpmLink = join(canonicalTools, "pnpm")
     const reportPath = join(
       repository,
       "test-results",
@@ -564,11 +593,23 @@ describe("CLI argument and environment forwarding", () => {
       "test-results/e2e-runs/isolated_cli_run/artifacts",
       "--reporter=list,json",
     ]
+    const expectedChildPath = [...new Set([
+      canonicalPrivateToolchain,
+      dirname(process.execPath),
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+    ])].join(delimiter)
+    const corepackMarker = join(nodeInstallation, "corepack-invoked")
     const previousPath = process.env["PATH"]
     try {
-      await writeFile(pnpmExecutable, `#!/usr/bin/env node
-const { mkdirSync, writeFileSync } = require("node:fs")
-const { dirname } = require("node:path")
+      await writeFile(corepackProgram, `const { writeFileSync } = require("node:fs")
+writeFileSync(${JSON.stringify(corepackMarker)}, "invoked\\n", "utf8")
+process.exit(91)
+`)
+      await writeFile(pnpmProgram, `import { mkdirSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
 const reportPath = process.env.PLAYWRIGHT_JSON_OUTPUT_NAME
 if (reportPath === undefined) process.exit(2)
 const arguments_ = process.argv.slice(2)
@@ -578,18 +619,33 @@ const evidence = [
   "node-node=" + process.env._DARKFACTORY_E2E_NODE_EXECUTABLE,
   "pnpm=" + process.argv[1],
   "pnpm-script=" + process.env._DARKFACTORY_E2E_PNPM_SCRIPT,
+  "path=" + process.env.PATH,
   "argc=" + arguments_.length,
   ...arguments_.map((argument) => "arg=" + argument),
 ].join("\\n") + "\\n"
 writeFileSync(reportPath + ".launcher", evidence, "utf8")
 writeFileSync(reportPath, '{"config":{"webServer":{}}}\\n', "utf8")
 `)
-      await chmod(pnpmExecutable, 0o700)
       await Promise.all([
-        symlink(nodeExecutable, nodeLink),
-        symlink(pnpmExecutable, pnpmLink),
+        chmod(corepackProgram, 0o700),
+        chmod(pnpmProgram, 0o700),
       ])
-      process.env["PATH"] = tools
+      const canonicalPnpmProgram = await realpath(pnpmProgram)
+      await Promise.all([
+        symlink(nodeExecutable, join(nodeBin, "node")),
+        symlink(
+          "../lib/node_modules/corepack/dist/pnpm.js",
+          join(nodeBin, "pnpm"),
+        ),
+        symlink("../pnpm/bin/pnpm.mjs", join(actionBin, "pnpm")),
+        symlink(nodeExecutable, join(privateToolchain, "node")),
+        symlink(canonicalPnpmProgram, join(privateToolchain, "pnpm")),
+      ])
+      process.env["PATH"] = [
+        privateToolchain,
+        nodeBin,
+        actionBin,
+      ].join(delimiter)
       const cli = streams()
 
       await expect(runJourneyCli(
@@ -603,12 +659,16 @@ writeFileSync(reportPath, '{"config":{"webServer":{}}}\\n', "utf8")
       expect(executableEvidence).toBe([
         `node=${nodeExecutable}`,
         `node-node=${nodeExecutable}`,
-        `pnpm=${pnpmExecutable}`,
-        `pnpm-script=${pnpmExecutable}`,
+        `pnpm=${canonicalPnpmProgram}`,
+        `pnpm-script=${canonicalPnpmProgram}`,
+        `path=${expectedChildPath}`,
         `argc=${expectedArguments.length}`,
         ...expectedArguments.map((argument) => `arg=${argument}`),
         "",
       ].join("\n"))
+      await expect(readFile(corepackMarker, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
       expect(cli.errors[0]).toBe(
         '{"spec":"tests/e2e/auth.spec.ts","runId":"isolated_cli_run",' +
         '"stage":"created"}\n',
@@ -627,7 +687,9 @@ writeFileSync(reportPath, '{"config":{"webServer":{}}}\\n', "utf8")
       else process.env["PATH"] = previousPath
       await Promise.all([
         rm(repository, { recursive: true, force: true }),
-        rm(tools, { recursive: true, force: true }),
+        rm(nodeInstallation, { recursive: true, force: true }),
+        rm(actionInstallation, { recursive: true, force: true }),
+        rm(privateToolchain, { recursive: true, force: true }),
       ])
     }
   })

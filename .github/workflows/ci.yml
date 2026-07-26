@@ -29,6 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up pnpm
+        id: pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.16.0
@@ -349,6 +350,85 @@ jobs:
           fi
           certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$HOME/.portless/ca.pem"
           certutil -L -d "sql:$nss_db" | grep -F -- "$ca_nickname"
+
+      - name: Prepare private browser pnpm toolchain
+        if: matrix.lane == 'browser'
+        env:
+          PNPM_ACTION_BIN: ${{ steps.pnpm.outputs.bin_dest }}/pnpm
+        run: |
+          set -euo pipefail
+          umask 077
+
+          require_absolute_safe_path() {
+            local candidate="$1"
+            case "$candidate" in
+              /*) ;;
+              *) return 1 ;;
+            esac
+            case "$candidate" in
+              *:* | *$'\n'*) return 1 ;;
+            esac
+          }
+
+          require_external_executable() {
+            local candidate="$1"
+            require_absolute_safe_path "$candidate"
+            [ -f "$candidate" ]
+            [ -x "$candidate" ]
+            case "$candidate" in
+              "$workspace_root" | "$workspace_root"/*) return 1 ;;
+            esac
+          }
+
+          require_absolute_safe_path "$RUNNER_TEMP"
+          require_absolute_safe_path "$GITHUB_WORKSPACE"
+          runner_temp_root="$(realpath -e -- "$RUNNER_TEMP")"
+          workspace_root="$(realpath -e -- "$GITHUB_WORKSPACE")"
+          require_absolute_safe_path "$runner_temp_root"
+          require_absolute_safe_path "$workspace_root"
+          [ -d "$runner_temp_root" ]
+          [ -d "$workspace_root" ]
+          case "$runner_temp_root" in
+            "$workspace_root" | "$workspace_root"/*) exit 1 ;;
+          esac
+
+          node_candidate="$(command -v node)"
+          pnpm_candidate="$PNPM_ACTION_BIN"
+          require_absolute_safe_path "$node_candidate"
+          require_absolute_safe_path "$pnpm_candidate"
+          node_target="$(realpath -e -- "$node_candidate")"
+          pnpm_target="$(realpath -e -- "$pnpm_candidate")"
+          require_external_executable "$node_target"
+          require_external_executable "$pnpm_target"
+
+          toolchain="$(mktemp -d "$runner_temp_root/darkfactory-browser-toolchain.XXXXXX")"
+          toolchain="$(realpath -e -- "$toolchain")"
+          require_absolute_safe_path "$toolchain"
+          case "$toolchain" in
+            "$runner_temp_root"/*) ;;
+            *) exit 1 ;;
+          esac
+          [ -O "$toolchain" ]
+          [ "$(stat -c '%a' -- "$toolchain")" = "700" ]
+          [ "$(stat -c '%u' -- "$toolchain")" = "$(id -u)" ]
+
+          ln -s -- "$node_target" "$toolchain/node"
+          ln -s -- "$pnpm_target" "$toolchain/pnpm"
+          [ -L "$toolchain/node" ]
+          [ -L "$toolchain/pnpm" ]
+          [ "$(stat -c '%u' -- "$toolchain/node")" = "$(id -u)" ]
+          [ "$(stat -c '%u' -- "$toolchain/pnpm")" = "$(id -u)" ]
+          [ "$(realpath -e -- "$toolchain/node")" = "$node_target" ]
+          [ "$(realpath -e -- "$toolchain/pnpm")" = "$pnpm_target" ]
+          mapfile -t toolchain_entries < <(
+            find "$toolchain" -mindepth 1 -maxdepth 1 -printf '%f\n' |
+              LC_ALL=C sort
+          )
+          [ "${#toolchain_entries[@]}" -eq 2 ]
+          [ "${toolchain_entries[0]}" = "node" ]
+          [ "${toolchain_entries[1]}" = "pnpm" ]
+
+          printf '%s\n' "$toolchain" >> "$GITHUB_PATH"
 
       - name: Capture committed Graphify manifest identity
         if: matrix.lane == 'graph'

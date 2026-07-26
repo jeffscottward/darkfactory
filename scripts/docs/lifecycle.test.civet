@@ -328,6 +328,7 @@ describe("DF-101/106 lifecycle contract", () => {
     const proxyStart = workflowStep("Start local HTTPS proxy without system trust")
     const proxyReadiness = workflowStep("Verify local HTTPS proxy readiness")
     const proxyTrust = workflowStep("Trust portless CA in Chromium")
+    const browserToolchain = workflowStep("Prepare private browser pnpm toolchain")
     const proxyStop = workflowStep("Stop local HTTPS proxy")
     const proxyClosed = workflowStep("Verify local HTTPS proxy closed")
     const graphCapture = workflowStep("Capture committed Graphify manifest identity")
@@ -378,6 +379,84 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toContain(
       "bunx --bun --no-install playwright install --with-deps chromium",
     )
+    expect(workflow).toMatch(
+      /Set up pnpm\n\s+id: pnpm\n\s+uses: pnpm\/action-setup@0ebf47130e4866e96fce0953f49152a61190b271/,
+    )
+    expect(browserToolchain).toContain("if: matrix.lane == 'browser'")
+    expect(browserToolchain).toContain(
+      'PNPM_ACTION_BIN: ${{ steps.pnpm.outputs.bin_dest }}/pnpm',
+    )
+    expect(browserToolchain).toContain("set -euo pipefail")
+    expect(browserToolchain).toContain("umask 077")
+    expect(browserToolchain).toContain("require_absolute_safe_path() {")
+    expect(browserToolchain).toContain("*:* | *$'\\n'*) return 1 ;;")
+    expect(browserToolchain).toContain(
+      'runner_temp_root="$(realpath -e -- "$RUNNER_TEMP")"',
+    )
+    expect(browserToolchain).toContain(
+      'workspace_root="$(realpath -e -- "$GITHUB_WORKSPACE")"',
+    )
+    expect(browserToolchain).toContain(
+      'node_target="$(realpath -e -- "$node_candidate")"',
+    )
+    expect(browserToolchain).toContain(
+      'pnpm_target="$(realpath -e -- "$pnpm_candidate")"',
+    )
+    expect(browserToolchain).toContain("require_external_executable() {")
+    expect(browserToolchain).toContain('[ -f "$candidate" ]')
+    expect(browserToolchain).toContain('[ -x "$candidate" ]')
+    expect(browserToolchain).toContain(
+      '"$workspace_root" | "$workspace_root"/*) return 1 ;;',
+    )
+    expect(browserToolchain).toContain(
+      '"$workspace_root" | "$workspace_root"/*) exit 1 ;;',
+    )
+    expect(browserToolchain).toContain(
+      'toolchain="$(mktemp -d "$runner_temp_root/darkfactory-browser-toolchain.XXXXXX")"',
+    )
+    expect(browserToolchain).toContain(
+      '"$runner_temp_root"/*) ;;',
+    )
+    expect(browserToolchain).toContain('[ -O "$toolchain" ]')
+    expect(browserToolchain).toContain(
+      `[ "$(stat -c '%a' -- "$toolchain")" = "700" ]`,
+    )
+    expect(browserToolchain).toContain(
+      `[ "$(stat -c '%u' -- "$toolchain")" = "$(id -u)" ]`,
+    )
+    expect(browserToolchain).toContain(
+      'ln -s -- "$node_target" "$toolchain/node"',
+    )
+    expect(browserToolchain).toContain(
+      'ln -s -- "$pnpm_target" "$toolchain/pnpm"',
+    )
+    expect(browserToolchain).toContain('[ -L "$toolchain/node" ]')
+    expect(browserToolchain).toContain('[ -L "$toolchain/pnpm" ]')
+    expect(browserToolchain).toContain(
+      `[ "$(stat -c '%u' -- "$toolchain/node")" = "$(id -u)" ]`,
+    )
+    expect(browserToolchain).toContain(
+      `[ "$(stat -c '%u' -- "$toolchain/pnpm")" = "$(id -u)" ]`,
+    )
+    expect(browserToolchain).toContain(
+      '[ "$(realpath -e -- "$toolchain/node")" = "$node_target" ]',
+    )
+    expect(browserToolchain).toContain(
+      '[ "$(realpath -e -- "$toolchain/pnpm")" = "$pnpm_target" ]',
+    )
+    expect(browserToolchain).toContain(
+      '[ "${#toolchain_entries[@]}" -eq 2 ]',
+    )
+    expect(browserToolchain).toContain(
+      '[ "${toolchain_entries[0]}" = "node" ]',
+    )
+    expect(browserToolchain).toContain(
+      '[ "${toolchain_entries[1]}" = "pnpm" ]',
+    )
+    expect(browserToolchain).toContain(
+      `printf '%s\\n' "$toolchain" >> "$GITHUB_PATH"`,
+    )
+    expect(browserToolchain).not.toContain("PNPM_HOME")
     expect(proxyStart).toContain("if: matrix.lane == 'browser'")
     expect(proxyStart).toContain("umask 077")
     expect(proxyStart).toContain(
@@ -587,6 +666,12 @@ describe("DF-101/106 lifecycle contract", () => {
       workflow.indexOf(proxyTrust),
     )
     expect(workflow.indexOf(proxyTrust)).toBeLessThan(
+      workflow.indexOf(verification),
+    )
+    expect(workflow.indexOf(proxyTrust)).toBeLessThan(
+      workflow.indexOf(browserToolchain),
+    )
+    expect(workflow.indexOf(browserToolchain)).toBeLessThan(
       workflow.indexOf(verification),
     )
     expect(workflow.indexOf(verification)).toBeLessThan(

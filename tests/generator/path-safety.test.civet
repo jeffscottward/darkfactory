@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -172,10 +173,21 @@ describe "generate-feature path safety", ->
     expect(identities.every((identity) => Object.isFrozen(identity))).toBe(true)
     await expect(assertDirectoryChain(identities)).resolves.toBeUndefined()
 
-    await rm(second, { recursive: true })
+    const displacedSecond = join(first, "displaced-second")
+    await rename(second, displacedSecond)
     await mkdir(second)
+    const replacementIdentity = await identityAt(second)
+    expect([
+      replacementIdentity.device,
+      replacementIdentity.inode,
+    ]).not.toEqual([
+      identities[2].device,
+      identities[2].inode,
+    ])
     await expect(assertDirectoryChain(identities)).rejects.toMatchObject({
+      name: "GeneratorError",
       code: "ANCESTOR_CHANGED",
+      message: "Generated ancestor identity changed",
     })
 
   it "rejects non-directory and symbolic-link directory-chain members", async ->
