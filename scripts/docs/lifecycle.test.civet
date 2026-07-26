@@ -326,7 +326,44 @@ describe("DF-101/106 lifecycle contract", () => {
       workflow.slice(start, next === -1 ? undefined : next)
     }
     const proxyStart = workflowStep("Start local HTTPS proxy without system trust")
+    const proxyReadiness = workflowStep("Verify local HTTPS proxy readiness")
+    const proxyTrust = workflowStep("Trust portless CA in Chromium")
     const proxyStop = workflowStep("Stop local HTTPS proxy")
+    const proxyClosed = workflowStep("Verify local HTTPS proxy closed")
+    const graphCapture = workflowStep("Capture committed Graphify manifest identity")
+    const graphBuild = workflowStep("Build Graphify output and compare committed identity")
+    const verification = workflowStep("Run verification lane")
+    const browserEvidence = workflowStep("Preserve externally scanned Playwright evidence")
+    const postgresCleanup = workflowStep("Stop PostgreSQL integration service")
+    const graphIdentityFields =
+      '["graphifyVersion", "configDigest", "sourceFingerprint", "sourceFileCount"]'
+    const expectOwnedPortlessSignals = (step: string): void => {
+      expect(step).toContain("owns_portless_process_group() {")
+      expect(step).toContain(
+        '[[ "$owner" =~ ^darkfactory-ci-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]',
+      )
+      expect(step).toContain(
+        '[[ -r "/proc/$pid/environ" && -r "/proc/$pid/cmdline" && -r "/proc/$pid/stat" ]]',
+      )
+      expect(step).toContain(
+        '[[ "$environment_entry" == "PORTLESS_CI_OWNER=$owner" ]]',
+      )
+      expect(step).toMatch(
+        /local -a expected_command=\(\n\s+timeout\n\s+--signal=TERM\n\s+--kill-after=5s\n\s+20m\n\s+bunx\n\s+--bun\n\s+--no-install\n\s+portless\n\s+proxy\n\s+start\n\s+--foreground\n\s+--skip-trust\n\s+\)/,
+      )
+      expect(step).toContain(
+        '[[ ${#actual_command[@]} -eq ${#expected_command[@]} ]]',
+      )
+      expect(step).toContain(
+        '[[ "${actual_command[$index]}" == "${expected_command[$index]}" ]]',
+      )
+      expect(step).toContain('process_stat="${process_stat##*) }"')
+      expect(step).toContain('[[ "$process_group_id" == "$pid" ]]')
+      expect(step).toContain('kill -TERM -- "-$portless_pid"')
+      expect(step).toContain('kill -KILL -- "-$portless_pid"')
+      expect(step).not.toContain('kill -TERM "$portless_pid"')
+      expect(step).not.toContain('kill -KILL "$portless_pid"')
+    }
     expect(rootPackage.devDependencies["@axe-core/playwright"]).toBe("catalog:")
     expect(workspace).toContain('"@axe-core/playwright": 4.12.1')
     expect(workflow).toContain("matrix:")
@@ -342,15 +379,124 @@ describe("DF-101/106 lifecycle contract", () => {
       "bunx --bun --no-install playwright install --with-deps chromium",
     )
     expect(proxyStart).toContain("if: matrix.lane == 'browser'")
+    expect(proxyStart).toContain("umask 077")
     expect(proxyStart).toContain(
-      "timeout --signal=TERM --kill-after=5s 20s bunx --bun --no-install portless proxy start --skip-trust",
+      'portless_log="$RUNNER_TEMP/portless-proxy.log"',
     )
     expect(proxyStart).toContain(
-      "timeout --signal=TERM --kill-after=2s 10s bash -c",
+      'portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"',
     )
     expect(proxyStart).toContain(
-      'until (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT")',
+      'IFS= read -r portless_owner <"/proc/sys/kernel/random/uuid"',
     )
+    expect(proxyStart).toContain('portless_owner="darkfactory-ci-$portless_owner"')
+    expect(proxyStart).toContain('PORTLESS_CI_OWNER="$portless_owner"')
+    expect(proxyStart).toContain(
+      'if ! (set -o noclobber; : >"$portless_log")',
+    )
+    expect(proxyStart).toContain(
+      "timeout --signal=TERM --kill-after=5s 20m",
+    )
+    expect(proxyStart).toContain(
+      "portless proxy start --foreground --skip-trust",
+    )
+    expect(proxyStart).toContain('>"$portless_log" 2>&1 &')
+    expect(proxyStart).toContain("portless_pid=$!")
+    expect(proxyStart).toContain(
+      "portless_identity_deadline=$((SECONDS + 5))",
+    )
+    expect(proxyStart).toContain(
+      'while kill -0 "$portless_pid" 2>/dev/null; do',
+    )
+    expect(proxyStart).toContain(
+      'if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n              portless_identity_ready=true',
+    )
+    expect(proxyStart).toContain("sleep 0.1")
+    expect(proxyStart).toContain(
+      '[[ "$portless_identity_ready" != true ]]',
+    )
+    expect(proxyStart).toContain(
+      '! owns_portless_process_group "$portless_pid" "$portless_owner" ||\n            ! (set -o noclobber; printf',
+    )
+    expect(proxyStart).toContain(
+      `printf '%s %s\\n' "$portless_pid" "$portless_owner" >"$portless_pid_file"`,
+    )
+    expect(proxyStart).toContain("emergency_portless_cleanup() {")
+    expect(proxyStart).toContain('local status="$1"')
+    expect(proxyStart).toContain(
+      "local emergency_identity_deadline=$((SECONDS + 5))",
+    )
+    expect(proxyStart).toContain(
+      'while kill -0 "$portless_pid" 2>/dev/null; do\n              if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n                emergency_identity_ready=true',
+    )
+    expect(proxyStart).toContain("sleep 0.1")
+    expect(
+      proxyStart.match(
+        /if ! kill -0 "\$portless_pid" 2>\/dev\/null; then\n\s+wait "\$portless_pid" 2>\/dev\/null \|\| true/g,
+      ),
+    ).toHaveLength(2)
+    expect(proxyStart.indexOf("emergency_portless_cleanup() {")).toBeLessThan(
+      proxyStart.indexOf('PORTLESS_CI_OWNER="$portless_owner"'),
+    )
+    expect(proxyStart).toContain(
+      `portless_pid=$!\n          trap 'emergency_portless_cleanup "$?"' EXIT`,
+    )
+    expect(proxyStart).toContain(
+      `trap 'emergency_portless_cleanup 130' INT`,
+    )
+    expect(proxyStart).toContain(
+      `trap 'emergency_portless_cleanup 143' TERM`,
+    )
+    expect(proxyStart.match(/trap - EXIT INT TERM/g)).toHaveLength(2)
+    expect(proxyStart).toContain('exit "$status"')
+    expect(
+      proxyStart.indexOf(
+        `printf '%s %s\\n' "$portless_pid" "$portless_owner" >"$portless_pid_file"`,
+      ),
+    ).toBeLessThan(proxyStart.lastIndexOf("trap - EXIT INT TERM"))
+    expect(proxyStart).toContain(
+      'tail --bytes=65536 "$portless_log"',
+    )
+    expectOwnedPortlessSignals(proxyStart)
+    expect(proxyStart).toContain(
+      'if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n                kill -TERM',
+    )
+    expect(proxyStart).toContain(
+      'if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n                    kill -KILL',
+    )
+    expect(proxyStart).not.toContain("portless proxy stop")
+    expect(proxyStart).toContain(
+      'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done',
+    )
+    expect(proxyStart).toContain('rm -f "$portless_pid_file"')
+    expect(proxyStart).not.toContain("portless proxy start --skip-trust")
+    expect(proxyReadiness).toContain("if: matrix.lane == 'browser'")
+    expect(proxyReadiness).toContain(
+      `IFS=' ' read -r portless_pid portless_owner portless_state_extra <"$portless_pid_file"`,
+    )
+    expect(proxyReadiness).toContain(
+      '! owns_portless_process_group "$portless_pid" "$portless_owner"',
+    )
+    expect(proxyReadiness).toContain(
+      "timeout --signal=TERM --kill-after=2s 15s bash -c",
+    )
+    expect(proxyReadiness).toContain(
+      'if (echo >"/dev/tcp/127.0.0.1/$port")',
+    )
+    expect(proxyReadiness).toContain('kill -0 "$pid"')
+    expect(proxyReadiness).toContain("sleep 0.25")
+    expect(proxyReadiness).toContain(
+      'tail --bytes=65536 "$portless_log"',
+    )
+    expect(proxyReadiness).not.toContain("portless proxy stop")
+    expectOwnedPortlessSignals(proxyReadiness)
+    expect(proxyReadiness).toContain(
+      'if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n              kill -TERM',
+    )
+    expect(proxyReadiness).toContain(
+      'if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n                  kill -KILL',
+    )
+    expect(proxyReadiness).toContain('rm -f "$portless_pid_file"')
     expect(workflow).toContain("scripts/graph/requirements.lock")
     expect(workflow).toContain("--require-hashes")
     expect(workflow).toContain('python-version: "3.12.11"')
@@ -360,18 +506,147 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toMatch(/Start PostgreSQL integration service\n\s+if: matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Start local HTTPS proxy without system trust\n\s+if: matrix\.lane == 'browser'/)
     expect(workflow).toMatch(/Trust portless CA in Chromium\n\s+if: matrix\.lane == 'browser'/)
-    expect(workflow).toMatch(/Build Graphify output[\s\S]*matrix\.lane == 'graph'[\s\S]*graph:build[\s\S]*git diff --exit-code/)
+    expect(graphCapture).toContain("if: matrix.lane == 'graph'")
+    expect(graphCapture).toContain("umask 077")
+    expect(graphCapture).toContain(
+      "timeout --signal=TERM --kill-after=2s 10s bun -e",
+    )
+    expect(graphCapture).toContain(
+      'import { execFileSync } from "node:child_process";',
+    )
+    expect(graphCapture).toContain("const githubSha = process.env.GITHUB_SHA;")
+    expect(graphCapture).toContain(
+      'typeof githubSha !== "string" || !/^[0-9a-fA-F]{40}$/.test(githubSha)',
+    )
+    expect(graphCapture).toContain(
+      'throw new Error("GITHUB_SHA must be an exact 40-character hexadecimal commit ID")',
+    )
+    expect(graphCapture).toContain(
+      '["show", `${githubSha}:.graphify/manifest.json`]',
+    )
+    expect(graphCapture).toContain('encoding: "utf8"')
+    expect(graphCapture).toContain("timeout: 5_000")
+    expect(graphCapture).toContain("maxBuffer: 65_536")
+    expect(graphCapture).not.toContain('readFileSync(".graphify/manifest.json"')
+    expect(graphCapture.indexOf('if (typeof githubSha !== "string"')).toBeLessThan(
+      graphCapture.indexOf("execFileSync("),
+    )
+    expect(graphCapture.indexOf("execFileSync(")).toBeLessThan(
+      graphCapture.indexOf("const identity = Object.fromEntries("),
+    )
+    expect(graphCapture).toContain(`const identityFields = ${graphIdentityFields};`)
+    expect(graphCapture).toContain(
+      'const stringFields = ["graphifyVersion", "configDigest", "sourceFingerprint"];',
+    )
+    expect(graphCapture).toContain(
+      "Object.keys(identity).length === identityFields.length",
+    )
+    expect(graphCapture).toContain(
+      "identityFields.every((field) => Object.hasOwn(identity, field))",
+    )
+    expect(graphCapture).toContain(
+      'typeof identity[field] === "string" && identity[field].trim().length > 0',
+    )
+    expect(graphCapture).toContain("Number.isInteger(identity.sourceFileCount)")
+    expect(graphCapture).toContain("identity.sourceFileCount > 0")
+    expect(graphCapture).toContain("if (!identityIsValid)")
+    expect(graphCapture).toContain(
+      'throw new Error("Committed Graphify manifest identity is invalid")',
+    )
+    expect(graphCapture.indexOf("if (!identityIsValid)")).toBeLessThan(
+      graphCapture.indexOf("writeFileSync("),
+    )
+    expect(graphCapture).toContain("process.env.RUNNER_TEMP")
+    expect(graphCapture).toContain("graphify-committed-identity.json")
+    expect(graphCapture).toContain('{ flag: "wx", mode: 0o600 }')
+    expect(graphBuild).toContain("if: matrix.lane == 'graph'")
+    expect(graphBuild).toContain("bun run graph:build")
+    expect(graphBuild).toContain(
+      "timeout --signal=TERM --kill-after=2s 10s bun -e",
+    )
+    expect(graphBuild).toContain(`const identityFields = ${graphIdentityFields};`)
+    expect(graphBuild).toContain("process.env.RUNNER_TEMP")
+    expect(graphBuild).toContain("graphify-committed-identity.json")
+    expect(graphBuild).toContain(
+      "if (!isDeepStrictEqual(rebuiltIdentity, committedIdentity))",
+    )
+    expect(graphBuild).toContain("throw new Error(")
+    expect(graphBuild.indexOf("bun run graph:build")).toBeLessThan(
+      graphBuild.indexOf("if (!isDeepStrictEqual(rebuiltIdentity, committedIdentity))"),
+    )
+    expect(workflow.indexOf(graphCapture)).toBeLessThan(workflow.indexOf(graphBuild))
+    expect(workflow.indexOf(graphBuild)).toBeLessThan(workflow.indexOf(verification))
+    expect(verification).toContain('run: bun run "verify:${{ matrix.lane }}"')
+    expect(`${graphCapture}\n${graphBuild}`).not.toContain("graphDigest")
+    expect(workflow).not.toContain("git diff --exit-code -- .graphify/manifest.json")
     expect(workflow).toMatch(/Preserve externally scanned Playwright evidence[\s\S]*matrix\.lane == 'browser' && success\(\)[\s\S]*playwright-report\/[\s\S]*test-results\//)
+    expect(workflow.indexOf(proxyStart)).toBeLessThan(
+      workflow.indexOf(proxyReadiness),
+    )
+    expect(workflow.indexOf(proxyReadiness)).toBeLessThan(
+      workflow.indexOf(proxyTrust),
+    )
+    expect(workflow.indexOf(proxyTrust)).toBeLessThan(
+      workflow.indexOf(verification),
+    )
+    expect(workflow.indexOf(verification)).toBeLessThan(
+      workflow.indexOf(browserEvidence),
+    )
+    expect(workflow.indexOf(browserEvidence)).toBeLessThan(
+      workflow.indexOf(proxyStop),
+    )
+    expect(workflow.indexOf(proxyStop)).toBeLessThan(
+      workflow.indexOf(proxyClosed),
+    )
+    expect(workflow.indexOf(proxyClosed)).toBeLessThan(
+      workflow.indexOf(postgresCleanup),
+    )
+    expect(workflow).toMatch(/Verify local HTTPS proxy readiness\n\s+if: matrix\.lane == 'browser'/)
     expect(proxyStop).toContain("if: matrix.lane == 'browser' && always()")
     expect(proxyStop).toContain(
-      'timeout --signal=TERM --kill-after=5s 15s bunx --bun --no-install portless proxy stop --port "$PORTLESS_PORT" || true',
+      'portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"',
     )
     expect(proxyStop).toContain(
-      "timeout --signal=TERM --kill-after=2s 10s bash -c",
+      `IFS=' ' read -r portless_pid portless_owner portless_state_extra <"$portless_pid_file"`,
+    )
+    expect(proxyStop).not.toContain("portless proxy stop")
+    expect(proxyStop).toContain('[[ -z "$portless_state_extra" ]]')
+    expectOwnedPortlessSignals(proxyStop)
+    expect(proxyStop).toContain(
+      'owns_portless_process_group "$portless_pid" "$portless_owner"; then\n            kill -TERM',
     )
     expect(proxyStop).toContain(
-      'while (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT")',
+      'if owns_portless_process_group "$portless_pid" "$portless_owner"; then\n                kill -KILL',
     )
+    expect(proxyStop).toContain(
+      'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done',
+    )
+    expect(proxyStop).toContain(
+      'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done',
+    )
+    expect(proxyStop).toContain('rm -f "$portless_pid_file"')
+    expect(proxyClosed).toContain("if: matrix.lane == 'browser' && always()")
+    expect(proxyClosed).toContain(
+      'portless_log="$RUNNER_TEMP/portless-proxy.log"',
+    )
+    expect(proxyClosed).toContain(
+      'portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"',
+    )
+    expect(proxyClosed).toContain('[[ -e "$portless_pid_file" ]]')
+    expect(proxyClosed).toContain(
+      "timeout --signal=TERM --kill-after=1s 5s bash -c",
+    )
+    expect(
+      proxyClosed.match(
+        /while \(echo >"\/dev\/tcp\/127\.0\.0\.1\/\$1"\) 2>\/dev\/null; do sleep 0\.25; done/g,
+      ),
+    ).toHaveLength(2)
+    expect(proxyClosed).toContain(
+      'tail --bytes=65536 "$portless_log"',
+    )
+    expect(proxyClosed).not.toContain("portless proxy stop")
+    expect(proxyClosed).toContain('rm -f "$portless_pid_file"')
+    expect(workflow).toMatch(/Verify local HTTPS proxy closed\n\s+if: matrix\.lane == 'browser' && always\(\)/)
     expect(workflow).toMatch(/Stop PostgreSQL integration service\n\s+if: \(matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'\) && always\(\)/)
     expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1)
     expect(workflow).toContain("persist-credentials: false")

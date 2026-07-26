@@ -82,9 +82,251 @@ jobs:
         if: matrix.lane == 'browser'
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=5s 20s bunx --bun --no-install portless proxy start --skip-trust
-          timeout --signal=TERM --kill-after=2s 10s bash -c \
-            'until (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT") 2>/dev/null; do sleep 0.25; done'
+          umask 077
+          portless_log="$RUNNER_TEMP/portless-proxy.log"
+          portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"
+          rm -f "$portless_log" "$portless_pid_file"
+          if ! (set -o noclobber; : >"$portless_log"); then
+            exit 1
+          fi
+
+          owns_portless_process_group() {
+            local pid="$1"
+            local owner="$2"
+            local environment_entry process_argument process_stat
+            local process_state parent_pid process_group_id remainder index
+            local owner_matches=false
+            local -a actual_command=()
+            local -a expected_command=(
+              timeout
+              --signal=TERM
+              --kill-after=5s
+              20m
+              bunx
+              --bun
+              --no-install
+              portless
+              proxy
+              start
+              --foreground
+              --skip-trust
+            )
+
+            [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+            [[ "$owner" =~ ^darkfactory-ci-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
+            [[ -r "/proc/$pid/environ" && -r "/proc/$pid/cmdline" && -r "/proc/$pid/stat" ]] || return 1
+
+            while IFS= read -r -d '' environment_entry; do
+              if [[ "$environment_entry" == "PORTLESS_CI_OWNER=$owner" ]]; then
+                owner_matches=true
+                break
+              fi
+            done <"/proc/$pid/environ"
+            [[ "$owner_matches" == true ]] || return 1
+
+            while IFS= read -r -d '' process_argument; do
+              actual_command+=("$process_argument")
+            done <"/proc/$pid/cmdline"
+            [[ ${#actual_command[@]} -eq ${#expected_command[@]} ]] || return 1
+            for ((index = 0; index < ${#expected_command[@]}; index += 1)); do
+              [[ "${actual_command[$index]}" == "${expected_command[$index]}" ]] || return 1
+            done
+
+            IFS= read -r process_stat <"/proc/$pid/stat" || return 1
+            process_stat="${process_stat##*) }"
+            read -r process_state parent_pid process_group_id remainder <<<"$process_stat"
+            [[ "$process_group_id" == "$pid" ]]
+          }
+
+          emergency_portless_cleanup() {
+            local status="$1"
+            local emergency_identity_ready=false
+            local emergency_identity_deadline=$((SECONDS + 5))
+            trap - EXIT INT TERM
+
+            while kill -0 "$portless_pid" 2>/dev/null; do
+              if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+                emergency_identity_ready=true
+                break
+              fi
+              if (( SECONDS >= emergency_identity_deadline )); then
+                break
+              fi
+              sleep 0.1
+            done
+            if ! kill -0 "$portless_pid" 2>/dev/null; then
+              wait "$portless_pid" 2>/dev/null || true
+            fi
+
+            if [[ "$emergency_identity_ready" == true ]]; then
+              if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+                kill -TERM -- "-$portless_pid" 2>/dev/null || true
+                if ! timeout --signal=TERM --kill-after=1s 5s bash -c \
+                  'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done' \
+                  _ "$portless_pid"; then
+                  if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+                    kill -KILL -- "-$portless_pid" 2>/dev/null || true
+                  fi
+                  timeout --signal=TERM --kill-after=1s 5s bash -c \
+                    'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done' \
+                    _ "$portless_pid" || true
+                fi
+              fi
+            fi
+            if ! kill -0 "$portless_pid" 2>/dev/null; then
+              wait "$portless_pid" 2>/dev/null || true
+            fi
+            if ! timeout --signal=TERM --kill-after=1s 5s bash -c \
+              'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done' \
+              _ "$PORTLESS_PORT"; then
+              if (( status == 0 )); then
+                status=1
+              fi
+            fi
+            if (( status != 0 )); then
+              timeout --signal=TERM --kill-after=1s 5s tail --bytes=65536 "$portless_log" || true
+            fi
+            if ! rm -f "$portless_pid_file"; then
+              if (( status == 0 )); then
+                status=1
+              fi
+            fi
+            exit "$status"
+          }
+
+          IFS= read -r portless_owner <"/proc/sys/kernel/random/uuid"
+          portless_owner="darkfactory-ci-$portless_owner"
+          PORTLESS_CI_OWNER="$portless_owner" \
+            timeout --signal=TERM --kill-after=5s 20m \
+            bunx --bun --no-install portless proxy start --foreground --skip-trust \
+            >"$portless_log" 2>&1 &
+          portless_pid=$!
+          trap 'emergency_portless_cleanup "$?"' EXIT
+          trap 'emergency_portless_cleanup 130' INT
+          trap 'emergency_portless_cleanup 143' TERM
+
+          portless_identity_ready=false
+          portless_identity_deadline=$((SECONDS + 5))
+          while kill -0 "$portless_pid" 2>/dev/null; do
+            if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+              portless_identity_ready=true
+              break
+            fi
+            if (( SECONDS >= portless_identity_deadline )); then
+              break
+            fi
+            sleep 0.1
+          done
+
+          if [[ "$portless_identity_ready" != true ]] ||
+            ! owns_portless_process_group "$portless_pid" "$portless_owner" ||
+            ! (set -o noclobber; printf '%s %s\n' "$portless_pid" "$portless_owner" >"$portless_pid_file"); then
+            exit 1
+          fi
+          trap - EXIT INT TERM
+
+      - name: Verify local HTTPS proxy readiness
+        if: matrix.lane == 'browser'
+        run: |
+          set -euo pipefail
+          portless_log="$RUNNER_TEMP/portless-proxy.log"
+          portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"
+
+          owns_portless_process_group() {
+            local pid="$1"
+            local owner="$2"
+            local environment_entry process_argument process_stat
+            local process_state parent_pid process_group_id remainder index
+            local owner_matches=false
+            local -a actual_command=()
+            local -a expected_command=(
+              timeout
+              --signal=TERM
+              --kill-after=5s
+              20m
+              bunx
+              --bun
+              --no-install
+              portless
+              proxy
+              start
+              --foreground
+              --skip-trust
+            )
+
+            [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+            [[ "$owner" =~ ^darkfactory-ci-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
+            [[ -r "/proc/$pid/environ" && -r "/proc/$pid/cmdline" && -r "/proc/$pid/stat" ]] || return 1
+
+            while IFS= read -r -d '' environment_entry; do
+              if [[ "$environment_entry" == "PORTLESS_CI_OWNER=$owner" ]]; then
+                owner_matches=true
+                break
+              fi
+            done <"/proc/$pid/environ"
+            [[ "$owner_matches" == true ]] || return 1
+
+            while IFS= read -r -d '' process_argument; do
+              actual_command+=("$process_argument")
+            done <"/proc/$pid/cmdline"
+            [[ ${#actual_command[@]} -eq ${#expected_command[@]} ]] || return 1
+            for ((index = 0; index < ${#expected_command[@]}; index += 1)); do
+              [[ "${actual_command[$index]}" == "${expected_command[$index]}" ]] || return 1
+            done
+
+            IFS= read -r process_stat <"/proc/$pid/stat" || return 1
+            process_stat="${process_stat##*) }"
+            read -r process_state parent_pid process_group_id remainder <<<"$process_stat"
+            [[ "$process_group_id" == "$pid" ]]
+          }
+
+          portless_pid=""
+          portless_owner=""
+          portless_state_extra=""
+          if [[ -s "$portless_pid_file" ]]; then
+            IFS=' ' read -r portless_pid portless_owner portless_state_extra <"$portless_pid_file" ||
+              portless_state_extra="invalid"
+          fi
+
+          readiness_failed=false
+          if [[ -n "$portless_state_extra" ]] ||
+            ! owns_portless_process_group "$portless_pid" "$portless_owner"; then
+            readiness_failed=true
+          elif ! timeout --signal=TERM --kill-after=2s 15s bash -c '
+            pid="$1"
+            port="$2"
+            while kill -0 "$pid" 2>/dev/null; do
+              if (echo >"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+                exit 0
+              fi
+              sleep 0.25
+            done
+            exit 1
+          ' _ "$portless_pid" "$PORTLESS_PORT"; then
+            readiness_failed=true
+          fi
+
+          if [[ "$readiness_failed" == true ]]; then
+            timeout --signal=TERM --kill-after=1s 5s tail --bytes=65536 "$portless_log" || true
+            if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+              kill -TERM -- "-$portless_pid" 2>/dev/null || true
+              if ! timeout --signal=TERM --kill-after=1s 5s bash -c \
+                'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done' \
+                _ "$portless_pid"; then
+                if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+                  kill -KILL -- "-$portless_pid" 2>/dev/null || true
+                fi
+                timeout --signal=TERM --kill-after=1s 5s bash -c \
+                  'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done' \
+                  _ "$portless_pid" || true
+              fi
+            fi
+            timeout --signal=TERM --kill-after=1s 5s bash -c \
+              'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done' \
+              _ "$PORTLESS_PORT" || true
+            rm -f "$portless_pid_file"
+            exit 1
+          fi
 
       # Chromium uses NSS, so trust the generated CA instead of bypassing HTTPS validation.
       - name: Trust portless CA in Chromium
@@ -108,11 +350,75 @@ jobs:
           certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$HOME/.portless/ca.pem"
           certutil -L -d "sql:$nss_db" | grep -F -- "$ca_nickname"
 
-      - name: Build Graphify output and prove tracked metadata freshness
+      - name: Capture committed Graphify manifest identity
         if: matrix.lane == 'graph'
         run: |
+          set -euo pipefail
+          umask 077
+          timeout --signal=TERM --kill-after=2s 10s bun -e '
+            import { execFileSync } from "node:child_process";
+            import { writeFileSync } from "node:fs";
+            const githubSha = process.env.GITHUB_SHA;
+            if (typeof githubSha !== "string" || !/^[0-9a-fA-F]{40}$/.test(githubSha)) {
+              throw new Error("GITHUB_SHA must be an exact 40-character hexadecimal commit ID");
+            }
+            const identityFields = ["graphifyVersion", "configDigest", "sourceFingerprint", "sourceFileCount"];
+            const manifest = JSON.parse(
+              execFileSync(
+                "git",
+                ["show", `${githubSha}:.graphify/manifest.json`],
+                {
+                  encoding: "utf8",
+                  timeout: 5_000,
+                  maxBuffer: 65_536,
+                },
+              ),
+            );
+            const identity = Object.fromEntries(
+              identityFields.map((field) => [field, manifest[field]]),
+            );
+            const stringFields = ["graphifyVersion", "configDigest", "sourceFingerprint"];
+            const identityIsValid =
+              Object.keys(identity).length === identityFields.length &&
+              identityFields.every((field) => Object.hasOwn(identity, field)) &&
+              stringFields.every(
+                (field) => typeof identity[field] === "string" && identity[field].trim().length > 0,
+              ) &&
+              Number.isInteger(identity.sourceFileCount) &&
+              identity.sourceFileCount > 0;
+            if (!identityIsValid) {
+              throw new Error("Committed Graphify manifest identity is invalid");
+            }
+            writeFileSync(
+              `${process.env.RUNNER_TEMP}/graphify-committed-identity.json`,
+              `${JSON.stringify(identity)}\n`,
+              { flag: "wx", mode: 0o600 },
+            );
+          '
+
+      - name: Build Graphify output and compare committed identity
+        if: matrix.lane == 'graph'
+        run: |
+          set -euo pipefail
           bun run graph:build
-          git diff --exit-code -- .graphify/manifest.json
+          timeout --signal=TERM --kill-after=2s 10s bun -e '
+            import { readFileSync } from "node:fs";
+            import { isDeepStrictEqual } from "node:util";
+            const identityFields = ["graphifyVersion", "configDigest", "sourceFingerprint", "sourceFileCount"];
+            const identityPath = `${process.env.RUNNER_TEMP}/graphify-committed-identity.json`;
+            const committedIdentity = JSON.parse(readFileSync(identityPath, "utf8"));
+            const rebuiltManifest = JSON.parse(
+              readFileSync(".graphify/manifest.json", "utf8"),
+            );
+            const rebuiltIdentity = Object.fromEntries(
+              identityFields.map((field) => [field, rebuiltManifest[field]]),
+            );
+            if (!isDeepStrictEqual(rebuiltIdentity, committedIdentity)) {
+              throw new Error(
+                `Graphify identity drifted: expected ${JSON.stringify(committedIdentity)}, received ${JSON.stringify(rebuiltIdentity)}`,
+              );
+            }
+          '
 
       - name: Run verification lane
         run: bun run "verify:${{ matrix.lane }}"
@@ -132,9 +438,106 @@ jobs:
         if: matrix.lane == 'browser' && always()
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=5s 15s bunx --bun --no-install portless proxy stop --port "$PORTLESS_PORT" || true
+          portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"
+
+          owns_portless_process_group() {
+            local pid="$1"
+            local owner="$2"
+            local environment_entry process_argument process_stat
+            local process_state parent_pid process_group_id remainder index
+            local owner_matches=false
+            local -a actual_command=()
+            local -a expected_command=(
+              timeout
+              --signal=TERM
+              --kill-after=5s
+              20m
+              bunx
+              --bun
+              --no-install
+              portless
+              proxy
+              start
+              --foreground
+              --skip-trust
+            )
+
+            [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+            [[ "$owner" =~ ^darkfactory-ci-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
+            [[ -r "/proc/$pid/environ" && -r "/proc/$pid/cmdline" && -r "/proc/$pid/stat" ]] || return 1
+
+            while IFS= read -r -d '' environment_entry; do
+              if [[ "$environment_entry" == "PORTLESS_CI_OWNER=$owner" ]]; then
+                owner_matches=true
+                break
+              fi
+            done <"/proc/$pid/environ"
+            [[ "$owner_matches" == true ]] || return 1
+
+            while IFS= read -r -d '' process_argument; do
+              actual_command+=("$process_argument")
+            done <"/proc/$pid/cmdline"
+            [[ ${#actual_command[@]} -eq ${#expected_command[@]} ]] || return 1
+            for ((index = 0; index < ${#expected_command[@]}; index += 1)); do
+              [[ "${actual_command[$index]}" == "${expected_command[$index]}" ]] || return 1
+            done
+
+            IFS= read -r process_stat <"/proc/$pid/stat" || return 1
+            process_stat="${process_stat##*) }"
+            read -r process_state parent_pid process_group_id remainder <<<"$process_stat"
+            [[ "$process_group_id" == "$pid" ]]
+          }
+
+          portless_pid=""
+          portless_owner=""
+          portless_state_extra=""
+          if [[ -s "$portless_pid_file" ]]; then
+            IFS=' ' read -r portless_pid portless_owner portless_state_extra <"$portless_pid_file" ||
+              portless_state_extra="invalid"
+          fi
+
+          if [[ -z "$portless_state_extra" ]] &&
+            owns_portless_process_group "$portless_pid" "$portless_owner"; then
+            kill -TERM -- "-$portless_pid" 2>/dev/null || true
+            if ! timeout --signal=TERM --kill-after=1s 5s bash -c \
+              'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done' \
+              _ "$portless_pid"; then
+              if owns_portless_process_group "$portless_pid" "$portless_owner"; then
+                kill -KILL -- "-$portless_pid" 2>/dev/null || true
+              fi
+              timeout --signal=TERM --kill-after=1s 5s bash -c \
+                'while kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; do sleep 0.25; done' \
+                _ "$portless_pid" || true
+            fi
+          fi
           timeout --signal=TERM --kill-after=2s 10s bash -c \
-            'while (echo >"/dev/tcp/127.0.0.1/$PORTLESS_PORT") 2>/dev/null; do sleep 0.25; done'
+            'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done' \
+            _ "$PORTLESS_PORT" || true
+          rm -f "$portless_pid_file"
+
+      - name: Verify local HTTPS proxy closed
+        if: matrix.lane == 'browser' && always()
+        run: |
+          set -euo pipefail
+          portless_log="$RUNNER_TEMP/portless-proxy.log"
+          portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"
+          closed_failed=false
+          if [[ -e "$portless_pid_file" ]]; then
+            closed_failed=true
+          fi
+          if ! timeout --signal=TERM --kill-after=1s 5s bash -c \
+            'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done' \
+            _ "$PORTLESS_PORT"; then
+            closed_failed=true
+          fi
+          if [[ "$closed_failed" == true ]]; then
+            timeout --signal=TERM --kill-after=1s 5s tail --bytes=65536 "$portless_log" || true
+            timeout --signal=TERM --kill-after=1s 5s bash -c \
+              'while (echo >"/dev/tcp/127.0.0.1/$1") 2>/dev/null; do sleep 0.25; done' \
+              _ "$PORTLESS_PORT" || true
+            rm -f "$portless_pid_file"
+            exit 1
+          fi
 
       - name: Stop PostgreSQL integration service
         if: (matrix.lane == 'integration' || matrix.lane == 'browser') && always()

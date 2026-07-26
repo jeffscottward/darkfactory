@@ -55,7 +55,7 @@ describe "database server browser bundle", ->
     finally
       await rm(tempDir, { recursive: true, force: true })
 
-  it "keeps Node-only migration code out of a Worker-conditioned client bundle", async ->
+  it("keeps Node-only migration code out of a Worker-conditioned client bundle", async () => {
     const tempDir = await mkdtemp(join(packageRoot, ".server-worker-bundle-"))
     const entry = join(tempDir, "entry.mjs")
 
@@ -102,3 +102,4 @@ describe "database server browser bundle", ->
       )
     finally
       await rm(tempDir, { recursive: true, force: true })
+  }, 15_000)
