@@ -167,9 +167,6 @@ export default defineConfig({
     }),
     ...(isOwnedE2EPreview ? [e2ePreviewDiagnostics()] : []),
     cloudflare({
-      // The owned browser child has no debugger consumer. Combined with its
-      // isolated registry, this keeps optional control sockets out of startup.
-      ...(isOwnedE2EPreview ? { inspectorPort: false } : {}),
       viteEnvironment: {
         name: "rsc",
         childEnvironments: ["ssr"],

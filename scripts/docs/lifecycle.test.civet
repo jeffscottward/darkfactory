@@ -350,7 +350,7 @@ describe("DF-101/106 lifecycle contract", () => {
         '[[ "$environment_entry" == "PORTLESS_CI_OWNER=$owner" ]]',
       )
       expect(step).toMatch(
-        /local -a expected_command=\(\n\s+timeout\n\s+--signal=TERM\n\s+--kill-after=5s\n\s+20m\n\s+bunx\n\s+--bun\n\s+--no-install\n\s+portless\n\s+proxy\n\s+start\n\s+--foreground\n\s+--skip-trust\n\s+\)/,
+        /local -a expected_command=\(\n\s+timeout\n\s+--signal=TERM\n\s+--kill-after=5s\n\s+20m\n\s+pnpm\n\s+exec\n\s+portless\n\s+proxy\n\s+start\n\s+--foreground\n\s+--skip-trust\n\s+\)/,
       )
       expect(step).toContain(
         '[[ ${#actual_command[@]} -eq ${#expected_command[@]} ]]',
@@ -529,6 +529,10 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(proxyStart).toContain(
       "portless proxy start --foreground --skip-trust",
     )
+    expect(proxyStart).toContain(
+      "pnpm exec portless proxy start --foreground --skip-trust",
+    )
+    expect(proxyStart).not.toContain("bunx --bun")
     expect(proxyStart).toContain('>"$portless_log" 2>&1 &')
     expect(proxyStart).toContain("portless_pid=$!")
     expect(proxyStart).toContain(
@@ -611,6 +615,9 @@ describe("DF-101/106 lifecycle contract", () => {
       '! owns_portless_process_group "$portless_pid" "$portless_owner"',
     )
     expect(proxyReadiness).toContain(
+      "readiness_deadline=$((SECONDS + 15))",
+    )
+    expect(proxyReadiness).toContain(
       "timeout --signal=TERM --kill-after=2s 15s bash -c",
     )
     expect(proxyReadiness).toContain(
@@ -618,6 +625,20 @@ describe("DF-101/106 lifecycle contract", () => {
     )
     expect(proxyReadiness).toContain('kill -0 "$pid"')
     expect(proxyReadiness).toContain("sleep 0.25")
+    expect(proxyReadiness).toContain(
+      'const url = new URL("https://darkfactory.localhost")',
+    )
+    expect(proxyReadiness).not.toContain("AbortSignal.timeout")
+    expect(proxyReadiness).toContain(
+      'response.headers.get("x-portless") === "1"',
+    )
+    expect(proxyReadiness).toContain("await response.body?.cancel()")
+    expect(proxyReadiness).toContain(
+      'readiness_remaining=$((readiness_deadline - SECONDS))',
+    )
+    expect(proxyReadiness).toContain(
+      'timeout --signal=TERM --kill-after=2s "${readiness_remaining}s" node',
+    )
     expect(proxyReadiness).toContain(
       'tail --bytes=65536 "$portless_log"',
     )

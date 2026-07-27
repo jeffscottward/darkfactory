@@ -242,15 +242,63 @@ describe("owned E2E server readiness", () => {
       probeE2EServerRoutes({
         appUrl: "https://darkfactory.localhost",
         fetchImplementation: async () => {
-          throw new TypeError("sensitive request detail");
+          const cause = Object.assign(new Error("private cause"), {
+            code: "ECONNREFUSED",
+          });
+          throw new TypeError("sensitive request detail", { cause });
         },
-        onRequestError: (path, errorName) =>
-          events.push(`error:${path}:${errorName}`),
+        onRequestError: (path, errorName, errorCode) =>
+          events.push(`error:${path}:${errorName}:${errorCode}`),
         onRequestStart: (path) => events.push(`request:${path}`),
         onResponse: (path, status) => events.push(`response:${path}:${status}`),
       })
     ).resolves.toBe(false);
-    expect(events).toEqual(["request:/", "error:/:TypeError"]);
+    expect(events).toEqual(["request:/", "error:/:Error:ECONNREFUSED"]);
+  });
+
+  it("does not invoke accessor-backed diagnostic fields", async () => {
+    const codeAccessor = vi.fn(() => "ECONNREFUSED");
+    const nameAccessor = vi.fn(() => "TypeError");
+    const cause = {};
+    Object.defineProperty(cause, "code", { get: codeAccessor });
+    const failure = new TypeError("sensitive request detail", { cause });
+    Object.defineProperty(failure, "name", { get: nameAccessor });
+    const errors: string[] = [];
+
+    await expect(
+      probeE2EServerRoutes({
+        appUrl: "https://darkfactory.localhost",
+        fetchImplementation: async () => {
+          throw failure;
+        },
+        onRequestError: (_path, errorName, errorCode) =>
+          errors.push(`${errorName}:${errorCode}`),
+      })
+    ).resolves.toBe(false);
+    expect(codeAccessor).not.toHaveBeenCalled();
+    expect(nameAccessor).not.toHaveBeenCalled();
+    expect(errors).toEqual(["Error:UNKNOWN"]);
+  });
+
+  it("contains throwing Proxy traps inside diagnostic sanitization", async () => {
+    const descriptorTrap = vi.fn(() => {
+      throw new Error("sensitive proxy detail");
+    });
+    const failure = new Proxy({}, { getOwnPropertyDescriptor: descriptorTrap });
+    const errors: string[] = [];
+
+    await expect(
+      probeE2EServerRoutes({
+        appUrl: "https://darkfactory.localhost",
+        fetchImplementation: async () => {
+          throw failure;
+        },
+        onRequestError: (_path, errorName, errorCode) =>
+          errors.push(`${errorName}:${errorCode}`),
+      })
+    ).resolves.toBe(false);
+    expect(descriptorTrap).toHaveBeenCalled();
+    expect(errors).toEqual(["Error:UNKNOWN"]);
   });
 
   it("holds journeys until two cold route rounds commit lifecycle readiness", async () => {

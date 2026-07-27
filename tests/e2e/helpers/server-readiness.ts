@@ -16,9 +16,28 @@ const READINESS_REQUEST_TIMEOUT_MILLIS = 60_000;
 const E2E_LOOPBACK_ADDRESS = "127.0.0.1";
 const E2E_PORT_PROBE_TIMEOUT_MILLIS = 1000;
 const ERROR_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}$/u;
+const NETWORK_ERROR_CODES: Readonly<Record<string, true>> = Object.freeze({
+  CERT_HAS_EXPIRED: true,
+  DEPTH_ZERO_SELF_SIGNED_CERT: true,
+  EAI_AGAIN: true,
+  ECONNREFUSED: true,
+  ECONNRESET: true,
+  ENETUNREACH: true,
+  ENOTFOUND: true,
+  ERR_TLS_CERT_ALTNAME_INVALID: true,
+  SELF_SIGNED_CERT_IN_CHAIN: true,
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: true,
+  UND_ERR_CONNECT_TIMEOUT: true,
+  UND_ERR_HEADERS_TIMEOUT: true,
+  UND_ERR_SOCKET: true,
+});
 type RouteRequestStartObserver = (path: string) => void;
 type RouteResponseObserver = (path: string, status: number) => void;
-type RouteRequestErrorObserver = (path: string, errorName: string) => void;
+type RouteRequestErrorObserver = (
+  path: string,
+  errorName: string,
+  errorCode: string
+) => void;
 
 const publishRouteProbeEvent = <Arguments extends readonly unknown[]>(
   observer: ((...arguments_: Arguments) => void) | undefined,
@@ -31,10 +50,44 @@ const publishRouteProbeEvent = <Arguments extends readonly unknown[]>(
   }
 };
 
-const safeErrorName = (error: unknown): string =>
-  error instanceof Error && ERROR_NAME_PATTERN.test(error.name)
-    ? error.name
+const ownDataProperty = (value: unknown, key: string): unknown => {
+  if (
+    (typeof value !== "object" && typeof value !== "function") ||
+    value === null
+  ) {
+    return undefined;
+  }
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && "value" in descriptor
+      ? descriptor.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const safeErrorName = (error: unknown): string => {
+  const name = ownDataProperty(error, "name");
+  return typeof name === "string" && ERROR_NAME_PATTERN.test(name)
+    ? name
     : "Error";
+};
+
+const safeNetworkErrorCode = (error: unknown): string => {
+  const directCode = ownDataProperty(error, "code");
+  const cause = ownDataProperty(error, "cause");
+  const causeCode = ownDataProperty(cause, "code");
+  let code: string | undefined;
+  if (typeof directCode === "string") {
+    code = directCode;
+  } else if (typeof causeCode === "string") {
+    code = causeCode;
+  }
+  return code !== undefined && NETWORK_ERROR_CODES[code] === true
+    ? code
+    : "UNKNOWN";
+};
 export type PromiseResolvers<Value> = Readonly<{
   promise: Promise<Value>;
   reject: (reason?: unknown) => void;
@@ -229,7 +282,12 @@ export const probeE2EServerRoutes = async ({
           return false;
         }
       } catch (error) {
-        publishRouteProbeEvent(onRequestError, path, safeErrorName(error));
+        publishRouteProbeEvent(
+          onRequestError,
+          path,
+          safeErrorName(error),
+          safeNetworkErrorCode(error)
+        );
         if (response !== undefined) {
           cancelResponseBody(response);
         }

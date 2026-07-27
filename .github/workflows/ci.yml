@@ -103,9 +103,8 @@ jobs:
               --signal=TERM
               --kill-after=5s
               20m
-              bunx
-              --bun
-              --no-install
+              pnpm
+              exec
               portless
               proxy
               start
@@ -204,7 +203,7 @@ jobs:
           PORTLESS_STATE_DIR="$portless_state_dir" \
             PORTLESS_CI_OWNER="$portless_owner" \
             timeout --signal=TERM --kill-after=5s 20m \
-            bunx --bun --no-install portless proxy start --foreground --skip-trust \
+            pnpm exec portless proxy start --foreground --skip-trust \
             >"$portless_log" 2>&1 &
           portless_pid=$!
           trap 'emergency_portless_cleanup "$?"' EXIT
@@ -250,9 +249,8 @@ jobs:
               --signal=TERM
               --kill-after=5s
               20m
-              bunx
-              --bun
-              --no-install
+              pnpm
+              exec
               portless
               proxy
               start
@@ -295,6 +293,7 @@ jobs:
           fi
 
           readiness_failed=false
+          readiness_deadline=$((SECONDS + 15))
           if [[ -n "$portless_state_extra" ]] ||
             ! owns_portless_process_group "$portless_pid" "$portless_owner"; then
             readiness_failed=true
@@ -310,6 +309,30 @@ jobs:
             exit 1
           ' _ "$portless_pid" "$PORTLESS_PORT"; then
             readiness_failed=true
+          fi
+
+          if [[ "$readiness_failed" != true ]]; then
+            readiness_remaining=$((readiness_deadline - SECONDS))
+            if (( readiness_remaining <= 0 )); then
+              readiness_failed=true
+            elif ! timeout --signal=TERM --kill-after=2s "${readiness_remaining}s" node \
+              --input-type=module <<'NODE'
+          const port = process.env.PORTLESS_PORT;
+          if (port === undefined || !/^\d+$/.test(port)) process.exit(1);
+          const url = new URL("https://darkfactory.localhost");
+          url.port = port;
+          try {
+            const response = await fetch(url, { redirect: "manual" });
+            const proxyResponded = response.headers.get("x-portless") === "1";
+            await response.body?.cancel();
+            if (!proxyResponded) process.exit(1);
+          } catch {
+            process.exit(1);
+          }
+          NODE
+            then
+              readiness_failed=true
+            fi
           fi
 
           if [[ "$readiness_failed" == true ]]; then
@@ -608,9 +631,8 @@ jobs:
               --signal=TERM
               --kill-after=5s
               20m
-              bunx
-              --bun
-              --no-install
+              pnpm
+              exec
               portless
               proxy
               start

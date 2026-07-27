@@ -422,11 +422,15 @@ const start = async (control: LifecycleControl): Promise<void> => {
       `${E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER} ${path} ${status}\n`,
     )
   }
-  const publishRouteError = (path: string, errorName: string): void => {
+  const publishRouteError = (
+    path: string,
+    errorName: string,
+    errorCode: string,
+  ): void => {
     if (routeErrorsPublished.has(path)) return
     routeErrorsPublished.add(path)
     process.stderr.write(
-      `${E2E_WEB_SERVER_ROUTE_ERROR_MARKER} ${path} ${errorName}\n`,
+      `${E2E_WEB_SERVER_ROUTE_ERROR_MARKER} ${path} ${errorName} ${errorCode}\n`,
     )
   }
   let readinessCommitStarted = false

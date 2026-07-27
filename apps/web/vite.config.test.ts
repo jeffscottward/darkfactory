@@ -228,13 +228,6 @@ describe("Vite application plugin contract", () => {
       expect(names.indexOf("darkfactory:e2e-preview-diagnostics")).toBeLessThan(
         names.indexOf("test-cloudflare")
       );
-      expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
-        inspectorPort: false,
-        viteEnvironment: {
-          name: "rsc",
-          childEnvironments: ["ssr"],
-        },
-      });
       expect(diagnostics).toBeDefined();
       expect(typeof diagnostics?.configurePreviewServer).toBe("function");
 
