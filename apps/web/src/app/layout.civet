@@ -5,6 +5,7 @@ import { CANONICAL_APP_URL } from "@darkfactory/config"
 import { ThemeController } from "../components/theme-controller.civet"
 import { resolveRequestTheme } from "../lib/server-theme.civet"
 import { loadApiThemePreference } from "../lib/server-theme-api.civet"
+import { dispatchInternalOrpcRequest } from "../lib/server-internal-dispatch.civet"
 import {
   THEME_BOOTSTRAP_PATH,
   type AnonymousThemePreference,
@@ -88,6 +89,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     loadTrustedPreference: () => loadApiThemePreference({
       appUrl: trustedAppUrl(),
       cookieHeader: requestHeaders.get("cookie"),
+      fetch: dispatchInternalOrpcRequest,
       requestId: requestHeaders.get("x-request-id"),
     }),
   })

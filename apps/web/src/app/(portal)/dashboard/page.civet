@@ -12,6 +12,10 @@ import {
   type DashboardTransportFetch,
 } from "../../../lib/dashboard-transport.civet"
 import {
+  dispatchInternalAuthRequest,
+  dispatchInternalOrpcRequest,
+} from "../../../lib/server-internal-dispatch.civet"
+import {
   getPortalSession,
   portalSignInHref,
   resolvePortalAppUrl,
@@ -40,12 +44,16 @@ export const loadDashboardSummaryState = async (
 export default async function DashboardPage() {
   const requestHeaders = await headers()
   const cookieHeader = requestHeaders.get("cookie")
-  const session = await getPortalSession({ cookieHeader })
+  const session = await getPortalSession({
+    cookieHeader,
+    cfConnectingIp: requestHeaders.get("cf-connecting-ip"),
+    fetch: dispatchInternalAuthRequest,
+  })
   if (session === null) redirect(portalSignInHref(requestHeaders))
 
   const summaryState = cookieHeader === null
     ? { type: "error" } as const
-    : await loadDashboardSummaryState(cookieHeader)
+    : await loadDashboardSummaryState(cookieHeader, dispatchInternalOrpcRequest)
 
   return (
     <div className="space-y-10">

@@ -115,15 +115,44 @@ export const createNodeDatabase = (
 }
 
 const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000
+const REQUEST_QUERY_TIMEOUT_MILLISECONDS = 10_000
+const UNSAFE_REQUEST_CONNECTION_STRING_PATTERN = /[\u0000-\u001f]|\u0020$/u
+
+const assertSafeRequestConnectionString = (
+  connectionString: string,
+): void => {
+  if (UNSAFE_REQUEST_CONNECTION_STRING_PATTERN.test(connectionString)) {
+    throw new TypeError(
+      "Request database connection strings cannot contain raw URL controls",
+    )
+  }
+
+  const queryStart = connectionString.indexOf("?")
+  if (queryStart === -1) return
+
+  const fragmentStart = connectionString.indexOf("#", queryStart + 1)
+  const queryEnd =
+    fragmentStart === -1 ? connectionString.length : fragmentStart
+  const queryParameters = new URLSearchParams(
+    connectionString.slice(queryStart + 1, queryEnd),
+  )
+  if (queryParameters.has("query_timeout")) {
+    throw new TypeError(
+      "Request database connection strings cannot set query_timeout",
+    )
+  }
+}
 
 export const createRequestDatabase = async (
   options: RequestDatabaseOptions,
 ): Promise<DatabaseResource> => {
+  assertSafeRequestConnectionString(options.connectionString)
   const client = new Client({
     connectionString: normalizePlanetScaleSystemRoot(options.connectionString),
     connectionTimeoutMillis:
       options.connectionTimeoutMillis ??
       DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS,
+    query_timeout: REQUEST_QUERY_TIMEOUT_MILLISECONDS,
   })
 
   try {

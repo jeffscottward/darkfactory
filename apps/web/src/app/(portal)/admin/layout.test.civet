@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   getPortalSession: vi.fn(),
+  dispatchInternalAuthRequest: vi.fn(),
   headers: vi.fn(async () => new Headers({
     cookie: "better-auth.session_token=opaque",
+    "cf-connecting-ip": "203.0.113.42",
     "x-pathname": "/admin/users",
   })),
   portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Fadmin%2Fusers"),
@@ -16,6 +18,9 @@ vi.mock("../../../lib/server-session.civet", () => ({
   getPortalSession: mocks.getPortalSession,
   portalSignInHref: mocks.portalSignInHref,
 }))
+vi.mock("../../../lib/server-internal-dispatch.civet", () => ({
+  dispatchInternalAuthRequest: mocks.dispatchInternalAuthRequest,
+}))
 
 import AdminLayout from "./layout.civet"
 
@@ -24,6 +29,7 @@ describe "server-authorized admin layout", ->
     mocks.getPortalSession.mockReset()
     mocks.headers.mockResolvedValue(new Headers({
       cookie: "better-auth.session_token=opaque",
+      "cf-connecting-ip": "203.0.113.42",
       "x-pathname": "/admin/users",
     }))
     mocks.portalSignInHref.mockReturnValue("/sign-in?callbackURL=%2Fadmin%2Fusers")
@@ -37,6 +43,8 @@ describe "server-authorized admin layout", ->
     )
     expect(mocks.getPortalSession).toHaveBeenCalledWith({
       cookieHeader: "better-auth.session_token=opaque",
+      cfConnectingIp: "203.0.113.42",
+      fetch: mocks.dispatchInternalAuthRequest,
     })
 
   it "fails closed for a member before rendering admin content", async ->

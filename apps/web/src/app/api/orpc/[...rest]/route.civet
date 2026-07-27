@@ -30,7 +30,10 @@ import {
 import { createSemanticEventFanout } from "@darkfactory/observability/server/fanout"
 import { initializeTelemetry } from "@darkfactory/observability/server/otel"
 
-import { createBackgroundTaskLifecycle } from "../../../../lib/background-task-lifecycle.civet"
+import {
+  createBackgroundTaskLifecycle,
+  type BackgroundTaskScheduler,
+} from "../../../../lib/background-task-lifecycle.civet"
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
 import { handleOrpcRequest } from "./handler.civet"
 import {
@@ -107,7 +110,10 @@ const contactAbuseResponse = (
     },
   )
 }
-const handleOrpc = async (request: Request): Promise<Response> => {
+export const handleOrpcRuntimeRequest = async (
+  request: Request,
+  scheduleBackgroundTask: BackgroundTaskScheduler,
+): Promise<Response> => {
   const env = parseServerEnv(process.env)
   const previewOptions = resolveE2eEmailPreviewOptions()
   if (unsafeRequestDenied(request, env.APP_URL)) return forbiddenOriginResponse()
@@ -128,14 +134,14 @@ const handleOrpc = async (request: Request): Promise<Response> => {
       correlation: { requestId, route: "/api/orpc" },
       attributes: { "rpc.system": "orpc" },
     },
-    waitUntil,
+    scheduleBackgroundTask,
     async (span) => {
       const databaseProfile = composeDatabaseProfile(env)
       const database = await createRequestDatabase({
         connectionString: databaseProfile.connection.connectionString,
       })
       const backgroundTasks = createBackgroundTaskLifecycle(
-        waitUntil,
+        scheduleBackgroundTask,
         async () => {
           try {
             await database.close()
@@ -215,7 +221,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
         const sink = createEvlogSink({
           runtime: evlogFor(env),
           request: effectiveRequest,
-          executionContext: { waitUntil },
+          executionContext: { waitUntil: scheduleBackgroundTask },
         })
         const semanticEvents = createSemanticEventFanout({
           sink,
@@ -230,7 +236,7 @@ const handleOrpc = async (request: Request): Promise<Response> => {
           requestId,
           semanticEvents,
           span,
-          waitUntil,
+          waitUntil: scheduleBackgroundTask,
           ...(contactDelivery === undefined ||
           contactThrottle === undefined ||
           contactThrottleKey === undefined
@@ -244,6 +250,9 @@ const handleOrpc = async (request: Request): Promise<Response> => {
     },
   )
 }
+
+const handleOrpc = (request: Request): Promise<Response> =>
+  handleOrpcRuntimeRequest(request, waitUntil)
 
 export const GET = handleOrpc
 export const POST = handleOrpc

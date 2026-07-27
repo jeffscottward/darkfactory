@@ -2,6 +2,7 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import type { ReactNode } from "react"
 
+import { dispatchInternalAuthRequest } from "../../../lib/server-internal-dispatch.civet"
 import {
   getPortalSession,
   portalSignInHref,
@@ -11,6 +12,8 @@ export default async function AdminLayout({ children }: { readonly children: Rea
   const requestHeaders = await headers()
   const session = await getPortalSession({
     cookieHeader: requestHeaders.get("cookie"),
+    cfConnectingIp: requestHeaders.get("cf-connecting-ip"),
+    fetch: dispatchInternalAuthRequest,
   })
   if (session === null) {
     return redirect(portalSignInHref(requestHeaders))

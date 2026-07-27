@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { PALETTES } from "@darkfactory/state"
 const layoutMocks = vi.hoisted(() => ({
+  dispatchInternalOrpcRequest: vi.fn(),
   headers: vi.fn(async () => new Headers()),
   loadApiThemePreference: vi.fn(async () => undefined as unknown),
 }))
@@ -21,6 +22,9 @@ const navigationMocks = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ headers: layoutMocks.headers }))
 vi.mock("./lib/server-theme-api.civet", () => ({
   loadApiThemePreference: layoutMocks.loadApiThemePreference,
+}))
+vi.mock("./lib/server-internal-dispatch.civet", () => ({
+  dispatchInternalOrpcRequest: layoutMocks.dispatchInternalOrpcRequest,
 }))
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMocks.pathname,
@@ -632,6 +636,7 @@ describe "root layout request composition", ->
     expect(layoutMocks.loadApiThemePreference).toHaveBeenCalledWith({
       appUrl: new URL("https://darkfactory.example"),
       cookieHeader: "darkfactory-theme=dark%3Arose",
+      fetch: layoutMocks.dispatchInternalOrpcRequest,
       requestId: "request-layout",
     })
     expect(result.type).toBe(RootDocument)

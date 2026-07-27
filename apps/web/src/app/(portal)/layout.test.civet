@@ -8,8 +8,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() -> ({
   getPortalSession: vi.fn(),
+  dispatchInternalAuthRequest: vi.fn(),
   headers: vi.fn(async -> new Headers({
     cookie: "better-auth.session_token=opaque",
+    "cf-connecting-ip": "203.0.113.42",
     "x-pathname": "/feature-items",
   })),
   portalSignInHref: vi.fn(() -> "/sign-in?callbackURL=%2Ffeature-items"),
@@ -23,6 +25,9 @@ vi.mock("next/navigation", () -> ({ redirect: mocks.redirect }))
 vi.mock("../../lib/server-session.civet", () -> ({
   getPortalSession: mocks.getPortalSession,
   portalSignInHref: mocks.portalSignInHref,
+}))
+vi.mock("../../lib/server-internal-dispatch.civet", () -> ({
+  dispatchInternalAuthRequest: mocks.dispatchInternalAuthRequest,
 }))
 vi.mock("../../components/portal-shell.civet", () -> ({
   PortalShell: "portal-shell",
@@ -103,6 +108,8 @@ describe "PortalLayout", ->
     )
     expect(mocks.getPortalSession).toHaveBeenCalledWith({
       cookieHeader: "better-auth.session_token=opaque",
+      cfConnectingIp: "203.0.113.42",
+      fetch: mocks.dispatchInternalAuthRequest,
     })
     expect(mocks.redirect).toHaveBeenCalledOnce()
   

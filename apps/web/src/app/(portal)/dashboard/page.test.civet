@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   getPortalSession: vi.fn(),
+  dispatchInternalAuthRequest: vi.fn(),
+  dispatchInternalOrpcRequest: vi.fn(),
   headers: vi.fn(),
   portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Fdashboard"),
   redirect: vi.fn((href: string): never => {
@@ -20,6 +22,10 @@ vi.mock("../../../lib/server-session.civet", () => ({
   portalSignInHref: mocks.portalSignInHref,
   resolvePortalAppUrl: mocks.resolvePortalAppUrl,
 }))
+vi.mock("../../../lib/server-internal-dispatch.civet", () => ({
+  dispatchInternalAuthRequest: mocks.dispatchInternalAuthRequest,
+  dispatchInternalOrpcRequest: mocks.dispatchInternalOrpcRequest,
+}))
 
 import DashboardPage, {
   loadDashboardSummaryState,
@@ -31,6 +37,7 @@ beforeEach ->
   vi.clearAllMocks()
   mocks.headers.mockResolvedValue(new Headers({
     cookie: "better-auth.session_token=opaque",
+    "cf-connecting-ip": "203.0.113.42",
   }))
   mocks.getPortalSession.mockResolvedValue({
     userId: "user-1",
@@ -124,7 +131,7 @@ describe "dashboard summary loader", ->
       summaryState: { type: "error" },
     })
 
-  it "renders a ready summary for an authenticated request", async ->
+  it "loads session and summary through request-local dispatch without public fetch", async ->
     const summary = {
       featureItems: {
         total: 0,
@@ -142,9 +149,12 @@ describe "dashboard summary loader", ->
         errorTracking: false,
       },
     }
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ json: summary })),
+    const publicFetch = vi.fn(async (): Promise<Response> => {
+      throw new Error("public fetch must not serve request-local SSR")
+    })
+    vi.stubGlobal("fetch", publicFetch)
+    mocks.dispatchInternalOrpcRequest.mockResolvedValueOnce(
+      Response.json({ json: summary }),
     )
 
     const result = await DashboardPage()
@@ -156,3 +166,10 @@ describe "dashboard summary loader", ->
     expect(content?.props).toMatchObject({
       summaryState: { type: "ready", summary },
     })
+    expect(mocks.getPortalSession).toHaveBeenCalledWith({
+      cookieHeader: "better-auth.session_token=opaque",
+      cfConnectingIp: "203.0.113.42",
+      fetch: mocks.dispatchInternalAuthRequest,
+    })
+    expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce()
+    expect(publicFetch).not.toHaveBeenCalled()

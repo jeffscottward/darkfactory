@@ -1,0 +1,233 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  handleAuthRequest: vi.fn(),
+  handleOrpcRuntimeRequest: vi.fn(),
+  waitUntil: vi.fn((task: Promise<unknown>) => { void task.catch(() => undefined) }),
+}))
+
+vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }))
+vi.mock("../app/api/auth/[...all]/handler.civet", () => ({
+  handleAuthRequest: mocks.handleAuthRequest,
+}))
+vi.mock("../app/api/orpc/[...rest]/route.civet", () => ({
+  handleOrpcRuntimeRequest: mocks.handleOrpcRuntimeRequest,
+}))
+
+import {
+  dispatchInternalAuthRequest,
+  dispatchInternalOrpcRequest,
+} from "./server-internal-dispatch.civet"
+
+const deferredResponse = () => {
+  let reject!: (error: unknown) => void
+  let resolve!: (response: Response) => void
+  const promise = new Promise<Response>((settle, fail) => {
+    reject = fail
+    resolve = settle
+  })
+  return { promise, reject, resolve }
+}
+
+beforeEach ->
+  vi.clearAllMocks()
+  vi.stubEnv("APP_URL", "https://darkfactory.localhost")
+
+afterEach ->
+  vi.unstubAllEnvs()
+
+describe "request-local internal dispatch", ->
+  it "delegates the auth session request unchanged through the Worker scheduler", async ->
+    const response = new Response("auth-session", { status: 200 })
+    const request = new Request(
+      "https://darkfactory.localhost/api/auth/get-session",
+      { method: "GET" },
+    )
+    mocks.handleAuthRequest.mockResolvedValueOnce(response)
+
+    await expect(dispatchInternalAuthRequest(request)).resolves.toBe(response)
+    expect(mocks.handleAuthRequest).toHaveBeenCalledWith(request, mocks.waitUntil)
+
+  it "delegates the oRPC request unchanged through the same Worker scheduler", async ->
+    const response = new Response("orpc", { status: 202 })
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { method: "POST" },
+    )
+    mocks.handleOrpcRuntimeRequest.mockResolvedValueOnce(response)
+
+    await expect(dispatchInternalOrpcRequest(request)).resolves.toBe(response)
+    expect(mocks.handleOrpcRuntimeRequest).toHaveBeenCalledWith(
+      request,
+      mocks.waitUntil,
+    )
+
+  it "constructs a request from fetch-compatible auth input", async ->
+    const response = new Response("auth-session", { status: 200 })
+    mocks.handleAuthRequest.mockResolvedValueOnce(response)
+
+    await expect(dispatchInternalAuthRequest(
+      "https://darkfactory.localhost/api/auth/get-session",
+      { headers: { cookie: "session=opaque" } },
+    )).resolves.toBe(response)
+
+    const [request, scheduler] = mocks.handleAuthRequest.mock.calls[0]!
+    expect(request).toBeInstanceOf(Request)
+    expect(request.url).toBe(
+      "https://darkfactory.localhost/api/auth/get-session",
+    )
+    expect(request.headers.get("cookie")).toBe("session=opaque")
+    expect(scheduler).toBe(mocks.waitUntil)
+
+  it "does not start the auth runtime for an already-aborted request", async ->
+    const controller = new AbortController()
+    const reason = new DOMException("session deadline", "AbortError")
+    controller.abort(reason)
+    const request = new Request(
+      "https://darkfactory.localhost/api/auth/get-session",
+      { signal: controller.signal },
+    )
+
+    await expect(dispatchInternalAuthRequest(request)).rejects.toBe(reason)
+    expect(mocks.handleAuthRequest).not.toHaveBeenCalled()
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+
+  it "rejects an aborted auth dispatch while scheduling runtime cleanup", async ->
+    const operation = deferredResponse()
+    const controller = new AbortController()
+    const request = new Request(
+      "https://darkfactory.localhost/api/auth/get-session",
+      { signal: controller.signal },
+    )
+    mocks.handleAuthRequest.mockReturnValueOnce(operation.promise)
+
+    const pending = dispatchInternalAuthRequest(request)
+    const reason = new DOMException("session deadline", "AbortError")
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(mocks.waitUntil).toHaveBeenCalledOnce()
+    const [scheduledCleanup] = mocks.waitUntil.mock.calls[0]!
+    operation.resolve(new Response("late auth response"))
+    await expect(scheduledCleanup).resolves.toBeUndefined()
+
+  it "does not start the oRPC runtime for an already-aborted request", async ->
+    const controller = new AbortController()
+    const reason = new DOMException("summary deadline", "AbortError")
+    controller.abort(reason)
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: controller.signal },
+    )
+
+    await expect(dispatchInternalOrpcRequest(request)).rejects.toBe(reason)
+    expect(mocks.handleOrpcRuntimeRequest).not.toHaveBeenCalled()
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+
+  it "absorbs a late oRPC runtime rejection after aborting the caller", async ->
+    const operation = deferredResponse()
+    const controller = new AbortController()
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: controller.signal },
+    )
+    mocks.handleOrpcRuntimeRequest.mockReturnValueOnce(operation.promise)
+
+    const pending = dispatchInternalOrpcRequest(request)
+    const reason = new DOMException("summary deadline", "AbortError")
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(mocks.waitUntil).toHaveBeenCalledOnce()
+    const [scheduledCleanup] = mocks.waitUntil.mock.calls[0]!
+    operation.reject(new Error("late private runtime failure"))
+    await expect(scheduledCleanup).resolves.toBeUndefined()
+
+  it "propagates an oRPC runtime rejection before the caller aborts", async ->
+    const failure = new Error("private runtime failed")
+    const controller = new AbortController()
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: controller.signal },
+    )
+    mocks.handleOrpcRuntimeRequest.mockRejectedValueOnce(failure)
+
+    await expect(dispatchInternalOrpcRequest(request)).rejects.toBe(failure)
+    controller.abort()
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+
+  it "keeps late auth cleanup handled when Worker scheduling is unavailable", async ->
+    const operation = deferredResponse()
+    const controller = new AbortController()
+    const request = new Request(
+      "https://darkfactory.localhost/api/auth/get-session",
+      { signal: controller.signal },
+    )
+    mocks.handleAuthRequest.mockReturnValueOnce(operation.promise)
+    mocks.waitUntil.mockImplementationOnce(() => {
+      throw new Error("scheduler unavailable")
+    })
+
+    const pending = dispatchInternalAuthRequest(request)
+    const reason = new DOMException("session deadline", "AbortError")
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+    operation.resolve(new Response("late auth response"))
+    await expect(operation.promise).resolves.toBeInstanceOf(Response)
+
+  it "uses a default reason for an abort during listener registration", async ->
+    const operation = deferredResponse()
+    const controller = new AbortController()
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: controller.signal },
+    )
+    const addAbortListener = request.signal.addEventListener.bind(
+      request.signal,
+    )
+    Object.defineProperty(request.signal, "reason", {
+      configurable: true,
+      value: undefined,
+    })
+    vi.spyOn(request.signal, "addEventListener").mockImplementationOnce(
+      (type, listener, options) => {
+        addAbortListener(type, listener, options)
+        controller.abort(new Error("runtime-specific reason"))
+      },
+    )
+    mocks.handleOrpcRuntimeRequest.mockReturnValueOnce(operation.promise)
+
+    const pending = dispatchInternalOrpcRequest(request)
+
+    await expect(pending).rejects.toMatchObject({
+      message: "The operation was aborted",
+      name: "AbortError",
+    })
+    expect(mocks.waitUntil).toHaveBeenCalledOnce()
+    const [scheduledCleanup] = mocks.waitUntil.mock.calls[0]!
+    operation.resolve(new Response("late oRPC response"))
+    await expect(scheduledCleanup).resolves.toBeUndefined()
+
+  it.each([
+    ["an unexpected auth path", "https://darkfactory.localhost/api/auth/sign-in/email", "GET"],
+    ["an unexpected auth method", "https://darkfactory.localhost/api/auth/get-session", "POST"],
+    ["an unexpected auth origin", "https://attacker.invalid/api/auth/get-session", "GET"],
+  ])("rejects %s before auth handler delegation", async (_case, url, method) ->
+    await expect(dispatchInternalAuthRequest(new Request(url, { method }))).rejects.toThrow(
+      "Internal auth dispatch requires GET /api/auth/get-session on the configured app origin",
+    )
+    expect(mocks.handleAuthRequest).not.toHaveBeenCalled()
+  )
+
+  it.each([
+    ["an unexpected oRPC path", "https://darkfactory.localhost/api/auth/get-session", "GET"],
+    ["an empty oRPC route", "https://darkfactory.localhost/api/orpc/", "GET"],
+    ["an unexpected oRPC method", "https://darkfactory.localhost/api/orpc/dashboard/summary", "OPTIONS"],
+    ["an unexpected oRPC origin", "https://attacker.invalid/api/orpc/dashboard/summary", "GET"],
+  ])("rejects %s before oRPC runtime delegation", async (_case, url, method) ->
+    await expect(dispatchInternalOrpcRequest(new Request(url, { method }))).rejects.toThrow(
+      "Internal oRPC dispatch requires a routed API request on the configured app origin",
+    )
+    expect(mocks.handleOrpcRuntimeRequest).not.toHaveBeenCalled()
+  )

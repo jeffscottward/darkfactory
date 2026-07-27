@@ -14,6 +14,7 @@ export type PortalSessionFetch = (request: Request) => Promise<Response>
 
 export interface GetPortalSessionOptions {
   readonly cookieHeader: string | null
+  readonly cfConnectingIp?: string | null
   readonly fetch?: PortalSessionFetch
   readonly now?: Date
   readonly timeoutMs?: number
@@ -154,6 +155,7 @@ const parseSessionResponse = async (
 
 export const getPortalSession = async ({
   cookieHeader,
+  cfConnectingIp = null,
   fetch: fetchSession = globalThis.fetch,
   now = new Date(),
   timeoutMs = DEFAULT_SESSION_TIMEOUT_MS,
@@ -166,14 +168,18 @@ export const getPortalSession = async ({
   const timeout = setTimeout(() => controller.abort(), deadline)
 
   try {
+    const sessionHeaders = new Headers({
+      accept: "application/json",
+      cookie: cookieHeader,
+    })
+    if (cfConnectingIp !== null) {
+      sessionHeaders.set("cf-connecting-ip", cfConnectingIp)
+    }
     const request = new Request(
       new URL("/api/auth/get-session", resolvePortalAppUrl()),
       {
         cache: "no-store",
-        headers: {
-          accept: "application/json",
-          cookie: cookieHeader,
-        },
+        headers: sessionHeaders,
         method: "GET",
         redirect: "manual",
         signal: controller.signal,

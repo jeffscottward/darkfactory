@@ -130,7 +130,13 @@ vi.mock("@darkfactory/observability/server/otel", -> ({
 vi.mock("./handler.civet", -> ({ handleOrpcRequest: mocks.handleOrpcRequest }))
 
 import { CONTACT_REQUEST_MAX_BYTES } from "./contact-runtime.civet"
-import { DELETE, GET, PATCH, POST } from "./route.civet"
+import {
+  DELETE,
+  GET,
+  handleOrpcRuntimeRequest,
+  PATCH,
+  POST,
+} from "./route.civet"
 
 describe "oRPC Worker route provider composition", ->
   beforeEach ->
@@ -225,6 +231,31 @@ describe "oRPC Worker route provider composition", ->
       authHeaders,
       "admin",
     )
+
+  it "runs the shared request lifecycle with the supplied background scheduler", async ->
+    const scheduleBackgroundTask = vi.fn((task: Promise<unknown>) => {
+      void task.catch(() => undefined)
+    })
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { method: "GET" },
+    )
+
+    await expect(
+      handleOrpcRuntimeRequest(request, scheduleBackgroundTask),
+    ).resolves.toMatchObject({ status: 202 })
+
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+    expect(mocks.createEvlogSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request,
+        executionContext: { waitUntil: scheduleBackgroundTask },
+      }),
+    )
+    expect(mocks.createApiContext.mock.calls[0]?.[1]).toMatchObject({
+      waitUntil: scheduleBackgroundTask,
+    })
+    expect(scheduleBackgroundTask).toHaveBeenCalledOnce()
   
   it "keeps the request database open until an auth background task settles", async ->
     let resolveTask!: () => void

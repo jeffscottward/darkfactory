@@ -9,6 +9,7 @@ const driver = vi.hoisted(() => {
     options: unknown
     connect: ReturnType<typeof vi.fn>
     end: ReturnType<typeof vi.fn>
+    query: ReturnType<typeof vi.fn<(query: unknown) => Promise<unknown>>>
   }> = []
   const databases: Array<{
     client: unknown
@@ -41,6 +42,7 @@ const driver = vi.hoisted(() => {
       nextEndError = undefined
       throw error
     })
+    query = vi.fn(async (_query: unknown) => undefined)
 
     constructor(options: unknown) {
       this.options = options
@@ -158,6 +160,7 @@ describe "database client factories", ->
     expect(driver.clients[0]?.options).toEqual({
       connectionString: normalized,
       connectionTimeoutMillis: 10_000,
+      query_timeout: 10_000,
     })
 
     await nodeResource.close()
@@ -174,7 +177,7 @@ describe "database client factories", ->
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslmode=verify-full&sslrootcert=system",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslmode=disable&sslrootcert=system",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&host=attacker.example",
-    "postgresql://worker:credential@%2Ftmp.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system",
+    "postgresql://worker:credential@%2Ftmp.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&query_timeout_extra=0&application_name=dark factory%ZZ",
   ])("preserves non-PlanetScale system-root configuration %s", async (connectionString) => {
     const nodeResource = createNodeDatabase({ connectionString })
     const requestResource = await createRequestDatabase({ connectionString })
@@ -183,10 +186,63 @@ describe "database client factories", ->
     expect(driver.clients[0]?.options).toEqual({
       connectionString,
       connectionTimeoutMillis: 10_000,
+      query_timeout: 10_000,
     })
 
     await nodeResource.close()
     await requestResource.close()
+  })
+
+  it.each([
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?application_name=darkfactory&query_timeout=10000",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=10000&query_timeout=0",
+    "postgresql://worker:credential-that-must-not-leak@%2Fvar%2Frun%2Fpostgresql/darkfactory?query%5Ftimeout=0",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0#client-fragment",
+  ])("rejects request query timeout URL overrides before constructing a client", async (connectionString) => {
+    let rejection: unknown
+    try {
+      await createRequestDatabase({ connectionString })
+    } catch (error) {
+      rejection = error
+    }
+
+    expect(rejection).toBeInstanceOf(TypeError)
+    expect((rejection as Error).message).toBe(
+      "Request database connection strings cannot set query_timeout",
+    )
+    expect((rejection as Error).message).not.toContain(
+      "credential-that-must-not-leak",
+    )
+    expect(driver.clients).toHaveLength(0)
+    expect(driver.drizzle).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_\ntimeout=0",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_\ttimeout=0",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_\rtimeout=0",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout\u0000",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout\u001f",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout ",
+    "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?application_name=darkfactory\u000b&pool=worker",
+  ])("rejects raw URL controls before constructing a client", async (connectionString) => {
+    let rejection: unknown
+    try {
+      await createRequestDatabase({ connectionString })
+    } catch (error) {
+      rejection = error
+    }
+
+    expect(rejection).toBeInstanceOf(TypeError)
+    expect((rejection as Error).message).toBe(
+      "Request database connection strings cannot contain raw URL controls",
+    )
+    expect((rejection as Error).message).not.toContain(
+      "credential-that-must-not-leak",
+    )
+    expect(driver.clients).toHaveLength(0)
+    expect(driver.drizzle).not.toHaveBeenCalled()
   })
 
   it "creates and connects a fresh client for every request", async ->
@@ -203,6 +259,11 @@ describe "database client factories", ->
     expect(driver.clients[0]).not.toBe(driver.clients[1])
     expect(driver.clients[0]?.connect).toHaveBeenCalledOnce()
     expect(driver.clients[1]?.connect).toHaveBeenCalledOnce()
+    expect(driver.clients[0]?.options).toEqual({
+      connectionString: CONNECTION_STRING,
+      connectionTimeoutMillis: 3_000,
+      query_timeout: 10_000,
+    })
     expect(first).not.toHaveProperty("client")
 
     await first.close()
@@ -221,7 +282,25 @@ describe "database client factories", ->
     expect(driver.clients[0]?.options).toEqual({
       connectionString: CONNECTION_STRING,
       connectionTimeoutMillis: 10_000,
+      query_timeout: 10_000,
     })
+
+  it "closes a connected request client after a query rejects in handler cleanup", async ->
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    const queryFailure = new Error("query failed")
+    driver.clients[0]!.query.mockRejectedValueOnce(queryFailure)
+
+    try {
+      await expect(driver.clients[0]!.query("select 1")).rejects.toBe(
+        queryFailure,
+      )
+    } finally {
+      await resource.close()
+    }
+
+    expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
 
 
   it "runs migrations from the package folder unless explicitly overridden", async ->

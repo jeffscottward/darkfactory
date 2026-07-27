@@ -75,16 +75,23 @@ describe "portal callback paths", ->
   )
 
 describe "getPortalSession", ->
-  it "forwards only the request cookie and validates the response", async ->
+  it "forwards only the request cookie and trusted edge IP before validating the response", async ->
     const fetchSession = vi.fn(async (request: Request) -> {
       expect(request.url).toBe("https://darkfactory.localhost/api/auth/get-session")
       expect(request.headers.get("cookie")).toBe("better-auth.session_token=opaque")
       expect(request.headers.get("accept")).toBe("application/json")
+      expect(request.headers.get("cf-connecting-ip")).toBe("203.0.113.42")
+      expect([...request.headers.keys()]).toEqual([
+        "accept",
+        "cf-connecting-ip",
+        "cookie",
+      ])
       return Response.json(activeSession)
     })
 
     await expect(getPortalSession({
       cookieHeader: "better-auth.session_token=opaque",
+      cfConnectingIp: "203.0.113.42",
       fetch: fetchSession,
       now: new Date("2029-01-01T00:00:00.000Z"),
     })).resolves.toMatchObject({ userId: "user-1", role: "member" })

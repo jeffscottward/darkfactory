@@ -3,6 +3,7 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { PortalShell } from "../../components/portal-shell.civet"
+import { dispatchInternalAuthRequest } from "../../lib/server-internal-dispatch.civet"
 import {
   getPortalSession,
   portalSignInHref,
@@ -31,6 +32,8 @@ export default async function PortalLayout({
   const requestHeaders = await headers()
   const session = await getPortalSession({
     cookieHeader: requestHeaders.get("cookie"),
+    cfConnectingIp: requestHeaders.get("cf-connecting-ip"),
+    fetch: dispatchInternalAuthRequest,
   })
 
   if (session === null) redirect(portalSignInHref(requestHeaders))
