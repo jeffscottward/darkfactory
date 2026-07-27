@@ -645,6 +645,93 @@ describe("owned E2E server readiness", () => {
     }
   });
 
+  it("retains the configured standalone request timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      let aborted = false;
+      const fetchImplementation = vi.fn<typeof fetch>(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(new DOMException("Aborted", "AbortError"));
+              },
+              { once: true }
+            );
+          })
+      );
+      let settled = false;
+      const probe = probeE2EServerRoutes({
+        appUrl: "https://darkfactory.localhost",
+        fetchImplementation,
+        requestTimeoutMillis: 30_000,
+      }).then((result) => {
+        settled = true;
+        return result;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      expect(aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(probe).resolves.toBe(false);
+      expect(aborted).toBe(true);
+      expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets one deadline-driven cold route exceed the standalone request timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      let aborted = false;
+      let requests = 0;
+      const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
+        requests += 1;
+        if (requests > 1) {
+          return new Response("ready", { status: 200 });
+        }
+        return await new Promise<Response>((resolve, reject) => {
+          const response = setTimeout(
+            () => resolve(new Response("ready", { status: 200 })),
+            61_000
+          );
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              clearTimeout(response);
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true }
+          );
+        });
+      });
+      let settled = false;
+      const probe = probeE2EServerRoutes({
+        appUrl: "https://darkfactory.localhost",
+        deadlineMillis: Date.now() + 120_000,
+        fetchImplementation,
+      }).then((result) => {
+        settled = true;
+        return result;
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+      expect(aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(probe).resolves.toBe(true);
+      expect(fetchImplementation).toHaveBeenCalledTimes(3);
+      expect(aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("aborts an in-flight cold route at the overall readiness deadline", async () => {
     vi.useFakeTimers();
     try {

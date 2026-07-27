@@ -102,10 +102,7 @@ export const probeE2EServerRoutes = async ({
       if (signal?.aborted === true) {
         abortRequest();
       }
-      const timeout = setTimeout(
-        () => controller.abort(),
-        Math.min(requestTimeoutMillis, remainingMillis)
-      );
+      const timeout = setTimeout(() => controller.abort(), remainingMillis);
       let response: Response | undefined;
       try {
         response = await fetchImplementation(url, {
