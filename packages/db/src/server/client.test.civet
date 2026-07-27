@@ -98,6 +98,10 @@ import {
 import { migrate } from "@darkfactory/db/server/migration"
 
 const CONNECTION_STRING = "postgresql://localhost/darkfactory_test"
+const PLANETSCALE_SYSTEM_ROOT_CONNECTION_STRING =
+  "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&application_name=darkfactory"
+const NORMALIZED_PLANETSCALE_CONNECTION_STRING =
+  "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&application_name=darkfactory"
 
 describe "database client factories", ->
   beforeEach ->
@@ -128,6 +132,62 @@ describe "database client factories", ->
 
     await resource.close()
     expect(driver.pools[0]?.end).toHaveBeenCalledOnce()
+
+  it.each([
+    [
+      PLANETSCALE_SYSTEM_ROOT_CONNECTION_STRING,
+      NORMALIZED_PLANETSCALE_CONNECTION_STRING,
+    ],
+    [
+      "postgres://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system",
+      "postgres://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full",
+    ],
+    [
+      "postgresql://worker:p%2520word@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&application_name=dark factory%ZZ",
+      "postgresql://worker:p%2520word@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&application_name=dark factory%ZZ",
+    ],
+    [
+      "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full&sslrootcert=system",
+      "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full",
+    ],
+  ])("uses runtime system roots for %s", async (connectionString, normalized) => {
+    const nodeResource = createNodeDatabase({ connectionString })
+    const requestResource = await createRequestDatabase({ connectionString })
+
+    expect(driver.pools[0]?.options).toEqual({ connectionString: normalized })
+    expect(driver.clients[0]?.options).toEqual({
+      connectionString: normalized,
+      connectionTimeoutMillis: 10_000,
+    })
+
+    await nodeResource.close()
+    await requestResource.close()
+  })
+  it.each([
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=custom.pem",
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=require&sslrootcert=system",
+    "not a PostgreSQL URL?sslmode=verify-full&sslrootcert=system",
+    "postgresql://worker:credential@example.com/darkfactory?sslmode=verify-full&sslrootcert=system",
+    "https://aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system",
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&sslrootcert=system",
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=SYSTEM",
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslmode=verify-full&sslrootcert=system",
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslmode=disable&sslrootcert=system",
+    "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&host=attacker.example",
+    "postgresql://worker:credential@%2Ftmp.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system",
+  ])("preserves non-PlanetScale system-root configuration %s", async (connectionString) => {
+    const nodeResource = createNodeDatabase({ connectionString })
+    const requestResource = await createRequestDatabase({ connectionString })
+
+    expect(driver.pools[0]?.options).toEqual({ connectionString })
+    expect(driver.clients[0]?.options).toEqual({
+      connectionString,
+      connectionTimeoutMillis: 10_000,
+    })
+
+    await nodeResource.close()
+    await requestResource.close()
+  })
 
   it "creates and connects a fresh client for every request", async ->
     const first = await createRequestDatabase({
