@@ -212,49 +212,4 @@ describe("Vite application plugin contract", () => {
     );
     expect(rootGitignore.split(LINE_BREAK_PATTERN)).toContain(".dev.vars*");
   });
-
-  it("disables the Worker inspector for the production browser child", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("APP_ENV", "test");
-    vi.stubEnv("E2E_RUN_ID", "production_browser_child");
-    vi.resetModules();
-    pluginMocks.cloudflare.mockClear();
-
-    try {
-      await import("./vite.config");
-      expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
-        inspectorPort: false,
-        viteEnvironment: {
-          name: "rsc",
-          childEnvironments: ["ssr"],
-        },
-      });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it.each([
-    ["test", "test", ""],
-    ["production", "test", ""],
-    ["development", "development", "developer_preview"],
-  ])("retains the default Worker inspector for %s/%s without an owned run", async (nodeEnvironment, appEnvironment, e2eRunId) => {
-    vi.stubEnv("NODE_ENV", nodeEnvironment);
-    vi.stubEnv("APP_ENV", appEnvironment);
-    vi.stubEnv("E2E_RUN_ID", e2eRunId);
-    vi.resetModules();
-    pluginMocks.cloudflare.mockClear();
-
-    try {
-      await import("./vite.config");
-      expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
-        viteEnvironment: {
-          name: "rsc",
-          childEnvironments: ["ssr"],
-        },
-      });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
 });

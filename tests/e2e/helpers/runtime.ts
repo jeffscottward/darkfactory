@@ -222,9 +222,9 @@ export const createE2EServerEnvironment = ({
     E2E_EMAIL_PREVIEW_ENDPOINT: captureEndpoint.href,
     E2E_EMAIL_PREVIEW_HMAC_KEY: source["E2E_EMAIL_PREVIEW_HMAC_KEY"],
     E2E_RUN_ID: runPaths.runId,
-    // Isolated browser runs do not use cross-process Worker discovery.
-    // An empty path prevents its unused debug socket from gating readiness.
-    MINIFLARE_REGISTRY_PATH: "",
+    // Isolated browser journeys do not consume live Request.cf metadata.
+    // Keep fresh runners independent from Cloudflare's metadata endpoint.
+    CLOUDFLARE_CF_FETCH_ENABLED: "false",
     PORTLESS_PORT: portlessPort?.toString() ?? "",
     GROQ_API_KEY: "",
     GROQ_MODEL: "",
