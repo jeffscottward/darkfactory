@@ -22,10 +22,12 @@ describe("canonical E2E server environment", () => {
     expect(environment).toMatchObject({
       CONTACT_EMAIL_TO: "contact@darkfactory.test",
       EMAIL_TRANSPORT: "preview",
+      MINIFLARE_REGISTRY_PATH: "",
     });
     // biome-ignore lint/complexity/useLiteralKeys: The execution environment is an index-signature boundary.
     expect(environment["PORTLESS_APP_PORT"]).toBeUndefined();
     expect(E2E_WORKER_BINDING_KEYS).not.toContain("PORTLESS_APP_PORT");
+    expect(E2E_WORKER_BINDING_KEYS).not.toContain("MINIFLARE_REGISTRY_PATH");
     expect(E2E_WORKER_BINDING_KEYS).toContain("CONTACT_EMAIL_TO");
   });
 });
