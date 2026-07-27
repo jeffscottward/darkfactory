@@ -7,6 +7,12 @@ import vinext from "vinext";
 
 // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
+// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
+const appEnvironment = process.env["APP_ENV"];
+// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
+const e2eRunId = process.env["E2E_RUN_ID"];
+const isOwnedE2EPreview =
+  appEnvironment === "test" && /^[A-Za-z0-9_-]{1,128}$/u.test(e2eRunId ?? "");
 let port: number | undefined;
 
 if (rawPort !== undefined) {
@@ -97,6 +103,32 @@ const environmentOptimizerPolicy = (): Plugin => ({
   },
 });
 
+const e2ePreviewDiagnostics = (): Plugin => {
+  let requestPublished = false;
+  let responsePublished = false;
+
+  return {
+    name: "darkfactory:e2e-preview-diagnostics",
+    enforce: "pre",
+    configurePreviewServer(server) {
+      server.middlewares.use((_request, response, next) => {
+        if (!requestPublished) {
+          requestPublished = true;
+          process.stderr.write("DARKFACTORY_E2E_VITE_REQUEST_RECEIVED\n");
+        }
+        response.once("finish", () => {
+          if (responsePublished) {
+            return;
+          }
+          responsePublished = true;
+          process.stderr.write("DARKFACTORY_E2E_VITE_RESPONSE_FINISHED\n");
+        });
+        next();
+      });
+    },
+  };
+};
+
 export default defineConfig({
   resolve: {
     dedupe: [
@@ -133,7 +165,11 @@ export default defineConfig({
         pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
       },
     }),
+    ...(isOwnedE2EPreview ? [e2ePreviewDiagnostics()] : []),
     cloudflare({
+      // The owned browser child has no debugger consumer. Combined with its
+      // isolated registry, this keeps optional control sockets out of startup.
+      ...(isOwnedE2EPreview ? { inspectorPort: false } : {}),
       viteEnvironment: {
         name: "rsc",
         childEnvironments: ["ssr"],

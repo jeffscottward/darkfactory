@@ -172,6 +172,10 @@ describe("owned E2E server readiness", () => {
         deadlineMillis: Date.now() + 1000,
         onPortAccepted,
         fetchImplementation,
+        onRequestStart: (path) => events.push(`request:${path}`),
+        onResponse: (path, status) => events.push(`response:${path}:${status}`),
+        onRequestError: (path, errorName) =>
+          events.push(`error:${path}:${errorName}`),
       });
 
     await expect(probe()).resolves.toBe(false);
@@ -210,7 +214,18 @@ describe("owned E2E server readiness", () => {
       await expect(probe()).resolves.toBe(true);
       expect(fetchImplementation).toHaveBeenCalledTimes(3);
       expect(onPortAccepted).toHaveBeenCalledOnce();
-      expect(events).toEqual(["port", "route", "route", "route"]);
+      expect(events).toEqual([
+        "port",
+        "request:/",
+        "route",
+        "response:/:200",
+        "request:/sign-in",
+        "route",
+        "response:/sign-in:200",
+        "request:/api/auth/get-session",
+        "route",
+        "response:/api/auth/get-session:200",
+      ]);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) =>
@@ -218,6 +233,24 @@ describe("owned E2E server readiness", () => {
         );
       });
     }
+  });
+
+  it("reports a sanitized route error class without changing readiness", async () => {
+    const events: string[] = [];
+
+    await expect(
+      probeE2EServerRoutes({
+        appUrl: "https://darkfactory.localhost",
+        fetchImplementation: async () => {
+          throw new TypeError("sensitive request detail");
+        },
+        onRequestError: (path, errorName) =>
+          events.push(`error:${path}:${errorName}`),
+        onRequestStart: (path) => events.push(`request:${path}`),
+        onResponse: (path, status) => events.push(`response:${path}:${status}`),
+      })
+    ).resolves.toBe(false);
+    expect(events).toEqual(["request:/", "error:/:TypeError"]);
   });
 
   it("holds journeys until two cold route rounds commit lifecycle readiness", async () => {

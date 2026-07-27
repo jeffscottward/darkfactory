@@ -1,6 +1,8 @@
+import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Plugin } from "vite";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import viteConfig from "./vite.config";
@@ -203,6 +205,77 @@ describe("Vite application plugin contract", () => {
     expect(viteConfig.server?.warmup?.clientFiles).toEqual([
       "./src/components/portal-shell.civet",
     ]);
+  });
+
+  it("publishes one-shot preview request boundaries for the owned E2E child", async () => {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("E2E_RUN_ID", "production_browser_child");
+    pluginMocks.cloudflare.mockClear();
+    vi.resetModules();
+
+    try {
+      const e2eConfig = (await import("./vite.config")).default;
+      const plugins = Array.isArray(e2eConfig.plugins) ? e2eConfig.plugins : [];
+      const names = plugins.map((plugin) =>
+        plugin && "name" in plugin ? plugin.name : null
+      );
+      const diagnostics = plugins.find(
+        (plugin) =>
+          plugin &&
+          "name" in plugin &&
+          plugin.name === "darkfactory:e2e-preview-diagnostics"
+      ) as Plugin | undefined;
+      expect(names.indexOf("darkfactory:e2e-preview-diagnostics")).toBeLessThan(
+        names.indexOf("test-cloudflare")
+      );
+      expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
+        inspectorPort: false,
+        viteEnvironment: {
+          name: "rsc",
+          childEnvironments: ["ssr"],
+        },
+      });
+      expect(diagnostics).toBeDefined();
+      expect(typeof diagnostics?.configurePreviewServer).toBe("function");
+
+      const use = vi.fn();
+      const write = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+      const configurePreviewServer = diagnostics?.configurePreviewServer;
+      if (typeof configurePreviewServer !== "function") {
+        throw new Error("E2E preview diagnostics hook is unavailable");
+      }
+      await configurePreviewServer.call(
+        {} as never,
+        {
+          middlewares: { use },
+        } as never
+      );
+      const middleware = use.mock.calls[0]?.[0] as
+        | ((request: object, response: EventEmitter, next: () => void) => void)
+        | undefined;
+      if (middleware === undefined) {
+        throw new Error("E2E preview diagnostics middleware is unavailable");
+      }
+      const response = new EventEmitter();
+      const next = vi.fn();
+
+      middleware({}, response, next);
+      middleware({}, response, next);
+      response.emit("finish");
+      response.emit("finish");
+
+      expect(next).toHaveBeenCalledTimes(2);
+      expect(write).toHaveBeenCalledWith(
+        "DARKFACTORY_E2E_VITE_REQUEST_RECEIVED\n"
+      );
+      expect(write).toHaveBeenCalledWith(
+        "DARKFACTORY_E2E_VITE_RESPONSE_FINISHED\n"
+      );
+      expect(write).toHaveBeenCalledTimes(2);
+      write.mockRestore();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("keeps Worker dev-var files out of source control", async () => {

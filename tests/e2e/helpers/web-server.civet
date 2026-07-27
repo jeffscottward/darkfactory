@@ -28,6 +28,9 @@ import {
 import {
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_WEB_SERVER_PORT_ACCEPTING_MARKER,
+  E2E_WEB_SERVER_ROUTE_ERROR_MARKER,
+  E2E_WEB_SERVER_ROUTE_REQUEST_MARKER,
+  E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER,
   E2E_WEB_SERVER_READY_MARKER,
 } from "./lifecycle-budgets.ts"
 import {
@@ -404,6 +407,28 @@ const start = async (control: LifecycleControl): Promise<void> => {
     appPortObservationPublished = true
     process.stderr.write(`${E2E_WEB_SERVER_PORT_ACCEPTING_MARKER}\n`)
   }
+  const routeRequestsPublished = new Set<string>()
+  const routeResponsesPublished = new Set<string>()
+  const routeErrorsPublished = new Set<string>()
+  const publishRouteRequest = (path: string): void => {
+    if (routeRequestsPublished.has(path)) return
+    routeRequestsPublished.add(path)
+    process.stderr.write(`${E2E_WEB_SERVER_ROUTE_REQUEST_MARKER} ${path}\n`)
+  }
+  const publishRouteResponse = (path: string, status: number): void => {
+    if (routeResponsesPublished.has(path)) return
+    routeResponsesPublished.add(path)
+    process.stderr.write(
+      `${E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER} ${path} ${status}\n`,
+    )
+  }
+  const publishRouteError = (path: string, errorName: string): void => {
+    if (routeErrorsPublished.has(path)) return
+    routeErrorsPublished.add(path)
+    process.stderr.write(
+      `${E2E_WEB_SERVER_ROUTE_ERROR_MARKER} ${path} ${errorName}\n`,
+    )
+  }
   let readinessCommitStarted = false
   const {
     promise: probeObservationCommitted,
@@ -519,6 +544,9 @@ const start = async (control: LifecycleControl): Promise<void> => {
           appUrl,
           deadlineMillis: context.deadlineMillis,
           onPortAccepted: publishAppPortObservation,
+          onRequestError: publishRouteError,
+          onRequestStart: publishRouteRequest,
+          onResponse: publishRouteResponse,
           signal: context.signal,
         })
         if (ready) await commitServerProbeObserved(context)

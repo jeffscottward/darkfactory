@@ -15,6 +15,26 @@ const MAX_READINESS_BODY_BYTES = 1_048_576;
 const READINESS_REQUEST_TIMEOUT_MILLIS = 60_000;
 const E2E_LOOPBACK_ADDRESS = "127.0.0.1";
 const E2E_PORT_PROBE_TIMEOUT_MILLIS = 1000;
+const ERROR_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}$/u;
+type RouteRequestStartObserver = (path: string) => void;
+type RouteResponseObserver = (path: string, status: number) => void;
+type RouteRequestErrorObserver = (path: string, errorName: string) => void;
+
+const publishRouteProbeEvent = <Arguments extends readonly unknown[]>(
+  observer: ((...arguments_: Arguments) => void) | undefined,
+  ...arguments_: Arguments
+): void => {
+  try {
+    observer?.(...arguments_);
+  } catch {
+    // Diagnostics must never alter readiness.
+  }
+};
+
+const safeErrorName = (error: unknown): string =>
+  error instanceof Error && ERROR_NAME_PATTERN.test(error.name)
+    ? error.name
+    : "Error";
 export type PromiseResolvers<Value> = Readonly<{
   promise: Promise<Value>;
   reject: (reason?: unknown) => void;
@@ -141,6 +161,9 @@ export const probeE2EServerRoutes = async ({
   maxBodyBytes = MAX_READINESS_BODY_BYTES,
   now = Date.now,
   requestTimeoutMillis = READINESS_REQUEST_TIMEOUT_MILLIS,
+  onRequestError,
+  onRequestStart,
+  onResponse,
   signal,
 }: {
   readonly appUrl: string;
@@ -149,6 +172,9 @@ export const probeE2EServerRoutes = async ({
   readonly maxBodyBytes?: number;
   readonly now?: () => number;
   readonly requestTimeoutMillis?: number;
+  readonly onRequestError?: RouteRequestErrorObserver | undefined;
+  readonly onRequestStart?: RouteRequestStartObserver | undefined;
+  readonly onResponse?: RouteResponseObserver | undefined;
   readonly signal?: AbortSignal | undefined;
 }): Promise<boolean> => {
   if (
@@ -184,12 +210,14 @@ export const probeE2EServerRoutes = async ({
       const timeout = setTimeout(() => controller.abort(), remainingMillis);
       let response: Response | undefined;
       try {
+        publishRouteProbeEvent(onRequestStart, path);
         response = await fetchImplementation(url, {
           credentials: "omit",
           method: "GET",
           redirect: "manual",
           signal: controller.signal,
         });
+        publishRouteProbeEvent(onResponse, path, response.status);
         if (response.status !== 200) {
           cancelResponseBody(response);
           return false;
@@ -200,7 +228,8 @@ export const probeE2EServerRoutes = async ({
         if (deadlineMillis !== undefined && now() >= deadlineMillis) {
           return false;
         }
-      } catch {
+      } catch (error) {
+        publishRouteProbeEvent(onRequestError, path, safeErrorName(error));
         if (response !== undefined) {
           cancelResponseBody(response);
         }
@@ -223,6 +252,9 @@ export const probeE2EServerTarget = async ({
   fetchImplementation = fetch,
   now = Date.now,
   onPortAccepted,
+  onRequestError,
+  onRequestStart,
+  onResponse,
   signal,
 }: {
   readonly appPort: number;
@@ -231,6 +263,9 @@ export const probeE2EServerTarget = async ({
   readonly fetchImplementation?: typeof fetch;
   readonly now?: () => number;
   readonly onPortAccepted?: (() => void) | undefined;
+  readonly onRequestError?: RouteRequestErrorObserver | undefined;
+  readonly onRequestStart?: RouteRequestStartObserver | undefined;
+  readonly onResponse?: RouteResponseObserver | undefined;
   readonly signal?: AbortSignal;
 }): Promise<boolean> => {
   const acceptingConnections = await probeE2EServerPort({
@@ -251,6 +286,9 @@ export const probeE2EServerTarget = async ({
     deadlineMillis,
     fetchImplementation,
     now,
+    onRequestError,
+    onRequestStart,
+    onResponse,
     signal,
   });
 };
