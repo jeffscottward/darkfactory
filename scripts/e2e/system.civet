@@ -17,6 +17,8 @@ import { join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { inflateSync } from "node:zlib"
 
+import { assertStableOwnedLifecycleRoot, requireFileFlag } from "./owned-marker.js"
+
 import {
   ArtifactScannerCleanupError,
   playwrightReportHasExecutedResult,
@@ -432,7 +434,7 @@ const readStableFile = async (
   maxBytes: number,
   expected: Readonly<{ dev: number; ino: number }>,
 ): Promise<Buffer> => {
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+  const handle = await open(path, constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW))
   try {
     const before = await handle.stat()
     if (
@@ -469,7 +471,7 @@ const createArchiveSnapshot = async (
       constants.O_CREAT |
         constants.O_EXCL |
         constants.O_WRONLY |
-        (constants.O_NOFOLLOW ?? 0),
+        requireFileFlag(constants.O_NOFOLLOW),
       0o600,
     )
     await handle.writeFile(content)
@@ -647,7 +649,7 @@ const createOwnedRoot = async (
     constants.O_CREAT |
       constants.O_EXCL |
       constants.O_WRONLY |
-      (constants.O_NOFOLLOW ?? 0),
+      requireFileFlag(constants.O_NOFOLLOW),
     0o600,
   )
   try {
@@ -674,7 +676,7 @@ const writeAdoptionMarkers = async (
     for (const target of targets) {
       const handle = await open(
         target.path,
-        constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+        constants.O_WRONLY | requireFileFlag(constants.O_NOFOLLOW),
       )
       const stats = await handle.stat()
       if (!sameIdentity(target.expected, stats) || (stats.mode & 0o777) !== 0o600) {
@@ -741,7 +743,7 @@ const assertOwnedRoot = async (
   if (!sameIdentity(expected.root, rootStats)) throw new Error("Owned E2E root identity changed")
   const marker = await open(
     join(runRoot, OWNER_FILE),
-    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
   )
   try {
     const before = await marker.stat()
@@ -784,49 +786,17 @@ export const createOwnedLifecyclePaths = async (
   })
 }
 
-const assertAdoptedLifecycleRoot = async (
+const assertAdoptedLifecycleRoot = (
   path: string,
   expected: OwnedRunAdoption["e2e"],
   adoption: OwnedRunAdoption,
-): Promise<void> => {
-  try {
-    await assertDirectory(path)
-    const rootStats = await lstat(path)
-    if (!sameIdentity(expected.root, rootStats)) {
-      throw new Error("Owned lifecycle root identity or capability changed")
-    }
-    const marker = await open(
-      join(path, OWNER_FILE),
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
-    )
-    try {
-      const before = await marker.stat()
-      if (
-        !before.isFile() ||
-        !sameIdentity(expected.marker, before) ||
-        before.size > 512 ||
-        (before.mode & 0o777) !== 0o600
-      ) throw new Error("Owned lifecycle marker identity or capability changed")
-      const content = await marker.readFile({ encoding: "utf8" })
-      const after = await marker.stat()
-      if (
-        !sameIdentity(expected.marker, after) ||
-        before.size !== after.size ||
-        content !== JSON.stringify(adoption)
-      ) throw new Error("Owned lifecycle marker identity or capability changed")
-    } finally {
-      await marker.close()
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(
-        "Owned lifecycle root identity or capability changed",
-        { cause: error },
-      )
-    }
-    throw error
-  }
-}
+): Promise<void> => assertStableOwnedLifecycleRoot(
+  path,
+  OWNER_FILE,
+  expected,
+  JSON.stringify(adoption),
+  assertDirectory,
+)
 
 export const assertOwnedLifecycleRoots = async (
   paths: OwnedLifecyclePaths,
@@ -839,10 +809,8 @@ export const assertOwnedLifecycleRoots = async (
 
       join(paths.repository, "test-results", "evidence", adoption.runId)
   ) throw new Error("Owned lifecycle paths are invalid")
-  await Promise.all([
-    assertAdoptedLifecycleRoot(paths.e2e, adoption.e2e, adoption),
-    assertAdoptedLifecycleRoot(paths.evidence, adoption.evidence, adoption),
-  ])
+  await assertAdoptedLifecycleRoot(paths.e2e, adoption.e2e, adoption)
+  await assertAdoptedLifecycleRoot(paths.evidence, adoption.evidence, adoption)
 }
 
 const playwrightReportExecuted = async (
@@ -852,7 +820,7 @@ const playwrightReportExecuted = async (
   try {
     handle = await open(
       join(paths.e2e, PLAYWRIGHT_REPORT_FILE),
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
     )
   } catch (error) {
     if (
@@ -933,7 +901,7 @@ export const finalizeOwnedLifecycleAfterPlaywright = async ({
       constants.O_CREAT |
         constants.O_EXCL |
         constants.O_WRONLY |
-        (constants.O_NOFOLLOW ?? 0),
+        requireFileFlag(constants.O_NOFOLLOW),
       0o600,
     )
     await temporary.writeFile(`${JSON.stringify(finalState)}\n`, "utf8")
@@ -944,7 +912,7 @@ export const finalizeOwnedLifecycleAfterPlaywright = async ({
     await rename(temporaryPath, join(paths.e2e, LIFECYCLE_STATE_FILE))
     const directory = await open(
       paths.e2e,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
     )
     try {
       await directory.sync()
@@ -972,7 +940,7 @@ export const readOwnedLifecycleState = async (
   try {
     handle = await open(
       join(paths.e2e, LIFECYCLE_STATE_FILE),
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
     )
   } catch (error) {
     if (

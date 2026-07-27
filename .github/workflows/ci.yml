@@ -197,7 +197,12 @@ jobs:
 
           IFS= read -r portless_owner <"/proc/sys/kernel/random/uuid"
           portless_owner="darkfactory-ci-$portless_owner"
-          PORTLESS_CI_OWNER="$portless_owner" \
+          portless_state_dir="$RUNNER_TEMP/darkfactory-portless-$portless_owner"
+          mkdir "$portless_state_dir"
+          printf 'PORTLESS_STATE_DIR=%s\nNODE_EXTRA_CA_CERTS=%s\n' \
+            "$portless_state_dir" "$portless_state_dir/ca.pem" >>"$GITHUB_ENV"
+          PORTLESS_STATE_DIR="$portless_state_dir" \
+            PORTLESS_CI_OWNER="$portless_owner" \
             timeout --signal=TERM --kill-after=5s 20m \
             bunx --bun --no-install portless proxy start --foreground --skip-trust \
             >"$portless_log" 2>&1 &
@@ -348,7 +353,7 @@ jobs:
           if certutil -L -d "sql:$nss_db" -n "$ca_nickname" >/dev/null 2>&1; then
             certutil -D -d "sql:$nss_db" -n "$ca_nickname"
           fi
-          certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$HOME/.portless/ca.pem"
+          certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$NODE_EXTRA_CA_CERTS"
           certutil -L -d "sql:$nss_db" | grep -F -- "$ca_nickname"
 
       - name: Prepare private browser pnpm toolchain

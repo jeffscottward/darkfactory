@@ -1,0 +1,293 @@
+import { chmod, lstat, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  assertStableOwnedLifecycleRoot,
+  assertStableOwnedMarkerRead,
+  assertStableOwnedRoot,
+  inspectAndCloseOwnedMarker,
+  requireFileFlag,
+  rethrowOwnedLifecycleReadError,
+} from "./owned-marker.js"
+
+const stableCapability = () => ({
+  dev: 11,
+  ino: 12,
+  mode: 0o100600,
+  uid: 501,
+  gid: 20,
+  nlink: 1,
+  ctimeMs: 100,
+  mtimeMs: 100,
+  size: 128,
+})
+
+const stableRead = () => ({
+  expected: { dev: 11, ino: 12 },
+  before: stableCapability(),
+  after: stableCapability(),
+  content: "owned-marker",
+  expectedContent: "owned-marker",
+})
+
+const validateRead = (
+  read: ReturnType<typeof stableRead>,
+): void => assertStableOwnedMarkerRead(
+  read.expected,
+  read.before,
+  read.after,
+  read.content,
+  read.expectedContent,
+)
+
+const safeSnapshot = (
+  changed: Record<string, unknown> = {},
+) => ({
+  dev: 11,
+  ino: 12,
+  isFile: () => true,
+  mode: 0o100600,
+  size: 128,
+  uid: 501,
+  gid: 20,
+  nlink: 1,
+  ctimeMs: 100,
+  mtimeMs: 100,
+  ...changed,
+})
+
+const markerHandle = ({
+  before = safeSnapshot(),
+  after = safeSnapshot(),
+  content = "owned-marker",
+  close = vi.fn(async () => undefined),
+}: {
+  before?: ReturnType<typeof safeSnapshot>
+  after?: ReturnType<typeof safeSnapshot>
+  content?: string
+  close?: ReturnType<typeof vi.fn>
+} = {}) => {
+  const stat = vi.fn()
+    .mockResolvedValueOnce(before)
+    .mockResolvedValueOnce(after)
+  return {
+    close,
+    handle: {
+      close,
+      readFile: vi.fn(async () => content),
+      stat,
+    } as Parameters<typeof inspectAndCloseOwnedMarker>[0],
+  }
+}
+
+describe "requireFileFlag", ->
+  it "retains an available platform flag and rejects a missing capability", ->
+    expect(requireFileFlag(131_072)).toBe(131_072)
+    expect(() => requireFileFlag(undefined)).toThrow(
+      "Required filesystem ownership capability is unavailable",
+    )
+
+describe "assertStableOwnedLifecycleRoot", ->
+  it "rejects a changed root identity before opening its marker", async ->
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"))
+    try
+      const stats = await lstat(root)
+      await expect(assertStableOwnedLifecycleRoot(
+        root,
+        ".darkfactory-e2e-owner.json",
+        {
+          root: { dev: stats.dev, ino: stats.ino + 1 },
+          marker: { dev: 1, ino: 1 },
+        },
+        "{}",
+        async () => undefined,
+      )).rejects.toThrow(
+        "Owned lifecycle root identity or capability changed",
+      )
+    finally
+      await rm(root, { force: true, recursive: true })
+
+  it "rejects a root whose private creation mode already drifted", async ->
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"))
+    try
+      const markerPath = join(root, ".darkfactory-e2e-owner.json")
+      await writeFile(markerPath, "{}", { mode: 0o600 })
+      const markerStats = await lstat(markerPath)
+      const stats = await lstat(root)
+      await chmod(root, 0o755)
+      await expect(assertStableOwnedLifecycleRoot(
+        root,
+        ".darkfactory-e2e-owner.json",
+        {
+          root: { dev: stats.dev, ino: stats.ino },
+          marker: { dev: markerStats.dev, ino: markerStats.ino },
+        },
+        "{}",
+        async () => undefined,
+      )).rejects.toThrow(
+        "Owned lifecycle root identity or capability changed",
+      )
+    finally
+      await chmod(root, 0o700)
+      await rm(root, { force: true, recursive: true })
+
+describe "rethrowOwnedLifecycleReadError", ->
+  it "translates a missing capability without exposing its path", ->
+    const missing = Object.assign(new Error("private lifecycle path"), code: "ENOENT")
+    try
+      rethrowOwnedLifecycleReadError(missing)
+    catch translated
+      expect(translated).toMatchObject(
+        message: "Owned lifecycle root identity or capability changed"
+        cause: missing
+      )
+
+  it "preserves every other failure", ->
+    const failure = new Error("marker validation failed")
+    expect(() => rethrowOwnedLifecycleReadError(failure)).toThrow(failure)
+
+describe "assertStableOwnedRoot", ->
+  const root = () => ({
+    ...stableCapability(),
+    mode: 0o40700,
+    nlink: 2,
+  })
+
+  it "accepts an unchanged pinned root capability", ->
+    expect(() => assertStableOwnedRoot(root(), root())).not.toThrow()
+
+  it.each([
+    ["device", { dev: 13 }],
+    ["inode", { ino: 13 }],
+    ["mode", { mode: 0o40755 }],
+    ["owner uid", { uid: 502 }],
+    ["owner gid", { gid: 21 }],
+    ["link count", { nlink: 3 }],
+    ["change time", { ctimeMs: 101 }],
+    ["modification time", { mtimeMs: 101 }],
+  ] as const)("rejects changed root %s", (_case, changed) => {
+    expect(() => assertStableOwnedRoot(root(), {
+      ...root(),
+      ...changed,
+    })).toThrow("Owned lifecycle root identity or capability changed")
+  })
+
+describe "assertStableOwnedMarkerRead", ->
+  it "accepts an unchanged marker read", ->
+    expect(() => validateRead(stableRead())).not.toThrow()
+
+  it.each([
+    ["device identity", { dev: 13 }],
+    ["inode identity", { ino: 13 }],
+    ["size", { size: 129 }],
+    ["mode", { mode: 0o100644 }],
+    ["owner uid", { uid: 502 }],
+    ["owner gid", { gid: 21 }],
+    ["link count", { nlink: 2 }],
+    ["change time", { ctimeMs: 101 }],
+    ["modification time", { mtimeMs: 101 }],
+  ] as const)("rejects changed %s", (_case, changed) => {
+    const current = stableRead()
+    expect(() => validateRead({
+      ...current,
+      after: { ...current.after, ...changed },
+    })).toThrow("Owned lifecycle marker identity or capability changed")
+  })
+
+  it "rejects changed content", ->
+    expect(() => validateRead({
+      ...stableRead(),
+      content: "replaced-marker",
+    })).toThrow("Owned lifecycle marker identity or capability changed")
+
+describe "inspectAndCloseOwnedMarker", ->
+  it "validates and closes an unchanged marker", async ->
+    const { close, handle } = markerHandle()
+
+    await expect(
+      inspectAndCloseOwnedMarker(
+        handle,
+        stableRead().expected,
+        { uid: 501, gid: 20 },
+        "owned-marker",
+      ),
+    ).resolves.toBeUndefined()
+    expect(close).toHaveBeenCalledTimes(1)
+
+  it.each([
+    ["file type", safeSnapshot({ isFile: () => false })],
+    ["device identity", safeSnapshot({ dev: 13 })],
+    ["inode identity", safeSnapshot({ ino: 13 })],
+    ["size", safeSnapshot({ size: 513 })],
+    ["mode", safeSnapshot({ mode: 0o100644 })],
+    ["owner uid", safeSnapshot({ uid: 502 })],
+    ["owner gid", safeSnapshot({ gid: 21 })],
+    ["link count", safeSnapshot({ nlink: 2 })],
+  ] as const)("rejects an unsafe initial %s and still closes", async (_case, before) => {
+    const { close, handle } = markerHandle({ before })
+
+    await expect(
+      inspectAndCloseOwnedMarker(
+        handle,
+        stableRead().expected,
+        { uid: 501, gid: 20 },
+        "owned-marker",
+      ),
+    ).rejects.toThrow("Owned lifecycle marker identity or capability changed")
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it "closes after a post-read validation failure", async ->
+    const { close, handle } = markerHandle({ content: "replaced-marker" })
+
+    await expect(
+      inspectAndCloseOwnedMarker(
+        handle,
+        stableRead().expected,
+        { uid: 501, gid: 20 },
+        "owned-marker",
+      ),
+    ).rejects.toThrow("Owned lifecycle marker identity or capability changed")
+    expect(close).toHaveBeenCalledTimes(1)
+
+  it "preserves a close failure", async ->
+    const closeFailure = new Error("private close failure")
+    const close = vi.fn(async () => { throw closeFailure })
+    const { handle } = markerHandle({ close })
+
+    await expect(
+      inspectAndCloseOwnedMarker(
+        handle,
+        stableRead().expected,
+        { uid: 501, gid: 20 },
+        "owned-marker",
+      ),
+    ).rejects.toBe(closeFailure)
+
+  it "preserves validation and close failures together", async ->
+    const closeFailure = new Error("private close failure")
+    const close = vi.fn(async () => { throw closeFailure })
+    const { handle } = markerHandle({ close, content: "replaced-marker" })
+    let failure: unknown
+
+    try
+      await inspectAndCloseOwnedMarker(
+        handle,
+        stableRead().expected,
+        { uid: 501, gid: 20 },
+        "owned-marker",
+      )
+    catch error
+      failure = error
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    const aggregate = failure as AggregateError
+    expect(aggregate.errors).toHaveLength(2)
+    expect(aggregate.errors[0]).toMatchObject({
+      message: "Owned lifecycle marker identity or capability changed",
+    })
+    expect(aggregate.errors[1]).toBe(closeFailure)
+    expect(close).toHaveBeenCalledTimes(1)

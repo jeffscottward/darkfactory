@@ -74,6 +74,7 @@ describe("canonical Playwright runtime", () => {
         OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.example.test",
         R2_SECRET_ACCESS_KEY: "production-storage-key",
         PATH: "/safe/bin",
+        PORTLESS_STATE_DIR: "/runner/private-portless-state",
         UNRELATED_SECRET: "must-not-cross-process-boundary",
       },
     });
@@ -95,6 +96,9 @@ describe("canonical Playwright runtime", () => {
       E2E_RUN_ID: "runtime_contract",
     });
     expect(environment["PATH"]).toBe("/safe/bin");
+    expect(environment["PORTLESS_STATE_DIR"]).toBe(
+      "/runner/private-portless-state"
+    );
     expect(environment["UNRELATED_SECRET"]).toBeUndefined();
     expect(environment["GROQ_API_KEY"]).toBe("");
     expect(environment["RESEND_API_KEY"]).toBe("");

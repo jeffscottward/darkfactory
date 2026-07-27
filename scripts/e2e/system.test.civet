@@ -345,6 +345,17 @@ describe("owned run capability encoding", () => {
     })
   })
 
+  it("classifies a vanished ownership marker as capability drift", async () => {
+    await withOwnedRun(async (root, proof) => {
+      const { adoption, paths } = await lifecycle(root, proof)
+      await rm(join(paths.e2e, ".darkfactory-e2e-owner.json"))
+
+      await expect(assertOwnedLifecycleRoots(paths, adoption)).rejects.toThrow(
+        /root identity or capability changed/i,
+      )
+    })
+  })
+
   it("rejects a replaced ownership marker capability", async () => {
     await withOwnedRun(async (root, proof) => {
       const { adoption, paths } = await lifecycle(root, proof)
@@ -1284,6 +1295,11 @@ type FileSystemPromises = typeof import("node:fs/promises")
 
 const loadSystemWithFileSystem = async (
   patch: (actual: FileSystemPromises) => Record<string, unknown>,
+  {
+    missingFlag,
+  }: {
+    missingFlag?: "directory" | "nofollow"
+  } = {},
 ) => {
   vi.doUnmock("node:fs")
   vi.doUnmock("node:fs/promises")
@@ -1292,7 +1308,15 @@ const loadSystemWithFileSystem = async (
     const actual = await importOriginal<typeof import("node:fs")>()
     return {
       ...actual,
-      constants: { ...actual.constants, O_NOFOLLOW: undefined },
+      constants: {
+        ...actual.constants,
+        O_DIRECTORY: missingFlag === "directory"
+          ? undefined
+          : actual.constants.O_DIRECTORY,
+        O_NOFOLLOW: missingFlag === "nofollow"
+          ? undefined
+          : actual.constants.O_NOFOLLOW,
+      },
     }
   })
   vi.doMock("node:fs/promises", async (importOriginal) => {
@@ -1910,7 +1934,7 @@ describe("artifact system filesystem fakes", () => {
     }
   })
 
-  it("uses platform flag fallbacks and tolerates marker close errors", async () => {
+  it("tolerates adopted marker close errors after durable publication", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-marker-close-")))
     try {
       const adoptionCloses: ReturnType<typeof vi.fn>[] = []
@@ -1948,6 +1972,144 @@ describe("artifact system filesystem fakes", () => {
       await expect(dynamic.assertOwnedLifecycleRoots(paths, adoption)).resolves.toBeUndefined()
       expect(adoptionCloses).toHaveLength(2)
       expect(adoptionCloses.every((close) => close.mock.calls.length === 1)).toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    ["root directory", "directory"],
+    ["marker nofollow", "nofollow"],
+  ] as const)("fails closed without the required %s capability", async (_case, missingFlag) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-missing-flag-")))
+    try {
+      const proof = await prepareOwnedRun(root, "safe_run", "no-binary")
+      const paths = await createOwnedLifecyclePaths(root, proof.runId)
+      const encodedAdoption = encodeOwnedRunAdoption(proof)
+      const dynamic = await loadSystemWithFileSystem(
+        () => ({}),
+        { missingFlag },
+      )
+      const adoption = dynamic.decodeOwnedRunAdoption(
+        encodedAdoption,
+        proof.runId,
+      )
+
+      await expect(
+        dynamic.assertOwnedLifecycleRoots(paths, adoption),
+      ).rejects.toThrow(
+        "Required filesystem ownership capability is unavailable",
+      )
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("closes a failed root before rejecting without starting its sibling", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-root-order-")))
+    const e2eRoot = join(root, "test-results", "e2e-runs", "safe_run")
+    const evidenceRoot = join(root, "test-results", "evidence", "safe_run")
+    let validating = false
+    let evidenceRootOpens = 0
+    const firstRootClose = vi.fn()
+    try {
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (!validating || (flags & constants.O_DIRECTORY) === 0) return handle
+          if (path === evidenceRoot) evidenceRootOpens += 1
+          if (path !== e2eRoot) return handle
+          return {
+            close: async () => {
+              await handle.close()
+              firstRootClose()
+            },
+            stat: async () => {
+              const stats = await handle.stat()
+              return {
+                dev: stats.dev,
+                gid: stats.gid,
+                ino: stats.ino + 1,
+                isDirectory: () => stats.isDirectory(),
+                mode: stats.mode,
+                uid: stats.uid,
+              }
+            },
+          }
+        },
+      }))
+      const proof = await dynamic.prepareOwnedRun(root, "safe_run", "no-binary")
+      const paths = await dynamic.createOwnedLifecyclePaths(root, proof.runId)
+      const adoption = dynamic.decodeOwnedRunAdoption(
+        dynamic.encodeOwnedRunAdoption(proof),
+        proof.runId,
+      )
+      validating = true
+
+      await expect(
+        dynamic.assertOwnedLifecycleRoots(paths, adoption),
+      ).rejects.toThrow(
+        "Owned lifecycle root identity or capability changed",
+      )
+      expect(firstRootClose).toHaveBeenCalledTimes(1)
+      expect(evidenceRootOpens).toBe(0)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves marker validation and root close failures together", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-root-close-")))
+    const e2eRoot = join(root, "test-results", "e2e-runs", "safe_run")
+    const markerPath = join(e2eRoot, ".darkfactory-e2e-owner.json")
+    const rootCloseFailure = new Error("private root close failure")
+    let validating = false
+    try {
+      const dynamic = await loadSystemWithFileSystem((actual) => ({
+        open: async (path: string, flags: number, mode?: number) => {
+          const handle = await actual.open(path, flags, mode)
+          if (!validating) return handle
+          if (path === e2eRoot && (flags & constants.O_DIRECTORY) !== 0) {
+            return {
+              close: async () => {
+                await handle.close()
+                throw rootCloseFailure
+              },
+              stat: () => handle.stat(),
+            }
+          }
+          if (path === markerPath) {
+            return {
+              close: () => handle.close(),
+              readFile: async () => "replaced-marker",
+              stat: () => handle.stat(),
+            }
+          }
+          return handle
+        },
+      }))
+      const proof = await dynamic.prepareOwnedRun(root, "safe_run", "no-binary")
+      const paths = await dynamic.createOwnedLifecyclePaths(root, proof.runId)
+      const adoption = dynamic.decodeOwnedRunAdoption(
+        dynamic.encodeOwnedRunAdoption(proof),
+        proof.runId,
+      )
+      validating = true
+      let failure: unknown
+
+      try {
+        await dynamic.assertOwnedLifecycleRoots(paths, adoption)
+      } catch (error) {
+        failure = error
+      }
+
+      expect(failure).toBeInstanceOf(AggregateError)
+      const aggregate = failure as AggregateError
+      expect(aggregate.errors).toHaveLength(2)
+      expect(aggregate.errors[0]).toMatchObject({
+        message: "Owned lifecycle marker identity or capability changed",
+      })
+      expect(aggregate.errors[1]).toBe(rootCloseFailure)
     } finally {
       await rm(root, { force: true, recursive: true })
     }

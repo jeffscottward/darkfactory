@@ -397,6 +397,7 @@ describe("CLI argument and environment forwarding", () => {
       DATABASE_URL: "postgres://source",
       PORTLESS_PORT: "43123",
       HOME: "/safe-home",
+      PORTLESS_STATE_DIR: "/runner/private-portless-state",
       NODE_OPTIONS: "must-not-inherit",
     }, {
       DATABASE_URL: "postgres://isolated",
@@ -409,6 +410,7 @@ describe("CLI argument and environment forwarding", () => {
       DATABASE_URL: "postgres://isolated",
       PORTLESS_PORT: "43123",
       HOME: "/safe-home",
+      PORTLESS_STATE_DIR: "/runner/private-portless-state",
       E2E_RUN_ID: "safe_run",
       GROQ_API_KEY: "",
       RESEND_API_KEY: "",
@@ -421,6 +423,7 @@ describe("CLI argument and environment forwarding", () => {
     expect(defaults["DATABASE_URL"]).toBe("")
     expect(defaults["PORTLESS_PORT"]).toBeUndefined()
     expect(defaults["HOME"]).toBeUndefined()
+    expect(defaults["PORTLESS_STATE_DIR"]).toBeUndefined()
   })
 
   it("rejects source and isolated child execution controls", () => {

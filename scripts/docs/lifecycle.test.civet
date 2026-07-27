@@ -494,10 +494,32 @@ describe("DF-101/106 lifecycle contract", () => {
       'portless_pid_file="$RUNNER_TEMP/portless-proxy.pid"',
     )
     expect(proxyStart).toContain(
+      'portless_state_dir="$RUNNER_TEMP/darkfactory-portless-$portless_owner"',
+    )
+    expect(proxyStart).toContain('mkdir "$portless_state_dir"')
+    expect(proxyStart).toContain(
+      `printf 'PORTLESS_STATE_DIR=%s\\nNODE_EXTRA_CA_CERTS=%s\\n'`,
+    )
+    expect(proxyStart).toContain(
+      '"$portless_state_dir" "$portless_state_dir/ca.pem" >>"$GITHUB_ENV"',
+    )
+    expect(proxyStart).toContain(
       'IFS= read -r portless_owner <"/proc/sys/kernel/random/uuid"',
     )
     expect(proxyStart).toContain('portless_owner="darkfactory-ci-$portless_owner"')
     expect(proxyStart).toContain('PORTLESS_CI_OWNER="$portless_owner"')
+    expect(proxyStart).toContain(
+      'PORTLESS_STATE_DIR="$portless_state_dir" \\',
+    )
+    expect(proxyStart.indexOf("umask 077")).toBeLessThan(
+      proxyStart.indexOf('mkdir "$portless_state_dir"'),
+    )
+    expect(proxyStart.indexOf('mkdir "$portless_state_dir"')).toBeLessThan(
+      proxyStart.indexOf('>>"$GITHUB_ENV"'),
+    )
+    expect(proxyStart.indexOf('>>"$GITHUB_ENV"')).toBeLessThan(
+      proxyStart.indexOf('PORTLESS_STATE_DIR="$portless_state_dir" \\'),
+    )
     expect(proxyStart).toContain(
       'if ! (set -o noclobber; : >"$portless_log")',
     )
@@ -577,6 +599,10 @@ describe("DF-101/106 lifecycle contract", () => {
     )
     expect(proxyStart).toContain('rm -f "$portless_pid_file"')
     expect(proxyStart).not.toContain("portless proxy start --skip-trust")
+    expect(proxyTrust).toContain(
+      'certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$NODE_EXTRA_CA_CERTS"',
+    )
+    expect(proxyTrust).not.toContain('$HOME/.portless/ca.pem')
     expect(proxyReadiness).toContain("if: matrix.lane == 'browser'")
     expect(proxyReadiness).toContain(
       `IFS=' ' read -r portless_pid portless_owner portless_state_extra <"$portless_pid_file"`,
