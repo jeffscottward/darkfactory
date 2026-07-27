@@ -23,11 +23,13 @@ import {
 } from "./tests/e2e/helpers/browser-errors";
 import {
   E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
+  E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
   E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS,
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS,
   E2E_WEB_SERVER_READY_MARKER,
 } from "./tests/e2e/helpers/lifecycle-budgets";
+import { E2E_SERVER_READY_TIMEOUT_MILLIS } from "./tests/e2e/helpers/server-readiness";
 import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
 import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts";
 import {
@@ -257,6 +259,13 @@ describe("canonical Playwright runtime", () => {
       E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS +
         E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS
     );
+    expect(E2E_SERVER_READY_TIMEOUT_MILLIS).toBe(240_000);
+    expect(E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS).toBe(300_000);
+    expect(E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS).toBeGreaterThan(
+      E2E_SERVER_READY_TIMEOUT_MILLIS +
+        E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS +
+        E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS
+    );
     expect(playwrightConfig.webServer).toBeUndefined();
     expect(playwrightConfig.globalSetup).toBeUndefined();
     expect(E2E_LIFECYCLE_GLOBAL_SETUP).toBe(
@@ -295,6 +304,7 @@ describe("canonical Playwright runtime", () => {
       wait: {
         stderr: new RegExp(`^${E2E_WEB_SERVER_READY_MARKER}$`, "mu"),
       },
+      timeout: E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
     });
     expect(
       runtimeWebServer.wait.stderr.test(

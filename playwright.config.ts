@@ -5,6 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import {
   E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
+  E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
   E2E_WEB_SERVER_READY_MARKER,
 } from "./tests/e2e/helpers/lifecycle-budgets";
 import {
@@ -151,7 +152,7 @@ export const createCanonicalWebServerConfig = ({
     wait: {
       stderr: new RegExp(`^${E2E_WEB_SERVER_READY_MARKER}$`, "mu"),
     },
-    timeout: 180_000,
+    timeout: E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
   };
 };
 

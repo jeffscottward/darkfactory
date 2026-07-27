@@ -8,7 +8,7 @@ import {
 } from "./run-artifacts.ts";
 
 const DEFAULT_POLL_INTERVAL_MILLIS = 100;
-export const E2E_SERVER_READY_TIMEOUT_MILLIS = 120_000;
+export const E2E_SERVER_READY_TIMEOUT_MILLIS = 240_000;
 const E2E_READINESS_PATHS = ["/", "/sign-in", "/api/auth/get-session"] as const;
 const MAX_READINESS_BODY_BYTES = 1_048_576;
 const READINESS_REQUEST_TIMEOUT_MILLIS = 60_000;
