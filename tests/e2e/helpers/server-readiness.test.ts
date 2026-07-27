@@ -1,12 +1,16 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { createServer } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { E2ELifecycleState } from "./run-artifacts";
 
 import {
+  allocateE2EServerPort,
   classifyE2EServerExit,
   createPromiseResolvers,
+  probeE2EServerPort,
+  probeE2EServerTarget,
   probeE2EServerRoutes,
   waitForE2ELifecycleReady,
   waitForE2EServerReady,
@@ -135,6 +139,73 @@ describe("owned E2E server readiness", () => {
     ).resolves.toBeUndefined();
     expect(probes).toBe(5);
     expect(readyAtProbe).toEqual([5]);
+  });
+
+  it("allocates an available loopback target port", async () => {
+    const port = await allocateE2EServerPort();
+
+    expect(Number.isSafeInteger(port)).toBe(true);
+    expect(port).toBeGreaterThan(0);
+    expect(port).toBeLessThanOrEqual(65_535);
+    await expect(
+      probeE2EServerPort({
+        deadlineMillis: Date.now() + 1000,
+        port,
+      })
+    ).resolves.toBe(false);
+  });
+
+  it("opens canonical route probes only after the target accepts TCP", async () => {
+    const port = await allocateE2EServerPort();
+    const fetchImplementation = vi.fn<typeof fetch>(
+      async () => new Response("ready", { status: 200 })
+    );
+    const probe = async (): Promise<boolean> =>
+      await probeE2EServerTarget({
+        appPort: port,
+        appUrl: "https://darkfactory.localhost",
+        deadlineMillis: Date.now() + 1000,
+        fetchImplementation,
+      });
+
+    await expect(probe()).resolves.toBe(false);
+    expect(fetchImplementation).not.toHaveBeenCalled();
+
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, "127.0.0.1", resolve);
+    });
+    try {
+      const aborted = new AbortController();
+      aborted.abort();
+      await expect(
+        probeE2EServerTarget({
+          appPort: port,
+          appUrl: "https://darkfactory.localhost",
+          deadlineMillis: Date.now() + 1000,
+          fetchImplementation,
+          signal: aborted.signal,
+        })
+      ).resolves.toBe(false);
+      await expect(
+        probeE2EServerTarget({
+          appPort: port,
+          appUrl: "https://darkfactory.localhost",
+          deadlineMillis: Date.now() - 1,
+          fetchImplementation,
+        })
+      ).resolves.toBe(false);
+      expect(fetchImplementation).not.toHaveBeenCalled();
+      await expect(probe()).resolves.toBe(true);
+      expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error)
+        );
+      });
+    }
   });
 
   it("holds journeys until two cold route rounds commit lifecycle readiness", async () => {

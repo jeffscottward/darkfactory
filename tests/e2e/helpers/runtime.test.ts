@@ -15,6 +15,7 @@ describe("canonical E2E server environment", () => {
       source: {
         APP_ENV: "test",
         E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
+        PORTLESS_APP_PORT: "host-owned-port",
       },
     });
 
@@ -22,6 +23,9 @@ describe("canonical E2E server environment", () => {
       CONTACT_EMAIL_TO: "contact@darkfactory.test",
       EMAIL_TRANSPORT: "preview",
     });
+    // biome-ignore lint/complexity/useLiteralKeys: The execution environment is an index-signature boundary.
+    expect(environment["PORTLESS_APP_PORT"]).toBeUndefined();
+    expect(E2E_WORKER_BINDING_KEYS).not.toContain("PORTLESS_APP_PORT");
     expect(E2E_WORKER_BINDING_KEYS).toContain("CONTACT_EMAIL_TO");
   });
 });

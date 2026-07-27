@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { createConnection, createServer } from "node:net";
 
 import {
   assertOwnedE2ERunRootsReady,
@@ -12,6 +13,8 @@ export const E2E_SERVER_READY_TIMEOUT_MILLIS = 240_000;
 const E2E_READINESS_PATHS = ["/", "/sign-in", "/api/auth/get-session"] as const;
 const MAX_READINESS_BODY_BYTES = 1_048_576;
 const READINESS_REQUEST_TIMEOUT_MILLIS = 60_000;
+const E2E_LOOPBACK_ADDRESS = "127.0.0.1";
+const E2E_PORT_PROBE_TIMEOUT_MILLIS = 1000;
 export type PromiseResolvers<Value> = Readonly<{
   promise: Promise<Value>;
   reject: (reason?: unknown) => void;
@@ -27,6 +30,82 @@ const pause = (milliseconds: number): Promise<void> => {
   const { promise, resolve } = createPromiseResolvers<void>();
   setTimeout(resolve, milliseconds);
   return promise;
+};
+
+export const allocateE2EServerPort = async (): Promise<number> => {
+  const reservation = createServer();
+  reservation.unref();
+  await new Promise<void>((resolve, reject) => {
+    reservation.once("error", reject);
+    reservation.listen(0, E2E_LOOPBACK_ADDRESS, resolve);
+  });
+  try {
+    const address = reservation.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("E2E loopback port reservation is unavailable.");
+    }
+    return address.port;
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      reservation.close((error) =>
+        error === undefined ? resolve() : reject(error)
+      );
+    });
+  }
+};
+
+export const probeE2EServerPort = async ({
+  deadlineMillis,
+  now = Date.now,
+  port,
+  signal,
+}: {
+  readonly deadlineMillis: number;
+  readonly now?: () => number;
+  readonly port: number;
+  readonly signal?: AbortSignal | undefined;
+}): Promise<boolean> => {
+  if (
+    !Number.isSafeInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    !Number.isFinite(deadlineMillis)
+  ) {
+    return false;
+  }
+  const remainingMillis = deadlineMillis - now();
+  if (remainingMillis <= 0 || signal?.aborted === true) {
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    const socket = createConnection({
+      host: E2E_LOOPBACK_ADDRESS,
+      port,
+    });
+    let settled = false;
+    const settle = (ready: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      socket.destroy();
+      resolve(ready);
+    };
+    const onAbort = (): void => settle(false);
+    const timeout = setTimeout(
+      () => settle(false),
+      Math.min(E2E_PORT_PROBE_TIMEOUT_MILLIS, remainingMillis)
+    );
+    socket.once("connect", () => settle(true));
+    socket.once("error", () => settle(false));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted === true) {
+      onAbort();
+    }
+  });
 };
 
 const cancelResponseBody = (response: Response): void => {
@@ -70,7 +149,7 @@ export const probeE2EServerRoutes = async ({
   readonly maxBodyBytes?: number;
   readonly now?: () => number;
   readonly requestTimeoutMillis?: number;
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
 }): Promise<boolean> => {
   if (
     !Number.isSafeInteger(requestTimeoutMillis) ||
@@ -135,6 +214,39 @@ export const probeE2EServerRoutes = async ({
   } catch {
     return false;
   }
+};
+
+export const probeE2EServerTarget = async ({
+  appPort,
+  appUrl,
+  deadlineMillis,
+  fetchImplementation = fetch,
+  now = Date.now,
+  signal,
+}: {
+  readonly appPort: number;
+  readonly appUrl: string;
+  readonly deadlineMillis: number;
+  readonly fetchImplementation?: typeof fetch;
+  readonly now?: () => number;
+  readonly signal?: AbortSignal;
+}): Promise<boolean> => {
+  const acceptingConnections = await probeE2EServerPort({
+    deadlineMillis,
+    now,
+    port: appPort,
+    signal,
+  });
+  if (!acceptingConnections) {
+    return false;
+  }
+  return await probeE2EServerRoutes({
+    appUrl,
+    deadlineMillis,
+    fetchImplementation,
+    now,
+    signal,
+  });
 };
 
 export type E2EServerExitState = Readonly<{

@@ -54,9 +54,10 @@ import {
   parsePortlessPort,
 } from "./runtime.ts"
 import {
+  allocateE2EServerPort,
   classifyE2EServerExit,
   createPromiseResolvers,
-  probeE2EServerRoutes,
+  probeE2EServerTarget,
   waitForE2EServerReady,
   type E2EServerExitState,
   type E2EReadinessProbeContext,
@@ -375,16 +376,22 @@ const start = async (control: LifecycleControl): Promise<void> => {
     webDirectory: serverInvocation.workerBindingsDirectory,
   })
   control.checkpoint()
+  const appPort = await allocateE2EServerPort()
+  control.checkpoint()
+  const serverEnvironment = {
+    ...environment,
+    PORTLESS_APP_PORT: appPort.toString(),
+  }
   server = spawnOwnedProcess(
     serverInvocation.command,
     serverInvocation.arguments,
-    { env: environment },
+    { env: serverEnvironment },
   )
   server.stdout
-    .pipe(createSensitiveOutputRedactor(environment))
+    .pipe(createSensitiveOutputRedactor(serverEnvironment))
     .pipe(process.stdout, { end: false })
   server.stderr
-    .pipe(createSensitiveOutputRedactor(environment))
+    .pipe(createSensitiveOutputRedactor(serverEnvironment))
     .pipe(process.stdout, { end: false })
   const {
     promise: readinessCommitted,
@@ -500,7 +507,8 @@ const start = async (control: LifecycleControl): Promise<void> => {
       onReady: commitServerReady,
       probe: async (context) => {
         control.checkpoint()
-        const ready = await probeE2EServerRoutes({
+        const ready = await probeE2EServerTarget({
+          appPort,
           appUrl,
           deadlineMillis: context.deadlineMillis,
           signal: context.signal,
