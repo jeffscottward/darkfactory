@@ -321,6 +321,7 @@ describe "preview filesystem fault handling", ->
   it "recovers when cleanup and inventory entries disappear before lstat", async ->
     const directory = await createTemporaryDirectory()
     const vanishedPaths = [
+      join(directory, ".vanished.preview.lock"),
       join(directory, ".vanished.tmp"),
       join(directory, "vanished.html"),
     ]
@@ -352,7 +353,7 @@ describe "preview filesystem fault handling", ->
     await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
       status: "previewed",
     })
-    expect(vanishedLstatAttempts).toBe(2)
+    expect(vanishedLstatAttempts).toBe(3)
     expect((await fileSystem.readdir(directory)).sort()).toEqual([
       "current.html",
       "current.metadata.json",

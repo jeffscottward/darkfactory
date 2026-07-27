@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "bunx --no-install vinext dev",
     "build": "bunx --no-install vinext build",
-    "start": "bunx --bun --no-install vite preview",
+    "start": "vite preview",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit"
   },

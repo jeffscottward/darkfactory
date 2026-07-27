@@ -191,7 +191,7 @@ describe("DF-101/106 lifecycle contract", () => {
       "bunx --no-install vinext build",
     )
     expect(byName.get("@darkfactory/web")?.scripts?.start).toBe(
-      "bunx --bun --no-install vite preview",
+      "vite preview",
     )
     expect(byName.get("@darkfactory/auth")?.scripts?.["auth:schema:check"]).toBe(
       "bun scripts/check-auth-schema.ts",
