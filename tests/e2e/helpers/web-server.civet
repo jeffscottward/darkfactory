@@ -27,6 +27,7 @@ import {
 } from "./lifecycle-diagnostics.ts"
 import {
   E2E_PROCESS_TERMINATION_OPTIONS,
+  E2E_WEB_SERVER_PORT_ACCEPTING_MARKER,
   E2E_WEB_SERVER_READY_MARKER,
 } from "./lifecycle-budgets.ts"
 import {
@@ -397,6 +398,12 @@ const start = async (control: LifecycleControl): Promise<void> => {
     promise: readinessCommitted,
     resolve: resolveReadinessCommitted,
   } = createPromiseResolvers<void>()
+  let appPortObservationPublished = false
+  const publishAppPortObservation = (): void => {
+    if (appPortObservationPublished) return
+    appPortObservationPublished = true
+    process.stderr.write(`${E2E_WEB_SERVER_PORT_ACCEPTING_MARKER}\n`)
+  }
   let readinessCommitStarted = false
   const {
     promise: probeObservationCommitted,
@@ -511,6 +518,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
           appPort,
           appUrl,
           deadlineMillis: context.deadlineMillis,
+          onPortAccepted: publishAppPortObservation,
           signal: context.signal,
         })
         if (ready) await commitServerProbeObserved(context)

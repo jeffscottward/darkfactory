@@ -157,19 +157,27 @@ describe("owned E2E server readiness", () => {
 
   it("opens canonical route probes only after the target accepts TCP", async () => {
     const port = await allocateE2EServerPort();
-    const fetchImplementation = vi.fn<typeof fetch>(
-      async () => new Response("ready", { status: 200 })
-    );
+    const events: string[] = [];
+    const onPortAccepted = vi.fn(() => {
+      events.push("port");
+    });
+    const fetchImplementation = vi.fn<typeof fetch>(async () => {
+      events.push("route");
+      return new Response("ready", { status: 200 });
+    });
     const probe = async (): Promise<boolean> =>
       await probeE2EServerTarget({
         appPort: port,
         appUrl: "https://darkfactory.localhost",
         deadlineMillis: Date.now() + 1000,
+        onPortAccepted,
         fetchImplementation,
       });
 
     await expect(probe()).resolves.toBe(false);
     expect(fetchImplementation).not.toHaveBeenCalled();
+    expect(onPortAccepted).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
 
     const server = createServer();
     await new Promise<void>((resolve, reject) => {
@@ -185,6 +193,7 @@ describe("owned E2E server readiness", () => {
           appUrl: "https://darkfactory.localhost",
           deadlineMillis: Date.now() + 1000,
           fetchImplementation,
+          onPortAccepted,
           signal: aborted.signal,
         })
       ).resolves.toBe(false);
@@ -194,11 +203,14 @@ describe("owned E2E server readiness", () => {
           appUrl: "https://darkfactory.localhost",
           deadlineMillis: Date.now() - 1,
           fetchImplementation,
+          onPortAccepted,
         })
       ).resolves.toBe(false);
       expect(fetchImplementation).not.toHaveBeenCalled();
       await expect(probe()).resolves.toBe(true);
       expect(fetchImplementation).toHaveBeenCalledTimes(3);
+      expect(onPortAccepted).toHaveBeenCalledOnce();
+      expect(events).toEqual(["port", "route", "route", "route"]);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) =>

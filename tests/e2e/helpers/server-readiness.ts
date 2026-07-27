@@ -222,6 +222,7 @@ export const probeE2EServerTarget = async ({
   deadlineMillis,
   fetchImplementation = fetch,
   now = Date.now,
+  onPortAccepted,
   signal,
 }: {
   readonly appPort: number;
@@ -229,6 +230,7 @@ export const probeE2EServerTarget = async ({
   readonly deadlineMillis: number;
   readonly fetchImplementation?: typeof fetch;
   readonly now?: () => number;
+  readonly onPortAccepted?: (() => void) | undefined;
   readonly signal?: AbortSignal;
 }): Promise<boolean> => {
   const acceptingConnections = await probeE2EServerPort({
@@ -238,6 +240,10 @@ export const probeE2EServerTarget = async ({
     signal,
   });
   if (!acceptingConnections) {
+    return false;
+  }
+  onPortAccepted?.();
+  if (signal?.aborted === true || now() >= deadlineMillis) {
     return false;
   }
   return await probeE2EServerRoutes({

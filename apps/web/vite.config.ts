@@ -7,10 +7,12 @@ import vinext from "vinext";
 
 // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
+// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
+const appEnvironment = process.env["APP_ENV"];
+// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
+const e2eRunId = process.env["E2E_RUN_ID"];
 const isE2EBrowserChild =
-  process.env.NODE_ENV === "development" &&
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
-  process.env["APP_ENV"] === "test";
+  appEnvironment === "test" && /^[A-Za-z0-9_-]{1,128}$/u.test(e2eRunId ?? "");
 let port: number | undefined;
 
 if (rawPort !== undefined) {

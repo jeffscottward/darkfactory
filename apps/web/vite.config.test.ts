@@ -214,8 +214,9 @@ describe("Vite application plugin contract", () => {
   });
 
   it("disables the Worker inspector for the production browser child", async () => {
-    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("E2E_RUN_ID", "production_browser_child");
     vi.resetModules();
     pluginMocks.cloudflare.mockClear();
 
@@ -234,12 +235,13 @@ describe("Vite application plugin contract", () => {
   });
 
   it.each([
-    ["test", "test"],
-    ["production", "test"],
-    ["development", "development"],
-  ])("retains the default Worker inspector for %s/%s", async (nodeEnvironment, appEnvironment) => {
+    ["test", "test", ""],
+    ["production", "test", ""],
+    ["development", "development", "developer_preview"],
+  ])("retains the default Worker inspector for %s/%s without an owned run", async (nodeEnvironment, appEnvironment, e2eRunId) => {
     vi.stubEnv("NODE_ENV", nodeEnvironment);
     vi.stubEnv("APP_ENV", appEnvironment);
+    vi.stubEnv("E2E_RUN_ID", e2eRunId);
     vi.resetModules();
     pluginMocks.cloudflare.mockClear();
 
