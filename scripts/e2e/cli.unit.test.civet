@@ -398,6 +398,7 @@ describe("CLI argument and environment forwarding", () => {
       PORTLESS_PORT: "43123",
       HOME: "/safe-home",
       PORTLESS_STATE_DIR: "/runner/private-portless-state",
+      _DARKFACTORY_E2E_WEB_SCRIPT: "start",
       NODE_OPTIONS: "must-not-inherit",
     }, {
       DATABASE_URL: "postgres://isolated",
@@ -411,6 +412,7 @@ describe("CLI argument and environment forwarding", () => {
       PORTLESS_PORT: "43123",
       HOME: "/safe-home",
       PORTLESS_STATE_DIR: "/runner/private-portless-state",
+      _DARKFACTORY_E2E_WEB_SCRIPT: "start",
       E2E_RUN_ID: "safe_run",
       GROQ_API_KEY: "",
       RESEND_API_KEY: "",
@@ -424,6 +426,11 @@ describe("CLI argument and environment forwarding", () => {
     expect(defaults["PORTLESS_PORT"]).toBeUndefined()
     expect(defaults["HOME"]).toBeUndefined()
     expect(defaults["PORTLESS_STATE_DIR"]).toBeUndefined()
+    expect(() =>
+      createPlaywrightEnvironment({
+        _DARKFACTORY_E2E_WEB_SCRIPT: "preview",
+      }, {})
+    ).toThrow("E2E web server script is invalid")
   })
 
   it("rejects source and isolated child execution controls", () => {

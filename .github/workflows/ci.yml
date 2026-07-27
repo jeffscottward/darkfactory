@@ -569,6 +569,13 @@ jobs:
             }
           '
 
+      - name: Build production browser server
+        if: matrix.lane == 'browser'
+        run: |
+          set -euo pipefail
+          bun run build
+          printf '%s\n' '_DARKFACTORY_E2E_WEB_SCRIPT=start' >>"$GITHUB_ENV"
+
       - name: Run verification lane
         run: bun run "verify:${{ matrix.lane }}"
 

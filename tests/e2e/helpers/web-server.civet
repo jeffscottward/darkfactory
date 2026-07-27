@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { isAbsolute } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import type { PrepareSeedIdentities } from "@darkfactory/db/server"
@@ -62,17 +62,26 @@ import {
   type E2EReadinessProbeContext,
 } from "./server-readiness.ts"
 import type { PreviewCaptureServer } from "./preview-capture.civet"
+const WEB_DIRECTORY = fileURLToPath(new URL("../../../apps/web/", import.meta.url))
 const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"
 const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT"
+const E2E_WEB_SCRIPT_KEY = "_DARKFACTORY_E2E_WEB_SCRIPT"
 type E2EServerInvocation = Readonly<{
   command: string
   arguments: readonly string[]
+  workerBindingsDirectory: string
 }>
 export const createE2EServerInvocation = (
   source: Readonly<NodeJS.ProcessEnv>,
 ): E2EServerInvocation => {
   const nodeExecutable = source[E2E_NODE_EXECUTABLE_KEY]
   const pnpmScript = source[E2E_PNPM_SCRIPT_KEY]
+  const requestedWebScript = source[E2E_WEB_SCRIPT_KEY]
+  if (
+    requestedWebScript !== undefined &&
+    requestedWebScript !== "start"
+  ) throw new Error("E2E web server script is invalid")
+  const webScript = requestedWebScript ?? "dev"
   if (
     nodeExecutable === undefined ||
     pnpmScript === undefined ||
@@ -91,12 +100,15 @@ export const createE2EServerInvocation = (
       "--filter",
       "@darkfactory/web",
       "run",
-      "dev",
+      webScript,
+      ...(webScript === "start" ? ["--logLevel", "warn"] : []),
     ]),
+    workerBindingsDirectory: webScript === "start"
+      ? join(WEB_DIRECTORY, "dist", "server")
+      : WEB_DIRECTORY,
   })
 }
 
-const WEB_DIRECTORY = fileURLToPath(new URL("../../../apps/web/", import.meta.url))
 
 const EXPECTED_SEED_IDENTITIES = 3
 const readinessShutdownController = new AbortController()
@@ -360,7 +372,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
   workerBindings = await acquireOwnedDevVars({
     bindingNames: E2E_WORKER_BINDING_KEYS,
     environment,
-    webDirectory: WEB_DIRECTORY,
+    webDirectory: serverInvocation.workerBindingsDirectory,
   })
   control.checkpoint()
   server = spawnOwnedProcess(

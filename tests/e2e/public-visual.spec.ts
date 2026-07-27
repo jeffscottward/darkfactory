@@ -98,25 +98,34 @@ const captureEvidence = async (
     PUBLIC_CAPTURE_PATHS[pathname] === true ||
       pathname.startsWith("/not-a-darkfactory-route-")
   ).toBe(true);
-  await page.context().clearCookies();
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.sessionStorage.clear();
-  });
-  const cookieCount = (await page.context().cookies()).length;
-  const storageCounts = await page.evaluate(() => ({
-    localStorage: window.localStorage.length,
-    sessionStorage: window.sessionStorage.length,
-  }));
-  if (
-    cookieCount !== 0 ||
-    storageCounts.localStorage !== 0 ||
-    storageCounts.sessionStorage !== 0
-  ) {
-    throw new Error(
-      "Public screenshot capture requires empty anonymous browser state."
-    );
-  }
+  await expect
+    .poll(
+      async () => {
+        await page.context().clearCookies();
+        await page.evaluate(() => {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        });
+        await page.waitForTimeout(50);
+        return {
+          cookies: (await page.context().cookies()).length,
+          localStorage: await page.evaluate(() => window.localStorage.length),
+          sessionStorage: await page.evaluate(
+            () => window.sessionStorage.length
+          ),
+        };
+      },
+      {
+        message:
+          "Public screenshot capture requires empty anonymous browser state.",
+        timeout: 2000,
+      }
+    )
+    .toEqual({
+      cookies: 0,
+      localStorage: 0,
+      sessionStorage: 0,
+    });
   const populatedInputCount = await page
     .locator("input, textarea, select")
     .evaluateAll(
@@ -326,33 +335,41 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
       state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ = 0;
       const fixtureMessage = "E2E recoverable public error fixture";
       const reportConsoleError = console.error.bind(console);
-      let sawFixtureError = false;
+      let fixtureFollowupPending = false;
       console.error = (...values: unknown[]): void => {
         const first = values[0];
         const isFixtureError =
+          !fixtureFollowupPending &&
           values.length === 1 &&
           ((first instanceof Error && first.message === fixtureMessage) ||
             (typeof first === "string" &&
               first.startsWith(`Error: ${fixtureMessage}\n`) &&
               first.includes("at RecoverableErrorFixture")));
         if (isFixtureError) {
-          sawFixtureError = true;
+          fixtureFollowupPending = true;
           state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
             (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
           reportConsoleError(`Error: ${fixtureMessage}`);
           return;
         }
-        if (
-          sawFixtureError &&
+        const isFixtureComponentError =
+          fixtureFollowupPending &&
           values.length === 1 &&
           typeof first === "string" &&
           first.startsWith("The above error occurred in a React component:") &&
-          first.includes("at RecoverableErrorFixture")
-        ) {
+          (first.includes("at RecoverableErrorFixture") ||
+            first.includes("/recoverable-error-fixture.civet-"));
+        if (isFixtureComponentError) {
+          fixtureFollowupPending = false;
+          console.error = reportConsoleError;
           state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
             (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
           reportConsoleError(`React component error: ${fixtureMessage}`);
           return;
+        }
+        if (fixtureFollowupPending) {
+          fixtureFollowupPending = false;
+          console.error = reportConsoleError;
         }
         reportConsoleError(...values);
       };
@@ -395,6 +412,24 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
         name: "This page needs another attempt.",
       })
     ).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const state = window as typeof window & {
+          __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
+        };
+        return state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0;
+      })
+    ).toBe(2);
+    const unrelatedReactConsoleMessage =
+      "The above error occurred in a React component: UnrelatedFixture";
+    browserErrors.allowConsoleError({
+      message: unrelatedReactConsoleMessage,
+      pathname: "/error-smoke",
+    });
+    await page.evaluate(
+      (message) => console.error(message),
+      unrelatedReactConsoleMessage
+    );
     expect(
       await page.evaluate(() => {
         const state = window as typeof window & {

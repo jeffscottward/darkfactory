@@ -82,33 +82,41 @@ const installExpectedErrorConsoleNormalization = async (
     };
     state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ = 0;
     const reportConsoleError = console.error.bind(console);
-    let sawFixtureError = false;
+    let fixtureFollowupPending = false;
     console.error = (...values: unknown[]): void => {
       const first = values[0];
       const isFixtureError =
+        !fixtureFollowupPending &&
         values.length === 1 &&
         ((first instanceof Error && first.message === fixtureMessage) ||
           (typeof first === "string" &&
             first.startsWith(`Error: ${fixtureMessage}\n`) &&
             first.includes("at RecoverableErrorFixture")));
       if (isFixtureError) {
-        sawFixtureError = true;
+        fixtureFollowupPending = true;
         state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
           (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
         reportConsoleError(`Error: ${fixtureMessage}`);
         return;
       }
-      if (
-        sawFixtureError &&
+      const isFixtureComponentError =
+        fixtureFollowupPending &&
         values.length === 1 &&
         typeof first === "string" &&
         first.startsWith("The above error occurred in a React component:") &&
-        first.includes("at RecoverableErrorFixture")
-      ) {
+        (first.includes("at RecoverableErrorFixture") ||
+          first.includes("/recoverable-error-fixture.civet-"));
+      if (isFixtureComponentError) {
+        fixtureFollowupPending = false;
+        console.error = reportConsoleError;
         state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ =
           (state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0) + 1;
         reportConsoleError(`React component error: ${fixtureMessage}`);
         return;
+      }
+      if (fixtureFollowupPending) {
+        fixtureFollowupPending = false;
+        console.error = reportConsoleError;
       }
       reportConsoleError(...values);
     };
@@ -456,11 +464,32 @@ for (const viewport of AXE_VIEWPORTS) {
         return state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0;
       })
     ).toBe(2);
+    const unrelatedReactConsoleMessage =
+      "The above error occurred in a React component: UnrelatedFixture";
+    browserErrors.allowConsoleError({
+      message: unrelatedReactConsoleMessage,
+      pathname: "/error-smoke",
+    });
+    await page.evaluate(
+      (message) => console.error(message),
+      unrelatedReactConsoleMessage
+    );
+    expect(
+      await page.evaluate(() => {
+        const state = window as typeof window & {
+          __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
+        };
+        return state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0;
+      })
+    ).toBe(2);
+    const { _DARKFACTORY_E2E_WEB_SCRIPT: webScript } = process.env;
     const runtimeErrorDialog = page.getByRole("dialog", {
       name: "Runtime Error",
     });
-    await expect(runtimeErrorDialog).toBeVisible();
-    await runtimeErrorDialog.getByRole("button", { name: "Dismiss" }).click();
+    if (webScript !== "start") {
+      await expect(runtimeErrorDialog).toBeVisible();
+      await runtimeErrorDialog.getByRole("button", { name: "Dismiss" }).click();
+    }
     await expect(runtimeErrorDialog).toBeHidden();
     await assertDocumentContracts(page);
     await runAxe(page, testInfo, `public-error-${viewport.name}`);

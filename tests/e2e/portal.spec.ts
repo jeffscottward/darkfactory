@@ -17,7 +17,7 @@ const ADMIN_SEED_ITEM = "Admin example item";
 const BOB_SEED_ITEM_ID = "30000000-0000-4000-8000-000000000003";
 const MOBILE_VIEWPORT = { height: 812, width: 375 } as const;
 const PORTAL_CLIENT_MODULE_PATH_PATTERN =
-  /\/src\/components\/portal-shell\.civet(?:\.jsx)?(?:\?.*)?$/u;
+  /(?:\/src\/components\/portal-shell\.civet(?:\.jsx)?|\/_next\/static\/chunks\/portal-shell\.civet-[^/?]+\.js)(?:\?.*)?$/u;
 const FEATURE_LIST_PATH = "/api/orpc/featureItems/list";
 const FEATURE_GET_PATH = "/api/orpc/featureItems/get";
 const FEATURE_ITEM_ID_PATTERN =

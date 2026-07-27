@@ -105,6 +105,7 @@ const INHERITED_PLAYWRIGHT_KEYS = [
 ] as const
 const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"
 const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT"
+const E2E_WEB_SCRIPT_KEY = "_DARKFACTORY_E2E_WEB_SCRIPT"
 const BLANK_PROVIDER_ENVIRONMENT = Object.freeze({
   GROQ_API_KEY: "",
   GROQ_MODEL: "",
@@ -272,6 +273,11 @@ const createPlaywrightEnvironmentWithTrustedDirectories = (
 ) => (
   trustedExecutableDirectories: readonly string[] = [],
 ): NodeJS.ProcessEnv => {
+  const webScript = source[E2E_WEB_SCRIPT_KEY]
+  if (
+    webScript !== undefined &&
+    webScript !== "start"
+  ) throw new Error("E2E web server script is invalid")
   const executableDirectories = [...new Set([
     ...trustedExecutableDirectories.map(safeExecutableDirectory),
     ...FIXED_EXECUTABLE_DIRECTORIES,
@@ -283,6 +289,7 @@ const createPlaywrightEnvironmentWithTrustedDirectories = (
     ...isolated,
     PATH: executableDirectories.join(delimiter),
   }
+  if (webScript !== undefined) environment[E2E_WEB_SCRIPT_KEY] = webScript
   delete environment["NODE_OPTIONS"]
   delete environment["DEBUG"]
   for (const key of INHERITED_PLAYWRIGHT_KEYS) {

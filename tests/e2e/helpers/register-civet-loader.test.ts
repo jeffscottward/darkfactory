@@ -5,9 +5,16 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const repositoryPath = fileURLToPath(new URL("../../../", import.meta.url));
+const webDirectory = fileURLToPath(
+  new URL("../../../apps/web/", import.meta.url)
+);
+const productionBindingsDirectory = fileURLToPath(
+  new URL("../../../apps/web/dist/server", import.meta.url)
+);
 
 const NODE_TARGET_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE";
 const PNPM_TARGET_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT";
+const WEB_SCRIPT_KEY = "_DARKFACTORY_E2E_WEB_SCRIPT";
 const canonicalTargets = {
   [NODE_TARGET_KEY]: "/trusted/node",
   [PNPM_TARGET_KEY]: "/trusted/pnpm.cjs",
@@ -18,6 +25,7 @@ type WebServerFixtureModule = Readonly<{
   ) => Readonly<{
     command: string;
     arguments: readonly string[];
+    workerBindingsDirectory: string;
   }>;
 }>;
 const runWebServer = (
@@ -114,7 +122,7 @@ describe("Civet E2E loader boundary", () => {
       "Error: E2E lifecycle startup failed during validation.\n"
     );
   });
-  it("builds the exact canonical Node and pnpm server invocation", async () => {
+  it("defaults the exact canonical server invocation to development", async () => {
     const lifecycleCompletion = new Promise<never>(() => undefined);
     vi.doMock("./serialized-lifecycle.ts", () => ({
       createSerializedLifecycle: () => ({
@@ -149,7 +157,54 @@ describe("Civet E2E loader boundary", () => {
         "run",
         "dev",
       ],
+      workerBindingsDirectory: webDirectory,
     });
+  });
+  it("selects the prebuilt production server with an exact private flag", async () => {
+    const lifecycleCompletion = new Promise<never>(() => undefined);
+    vi.doMock("./serialized-lifecycle.ts", () => ({
+      createSerializedLifecycle: () => ({
+        completion: lifecycleCompletion,
+        control: { requestShutdown: vi.fn(async () => undefined) },
+      }),
+      isIntentionalLifecycleShutdownInterruption: () => false,
+    }));
+    vi.spyOn(process, "once").mockReturnValue(process);
+    const webServerModulePath = ["./web-server", "civet"].join(".");
+    // Dynamic import is intentional: the lifecycle mock must precede module evaluation.
+    const { createE2EServerInvocation } = (await import(
+      webServerModulePath
+    )) as WebServerFixtureModule;
+
+    expect(
+      createE2EServerInvocation({
+        ...canonicalTargets,
+        [WEB_SCRIPT_KEY]: "start",
+      })
+    ).toStrictEqual({
+      command: canonicalTargets[NODE_TARGET_KEY],
+      arguments: [
+        canonicalTargets[PNPM_TARGET_KEY],
+        "exec",
+        "portless",
+        "darkfactory",
+        canonicalTargets[NODE_TARGET_KEY],
+        canonicalTargets[PNPM_TARGET_KEY],
+        "--filter",
+        "@darkfactory/web",
+        "run",
+        "start",
+        "--logLevel",
+        "warn",
+      ],
+      workerBindingsDirectory: productionBindingsDirectory,
+    });
+    expect(() =>
+      createE2EServerInvocation({
+        ...canonicalTargets,
+        [WEB_SCRIPT_KEY]: "preview",
+      })
+    ).toThrow("E2E web server script is invalid");
   });
   it("loads the Node preview capture boundary with confined TypeScript fallbacks", () => {
     // Dynamic import is intentional: this test exercises the registered loader boundary.
