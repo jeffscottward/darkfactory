@@ -7,6 +7,10 @@ import vinext from "vinext";
 
 // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
+const isAutomatedTestEnvironment =
+  process.env.NODE_ENV === "test" ||
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
+  process.env["APP_ENV"] === "test";
 let port: number | undefined;
 
 if (rawPort !== undefined) {
@@ -134,6 +138,9 @@ export default defineConfig({
       },
     }),
     cloudflare({
+      // Automated browser lanes do not expose a Worker debugger. Do not make
+      // Miniflare readiness depend on an unused inspector control socket.
+      ...(isAutomatedTestEnvironment ? { inspectorPort: false } : {}),
       viteEnvironment: {
         name: "rsc",
         childEnvironments: ["ssr"],
