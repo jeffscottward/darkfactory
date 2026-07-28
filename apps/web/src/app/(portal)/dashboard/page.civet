@@ -11,21 +11,27 @@ import {
   createAuthenticatedDashboardFetch,
   type DashboardTransportFetch,
 } from "../../../lib/dashboard-transport.civet"
+import { dispatchInternalOrpcRequest } from "../../../lib/server-internal-dispatch.civet"
 import {
-  dispatchInternalAuthRequest,
-  dispatchInternalOrpcRequest,
-} from "../../../lib/server-internal-dispatch.civet"
-import {
-  getPortalSession,
   portalSignInHref,
   resolvePortalAppUrl,
 } from "../../../lib/server-session.civet"
 
 export const metadata = { title: "Dashboard" }
 
+const isDefinedUnauthorized = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null) return false
+  const failure = error as Record<string, unknown>
+  return (
+    failure["defined"] === true
+    && failure["code"] === "UNAUTHORIZED"
+    && failure["status"] === 401
+  )
+}
+
 
 export const loadDashboardSummaryState = async (
-  cookieHeader: string,
+  cookieHeader: string | null,
   fetcher: DashboardTransportFetch = globalThis.fetch,
   timeoutMs?: number,
 ): Promise<DashboardSummaryState> => {
@@ -36,24 +42,22 @@ export const loadDashboardSummaryState = async (
       fetch: createAuthenticatedDashboardFetch(cookieHeader, appUrl.origin, fetcher, timeoutMs),
     })
     return { type: "ready", summary: await client.dashboard.summary({}) }
-  } catch {
-    return { type: "error" }
+  } catch (error) {
+    return isDefinedUnauthorized(error)
+      ? { type: "unauthorized" }
+      : { type: "error" }
   }
 }
 
 export default async function DashboardPage() {
   const requestHeaders = await headers()
-  const cookieHeader = requestHeaders.get("cookie")
-  const session = await getPortalSession({
-    cookieHeader,
-    cfConnectingIp: requestHeaders.get("cf-connecting-ip"),
-    fetch: dispatchInternalAuthRequest,
-  })
-  if (session === null) redirect(portalSignInHref(requestHeaders))
-
-  const summaryState = cookieHeader === null
-    ? { type: "error" } as const
-    : await loadDashboardSummaryState(cookieHeader, dispatchInternalOrpcRequest)
+  const summaryState = await loadDashboardSummaryState(
+    requestHeaders.get("cookie"),
+    dispatchInternalOrpcRequest,
+  )
+  if (summaryState.type === "unauthorized") {
+    redirect(portalSignInHref(requestHeaders))
+  }
 
   return (
     <div className="space-y-10">
@@ -62,7 +66,7 @@ export default async function DashboardPage() {
         eyebrow="Overview"
         title="Dashboard"
       />
-      <DashboardContent session={session} summaryState={summaryState} />
+      <DashboardContent summaryState={summaryState} />
     </div>
   )
 }

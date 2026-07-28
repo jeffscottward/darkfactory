@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 
 import {
   AddressCreateSchema,
@@ -12,6 +13,10 @@ import {
   appContract,
 } from "./contract.civet"
 import { buildOpenApiDocument } from "./openapi.civet"
+import {
+  DashboardSessionProjectionSchema,
+  createDashboardContract,
+} from "./contracts/dashboard.civet"
 
 const route = (procedure: unknown) => {
   const value = (procedure as { ["~orpc"]: { route: { method: string; path: string } } })["~orpc"].route
@@ -45,6 +50,80 @@ describe "account, preferences, dashboard, and admin contracts", ->
       { method: "GET", path: "/dashboard/summary" },
       { method: "GET", path: "/admin/users" },
     ])
+
+  it "requires an exact safe active-session projection in dashboard summaries", ->
+    const summarySchema = createDashboardContract(z.object({}).strict()).schema
+    const session = {
+      userId: "member-1",
+      name: "Example Member",
+      role: "member",
+      status: "active",
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+    } as const
+    const summary = {
+      session,
+      featureItems: {
+        total: 0,
+        draft: 0,
+        active: 0,
+        archived: 0,
+        recent: [],
+      },
+      capabilities: {
+        ai: false,
+        emailDelivery: false,
+        analytics: false,
+        telemetryExport: false,
+        storage: false,
+        errorTracking: false,
+      },
+    }
+
+    expect(summarySchema.parse(summary)).toEqual(summary)
+    expect(Object.keys(DashboardSessionProjectionSchema.parse(session))).toEqual([
+      "userId",
+      "name",
+      "role",
+      "status",
+      "expiresAt",
+    ])
+    for (const [key, value] of Object.entries({
+      email: "private@example.test",
+      id: "session-1",
+      token: "opaque",
+      ipAddress: "203.0.113.42",
+      userAgent: "Private Browser",
+      image: "https://private.example.test/avatar.png",
+      createdAt: new Date("2029-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2029-01-02T00:00:00.000Z"),
+    }))
+      expect(() => summarySchema.parse({
+        ...summary,
+        session: { ...session, [key]: value },
+      })).toThrow()
+    expect(() => summarySchema.parse({
+      ...summary,
+      session: { ...session, role: "owner" },
+    })).toThrow()
+    expect(() => summarySchema.parse({
+      ...summary,
+      session: { ...session, status: "suspended" },
+    })).toThrow()
+    const { session: _session, ...summaryWithoutSession } = summary
+    expect(() => summarySchema.parse(summaryWithoutSession)).toThrow()
+    for (const invalidSession of [
+      { ...session, userId: "" },
+      { ...session, userId: "x".repeat(257) },
+      { ...session, name: "   " },
+      { ...session, name: "x".repeat(201) },
+      { ...session, expiresAt: new Date(Number.NaN) },
+    ])
+      expect(() => DashboardSessionProjectionSchema.parse(invalidSession)).toThrow()
+    expect(DashboardSessionProjectionSchema.parse({
+      ...session,
+      userId: "  member-1  ",
+      name: "  Example Member  ",
+    })).toEqual(session)
 
   it "normalizes profile patches and rejects empty or invalid patches", ->
     expect(ProfileUpdateSchema.parse({

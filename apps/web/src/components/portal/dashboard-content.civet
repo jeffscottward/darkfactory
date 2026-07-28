@@ -2,15 +2,14 @@ import type { ApiClient, CapabilityProjection } from "@darkfactory/api"
 import { StatusBadge, buttonVariants } from "@darkfactory/ui"
 import { ArrowRight, FilePlus2 } from "lucide-react"
 
-import type { PortalSession } from "../../lib/server-session.civet"
 
 export type DashboardSummary = Awaited<ReturnType<ApiClient["dashboard"]["summary"]>>
 export type DashboardSummaryState =
   | Readonly<{ type: "ready"; summary: DashboardSummary }>
+  | Readonly<{ type: "unauthorized" }>
   | Readonly<{ type: "error" }>
 
 export interface DashboardContentProps {
-  readonly session: PortalSession
   readonly summaryState: DashboardSummaryState
 }
 
@@ -29,24 +28,43 @@ const CAPABILITIES: readonly Readonly<{
 const itemCountLabel = (count: number): string =>
   `${count} feature ${count === 1 ? "item" : "items"}`
 
-export const DashboardContent = ({ session, summaryState }: DashboardContentProps) => {
+export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
   const summary = summaryState.type === "ready" ? summaryState.summary : null
-  const accessLabel = session.role === "admin" ? "Administrator access" : "Member access"
+  const session = summary?.session ?? null
+  const accessLabel = session === null
+    ? null
+    : session.role === "admin" ? "Administrator access" : "Member access"
 
   return (
     <div className="space-y-12">
       <section className="grid gap-8 border-y border-border py-8 md:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.6fr)] md:items-end">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-primary">{accessLabel}</p>
-          <h2
-            className="mt-3 min-w-0 font-heading text-2xl font-semibold tracking-tight text-foreground"
-            style={{ overflowWrap: "anywhere" }}
-          >
-            Welcome back, {session.name}
-          </h2>
-          <p className="mt-3 max-w-reading text-base leading-7 text-muted-foreground">
-            This overview reports only authoritative owner-scoped data returned for the current session.
-          </p>
+          {session === null ? (
+            <>
+              <p className="text-sm font-semibold text-primary">Dashboard unavailable</p>
+              <h2
+                className="mt-3 min-w-0 font-heading text-2xl font-semibold tracking-tight text-foreground"
+              >
+                Dashboard data unavailable
+              </h2>
+              <p className="mt-3 max-w-reading text-base leading-7 text-muted-foreground">
+                Account details are not shown when the dashboard summary cannot be loaded.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-primary">{accessLabel}</p>
+              <h2
+                className="mt-3 min-w-0 font-heading text-2xl font-semibold tracking-tight text-foreground"
+                style={{ overflowWrap: "anywhere" }}
+              >
+                Welcome back, {session.name}
+              </h2>
+              <p className="mt-3 max-w-reading text-base leading-7 text-muted-foreground">
+                This overview reports only authoritative owner-scoped data returned for the current session.
+              </p>
+            </>
+          )}
         </div>
         <div className="md:text-right">
           {summary === null ? (
@@ -91,33 +109,39 @@ export const DashboardContent = ({ session, summaryState }: DashboardContentProp
             Request and capability status
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Better Auth session authority and server-projected capability availability.
+            {summary === null
+              ? "Request-scoped capability information could not be loaded."
+              : "Better Auth session authority and server-projected capability availability."}
           </p>
         </div>
         <dl className="divide-y divide-border border-y border-border">
-          <div className="py-4">
-            <dt className="font-medium text-foreground">Session authority</dt>
-            <dd className="mt-1 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-              <span>Verified by Better Auth</span>
-              <StatusBadge status="success">Active</StatusBadge>
-            </dd>
-          </div>
           {summary === null ? (
             <div className="py-4">
               <dt className="font-medium text-foreground">Capability summary</dt>
               <dd className="mt-1 text-sm text-muted-foreground">Unavailable on this request</dd>
             </div>
-          ) : CAPABILITIES.map(({ key, label }) => {
-            const available = summary.capabilities[key]
-            return (
-              <div className="py-4" key={key}>
-                <dt className="font-medium text-foreground">{label}</dt>
+          ) : (
+            <>
+              <div className="py-4">
+                <dt className="font-medium text-foreground">Session authority</dt>
                 <dd className="mt-1 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-                  <StatusBadge status={available ? "success" : "neutral"}>{available ? "Available" : "Unavailable"}</StatusBadge>
+                  <span>Verified by Better Auth</span>
+                  <StatusBadge status="success">Active</StatusBadge>
                 </dd>
               </div>
-            )
-          })}
+              {CAPABILITIES.map(({ key, label }) => {
+                const available = summary.capabilities[key]
+                return (
+                  <div className="py-4" key={key}>
+                    <dt className="font-medium text-foreground">{label}</dt>
+                    <dd className="mt-1 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                      <StatusBadge status={available ? "success" : "neutral"}>{available ? "Available" : "Unavailable"}</StatusBadge>
+                    </dd>
+                  </div>
+                )
+              })}
+            </>
+          )}
         </dl>
       </section>
 
