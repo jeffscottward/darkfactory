@@ -44,6 +44,31 @@ const parentScript = `
   setInterval(() => undefined, 1000);
 `
 
+const delayedDetachedGrandchildScript = `
+  import { createServer } from "node:net";
+  const server = createServer();
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    process.stdout.write(JSON.stringify({ pid: process.pid, port: address.port }) + "\\n");
+  });
+  process.once("SIGTERM", () => {
+    setTimeout(() => server.close(() => process.exit(0)), 150);
+  });
+`
+const exitingDetachedWrapperScript = `
+  import { spawn } from "node:child_process";
+  const grandchild = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", ${JSON.stringify(delayedDetachedGrandchildScript)}],
+    { detached: true, shell: false, stdio: ["ignore", "inherit", "inherit"] },
+  );
+  process.once("SIGTERM", () => {
+    process.kill(-grandchild.pid, "SIGTERM");
+    process.exit(0);
+  });
+  setInterval(() => undefined, 1000);
+`
+
 type FixtureAddress = Readonly<{ pid: number; port: number }>
 
 const fixtureAddress = async (
@@ -137,9 +162,9 @@ describe("E2E lifecycle cleanup", () => {
       process.execPath,
       ["--input-type=module", "--eval", parentScript],
     )
-    const address = await fixtureAddress(child)
-    const cleanupOrder: string[] = []
     try {
+      const address = await fixtureAddress(child)
+      const cleanupOrder: string[] = []
       expect(await portAcceptsConnections(address.port)).toBe(true)
       await cleanupE2ELifecycle({
         cleanPreviewArtifacts: async () => {
@@ -179,6 +204,33 @@ describe("E2E lifecycle cleanup", () => {
         "route-lock",
         "worker-bindings-lock",
       ])
+    } finally {
+      await terminateOwnedProcessTree(child).catch(() => undefined)
+    }
+  }, 15_000)
+
+  it("waits for an escaped detached descendant with inherited stdio before cleanup", async () => {
+    const child = spawnOwnedProcess(
+      process.execPath,
+      ["--input-type=module", "--eval", exitingDetachedWrapperScript],
+    )
+    try {
+      const address = await fixtureAddress(child)
+      const cleanup = vi.fn(async () => {
+        expect(processExists(address.pid)).toBe(false)
+        expect(await portAcceptsConnections(address.port)).toBe(false)
+      })
+      expect(await portAcceptsConnections(address.port)).toBe(true)
+      await cleanupE2ELifecycle({
+        cleanPreviewArtifacts: cleanup,
+        dropDatabase: async () => undefined,
+        server: child,
+        termination: {
+          forceTimeoutMillis: 1_000,
+          gracefulTimeoutMillis: 1_000,
+        },
+      })
+      expect(cleanup).toHaveBeenCalledOnce()
     } finally {
       await terminateOwnedProcessTree(child).catch(() => undefined)
     }

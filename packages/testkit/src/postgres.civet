@@ -13,6 +13,9 @@ const RUN_ID_DIGEST_LENGTH = 12
 const CONNECTION_TIMEOUT_MILLISECONDS = 5_000
 const STATEMENT_TIMEOUT_MILLISECONDS = 15_000
 const LOCK_TIMEOUT_MILLISECONDS = 5_000
+const DATABASE_DROP_TIMEOUT_MILLISECONDS = 5_000
+const DATABASE_DROP_POLL_MILLISECONDS = 25
+const DATABASE_LOCK_KEY_PREFIX = "darkfactory-testkit:"
 const UNSAFE_TARGET_PATTERN = /(?:^|[_-])(prod|production|live)(?:$|[_-])/i
 const SAFE_IDENTIFIER_PATTERN = /^[a-z0-9_]+$/
 const SAFE_TEST_HOSTS = new Set([
@@ -64,14 +67,23 @@ type ValidatedDatabaseUrl = Readonly<{
   parsedUrl: URL
 }>
 
+type DatabaseIdentity = Readonly<{
+  databaseOid: number
+  ownerOid: number
+}>
 type TestDatabaseState = {
+  cleanupPromise?: Promise<void>
   client: Client
   databaseName: string
+  identity: DatabaseIdentity
+  generation: number
   isolatedConfig: ClientConfig
   maintenanceConfig: ClientConfig
+  pendingOpens: Set<Promise<void>>
 }
 
 const activeDatabases = new WeakMap<PostgresTestDatabase, TestDatabaseState>()
+const cleanupPromises = new WeakMap<PostgresTestDatabase, Promise<void>>()
 
 const assertTestEnvironment = (): void => {
   if (process.env.NODE_ENV !== "test" && process.env["APP_ENV"] !== "test") {
@@ -240,44 +252,484 @@ const queryWithClient = async <Row extends QueryResultRow = QueryResultRow>(
   return result.rows
 }
 
-const forceDropAndVerifyDatabase = async (
+const pause = (durationMillis: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, durationMillis))
+
+const hasPostgresErrorCode = (error: unknown, code: string): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === code
+
+class PostgresCleanupDeadlineError extends Error {}
+class PostgresCleanupBlockedError extends Error {
+  readonly code = "55006"
+}
+const cleanupDeadlineError = (): PostgresCleanupDeadlineError =>
+  new PostgresCleanupDeadlineError(
+    "Postgres test database cleanup exceeded its bounded deadline",
+  )
+
+const runBeforeDeadline = async <Result>(
+  deadline: number,
+  operation: () => Promise<Result>,
+): Promise<Result> => {
+  const remainingMillis = Math.ceil(deadline - performance.now())
+  if (remainingMillis <= 0) throw cleanupDeadlineError()
+
+  let timeout!: ReturnType<typeof setTimeout>
+  try {
+    const result = await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(cleanupDeadlineError()),
+          remainingMillis,
+        )
+      }),
+    ])
+    if (performance.now() >= deadline) throw cleanupDeadlineError()
+    return result
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+const queryRowsBeforeDeadline = async <Row extends QueryResultRow = QueryResultRow>(
+  client: Client,
+  deadline: number,
+  statement: string,
+  values?: unknown[],
+): Promise<readonly Row[]> => {
+  const result = await runBeforeDeadline(
+    deadline,
+    () => client.query<Row>(statement, values),
+  )
+  return result.rows
+}
+
+const databaseLockKey = (databaseName: string): string =>
+  `${DATABASE_LOCK_KEY_PREFIX}${databaseName}`
+
+const acquireDatabaseNameLock = async (
+  client: Client,
+  databaseName: string,
+  deadline?: number,
+): Promise<void> => {
+  const statement = "SELECT pg_advisory_lock(hashtextextended($1, 0))"
+  const values = [databaseLockKey(databaseName)]
+  if (deadline === undefined) {
+    await client.query(statement, values)
+    return
+  }
+  await queryRowsBeforeDeadline(client, deadline, statement, values)
+}
+
+const releaseDatabaseNameLock = async (
+  client: Client,
+  databaseName: string,
+  deadline?: number,
+): Promise<void> => {
+  const statement =
+    "SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS unlocked"
+  const values = [databaseLockKey(databaseName)]
+  const rows = deadline === undefined
+    ? (await client.query<{ unlocked: boolean }>(statement, values)).rows
+    : await queryRowsBeforeDeadline<{ unlocked: boolean }>(
+      client,
+      deadline,
+      statement,
+      values,
+    )
+  if (rows.length !== 1 || rows[0]?.unlocked !== true) {
+    throw new Error("Postgres test database advisory lock release was not proven")
+  }
+}
+
+const assertPostgresOid = (value: unknown, label: string): number => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Postgres test database cleanup returned an invalid ${label}`)
+  }
+  return value
+}
+
+const readOwnedDatabaseIdentity = async (
+  maintenanceClient: Client,
+  deadline: number,
+  databaseName: string,
+): Promise<
+  | Readonly<{
+      currentRoleOid: number
+      databaseOid: number
+      ownerOid: number
+    }>
+  | undefined
+> => {
+  const rows = await queryRowsBeforeDeadline<{
+    current_role_oid: number
+    database_oid: number
+    owner_oid: number
+  }>(
+    maintenanceClient,
+    deadline,
+    "SELECT d.oid AS database_oid, d.datdba AS owner_oid, r.oid AS current_role_oid FROM pg_database AS d JOIN pg_roles AS r ON r.rolname = current_user WHERE d.datname = $1",
+    [databaseName],
+  )
+  if (rows.length === 0) return undefined
+  if (rows.length !== 1) {
+    throw new Error("Postgres test database cleanup returned an invalid database identity")
+  }
+  const row = rows[0]
+  if (row === undefined) {
+    throw new Error("Postgres test database cleanup returned an invalid database identity")
+  }
+  return {
+    currentRoleOid: assertPostgresOid(row.current_role_oid, "current role OID"),
+    databaseOid: assertPostgresOid(row.database_oid, "database OID"),
+    ownerOid: assertPostgresOid(row.owner_oid, "database owner OID"),
+  }
+}
+
+const readConnectedDatabaseIdentity = async (
+  client: Client,
+): Promise<DatabaseIdentity> => {
+  const rows = await queryWithClient<{
+    database_oid: number
+    owner_oid: number
+  }>(
+    client,
+    "SELECT d.oid AS database_oid, d.datdba AS owner_oid FROM pg_database AS d WHERE d.datname = current_database()",
+  )
+  if (rows.length !== 1 || rows[0] === undefined) {
+    throw new Error(
+      "Postgres test database connection returned an invalid database identity",
+    )
+  }
+  return {
+    databaseOid: assertPostgresOid(rows[0].database_oid, "database OID"),
+    ownerOid: assertPostgresOid(rows[0].owner_oid, "database owner OID"),
+  }
+}
+
+const readCatalogDatabaseIdentity = async (
+  client: Client,
+  databaseName: string,
+): Promise<DatabaseIdentity | undefined> => {
+  const rows = await queryWithClient<{
+    database_oid: number
+    owner_oid: number
+  }>(
+    client,
+    "SELECT oid AS database_oid, datdba AS owner_oid FROM pg_database WHERE datname = $1",
+    [databaseName],
+  )
+  if (rows.length === 0) return undefined
+  if (rows.length !== 1 || rows[0] === undefined) {
+    throw new Error(
+      "Postgres test database connection guard returned an invalid database identity",
+    )
+  }
+  return {
+    databaseOid: assertPostgresOid(rows[0].database_oid, "database OID"),
+    ownerOid: assertPostgresOid(rows[0].owner_oid, "database owner OID"),
+  }
+}
+
+const confirmOwnedDatabaseIdentity = async (
+  maintenanceClient: Client,
+  databaseName: string,
+  expectedIdentity: DatabaseIdentity,
+  deadline: number,
+  onOriginalRemoved: () => void,
+): Promise<boolean> => {
+  const identity = await readOwnedDatabaseIdentity(
+    maintenanceClient,
+    deadline,
+    databaseName,
+  )
+  if (identity === undefined) {
+    onOriginalRemoved()
+    return false
+  }
+  if (identity.databaseOid !== expectedIdentity.databaseOid) {
+    onOriginalRemoved()
+    throw new Error(
+      "Refusing to drop a same-name replacement database for a stale test handle",
+    )
+  }
+  if (
+    identity.ownerOid !== expectedIdentity.ownerOid ||
+    identity.currentRoleOid !== expectedIdentity.ownerOid
+  ) {
+    throw new Error(
+      "Refusing to drop a test database whose owner identity no longer matches the creating role",
+    )
+  }
+  return true
+}
+
+const assertNoPreparedTransactions = async (
+  maintenanceClient: Client,
+  databaseName: string,
+  deadline: number,
+): Promise<void> => {
+  const rows = await queryRowsBeforeDeadline<{
+    has_prepared_transactions: boolean
+  }>(
+    maintenanceClient,
+    deadline,
+    "SELECT EXISTS (SELECT 1 FROM pg_prepared_xacts WHERE database = $1::name) AS has_prepared_transactions",
+    [databaseName],
+  )
+  const hasPreparedTransactions = rows[0]?.has_prepared_transactions
+  if (typeof hasPreparedTransactions !== "boolean") {
+    throw new Error(
+      "Postgres test database cleanup returned an invalid prepared-transaction inventory",
+    )
+  }
+  if (hasPreparedTransactions) {
+    throw new PostgresCleanupBlockedError(
+      "Postgres test database cleanup is blocked by a prepared transaction",
+    )
+  }
+}
+
+const retainObjectInUseDiagnostic = (
+  objectInUseError: unknown,
+  laterError: unknown,
+): AggregateError => new AggregateError(
+  [
+    objectInUseError,
+    ...(laterError instanceof AggregateError ? laterError.errors : [laterError]),
+  ],
+  "Postgres test database cleanup retained its SQLSTATE 55006 diagnostic",
+)
+
+const runWithObjectInUseDiagnostic = async <Result>(
+  objectInUseError: unknown | undefined,
+  operation: () => Promise<Result>,
+): Promise<Result> => {
+  try {
+    return await operation()
+  } catch (error) {
+    if (objectInUseError === undefined) throw error
+    throw retainObjectInUseDiagnostic(objectInUseError, error)
+  }
+}
+
+const dropDatabaseWhenIdle = async (
+  maintenanceClient: Client,
+  databaseName: string,
+  expectedIdentity: DatabaseIdentity,
+  deadline: number,
+  onOriginalRemoved: () => void,
+): Promise<unknown | undefined> => {
+  let objectInUseError: unknown | undefined
+
+  while (true) {
+    const owned = await runWithObjectInUseDiagnostic(
+      objectInUseError,
+      () => confirmOwnedDatabaseIdentity(
+        maintenanceClient,
+        databaseName,
+        expectedIdentity,
+        deadline,
+        onOriginalRemoved,
+      ),
+    )
+    if (!owned) return objectInUseError
+
+    await runWithObjectInUseDiagnostic(
+      objectInUseError,
+      () => assertNoPreparedTransactions(
+        maintenanceClient,
+        databaseName,
+        deadline,
+      ),
+    )
+    await runWithObjectInUseDiagnostic(
+      objectInUseError,
+      () => queryRowsBeforeDeadline(
+        maintenanceClient,
+        deadline,
+        "SELECT pg_terminate_backend(pid) AS terminated FROM pg_stat_activity WHERE datid = $1::oid AND usesysid = $2::oid AND backend_type = 'client backend' AND pid <> pg_backend_pid()",
+        [expectedIdentity.databaseOid, expectedIdentity.ownerOid],
+      ),
+    )
+
+    const ownedImmediatelyBeforeDrop = await runWithObjectInUseDiagnostic(
+      objectInUseError,
+      () => confirmOwnedDatabaseIdentity(
+        maintenanceClient,
+        databaseName,
+        expectedIdentity,
+        deadline,
+        onOriginalRemoved,
+      ),
+    )
+    if (!ownedImmediatelyBeforeDrop) return objectInUseError
+
+    try {
+      await queryRowsBeforeDeadline(
+        maintenanceClient,
+        deadline,
+        `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)}`,
+      )
+    } catch (dropError) {
+      if (!hasPostgresErrorCode(dropError, "55006")) {
+        if (objectInUseError !== undefined) {
+          throw retainObjectInUseDiagnostic(objectInUseError, dropError)
+        }
+        throw dropError
+      }
+      objectInUseError = dropError
+
+      const connectionCount = await runWithObjectInUseDiagnostic(
+        objectInUseError,
+        async () => {
+          const connections = await queryRowsBeforeDeadline<{
+            connection_count: number
+          }>(
+            maintenanceClient,
+            deadline,
+            "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datid = $1::oid AND backend_type = 'client backend' AND pid <> pg_backend_pid()",
+            [expectedIdentity.databaseOid],
+          )
+          const count = connections[0]?.connection_count
+          if (
+            !Number.isSafeInteger(count) ||
+            count === undefined ||
+            count < 0
+          ) {
+            throw new Error(
+              "Postgres test database cleanup returned an invalid connection count",
+            )
+          }
+          return count
+        },
+      )
+
+      const stillOwned = await runWithObjectInUseDiagnostic(
+        objectInUseError,
+        () => confirmOwnedDatabaseIdentity(
+          maintenanceClient,
+          databaseName,
+          expectedIdentity,
+          deadline,
+          onOriginalRemoved,
+        ),
+      )
+      if (!stillOwned) return objectInUseError
+      if (connectionCount === 0) throw objectInUseError
+
+      try {
+        await runBeforeDeadline(
+          deadline,
+          () => pause(DATABASE_DROP_POLL_MILLISECONDS),
+        )
+      } catch (pauseError) {
+        throw retainObjectInUseDiagnostic(objectInUseError, pauseError)
+      }
+      continue
+    }
+
+    const result = await runWithObjectInUseDiagnostic(
+      objectInUseError,
+      () => queryRowsBeforeDeadline<{
+        database_exists: boolean
+      }>(
+        maintenanceClient,
+        deadline,
+        "SELECT EXISTS (SELECT 1 FROM pg_database WHERE oid = $1::oid) AS database_exists",
+        [expectedIdentity.databaseOid],
+      ),
+    )
+    if (result[0]?.database_exists !== false) {
+      const verificationError = new Error(
+        "Postgres test database remained in the catalog after cleanup",
+      )
+      if (objectInUseError !== undefined) {
+        throw retainObjectInUseDiagnostic(
+          objectInUseError,
+          verificationError,
+        )
+      }
+      throw verificationError
+    }
+    onOriginalRemoved()
+    return objectInUseError
+  }
+}
+
+const dropAndVerifyDatabase = async (
   maintenanceConfig: ClientConfig,
   databaseName: string,
+  expectedIdentity: DatabaseIdentity,
+  deadline = performance.now() + DATABASE_DROP_TIMEOUT_MILLISECONDS,
+  onOriginalRemoved: () => void = () => undefined,
 ): Promise<void> => {
   if (!databaseName.startsWith(TEST_DATABASE_PREFIX)) {
     throw new Error("Refusing to drop a database not owned by the Postgres test harness")
   }
 
-  const maintenanceClient = new Client(maintenanceConfig)
+  const maintenanceClient = new Client({
+    ...maintenanceConfig,
+    connectionTimeoutMillis: DATABASE_DROP_TIMEOUT_MILLISECONDS,
+    query_timeout: DATABASE_DROP_TIMEOUT_MILLISECONDS,
+    statement_timeout: DATABASE_DROP_TIMEOUT_MILLISECONDS,
+  })
   const cleanupErrors: unknown[] = []
-  let dropped = false
+  let lockHeld = false
+  let objectInUseError: unknown | undefined
 
   try {
-    await maintenanceClient.connect()
-    await maintenanceClient.query(
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`,
+    await runBeforeDeadline(deadline, () => maintenanceClient.connect())
+    await acquireDatabaseNameLock(maintenanceClient, databaseName, deadline)
+    lockHeld = true
+    objectInUseError = await dropDatabaseWhenIdle(
+      maintenanceClient,
+      databaseName,
+      expectedIdentity,
+      deadline,
+      onOriginalRemoved,
     )
-    const result = await maintenanceClient.query<{ database_exists: boolean }>(
-      "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS database_exists",
-      [databaseName],
-    )
-
-    if (result.rows[0]?.database_exists !== false) {
-      throw new Error("Postgres test database remained in the catalog after cleanup")
-    }
-
-    dropped = true
   } catch (cleanupError) {
-    cleanupErrors.push(cleanupError)
+    if (cleanupError instanceof AggregateError) {
+      cleanupErrors.push(...cleanupError.errors)
+    } else {
+      cleanupErrors.push(cleanupError)
+    }
   }
 
+  if (lockHeld) {
+    try {
+      await releaseDatabaseNameLock(maintenanceClient, databaseName, deadline)
+    } catch (releaseError) {
+      if (objectInUseError !== undefined) {
+        cleanupErrors.push(objectInUseError)
+        objectInUseError = undefined
+      }
+      if (releaseError instanceof AggregateError) {
+        cleanupErrors.push(...releaseError.errors)
+      } else {
+        cleanupErrors.push(releaseError)
+      }
+    }
+  }
+
+  const closePromise = maintenanceClient.end()
+  void closePromise.catch(() => undefined)
   try {
-    await maintenanceClient.end()
+    await runBeforeDeadline(deadline, () => closePromise)
   } catch (closeError) {
+    if (objectInUseError !== undefined) {
+      cleanupErrors.push(objectInUseError)
+      objectInUseError = undefined
+    }
     cleanupErrors.push(closeError)
   }
 
-  if (!dropped || cleanupErrors.length > 0) {
+  if (cleanupErrors.length > 0) {
     throw new AggregateError(cleanupErrors, "Postgres test database cleanup failed")
   }
 }
@@ -331,31 +783,36 @@ export const createPostgresTestDatabase = async (
     database: databaseName,
   }
   const maintenanceClient = new Client(maintenanceConfig)
-  let databaseCreated = false
+  let databaseIdentity: DatabaseIdentity | undefined
   let isolatedClient: Client | undefined
 
   try {
     await maintenanceClient.connect()
     const roleResult = await maintenanceClient.query<{
+      role_oid: number
       role_name: string
       database_name: string
       can_create_database: boolean
       can_create_role: boolean
       can_replicate: boolean
       bypasses_rls: boolean
+      can_signal_backends: boolean
       is_superuser: boolean
     }>(
-      "SELECT current_user AS role_name, current_database() AS database_name, rolcreatedb AS can_create_database, rolcreaterole AS can_create_role, rolreplication AS can_replicate, rolbypassrls AS bypasses_rls, rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user",
+      "SELECT oid AS role_oid, current_user AS role_name, current_database() AS database_name, rolcreatedb AS can_create_database, rolcreaterole AS can_create_role, rolreplication AS can_replicate, rolbypassrls AS bypasses_rls, pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal_backends, rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user",
     )
     const role = roleResult.rows[0]
     if (
       role === undefined ||
+      !Number.isSafeInteger(role.role_oid) ||
+      role.role_oid <= 0 ||
       role.role_name !== TEST_RUNNER_ROLE ||
       role.database_name !== TEST_MAINTENANCE_DATABASE ||
       !role.can_create_database ||
       role.can_create_role ||
       role.can_replicate ||
       role.bypasses_rls ||
+      role.can_signal_backends ||
       role.is_superuser
     ) {
       throw new Error(
@@ -363,10 +820,27 @@ export const createPostgresTestDatabase = async (
       )
     }
 
+    await acquireDatabaseNameLock(maintenanceClient, databaseName)
 
     try {
       await maintenanceClient.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`)
-      databaseCreated = true
+      const identityResult = await maintenanceClient.query<{
+        database_oid: number
+        owner_oid: number
+      }>(
+        "SELECT oid AS database_oid, datdba AS owner_oid FROM pg_database WHERE datname = $1",
+        [databaseName],
+      )
+      const identity = identityResult.rows[0]
+      if (identity === undefined) {
+        throw new Error("Postgres test database identity was unavailable after creation")
+      }
+      const databaseOid = assertPostgresOid(identity.database_oid, "database OID")
+      const ownerOid = assertPostgresOid(identity.owner_oid, "database owner OID")
+      if (ownerOid !== role.role_oid) {
+        throw new Error("Postgres test database owner did not match the creating role")
+      }
+      databaseIdentity = { databaseOid, ownerOid }
     } catch (createError) {
       if (isDuplicateDatabaseError(createError)) {
         throw new Error(`Postgres test database runId collision: ${runId}`)
@@ -376,15 +850,39 @@ export const createPostgresTestDatabase = async (
 
     isolatedClient = new Client(isolatedConfig)
     await isolatedClient.connect()
+    await releaseDatabaseNameLock(maintenanceClient, databaseName)
     await maintenanceClient.end()
 
     let database: PostgresTestDatabase
     const openConnection = async (): Promise<PostgresTestConnection> => {
-      if (!activeDatabases.has(database)) {
+      const state = activeDatabases.get(database)
+      if (state === undefined) {
         throw new Error("Cannot open a connection to a dropped Postgres test database")
       }
-
-      const client = new Client(isolatedConfig)
+      if (state.cleanupPromise !== undefined) {
+        throw new Error("Cannot open a connection while Postgres test database cleanup is in progress")
+      }
+      if (state.generation !== 0) {
+        throw new Error("Cannot open a connection after Postgres test database cleanup has started")
+      }
+      const assertConnectionMayBeUsed = (): void => {
+        const currentState = activeDatabases.get(database)
+        if (currentState !== state) {
+          throw new Error("Cannot use a connection to a dropped Postgres test database")
+        }
+        if (currentState.cleanupPromise !== undefined) {
+          throw new Error("Cannot use a connection while Postgres test database cleanup is in progress")
+        }
+        if (currentState.generation !== 0) {
+          throw new Error("Cannot use a connection after Postgres test database cleanup has started")
+        }
+      }
+      const lifecycleClient = new Client(state.maintenanceConfig)
+      const client = new Client(state.isolatedConfig)
+      let lifecycleConnectStarted = false
+      let lifecycleEndStarted = false
+      let lockHeld = false
+      let targetConnectStarted = false
       let resolveTermination!: (error: Error) => void
       const termination = new Promise<Error>((resolve) => {
         resolveTermination = resolve
@@ -395,23 +893,134 @@ export const createPostgresTestDatabase = async (
       client.on("error", (error) => {
         resolveTermination(error)
       })
-      await client.connect()
-      return Object.freeze({
-        query: <Row extends QueryResultRow = QueryResultRow>(
-          statement: string,
-          values?: unknown[],
-        ): Promise<readonly Row[]> => queryWithClient<Row>(client, statement, values),
-        waitForTermination: () => termination,
-        waitForClose: () => closed,
-        close: () => client.end(),
+
+      const openingPromise = (async (): Promise<PostgresTestConnection> => {
+        try {
+          lifecycleConnectStarted = true
+          await lifecycleClient.connect()
+          await acquireDatabaseNameLock(lifecycleClient, state.databaseName)
+          lockHeld = true
+          assertConnectionMayBeUsed()
+          const catalogIdentity = await readCatalogDatabaseIdentity(
+            lifecycleClient,
+            state.databaseName,
+          )
+          if (
+            catalogIdentity === undefined ||
+            catalogIdentity.databaseOid !== state.identity.databaseOid
+          ) {
+            activeDatabases.delete(database)
+            throw new Error(
+              "Cannot open a connection because the Postgres test database identity changed",
+            )
+          }
+          if (catalogIdentity.ownerOid !== state.identity.ownerOid) {
+            throw new Error(
+              "Cannot open a connection because the Postgres test database owner changed",
+            )
+          }
+
+          targetConnectStarted = true
+          await client.connect()
+          const connectedIdentity = await readConnectedDatabaseIdentity(client)
+          if (connectedIdentity.databaseOid !== state.identity.databaseOid) {
+            activeDatabases.delete(database)
+            throw new Error(
+              "Cannot open a connection because the Postgres test database identity changed",
+            )
+          }
+          if (connectedIdentity.ownerOid !== state.identity.ownerOid) {
+            throw new Error(
+              "Cannot open a connection because the Postgres test database owner changed",
+            )
+          }
+          assertConnectionMayBeUsed()
+          await releaseDatabaseNameLock(lifecycleClient, state.databaseName)
+          lockHeld = false
+          lifecycleEndStarted = true
+          await lifecycleClient.end()
+          assertConnectionMayBeUsed()
+
+          return Object.freeze({
+            query: async <Row extends QueryResultRow = QueryResultRow>(
+              statement: string,
+              values?: unknown[],
+            ): Promise<readonly Row[]> => {
+              assertConnectionMayBeUsed()
+              return await queryWithClient<Row>(client, statement, values)
+            },
+            waitForTermination: () => termination,
+            waitForClose: () => closed,
+            close: () => client.end(),
+          })
+        } catch (openError) {
+          const cleanupErrors: unknown[] = []
+          if (targetConnectStarted) {
+            try {
+              await client.end()
+            } catch (closeError) {
+              cleanupErrors.push(closeError)
+            }
+          }
+          if (lockHeld) {
+            try {
+              await releaseDatabaseNameLock(lifecycleClient, state.databaseName)
+              lockHeld = false
+            } catch (releaseError) {
+              cleanupErrors.push(releaseError)
+            }
+          }
+          if (lifecycleConnectStarted && !lifecycleEndStarted) {
+            try {
+              await lifecycleClient.end()
+            } catch (closeError) {
+              cleanupErrors.push(closeError)
+            }
+          }
+          throwPrimaryWithCleanup(openError, cleanupErrors)
+        }
+      })()
+      let resolveOpeningSettled!: () => void
+      const openingSettled = new Promise<void>((resolve) => {
+        resolveOpeningSettled = resolve
       })
+      state.pendingOpens.add(openingSettled)
+      try {
+        const connection = await openingPromise
+        try {
+          assertConnectionMayBeUsed()
+        } catch (stateError) {
+          const closeErrors: unknown[] = []
+          try {
+            await connection.close()
+          } catch (closeError) {
+            closeErrors.push(closeError)
+          }
+          throwPrimaryWithCleanup(stateError, closeErrors)
+        }
+        return connection
+      } finally {
+        state.pendingOpens.delete(openingSettled)
+        resolveOpeningSettled()
+      }
     }
 
-    const query = <Row extends QueryResultRow = QueryResultRow>(
+    const query = async <Row extends QueryResultRow = QueryResultRow>(
       statement: string,
       values?: unknown[],
-    ): Promise<readonly Row[]> =>
-      queryWithClient<Row>(isolatedClient as Client, statement, values)
+    ): Promise<readonly Row[]> => {
+      const state = activeDatabases.get(database)
+      if (state === undefined) {
+        throw new Error("Cannot query a dropped Postgres test database")
+      }
+      if (state.cleanupPromise !== undefined) {
+        throw new Error("Cannot query while Postgres test database cleanup is in progress")
+      }
+      if (state.generation !== 0) {
+        throw new Error("Cannot query after Postgres test database cleanup has started")
+      }
+      return await queryWithClient<Row>(isolatedClient as Client, statement, values)
+    }
 
     database = Object.freeze({
       databaseUrl: createIsolatedUrl(validatedUrl.parsedUrl, databaseName),
@@ -424,8 +1033,11 @@ export const createPostgresTestDatabase = async (
     activeDatabases.set(database, {
       client: isolatedClient,
       databaseName,
+      generation: 0,
+      identity: databaseIdentity,
       isolatedConfig,
       maintenanceConfig,
+      pendingOpens: new Set(),
     })
 
     return database
@@ -440,58 +1052,107 @@ export const createPostgresTestDatabase = async (
       }
     }
 
-    if (databaseCreated) {
-      try {
-        await forceDropAndVerifyDatabase(maintenanceConfig, databaseName)
-      } catch (dropError) {
-        cleanupErrors.push(dropError)
-      }
-    }
-
     try {
       await maintenanceClient.end()
     } catch (closeError) {
       cleanupErrors.push(closeError)
     }
 
+    if (databaseIdentity !== undefined) {
+      try {
+        await dropAndVerifyDatabase(
+          maintenanceConfig,
+          databaseName,
+          databaseIdentity,
+        )
+      } catch (dropError) {
+        cleanupErrors.push(dropError)
+      }
+    }
+
     throwPrimaryWithCleanup(primaryError, cleanupErrors)
   }
 }
 
-export const dropPostgresTestDatabase = async (
+const dropOwnedPostgresTestDatabase = async (
   database: PostgresTestDatabase,
+  state: TestDatabaseState,
 ): Promise<void> => {
-  const state = activeDatabases.get(database)
-
-  if (state === undefined) {
-    throw new Error("Refusing to drop an unowned or already-dropped test database")
-  }
-
   const cleanupErrors: unknown[] = []
+  const deadline = performance.now() + DATABASE_DROP_TIMEOUT_MILLISECONDS
 
   try {
-    await state.client.end()
+    await runBeforeDeadline(deadline, () => state.client.end())
   } catch (closeError) {
     cleanupErrors.push(closeError)
   }
 
-  let databaseDropped = false
-  try {
-    await forceDropAndVerifyDatabase(state.maintenanceConfig, state.databaseName)
-    databaseDropped = true
-  } catch (dropError) {
-    if (dropError instanceof AggregateError) {
-      cleanupErrors.push(...dropError.errors)
-    } else {
-      cleanupErrors.push(dropError)
+  let pendingOpensSettled = true
+  const pendingOpens = [...state.pendingOpens]
+  if (pendingOpens.length > 0) {
+    try {
+      await runBeforeDeadline(deadline, async () => {
+        await Promise.all(pendingOpens)
+      })
+    } catch (pendingOpenError) {
+      pendingOpensSettled = false
+      cleanupErrors.push(pendingOpenError)
     }
   }
 
-  if (databaseDropped) {
-    activeDatabases.delete(database)
+  if (!pendingOpensSettled || performance.now() >= deadline) {
+    if (
+      !cleanupErrors.some(
+        (error) => error instanceof PostgresCleanupDeadlineError,
+      )
+    ) cleanupErrors.push(cleanupDeadlineError())
+  } else {
+    try {
+      await dropAndVerifyDatabase(
+        state.maintenanceConfig,
+        state.databaseName,
+        state.identity,
+        deadline,
+        () => activeDatabases.delete(database),
+      )
+    } catch (dropError) {
+      if (dropError instanceof AggregateError) {
+        cleanupErrors.push(...dropError.errors)
+      } else {
+        cleanupErrors.push(dropError)
+      }
+    }
   }
 
   if (cleanupErrors.length > 0) {
     throw new AggregateError(cleanupErrors, "Postgres test database cleanup failed")
   }
+}
+
+export const dropPostgresTestDatabase = (
+  database: PostgresTestDatabase,
+): Promise<void> => {
+  const cleanupInProgress = cleanupPromises.get(database)
+  if (cleanupInProgress !== undefined) return cleanupInProgress
+
+  const state = activeDatabases.get(database)
+  if (state === undefined) {
+    return Promise.reject(
+      new Error("Refusing to drop an unowned or already-dropped test database"),
+    )
+  }
+
+  state.generation += 1
+  let cleanupPromise!: Promise<void>
+  cleanupPromise = dropOwnedPostgresTestDatabase(database, state)
+    .catch((error) => {
+      delete state.cleanupPromise
+      throw error
+    })
+    .finally(() => {
+      cleanupPromises.delete(database)
+    })
+  cleanupPromises.set(database, cleanupPromise)
+  state.cleanupPromise = cleanupPromise
+  return cleanupPromise
 }

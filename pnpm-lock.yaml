@@ -265,6 +265,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.20.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -274,6 +277,9 @@ importers:
       markdownlint-cli2:
         specifier: 'catalog:'
         version: 0.23.1(supports-color@10.2.2)
+      pg:
+        specifier: 'catalog:'
+        version: 8.22.0
       portless:
         specifier: 'catalog:'
         version: 0.13.0
