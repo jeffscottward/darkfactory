@@ -51,7 +51,7 @@ const readBoundedDashboardResponse = async (response: Response, signal: AbortSig
 }
 
 export const createAuthenticatedDashboardFetch = (
-  cookieHeader: string,
+  cookieHeader: string | null,
   trustedOrigin: string,
   fetcher: DashboardTransportFetch = globalThis.fetch,
   timeoutMs = DEFAULT_DASHBOARD_TIMEOUT_MS,
@@ -71,7 +71,10 @@ export const createAuthenticatedDashboardFetch = (
       throw new Error("Dashboard request origin did not match the configured app origin")
     }
     const forwardedHeaders = new Headers(request.headers)
-    forwardedHeaders.set("cookie", cookieHeader)
+    forwardedHeaders.delete("cookie")
+    if (cookieHeader !== null && cookieHeader.trim().length > 0) {
+      forwardedHeaders.set("cookie", cookieHeader)
+    }
     forwardedHeaders.set("origin", configuredOrigin.origin)
     forwardedHeaders.set("sec-fetch-site", "same-origin")
     const response = await fetcher(new Request(request, {

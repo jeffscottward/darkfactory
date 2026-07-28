@@ -5757,9 +5757,48 @@
                         "recent"
                       ],
                       "type": "object"
+                    },
+                    "session": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "expiresAt": {
+                          "format": "date-time",
+                          "type": "string",
+                          "x-native-type": "date"
+                        },
+                        "name": {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "role": {
+                          "enum": [
+                            "member",
+                            "admin"
+                          ],
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "active"
+                        },
+                        "userId": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "name",
+                        "role",
+                        "status",
+                        "expiresAt"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
+                    "session",
                     "featureItems",
                     "capabilities"
                   ],

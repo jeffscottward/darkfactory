@@ -3,11 +3,8 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { PortalShell } from "../../components/portal-shell.civet"
-import { dispatchInternalAuthRequest } from "../../lib/server-internal-dispatch.civet"
-import {
-  getPortalSession,
-  portalSignInHref,
-} from "../../lib/server-session.civet"
+import { getRequestPortalSession } from "../../lib/request-portal-session.civet"
+import { portalSignInHref } from "../../lib/server-session.civet"
 
 const MEMBER_PORTAL_ROUTES = Object.freeze([
   "/dashboard",
@@ -30,11 +27,10 @@ export default async function PortalLayout({
   readonly children: ReactNode
 }) {
   const requestHeaders = await headers()
-  const session = await getPortalSession({
-    cookieHeader: requestHeaders.get("cookie"),
-    cfConnectingIp: requestHeaders.get("cf-connecting-ip"),
-    fetch: dispatchInternalAuthRequest,
-  })
+  const session = await getRequestPortalSession(
+    requestHeaders.get("cookie"),
+    requestHeaders.get("cf-connecting-ip"),
+  )
 
   if (session === null) redirect(portalSignInHref(requestHeaders))
 

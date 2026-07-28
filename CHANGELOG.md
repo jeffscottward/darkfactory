@@ -4,6 +4,15 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
+### Changed
+
+- Project the safe active-session identity and owner-scoped dashboard summary from one authenticated oRPC context, removing `DashboardPage`'s separate session lookup.
+- Reuse identical portal and nested-administration session checks within one React server request.
+
+### Security
+
+- Remove request-supplied cookies from dashboard transport when no trusted session cookie is available.
+
 ## [0.2.1] - 2026-07-28
 
 ### Changed

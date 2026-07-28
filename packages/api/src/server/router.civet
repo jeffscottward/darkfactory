@@ -776,6 +776,13 @@ const dashboardSummary = api.dashboard.summary
       ).summary(context.principal)
       return {
         ...summary,
+        session: {
+          userId: context.authSession.principal.userId,
+          name: context.authSession.user.name,
+          role: context.authSession.principal.role,
+          status: "active",
+          expiresAt: context.authSession.session.expiresAt,
+        },
         featureItems: {
           ...summary.featureItems,
           recent: toContractItems(summary.featureItems.recent),

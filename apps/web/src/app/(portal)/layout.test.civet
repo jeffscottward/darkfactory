@@ -7,8 +7,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() -> ({
-  getPortalSession: vi.fn(),
-  dispatchInternalAuthRequest: vi.fn(),
+  getRequestPortalSession: vi.fn(),
   headers: vi.fn(async -> new Headers({
     cookie: "better-auth.session_token=opaque",
     "cf-connecting-ip": "203.0.113.42",
@@ -22,12 +21,11 @@ const mocks = vi.hoisted(() -> ({
 
 vi.mock("next/headers", () -> ({ headers: mocks.headers }))
 vi.mock("next/navigation", () -> ({ redirect: mocks.redirect }))
-vi.mock("../../lib/server-session.civet", () -> ({
-  getPortalSession: mocks.getPortalSession,
-  portalSignInHref: mocks.portalSignInHref,
+vi.mock("../../lib/request-portal-session.civet", () -> ({
+  getRequestPortalSession: mocks.getRequestPortalSession,
 }))
-vi.mock("../../lib/server-internal-dispatch.civet", () -> ({
-  dispatchInternalAuthRequest: mocks.dispatchInternalAuthRequest,
+vi.mock("../../lib/server-session.civet", () -> ({
+  portalSignInHref: mocks.portalSignInHref,
 }))
 vi.mock("../../components/portal-shell.civet", () -> ({
   PortalShell: "portal-shell",
@@ -101,16 +99,15 @@ beforeEach ->
 
 describe "PortalLayout", ->
   it "redirects an anonymous server request before returning protected content", async ->
-    mocks.getPortalSession.mockResolvedValueOnce(null)
+    mocks.getRequestPortalSession.mockResolvedValueOnce(null)
 
     await expect(PortalLayout({ children: "protected" })).rejects.toThrow(
       "REDIRECT:/sign-in?callbackURL=%2Ffeature-items",
     )
-    expect(mocks.getPortalSession).toHaveBeenCalledWith({
-      cookieHeader: "better-auth.session_token=opaque",
-      cfConnectingIp: "203.0.113.42",
-      fetch: mocks.dispatchInternalAuthRequest,
-    })
+    expect(mocks.getRequestPortalSession).toHaveBeenCalledWith(
+      "better-auth.session_token=opaque",
+      "203.0.113.42",
+    )
     expect(mocks.redirect).toHaveBeenCalledOnce()
   
   it.each([
@@ -142,7 +139,7 @@ describe "PortalLayout", ->
       ],
     ],
   ])("renders role-gated routes for an active %s session", async (role, isAdmin, availableRoutes) ->
-    mocks.getPortalSession.mockResolvedValueOnce({
+    mocks.getRequestPortalSession.mockResolvedValueOnce({
       userId: "user-1",
       name: "Example User",
       role,

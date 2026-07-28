@@ -1,0 +1,13 @@
+import { cache } from "react"
+
+import { dispatchInternalAuthRequest } from "./server-internal-dispatch.civet"
+import { getPortalSession } from "./server-session.civet"
+
+export const getRequestPortalSession = cache((
+  cookieHeader: string | null,
+  cfConnectingIp: string | null,
+) -> getPortalSession({
+  cookieHeader,
+  cfConnectingIp,
+  fetch: dispatchInternalAuthRequest,
+}))

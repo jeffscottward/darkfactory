@@ -21,11 +21,15 @@ const NOW = new Date("2026-01-02T03:04:05.000Z")
 const memberSession: SafeAuthSession = {
   user: {
     id: "member-1", name: "Member", email: "private@example.test", emailVerified: true,
-    image: null, createdAt: NOW, updatedAt: NOW, role: "member", status: "active",
+    image: "https://private.example.test/member.png",
+    createdAt: NOW, updatedAt: NOW, role: "member", status: "active",
   },
   session: {
     id: "session-1", userId: "member-1", expiresAt: new Date("2026-02-02T03:04:05.000Z"),
-    createdAt: NOW, updatedAt: NOW, ipAddress: null, userAgent: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ipAddress: "203.0.113.42",
+    userAgent: "Private Browser",
   },
   principal: { userId: "member-1", role: "member", status: "active" },
 }
@@ -211,11 +215,43 @@ describe "account/admin/dashboard router", ->
       400,
     )
 
-  it "returns owner summary with exactly the injected capabilities", async ->
-    await expect(clientFor(memberSession).dashboard.summary({})).resolves.toEqual({
+  it "returns the owner summary with an exact safe session projection", async ->
+    const result = await clientFor(memberSession).dashboard.summary({})
+
+    expect(result).toEqual({
+      session: {
+        userId: "member-1",
+        name: "Member",
+        role: "member",
+        status: "active",
+        expiresAt: new Date("2026-02-02T03:04:05.000Z"),
+      },
       featureItems: { total: 0, draft: 0, active: 0, archived: 0, recent: [] },
       capabilities: {
         ai: true, emailDelivery: false, analytics: true, telemetryExport: false,
         storage: false, errorTracking: false,
+      },
+    })
+    expect(Object.keys(result.session)).toEqual([
+      "userId",
+      "name",
+      "role",
+      "status",
+      "expiresAt",
+    ])
+    const serializedSession = JSON.stringify(result.session)
+    for (const sensitiveValue of [
+      "private@example.test",
+      "session-1",
+      "203.0.113.42",
+      "Private Browser",
+      "private.example.test/member.png",
+      NOW.toISOString(),
+    ])
+      expect(serializedSession).not.toContain(sensitiveValue)
+    await expect(clientFor(adminSession).dashboard.summary({})).resolves.toMatchObject({
+      session: {
+        userId: "admin-1",
+        role: "admin",
       },
     })

@@ -15,20 +15,31 @@ const recentItem: FeatureItemOutput = {
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 }
 
+const memberSession = {
+  userId: "user-1",
+  name: "Example Member",
+  role: "member",
+  status: "active",
+  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+} as const
+
+const unavailableCapabilities = {
+  ai: false,
+  emailDelivery: false,
+  analytics: false,
+  telemetryExport: false,
+  storage: false,
+  errorTracking: false,
+} as const
+
 describe "DashboardContent", ->
-  it "shows current session truth, feature-derived counts, recent items, and observed capability state", ->
+  it "derives current identity from the ready owner summary", ->
     const html = renderToStaticMarkup(
       <DashboardContent
-        session={{
-          userId: "user-1",
-          name: "Example Member",
-          role: "member",
-          status: "active",
-          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-        }}
         summaryState={{
           type: "ready",
           summary: {
+            session: memberSession,
             featureItems: {
               total: 1,
               draft: 0,
@@ -37,12 +48,9 @@ describe "DashboardContent", ->
               recent: [recentItem],
             },
             capabilities: {
+              ...unavailableCapabilities,
               ai: true,
-              emailDelivery: false,
               analytics: true,
-              telemetryExport: false,
-              storage: false,
-              errorTracking: false,
             },
           },
         }}
@@ -61,38 +69,19 @@ describe "DashboardContent", ->
     expect(html).toContain("Unavailable")
     expect(html).not.toMatch(/<div><dt/u)
     expect(html).not.toMatch(/revenue|growth|customers|conversion/i)
-  
 
-  it "labels administrator sessions without changing unavailable summary truth", ->
+  it "derives administrator identity only from a ready summary", ->
     const html = renderToStaticMarkup(
       <DashboardContent
-        session={{
-          userId: "admin-1",
-          name: "Example Administrator",
-          role: "admin",
-          status: "active",
-          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-        }}
-        summaryState={{ type: "error" }}
-      />,
-    )
-
-    expect(html).toContain("Administrator access")
-    expect(html).toContain("Welcome back, Example Administrator")
-    expect(html).toContain("Feature data unavailable")
-  it "renders honest empty and unavailable data without inventing a zero metric", ->
-    const emptyHtml = renderToStaticMarkup(
-      <DashboardContent
-        session={{
-          userId: "user-1",
-          name: "Example Member",
-          role: "member",
-          status: "active",
-          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-        }}
         summaryState={{
           type: "ready",
           summary: {
+            session: {
+              ...memberSession,
+              userId: "admin-1",
+              name: "Example Administrator",
+              role: "admin",
+            },
             featureItems: {
               total: 0,
               draft: 0,
@@ -100,33 +89,55 @@ describe "DashboardContent", ->
               archived: 0,
               recent: [],
             },
-            capabilities: {
-              ai: false,
-              emailDelivery: false,
-              analytics: false,
-              telemetryExport: false,
-              storage: false,
-              errorTracking: false,
-            },
+            capabilities: unavailableCapabilities,
           },
         }}
       />,
     )
-    expect(emptyHtml).toContain("No feature items yet")
-    expect(emptyHtml).toContain("Create the first item")
 
-    const unavailableHtml = renderToStaticMarkup(
+    expect(html).toContain("Administrator access")
+    expect(html).toContain("Welcome back, Example Administrator")
+
+  it "keeps unavailable and unauthorized rendering identity-neutral", ->
+    for (const summaryState of [
+      { type: "error" },
+      { type: "unauthorized" },
+    ] as const) {
+      const html = renderToStaticMarkup(
+        <DashboardContent summaryState={summaryState} />,
+      )
+
+      expect(html).toContain("Dashboard data unavailable")
+      expect(html).toContain("Feature data unavailable")
+      expect(html).toContain("Unavailable on this request")
+      expect(html).not.toContain("Welcome back")
+      expect(html).not.toContain("Member access")
+      expect(html).not.toContain("Administrator access")
+      expect(html).not.toContain("Session authority")
+      expect(html).not.toContain("Verified by Better Auth")
+    }
+
+  it "renders honest empty data without inventing an unavailable metric", ->
+    const emptyHtml = renderToStaticMarkup(
       <DashboardContent
-        session={{
-          userId: "user-1",
-          name: "Example Member",
-          role: "member",
-          status: "active",
-          expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        summaryState={{
+          type: "ready",
+          summary: {
+            session: memberSession,
+            featureItems: {
+              total: 0,
+              draft: 0,
+              active: 0,
+              archived: 0,
+              recent: [],
+            },
+            capabilities: unavailableCapabilities,
+          },
         }}
-        summaryState={{ type: "error" }}
       />,
     )
-    expect(unavailableHtml).toContain("Feature data unavailable")
-    expect(unavailableHtml).toContain("Unavailable on this request")
-    expect(unavailableHtml).not.toContain("0 feature items")
+
+    expect(emptyHtml).toContain("No feature items yet")
+    expect(emptyHtml).toContain("Create the first item")
+    expect(emptyHtml).toContain("0 feature items")
+    expect(emptyHtml).not.toContain("Feature data unavailable")
