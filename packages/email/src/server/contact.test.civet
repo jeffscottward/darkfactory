@@ -109,6 +109,25 @@ describe "selectContactEmailPort", ->
     })
     expect(clientFactory).not.toHaveBeenCalled()
 
+  it "returns the disabled delivery result for an explicitly disabled transport without calling Resend", async ->
+    const clientFactory = vi.fn()
+    const email = selectContactEmailPort({
+      environment: "production",
+      transport: "disabled",
+      recipient: "support@example.test",
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@example.test>",
+      resendClientFactory: clientFactory,
+    })
+
+    await expect(email.sendContact(contactInput)).resolves.toEqual({
+      status: "not-delivered",
+      provider: "disabled",
+      code: "CONTACT_DELIVERY_DISABLED",
+      retryable: false,
+    })
+    expect(clientFactory).not.toHaveBeenCalled()
+
   it "writes a real inspectable preview without exposing contact data in its path", async ->
     const directory = await createTemporaryDirectory()
     const canonicalDirectory = await realpath(directory)

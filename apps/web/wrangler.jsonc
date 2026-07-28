@@ -21,7 +21,7 @@
     "BETTER_AUTH_URL": "https://darkfactory.jeffscott.world",
     "EMAIL_PROVIDER": "resend",
     "EMAIL_TRANSPORT": "resend",
-    "EMAIL_FROM": "DarkFactory <onboarding@resend.dev>"
+    "EMAIL_FROM": "DarkFactory <no-reply@send.darkfactory.jeffscott.world>"
   },
   "assets": {
     "directory": "dist/client",
@@ -39,9 +39,9 @@
         "APP_NAME": "DarkFactory Staging",
         "DATABASE_PROVIDER": "planetscale",
         "BETTER_AUTH_URL": "https://darkfactory-web-staging.jsward-17.workers.dev",
-        "EMAIL_PROVIDER": "resend",
-        "EMAIL_TRANSPORT": "resend",
-        "EMAIL_FROM": "DarkFactory Staging <onboarding@resend.dev>"
+        "EMAIL_PROVIDER": "disabled",
+        "EMAIL_TRANSPORT": "disabled",
+        "EMAIL_FROM": "DarkFactory Staging <noreply@darkfactory.test>"
       }
     }
   }

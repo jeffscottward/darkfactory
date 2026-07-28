@@ -246,6 +246,48 @@ describe "parseServerEnv", ->
     expect(env.POSTHOG_HOST).toBeUndefined()
     expect(env.RESEND_API_KEY).toBeUndefined()
 
+  it "parses disabled production email without a Resend key and reports delivery unavailable", ->
+    const env = parseServerEnv({
+      ...validCoreEnv(),
+      APP_ENV: "production",
+      APP_URL: "https://staging.darkfactory.test",
+      BETTER_AUTH_URL: "https://staging.darkfactory.test",
+      EMAIL_PROVIDER: "disabled",
+      EMAIL_TRANSPORT: "disabled",
+      EMAIL_FROM: "DarkFactory Staging <noreply@darkfactory.test>",
+    })
+
+    expect(env.RESEND_API_KEY).toBeUndefined()
+    expect(getProviderCapabilities(env).emailDelivery).toBe(false)
+
+  it.each([
+    {
+      label: "disabled provider with an enabled transport",
+      overrides: {
+        EMAIL_PROVIDER: "disabled",
+        EMAIL_TRANSPORT: "resend",
+        RESEND_API_KEY: "r".repeat(32),
+      },
+    },
+    {
+      label: "enabled provider with the disabled transport",
+      overrides: {
+        EMAIL_PROVIDER: "resend",
+        EMAIL_TRANSPORT: "disabled",
+      },
+    },
+  ])("rejects $label", ({ overrides }) ->
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      ...overrides,
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "EMAIL_TRANSPORT",
+      message: "EMAIL_PROVIDER and EMAIL_TRANSPORT must be disabled together",
+    })
+  )
+
   it "enables provider capabilities only after complete configuration", ->
     const env = parseServerEnv({
       ...validCoreEnv(),
