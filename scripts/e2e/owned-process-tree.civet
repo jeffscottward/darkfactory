@@ -16,8 +16,15 @@ export type TerminateOwnedProcessOptions = Readonly<{
   gracefulTimeoutMillis?: number
   platform?: NodeJS.Platform
 }>
-const ownedProcesses = new WeakSet<ChildProcess>()
 const terminationPromises = new WeakMap<ChildProcess, Promise<void>>()
+type OwnedProcessState = {
+  readonly closeWaiters: Set<() => void>
+  closed: boolean
+  groupAbsent: boolean
+  readonly pid: number | undefined
+}
+const ownedProcessStates = new WeakMap<ChildProcess, OwnedProcessState>()
+const MAX_TIMEOUT_MILLISECONDS = 2_147_483_647
 
 
 const isErrno = (error: unknown, code: string): boolean =>
@@ -51,7 +58,18 @@ export const spawnOwnedProcess = (
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   }) as OwnedProcess
-  ownedProcesses.add(child)
+  const processState: OwnedProcessState = {
+    closeWaiters: new Set(),
+    closed: false,
+    groupAbsent: false,
+    pid: child.pid,
+  }
+  child.once("close", () => {
+    processState.closed = true
+    for (const resolveClose of processState.closeWaiters) resolveClose()
+    processState.closeWaiters.clear()
+  })
+  ownedProcessStates.set(child, processState)
   return child
 }
 
@@ -77,62 +95,178 @@ const processTreeExists = (pid: number): boolean => {
 }
 
 export const ownedProcessTreeExists = (child: ChildProcess): boolean => {
+  const processState = ownedProcessStates.get(child)
+  if (processState !== undefined) {
+    if (processState.groupAbsent) return false
+    const pid = processState.pid
+    if (pid === undefined) return false
+    if (process.platform === "win32") return true
+    return observeOwnedProcessTree(pid, processState)
+  }
   const pid = child.pid
   if (pid === undefined) return false
   if (process.platform === "win32") return true
   return processTreeExists(pid)
 }
 
-const waitForProcessTreeExit = async (
-  pid: number,
+type OwnedProcessExitObservation = "closed" | "group-absent" | "running"
+
+const waitForOwnedProcessClose = async (
+  processState: OwnedProcessState,
   timeoutMillis: number,
 ): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMillis
-  while (Date.now() < deadline) {
-    if (!processTreeExists(pid)) return true
-    await pause(25)
-  }
-  return !processTreeExists(pid)
+  if (processState.closed) return true
+  if (timeoutMillis <= 0) return false
+
+  return await new Promise<boolean>((resolve) => {
+    const onClose = (): void => {
+      clearTimeout(timeout)
+      processState.closeWaiters.delete(onClose)
+      resolve(true)
+    }
+    const timeout = setTimeout(() => {
+      processState.closeWaiters.delete(onClose)
+      resolve(false)
+    }, timeoutMillis)
+    processState.closeWaiters.add(onClose)
+  })
+}
+const observeOwnedProcessTree = (
+  pid: number,
+  processState: OwnedProcessState,
+): boolean => {
+  if (processState.groupAbsent) return false
+  const exists = processTreeExists(pid)
+  if (!exists) processState.groupAbsent = true
+  return exists
 }
 
+const waitForOwnedProcessExit = async (
+  pid: number,
+  processState: OwnedProcessState,
+  timeoutMillis: number,
+): Promise<OwnedProcessExitObservation> => {
+  const deadline = performance.now() + timeoutMillis
+  while (true) {
+    if (!observeOwnedProcessTree(pid, processState)) {
+      const closed = await waitForOwnedProcessClose(
+        processState,
+        Math.max(0, deadline - performance.now()),
+      )
+      return closed ? "closed" : "group-absent"
+    }
+    if (performance.now() >= deadline) return "running"
+    await pause(Math.min(25, deadline - performance.now()))
+  }
+}
+
+type OwnedProcessSignalObservation = "delivered" | "group-absent"
 const signalProcessTree = (
   pid: number,
+  processState: OwnedProcessState,
   signal: "SIGKILL" | "SIGTERM",
-): void => {
+): OwnedProcessSignalObservation => {
   try {
     process.kill(-pid, signal)
+    return "delivered"
   } catch (error) {
     if (!isErrno(error, "ESRCH")) throw error
+    processState.groupAbsent = true
+    return "group-absent"
   }
 }
 
-const terminateOwnedProcessTreeOnce = async (
-  child: OwnedProcess,
+const validateTimeoutBudget = (
+  timeoutMillis: number,
+  label: string,
+): void => {
+  if (
+    !Number.isFinite(timeoutMillis) ||
+    timeoutMillis < 0 ||
+    timeoutMillis > MAX_TIMEOUT_MILLISECONDS
+  ) {
+    throw new RangeError(
+      `${label} timeout budget must be finite, non-negative, and at most ${MAX_TIMEOUT_MILLISECONDS} milliseconds`,
+    )
+  }
+}
+type ValidatedTerminationRequest = Readonly<{
+  forceTimeoutMillis: number
+  gracefulTimeoutMillis: number
+  pid: number
+}>
+
+const validateTerminationRequest = (
+  processState: OwnedProcessState,
   options: TerminateOwnedProcessOptions,
-): Promise<void> => {
-  const pid = child.pid
+): ValidatedTerminationRequest => {
+  const pid = processState.pid
   if (pid === undefined) throw new Error("Owned process has no PID")
-  const platform = options.platform ?? process.platform
-  rejectUnprovenWindowsTermination(platform, pid)
-  if (!processTreeExists(pid)) return
+  const gracefulTimeoutMillis = options.gracefulTimeoutMillis ?? 5_000
+  const forceTimeoutMillis = options.forceTimeoutMillis ?? 5_000
+  validateTimeoutBudget(gracefulTimeoutMillis, "Graceful")
+  validateTimeoutBudget(forceTimeoutMillis, "Force")
+  validateTimeoutBudget(
+    gracefulTimeoutMillis + forceTimeoutMillis,
+    "Combined",
+  )
+  rejectUnprovenWindowsTermination(process.platform, pid)
+  rejectUnprovenWindowsTermination(options.platform ?? process.platform, pid)
+  return { forceTimeoutMillis, gracefulTimeoutMillis, pid }
+}
+const requireOwnedProcessClose = async (
+  processState: OwnedProcessState,
+  timeoutMillis: number,
+  pid: number,
+): Promise<void> => {
+  if (await waitForOwnedProcessClose(processState, timeoutMillis)) return
+  throw new Error(`Owned process tree ${pid} exited before the owned child closed`)
+}
+const terminateOwnedProcessTreeOnce = async (
+  processState: OwnedProcessState,
+  request: ValidatedTerminationRequest,
+): Promise<void> => {
+  const { forceTimeoutMillis, gracefulTimeoutMillis, pid } = request
+
+  if (!observeOwnedProcessTree(pid, processState)) {
+    await requireOwnedProcessClose(
+      processState,
+      gracefulTimeoutMillis + forceTimeoutMillis,
+      pid,
+    )
+    return
+  }
 
   let gracefulError: unknown
+  let gracefulSignal: OwnedProcessSignalObservation | undefined
   try {
-    signalProcessTree(pid, "SIGTERM")
+    gracefulSignal = signalProcessTree(pid, processState, "SIGTERM")
   } catch (error) {
     gracefulError = error
   }
-
-  if (
-    gracefulError === undefined &&
-    await waitForProcessTreeExit(
+  if (gracefulSignal === "group-absent") {
+    await requireOwnedProcessClose(
+      processState,
+      gracefulTimeoutMillis + forceTimeoutMillis,
       pid,
-      options.gracefulTimeoutMillis ?? 5_000,
     )
-  ) return
+    return
+  }
 
+  const gracefulExit = await waitForOwnedProcessExit(
+    pid,
+    processState,
+    gracefulTimeoutMillis,
+  )
+  if (gracefulExit === "closed") return
+  if (gracefulExit === "group-absent") {
+    await requireOwnedProcessClose(processState, forceTimeoutMillis, pid)
+    return
+  }
+
+  let forceSignal: OwnedProcessSignalObservation
   try {
-    signalProcessTree(pid, "SIGKILL")
+    forceSignal = signalProcessTree(pid, processState, "SIGKILL")
   } catch (forceError) {
     throw new AggregateError(
       gracefulError === undefined
@@ -141,13 +275,20 @@ const terminateOwnedProcessTreeOnce = async (
       `Failed to terminate owned process tree ${pid}`,
     )
   }
+  if (forceSignal === "group-absent") {
+    await requireOwnedProcessClose(processState, forceTimeoutMillis, pid)
+    return
+  }
 
-  if (
-    await waitForProcessTreeExit(
-      pid,
-      options.forceTimeoutMillis ?? 5_000,
-    )
-  ) return
+  const forceExit = await waitForOwnedProcessExit(
+    pid,
+    processState,
+    forceTimeoutMillis,
+  )
+  if (forceExit === "closed") return
+  if (forceExit === "group-absent") {
+    throw new Error(`Owned process tree ${pid} exited before the owned child closed`)
+  }
 
   throw new Error(`Owned process tree ${pid} did not exit after SIGKILL`)
 }
@@ -156,13 +297,15 @@ export const terminateOwnedProcessTree = async (
   child: OwnedProcess,
   options: TerminateOwnedProcessOptions = {},
 ): Promise<void> => {
-  if (!ownedProcesses.has(child)) {
+  const processState = ownedProcessStates.get(child)
+  if (processState === undefined) {
     throw new Error("Refusing to terminate a process not spawned as owned")
   }
+  const request = validateTerminationRequest(processState, options)
   const existing = terminationPromises.get(child)
   if (existing !== undefined) return await existing
 
-  const termination = terminateOwnedProcessTreeOnce(child, options)
+  const termination = terminateOwnedProcessTreeOnce(processState, request)
   terminationPromises.set(child, termination)
   try {
     return await termination
