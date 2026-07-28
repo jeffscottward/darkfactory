@@ -59,6 +59,7 @@
       ".git",
       ".graphify",
       ".next",
+      ".session-recovery",
       ".turbo",
       ".vinext",
       ".wrangler",
