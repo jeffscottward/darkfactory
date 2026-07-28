@@ -279,3 +279,57 @@ describe("Vite application plugin contract", () => {
     expect(rootGitignore.split(LINE_BREAK_PATTERN)).toContain(".dev.vars*");
   });
 });
+
+describe("production Worker runtime configuration", () => {
+  it("bounds CPU and persists complete invocation logs without traces", async () => {
+    const source = await readFile(
+      new URL("./wrangler.jsonc", import.meta.url),
+      "utf8"
+    );
+    const parsed = ts.parseConfigFileTextToJson("wrangler.jsonc", source);
+
+    expect(parsed.error).toBeUndefined();
+    const config = parsed.config as {
+      limits?: unknown;
+      observability?: unknown;
+    };
+    expect({
+      limits: config.limits,
+      observability: config.observability,
+    }).toEqual({
+      limits: {
+        cpu_ms: 500,
+      },
+      observability: {
+        enabled: true,
+        logs: {
+          enabled: true,
+          head_sampling_rate: 1,
+          invocation_logs: true,
+          persist: true,
+        },
+        traces: {
+          enabled: false,
+        },
+      },
+    });
+  });
+
+  it("keeps staging off the production custom domain", async () => {
+    const source = await readFile(
+      new URL("./wrangler.jsonc", import.meta.url),
+      "utf8"
+    );
+    const parsed = ts.parseConfigFileTextToJson("wrangler.jsonc", source);
+
+    expect(parsed.error).toBeUndefined();
+    const config = parsed.config as {
+      env?: {
+        staging?: {
+          routes?: unknown;
+        };
+      };
+    };
+    expect(config.env?.staging?.routes).toEqual([]);
+  });
+});

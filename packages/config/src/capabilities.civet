@@ -73,7 +73,7 @@ export const capabilityManifestSchema = z
       .object({
         name: z.literal("DarkFactory"),
         slug: z.literal("darkfactory"),
-        version: z.literal("0.2.0"),
+        version: z.literal("0.2.1"),
         framework_api: z.literal("next-app-router"),
         framework_implementation: z.literal("vinext"),
         build_tool: z.literal("vite"),

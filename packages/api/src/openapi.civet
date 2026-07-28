@@ -5,7 +5,7 @@ import { appContract } from "./contract.civet"
 
 export const OPENAPI_INFO = {
   title: "DarkFactory API",
-  version: "0.2.0",
+  version: "0.2.1",
 } as const
 
 export const buildOpenApiDocument = async (): Promise<OpenAPI.Document> => {

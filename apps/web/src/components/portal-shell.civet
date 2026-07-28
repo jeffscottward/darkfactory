@@ -63,7 +63,7 @@ const PortalNavigation = ({
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Workspace
           </p>
-          <NavigationLinks items={portalItems} onNavigate={onNavigate} orientation="vertical" showIcons />
+          <NavigationLinks items={portalItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
         </nav>
       ) : null}
       {accountItems.length > 0 ? (
@@ -71,7 +71,7 @@ const PortalNavigation = ({
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Account settings
           </p>
-          <NavigationLinks items={accountItems} onNavigate={onNavigate} orientation="vertical" showIcons />
+          <NavigationLinks items={accountItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
         </nav>
       ) : null}
       {isAdmin && adminItems.length > 0 ? (
@@ -79,7 +79,7 @@ const PortalNavigation = ({
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Administration
           </p>
-          <NavigationLinks items={adminItems} onNavigate={onNavigate} orientation="vertical" showIcons />
+          <NavigationLinks items={adminItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
         </nav>
       ) : null}
     </div>

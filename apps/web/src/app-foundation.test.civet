@@ -4,11 +4,16 @@ import {
   Children,
   createElement,
   isValidElement,
+  type AnchorHTMLAttributes,
   type ReactElement,
   type ReactNode,
 } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+type MockLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
+  readonly prefetch?: boolean
+}
 
 import { PALETTES } from "@darkfactory/state"
 const layoutMocks = vi.hoisted(() => ({
@@ -29,7 +34,11 @@ vi.mock("./lib/server-internal-dispatch.civet", () => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMocks.pathname,
 }))
-vi.mock("next/link", () => ({ default: "a" }))
+vi.mock("next/link", () => ({
+  default: ({ prefetch: _prefetch, ...props }: MockLinkProps) => (
+    createElement("a", props)
+  ),
+}))
 vi.mock("@darkfactory/ui/client/toaster", () => ({ Toaster: () => null }))
 vi.mock("./components/theme-menu.civet", () => ({
   ThemeMenu: () => createElement("button", { "aria-label": "Theme settings" }),
@@ -59,8 +68,13 @@ import robots from "./app/robots.civet"
 import HomePage from "./app/(public)/page.civet"
 import { AuthShell } from "./components/auth-shell.civet"
 import { NavigationLinks } from "./components/navigation-links.civet"
-import { PortalShell, PortalTopbar } from "./components/portal-shell.civet"
 import {
+  PortalShell,
+  PortalSidebar,
+  PortalTopbar,
+} from "./components/portal-shell.civet"
+import {
+  PublicFooter,
   PublicShell,
   getPublicNavigationModel,
 } from "./components/public-shell.civet"
@@ -132,22 +146,30 @@ const MissingUiStateProviderProbe = () => {
 type PortalElement = ReactElement<{
   readonly availableRoutes?: readonly string[]
   readonly children?: ReactNode
+  readonly href?: string
+  readonly isAdmin?: boolean
+  readonly items?: readonly unknown[]
   readonly mobile?: boolean
   readonly onNavigate?: (() => void) | undefined
+  readonly prefetch?: boolean
 }>
+
+const collectPortalElements = (
+  node: ReactNode,
+  predicate: (element: PortalElement) => boolean,
+): PortalElement[] => {
+  if (!isValidElement<PortalElement["props"]>(node)) return []
+  const matches = predicate(node) ? [node] : []
+  for (const child of Children.toArray(node.props.children)) {
+    matches.push(...collectPortalElements(child, predicate))
+  }
+  return matches
+}
 
 const findPortalElement = (
   node: ReactNode,
   predicate: (element: PortalElement) => boolean,
-): PortalElement | undefined => {
-  if (!isValidElement<PortalElement["props"]>(node)) return undefined
-  if (predicate(node)) return node
-  for (const child of Children.toArray(node.props.children)) {
-    const match = findPortalElement(child, predicate)
-    if (match !== undefined) return match
-  }
-  return undefined
-}
+): PortalElement | undefined => collectPortalElements(node, predicate)[0]
 
 const runThemeBootstrap = ({
   cookieStatus,
@@ -497,6 +519,65 @@ describe "shared shell semantics", ->
     expect(html).toContain('aria-current="page"')
     expect(html).toContain("bg-primary-subtle")
     expect(html).toContain(", current page")
+
+  it "disables prefetch for every desktop and mobile authenticated navigation group", ->
+    const availableRoutes = [
+      PORTAL_NAVIGATION[0]!.href,
+      ACCOUNT_NAVIGATION[0]!.href,
+      ADMIN_NAVIGATION[0]!.href,
+    ]
+    const portalTrees = [
+      PortalSidebar({ availableRoutes, isAdmin: true }),
+      PortalTopbar({ availableRoutes, isAdmin: true }),
+    ]
+    const navigationGroups = portalTrees.flatMap((tree, index) => {
+      const navigation = findPortalElement(
+        tree,
+        (element) => (
+          typeof element.type === "function"
+          && element.props.isAdmin === true
+          && element.props.mobile === (index === 1 ? true : undefined)
+        ),
+      )
+      expect(navigation).toBeDefined()
+      if (navigation === undefined || typeof navigation.type !== "function") {
+        throw new Error("Expected portal navigation")
+      }
+      const renderNavigation = navigation.type as (
+        props: PortalElement["props"],
+      ) => ReactNode
+      return collectPortalElements(
+        renderNavigation(navigation.props),
+        (element) => element.type === NavigationLinks,
+      )
+    })
+
+    expect(navigationGroups).toHaveLength(6)
+    expect(navigationGroups.every((group) => group.props.prefetch === false)).toBe(true)
+
+  it "forwards an explicit prefetch value to every link without changing public defaults", ->
+    const items = [PORTAL_NAVIGATION[0]!, ACCOUNT_NAVIGATION[0]!]
+    const privateLinks = collectPortalElements(
+      NavigationLinks({ items, prefetch: false }),
+      (element) => typeof element.props.href === "string",
+    )
+    expect(privateLinks).toHaveLength(items.length)
+    expect(privateLinks.every((link) => link.props.prefetch === false)).toBe(true)
+
+    const publicGroups = collectPortalElements(
+      PublicFooter({ availableRoutes: EXPOSED_ROUTE_PATHS }),
+      (element) => element.type === NavigationLinks,
+    )
+    expect(publicGroups.length).toBeGreaterThan(0)
+    expect(publicGroups.every((group) => group.props.prefetch === undefined)).toBe(true)
+    const publicLinks = publicGroups.flatMap((group) => (
+      collectPortalElements(
+        NavigationLinks(group.props as Parameters<typeof NavigationLinks>[0]),
+        (element) => typeof element.props.href === "string",
+      )
+    ))
+    expect(publicLinks.length).toBeGreaterThan(0)
+    expect(publicLinks.every((link) => link.props.prefetch === undefined)).toBe(true)
 
   it "leaves links inactive when neither the caller nor framework supplies a path", ->
     navigationMocks.pathname = null

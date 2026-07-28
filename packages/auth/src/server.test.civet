@@ -647,6 +647,229 @@ describe("fetch-native auth handler status gate", ->
     expect(handler).toHaveBeenCalledOnce()
   )
 
+  const sessionHandlerResponse = (
+    body: string | undefined,
+    status = 200,
+    statusText = "OK",
+    contentType: string | null = "application/json; charset=utf-8",
+  ): Response => {
+    const response = new Response(body, {
+      status,
+      statusText,
+      headers: {
+        ...(contentType === null ? {} : { "content-type": contentType }),
+        "cache-control": "no-store",
+        "set-cookie": "better-auth.session_data=refreshed; Path=/; HttpOnly",
+        "x-auth-resolution": "handler",
+      },
+    })
+    if (contentType === null) response.headers.delete("content-type")
+    return response
+  }
+
+  it.each([
+    ["active", JSON.stringify({
+      session: { id: "active-session" },
+      user: { status: "active" },
+    }), 202, "Accepted"],
+    ["null", "null", 200, "Session Missing"],
+    ["empty", "   ", 200, "Session Missing"],
+  ] as const)(
+    "uses one handler resolution for a %s GET session response",
+    async (_case, body, status, statusText) ->
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(body, status, statusText),
+        { user: { status: "suspended" } },
+      )
+
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/get-session", "GET"),
+      )
+
+      expect(response.status).toBe(status)
+      expect(response.statusText).toBe(statusText)
+      expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(response.headers.get("set-cookie")).toBe(
+        "better-auth.session_data=refreshed; Path=/; HttpOnly",
+      )
+      expect(response.headers.get("x-auth-resolution")).toBe("handler")
+      await expect(response.text()).resolves.toBe(body)
+      expect(getSession).not.toHaveBeenCalled()
+      expect(handler).toHaveBeenCalledOnce()
+      return undefined
+  )
+
+  it.each([
+    ["suspended", { user: { status: "suspended" } }, AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
+    ["deactivated", { user: { status: "deactivated" } }, AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
+    ["primitive", "present", AUTHORIZATION_ERROR_CODES.FORBIDDEN],
+    ["missing user", {}, AUTHORIZATION_ERROR_CODES.FORBIDDEN],
+    ["missing status", { user: {} }, AUTHORIZATION_ERROR_CODES.FORBIDDEN],
+    ["unknown status", { user: { status: "pending" } }, AUTHORIZATION_ERROR_CODES.FORBIDDEN],
+  ] as const)(
+    "fails closed for a %s present GET session without a second lookup",
+    async (_case, session, code) ->
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(JSON.stringify(session)),
+        null,
+      )
+
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/get-session", "GET"),
+      )
+
+      expect(response.status).toBe(403)
+      await expect(jsonBody(response)).resolves.toEqual({
+        code,
+        message: "Account is unavailable",
+      })
+      expect(getSession).not.toHaveBeenCalled()
+      expect(handler).toHaveBeenCalledOnce()
+      return undefined
+  )
+
+  it("normalizes the JSON media type before applying the GET session gate", async ->
+    const { auth, getSession, handler } = handlerAuth(
+      sessionHandlerResponse(
+        JSON.stringify({
+          session: { token: "must-not-escape" },
+          user: { status: "suspended" },
+        }),
+        200,
+        "OK",
+        "Application/JSON ; Charset=UTF-8",
+      ),
+      null,
+    )
+
+    const response = await createAuthHandler(auth)(
+      request("/api/auth/get-session", "GET"),
+    )
+
+    expect(response.status).toBe(403)
+    await expect(jsonBody(response)).resolves.toEqual({
+      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
+      message: "Account is unavailable",
+    })
+    expect(getSession).not.toHaveBeenCalled()
+    expect(handler).toHaveBeenCalledOnce()
+  )
+
+  it.each([
+    [
+      "active",
+      206,
+      "Partial Content",
+      {
+        token: "root-token",
+        session: { id: "active-session", token: "session-token" },
+        user: { status: "active", token: "user-token" },
+      },
+      {
+        session: { id: "active-session" },
+        user: { status: "active" },
+      },
+      "application/json; charset=utf-8",
+    ],
+    [
+      "non-OK",
+      503,
+      "Service Unavailable",
+      {
+        code: "SESSION_ADAPTER_UNAVAILABLE",
+        message: "Session unavailable",
+        token: "must-not-escape",
+      },
+      {
+        code: "SESSION_ADAPTER_UNAVAILABLE",
+        message: "Session unavailable",
+      },
+      "application/json ; charset=utf-8",
+    ],
+  ] as const)(
+    "preserves metadata while sanitizing the %s GET session response",
+    async (_case, status, statusText, body, expectedBody, contentType) ->
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(JSON.stringify(body), status, statusText, contentType),
+        { user: { status: "suspended" } },
+      )
+
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/get-session", "GET"),
+      )
+
+      expect(response.status).toBe(status)
+      expect(response.statusText).toBe(statusText)
+      expect(response.headers.get("set-cookie")).toBe(
+        "better-auth.session_data=refreshed; Path=/; HttpOnly",
+      )
+      expect(response.headers.get("x-auth-resolution")).toBe("handler")
+      await expect(jsonBody(response)).resolves.toEqual(expectedBody)
+      expect(getSession).not.toHaveBeenCalled()
+      expect(handler).toHaveBeenCalledOnce()
+      return undefined
+  )
+
+  it("preserves the redacted JSON parse failure for GET session", async ->
+    const { auth, getSession, handler } = handlerAuth(
+      sessionHandlerResponse("{not-json"),
+      null,
+    )
+
+    await expect(
+      createAuthHandler(auth)(request("/api/auth/get-session", "GET")),
+    ).rejects.toThrowError("Authentication JSON response is malformed")
+    expect(getSession).not.toHaveBeenCalled()
+    expect(handler).toHaveBeenCalledOnce()
+  )
+
+  it.each([
+    ["plain text", "text/plain"],
+    ["missing content type", null],
+  ] as const)(
+    "rejects a nonempty successful %s GET session response",
+    async (_case, contentType) ->
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(
+          JSON.stringify({
+            session: { token: "must-not-escape" },
+            user: { status: "suspended" },
+          }),
+          200,
+          "OK",
+          contentType,
+        ),
+        null,
+      )
+
+      await expect(
+        createAuthHandler(auth)(request("/api/auth/get-session", "GET")),
+      ).rejects.toThrowError("Authentication JSON response is malformed")
+      expect(getSession).not.toHaveBeenCalled()
+      expect(handler).toHaveBeenCalledOnce()
+      return undefined
+  )
+
+  it.each([
+    ["POST method", "/api/auth/get-session", "POST"],
+    ["suffix path", "/api/auth/get-session/extra", "GET"],
+    ["prefixed path", "/internal/api/auth/get-session", "GET"],
+  ] as const)(
+    "requires the exact GET session method and path for %s",
+    async (_case, path, method) ->
+      const { auth, getSession, handler } = handlerAuth(
+        new Response("must not run"),
+        { user: { status: "suspended" } },
+      )
+
+      const response = await createAuthHandler(auth)(request(path, method))
+
+      expect(response.status).toBe(403)
+      expect(getSession).toHaveBeenCalledOnce()
+      expect(handler).not.toHaveBeenCalled()
+      return undefined
+  )
+
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
