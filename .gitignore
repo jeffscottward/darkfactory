@@ -24,6 +24,9 @@ graphify-out/
 *.civet.d.ts
 *.civet.tsx
 
+# Local agent recovery artifacts
+.session-recovery/
+
 # Environment and local credentials
 .env
 .env.*

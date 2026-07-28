@@ -4,6 +4,8 @@
     "default": true,
     // Architecture/specification tables intentionally contain long requirement rows.
     "MD013": false,
+    // Changelogs repeat category headings across independent release sections.
+    "MD024": { "siblings_only": true },
     // Specifications may embed illustrative HTML that Markdown must preserve verbatim.
     "MD033": false
   },
