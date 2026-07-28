@@ -8,7 +8,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ### Changed
 
-- Aligned every workspace package manifest to version `0.2.1`.
+- Aligned every workspace package manifest and the capability, OpenAPI, declaration, architecture, and graph metadata to version `0.2.1`.
 - Persist complete Cloudflare Worker invocation logs without traces and enforce a 500 ms paid-runtime CPU ceiling as a fail-safe.
 
 ### Fixed
