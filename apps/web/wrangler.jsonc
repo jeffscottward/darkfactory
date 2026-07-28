@@ -48,6 +48,7 @@
       "name": "darkfactory-web-staging",
       "workers_dev": true,
       "preview_urls": false,
+      "routes": [],
       "vars": {
         "APP_ENV": "production",
         "APP_URL": "https://darkfactory-web-staging.jsward-17.workers.dev",

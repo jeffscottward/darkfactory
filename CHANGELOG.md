@@ -15,6 +15,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 - Prevent speculative Next.js prefetches for authenticated portal, account, and administration links so hidden navigation trees do not spend Worker CPU before user intent.
 - Resolve exact `GET /api/auth/get-session` status gating and response-token sanitization in one pass, while preserving fail-closed handling for inactive or malformed present sessions.
+- Prevent staging Worker deployments from inheriting and temporarily reassigning the production custom domain.
 
 ## [0.2.0] - 2026-07-27
 

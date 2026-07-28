@@ -314,4 +314,22 @@ describe("production Worker runtime configuration", () => {
       },
     });
   });
+
+  it("keeps staging off the production custom domain", async () => {
+    const source = await readFile(
+      new URL("./wrangler.jsonc", import.meta.url),
+      "utf8"
+    );
+    const parsed = ts.parseConfigFileTextToJson("wrangler.jsonc", source);
+
+    expect(parsed.error).toBeUndefined();
+    const config = parsed.config as {
+      env?: {
+        staging?: {
+          routes?: unknown;
+        };
+      };
+    };
+    expect(config.env?.staging?.routes).toEqual([]);
+  });
 });
