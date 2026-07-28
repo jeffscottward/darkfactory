@@ -55,7 +55,7 @@ export type ResendEmailPortOptions = Readonly<{
 
 export type SelectEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production"
-  transport?: "preview" | "resend" | undefined
+  transport?: "preview" | "resend" | "disabled" | undefined
   previewDirectory?: string | undefined
   previewMaxArtifacts?: number | undefined
   previewMaxBytes?: number | undefined

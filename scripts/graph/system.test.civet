@@ -1671,26 +1671,32 @@ describe("Graphify generated output reset", () => {
 
 describe("Graphify configured source corpus", () => {
   it("distinguishes root-generated output from authored nested directories", () => {
-    const excludes = ["coverage/**", "node_modules", "*.civet.d.ts"]
+    const excludes = ["coverage/**", "node_modules", "*.civet.d.ts", ".session-recovery"]
 
     expect(isGraphSourceExcluded("coverage/coverage-summary.json", excludes)).toBe(true)
     expect(isGraphSourceExcluded("scripts/coverage/coverage.civet", excludes)).toBe(false)
     expect(isGraphSourceExcluded("packages/api/node_modules/provider/index.js", excludes)).toBe(true)
     expect(isGraphSourceExcluded("packages/api/src/index.civet.d.ts", excludes)).toBe(true)
+    expect(isGraphSourceExcluded(".session-recovery", excludes)).toBe(true)
+    expect(isGraphSourceExcluded(".session-recovery/run/private.json", excludes)).toBe(true)
   })
 
-  it("keeps authored dotfiles but excludes nested framework-generated .next output", async () => {
+  it("keeps authored dotfiles but excludes generated framework and recovery output", async () => {
     const root = join("scripts", "graph", `system-corpus-${randomUUID()}`)
     const generated = join(root, ".next", "types", "routes.d.ts")
     const authored = join(root, ".authored", "source.ts")
-    await mkdir(join(root, ".next", "types"), { recursive: true })
-    await mkdir(join(root, ".authored"), { recursive: true })
-    await Promise.all([
-      writeFile(generated, "export type GeneratedRoute = string\n"),
-      writeFile(authored, "export const authored = true\n"),
-    ])
-
+    const recoveryRoot = join(".session-recovery", `system-corpus-${randomUUID()}`)
+    const recovery = join(recoveryRoot, "private.json")
     try {
+      await mkdir(join(root, ".next", "types"), { recursive: true })
+      await mkdir(join(root, ".authored"), { recursive: true })
+      await mkdir(recoveryRoot, { recursive: true })
+      await Promise.all([
+        writeFile(generated, "export type GeneratedRoute = string\n"),
+        writeFile(authored, "export const authored = true\n"),
+        writeFile(recovery, "{\"secret\":\"not-a-source\"}\n"),
+      ])
+
       const config = parseGraphConfig(await readFile(".graphify/config.json", "utf8"))
       const sources = await nodeGraphFileSystem.listSourceFiles(config)
 
@@ -1701,10 +1707,13 @@ describe("Graphify configured source corpus", () => {
         "tsconfig.base.json",
         "tsconfig.json",
       ])
+      expect(config.source.excludes).toContain(".session-recovery")
       expect(sources).toContain(authored)
       expect(sources).not.toContain(generated)
+      expect(sources).not.toContain(recovery)
     } finally {
       await rm(root, { force: true, recursive: true })
+      await rm(recoveryRoot, { force: true, recursive: true })
     }
   })
 })

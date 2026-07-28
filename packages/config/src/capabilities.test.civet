@@ -23,7 +23,7 @@ const expectedManifest = {
   project: {
     name: "DarkFactory",
     slug: "darkfactory",
-    version: "0.1.0",
+    version: "0.2.0",
     framework_api: "next-app-router",
     framework_implementation: "vinext",
     build_tool: "vite",

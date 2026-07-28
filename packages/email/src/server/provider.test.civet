@@ -121,6 +121,25 @@ describe "selectEmailPort", ->
       retryable: false,
     })
 
+
+  it "returns the disabled delivery result for an explicitly disabled transport without calling Resend", async ->
+    const send = vi.fn()
+    const email = selectEmailPort({
+      environment: "production",
+      transport: "disabled",
+      resendApiKey: "re_test_key",
+      from: "DarkFactory <noreply@domain.test>",
+      resendClient: { emails: { send } },
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "failed",
+      provider: "disabled",
+      code: "EMAIL_DELIVERY_DISABLED",
+      retryable: false,
+    })
+    expect(send).not.toHaveBeenCalled()
+
   it "does not enable a production transport by default", async ->
     const email = selectEmailPort({ environment: "production" })
 

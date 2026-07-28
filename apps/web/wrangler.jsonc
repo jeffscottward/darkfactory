@@ -1,9 +1,28 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "darkfactory-web",
+  "account_id": "9eaec6716c2f8d52dcb6b0463e690924",
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
   "main": "vinext/server/fetch-handler",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "darkfactory.jeffscott.world",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "APP_ENV": "production",
+    "APP_URL": "https://darkfactory.jeffscott.world",
+    "APP_NAME": "DarkFactory",
+    "DATABASE_PROVIDER": "planetscale",
+    "BETTER_AUTH_URL": "https://darkfactory.jeffscott.world",
+    "EMAIL_PROVIDER": "resend",
+    "EMAIL_TRANSPORT": "resend",
+    "EMAIL_FROM": "DarkFactory <no-reply@send.darkfactory.jeffscott.world>"
+  },
   "assets": {
     "directory": "dist/client",
     "not_found_handling": "none",
@@ -13,15 +32,16 @@
     "staging": {
       "name": "darkfactory-web-staging",
       "workers_dev": true,
+      "preview_urls": false,
       "vars": {
         "APP_ENV": "production",
         "APP_URL": "https://darkfactory-web-staging.jsward-17.workers.dev",
         "APP_NAME": "DarkFactory Staging",
         "DATABASE_PROVIDER": "planetscale",
         "BETTER_AUTH_URL": "https://darkfactory-web-staging.jsward-17.workers.dev",
-        "EMAIL_PROVIDER": "resend",
-        "EMAIL_TRANSPORT": "resend",
-        "EMAIL_FROM": "DarkFactory Staging <onboarding@resend.dev>"
+        "EMAIL_PROVIDER": "disabled",
+        "EMAIL_TRANSPORT": "disabled",
+        "EMAIL_FROM": "DarkFactory Staging <noreply@darkfactory.test>"
       }
     }
   }

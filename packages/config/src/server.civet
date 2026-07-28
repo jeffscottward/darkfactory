@@ -139,8 +139,8 @@ const baseServerEnvSchema = z.object({
   GROQ_API_KEY: optionalString,
   GROQ_MODEL: optionalString,
 
-  EMAIL_PROVIDER: z.enum(["resend"]).default("resend"),
-  EMAIL_TRANSPORT: z.enum(["preview", "resend"]).default("preview"),
+  EMAIL_PROVIDER: z.enum(["resend", "disabled"]).default("resend"),
+  EMAIL_TRANSPORT: z.enum(["preview", "resend", "disabled"]).default("preview"),
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: emailFromSchema.default("DarkFactory <noreply@domain.test>"),
   CONTACT_EMAIL_TO: optionalContactRecipient,
@@ -207,6 +207,17 @@ export const serverEnvSchema = baseServerEnvSchema.superRefine((env, context): v
         message: "DATABASE_URL must use sslmode=verify-full in production",
       })
     }
+  }
+
+  if (
+    (env.EMAIL_PROVIDER === "disabled") !==
+    (env.EMAIL_TRANSPORT === "disabled")
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["EMAIL_TRANSPORT"],
+      message: "EMAIL_PROVIDER and EMAIL_TRANSPORT must be disabled together",
+    })
   }
 
   if (env.EMAIL_TRANSPORT === "resend" && !env.RESEND_API_KEY) {

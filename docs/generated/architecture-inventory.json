@@ -71,7 +71,7 @@
   "packages": [
     {
       "name": "@darkfactory/ai",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/ai",
       "publicExports": [
         ".",
@@ -82,7 +82,7 @@
     },
     {
       "name": "@darkfactory/analytics",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/analytics",
       "publicExports": [
         ".",
@@ -93,7 +93,7 @@
     },
     {
       "name": "@darkfactory/api",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/api",
       "publicExports": [
         ".",
@@ -107,7 +107,7 @@
     },
     {
       "name": "@darkfactory/auth",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/auth",
       "publicExports": [
         "./client",
@@ -122,7 +122,7 @@
     },
     {
       "name": "@darkfactory/config",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/config",
       "publicExports": [
         ".",
@@ -134,7 +134,7 @@
     },
     {
       "name": "@darkfactory/db",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/db",
       "publicExports": [
         "./schema",
@@ -145,7 +145,7 @@
     },
     {
       "name": "@darkfactory/email",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/email",
       "publicExports": [
         ".",
@@ -157,7 +157,7 @@
     },
     {
       "name": "@darkfactory/jobs",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/jobs",
       "publicExports": [
         ".",
@@ -168,7 +168,7 @@
     },
     {
       "name": "@darkfactory/observability",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/observability",
       "publicExports": [
         ".",
@@ -183,14 +183,14 @@
     },
     {
       "name": "@darkfactory/root",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": ".",
       "publicExports": [],
       "workspaceDependencies": []
     },
     {
       "name": "@darkfactory/shared",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/shared",
       "publicExports": [
         "."
@@ -199,7 +199,7 @@
     },
     {
       "name": "@darkfactory/state",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/state",
       "publicExports": [
         ".",
@@ -210,7 +210,7 @@
     },
     {
       "name": "@darkfactory/storage",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/storage",
       "publicExports": [
         ".",
@@ -220,7 +220,7 @@
     },
     {
       "name": "@darkfactory/testkit",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/testkit",
       "publicExports": [
         ".",
@@ -230,7 +230,7 @@
     },
     {
       "name": "@darkfactory/ui",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "packages/ui",
       "publicExports": [
         ".",
@@ -261,7 +261,7 @@
     },
     {
       "name": "@darkfactory/web",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "directory": "apps/web",
       "publicExports": [],
       "workspaceDependencies": [
