@@ -115,8 +115,8 @@ export const updateTrustedThemePreference = async ({
       palette: preference.palette,
       expectedUpdatedAt: current.updatedAt,
     }))
-  catch
-    undefined
+  catch error
+    if (typeof error !== "object" || error === null) throw error
   if (!currentRequest()) return "superseded"
   if (saved !== null)
     applyThemePreference(store, saved)

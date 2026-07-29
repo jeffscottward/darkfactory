@@ -83,6 +83,29 @@ describe "setupFlowMachine", ->
 
     actor.stop()
 
+  it "preserves context when the preferences assignment receives another event", ->
+    const context: SetupFlowContext = {
+      detailsComplete: true
+      preferencesComplete: false
+      submissionAttempts: 0
+      error: null
+    }
+    const action = setupFlowMachine.implementations.actions[
+      "setPreferencesComplete"
+    ] as unknown as {
+      assignment: (args: {
+        context: SetupFlowContext
+        event: SetupFlowEvent
+      }) => SetupFlowContext
+    }
+
+    const result = action.assignment({
+      context
+      event: { type: "NEXT" }
+    })
+
+    expect(result).toBe(context)
+
   it "ignores submit outcomes outside the submitting state", ->
     const actor = startFlow()
 

@@ -49,11 +49,13 @@ const persistThemeState = (
         THEME_STORAGE_KEY,
         serializeAnonymousThemePreference(preference),
       )
-    catch
+    catch error
+      if (typeof error !== "object" || error === null) throw error
       // Storage can be unavailable in privacy modes; the in-memory preference remains valid.
   try
     document.cookie = serializeThemeCookie(preference)
-  catch
+  catch error
+    if (typeof error !== "object" || error === null) throw error
     // Cookie mirroring is best effort when the browser blocks persistence.
 
 export interface ThemeBootstrapConsumption {

@@ -6,16 +6,29 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // Dynamic import intentionally verifies the discovery-only module-loading boundary.
-const originalArguments = process.argv;
-process.argv = [...process.argv, "--list"];
+const playwrightModule = await (async () => {
+  const originalArguments = process.argv;
+  const originalDatabaseUrl = process.env["DATABASE_URL"];
+  process.argv = [...process.argv, "--list"];
+  Reflect.deleteProperty(process.env, "DATABASE_URL");
+  try {
+    return await import("./playwright.config");
+  } finally {
+    process.argv = originalArguments;
+    if (originalDatabaseUrl === undefined) {
+      Reflect.deleteProperty(process.env, "DATABASE_URL");
+    } else {
+      process.env["DATABASE_URL"] = originalDatabaseUrl;
+    }
+  }
+})();
 const {
   E2E_LIFECYCLE_GLOBAL_SETUP,
   createCanonicalWebServerConfig,
   default: playwrightConfig,
   parseMaintenanceDatabaseUrl,
   resolveNodeExtraCaCertificates,
-} = await import("./playwright.config");
-process.argv = originalArguments;
+} = playwrightModule;
 
 import {
   BrowserErrorCollector,

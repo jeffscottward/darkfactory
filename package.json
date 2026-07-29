@@ -117,6 +117,7 @@
     "turbo": "catalog:",
     "typescript": "catalog:",
     "ultracite": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

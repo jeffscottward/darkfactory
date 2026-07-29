@@ -71,7 +71,8 @@ export const runWithRequestTelemetry = async <T>(
   try
     try
       await telemetry.withSpan(input, execute)
-    catch
+    catch error
+      if (typeof error !== "object" || error === null) throw error
       // The application result below remains authoritative over telemetry.
     if (operation === undefined)
       const fallbackSpan: SpanHandle = Object.freeze({
@@ -84,5 +85,6 @@ export const runWithRequestTelemetry = async <T>(
   finally
     try
       waitUntil(telemetry.forceFlush().catch(() => undefined))
-    catch
+    catch error
+      if (typeof error !== "object" || error === null) throw error
       // Request completion and domain results never depend on provider flushing.

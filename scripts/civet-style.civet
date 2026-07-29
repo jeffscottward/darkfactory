@@ -189,7 +189,7 @@ const tokenizeCode = (source: string): readonly Token[] =>
         tokens.push({ text: twoCharacters, index, line: tokenLine })
         index += 2
         continue
-      if threeCharacters === "..." || threeCharacters === "===" || threeCharacters === "!=="
+      if threeCharacters === "..."
         tokens.push({ text: threeCharacters, index, line: tokenLine })
         index += 3
         continue
@@ -420,6 +420,7 @@ const jsxClosingTagLines = (
         continue
       break
   return lines
+
 
 export const scanCivetSource = (
   source: string,

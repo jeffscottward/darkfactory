@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from "vitest"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+const { execFileMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn(),
+}))
+
+vi.mock("node:child_process", () => ({ execFile: execFileMock }))
 
 import {
   discoverCivetFiles,
   formatCivetStyleViolation,
   parseGitCivetPaths,
   runCivetStyleCli,
+  runCivetStyleEntrypoint,
   scanCivetRepository,
   scanCivetSource,
   type CivetStyleDependencies,
@@ -31,23 +39,30 @@ describe "Civet source style scanner", ->
     { name: "callback arrow after unrelated type alias", source: "type Name = string\nitems.map(() => {\n  work()\n})" },
     { name: "assigned arrow after unrelated type alias", source: "type Name = string\nhandler = () => {\n  work()\n}" },
     { name: "object callback after unrelated type alias", source: "type Name = string\nconsume({ handler: () => {\n  work()\n} })" },
+    { name: "nested if body", source: "if ((ready && check())) {\n  start()\n}" },
     { name: "if body", source: "if (ready) {\n  start()\n}" },
     { name: "next-line if body", source: "if (ready)\n{\n  start()\n}" },
     { name: "else body", source: "if (ready) start()\nelse {\n  wait()\n}" },
     { name: "for body", source: "for (const item of items) {\n  visit(item)\n}" },
     { name: "while body", source: "while (ready) {\n  tick()\n}" },
+    { name: "with body", source: "with (context) {\n  inspect()\n}" },
     { name: "do body", source: "do {\n  tick()\n} while (ready)" },
     { name: "switch body", source: "switch (kind) {\n  case 'a': break\n}" },
     { name: "class body", source: "class Worker {\n  run()\n}" },
     { name: "next-line class body", source: "class Worker\n{\n  run()\n}" },
     { name: "generic class body", source: "class Worker<T> extends Base<T> {\n  run()\n}" },
+    { name: "computed-base class body", source: "class Worker extends mixins[0] {\n  run()\n}" },
     { name: "method body", source: "run(value: string): void {\n  use(value)\n}" },
+    { name: "computed method body", source: "class Worker\n  [runSymbol]() {\n    work()\n  }" },
+    { name: "generic method body", source: "class Worker\n  run<T>() {\n    work()\n  }" },
     { name: "callback arrow body", source: "items.map((item) => {\n  return item.id\n})" },
     { name: "callback function body", source: "items.map(function (item) {\n  return item.id\n})" },
+    { name: "direct call followed by a block", source: "load()\n{\n  work()\n}" },
     { name: "try body", source: "try {\n  work()\n}" },
     { name: "catch body", source: "try work()\ncatch (error) {\n  recover(error)\n}" },
     { name: "catch body without binding", source: "try work()\ncatch {\n  recover()\n}" },
     { name: "finally body", source: "try work()\nfinally {\n  clean()\n}" },
+    { name: "static initializer", source: "class Cache\n  static {\n    warm()\n  }" },
     { name: "bare statement block", source: "{\n  work()\n}" },
   ] as const
 
@@ -80,6 +95,8 @@ describe "Civet source style scanner", ->
     { name: "fragment", source: "<>\n  <Content />\n</>", line: 3 },
     { name: "member element", source: "<Layout.Panel>\n  content\n</Layout.Panel>", line: 3 },
     { name: "namespaced element", source: "<svg:path>\n  content\n</svg:path>", line: 3 },
+    { name: "custom element", source: "<my-widget>\n  content\n</my-widget>", line: 3 },
+    { name: "qualified custom element", source: "<ui:layout-panel>\n  content\n</ui:layout-panel>", line: 3 },
   ] as const)("detects an actual JSX closing $name", ({ source, line }) =>
     expect(scanCivetSource(source, "src/view.civet")).toEqual([
       { file: "src/view.civet", line, message: JSX_MESSAGE },
@@ -128,6 +145,17 @@ describe "Civet source style scanner", ->
     for (const source of allowed)
       expect(scanCivetSource(source, "src/allowed.civet"), source).toEqual([])
 
+  it "allows multiline type, interface, class-constraint, assertion, and call-result braces", ->
+    const allowed = [
+      "type Handler =\n  (input: string) => { ready: boolean }",
+      "interface Factory {\n  create(): { ready: boolean }\n  handler: () => { ready: boolean }\n}",
+      "class Box<T extends { id: string }>\n  value: T",
+      "const checked = implementation satisfies ((input: string) => { ready: boolean })",
+      "service?.load()\n{ service }",
+    ]
+    for (const source of allowed)
+      expect(scanCivetSource(source, "src/types.civet"), source).toEqual([])
+
   it "ignores fake violations in strings, comments, regexes, and template text", ->
     const source = [
       "const single = 'if (ready) { run() } </Panel>'",
@@ -149,6 +177,229 @@ describe "Civet source style scanner", ->
     expect(scanCivetSource(source, "src/interpolation.civet")).toEqual([
       { file: "src/interpolation.civet", line: 1, message: STRUCTURAL_MESSAGE },
     ])
+
+  it "sorts different violation messages reported on the same line", ->
+    expect(scanCivetSource("if (ready) { <Panel></Panel>", "src/same-line.civet")).toEqual([
+      { file: "src/same-line.civet", line: 1, message: JSX_MESSAGE },
+      { file: "src/same-line.civet", line: 1, message: STRUCTURAL_MESSAGE },
+    ])
+
+  it "skips escaped and multiline quoted-string contents while preserving line numbers", ->
+    const source = [
+      String.raw`const single = 'escaped \' brace { and </Panel>'`,
+      String.raw`const double = "escaped \" brace { and </Panel>"`,
+      "const continued = 'first\\",
+      "second { and </Panel>'",
+      "const multiline = 'first",
+      "second { and </Panel>'",
+      "if (ready) {",
+      "  work()",
+      "}",
+    ].join("\n")
+    expect(scanCivetSource(source, "src/quoted.civet")).toEqual([
+      { file: "src/quoted.civet", line: 7, message: STRUCTURAL_MESSAGE },
+    ])
+    expect(scanCivetSource(
+      "const unfinished = 'fake { and </Panel>",
+      "src/unfinished-quote.civet",
+    )).toEqual([])
+
+  it "skips escaped, multiline, nested, and unterminated template text", ->
+    const source = [
+      "const escaped = `fake \\` { and </Panel>`",
+      "const continued = `first\\",
+      "second { and </Panel>`",
+      "const nested = `outer ${`inner ${value}`}`",
+      "const interpolated = `value ${({ ready: true })}`",
+      "if (ready) {",
+      "  work()",
+      "}",
+    ].join("\n")
+    expect(scanCivetSource(source, "src/templates.civet")).toEqual([
+      { file: "src/templates.civet", line: 6, message: STRUCTURAL_MESSAGE },
+    ])
+    expect(scanCivetSource(
+      "const unfinished = `fake\n{ and </Panel>",
+      "src/unfinished-template.civet",
+    )).toEqual([])
+
+  it "handles empty and unterminated comments without scanning their contents", ->
+    expect(scanCivetSource("//", "src/empty-comment.civet")).toEqual([])
+    expect(scanCivetSource(
+      "/* unterminated\nif (ready) { </Panel>",
+      "src/unfinished-comment.civet",
+    )).toEqual([])
+
+  it "distinguishes escaped regex bodies and character classes from division", ->
+    const source = [
+      "/[{}\\/]+/giu",
+      "return /escaped\\/slash[}/]+/u",
+      "const quotient = total / divisor / scale",
+      "if (ready) {",
+      "  work()",
+      "}",
+    ].join("\n")
+    expect(scanCivetSource(source, "src/regex.civet")).toEqual([
+      { file: "src/regex.civet", line: 4, message: STRUCTURAL_MESSAGE },
+    ])
+    expect(scanCivetSource(
+      "return /unterminated\nif (ready) { </Panel>",
+      "src/unfinished-regex.civet",
+    )).toEqual([])
+
+  it "continues scanning after numeric, two-character, and spread tokens", ->
+    const source = [
+      "const number = 1_000.25e2",
+      "const choice = input?.part ?? fallback && left || right",
+      "const comparisons = a == b != c === d !== e <= f >= g",
+      "const updates = count++ + other-- ** 2",
+      "const copy = [...items]",
+      "if (copy[0] !== undefined) {",
+      "  work()",
+      "}",
+    ].join("\n")
+    expect(scanCivetSource(source, "src/operators.civet")).toEqual([
+      { file: "src/operators.civet", line: 6, message: STRUCTURAL_MESSAGE },
+    ])
+
+  it "classifies braces consistently around unmatched delimiter fragments", ->
+    expect(scanCivetSource(") {", "src/unmatched-close.civet")).toEqual([])
+    expect(scanCivetSource("( {", "src/unmatched-open.civet")).toEqual([])
+    expect(scanCivetSource("{ {", "src/unmatched-brace.civet")).toEqual([
+      { file: "src/unmatched-brace.civet", line: 1, message: STRUCTURAL_MESSAGE },
+    ])
+    expect(scanCivetSource(
+      "const value = { ready: true } candidate {",
+      "src/nested-brace.civet",
+    )).toEqual([])
+    expect(scanCivetSource("{: () => {", "src/unmatched-type.civet")).toEqual([
+      { file: "src/unmatched-type.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      { file: "src/unmatched-type.civet", line: 1, message: STRUCTURAL_MESSAGE },
+    ])
+
+  it.each([
+    { name: "unterminated regex at end of source", source: "return /unterminated\nif (ready) {" },
+    { name: "numeric token at end of source", source: "123" },
+  ] as const)("handles an $name", ({ source }) =>
+    expect(scanCivetSource(source, "src/end-of-source.civet")).toEqual([])
+  )
+
+  it.each([
+    {
+      name: "leading empty parameter list",
+      source: "() {",
+      violations: [],
+    },
+    {
+      name: "balanced call before an unfinished header",
+      source: "call() candidate {",
+      violations: [],
+    },
+    {
+      name: "bare unfinished header",
+      source: "candidate {",
+      violations: [],
+    },
+    {
+      name: "unqualified assigned arrow",
+      source: "handler = () => {",
+      violations: [
+        { file: "src/backward-scan.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+  ] as const)(
+    "handles an incomplete $name without inventing type or callable context",
+    ({ source, violations }) =>
+      expect(scanCivetSource(source, "src/backward-scan.civet")).toEqual(violations)
+  )
+
+  it.each([
+    {
+      name: "computed interface member",
+      source: "interface Factory { [handler]: () => { ready: boolean } }",
+      violations: [],
+    },
+    {
+      name: "open computed member",
+      source: "[handler: () => {",
+      violations: [],
+    },
+    {
+      name: "parenthesis inside an open computed member",
+      source: "[) handler: () => {",
+      violations: [
+        { file: "src/type-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+    {
+      name: "brace inside an open computed member",
+      source: "[} handler: () => {",
+      violations: [
+        { file: "src/type-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+    {
+      name: "assignment before an apparent annotation",
+      source: "handler = callback: () => {",
+      violations: [
+        { file: "src/type-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+    {
+      name: "unanchored apparent annotation",
+      source: "handler: () => {",
+      violations: [
+        { file: "src/type-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+  ] as const)(
+    "classifies an incomplete $name from its reachable delimiter context",
+    ({ source, violations }) =>
+      expect(scanCivetSource(source, "src/type-context.civet")).toEqual(violations)
+  )
+
+  it.each([
+    {
+      name: "generic arrow body",
+      source: "const identity = <T>(value: T) => {\n  return value\n}",
+      violations: [
+        { file: "src/arrow-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+    {
+      name: "unparenthesized arrow body",
+      source: "const identity = value => {\n  return value\n}",
+      violations: [
+        { file: "src/arrow-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+    {
+      name: "unmatched closing parenthesis before an arrow body",
+      source: "const identity = value) => {\n  return value\n}",
+      violations: [
+        { file: "src/arrow-context.civet", line: 1, message: STRUCTURAL_MESSAGE },
+      ],
+    },
+    {
+      name: "unfinished generic function type",
+      source: "type Factory = <T => { ready: boolean }",
+      violations: [],
+    },
+  ] as const)(
+    "classifies a $name without confusing generic and structural braces",
+    ({ source, violations }) =>
+      expect(scanCivetSource(source, "src/arrow-context.civet")).toEqual(violations)
+  )
+
+  it "rejects complete JSX names but ignores whitespace and malformed closing candidates", ->
+    const source = [
+      "< /Panel>",
+      "</123>",
+      "</Panel!>",
+      "</Panel.123>",
+      "const quotient = left < /right/.source.length",
+    ].join("\n")
+    expect(scanCivetSource(source, "src/not-jsx.civet")).toEqual([])
 
   it "reports stable one-based lines and formats diagnostics", ->
     const violation: CivetStyleViolation = {
@@ -176,6 +427,12 @@ describe "Civet source discovery", ->
       "scripts/z.civet",
     ])
 
+
+  it "normalizes Windows separators and handles empty Git output", ->
+    expect(parseGitCivetPaths("packages\\core\\index.civet\0")).toEqual([
+      "packages/core/index.civet",
+    ])
+    expect(parseGitCivetPaths("")).toEqual([])
   it "asks Git for tracked and untracked non-ignored Civet files", async ->
     const calls: Array<readonly [string, readonly string[], string]> = []
     const runGit: GitRunner = async (command, arguments_, options) =>
@@ -200,6 +457,30 @@ describe "Civet source discovery", ->
       "/repo",
     ]])
 
+  it "uses the default Git and source-reader callbacks", async ->
+    execFileMock.mockImplementationOnce((_command, _arguments, _options, callback) =>
+      callback(null, { stdout: "scripts/civet-style.civet\0" })
+    )
+    const root = fileURLToPath(new URL("..", import.meta.url))
+    await expect(scanCivetRepository(root)).resolves.toEqual({
+      files: ["scripts/civet-style.civet"],
+      violations: [],
+    })
+    expect(execFileMock).toHaveBeenCalledWith(
+      "git",
+      [
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        "*.civet",
+      ],
+      { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+      expect.any(Function),
+    )
+
   it "sorts repository findings by file, line, and message regardless of discovery order", async ->
     const dependencies: CivetStyleDependencies = {
       discoverFiles: async -> ["z.civet", "a.civet"],
@@ -216,6 +497,24 @@ describe "Civet source discovery", ->
         { file: "z.civet", line: 2, message: JSX_MESSAGE },
       ],
     })
+
+  it "deduplicates before invoking the repository source callback", async ->
+    const discoverFiles = vi.fn(async -> ["b.civet", "a.civet", "b.civet"])
+    const readSource = vi.fn(async (_root, file) =>
+      if file === "a.civet" then "const clean = { ready: true }" else ""
+    )
+    await expect(scanCivetRepository("/repo", {
+      discoverFiles,
+      readSource,
+    })).resolves.toEqual({
+      files: ["a.civet", "b.civet"],
+      violations: [],
+    })
+    expect(discoverFiles).toHaveBeenCalledWith("/repo")
+    expect(readSource.mock.calls).toEqual([
+      ["/repo", "a.civet"],
+      ["/repo", "b.civet"],
+    ])
 
 describe "Civet style CLI", ->
   const dependencies = (sources: Readonly<Record<string, string>>): CivetStyleDependencies => ({
@@ -234,6 +533,17 @@ describe "Civet style CLI", ->
     expect(exitCode).toBe(0)
     expect(output).toEqual(["Civet style check passed (1 file).\n"])
     expect(error).toEqual([])
+
+  it "uses the plural clean summary when no files are discovered", async ->
+    const output = vi.fn()
+    const error = vi.fn()
+    await expect(runCivetStyleCli(
+      "/repo",
+      { writeOutput: output, writeError: error },
+      dependencies({}),
+    )).resolves.toBe(0)
+    expect(output).toHaveBeenCalledWith("Civet style check passed (0 files).\n")
+    expect(error).not.toHaveBeenCalled()
 
   it "returns nonzero and emits sorted file:line diagnostics for dirty sources", async ->
     const output: string[] = []
@@ -270,3 +580,46 @@ describe "Civet style CLI", ->
     expect(exitCode).toBe(1)
     expect(output).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledWith("civet-style: scan failed\n")
+
+describe "Civet style entrypoint", ->
+  const moduleUrl = pathToFileURL("/repo/scripts/civet-style.civet").href
+
+  it "does not invoke the CLI without an invoked path or for another module", async ->
+    const runCli = vi.fn(async -> 0)
+    const streams = { writeOutput: vi.fn(), writeError: vi.fn() }
+
+    await runCivetStyleEntrypoint({
+      invokedPath: undefined,
+      moduleUrl,
+      root: "/repo",
+      streams,
+      exitState: {},
+      runCli,
+    })
+    await runCivetStyleEntrypoint({
+      invokedPath: "/repo/scripts/other.civet",
+      moduleUrl,
+      root: "/repo",
+      streams,
+      exitState: {},
+      runCli,
+    })
+
+    expect(runCli).not.toHaveBeenCalled()
+
+  it "forwards the CLI callbacks and stores the returned exit code", async ->
+    const runCli = vi.fn(async -> 7)
+    const streams = { writeOutput: vi.fn(), writeError: vi.fn() }
+    const exitState: { exitCode?: string | number | null } = {}
+
+    await runCivetStyleEntrypoint({
+      invokedPath: "/repo/scripts/civet-style.civet",
+      moduleUrl,
+      root: "/repo",
+      streams,
+      exitState,
+      runCli,
+    })
+
+    expect(runCli).toHaveBeenCalledWith("/repo", streams)
+    expect(exitState.exitCode).toBe(7)

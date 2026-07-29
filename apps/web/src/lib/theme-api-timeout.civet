@@ -12,8 +12,8 @@ const readBoundedThemeResponse = async (
   )
     try
       await response.body?.cancel()
-    catch
-      undefined
+    catch error
+      if (typeof error !== "object" || error === null) throw error
     throw new Error("Theme response exceeded the safe size limit")
   if (response.body === null) return response
 
@@ -32,8 +32,8 @@ const readBoundedThemeResponse = async (
       if (byteLength > THEME_API_RESPONSE_MAX_BYTES)
         try
           await reader.cancel()
-        catch
-          undefined
+        catch error
+          if (typeof error !== "object" || error === null) throw error
         throw new Error("Theme response exceeded the safe size limit")
       chunks.push(result.value)
   finally

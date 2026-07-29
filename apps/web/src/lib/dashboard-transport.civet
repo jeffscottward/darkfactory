@@ -27,8 +27,8 @@ const readBoundedDashboardResponse = async (response: Response, signal: AbortSig
       if (byteLength > MAX_DASHBOARD_RESPONSE_BYTES)
         try
           await reader.cancel()
-        catch
-          undefined
+        catch error
+          if (typeof error !== "object" || error === null) throw error
         throw new Error("Dashboard response exceeded the safe size limit")
       chunks.push(result.value)
   finally

@@ -4,26 +4,26 @@
   "projects": ["unit", "contract", "operations"],
   "metrics": {
     "lines": {
-      "total": 11348,
-      "covered": 11348,
+      "total": 11719,
+      "covered": 11719,
       "skipped": 0,
       "pct": 100
     },
     "branches": {
-      "total": 8168,
-      "covered": 8168,
+      "total": 8296,
+      "covered": 8296,
       "skipped": 0,
       "pct": 100
     },
     "functions": {
-      "total": 2367,
-      "covered": 2367,
+      "total": 2304,
+      "covered": 2304,
       "skipped": 0,
       "pct": 100
     },
     "statements": {
-      "total": 12543,
-      "covered": 12543,
+      "total": 12862,
+      "covered": 12862,
       "skipped": 0,
       "pct": 100
     }

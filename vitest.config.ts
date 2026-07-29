@@ -1,8 +1,23 @@
 import civet from "@danielx/civet/vite";
 import { defineConfig } from "vitest/config";
+import { transformWithEsbuild, type Plugin } from "vite";
+
+const transformCivetTypescript: Plugin = {
+  name: "darkfactory:civet-typescript",
+  enforce: "pre",
+  transform(code, id) {
+    if (!id.endsWith(".civet")) {
+      return null;
+    }
+    return transformWithEsbuild(code, `${id}.tsx`, {
+      loader: "tsx",
+      sourcemap: true,
+    });
+  },
+};
 
 export default defineConfig({
-  plugins: [civet({ ts: "esbuild" })],
+  plugins: [civet({ ts: "preserve" }), transformCivetTypescript],
   test: {
     environment: "node",
     coverage: {
@@ -23,7 +38,6 @@ export default defineConfig({
       exclude: [
         "**/*.{test,spec}.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/*.d.ts",
-        "**/*.civet.tsx",
         "**/generated/**",
         "apps/web/src/features/generated-navigation.civet",
       ],
