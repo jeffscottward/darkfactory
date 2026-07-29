@@ -4,7 +4,7 @@ const mocks = vi.hoisted(->
   let appEnvironment = "test"
   const close = vi.fn(async () => undefined)
   const finalize = vi.fn(async () => undefined)
-  const requestHandler = vi.fn(async () => new Response("handled"))
+  const requestHandler = vi.fn(async (_request: Request) => new Response("handled"))
   const confirmedSignOutHandler = vi.fn(
     async () => new Response("signed out", { status: 200 }),
   )
@@ -74,7 +74,7 @@ vi.mock("../../../../lib/background-task-lifecycle.civet", -> ({
 }))
 vi.mock("cloudflare:workers", -> ({ waitUntil: mocks.waitUntil }))
 
-import { handleAuthRequest } from "./handler.civet"
+import { AUTH_REQUEST_MAX_BYTES, handleAuthRequest } from "./handler.civet"
 import { GET, POST } from "./route.civet"
 import {
   handleStrictSignOutRequest,
@@ -112,6 +112,117 @@ describe "auth route rate-limit configuration", ->
         rateLimitEnabled: true,
       }))
   )
+
+describe "bounded Better Auth request bodies", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    mocks.setAppEnvironment("test")
+
+  it "rejects an oversized declared body before database allocation", async ->
+    const response = await handleAuthRequest(
+      new Request(
+        "https://darkfactory.localhost/api/auth/sign-in/email",
+        {
+          method: "POST",
+          headers: {
+            "content-length": String(AUTH_REQUEST_MAX_BYTES + 1),
+            "content-type": "application/json",
+          },
+          body: "{}",
+        },
+      ),
+      vi.fn(),
+    )
+
+    expect(response.status).toBe(413)
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.requestHandler).not.toHaveBeenCalled()
+
+  it "rejects missing-length and lying-length streamed overflow before database allocation", async ->
+    const oversizedStream = () => new ReadableStream<Uint8Array>({
+      start(controller)
+        controller.enqueue(new Uint8Array(AUTH_REQUEST_MAX_BYTES))
+        controller.enqueue(new Uint8Array([1]))
+        controller.close()
+    })
+    const lengthless = new Request(
+      "https://darkfactory.localhost/api/auth/sign-up/email",
+      {
+        method: "POST",
+        body: oversizedStream(),
+        duplex: "half",
+      } as RequestInit,
+    )
+    lengthless.headers.delete("content-length")
+    const lying = new Request(
+      "https://darkfactory.localhost/api/auth/sign-up/email",
+      {
+        method: "POST",
+        headers: { "content-length": "1" },
+        body: oversizedStream(),
+        duplex: "half",
+      } as RequestInit,
+    )
+
+    const responses = await Promise.all([
+      handleAuthRequest(lengthless, vi.fn()),
+      handleAuthRequest(lying, vi.fn()),
+    ])
+
+    expect(responses.map(({ status }) => status)).toEqual([413, 413])
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.requestHandler).not.toHaveBeenCalled()
+
+  it "reconstructs an exact-boundary credential request with cookies and metadata", async ->
+    const controller = new AbortController()
+    const source = new Request(
+      "https://darkfactory.localhost/api/auth/sign-up/email?redirect=portal",
+      {
+        method: "POST",
+        headers: {
+          cookie: "session=opaque",
+          "content-type": "application/octet-stream",
+          "x-auth-marker": "preserved",
+        },
+        body: new Uint8Array(AUTH_REQUEST_MAX_BYTES),
+        signal: controller.signal,
+      },
+    )
+    source.headers.delete("content-length")
+
+    const response = await handleAuthRequest(source, vi.fn())
+
+    expect(response.status).toBe(200)
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
+    const forwarded = mocks.requestHandler.mock.calls[0]![0] as Request
+    expect(forwarded).not.toBe(source)
+    expect(forwarded.url).toBe(source.url)
+    expect(forwarded.method).toBe("POST")
+    expect(forwarded.headers.get("cookie")).toBe("session=opaque")
+    expect(forwarded.headers.get("x-auth-marker")).toBe("preserved")
+    expect(forwarded.headers.get("content-length")).toBe(
+      String(AUTH_REQUEST_MAX_BYTES),
+    )
+    expect((await forwarded.arrayBuffer()).byteLength).toBe(
+      AUTH_REQUEST_MAX_BYTES,
+    )
+    expect(forwarded.signal.aborted).toBe(false)
+    controller.abort()
+    expect(forwarded.signal.aborted).toBe(true)
+
+  it "forwards GET without a body while still allocating its request database", async ->
+    const source = new Request(
+      "https://darkfactory.localhost/api/auth/get-session",
+      {
+        headers: { cookie: "session=opaque" },
+      },
+    )
+
+    const response = await handleAuthRequest(source, vi.fn())
+
+    expect(response.status).toBe(200)
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
+    expect(mocks.requestHandler).toHaveBeenCalledWith(source)
 
 describe "strict sign-out request composition", ->
   beforeEach ->

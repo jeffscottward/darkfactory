@@ -1,0 +1,237 @@
+{
+  "identity": "darkfactory-verifier-checks-v1",
+  "commands": [
+    {
+      "id": "format",
+      "executable": "biome",
+      "args": ["format", "."],
+      "cwd": "."
+    },
+    { "id": "lint", "executable": "biome", "args": ["lint", "."], "cwd": "." },
+    {
+      "id": "markdown",
+      "executable": "markdownlint-cli2",
+      "args": ["**/*.md"],
+      "cwd": "."
+    },
+    {
+      "id": "auth-schema",
+      "executable": "bun",
+      "args": ["{workspace}/packages/auth/scripts/check-auth-schema.ts"],
+      "cwd": "."
+    },
+    {
+      "id": "openapi",
+      "executable": "bun",
+      "args": [
+        "--preload",
+        "@danielx/civet/bun-civet",
+        "{workspace}/packages/api/scripts/openapi.civet"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "civet-style",
+      "executable": "bun",
+      "args": [
+        "--preload",
+        "@danielx/civet/bun-civet",
+        "{workspace}/scripts/civet-style.civet"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "type-exports",
+      "executable": "bun",
+      "args": [
+        "--preload",
+        "@danielx/civet/bun-civet",
+        "{workspace}/scripts/type-exports.civet"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "types-auth",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/auth"
+    },
+    {
+      "id": "types-api",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/api"
+    },
+    {
+      "id": "types-db",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/db"
+    },
+    {
+      "id": "types-email",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/email"
+    },
+    {
+      "id": "types-jobs",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/jobs"
+    },
+    {
+      "id": "types-observability",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/observability"
+    },
+    {
+      "id": "types-state",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/state"
+    },
+    {
+      "id": "types-ui",
+      "executable": "civet",
+      "args": ["--config", "civet.types.json", "--emit-declaration"],
+      "cwd": "packages/ui"
+    },
+    {
+      "id": "typecheck-ai",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/ai"
+    },
+    {
+      "id": "typecheck-analytics",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/analytics"
+    },
+    {
+      "id": "typecheck-api",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/api"
+    },
+    {
+      "id": "typecheck-auth",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/auth"
+    },
+    {
+      "id": "typecheck-db",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/db"
+    },
+    {
+      "id": "typecheck-email",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/email"
+    },
+    {
+      "id": "typecheck-jobs",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/jobs"
+    },
+    {
+      "id": "typecheck-observability",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/observability"
+    },
+    {
+      "id": "typecheck-state",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/state"
+    },
+    {
+      "id": "typecheck-storage",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/storage"
+    },
+    {
+      "id": "typecheck-ui",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "packages/ui"
+    },
+    {
+      "id": "typecheck-web",
+      "executable": "civet",
+      "args": ["--config", "civet.typecheck.json", "--typecheck"],
+      "cwd": "apps/web"
+    },
+    {
+      "id": "typecheck-e2e",
+      "executable": "civet",
+      "args": ["--config", "scripts/e2e/civet.typecheck.json", "--typecheck"],
+      "cwd": "."
+    },
+    {
+      "id": "typecheck-integration",
+      "executable": "civet",
+      "args": ["--config", "civet.integration.json", "--typecheck"],
+      "cwd": "."
+    },
+    {
+      "id": "tsc",
+      "executable": "tsc",
+      "args": ["--project", "tsconfig.json", "--noEmit"],
+      "cwd": "."
+    },
+    {
+      "id": "build-web",
+      "executable": "vinext",
+      "args": ["build"],
+      "cwd": "apps/web"
+    },
+    {
+      "id": "unit",
+      "executable": "vitest",
+      "args": ["run", "--config", "vitest.config.ts", "--project", "unit"],
+      "cwd": "."
+    },
+    {
+      "id": "contract",
+      "executable": "vitest",
+      "args": ["run", "--config", "vitest.config.ts", "--project", "contract"],
+      "cwd": "."
+    },
+    {
+      "id": "operations",
+      "executable": "vitest",
+      "args": [
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "--project",
+        "operations",
+        "--project",
+        "e2e-helpers",
+        "--maxWorkers=1",
+        "--no-file-parallelism"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "docs",
+      "executable": "bun",
+      "args": [
+        "--preload",
+        "@danielx/civet/bun-civet",
+        "{workspace}/scripts/docs.civet",
+        "check"
+      ],
+      "cwd": "."
+    }
+  ]
+}

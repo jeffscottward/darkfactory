@@ -1,0 +1,244 @@
+export const WORKFLOW_MACHINE_ID = "darkfactory-pilot" as const
+export const WORKFLOW_MACHINE_VERSION = 1 as const
+export const WORKFLOW_EVENT_VERSION = 1 as const
+export const GENESIS_WORKFLOW_JOURNAL_HASH = "0".repeat(64)
+export const MAX_WORKFLOW_STAGE_ATTEMPTS_V1 = 3
+
+export class WorkflowRetryLimitReachedError extends Error
+  readonly code = "RETRY_LIMIT_REACHED" as const
+
+  constructor()
+    super("Workflow retry limit reached; cancel this run or start a new run")
+    this.name = "WorkflowRetryLimitReachedError"
+
+export const WORKFLOW_STATES = Object.freeze([
+  "draft"
+  "planning"
+  "awaitingApproval"
+  "implementing"
+  "verifying"
+  "blocked"
+  "completed"
+  "cancelled"
+] as const)
+
+export const WORKFLOW_EVENT_TYPES = Object.freeze([
+  "RUN_SUBMITTED"
+  "PLAN_SUCCEEDED"
+  "APPROVAL_GRANTED"
+  "APPROVAL_REJECTED"
+  "IMPLEMENTATION_SUCCEEDED"
+  "VERIFICATION_SUCCEEDED"
+  "VERIFICATION_FAILED"
+  "EFFECT_FAILED"
+  "RETRY_REQUESTED"
+  "CANCEL_REQUESTED"
+  "OPERATOR_MESSAGE_ADDED"
+] as const)
+
+export const WORKFLOW_EFFECT_KINDS = Object.freeze([
+  "plan"
+  "implement"
+  "verify"
+] as const)
+
+export type WorkflowMachineVersion = typeof WORKFLOW_MACHINE_VERSION
+export type WorkflowEventVersion = typeof WORKFLOW_EVENT_VERSION
+export type WorkflowStateV1 = (typeof WORKFLOW_STATES)[number]
+export type WorkflowEventTypeV1 = (typeof WORKFLOW_EVENT_TYPES)[number]
+export type WorkflowEffectKindV1 = (typeof WORKFLOW_EFFECT_KINDS)[number]
+export type WorkflowEffectHandlerV1 =
+  | "coding-agent.plan"
+  | "coding-agent.implement"
+  | "coding-agent.verify"
+export type WorkflowActiveEffectStateV1 = "planning" | "implementing" | "verifying"
+export type WorkflowTransitionMode = "live" | "replay"
+
+export interface WorkflowEffectScopeV1 {
+  readonly repositoryId: string
+  readonly paths: readonly string[]
+}
+
+export interface WorkflowFailureV1 {
+  readonly code: string
+  readonly retryable: boolean
+  readonly evidenceId?: string
+}
+
+export interface WorkflowEffectPayloadV1 {
+  readonly taskId: string
+  readonly workspaceId: string
+  readonly taskRevision: number
+  readonly taskHash: string
+  readonly sourceSequence: number
+  readonly evidenceIds: readonly string[]
+}
+
+export interface WorkflowEffectProposalV1 {
+  readonly kind: WorkflowEffectKindV1
+  readonly handler: WorkflowEffectHandlerV1
+  readonly scope: WorkflowEffectScopeV1
+  readonly payload: WorkflowEffectPayloadV1
+}
+
+export interface WorkflowEffectV1 extends WorkflowEffectProposalV1 {
+  readonly id: string
+  readonly idempotencyKey: string
+  readonly machineId: typeof WORKFLOW_MACHINE_ID
+  readonly machineVersion: WorkflowMachineVersion
+  readonly runId: string
+  readonly attempt: number
+  readonly proposalHash: string
+}
+
+export interface WorkflowApprovalBindingV1 {
+  readonly approvalId: string
+  readonly machineId: typeof WORKFLOW_MACHINE_ID
+  readonly machineVersion: WorkflowMachineVersion
+  readonly eventVersion: WorkflowEventVersion
+  readonly snapshotSequence: number
+  readonly journalHeadHash: string
+  readonly action: "implement"
+  readonly effectHash: string
+  readonly effectScope: WorkflowEffectScopeV1
+}
+
+interface WorkflowEventBaseV1 {
+  readonly eventId: string
+  readonly eventVersion: WorkflowEventVersion
+  readonly machineVersion: WorkflowMachineVersion
+  readonly occurredAt: string
+}
+
+export type WorkflowEventV1 =
+  | (WorkflowEventBaseV1 & {
+      readonly type: "RUN_SUBMITTED"
+      readonly taskId: string
+      readonly workspaceId: string
+      readonly taskRevision: number
+      readonly taskHash: string
+      readonly scope: WorkflowEffectScopeV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "PLAN_SUCCEEDED"
+      readonly planEvidenceId: string
+      readonly planHash: string
+      readonly implementationScope: WorkflowEffectScopeV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "APPROVAL_GRANTED"
+      readonly approvalId: string
+      readonly approvalHash: string
+      readonly binding: WorkflowApprovalBindingV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "APPROVAL_REJECTED"
+      readonly approvalId: string
+      readonly reasonCode: string
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "IMPLEMENTATION_SUCCEEDED"
+      readonly implementationEvidenceId: string
+      readonly changeHash: string
+      readonly verificationScope: WorkflowEffectScopeV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "VERIFICATION_SUCCEEDED"
+      readonly verificationEvidenceId: string
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "VERIFICATION_FAILED"
+      readonly failure: WorkflowFailureV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "EFFECT_FAILED"
+      readonly effectKind: WorkflowEffectKindV1
+      readonly failure: WorkflowFailureV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "RETRY_REQUESTED"
+      readonly reasonCode: string
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "CANCEL_REQUESTED"
+      readonly reasonCode: string
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "OPERATOR_MESSAGE_ADDED"
+      readonly messageId: string
+    })
+
+export interface WorkflowAttemptsV1 {
+  readonly plan: number
+  readonly implement: number
+  readonly verify: number
+}
+
+export interface WorkflowContextV1 {
+  readonly runId: string
+  readonly ownerId: string
+  readonly taskId: string | null
+  readonly workspaceId: string | null
+  readonly taskRevision: number | null
+  readonly taskHash: string | null
+  readonly scope: WorkflowEffectScopeV1 | null
+  readonly attempts: WorkflowAttemptsV1
+  readonly pendingEffect: WorkflowEffectProposalV1 | null
+  readonly planEvidenceId: string | null
+  readonly planHash: string | null
+  readonly approvalId: string | null
+  readonly approvalHash: string | null
+  readonly implementationEvidenceId: string | null
+  readonly changeHash: string | null
+  readonly verificationEvidenceId: string | null
+  readonly failedStage: WorkflowActiveEffectStateV1 | null
+  readonly lastErrorCode: string | null
+  readonly messageCount: number
+}
+
+export interface WorkflowSnapshotV1 {
+  readonly machineId: typeof WORKFLOW_MACHINE_ID
+  readonly machineVersion: WorkflowMachineVersion
+  readonly state: WorkflowStateV1
+  readonly sequence: number
+  readonly journalHeadHash: string
+  readonly context: WorkflowContextV1
+}
+
+export interface WorkflowJournalEntryV1 {
+  readonly sequence: number
+  readonly previousHash: string
+  readonly hash: string
+  readonly event: WorkflowEventV1
+}
+
+export interface WorkflowTransitionResultV1 {
+  readonly snapshot: WorkflowSnapshotV1
+  readonly effects: readonly WorkflowEffectV1[]
+}
+
+export type WorkflowIntegrityFailureReasonV1 =
+  | "invalid-binding"
+  | "no-pending-effect"
+  | "machine-mismatch"
+  | "version-mismatch"
+  | "sequence-mismatch"
+  | "journal-head-mismatch"
+  | "effect-hash-mismatch"
+  | "effect-scope-mismatch"
+  | "invalid-initial-snapshot"
+  | "invalid-snapshot"
+  | "invalid-journal-entry"
+  | "journal-sequence-mismatch"
+  | "journal-previous-hash-mismatch"
+  | "journal-entry-hash-mismatch"
+  | "replay-failed"
+  | "projection-mismatch"
+
+export type WorkflowIntegrityResultV1 =
+  | { readonly ok: true }
+  | {
+      readonly ok: false
+      readonly reason: WorkflowIntegrityFailureReasonV1
+      readonly sequence?: number
+    }

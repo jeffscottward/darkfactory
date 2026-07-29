@@ -20,6 +20,7 @@ afterEach(() =>
   vi.doUnmock("./dev/bindings.civet")
   vi.doUnmock("./dev/cli.civet")
   vi.doUnmock("./dev/system.civet")
+  vi.doUnmock("./deployment/database.civet")
   vi.doUnmock("./docs/cli.civet")
   vi.doUnmock("./docs/system.civet")
   vi.doUnmock("./doctor/cli.civet")
@@ -250,6 +251,28 @@ describe("root executable wrappers", () =>
     expect(stdout).toHaveBeenCalledWith("graph-output\n")
     expect(stderr).toHaveBeenCalledWith("graph-error\n")
     expect(process.exitCode).toBe(2)
+  )
+
+  it("forwards deployment database inputs, streams, and failure status", async () =>
+    const runProductionWebDatabaseCheck = vi.fn((
+      environment: NodeJS.ProcessEnv,
+      output: NodeJS.WriteStream,
+      errorOutput: NodeJS.WriteStream,
+    ) =>
+      expect(environment).toBe(process.env)
+      expect(output).toBe(process.stdout)
+      expect(errorOutput).toBe(process.stderr)
+      return 1
+    )
+    vi.doMock("./deployment/database.civet", () => ({
+      runProductionWebDatabaseCheck,
+    }))
+    process.exitCode = undefined
+
+    await import("./deployment.civet")
+
+    expect(runProductionWebDatabaseCheck).toHaveBeenCalledOnce()
+    expect(process.exitCode).toBe(1)
   )
 
   it("surfaces root CLI exceptions without replacing the current exit status", async () =>

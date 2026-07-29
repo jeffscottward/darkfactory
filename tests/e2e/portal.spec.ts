@@ -292,6 +292,7 @@ test.describe
         name: "Mobile portal navigation",
       });
       const overviewLink = mobileNavigation.locator('a[href="/dashboard"]');
+      const operatorLink = mobileNavigation.locator('a[href="/operator"]');
       const featureItemsLink = mobileNavigation.getByRole("link", {
         name: "Feature items",
         exact: true,
@@ -402,6 +403,8 @@ test.describe
       await expect(mobileNavigation).toBeVisible();
       await page.keyboard.press("Tab");
       await expect(overviewLink).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(operatorLink).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(featureItemsLink).toBeFocused();
       await page.keyboard.press("Enter");

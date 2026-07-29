@@ -1,0 +1,63 @@
+const MAX_WORKFLOW_REPOSITORY_GRANTS = 128
+const MAX_WORKFLOW_REPOSITORY_GRANTS_BYTES = 16_384
+const ownerIdPattern = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,126}[A-Za-z0-9])?$/u
+const repositoryIdPattern = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u
+const utf8ByteLength = (value: string): number =>
+  let length = 0
+  for character of value
+    const codePoint = character.codePointAt(0) ?? 0
+    length += if codePoint <= 0x7f then 1
+    else if codePoint <= 0x7ff then 2
+    else if codePoint <= 0xffff then 3
+    else 4
+  length
+
+export type WorkflowRepositoryGrant = Readonly<{
+  ownerId: string
+  repositoryId: string
+}>
+
+export type WorkflowRepositoryGrants = readonly WorkflowRepositoryGrant[]
+
+export class WorkflowRepositoryGrantError extends Error
+  constructor(message: string)
+    super(message)
+    this.name = "WorkflowRepositoryGrantError"
+
+export const parseWorkflowRepositoryGrants = (
+  value: string | undefined,
+): WorkflowRepositoryGrants =>
+  if (value === undefined || value.trim().length === 0)
+    throw new WorkflowRepositoryGrantError("Workflow repository grants are required")
+  if (utf8ByteLength(value) > MAX_WORKFLOW_REPOSITORY_GRANTS_BYTES)
+    throw new WorkflowRepositoryGrantError("Workflow repository grants are oversized")
+
+  const entries = value.split(",")
+  if entries.length > MAX_WORKFLOW_REPOSITORY_GRANTS
+    throw new WorkflowRepositoryGrantError("Too many workflow repository grants")
+
+  const grants: WorkflowRepositoryGrant[] = []
+  const seen = new Set<string>()
+  for (const rawEntry of entries)
+    const entry = rawEntry.trim()
+    const separator = entry.indexOf("=")
+    if (separator <= 0 || separator !== entry.lastIndexOf("="))
+      throw new WorkflowRepositoryGrantError("Workflow repository grant is malformed")
+    const ownerId = entry.slice(0, separator)
+    const repositoryId = entry.slice(separator + 1)
+    if (!ownerIdPattern.test(ownerId) || !repositoryIdPattern.test(repositoryId))
+      throw new WorkflowRepositoryGrantError("Workflow repository grant is invalid")
+    const identity = `${ownerId}\u0000${repositoryId}`
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    grants.push(Object.freeze({ ownerId, repositoryId }))
+
+  return Object.freeze(grants)
+
+export const isWorkflowRepositoryGranted = (
+  grants: WorkflowRepositoryGrants,
+  ownerId: string,
+  repositoryId: string,
+): boolean => grants.some(
+  (grant) => grant.ownerId === ownerId && grant.repositoryId === repositoryId,
+)

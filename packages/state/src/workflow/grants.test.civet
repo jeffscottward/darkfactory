@@ -1,0 +1,101 @@
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  WorkflowRepositoryGrantError,
+  isWorkflowRepositoryGranted,
+  parseWorkflowRepositoryGrants,
+} from "./grants.civet"
+
+describe "workflow repository grants", ->
+  it "authorizes only exact owner and canonical repository pairs", ->
+    const grants = parseWorkflowRepositoryGrants(
+      "owner-1=darkfactory, owner-2=sample.repo,owner-1=darkfactory",
+    )
+
+    expect(grants).toEqual([
+      { ownerId: "owner-1", repositoryId: "darkfactory" }
+      { ownerId: "owner-2", repositoryId: "sample.repo" }
+    ])
+    expect(isWorkflowRepositoryGranted(grants, "owner-1", "darkfactory")).toBe(true)
+    expect(isWorkflowRepositoryGranted(grants, "owner-2", "darkfactory")).toBe(false)
+    expect(isWorkflowRepositoryGranted(grants, "owner-1", "DarkFactory")).toBe(false)
+
+  it "fails closed for absent and malformed grants", ->
+    expect(() => parseWorkflowRepositoryGrants(undefined)).toThrow(
+      WorkflowRepositoryGrantError,
+    )
+    expect(() => parseWorkflowRepositoryGrants("  ")).toThrow(
+      WorkflowRepositoryGrantError,
+    )
+    for value of [
+      "*=darkfactory"
+      "owner-1=*"
+      "owner 1=darkfactory"
+      "owner-1=../darkfactory"
+      "owner-1=darkfactory=extra"
+      "owner-1"
+      "=darkfactory"
+    ]
+      expect(() => parseWorkflowRepositoryGrants(value)).toThrow(
+        WorkflowRepositoryGrantError,
+      )
+
+  it "bounds grant count and encoded bytes", ->
+    const tooMany = Array.from(
+      { length: 129 },
+      (_, index) => `owner-${index}=darkfactory`,
+    ).join(",")
+    expect(() => parseWorkflowRepositoryGrants(tooMany)).toThrow(
+      WorkflowRepositoryGrantError,
+    )
+    expect(() => parseWorkflowRepositoryGrants(`owner-1=${"a".repeat(16_384)}`))
+      .toThrow(WorkflowRepositoryGrantError)
+
+  it "accepts exact identifier and aggregate byte boundaries", ->
+    const owner = "o".repeat(128)
+    const repository = `r${"x".repeat(62)}z`
+    const grants = parseWorkflowRepositoryGrants(
+      `${" ".repeat(16_384 - owner.length - repository.length - 1)}${owner}=${repository}`
+    )
+    expect(grants).toEqual([{ ownerId: owner, repositoryId: repository }])
+    expect(Object.isFrozen(grants)).toBe(true)
+    expect(Object.isFrozen(grants[0])).toBe(true)
+    expect(() => parseWorkflowRepositoryGrants(
+      `${" ".repeat(16_385 - "owner=repo".length)}owner=repo`
+    )).toThrow("oversized")
+
+  it "counts UTF-8 bytes portably before parsing grants", ->
+    for oversized of [
+      "é".repeat(8_193)
+      "€".repeat(5_462)
+      "😀".repeat(4_097)
+    ]
+      expect(() => parseWorkflowRepositoryGrants(oversized)).toThrow(
+        "oversized"
+      )
+
+  it "falls back safely when a UTF-16 character has no code point", ->
+    const codePointAt = vi.spyOn(String.prototype, "codePointAt")
+      .mockReturnValue(undefined)
+    try
+      expect(parseWorkflowRepositoryGrants("owner=repository")).toEqual([
+        { ownerId: "owner", repositoryId: "repository" }
+      ])
+    finally
+      codePointAt.mockRestore()
+
+  it "accepts exactly 128 unique grants and rejects invalid identifier endings", ->
+    const maximum = Array.from(
+      { length: 128 }
+      (_, index) => `owner-${index}=repository-${index}`
+    ).join(",")
+    expect(parseWorkflowRepositoryGrants(maximum)).toHaveLength(128)
+    for malformed of [
+      "owner-=darkfactory"
+      "owner=repository-"
+      `${"o".repeat(129)}=darkfactory`
+      `owner=${"r".repeat(65)}`
+    ]
+      expect(() => parseWorkflowRepositoryGrants(malformed)).toThrow(
+        "invalid"
+      )

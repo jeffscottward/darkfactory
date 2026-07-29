@@ -1,0 +1,2222 @@
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  GENESIS_WORKFLOW_JOURNAL_HASH,
+  type OutboxEvent,
+} from "@darkfactory/db/schema"
+import {
+  WorkflowRunNotFoundError,
+  WorkflowRunTerminalError,
+  type WorkflowProjection,
+  type WorkflowRepository,
+} from "@darkfactory/db/server/workflow"
+import {
+  createWorkflowApprovalBindingV1,
+  hashWorkflowApprovalV1,
+  sha256Hex,
+  type WorkflowEventV1,
+} from "@darkfactory/state/workflow"
+
+import {
+  OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
+  OMP_VERIFIER_CONFIG_DIGEST,
+  OMP_VERIFIER_COMMAND_IDENTITY,
+  OMP_VERIFIER_ARGV_IDENTITY,
+  ompVerificationDigestFor,
+  redactOmpOutput,
+  type OmpCliAdapter,
+  type OmpExecutionResult,
+  type OmpPersistenceDisposition,
+  type OmpVerificationAttempt,
+} from "./omp.civet"
+import type { WorkflowEffectCompletion } from "./workflow-worker.civet"
+import {
+  createWorkflowPlanEvidenceV1,
+  hashWorkflowPlanEvidenceV1,
+} from "./plan-evidence.civet"
+import {
+  WorkflowProjectionVerificationError,
+  createWorkflowApplication,
+  createWorkflowRepositoryOutboxAdapter,
+  createWorkflowRuntime,
+  workflowApprovalIdFor,
+} from "./workflow-runtime.civet"
+import { WORKFLOW_EFFECT_HANDLER } from "./workflow-worker.civet"
+
+const NOW = new Date("2026-07-29T12:00:00.000Z")
+const OWNER_ID = "owner-1"
+const RUN_ID = "run-1"
+const TASK_HASH = "a".repeat(64)
+const RAW_OUTPUT = "sk-private-sentinel-token raw CLI output"
+const REDACTED_OUTPUT = redactOmpOutput(RAW_OUTPUT).value
+const PLAN = createWorkflowPlanEvidenceV1({
+  stdout: REDACTED_OUTPUT,
+  stderr: "",
+  stdoutBytes: Buffer.byteLength(REDACTED_OUTPUT),
+  stderrBytes: 0,
+  truncated: false,
+  redacted: true,
+})
+const SCOPE = Object.freeze({
+  repositoryId: "darkfactory",
+  paths: Object.freeze(["packages/jobs"]),
+})
+const cleanupRetainedWorkspace = async (): Promise<void> => undefined
+
+const IMPLEMENTATION_CHANGE_HASH = "c".repeat(64)
+const IMPLEMENTATION_SOURCE_HEAD = "d".repeat(40)
+const IMPLEMENTATION_WORKSPACE_KEY = "e".repeat(64)
+const IMPLEMENTATION_OWNER_NONCE = "123e4567-e89b-42d3-a456-426614174000"
+const VERIFIER_IMAGE_DIGEST = `sha256:${"f".repeat(64)}`
+const IMPLEMENTATION_CONTENT = JSON.stringify({
+  version: 1
+  sourceHead: IMPLEMENTATION_SOURCE_HEAD
+  workspaceKey: IMPLEMENTATION_WORKSPACE_KEY
+  ownerNonce: IMPLEMENTATION_OWNER_NONCE
+  changeHash: IMPLEMENTATION_CHANGE_HASH
+  entries: [{ path: "packages/jobs", kind: "directory" }]
+})
+const IMPLEMENTATION_ARTIFACT = Object.freeze({
+  identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY
+  bytes: Buffer.byteLength(IMPLEMENTATION_CONTENT)
+  digest: sha256Hex(IMPLEMENTATION_CONTENT)
+  content: IMPLEMENTATION_CONTENT
+  sourceHead: IMPLEMENTATION_SOURCE_HEAD
+  workspaceKey: IMPLEMENTATION_WORKSPACE_KEY
+  ownerNonce: IMPLEMENTATION_OWNER_NONCE
+  changeHash: IMPLEMENTATION_CHANGE_HASH
+})
+const VERIFICATION_SUMMARY = "working tree clean"
+const verificationForImageIdentity = (imageDigest: string): OmpVerificationAttempt =>
+  const digestPayload = {
+    commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY
+    imageDigest
+    configDigest: OMP_VERIFIER_CONFIG_DIGEST
+    argvIdentity: OMP_VERIFIER_ARGV_IDENTITY
+    implementationChangeDigest: IMPLEMENTATION_CHANGE_HASH
+    implementationArtifactDigest: IMPLEMENTATION_ARTIFACT.digest
+    manifestDigest: "d".repeat(64)
+    exitCode: 0 as const
+    resultSummary: VERIFICATION_SUMMARY
+  } satisfies Parameters<typeof ompVerificationDigestFor>[0]
+  Object.freeze({
+    ...digestPayload
+    status: "succeeded" as const
+    durationMs: 3
+    resultBytes: Buffer.byteLength(VERIFICATION_SUMMARY)
+    digest: ompVerificationDigestFor(digestPayload)
+  } satisfies OmpVerificationAttempt)
+
+const productionDockerVerification = (): OmpVerificationAttempt =>
+  verificationForImageIdentity(VERIFIER_IMAGE_DIGEST)
+
+const verifiedCompletion = (): WorkflowEffectCompletion => ({
+  ...completion()
+  eventType: "VERIFICATION_SUCCEEDED"
+  changeHash: IMPLEMENTATION_CHANGE_HASH
+  verification: productionDockerVerification()
+  plan: null
+  implementationArtifact: null
+})
+const submission = (
+  taskId = "task-1",
+): Extract<WorkflowEventV1, { type: "RUN_SUBMITTED" }> => ({
+  type: "RUN_SUBMITTED",
+  eventId: "submit-1",
+  eventVersion: 1,
+  machineVersion: 1,
+  occurredAt: NOW.toISOString(),
+  taskId,
+  workspaceId: "workspace-1",
+  taskRevision: 7,
+  taskHash: TASK_HASH,
+  scope: SCOPE,
+})
+
+const successfulExecution = (): OmpExecutionResult => ({
+  command: "print",
+  status: "succeeded",
+  exitCode: 0,
+  signal: null,
+  durationMs: 17,
+  output: {
+    stdout: RAW_OUTPUT,
+    stderr: "",
+    stdoutBytes: Buffer.byteLength(RAW_OUTPUT),
+    stderrBytes: 0,
+    truncated: false,
+    redacted: false,
+  },
+  change: null,
+  verification: null,
+  implementationArtifact: null,
+})
+
+const abortedExecution = (): OmpExecutionResult => ({
+  command: "print"
+  status: "aborted"
+  exitCode: null
+  signal: null
+  durationMs: 0
+  output: {
+    stdout: ""
+    stderr: ""
+    stdoutBytes: 0
+    stderrBytes: 0
+    truncated: false
+    redacted: false
+  }
+  change: null
+  verification: null
+  implementationArtifact: null
+})
+
+const completion = () => ({
+  status: "succeeded" as const,
+  eventType: "PLAN_SUCCEEDED" as const,
+  exitCode: 0 as const,
+  durationMs: 17,
+  outputBytes: Buffer.byteLength(REDACTED_OUTPUT),
+  outputTruncated: false,
+  outputRedacted: true,
+  changeHash: null,
+  changedPaths: Object.freeze([]),
+  plan: PLAN,
+})
+
+const duplicate = (): Error & { code: "23505" } =>
+  const error = new Error("duplicate") as Error & { code: "23505" }
+  error.code = "23505"
+  return error
+
+type FakeRepository = Readonly<{
+  repository: WorkflowRepository
+  created: Array<Parameters<WorkflowRepository["createRun"]>[0]>
+  appended: Array<Parameters<WorkflowRepository["append"]>[0]>
+  evidence: Array<Parameters<WorkflowRepository["addEvidence"]>[0]>
+  messages: Array<Parameters<WorkflowRepository["addMessageAndAppend"]>[0]>
+  approvals: Array<Parameters<WorkflowRepository["createApproval"]>[0]>
+  heartbeats: Array<Parameters<WorkflowRepository["heartbeatEffect"]>[0]>
+  completions: Array<Parameters<WorkflowRepository["finalizeEffect"]>[0]>
+  projection: () => WorkflowProjection | null
+  outbox: () => OutboxEvent | null
+  now: () => Date
+  advance: (milliseconds: number) => void
+  corruptProjection: () => void
+  rejectNextCompletion: () => void
+}>
+
+const fakeRepository = (): FakeRepository =>
+  let clock = new Date(NOW)
+  let current: WorkflowProjection | null = null
+  let row: OutboxEvent | null = null
+  let rejectCompletion = false
+  const created: Array<Parameters<WorkflowRepository["createRun"]>[0]> = []
+  const appended: Array<Parameters<WorkflowRepository["append"]>[0]> = []
+  const evidence: Array<Parameters<WorkflowRepository["addEvidence"]>[0]> = []
+  const approvals: Array<Parameters<WorkflowRepository["createApproval"]>[0]> = []
+  const messages: Array<
+    Parameters<WorkflowRepository["addMessageAndAppend"]>[0]
+  > = []
+  const heartbeats: Array<Parameters<WorkflowRepository["heartbeatEffect"]>[0]> = []
+  const completions: Array<Parameters<WorkflowRepository["finalizeEffect"]>[0]> = []
+
+  const projectionFor = (
+    input: Parameters<WorkflowRepository["createRun"]>[0] |
+      Parameters<WorkflowRepository["append"]>[0],
+    previous: WorkflowProjection | null,
+  ): WorkflowProjection =>
+    const runId = "runId" in input ? input.runId : input.id ?? RUN_ID
+    const sequence = previous === null ? 1 : previous.run.headSequence + 1
+    const previousHash = previous?.run.headHash ?? GENESIS_WORKFLOW_JOURNAL_HASH
+    const hash = input.snapshot.journalHeadHash
+    const journalEntry = Object.freeze({
+      runId,
+      sequence,
+      eventId: input.event.eventId,
+      eventType: input.event.type,
+      eventVersion: input.event.eventVersion,
+      event: input.event,
+      occurredAt: new Date(input.event.occurredAt),
+      previousHash,
+      hash,
+      requestHash: null,
+    })
+    return Object.freeze({
+      run: Object.freeze({
+        id: runId,
+        ownerId: input.ownerId,
+        machineId: input.snapshot.machineId,
+        machineVersion: input.snapshot.machineVersion,
+        state: input.snapshot.state,
+        headSequence: sequence,
+        headHash: hash,
+        createdAt: previous?.run.createdAt ?? new Date(clock),
+        updatedAt: new Date(clock),
+      }),
+      snapshot: Object.freeze({
+        runId,
+        sequence,
+        machineId: input.snapshot.machineId,
+        machineVersion: input.snapshot.machineVersion,
+        state: input.snapshot.state,
+        context: input.snapshot.context,
+        journalHeadHash: hash,
+        effectHash: input.snapshot.effectHash ?? null,
+        effectScope: input.snapshot.effectScope ?? null,
+        updatedAt: new Date(clock),
+      }),
+      journal: Object.freeze([...(previous?.journal ?? []), journalEntry]),
+    })
+
+  const storeEffect = (
+    effect: NonNullable<Parameters<WorkflowRepository["createRun"]>[0]["effects"]>[number],
+    replaceActive = false,
+  ): void =>
+    if (
+      !replaceActive &&
+      row !== null &&
+      row.publishedAt === null &&
+      row.deadAt === null
+    ) then return
+    row = Object.freeze({
+      id: effect.id ?? "outbox-1",
+      eventType: effect.eventType,
+      aggregateType: "workflow_run",
+      aggregateId: RUN_ID,
+      payload: effect.payload,
+      occurredAt: new Date(clock),
+      publishedAt: null,
+      attemptCount: 0,
+      handler: effect.handler,
+      idempotencyKey: effect.idempotencyKey,
+      requestHash: "b".repeat(64),
+      availableAt: effect.availableAt ?? new Date(clock),
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      fence: 0,
+      lastError: null,
+      deadAt: null,
+    })
+
+  const owns = (input: Readonly<{ id: string; leaseOwner: string; fence: number }>) =>
+    row !== null &&
+    row.id === input.id &&
+    row.leaseOwner === input.leaseOwner &&
+    row.fence === input.fence &&
+    row.leaseExpiresAt !== null &&
+    row.leaseExpiresAt.getTime() > clock.getTime() &&
+    row.publishedAt === null
+
+  const repository = Object.freeze<WorkflowRepository>({
+    createRun: async (input: Parameters<WorkflowRepository["createRun"]>[0]) =>
+      created.push(input)
+      current = projectionFor(input, null)
+      for (const effect of input.effects ?? []) storeEffect(effect)
+      return current
+    append: async (input: Parameters<WorkflowRepository["append"]>[0]) =>
+      appended.push(input)
+      if (current === null) throw new Error("missing run")
+      if (current.journal.some((entry) => entry.eventId === input.event.eventId))
+        return Object.freeze({ duplicate: true, projection: current })
+      current = projectionFor(input, current)
+      for (const effect of input.effects ?? []) storeEffect(effect)
+      return Object.freeze({ duplicate: false, projection: current })
+    listRunsByOwner: async (ownerId: string) =>
+      current?.run.ownerId === ownerId ? [current.run] : []
+    findProjectionByOwner: async (runId: string, ownerId: string) =>
+      current?.run.id === runId && current.run.ownerId === ownerId ? current : null
+    listProjectionsByOwner: async (ownerId: string, runIds: readonly string[]) =>
+      current !== null &&
+      current.run.ownerId === ownerId &&
+      runIds.includes(current.run.id)
+        ? [current]
+        : []
+    createApproval: async (input: Parameters<WorkflowRepository["createApproval"]>[0]) =>
+      if (approvals.some((saved) => saved.id === input.id)) throw duplicate()
+      approvals.push(input)
+      return {
+        ...input
+        id: input.id ?? "approval-1"
+        status: "pending" as const
+        decidedBy: null
+        decisionReason: null
+        decisionRequestHash: null
+        createdAt: new Date(clock)
+        decidedAt: null
+      }
+    decideApprovalAndAppend: async (
+      input: Parameters<WorkflowRepository["decideApprovalAndAppend"]>[0],
+    ) =>
+      if (!approvals.some((saved) =>
+        (saved.id ?? "approval-1") === input.approval.id &&
+        saved.runId === input.approval.runId &&
+        saved.ownerId === input.approval.ownerId
+      ))
+        throw new Error("missing approval")
+      appended.push(input.append)
+      if (current === null) throw new Error("missing run")
+      if (current.journal.some((entry) => entry.eventId === input.append.event.eventId))
+        return Object.freeze({ duplicate: true, projection: current })
+      current = projectionFor(input.append, current)
+      for (const effect of input.append.effects ?? []) storeEffect(effect)
+      return Object.freeze({ duplicate: false, projection: current })
+    addEvidence: async (input: Parameters<WorkflowRepository["addEvidence"]>[0]) =>
+      if (evidence.some((saved) => saved.id === input.id)) throw duplicate()
+      evidence.push(input)
+      return {
+        ...input
+        id: input.id ?? "evidence-1"
+        requestHash: "e".repeat(64)
+        createdAt: new Date(clock)
+      }
+    listEvidenceByOwner: async () => ({ items: [], nextCursor: null })
+    findEvidenceByOwner: async (id: string, runId: string, ownerId: string) =>
+      if (current?.run.id !== runId || current.run.ownerId !== ownerId) return null
+      const saved = evidence.find((item) => (item.id ?? "evidence-1") === id)
+      return saved === undefined ? null : {
+        id,
+        runId,
+        kind: saved.kind,
+        requestHash: "e".repeat(64),
+        summary: saved.summary,
+        data: saved.data,
+        createdAt: new Date(clock),
+      }
+    addMessageAndAppend: async (
+      input: Parameters<WorkflowRepository["addMessageAndAppend"]>[0],
+    ) =>
+      messages.push(input)
+      if (current === null) throw new Error("missing run")
+      if (input.append !== null)
+        appended.push(input.append)
+        current = projectionFor(input.append, current)
+      return Object.freeze({
+        duplicate: input.append === null,
+        message: Object.freeze({
+          id: input.id,
+          runId: input.runId,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: "a".repeat(64),
+          authorId: input.authorId,
+          content: input.content,
+          createdAt: new Date(clock),
+        }),
+        projection: current,
+      })
+    listMessagesByOwner: async () => ({ items: [], nextCursor: null })
+    claimDueEffects: async (input: Parameters<WorkflowRepository["claimDueEffects"]>[0]) =>
+      if (
+        row === null ||
+        row.handler !== input.handler ||
+        row.publishedAt !== null ||
+        row.availableAt.getTime() > clock.getTime() ||
+        (row.leaseExpiresAt !== null && row.leaseExpiresAt.getTime() > clock.getTime())
+      ) return []
+      const effectId = row.payload["effectId"]
+      if (
+        typeof effectId === "string" &&
+        current?.journal.some(
+          (entry) =>
+            entry.eventId === `effect-${effectId}-succeeded` ||
+              entry.eventId === `effect-${effectId}-failed`
+        ) &&
+        evidence.some(
+          (saved) =>
+            saved.id === `evidence-${effectId}-succeeded` ||
+              saved.id === `evidence-${effectId}-failed`
+        )
+      )
+        const failed = current.journal.some(
+          (entry) => entry.eventId === `effect-${effectId}-failed`,
+        )
+        row = Object.freeze({
+          ...row
+          publishedAt: failed ? null : new Date(clock)
+          deadAt: failed ? new Date(clock) : null
+          leaseOwner: null
+          leaseExpiresAt: null
+        })
+        return []
+      row = Object.freeze({
+        ...row
+        leaseOwner: input.leaseOwner
+        leaseExpiresAt: new Date(clock.getTime() + (input.leaseMilliseconds ?? 30_000))
+        fence: row.fence + 1
+      })
+      if row.payload["effectKind"] !== "verify" then return [row]
+      const implementationEvidenceId = (
+        current?.snapshot.context as Readonly<Record<string, unknown>> | undefined
+      )?.["implementationEvidenceId"]
+      const implementationEvidence = evidence.find(
+        (saved) => saved.id === implementationEvidenceId,
+      )?.data ?? null
+      const implementationChangeHash = (
+        current?.snapshot.context as Readonly<Record<string, unknown>> | undefined
+      )?.["changeHash"]
+      return [Object.freeze({
+        ...row,
+        payload: Object.freeze({
+          ...row.payload,
+          implementationEvidence,
+          implementationChangeHash: typeof implementationChangeHash === "string"
+            ? implementationChangeHash
+            : null,
+        }),
+      })]
+    heartbeatEffect: async (input: Parameters<WorkflowRepository["heartbeatEffect"]>[0]) =>
+      heartbeats.push(input)
+      if (!owns(input)) return false
+      row = Object.freeze({
+        ...row!
+        leaseExpiresAt: new Date(clock.getTime() + (input.leaseMilliseconds ?? 30_000))
+      })
+      return true
+    finalizeEffect: async (
+      input: Parameters<WorkflowRepository["finalizeEffect"]>[0],
+    ) =>
+      if (!owns(input)) return Object.freeze({ status: "stale" as const, projection: null })
+      completions.push(input)
+      if (rejectCompletion)
+        rejectCompletion = false
+        if (current === null) throw new Error("missing run")
+        appended.push(input.append)
+        current = projectionFor(input.append, current)
+        evidence.push(input.evidence)
+        if (input.approval !== undefined) approvals.push(input.approval)
+        return Object.freeze({ status: "stale" as const, projection: null })
+      if (current === null) throw new Error("missing run")
+      const claimedRow = row!
+      const duplicateEvent = current.journal.some(
+        (entry) => entry.eventId === input.append.event.eventId,
+      )
+      appended.push(input.append)
+      if (!duplicateEvent)
+        current = projectionFor(input.append, current)
+        for (const effect of input.append.effects ?? []) storeEffect(effect, true)
+      if (!evidence.some((saved) =>
+        (saved.id ?? "evidence-1") === (input.evidence.id ?? "evidence-1")
+      ))
+        evidence.push(input.evidence)
+      if (
+        input.approval !== undefined &&
+        !approvals.some((saved) => (saved.id ?? "approval-1") === input.approval!.id)
+      )
+        approvals.push(input.approval)
+      if (input.append.effects ?? []).length === 0
+        row = Object.freeze({
+          ...claimedRow
+          publishedAt: input.terminal === "completed" ? new Date(clock) : null
+          attemptCount: input.terminal === "dead"
+            ? claimedRow.attemptCount + 1
+            : claimedRow.attemptCount
+          lastError: input.terminal === "dead" ? input.error ?? null : null
+          deadAt: input.terminal === "dead" ? new Date(clock) : null
+          leaseOwner: null
+          leaseExpiresAt: null
+        })
+      return Object.freeze({
+        status: duplicateEvent ? "already-applied" as const : "applied" as const
+        projection: current
+      })
+    failEffect: async (
+      input: Parameters<WorkflowRepository["failEffect"]>[0],
+    ) =>
+      if !owns(input) then return false
+      row = Object.freeze({
+        ...row!
+        attemptCount: row!.attemptCount + 1
+        lastError: input.error
+        availableAt: input.retryAt
+        leaseOwner: null
+        leaseExpiresAt: null
+      })
+      return true
+    claimRetainedResources: async () => []
+    heartbeatRetainedResource: async () => true
+    releaseRetainedResource: async () => true
+    completeRetainedResource: async () => true
+    failRetainedResource: async () => true
+  })
+
+  return Object.freeze({
+    repository
+    created
+    appended
+    evidence
+    messages
+    approvals
+    heartbeats
+    completions
+    projection: () => current
+    outbox: () => row
+    now: () => new Date(clock)
+    advance: (milliseconds) => clock = new Date(clock.getTime() + milliseconds)
+    corruptProjection: () =>
+      if (current === null) throw new Error("missing run")
+      current = Object.freeze({
+        ...current
+        snapshot: Object.freeze({
+          ...current.snapshot
+          journalHeadHash: "f".repeat(64)
+        })
+      })
+    rejectNextCompletion: () => rejectCompletion = true
+  })
+
+const runtimeFor = (
+  fake: FakeRepository,
+  adapter: OmpCliAdapter,
+  leaseOwner: string,
+) => createWorkflowRuntime({
+  repository: fake.repository,
+  adapter,
+  leaseOwner,
+  authorizeRepository: () => true,
+  leaseMilliseconds: 1_000,
+  heartbeatMilliseconds: 100,
+  now: fake.now,
+  generateId: () => RUN_ID,
+})
+
+describe("workflow runtime composition", () =>
+  it("creates the submitted run and plan outbox atomically, and verifies replay without OMP", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const runtime = runtimeFor(fake, adapter, "worker-a")
+
+    const created = await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    expect((await runtime.application.findProjection(OWNER_ID, RUN_ID))?.snapshot)
+      .toEqual(created.snapshot)
+    expect(fake.created).toHaveLength(1)
+    expect(fake.created[0]).toMatchObject({
+      id: RUN_ID,
+      event: { type: "RUN_SUBMITTED" },
+      snapshot: { state: "planning", sequence: 1 },
+      effects: [expect.objectContaining({
+        handler: WORKFLOW_EFFECT_HANDLER,
+        payload: expect.objectContaining({
+          ownerId: OWNER_ID,
+          effectKind: "plan",
+          effectScope: SCOPE,
+          task: expect.objectContaining({
+            taskId: "task-1",
+            taskRevision: 7,
+            taskHash: TASK_HASH,
+            sourceSequence: 1,
+          }),
+        }),
+      })],
+    })
+    expect(fake.outbox()).toMatchObject({
+      aggregateType: "workflow_run",
+      aggregateId: RUN_ID,
+      handler: WORKFLOW_EFFECT_HANDLER,
+      fence: 0,
+    })
+    expect(adapter.execute).not.toHaveBeenCalled()
+
+    fake.corruptProjection()
+    await expect(runtime.application.findProjection(OWNER_ID, RUN_ID))
+      .rejects.toBeInstanceOf(WorkflowProjectionVerificationError)
+    expect(adapter.execute).not.toHaveBeenCalled()
+  )
+
+  it("recovers an already-applied completion once after restart without persisting raw CLI data", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const interrupted = runtimeFor(fake, adapter, "worker-before-restart")
+    await interrupted.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    fake.rejectNextCompletion()
+
+    await expect(interrupted.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "lease-lost" }),
+    ])
+    fake.advance(1_001)
+    const restarted = runtimeFor(fake, adapter, "worker-after-restart")
+    await expect(restarted.runOnce()).resolves.toEqual([])
+    await expect(runtimeFor(fake, adapter, "worker-third").runOnce()).resolves.toEqual([])
+
+    const projection = await restarted.application.findProjection(OWNER_ID, RUN_ID)
+    expect(projection?.journal.filter((entry) => entry.event.type === "PLAN_SUCCEEDED"))
+      .toHaveLength(1)
+    expect(fake.appended).toHaveLength(1)
+    expect(fake.appended[0]).toMatchObject({
+      expectedSequence: 1,
+      event: { type: "PLAN_SUCCEEDED" },
+      snapshot: { state: "awaitingApproval", sequence: 2 },
+      effects: [],
+    })
+    expect(fake.evidence).toHaveLength(1)
+    expect(fake.approvals).toHaveLength(1)
+    expect(adapter.execute).toHaveBeenCalledOnce()
+    expect(fake.heartbeats.map(({ fence }) => fence)).toEqual([1])
+    expect(fake.completions).toMatchObject([
+      { leaseOwner: "worker-before-restart", fence: 1 },
+    ])
+
+    const savedEvidence = fake.evidence[0]!
+    expect(savedEvidence.data).toMatchObject({
+      status: "succeeded",
+      eventType: "PLAN_SUCCEEDED",
+      durationMs: 17,
+      outputBytes: Buffer.byteLength(REDACTED_OUTPUT),
+      outputTruncated: false,
+      outputRedacted: true,
+    })
+    const savedPlan = savedEvidence.data["plan"] as unknown as typeof PLAN
+    expect(savedPlan).toEqual(PLAN)
+    expect(savedPlan.digest).toBe(hashWorkflowPlanEvidenceV1(savedPlan))
+    expect(fake.appended[0]!.event).toMatchObject({ planHash: PLAN.digest })
+    expect(Object.keys(savedEvidence.data).sort()).toEqual([
+      "changeHash", "changedPaths", "durationMs", "effectId", "effectKind",
+      "effectScope", "eventType", "exitCode", "implementationArtifact",
+      "outputBytes", "outputRedacted", "outputTruncated", "plan", "status",
+      "verification",
+    ])
+    const prompt = vi.mocked(adapter.execute).mock.calls[0]![0].instruction
+    const persisted = JSON.stringify({
+      created: fake.created,
+      appended: fake.appended,
+      evidence: fake.evidence,
+      outbox: fake.outbox(),
+    })
+    expect(persisted).not.toContain(prompt)
+    expect(persisted).not.toContain(RAW_OUTPUT)
+    expect(persisted).not.toContain("stdout")
+    expect(persisted).not.toContain("stderr")
+  )
+
+  it("rejects PLAN_SUCCEEDED application before any digest-bound evidence exists", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, { now: fake.now })
+    await application.createRun({
+      runId: RUN_ID,
+      ownerId: OWNER_ID,
+      event: submission(),
+    })
+
+    await expect(application.transition({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      event: {
+        type: "PLAN_SUCCEEDED"
+        eventId: "unbound-plan"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: NOW.toISOString()
+        planEvidenceId: "missing-plan-evidence"
+        planHash: PLAN.digest
+        implementationScope: SCOPE
+      }
+    })).rejects.toThrow("Digest-bound plan evidence is missing")
+    expect(fake.appended).toHaveLength(0)
+  )
+
+  it("rejects durable plan summary tampering during projection replay", async () =>
+    const fake = fakeRepository()
+    const runtime = runtimeFor(fake, {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace: vi.fn(async () => undefined)
+    }, "worker-plan-tamper")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await runtime.runOnce()
+    const saved = fake.evidence[0]!
+    fake.evidence[0] = {
+      ...saved
+      data: {
+        ...saved.data
+        plan: { ...PLAN, summary: `${PLAN.summary} tampered` }
+      }
+    }
+
+    await expect(runtime.application.findProjection(OWNER_ID, RUN_ID))
+      .rejects.toThrow("Digest-bound plan evidence is invalid")
+  )
+
+  it("preserves unexpected durable plan evidence getter errors", async () =>
+    const fake = fakeRepository()
+    const runtime = runtimeFor(fake, {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace: vi.fn(async () => undefined)
+    }, "worker-plan-getter-error")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await runtime.runOnce()
+    const parserError = new Error("durable plan getter failed")
+    const saved = fake.evidence[0]!
+    fake.evidence[0] = {
+      ...saved
+      data: Object.defineProperty({}, "plan", {
+        get: () =>
+          throw parserError
+      }) as never
+    }
+
+    await expect(runtime.application.findProjection(OWNER_ID, RUN_ID))
+      .rejects.toBe(parserError)
+  )
+
+  it("rejects a self-consistent but different plan on completion replay", async () =>
+    const fake = fakeRepository()
+    const runtime = runtimeFor(fake, {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace: vi.fn(async () => undefined)
+    }, "worker-plan-replay")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await runtime.runOnce()
+    const finalized = fake.completions[0]!
+    const saved = fake.evidence[0]!
+    const replacement = createWorkflowPlanEvidenceV1({
+      stdout: "A different but internally valid implementation plan"
+      stderr: ""
+      stdoutBytes: 52
+      stderrBytes: 0
+      truncated: false
+      redacted: false
+    })
+
+    await expect(runtime.application.completeEffect({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: saved.data["effectId"] as string
+      effectKind: "plan"
+      outboxId: finalized.id
+      leaseOwner: finalized.leaseOwner
+      fence: finalized.fence
+      effectScope: SCOPE
+      result: completion()
+    })).resolves.toBeNull()
+    await expect(runtime.application.completeEffect({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: saved.data["effectId"] as string
+      effectKind: "plan"
+      outboxId: finalized.id
+      leaseOwner: finalized.leaseOwner
+      fence: finalized.fence
+      effectScope: { repositoryId: "darkfactory", paths: ["packages/jobs/src"] }
+      result: completion()
+    })).rejects.toThrow("replayed plan completion does not match durable evidence")
+
+    await expect(runtime.application.completeEffect({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: saved.data["effectId"] as string
+      effectKind: "plan"
+      outboxId: finalized.id
+      leaseOwner: finalized.leaseOwner
+      fence: finalized.fence
+      effectScope: SCOPE
+      result: { ...completion(), plan: replacement }
+    })).rejects.toThrow("replayed plan completion does not match durable evidence")
+    expect(fake.evidence).toHaveLength(1)
+  )
+
+  it("preserves a bounded spaced task title from submission to the claimed effect", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const runtime = runtimeFor(fake, adapter, "unused-worker")
+    const taskTitle = "Repair the pilot shutdown path"
+    await runtime.application.createRun({
+      ownerId: OWNER_ID
+      event: submission(taskTitle)
+    })
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository
+      application: runtime.application
+      now: fake.now
+    })
+
+    const [claim] = await outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+
+    expect(claim).toMatchObject({
+      ownerId: OWNER_ID
+      taskMetadata: { taskId: taskTitle }
+    })
+  )
+
+  it("maps a DB fence to fenceToken and rejects a stale completion before transition", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const runtime = runtimeFor(fake, adapter, "unused-worker")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository,
+      application: runtime.application,
+      now: fake.now,
+    })
+    const [claim] = await outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER,
+      leaseOwner: "worker-a",
+      limit: 1,
+      leaseMilliseconds: 1_000,
+    })
+
+    expect(claim).toMatchObject({ fenceToken: 1, leaseOwner: "worker-a" })
+    await expect(outbox.completeEffect({
+      id: claim!.id,
+      leaseOwner: claim!.leaseOwner,
+      fenceToken: claim!.fenceToken + 1,
+      result: completion(),
+    })).resolves.toBe(false)
+    expect(fake.appended).toHaveLength(0)
+    expect(fake.evidence).toHaveLength(0)
+    expect(fake.completions).toHaveLength(0)
+    expect(adapter.execute).not.toHaveBeenCalled()
+  )
+
+  it("evicts a lost claim so another worker owns finalization without stale cache buildup", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const runtime = runtimeFor(fake, adapter, "unused-worker")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const first = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository
+      application: runtime.application
+      now: fake.now
+    })
+    const second = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository
+      application: runtime.application
+      now: fake.now
+    })
+    const [staleClaim] = await first.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    fake.advance(1_001)
+    const [currentClaim] = await second.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-b"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+
+    await expect(first.heartbeatEffect({
+      id: staleClaim!.id
+      leaseOwner: staleClaim!.leaseOwner
+      fenceToken: staleClaim!.fenceToken
+      leaseMilliseconds: 1_000
+    })).resolves.toBe(false)
+    const heartbeatCount = fake.heartbeats.length
+    await expect(first.completeEffect({
+      id: staleClaim!.id
+      leaseOwner: staleClaim!.leaseOwner
+      fenceToken: staleClaim!.fenceToken
+      result: completion()
+    })).resolves.toBe(false)
+    expect(fake.heartbeats).toHaveLength(heartbeatCount)
+    await expect(second.completeEffect({
+      id: currentClaim!.id
+      leaseOwner: currentClaim!.leaseOwner
+      fenceToken: currentClaim!.fenceToken
+      result: completion()
+    })).resolves.toBe(true)
+    expect(fake.completions).toHaveLength(1)
+    expect(fake.completions[0]).toMatchObject({
+      leaseOwner: "worker-b"
+      fence: currentClaim!.fenceToken
+    })
+  )
+
+  it("evicts a claim when finalization throws", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const runtime = runtimeFor(fake, adapter, "unused-worker")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const application = Object.freeze({
+      ...runtime.application
+      completeEffect: vi.fn(async () =>
+        throw new Error("finalization unavailable")
+      )
+    })
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository
+      application
+      now: fake.now
+    })
+    const [claim] = await outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+
+    await expect(outbox.completeEffect({
+      id: claim!.id
+      leaseOwner: claim!.leaseOwner
+      fenceToken: claim!.fenceToken
+      result: completion()
+    })).rejects.toThrow("finalization unavailable")
+    const heartbeatCount = fake.heartbeats.length
+    await expect(outbox.heartbeatEffect({
+      id: claim!.id
+      leaseOwner: claim!.leaseOwner
+      fenceToken: claim!.fenceToken
+      leaseMilliseconds: 1_000
+    })).resolves.toBe(false)
+    expect(fake.heartbeats).toHaveLength(heartbeatCount)
+  )
+
+  it("reuses the durable approval event for grant and reject retries after the clock advances", async () =>
+    for (const decision of ["granted", "rejected"] as const)
+      const fake = fakeRepository()
+      const adapter: OmpCliAdapter = {
+        cleanupRetainedWorkspace,
+        execute: vi.fn(async () => successfulExecution()),
+      }
+      const runtime = runtimeFor(fake, adapter, `worker-${decision}`)
+      await runtime.application.createRun({
+        ownerId: OWNER_ID,
+        event: submission(),
+      })
+      await runtime.runOnce()
+      const projection = (await runtime.application.findProjection(OWNER_ID, RUN_ID))!
+      const approvalId = fake.approvals[0]!.id!
+      const binding = createWorkflowApprovalBindingV1(
+        approvalId,
+        projection.snapshot,
+      )
+      const occurredAt = fake.now().toISOString()
+      const event: WorkflowEventV1 = decision === "granted"
+        ? {
+            type: "APPROVAL_GRANTED",
+            eventId: `approval-${decision}`,
+            eventVersion: 1,
+            machineVersion: 1,
+            occurredAt,
+            approvalId,
+            approvalHash: hashWorkflowApprovalV1({
+              runId: RUN_ID,
+              approvalId,
+              snapshotSequence: binding.snapshotSequence,
+              journalHeadHash: binding.journalHeadHash,
+              effectHash: binding.effectHash,
+              effectScope: binding.effectScope,
+            }),
+            binding,
+          }
+        : {
+            type: "APPROVAL_REJECTED",
+            eventId: `approval-${decision}`,
+            eventVersion: 1,
+            machineVersion: 1,
+            occurredAt,
+            approvalId,
+            reasonCode: "operator-rejected",
+          }
+      const input = {
+        ownerId: OWNER_ID,
+        runId: RUN_ID,
+        approval: {
+          id: approvalId,
+          runId: RUN_ID,
+          ownerId: OWNER_ID,
+          decidedBy: OWNER_ID,
+          decision,
+        },
+        event,
+      }
+      await runtime.application.decideApproval(input)
+      fake.advance(1_000)
+      await runtime.application.decideApproval({
+        ...input,
+        event: { ...event, occurredAt: fake.now().toISOString() },
+      })
+
+      const approvalAppends = fake.appended.filter(
+        (append) => append.event.eventId === event.eventId,
+      )
+      expect(approvalAppends).toHaveLength(2)
+      expect(approvalAppends[1]!.event.occurredAt).toBe(occurredAt)
+  )
+
+  it("exposes worker stop so active OMP execution settles before runtime shutdown", async () =>
+    const fake = fakeRepository()
+    let observedSignal: AbortSignal | undefined
+    const adapter: OmpCliAdapter = {
+      cleanupRetainedWorkspace,
+      execute: vi.fn((request) => new Promise<OmpExecutionResult>((resolve) =>
+        observedSignal = request.signal
+        request.signal?.addEventListener(
+          "abort"
+          () => resolve(abortedExecution())
+          Object.freeze({ once: true })
+        )
+      ))
+    }
+    const runtime = runtimeFor(fake, adapter, "worker-a")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+
+    const running = runtime.runOnce()
+    expect(runtime.runOnce()).toBe(running)
+    await vi.waitFor(() => expect(adapter.execute).toHaveBeenCalledOnce())
+    await runtime.stop()
+
+    expect(observedSignal?.aborted).toBe(true)
+    await expect(running).resolves.toEqual([
+      expect.objectContaining({ status: "lease-lost" })
+    ])
+    expect(fake.completions).toHaveLength(0)
+    await expect(runtime.runOnce()).resolves.toEqual([])
+  )
+  it("returns null for missing owned runs and rejects unsupported snapshot versions", async () =>
+    const missing = fakeRepository()
+    const application = createWorkflowApplication(missing.repository)
+    await expect(application.findProjection(OWNER_ID, RUN_ID)).resolves.toBeNull()
+    await expect(application.transition({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      event: submission()
+    })).rejects.toThrow("Workflow run was not found for this owner")
+    await expect(application.decideApproval({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      approval: {} as never
+      event: submission()
+    })).rejects.toBeInstanceOf(WorkflowRunNotFoundError)
+    const missingMetadata = {
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "missing-plan"
+      effectKind: "plan" as const
+      outboxId: "outbox-missing"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+    }
+    await expect(application.completeEffect({
+      ...missingMetadata
+      result: completion()
+    })).rejects.toBeInstanceOf(WorkflowRunNotFoundError)
+    await expect(application.failEffect({
+      ...missingMetadata
+      result: {
+        status: "failed"
+        eventType: "EFFECT_FAILED"
+        failureCode: "failed"
+        exitCode: 1
+        durationMs: 1
+        outputBytes: 0
+        outputTruncated: false
+        outputRedacted: false
+        changeHash: null
+        changedPaths: []
+        retryable: false
+      }
+    })).rejects.toBeInstanceOf(WorkflowRunNotFoundError)
+
+    const fake = fakeRepository()
+    const created = await createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    }).createRun({ ownerId: OWNER_ID, event: submission() })
+    const unsupported = Object.freeze({
+      ...fake.repository
+      findProjectionByOwner: vi.fn(async () => ({
+        ...created.persistence
+        snapshot: {
+          ...created.persistence.snapshot
+          machineVersion: 999
+        }
+      }))
+    }) as WorkflowRepository
+    await expect(createWorkflowApplication(unsupported).findProjection(OWNER_ID, RUN_ID))
+      .rejects.toThrow("Unsupported workflow snapshot version")
+  )
+
+  it("returns an idempotent transition and rejects approval identifiers outside awaiting implementation", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    const created = await application.createRun({ ownerId: OWNER_ID, event: submission() })
+
+    await expect(application.transition({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      event: submission()
+    })).resolves.toEqual(created)
+    expect(fake.appended).toHaveLength(0)
+    expect(() => workflowApprovalIdFor(created.snapshot))
+      .toThrow("Workflow approval requires an awaiting implementation effect")
+  )
+
+
+  it("appends an operator message through the canonical machine exactly once", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const input = {
+      id: "message-1",
+      runId: RUN_ID,
+      ownerId: OWNER_ID,
+      authorId: OWNER_ID,
+      idempotencyKey: "message-key",
+      content: "Status?",
+      event: {
+        type: "OPERATOR_MESSAGE_ADDED" as const,
+        eventId: "message-event-1",
+        eventVersion: 1 as const,
+        machineVersion: 1 as const,
+        occurredAt: NOW.toISOString(),
+        messageId: "message-1",
+      },
+    }
+
+    const first = await application.addMessage(input)
+    const replay = await application.addMessage(input)
+
+    expect(first.snapshot.context.messageCount).toBe(1)
+    expect(first.journal.at(-1)?.event).toMatchObject({
+      type: "OPERATOR_MESSAGE_ADDED",
+      messageId: "message-1",
+    })
+    expect(replay).toEqual(first)
+    expect(fake.appended).toHaveLength(1)
+    expect(fake.messages).toHaveLength(2)
+  )
+
+  it("rejects a new operator message after the workflow becomes terminal", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await application.transition({
+      ownerId: OWNER_ID,
+      runId: RUN_ID,
+      event: {
+        type: "CANCEL_REQUESTED",
+        eventId: "cancel-1",
+        eventVersion: 1,
+        machineVersion: 1,
+        occurredAt: NOW.toISOString(),
+        reasonCode: "operator-cancelled",
+      },
+    })
+
+    await expect(application.addMessage({
+      id: "message-terminal",
+      runId: RUN_ID,
+      ownerId: OWNER_ID,
+      authorId: OWNER_ID,
+      idempotencyKey: "message-terminal",
+      content: "Too late",
+      event: {
+        type: "OPERATOR_MESSAGE_ADDED",
+        eventId: "message-event-terminal",
+        eventVersion: 1,
+        machineVersion: 1,
+        occurredAt: NOW.toISOString(),
+        messageId: "message-terminal",
+      },
+    })).rejects.toBeInstanceOf(WorkflowRunTerminalError)
+    expect(fake.messages).toHaveLength(0)
+  )
+  it("rejects every invalid implementation completion evidence boundary before persistence", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository)
+    const metadata = {
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "implement-1"
+      effectKind: "implement" as const
+      outboxId: "outbox-1"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+    }
+    const valid = {
+      ...completion()
+      eventType: "IMPLEMENTATION_SUCCEEDED" as const
+      changeHash: "a".repeat(64)
+      changedPaths: ["packages/jobs"]
+      implementationArtifact: IMPLEMENTATION_ARTIFACT
+      plan: null
+    }
+    for result of [
+      { ...valid, eventType: "PLAN_SUCCEEDED" as never }
+      { ...valid, changeHash: null }
+      { ...valid, changeHash: "invalid" }
+      { ...valid, changedPaths: [] }
+      { ...valid, changedPaths: Array.from({ length: 513 }, (_, index) => `path-${index}`) }
+      { ...valid, changedPaths: ["../escape"] }
+      { ...valid, changedPaths: ["x".repeat(65_536)] }
+    ]
+      await expect(application.completeEffect({ ...metadata, result }))
+        .rejects.toThrow("implementation completion lacks bounded change evidence")
+    expect(fake.completions).toHaveLength(0)
+  )
+  it("normalizes typed plan evidence failures and preserves unexpected parser errors", async () =>
+    const application = createWorkflowApplication(fakeRepository().repository)
+    const metadata = {
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "plan-invalid"
+      effectKind: "plan" as const
+      outboxId: "outbox-plan-invalid"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+    }
+    await expect(application.completeEffect({
+      ...metadata
+      result: { ...completion(), plan: null }
+    })).rejects.toThrow("plan completion lacks digest-bound review evidence")
+
+    const parserError = new Error("plan getter failed")
+    const throwingPlan = new Proxy({}, {
+      get: () =>
+        throw parserError
+      ownKeys: () =>
+        throw parserError
+    })
+    await expect(application.completeEffect({
+      ...metadata
+      result: { ...completion(), plan: throwingPlan as never }
+    })).rejects.toBe(parserError)
+  )
+
+
+  it("rejects invalid failed-effect change evidence boundaries before persistence", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository)
+    const metadata = {
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "plan-1"
+      effectKind: "plan" as const
+      outboxId: "outbox-1"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+    }
+    const valid = {
+      status: "failed" as const
+      eventType: "EFFECT_FAILED" as const
+      failureCode: "failed" as const
+      exitCode: 1
+      durationMs: 1
+      outputBytes: 0
+      outputTruncated: false
+      outputRedacted: false
+      changeHash: null
+      changedPaths: [] as readonly string[]
+      retryable: true
+    }
+    for result of [
+      { ...valid, changedPaths: ["packages/jobs"] }
+      { ...valid, changeHash: "invalid" }
+      { ...valid, changeHash: "a".repeat(64), changedPaths: Array.from({ length: 513 }, (_, index) => `path-${index}`) }
+      { ...valid, changeHash: "a".repeat(64), changedPaths: ["x".repeat(65_536)] }
+    ]
+      await expect(application.failEffect({ ...metadata, result }))
+        .rejects.toThrow("effect failure has invalid change evidence")
+    expect(fake.completions).toHaveLength(0)
+  )
+
+  it("rejects malformed claimed outbox rows at every parser boundary", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const [leased] = await fake.repository.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    const row = leased!
+    const payload = row.payload
+    const task = payload["task"] as Readonly<Record<string, unknown>>
+    const malformed = [
+      { ...row, handler: "other" }
+      { ...row, aggregateType: "other" }
+      { ...row, idempotencyKey: null }
+      { ...row, leaseOwner: null }
+      { ...row, fence: 0 }
+      { ...row, payload: [] }
+      { ...row, payload: { ...payload, task: null } }
+      { ...row, payload: { ...payload, effectKind: "deploy" } }
+      { ...row, payload: { ...payload, ownerId: "" } }
+      { ...row, payload: { ...payload, effectScope: { repositoryId: "../escape", paths: ["packages/jobs"] } } }
+      { ...row, payload: { ...payload, task: { ...task, taskId: "" } } }
+      { ...row, payload: { ...payload, task: { ...task, taskId: "title\ncontrol" } } }
+      { ...row, payload: { ...payload, task: { ...task, taskId: "x".repeat(1_025) } } }
+      { ...row, payload: { ...payload, task: { ...task, workspaceId: "" } } }
+      { ...row, payload: { ...payload, task: { ...task, taskRevision: -1 } } }
+    ] as unknown as readonly OutboxEvent[]
+
+    for malformedRow of malformed
+      const repository = Object.freeze({
+        ...fake.repository
+        claimDueEffects: vi.fn(async () => [malformedRow])
+      }) as WorkflowRepository
+      const outbox = createWorkflowRepositoryOutboxAdapter({
+        repository
+        application
+      })
+      await expect(outbox.claimDueEffects({
+        handler: WORKFLOW_EFFECT_HANDLER
+        leaseOwner: "worker-a"
+        limit: 1
+        leaseMilliseconds: 1_000
+      })).rejects.toBeInstanceOf(TypeError)
+  )
+
+  it("retries retryable failures with exponential delay, then dead-letters the final attempt", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const [leased] = await fake.repository.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    const failure = {
+      status: "failed" as const
+      eventType: "EFFECT_FAILED" as const
+      failureCode: "timed-out" as const
+      exitCode: null
+      durationMs: 10
+      outputBytes: 0
+      outputTruncated: false
+      outputRedacted: false
+      changeHash: null
+      changedPaths: [] as readonly string[]
+      retryable: true
+    }
+    const failEffect = vi.fn(async () => true)
+    const retryRepository = Object.freeze({
+      ...fake.repository
+      claimDueEffects: vi.fn(async () => [leased!])
+      failEffect
+    }) as WorkflowRepository
+    const retrying = createWorkflowRepositoryOutboxAdapter({
+      repository: retryRepository
+      application
+      now: () => NOW
+    })
+    const [retryClaim] = await retrying.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    await expect(retrying.failEffect({
+      id: retryClaim!.id
+      leaseOwner: retryClaim!.leaseOwner
+      fenceToken: retryClaim!.fenceToken
+      result: failure
+    })).resolves.toBe("retry")
+    expect(failEffect).toHaveBeenCalledWith(expect.objectContaining({
+      retryAt: new Date(NOW.getTime() + 1_000)
+    }))
+    await expect(retrying.failEffect({
+      id: retryClaim!.id
+      leaseOwner: retryClaim!.leaseOwner
+      fenceToken: retryClaim!.fenceToken
+      result: failure
+    })).resolves.toBe("unpersisted")
+    const declinedRetry = vi.fn(async () => false)
+    const defaultClock = createWorkflowRepositoryOutboxAdapter({
+      repository: Object.freeze({
+        ...fake.repository
+        claimDueEffects: vi.fn(async () => [leased!])
+        failEffect: declinedRetry
+      }) as WorkflowRepository
+      application
+    })
+    const [declinedClaim] = await defaultClock.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    await expect(defaultClock.failEffect({
+      id: declinedClaim!.id
+      leaseOwner: declinedClaim!.leaseOwner
+      fenceToken: declinedClaim!.fenceToken
+      result: failure
+    })).resolves.toBe("unpersisted")
+    expect(declinedRetry).toHaveBeenCalledWith(expect.objectContaining({
+      retryAt: expect.any(Date)
+    }))
+
+
+    const finalApplication = Object.freeze({
+      ...application
+      failEffect: vi.fn(async () => null)
+    })
+    const finalRow = { ...leased!, attemptCount: 2 }
+    const finalizing = createWorkflowRepositoryOutboxAdapter({
+      repository: Object.freeze({
+        ...fake.repository
+        claimDueEffects: vi.fn(async () => [finalRow])
+      }) as WorkflowRepository
+      application: finalApplication
+    })
+    const [finalClaim] = await finalizing.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    await expect(finalizing.failEffect({
+      id: finalClaim!.id
+      leaseOwner: finalClaim!.leaseOwner
+      fenceToken: finalClaim!.fenceToken
+      result: failure
+    })).resolves.toBe("unpersisted")
+    expect(finalApplication.failEffect).toHaveBeenCalledOnce()
+  )
+
+  it("evicts cached ownership when a repository heartbeat throws", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const [leased] = await fake.repository.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    const heartbeatError = new Error("heartbeat unavailable")
+    const repository = Object.freeze({
+      ...fake.repository
+      claimDueEffects: vi.fn(async () => [leased!])
+      heartbeatEffect: vi.fn(async () =>
+        throw heartbeatError
+      )
+    }) as WorkflowRepository
+    const outbox = createWorkflowRepositoryOutboxAdapter({ repository, application })
+    const [claimed] = await outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+    await expect(outbox.heartbeatEffect({
+      id: claimed!.id
+      leaseOwner: claimed!.leaseOwner
+      fenceToken: claimed!.fenceToken
+      leaseMilliseconds: 1_000
+    })).rejects.toBe(heartbeatError)
+    await expect(outbox.completeEffect({
+      id: claimed!.id
+      leaseOwner: claimed!.leaseOwner
+      fenceToken: claimed!.fenceToken
+      result: completion()
+    })).resolves.toBe(false)
+  )
+  it("accepts production-Docker-shaped verification through terminal success", async () =>
+    const fake = fakeRepository()
+    const adapter: OmpCliAdapter = {
+      cleanupRetainedWorkspace,
+      execute: vi.fn(async (
+        request: Parameters<OmpCliAdapter["execute"]>[0],
+      ): Promise<OmpExecutionResult> =>
+        if request.effectKind === "implement"
+          return {
+            ...successfulExecution()
+            change: {
+              changeHash: "c".repeat(64)
+              changedPaths: ["packages/jobs"]
+            }
+            implementationArtifact: IMPLEMENTATION_ARTIFACT
+          }
+        if request.effectKind === "verify"
+          return {
+            ...successfulExecution()
+            change: {
+              changeHash: "c".repeat(64)
+              changedPaths: ["packages/jobs"]
+            }
+            verification: productionDockerVerification()
+            implementationArtifact: IMPLEMENTATION_ARTIFACT
+          }
+        return successfulExecution()
+      )
+    }
+    const runtime = runtimeFor(fake, adapter, "worker-a")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await expect(runtime.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "completed" })
+    ])
+
+    const awaitingApproval = (
+      await runtime.application.findProjection(OWNER_ID, RUN_ID)
+    )!
+    const approvalId = fake.approvals[0]!.id!
+    const binding = createWorkflowApprovalBindingV1(
+      approvalId,
+      awaitingApproval.snapshot,
+    )
+    await runtime.application.decideApproval({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      approval: {
+        id: approvalId
+        runId: RUN_ID
+        ownerId: OWNER_ID
+        decidedBy: OWNER_ID
+        decision: "granted"
+      }
+      event: {
+        type: "APPROVAL_GRANTED"
+        eventId: "approval-granted-full"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: fake.now().toISOString()
+        approvalId
+        approvalHash: hashWorkflowApprovalV1({
+          runId: RUN_ID
+          approvalId
+          snapshotSequence: binding.snapshotSequence
+          journalHeadHash: binding.journalHeadHash
+          effectHash: binding.effectHash
+          effectScope: binding.effectScope
+        })
+        binding
+      }
+    })
+
+    await expect(runtime.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "completed" })
+    ])
+    await expect(runtime.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "completed" })
+    ])
+    const finished = await runtime.application.findProjection(OWNER_ID, RUN_ID)
+    expect(finished?.snapshot.state).toBe("completed")
+    expect(finished?.journal.map(({ event }) => event.type)).toEqual([
+      "RUN_SUBMITTED"
+      "PLAN_SUCCEEDED"
+      "APPROVAL_GRANTED"
+      "IMPLEMENTATION_SUCCEEDED"
+      "VERIFICATION_SUCCEEDED"
+    ])
+    expect(vi.mocked(adapter.execute).mock.calls.map(
+      ([request]) => request.effectKind,
+    )).toEqual(["plan", "implement", "verify"])
+    expect(vi.mocked(adapter.execute).mock.calls[2]).toEqual([
+      expect.objectContaining({
+        recovery: {
+          artifact: IMPLEMENTATION_ARTIFACT,
+          changeHash: IMPLEMENTATION_CHANGE_HASH,
+        },
+      }),
+    ])
+    expect(fake.evidence.find(
+      ({ kind }) => kind === "implement.succeeded",
+    )?.data).toMatchObject({
+      implementationArtifact: IMPLEMENTATION_ARTIFACT
+    })
+    expect(fake.evidence.find(
+      ({ kind }) => kind === "verify.succeeded",
+    )?.data).toMatchObject({
+      verification: productionDockerVerification()
+    })
+  )
+
+  it("retries twice with backoff before dead-lettering a terminal effect failure", async () =>
+    const fake = fakeRepository()
+    const dispositions: string[] = []
+    const failedExecution: OmpExecutionResult = {
+      ...successfulExecution()
+      status: "timed-out"
+      exitCode: null
+    }
+    const runtime = runtimeFor(fake, {
+      cleanupRetainedWorkspace,
+      execute: vi.fn(async () => ({
+        ...failedExecution
+        lifecycle: {
+          finalize: async (disposition: OmpPersistenceDisposition) =>
+            dispositions.push(disposition)
+            return
+        }
+      })),
+    }, "worker-a")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+
+    await expect(runtime.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "failed" })
+    ])
+    expect(fake.outbox()).toMatchObject({ attemptCount: 1, deadAt: null })
+    fake.advance(1_000)
+    await expect(runtime.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "failed" })
+    ])
+    expect(fake.outbox()).toMatchObject({ attemptCount: 2, deadAt: null })
+    fake.advance(2_000)
+    await expect(runtime.runOnce()).resolves.toEqual([
+      expect.objectContaining({ status: "failed" })
+    ])
+
+    expect(fake.outbox()).toMatchObject({
+      attemptCount: 3
+      deadAt: expect.any(Date)
+      lastError: "timed-out"
+    })
+    const failed = await runtime.application.findProjection(OWNER_ID, RUN_ID)
+    expect(failed?.snapshot.state).toBe("blocked")
+    expect(failed?.journal.at(-1)?.event).toMatchObject({
+      type: "EFFECT_FAILED"
+      failure: { code: "timed-out", retryable: true }
+    })
+    expect(dispositions).toEqual(["retry", "retry", "persisted"])
+  )
+  it("retains a retryable effect before a later successful persistence", async () =>
+    const fake = fakeRepository()
+    const dispositions: string[] = []
+    const retryable: OmpExecutionResult = {
+      ...successfulExecution()
+      status: "timed-out"
+      exitCode: null
+      lifecycle: {
+        finalize: async (disposition) =>
+          dispositions.push(disposition)
+          return
+      }
+    }
+    const succeeded: OmpExecutionResult = {
+      ...successfulExecution()
+      lifecycle: {
+        finalize: async (disposition) =>
+          dispositions.push(disposition)
+          return
+      }
+    }
+    const adapter: OmpCliAdapter = {
+      cleanupRetainedWorkspace,
+      execute: vi.fn()
+        .mockResolvedValueOnce(retryable)
+        .mockResolvedValueOnce(succeeded)
+    }
+    const runtime = runtimeFor(fake, adapter, "worker-a")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+
+    await expect(runtime.runOnce()).resolves.toEqual([
+      { id: expect.any(String), status: "failed" }
+    ])
+    expect(fake.outbox()).toMatchObject({ attemptCount: 1, deadAt: null })
+    fake.advance(1_000)
+    await expect(runtime.runOnce()).resolves.toEqual([
+      { id: expect.any(String), status: "completed" }
+    ])
+    expect(dispositions).toEqual(["retry", "persisted"])
+    expect((await runtime.application.findProjection(OWNER_ID, RUN_ID))?.snapshot.state)
+      .toBe("awaitingApproval")
+  )
+  it("supports generated and explicit run IDs plus a direct nonduplicate transition", async () =>
+    const generatedFake = fakeRepository()
+    const generatedApplication = createWorkflowApplication(generatedFake.repository)
+    const generated = await generatedApplication.createRun({
+      ownerId: OWNER_ID
+      event: submission()
+    })
+    expect(generated.snapshot.context.runId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    )
+
+    const explicitFake = fakeRepository()
+    const explicitApplication = createWorkflowApplication(explicitFake.repository)
+    const explicit = await explicitApplication.createRun({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      event: submission()
+    })
+    expect(explicit.snapshot.context.runId).toBe(RUN_ID)
+    await expect(explicitApplication.listProjections(
+      OWNER_ID,
+      [RUN_ID, "missing-run"],
+    )).resolves.toEqual([explicit])
+    await expect(explicitApplication.listProjections(
+      "other-owner",
+      [RUN_ID],
+    )).resolves.toEqual([])
+    const transitioned = await explicitApplication.transition({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      event: {
+        type: "EFFECT_FAILED"
+        eventId: "effect-direct-failed"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: NOW.toISOString()
+        effectKind: "plan"
+        failure: { code: "direct-failure", retryable: false }
+      }
+    })
+    expect(transitioned.snapshot.state).toBe("blocked")
+    expect(explicitFake.appended).toHaveLength(1)
+  )
+
+  it("composes runtime defaults when optional worker overrides are omitted", () =>
+    const fake = fakeRepository()
+    const runtime = createWorkflowRuntime({
+      repository: fake.repository
+      adapter: {
+        execute: vi.fn(async () => successfulExecution())
+        cleanupRetainedWorkspace
+      }
+      leaseOwner: "worker-defaults"
+      authorizeRepository: () => true
+    })
+    expect(runtime.application.repository).toBe(fake.repository)
+    expect(runtime.runOnce).toBeTypeOf("function")
+    expect(runtime.stop).toBeTypeOf("function")
+  )
+  it("composes explicit worker and cleanup bounds", async () =>
+    const fake = fakeRepository()
+    const claimDueEffects = vi.fn(async () => [])
+    const claimRetainedResources = vi.fn(async () => [])
+    const repository = Object.freeze({
+      ...fake.repository
+      claimDueEffects
+      claimRetainedResources
+    }) as WorkflowRepository
+    const runtime = createWorkflowRuntime({
+      repository
+      adapter: {
+        execute: vi.fn(async () => successfulExecution())
+        cleanupRetainedWorkspace
+      }
+      leaseOwner: "worker-overrides"
+      authorizeRepository: () => true
+      batchSize: 2
+      cleanupLeaseMilliseconds: 2_000
+      cleanupBatchSize: 3
+      cleanupHeartbeatMilliseconds: 500
+    })
+
+    await expect(runtime.runOnce()).resolves.toEqual([])
+    expect(claimDueEffects).toHaveBeenCalledWith(expect.objectContaining({
+      leaseOwner: "worker-overrides"
+      limit: 2
+    }))
+    expect(claimRetainedResources).toHaveBeenCalledWith({
+      leaseOwner: "worker-overrides"
+      limit: 3
+      leaseMilliseconds: 2_000
+    })
+  )
+  it("rejects completion evidence larger than the 48 KiB durable envelope", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository)
+    await application.createRun({
+      runId: RUN_ID,
+      ownerId: OWNER_ID,
+      event: submission(),
+    })
+    await expect(application.completeEffect({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "oversized-evidence"
+      effectKind: "plan"
+      outboxId: "outbox-oversized"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+      result: {
+        ...completion()
+        padding: "x".repeat(48 * 1_024)
+      } as never
+    })).rejects.toThrow("effect completion evidence exceeds the durable envelope")
+  )
+  it("rejects generic verify success and malformed trusted verifier evidence", async () =>
+    const fake = fakeRepository()
+    const runtime = runtimeFor(fake, {
+      cleanupRetainedWorkspace,
+      execute: vi.fn(async (
+        request: Parameters<OmpCliAdapter["execute"]>[0],
+      ): Promise<OmpExecutionResult> =>
+        if request.effectKind === "implement"
+          return {
+            ...successfulExecution()
+            change: {
+              changeHash: IMPLEMENTATION_CHANGE_HASH
+              changedPaths: ["packages/jobs"]
+            }
+            implementationArtifact: IMPLEMENTATION_ARTIFACT
+          }
+        return successfulExecution()
+      )
+    }, "worker-verifier-boundaries")
+    const application = runtime.application
+    await application.createRun({
+      runId: RUN_ID,
+      ownerId: OWNER_ID,
+      event: submission(),
+    })
+    await runtime.runOnce()
+    const awaitingApproval = (
+      await application.findProjection(OWNER_ID, RUN_ID)
+    )!
+    const approvalId = fake.approvals[0]!.id!
+    const binding = createWorkflowApprovalBindingV1(
+      approvalId,
+      awaitingApproval.snapshot,
+    )
+    await application.decideApproval({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      approval: {
+        id: approvalId
+        runId: RUN_ID
+        ownerId: OWNER_ID
+        decidedBy: OWNER_ID
+        decision: "granted"
+      }
+      event: {
+        type: "APPROVAL_GRANTED"
+        eventId: "approval-granted-verifier-boundaries"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: fake.now().toISOString()
+        approvalId
+        approvalHash: hashWorkflowApprovalV1({
+          runId: RUN_ID
+          approvalId
+          snapshotSequence: binding.snapshotSequence
+          journalHeadHash: binding.journalHeadHash
+          effectHash: binding.effectHash
+          effectScope: binding.effectScope
+        })
+        binding
+      }
+    })
+    await runtime.runOnce()
+    expect((await application.findProjection(OWNER_ID, RUN_ID))?.snapshot.state)
+      .toBe("verifying")
+
+    const metadata = {
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "verify-1"
+      effectKind: "verify" as const
+      outboxId: "outbox-verify"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+    }
+    const valid = verifiedCompletion()
+    const genericInvalidResults = [
+      { ...valid, status: "failed" }
+      { ...valid, exitCode: 1 }
+      { ...valid, eventType: "PLAN_SUCCEEDED" }
+    ]
+    for result of genericInvalidResults
+      await expect(application.completeEffect({
+        ...metadata
+        result: result as never
+      })).rejects.toThrow("effect completion lacks trusted success evidence")
+
+    const malformedVerifierResults = [
+      { ...valid, verification: undefined }
+      { ...valid, verification: null }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        commandIdentity: "shell-check"
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        imageDigest: `sha256:${"e".repeat(64)}`
+      } }
+      { ...valid, verification:
+        verificationForImageIdentity(`injected:${"e".repeat(64)}`)
+      }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        configDigest: "e".repeat(64)
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        argvIdentity: "a".repeat(64)
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        implementationChangeDigest: "invalid"
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        implementationArtifactDigest: "invalid"
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        manifestDigest: "invalid"
+      } }
+      { ...valid, changeHash: "d".repeat(64) }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        status: "failed"
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        exitCode: 1
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        durationMs: 1.5
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        durationMs: -1
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        resultBytes: 0
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        resultBytes: 32_769
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        resultBytes: 1
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        resultSummary: " "
+        resultBytes: 1
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        digest: undefined
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        digest: "invalid"
+      } }
+      { ...valid, verification: {
+        ...productionDockerVerification()
+        digest: "a".repeat(64)
+      } }
+    ]
+    for result of malformedVerifierResults
+      await expect(application.completeEffect({
+        ...metadata
+        result: result as never
+      })).rejects.toThrow(
+        "verification completion is not bound to implementation evidence",
+      )
+  )
+
+  it("rejects plan evidence on non-plan completion", async () =>
+    const application = createWorkflowApplication(fakeRepository().repository)
+    await expect(application.completeEffect({
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "implement-with-plan"
+      effectKind: "implement"
+      outboxId: "outbox-implement-with-plan"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+      result: {
+        ...completion()
+        eventType: "IMPLEMENTATION_SUCCEEDED"
+      }
+    })).rejects.toThrow("non-plan completion contains plan evidence")
+  )
+
+  it("rejects malformed implementation artifacts before workflow finalization", async () =>
+    const application = createWorkflowApplication(fakeRepository().repository)
+    const metadata = {
+      ownerId: OWNER_ID
+      runId: RUN_ID
+      effectId: "implement-artifact"
+      effectKind: "implement" as const
+      outboxId: "outbox-implement"
+      leaseOwner: "worker-a"
+      fence: 1
+      effectScope: SCOPE
+    }
+    const artifactFor = (
+      content: string,
+      overrides: Readonly<Record<string, unknown>> = {},
+    ) => ({
+      identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY
+      bytes: Buffer.byteLength(content)
+      digest: sha256Hex(content)
+      content
+      sourceHead: IMPLEMENTATION_SOURCE_HEAD
+      workspaceKey: IMPLEMENTATION_WORKSPACE_KEY
+      ownerNonce: IMPLEMENTATION_OWNER_NONCE
+      changeHash: IMPLEMENTATION_CHANGE_HASH
+      ...overrides
+    })
+    const contentFor = (entries: readonly unknown[]): string =>
+      JSON.stringify({ version: 1, entries })
+    const validResult = {
+      ...completion()
+      eventType: "IMPLEMENTATION_SUCCEEDED" as const
+      changeHash: "a".repeat(64)
+      changedPaths: ["packages/jobs"]
+      implementationArtifact: IMPLEMENTATION_ARTIFACT
+      plan: null
+    }
+    const invalidArtifacts = [
+      undefined
+      null
+      { ...IMPLEMENTATION_ARTIFACT, identity: "untrusted-artifact" }
+      { ...IMPLEMENTATION_ARTIFACT, bytes: 1.5 }
+      { ...IMPLEMENTATION_ARTIFACT, bytes: 0 }
+      { ...IMPLEMENTATION_ARTIFACT, bytes: 49_153 }
+      { ...IMPLEMENTATION_ARTIFACT, bytes: IMPLEMENTATION_ARTIFACT.bytes + 1 }
+      { ...IMPLEMENTATION_ARTIFACT, digest: "invalid" }
+      { ...IMPLEMENTATION_ARTIFACT, digest: "a".repeat(64) }
+      artifactFor("{malformed")
+      artifactFor("null")
+      artifactFor("[]")
+      artifactFor(JSON.stringify({ version: 2, entries: [] }))
+      artifactFor(JSON.stringify({ version: 1, entries: {} }))
+      artifactFor(`{ "version": 1, "entries": [] }`)
+      artifactFor(contentFor([]))
+      artifactFor(contentFor(Array.from(
+        { length: 513 },
+        (_, index) => ({ path: `path-${index}`, kind: "directory" }),
+      )))
+      artifactFor(contentFor([
+        { path: "packages/jobs", kind: "directory" }
+        { path: "packages/other", kind: "directory" }
+      ]))
+      artifactFor(contentFor([null]))
+      artifactFor(contentFor([[]]))
+      artifactFor(contentFor([{ path: "../escape", kind: "directory" }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "directory"
+        extra: true
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "symlink"
+        target: 1
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "symlink"
+        target: "x".repeat(4_097)
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "symlink"
+        target: "bad\0target"
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "file"
+        mode: -1
+        contentBase64: ""
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "file"
+        mode: 0o644
+        contentBase64: "***"
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/jobs"
+        kind: "socket"
+      }]))
+      artifactFor(contentFor([{
+        path: "packages/other"
+        kind: "directory"
+      }]))
+    ]
+    for implementationArtifact of invalidArtifacts
+      await expect(application.completeEffect({
+        ...metadata
+        result: {
+          ...validResult
+          implementationArtifact
+        } as never
+      })).rejects.toThrow("implementation completion lacks bounded change evidence")
+    const validFileContent = contentFor([{
+      path: "packages/jobs"
+      kind: "file"
+      mode: 0o644
+      contentBase64: Buffer.from("covered").toString("base64")
+    }])
+    await expect(application.completeEffect({
+      ...metadata
+      result: {
+        ...validResult
+        implementationArtifact: {
+          ...artifactFor(validFileContent)
+          identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY
+        }
+      }
+    })).rejects.toBeInstanceOf(WorkflowRunNotFoundError)
+  )
+  it("preserves one shutdown failure and aggregates concurrent shutdown failures", async () =>
+    const fake = fakeRepository()
+    const allSettled = vi.spyOn(Promise, "allSettled")
+    try
+      const single = new Error("worker shutdown failed")
+      allSettled.mockResolvedValueOnce([
+        { status: "rejected", reason: single }
+        { status: "fulfilled", value: undefined }
+        { status: "fulfilled", value: undefined }
+      ] as never)
+      await expect(runtimeFor(fake, {
+        execute: vi.fn(async () => successfulExecution())
+        cleanupRetainedWorkspace
+      }, "worker-single-error").stop()).rejects.toBe(single)
+
+      const workerError = new Error("worker shutdown failed")
+      const cleanupError = new Error("cleanup shutdown failed")
+      allSettled.mockResolvedValueOnce([
+        { status: "rejected", reason: workerError }
+        { status: "rejected", reason: cleanupError }
+        { status: "fulfilled", value: undefined }
+      ] as never)
+      const rejection = await runtimeFor(fake, {
+        execute: vi.fn(async () => successfulExecution())
+        cleanupRetainedWorkspace
+      }, "worker-aggregate-error").stop().catch((error: unknown) => error)
+      expect(rejection).toBeInstanceOf(AggregateError)
+      expect((rejection as AggregateError).errors).toEqual([
+        workerError
+        cleanupError
+      ])
+    finally
+      allSettled.mockRestore()
+  )
+
+)

@@ -315,6 +315,31 @@ describe("production Worker runtime configuration", () => {
     });
   });
 
+  it("keeps the production database URL secret-bound under the PlanetScale provider contract", async () => {
+    const source = await readFile(
+      new URL("./wrangler.jsonc", import.meta.url),
+      "utf8"
+    );
+    const parsed = ts.parseConfigFileTextToJson("wrangler.jsonc", source);
+
+    expect(parsed.error).toBeUndefined();
+    type WranglerVars = Readonly<
+      Record<string, unknown> & { DATABASE_PROVIDER?: unknown }
+    >;
+    const config = parsed.config as {
+      vars?: WranglerVars;
+      env?: {
+        staging?: {
+          vars?: WranglerVars;
+        };
+      };
+    };
+    expect(config.vars?.DATABASE_PROVIDER).toBe("planetscale");
+    expect(config.vars).not.toHaveProperty("DATABASE_URL");
+    expect(config.env?.staging?.vars?.DATABASE_PROVIDER).toBe("planetscale");
+    expect(config.env?.staging?.vars).not.toHaveProperty("DATABASE_URL");
+  });
+
   it("keeps staging off the production custom domain", async () => {
     const source = await readFile(
       new URL("./wrangler.jsonc", import.meta.url),

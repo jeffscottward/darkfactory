@@ -66,7 +66,7 @@ Source: [KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon)
 
 ## Continuing Agentic Engineering and SDLC harness
 
-Source: [Agentic Engineering](https://www.youtube.com/watch?v=VQy50fuxI34)
+Sources: [Agentic Engineering](https://www.youtube.com/watch?v=VQy50fuxI34) (inspiration) and the DarkFactory Agentic SDLC research/architecture review completed 2026-07-29. The requirements below are DarkFactory-owned synthesis, not claims attributed verbatim to the video.
 
 **Owner:** Engineering productivity owner, with the maintainer of the affected contract as the outcome owner. Security, accessibility, database, and deployment owners approve their respective boundaries.
 

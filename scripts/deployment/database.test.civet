@@ -1,0 +1,135 @@
+import { describe, expect, it, vi } from "vitest"
+import * as databaseConfig from "@darkfactory/config/database"
+import {
+  checkProductionWebDatabaseEndpoint,
+  runProductionWebDatabaseCheck,
+} from "./database.civet"
+
+const pooledDatabaseUrl =
+  "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory?sslmode=verify-full"
+
+const productionEnvironment = (databaseUrl: string): Record<string, string> => ({
+  DATABASE_PROVIDER: "planetscale",
+  DATABASE_URL: databaseUrl,
+})
+
+describe "production web database deployment check", ->
+  it "accepts the current PlanetScale provider-managed PgBouncer endpoint", ->
+    expect(checkProductionWebDatabaseEndpoint(
+      productionEnvironment(pooledDatabaseUrl),
+    )).toEqual({
+      ok: true,
+      message:
+        "Production web DATABASE_URL uses the provider-managed PlanetScale PgBouncer endpoint on port 6432 with sslmode=verify-full",
+    })
+
+  it.each([
+    [
+      "direct PlanetScale",
+      "postgresql://private-user:private-password@aws.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full",
+      /PgBouncer endpoint on port 6432/,
+    ],
+    [
+      "missing TLS",
+      "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory",
+      /sslmode=verify-full/,
+    ],
+    [
+      "malformed",
+      "postgresql://private-user:private-password@[invalid",
+      /PostgreSQL URL/,
+    ],
+  ])("rejects $0 endpoints with credential-free diagnostics", (
+    _label,
+    databaseUrl,
+    expectedMessage,
+  ) ->
+    const report = checkProductionWebDatabaseEndpoint(
+      productionEnvironment(databaseUrl),
+    )
+
+    expect(report).toMatchObject({ ok: false, message: expectedMessage })
+    expect(report.message).not.toContain(databaseUrl)
+    expect(report.message).not.toContain("private-password")
+  )
+
+  it "rejects an undocumented generic pooled-host assertion", ->
+    const report = checkProductionWebDatabaseEndpoint({
+      DATABASE_PROVIDER: "postgres",
+      DATABASE_URL:
+        "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
+    })
+
+    expect(report).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(
+        /explicitly supported provider-managed pooled endpoint/,
+      ),
+    })
+    expect(report.message).not.toContain("private-password")
+
+  it("rejects missing provider and connection settings before validation", () =>
+    expect(checkProductionWebDatabaseEndpoint({
+      DATABASE_PROVIDER: "sqlite",
+      DATABASE_URL: pooledDatabaseUrl,
+    })).toEqual({
+      ok: false,
+      message:
+        "DATABASE_PROVIDER must be planetscale or postgres for production web deployment",
+    })
+    expect(checkProductionWebDatabaseEndpoint({
+      DATABASE_PROVIDER: " postgres ",
+      DATABASE_URL: " ",
+    })).toEqual({
+      ok: false,
+      message: "DATABASE_URL is required for production web deployment",
+    })
+  )
+
+  it("normalizes unexpected endpoint validator failures", () =>
+    vi.spyOn(databaseConfig, "validateRequestDatabaseEndpoint")
+      .mockImplementationOnce(() =>
+        throw new TypeError("private validator detail")
+      )
+
+    expect(checkProductionWebDatabaseEndpoint({
+      DATABASE_PROVIDER: "postgres",
+      DATABASE_URL: pooledDatabaseUrl,
+    })).toEqual({
+      ok: false,
+      message: "Unable to validate the production web database endpoint",
+    })
+  )
+
+  it "renders the requirement without exposing the configured URL", ->
+    const output = { write: vi.fn() }
+    const error = { write: vi.fn() }
+
+    expect(runProductionWebDatabaseCheck(
+      productionEnvironment(pooledDatabaseUrl),
+      output,
+      error,
+    )).toBe(0)
+    expect(output.write).toHaveBeenCalledWith(
+      expect.stringContaining("provider-managed PlanetScale PgBouncer endpoint"),
+    )
+    expect(JSON.stringify(output.write.mock.calls)).not.toContain(
+      pooledDatabaseUrl,
+    )
+
+    const directDatabaseUrl =
+      "postgresql://private-user:private-password@aws.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full"
+    expect(runProductionWebDatabaseCheck(
+      productionEnvironment(directDatabaseUrl),
+      output,
+      error,
+    )).toBe(1)
+    expect(error.write).toHaveBeenCalledWith(
+      expect.stringContaining("PgBouncer endpoint on port 6432"),
+    )
+    expect(JSON.stringify(error.write.mock.calls)).not.toContain(
+      directDatabaseUrl,
+    )
+    expect(JSON.stringify(error.write.mock.calls)).not.toContain(
+      "private-password",
+    )

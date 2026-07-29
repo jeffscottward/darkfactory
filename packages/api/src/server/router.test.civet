@@ -17,7 +17,12 @@ import type {
   Profile,
   UserPreferences,
 } from "@darkfactory/db/schema"
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
 import type { SemanticEventPort } from "@darkfactory/observability/port"
+import {
+  MAX_WORKFLOW_SCOPE_BYTES,
+  canonicalJsonV1,
+} from "@darkfactory/state/workflow"
 import { ORPCError } from "@orpc/client"
 import { createRouterClient } from "@orpc/server"
 import { describe, expect, it, vi } from "vitest"
@@ -28,6 +33,12 @@ import type {
   ContactThrottlePort,
 } from "./contact-service.civet"
 import { appRouter } from "./router.civet"
+import {
+  OperatorWorkflowPortError,
+  operatorServiceErrorMessage,
+  type OperatorWorkflowPort,
+  type WorkflowOperatorDetail,
+} from "./operator-service.civet"
 
 const NOW = new Date("2026-01-02T03:04:05.000Z")
 const memberSession: SafeAuthSession = {
@@ -1060,3 +1071,281 @@ describe "router event failure and lifetime boundaries", ->
     })
     expect(themeRepos.userPreferences.upsertTheme).toHaveBeenCalledOnce()
     expect(themeEmit).toHaveBeenCalledOnce()
+
+const operatorDetail = (): WorkflowOperatorDetail => ({
+  ownerId: "member-1"
+  integrity: "verified"
+  run: {
+    id: "run-1"
+    ownerId: "member-1"
+    title: "Pilot run"
+    state: "planning"
+    sequence: 1
+    updatedAt: NOW
+    headHash: "a".repeat(64)
+    machineId: "darkfactory-pilot"
+    machineVersion: 1
+  }
+  timeline: []
+  approval: null
+  implementationPlan: null
+  evidence: []
+  messages: []
+})
+
+const workflowOperator = (
+  overrides: Partial<OperatorWorkflowPort> = {}
+): OperatorWorkflowPort => ({
+  submit: vi.fn(async () => operatorDetail())
+  workspace: vi.fn(async () => [operatorDetail().run])
+  list: vi.fn(async () => ({
+    runs: [operatorDetail().run]
+    nextCursor: null
+  }))
+  detail: vi.fn(async () => operatorDetail())
+  approve: vi.fn(async () => operatorDetail())
+  reject: vi.fn(async () => operatorDetail())
+  cancel: vi.fn(async () => operatorDetail())
+  retry: vi.fn(async () => operatorDetail())
+  message: vi.fn(async () => operatorDetail())
+  ...overrides
+})
+
+describe "operator router composition", ->
+  it "authenticates and composes every workflow operation with request scope", async ->
+    const workflow = workflowOperator()
+    const requireSession = vi.fn(async () => memberSession)
+    const client = clientFor(contextFor({
+      workflowOperator: workflow
+      requireSession
+    }))
+    const approval = {
+      machineId: "darkfactory-pilot"
+      machineVersion: 1
+      eventVersion: 1
+      snapshotSequence: 2
+      journalHeadHash: "a".repeat(64)
+      effectHash: "b".repeat(64)
+      effectScope: '{"paths":["."],"repositoryId":"darkfactory"}'
+    }
+
+    await expect(client.operator.submit({
+      idempotencyKey: "submit-1"
+      title: " Pilot run "
+      scope: { repositoryId: "darkfactory", paths: ["."] }
+    })).resolves.toMatchObject({ run: { id: "run-1" } })
+    await expect(client.operator.workspace({})).resolves.toMatchObject({
+      runs: [{ id: "run-1" }]
+    })
+    await expect(client.operator.list({})).resolves.toMatchObject({
+      runs: [{ id: "run-1" }]
+      nextCursor: null
+    })
+    await expect(client.operator.detail({ id: "run-1" }))
+      .resolves.toMatchObject({ run: { id: "run-1" } })
+    await expect(client.operator.approve({ id: "run-1", approval }))
+      .resolves.toMatchObject({ run: { id: "run-1" } })
+    await expect(client.operator.reject({ id: "run-1", reason: " Not ready " }))
+      .resolves.toMatchObject({ run: { id: "run-1" } })
+    await expect(client.operator.cancel({ id: "run-1" }))
+      .resolves.toMatchObject({ run: { id: "run-1" } })
+    await expect(client.operator.retry({ id: "run-1" }))
+      .resolves.toMatchObject({ run: { id: "run-1" } })
+    await expect(client.operator.message({
+      id: "run-1"
+      idempotencyKey: "message-1"
+      body: " Status? "
+    })).resolves.toMatchObject({ run: { id: "run-1" } })
+
+    expect(requireSession).toHaveBeenCalledTimes(9)
+    expect(workflow.submit).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "member-1"
+      actorUserId: "member-1"
+      title: "Pilot run"
+    }))
+    expect(workflow.workspace).toHaveBeenCalledWith("member-1", { limit: 100 })
+    expect(workflow.list).toHaveBeenCalledWith("member-1", { limit: 50 })
+    expect(workflow.detail).toHaveBeenCalledWith("member-1", "run-1")
+    expect(workflow.approve).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "member-1"
+      actorUserId: "member-1"
+      requestId: "request-router-1"
+      approval
+    }))
+    expect(workflow.reject).toHaveBeenCalledWith(expect.objectContaining({
+      reason: "Not ready"
+      requestId: "request-router-1"
+    }))
+    expect(workflow.cancel).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "request-router-1"
+    }))
+    expect(workflow.retry).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "request-router-1"
+    }))
+    expect(workflow.message).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "message-1"
+      body: "Status?"
+      requestId: "request-router-1"
+    }))
+
+  it "round-trips a long valid submit scope through approval detail and actions", async ->
+    const scope = {
+      repositoryId: "darkfactory"
+      paths: [
+        ...Array.from({ length: 15 }, () => "é".repeat(128))
+        "é".repeat(84)
+      ]
+    }
+    const effectScope = canonicalJsonV1(scope)
+    const approval = {
+      machineId: "darkfactory-pilot"
+      machineVersion: 1
+      eventVersion: 1
+      snapshotSequence: 2
+      journalHeadHash: "a".repeat(64)
+      effectHash: "b".repeat(64)
+      effectScope
+      stale: false
+    }
+    const awaiting = { ...operatorDetail(), approval }
+    const workflow = workflowOperator({
+      submit: vi.fn(async () => awaiting)
+      detail: vi.fn(async () => awaiting)
+      approve: vi.fn(async () => awaiting)
+      reject: vi.fn(async () => awaiting)
+    })
+    const client = clientFor(contextFor({
+      workflowOperator: workflow
+      requireSession: vi.fn(async () => memberSession)
+    }))
+
+    expect(new TextEncoder().encode(effectScope).byteLength)
+      .toBe(MAX_WORKFLOW_SCOPE_BYTES)
+    const submitted = await client.operator.submit({
+      idempotencyKey: "submit-long-scope"
+      title: "Long scope"
+      scope
+    })
+    expect(submitted.approval?.effectScope).toBe(effectScope)
+    const detailed = await client.operator.detail({ id: submitted.run.id })
+    const { stale: _stale, ...binding } = detailed.approval!
+    await expect(client.operator.approve({
+      id: submitted.run.id
+      approval: binding
+    })).resolves.toMatchObject({
+      approval: { effectScope }
+    })
+    await expect(client.operator.reject({
+      id: submitted.run.id
+      reason: "Needs revision"
+    })).resolves.toMatchObject({
+      approval: { effectScope }
+    })
+    expect(workflow.submit).toHaveBeenCalledWith(expect.objectContaining({ scope }))
+    expect(workflow.approve).toHaveBeenCalledWith(expect.objectContaining({
+      approval: binding
+    }))
+
+  it "denies operator access before invoking the workflow port", async ->
+    const workflow = workflowOperator()
+    const client = clientFor(contextFor({
+      workflowOperator: workflow
+      requireSession: vi.fn(async () =>
+        throw new AuthAuthorizationError(
+          AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED
+          401
+        )
+      )
+    }))
+
+    await expectDefinedError(client.operator.workspace({}), "UNAUTHORIZED", 401)
+    expect(workflow.workspace).not.toHaveBeenCalled()
+
+  it.each([
+    ["FORBIDDEN", 403]
+    ["NOT_FOUND", 404]
+    ["CONFLICT", 409]
+    ["STALE_APPROVAL", 409]
+    ["PROJECTION_INVALID", 409]
+    ["VALIDATION_ERROR", 422]
+    ["STORAGE_ERROR", 503]
+    ["SERVICE_UNAVAILABLE", 503]
+  ] as const)("maps operator %s errors through the declared contract", async (code, status) =>
+    const workflow = workflowOperator({
+      detail: vi.fn(async () =>
+        throw new OperatorWorkflowPortError(
+          code
+          operatorServiceErrorMessage(code)
+        )
+      )
+    })
+    const client = clientFor(contextFor({ workflowOperator: workflow }))
+    await expectDefinedError(
+      client.operator.detail({ id: "run-1" })
+      code
+      status
+    )
+  )
+
+  it "maps every operator mutation and listing failure through its declared error", async ->
+    const workflowFailure = () =>
+      throw new OperatorWorkflowPortError("CONFLICT", "private conflict")
+    const client = clientFor(contextFor({
+      workflowOperator: workflowOperator({
+        submit: vi.fn(workflowFailure)
+        list: vi.fn(workflowFailure)
+        reject: vi.fn(workflowFailure)
+        cancel: vi.fn(workflowFailure)
+        retry: vi.fn(workflowFailure)
+        message: vi.fn(workflowFailure)
+      })
+    }))
+    for operation of [
+      () => client.operator.submit({
+        idempotencyKey: "failed-submit"
+        title: "Failed submit"
+        scope: { repositoryId: "darkfactory", paths: ["."] }
+      })
+      () => client.operator.list({})
+      () => client.operator.reject({ id: "run-1", reason: "Not ready" })
+      () => client.operator.cancel({ id: "run-1" })
+      () => client.operator.retry({ id: "run-1" })
+      () => client.operator.message({
+        id: "run-1"
+        idempotencyKey: "failed-message"
+        body: "Status?"
+      })
+    ]
+      await expectDefinedError(operation(), "CONFLICT", 409)
+
+  it "preserves an unexpected operator projection failure", async ->
+    const failure = new Error("unexpected operator projection failure")
+    const plan = createWorkflowPlanEvidenceV1({
+      stdout: "Review the bounded plan"
+      stderr: ""
+      stdoutBytes: 23
+      stderrBytes: 0
+      truncated: false
+      redacted: false
+    })
+    const poisonedPlan = Object.defineProperty({ ...plan }, "digest", {
+      get: () => throw failure
+    })
+    const client = clientFor(contextFor({
+      workflowOperator: workflowOperator({
+        detail: vi.fn(async () => ({
+          ...operatorDetail()
+          implementationPlan: poisonedPlan
+        }))
+      })
+    }))
+
+    await expect(client.operator.detail({ id: "run-1" })).rejects.toBe(failure)
+
+  it "reports a missing workflow composition as service unavailable", async ->
+    const client = clientFor(contextFor())
+    await expectDefinedError(
+      client.operator.workspace({})
+      "SERVICE_UNAVAILABLE"
+      503
+    )

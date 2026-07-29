@@ -3,6 +3,7 @@ import { waitUntil } from "cloudflare:workers"
 import { CONTACT_ERRORS } from "@darkfactory/api"
 import {
   createApiContext,
+  createOperatorWorkflowPort,
   resolveApiRequestId,
 } from "@darkfactory/api/server"
 import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog"
@@ -18,7 +19,10 @@ import {
 } from "@darkfactory/config/server"
 import {
   createRepositories,
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+  RequestDatabaseCapacityError,
   createRequestDatabase,
+  createWorkflowRepository,
   createContactThrottleRepository,
 } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
@@ -31,9 +35,14 @@ import { createSemanticEventFanout } from "@darkfactory/observability/server/fan
 import { initializeTelemetry } from "@darkfactory/observability/server/otel"
 
 import {
+  isWorkflowRepositoryGranted,
+  parseWorkflowRepositoryGrants,
+} from "@darkfactory/state/workflow"
+import {
   createBackgroundTaskLifecycle,
   type BackgroundTaskScheduler,
 } from "../../../../lib/background-task-lifecycle.civet"
+import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.civet"
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
 import { handleOrpcRequest } from "./handler.civet"
 import {
@@ -86,6 +95,77 @@ const forbiddenOriginResponse = (): Response =>
   Response.json({ error: "Forbidden" }, { status: 403 })
 
 
+const SUPPORTED_ORPC_METHODS: readonly string[] = [
+  "GET",
+  "POST",
+  "PATCH",
+  "DELETE",
+]
+const BODY_BEARING_ORPC_METHODS: readonly string[] = ["POST", "PATCH", "DELETE"]
+export const ORPC_REQUEST_MAX_BYTES = 1024 * 1024
+export const ORPC_DATABASE_CONCURRENCY_LIMIT =
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS
+const ORPC_DATABASE_RETRY_AFTER_SECONDS = 1
+const EMPTY_WORKFLOW_REPOSITORY_GRANTS: ReturnType<
+  typeof parseWorkflowRepositoryGrants
+> = Object.freeze([])
+
+let activeDatabaseRequests = 0
+
+const methodNotAllowedResponse = (): Response =>
+  new Response("Method Not Allowed", {
+    status: 405,
+    headers: { allow: SUPPORTED_ORPC_METHODS.join(", ") },
+  })
+
+const payloadTooLargeResponse = (): Response =>
+  Response.json({ error: "Payload Too Large" }, { status: 413 })
+
+const databaseCapacityResponse = (): Response =>
+  Response.json(
+    { error: "Service Unavailable" },
+    {
+      status: 503,
+      headers: {
+        "retry-after": String(ORPC_DATABASE_RETRY_AFTER_SECONDS),
+      },
+    },
+  )
+
+type DatabaseAdmission = Readonly<{
+  release: () => void
+  releaseIfOwned: () => void
+  transfer: () => void
+}>
+
+const tryAcquireDatabaseRequest = (): DatabaseAdmission | undefined =>
+  if (activeDatabaseRequests >= ORPC_DATABASE_CONCURRENCY_LIMIT) return undefined
+  activeDatabaseRequests += 1
+  let released = false
+  let transferred = false
+  const release = (): void =>
+    if (released) return
+    released = true
+    activeDatabaseRequests -= 1
+  return Object.freeze({
+    release,
+    releaseIfOwned: () =>
+      if (!transferred) release()
+    transfer: () =>
+      transferred = true
+  })
+
+const withDatabaseAdmission = async (
+  run: (admission: DatabaseAdmission) => Promise<Response>,
+): Promise<Response> =>
+  const admission = tryAcquireDatabaseRequest()
+  if (admission === undefined) return databaseCapacityResponse()
+  try
+    return await run(admission)
+  finally
+    admission.releaseIfOwned()
+
+
 const CONTACT_EDGE_MAX_REQUESTS = 30
 
 const contactAbuseResponse = (
@@ -113,131 +193,169 @@ export const handleOrpcRuntimeRequest = async (
   scheduleBackgroundTask: BackgroundTaskScheduler,
 ): Promise<Response> =>
   const env = parseServerEnv(process.env)
+  const workflowRepositoryGrants =
+    env.WORKFLOW_REPOSITORY_GRANTS === undefined
+      ? EMPTY_WORKFLOW_REPOSITORY_GRANTS
+      : parseWorkflowRepositoryGrants(env.WORKFLOW_REPOSITORY_GRANTS)
+  const method = request.method.toUpperCase()
+  if (!SUPPORTED_ORPC_METHODS.includes(method)) return methodNotAllowedResponse()
   const previewOptions = resolveE2eEmailPreviewOptions()
   if (unsafeRequestDenied(request, env.APP_URL)) return forbiddenOriginResponse()
-  const isContactSubmission =
-    request.method === "POST" &&
-    new URL(request.url).pathname === "/api/orpc/contact/submit"
-  const bufferedContact = isContactSubmission
-    ? await bufferContactRequest(request)
-    : { request, tooLarge: false }
-  const effectiveRequest = bufferedContact.request
-  const telemetry = telemetryFor(env)
-  const requestId = resolveApiRequestId(effectiveRequest)
 
-  return runWithRequestTelemetry(
-    telemetry,
-    {
-      name: "orpc.request",
-      correlation: { requestId, route: "/api/orpc" },
-      attributes: { "rpc.system": "orpc" },
-    },
-    scheduleBackgroundTask,
-    async (span) =>
-      const databaseProfile = composeDatabaseProfile(env)
-      const database = await createRequestDatabase({
-        connectionString: databaseProfile.connection.connectionString,
-      })
-      const backgroundTasks = createBackgroundTaskLifecycle(
-        scheduleBackgroundTask,
-        async () =>
-          try
-            await database.close()
-          catch _error
-            // Closure is best-effort after the request result has been determined.
-      )
+  return withDatabaseAdmission(async (admission) =>
+    const isContactSubmission =
+      method === "POST" &&
+      new URL(request.url).pathname === "/api/orpc/contact/submit"
+    const boundedRequest = BODY_BEARING_ORPC_METHODS.includes(method)
+      ? isContactSubmission
+        ? await bufferContactRequest(request)
+        : await bufferBoundedRequest(request, ORPC_REQUEST_MAX_BYTES)
+      : { request, tooLarge: false }
+    if (boundedRequest.tooLarge && !isContactSubmission) return payloadTooLargeResponse()
+    const bufferedContact = boundedRequest
+    const effectiveRequest = bufferedContact.request
+    const telemetry = telemetryFor(env)
+    const requestId = resolveApiRequestId(effectiveRequest)
 
-      try
-        const contactThrottle = isContactSubmission
-          ? createContactThrottleRepository(database.db)
-          : undefined
-        let contactThrottleKey: string | undefined
-        const contactEdgeThrottle = isContactSubmission
-          ? createContactThrottleRepository(database.db, {
-              maxRequests: CONTACT_EDGE_MAX_REQUESTS,
-            })
-          : undefined
-        if (contactThrottle !== undefined && contactEdgeThrottle !== undefined)
-          const edgeKey = await createContactThrottleKey(
-            effectiveRequest,
-            env.CONTACT_THROTTLE_SECRET,
-            "edge",
-          )
-          let edgeResult
-          try
-            edgeResult = await contactEdgeThrottle.consume(edgeKey)
-          catch
-            return contactAbuseResponse("SERVICE_UNAVAILABLE")
-          if (!edgeResult.allowed)
-            return contactAbuseResponse(
-              "TOO_MANY_REQUESTS",
-              edgeResult.retryAfterSeconds,
+    return runWithRequestTelemetry(
+      telemetry,
+      {
+        name: "orpc.request",
+        correlation: { requestId, route: "/api/orpc" },
+        attributes: { "rpc.system": "orpc" },
+      },
+      scheduleBackgroundTask,
+      async (span) =>
+        const databaseProfile = composeDatabaseProfile(env)
+        let database
+        try
+          database = await createRequestDatabase({
+            connectionString: databaseProfile.connection.connectionString,
+          })
+        catch error
+          if (error instanceof RequestDatabaseCapacityError)
+            return databaseCapacityResponse()
+          throw error
+        const backgroundTasks = createBackgroundTaskLifecycle(
+          scheduleBackgroundTask,
+          async () =>
+            try
+              await database.close()
+            catch _error
+              // Closure is best-effort after the request result has been determined.
+            finally
+              admission.release()
+        )
+
+        try
+          const contactThrottle = isContactSubmission
+            ? createContactThrottleRepository(database.db)
+            : undefined
+          let contactThrottleKey: string | undefined
+          const contactEdgeThrottle = isContactSubmission
+            ? createContactThrottleRepository(database.db, {
+                maxRequests: CONTACT_EDGE_MAX_REQUESTS,
+              })
+            : undefined
+          if (contactThrottle !== undefined && contactEdgeThrottle !== undefined)
+            const edgeKey = await createContactThrottleKey(
+              effectiveRequest,
+              env.CONTACT_THROTTLE_SECRET,
+              "edge",
             )
-          if (bufferedContact.tooLarge)
-            return contactAbuseResponse("PAYLOAD_TOO_LARGE")
-          contactThrottleKey = await createContactThrottleKey(
-            effectiveRequest,
-            env.CONTACT_THROTTLE_SECRET,
-            "submit",
-          )
-        const email = selectEmailPort({
-          environment: env.APP_ENV,
-          transport: env.EMAIL_TRANSPORT,
-          previewDirectory: previewOptions?.authDirectory,
-          previewBinding: previewOptions?.binding,
-          previewCaptureEndpoint: previewOptions?.captureEndpoint,
-          resendApiKey: env.RESEND_API_KEY,
-          from: env.EMAIL_FROM,
-          trustedAppOrigin: env.APP_URL,
-        })
-        const contactDelivery = isContactSubmission
-          ? selectContactEmailPort({
-              environment: env.APP_ENV,
-              transport: env.EMAIL_TRANSPORT,
-              recipient: env.CONTACT_EMAIL_TO,
-              previewDirectory: previewOptions?.contactDirectory,
-              previewCaptureEndpoint: previewOptions?.captureEndpoint,
-              previewBinding: previewOptions?.binding,
-              resendApiKey: env.RESEND_API_KEY,
-              from: env.EMAIL_FROM,
-            })
-          : undefined
-        const auth = createAuth({
-          database: database.db,
-          email,
-          secret: env.BETTER_AUTH_SECRET,
-          baseURL: env.BETTER_AUTH_URL,
-          trustedOrigins: [env.APP_URL],
-          scheduleBackgroundTask: backgroundTasks.schedule,
-        })
-        const sink = createEvlogSink({
-          runtime: evlogFor(env),
-          request: effectiveRequest,
-          executionContext: { waitUntil: scheduleBackgroundTask },
-        })
-        const semanticEvents = createSemanticEventFanout({
-          sink,
-          analytics: analyticsFor(env),
-          resolveConsent: () => resolveAnalyticsConsent(request),
-        })
-        const context = createApiContext(effectiveRequest, {
-          repositories: createRepositories(database.db),
-          capabilities: getProviderCapabilities(env),
-          requireSession: (headers) => requireSession(auth, headers),
-          requireRole: (headers, role) => requireRole(auth, headers, role),
-          requestId,
-          semanticEvents,
-          span,
-          waitUntil: scheduleBackgroundTask,
-          ...(contactDelivery === undefined ||
-          contactThrottle === undefined ||
-          contactThrottleKey === undefined
-            ? {}
-            : { contactDelivery, contactThrottle, contactThrottleKey }),
-        })
-        return await handleOrpcRequest(effectiveRequest, context)
-      finally
-        await backgroundTasks.finalize()
+            let edgeResult
+            try
+              edgeResult = await contactEdgeThrottle.consume(edgeKey)
+            catch
+              return contactAbuseResponse("SERVICE_UNAVAILABLE")
+            if (!edgeResult.allowed)
+              return contactAbuseResponse(
+                "TOO_MANY_REQUESTS",
+                edgeResult.retryAfterSeconds,
+              )
+            if (bufferedContact.tooLarge)
+              return contactAbuseResponse("PAYLOAD_TOO_LARGE")
+            contactThrottleKey = await createContactThrottleKey(
+              effectiveRequest,
+              env.CONTACT_THROTTLE_SECRET,
+              "submit",
+            )
+          const email = selectEmailPort({
+            environment: env.APP_ENV,
+            transport: env.EMAIL_TRANSPORT,
+            previewDirectory: previewOptions?.authDirectory,
+            previewBinding: previewOptions?.binding,
+            previewCaptureEndpoint: previewOptions?.captureEndpoint,
+            resendApiKey: env.RESEND_API_KEY,
+            from: env.EMAIL_FROM,
+            trustedAppOrigin: env.APP_URL,
+          })
+          const contactDelivery = isContactSubmission
+            ? selectContactEmailPort({
+                environment: env.APP_ENV,
+                transport: env.EMAIL_TRANSPORT,
+                recipient: env.CONTACT_EMAIL_TO,
+                previewDirectory: previewOptions?.contactDirectory,
+                previewCaptureEndpoint: previewOptions?.captureEndpoint,
+                previewBinding: previewOptions?.binding,
+                resendApiKey: env.RESEND_API_KEY,
+                from: env.EMAIL_FROM,
+              })
+            : undefined
+          const auth = createAuth({
+            database: database.db,
+            email,
+            secret: env.BETTER_AUTH_SECRET,
+            baseURL: env.BETTER_AUTH_URL,
+            trustedOrigins: [env.APP_URL],
+            scheduleBackgroundTask: backgroundTasks.schedule,
+          })
+          const sink = createEvlogSink({
+            runtime: evlogFor(env),
+            request: effectiveRequest,
+            executionContext: { waitUntil: scheduleBackgroundTask },
+          })
+          const semanticEvents = createSemanticEventFanout({
+            sink,
+            analytics: analyticsFor(env),
+            resolveConsent: () => resolveAnalyticsConsent(request),
+          })
+          const repositories = createRepositories(database.db)
+          const authorizeRepository = (
+            ownerId: string,
+            repositoryId: string,
+          ): boolean =>
+            isWorkflowRepositoryGranted(
+              workflowRepositoryGrants,
+              ownerId,
+              repositoryId,
+            )
+          const workflowOperator = createOperatorWorkflowPort({
+            repository:
+              repositories.workflows ?? createWorkflowRepository(database.db),
+            authorizeRepository,
+          })
+          const context = createApiContext(effectiveRequest, {
+            repositories,
+            capabilities: getProviderCapabilities(env),
+            workflowOperator,
+            requireSession: (headers) => requireSession(auth, headers),
+            requireRole: (headers, role) => requireRole(auth, headers, role),
+            requestId,
+            semanticEvents,
+            span,
+            waitUntil: scheduleBackgroundTask,
+            ...(contactDelivery === undefined ||
+            contactThrottle === undefined ||
+            contactThrottleKey === undefined
+              ? {}
+              : { contactDelivery, contactThrottle, contactThrottleKey }),
+          })
+          return await handleOrpcRequest(effectiveRequest, context)
+        finally
+          await backgroundTasks.finalize()
+          admission.transfer()
+    )
   )
 
 const handleOrpc = (request: Request): Promise<Response> =>

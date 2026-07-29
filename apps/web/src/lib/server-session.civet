@@ -22,7 +22,7 @@ export interface GetPortalSessionOptions {
 
 const MAX_SESSION_RESPONSE_BYTES = 16_384
 const DEFAULT_SESSION_TIMEOUT_MS = 3_000
-const PORTAL_PATH_ROOTS = ["/dashboard", "/feature-items", "/account", "/admin"] as const
+const PORTAL_PATH_ROOTS = ["/dashboard", "/feature-items", "/operator", "/account", "/admin"] as const
 const REQUEST_PATH_HEADERS = ["x-pathname", "x-invoke-path", "next-url"] as const
 
 export const resolvePortalAppUrl = (

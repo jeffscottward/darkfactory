@@ -1,50 +1,58 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const driver = vi.hoisted(() =>
+  type PoolErrorListener = (error: unknown) => void
   const pools: Array<{
     options: unknown
-    end: ReturnType<typeof vi.fn>
-  }> = []
-  const clients: Array<{
-    options: unknown
     connect: ReturnType<typeof vi.fn>
+    emitError: (error: unknown) => void
+    end: ReturnType<typeof vi.fn>
+    on: ReturnType<typeof vi.fn>
+  }> = []
+  const poolClients: Array<{
     end: ReturnType<typeof vi.fn>
     query: ReturnType<typeof vi.fn<(query: unknown) => Promise<unknown>>>
+    release: ReturnType<typeof vi.fn>
   }> = []
   const databases: Array<{
     client: unknown
     transaction: ReturnType<typeof vi.fn>
   }> = []
   let nextConnectionError: unknown
-  let nextEndError: unknown
+  let nextReleaseError: unknown
 
   class Pool
     options: unknown
+    private readonly errorListeners: PoolErrorListener[] = []
+    on = vi.fn((event: string, listener: PoolErrorListener) =>
+      if (event === "error") this.errorListeners.push(listener)
+      return this
+    )
+    emitError = (error: unknown): void =>
+      for (const listener of this.errorListeners) listener(error)
+    connect = vi.fn(async () =>
+      if (nextConnectionError !== undefined)
+        const error = nextConnectionError
+        nextConnectionError = undefined
+        throw error
+      const client = {
+        end: vi.fn(async () => undefined),
+        query: vi.fn(async (_query: unknown) => undefined),
+        release: vi.fn(() =>
+          if (nextReleaseError === undefined) return
+          const error = nextReleaseError
+          nextReleaseError = undefined
+          throw error
+        ),
+      }
+      poolClients.push(client)
+      return client
+    )
     end = vi.fn(async () => undefined)
 
     constructor(options: unknown)
       this.options = options
       pools.push(this)
-
-  class Client
-    options: unknown
-    connect = vi.fn(async () =>
-      if (nextConnectionError === undefined) return
-      const error = nextConnectionError
-      nextConnectionError = undefined
-      throw error
-    )
-    end = vi.fn(async () =>
-      if (nextEndError === undefined) return
-      const error = nextEndError
-      nextEndError = undefined
-      throw error
-    )
-    query = vi.fn(async (_query: unknown) => undefined)
-
-    constructor(options: unknown)
-      this.options = options
-      clients.push(this)
 
   const drizzle = vi.fn(({ client }: { client: unknown }) =>
     const database = {
@@ -58,36 +66,39 @@ const driver = vi.hoisted(() =>
 
   const failNextConnection = (error: unknown): void =>
     nextConnectionError = error
-  const failNextEnd = (error: unknown): void =>
-    nextEndError = error
+  const failNextRelease = (error: unknown): void =>
+    nextReleaseError = error
 
   const resetFailures = (): void =>
     nextConnectionError = undefined
-    nextEndError = undefined
+    nextReleaseError = undefined
 
   return {
-    Client,
     Pool,
-    clients,
     databases,
     drizzle,
     failNextConnection,
-    failNextEnd,
+    failNextRelease,
     pools,
+    poolClients,
     runMigrations,
     resetFailures,
   }
 )
 
-vi.mock("pg", () => ({ Client: driver.Client, Pool: driver.Pool }))
+vi.mock("pg", () => ({ Pool: driver.Pool }))
 vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: driver.drizzle }))
 vi.mock("drizzle-orm/node-postgres/migrator", () => ({
   migrate: driver.runMigrations,
 }))
 
 import {
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+  RequestDatabaseCapacityError,
   createNodeDatabase,
   createRequestDatabase,
+  resetRequestDatabasePoolForTests,
+  setRequestDatabasePoolDiagnosticSinkForTests,
   withTransaction,
 } from "./client.civet"
 import { migrate } from "@darkfactory/db/server/migration"
@@ -99,10 +110,11 @@ const NORMALIZED_PLANETSCALE_CONNECTION_STRING =
   "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&application_name=darkfactory"
 
 describe "database client factories", ->
-  beforeEach ->
-    driver.clients.length = 0
+  beforeEach async ->
+    await resetRequestDatabasePoolForTests()
     driver.databases.length = 0
     driver.pools.length = 0
+    driver.poolClients.length = 0
     driver.drizzle.mockClear()
     driver.runMigrations.mockClear()
     driver.resetFailures()
@@ -150,9 +162,11 @@ describe "database client factories", ->
     const requestResource = await createRequestDatabase({ connectionString })
 
     expect(driver.pools[0]?.options).toEqual({ connectionString: normalized })
-    expect(driver.clients[0]?.options).toEqual({
+    expect(driver.pools[1]?.options).toEqual({
       connectionString: normalized,
       connectionTimeoutMillis: 10_000,
+      max: REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+      maxUses: 1,
       query_timeout: 10_000,
     })
 
@@ -176,9 +190,11 @@ describe "database client factories", ->
     const requestResource = await createRequestDatabase({ connectionString })
 
     expect(driver.pools[0]?.options).toEqual({ connectionString })
-    expect(driver.clients[0]?.options).toEqual({
+    expect(driver.pools[1]?.options).toEqual({
       connectionString,
       connectionTimeoutMillis: 10_000,
+      max: REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+      maxUses: 1,
       query_timeout: 10_000,
     })
 
@@ -192,7 +208,7 @@ describe "database client factories", ->
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=10000&query_timeout=0",
     "postgresql://worker:credential-that-must-not-leak@%2Fvar%2Frun%2Fpostgresql/darkfactory?query%5Ftimeout=0",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0#client-fragment",
-  ])("rejects request query timeout URL overrides before constructing a client", async (connectionString) =>
+  ])("rejects request query timeout URL overrides before constructing a pool", async (connectionString) =>
     let rejection: unknown
     try
       await createRequestDatabase({ connectionString })
@@ -206,7 +222,7 @@ describe "database client factories", ->
     expect((rejection as Error).message).not.toContain(
       "credential-that-must-not-leak",
     )
-    expect(driver.clients).toHaveLength(0)
+    expect(driver.pools).toHaveLength(0)
     expect(driver.drizzle).not.toHaveBeenCalled()
   )
 
@@ -218,7 +234,7 @@ describe "database client factories", ->
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout\u001f",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout ",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?application_name=darkfactory\u000b&pool=worker",
-  ])("rejects raw URL controls before constructing a client", async (connectionString) =>
+  ])("rejects raw URL controls before constructing a pool", async (connectionString) =>
     let rejection: unknown
     try
       await createRequestDatabase({ connectionString })
@@ -232,11 +248,11 @@ describe "database client factories", ->
     expect((rejection as Error).message).not.toContain(
       "credential-that-must-not-leak",
     )
-    expect(driver.clients).toHaveLength(0)
+    expect(driver.pools).toHaveLength(0)
     expect(driver.drizzle).not.toHaveBeenCalled()
   )
 
-  it "creates and connects a fresh client for every request", async ->
+  it "bounds one shared pool and expires each connection after its request lease", async ->
     const first = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
       connectionTimeoutMillis: 3_000,
@@ -246,51 +262,208 @@ describe "database client factories", ->
       connectionTimeoutMillis: 3_000,
     })
 
-    expect(driver.clients).toHaveLength(2)
-    expect(driver.clients[0]).not.toBe(driver.clients[1])
-    expect(driver.clients[0]?.connect).toHaveBeenCalledOnce()
-    expect(driver.clients[1]?.connect).toHaveBeenCalledOnce()
-    expect(driver.clients[0]?.options).toEqual({
+    expect(driver.pools).toHaveLength(1)
+    expect(driver.pools[0]?.options).toEqual({
       connectionString: CONNECTION_STRING,
       connectionTimeoutMillis: 3_000,
+      max: REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+      maxUses: 1,
       query_timeout: 10_000,
     })
+    expect(driver.pools[0]?.connect).toHaveBeenCalledTimes(2)
+    expect(driver.poolClients).toHaveLength(2)
     expect(first).not.toHaveProperty("client")
 
     await first.close()
+    await first.close()
     await second.close()
-    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
-    expect(driver.clients[1]?.end).toHaveBeenCalledOnce()
+    expect(driver.poolClients[0]?.release).toHaveBeenCalledOnce()
+    expect(driver.poolClients[1]?.release).toHaveBeenCalledOnce()
+    expect(driver.poolClients[0]?.end).not.toHaveBeenCalled()
+    expect(driver.poolClients[1]?.end).not.toHaveBeenCalled()
+    expect(driver.pools[0]?.end).not.toHaveBeenCalled()
 
-  it "closes a request client when connection setup fails", async ->
+  it "consumes shared pool background errors through a fixed secret-safe diagnostic", async ->
+    const diagnosticSink = vi.fn()
+    setRequestDatabasePoolDiagnosticSinkForTests(diagnosticSink)
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    const backgroundError = new Error(
+      `idle client failed for ${CONNECTION_STRING}; select private_value`,
+    )
+
+    expect(() => driver.pools[0]!.emitError(backgroundError)).not.toThrow()
+    expect(driver.pools[0]!.on).toHaveBeenCalledWith(
+      "error",
+      expect.any(Function),
+    )
+    expect(diagnosticSink).toHaveBeenCalledWith({
+      code: "REQUEST_DATABASE_POOL_ERROR",
+    })
+    expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
+      CONNECTION_STRING,
+    )
+    expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
+      "private_value",
+    )
+
+    setRequestDatabasePoolDiagnosticSinkForTests(() =>
+      throw new Error("diagnostic sink failed")
+    )
+    expect(() => driver.pools[0]!.emitError(backgroundError)).not.toThrow()
+    await resource.close()
+
+  it "ignores shared pool diagnostics when no test sink is installed", async ->
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+
+    expect(() =>
+      driver.pools[0]!.emitError(new Error("background pool failure"))
+    ).not.toThrow()
+    await resource.close()
+
+  it "rejects incompatible shared request pool configuration", async ->
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+      connectionTimeoutMillis: 3_000,
+    })
+
+    await expect(createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+      connectionTimeoutMillis: 4_000,
+    })).rejects.toThrow(
+      "Request database pool is already configured for this isolate",
+    )
+    await resource.close()
+
+  it "resets the shared request pool without ending pooled clients", async ->
+    const first = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    await first.close()
+
+    await resetRequestDatabasePoolForTests()
+    expect(driver.pools[0]?.end).toHaveBeenCalledOnce()
+    expect(driver.poolClients[0]?.end).not.toHaveBeenCalled()
+
+    const second = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    expect(driver.pools).toHaveLength(2)
+    expect(driver.pools[1]).not.toBe(driver.pools[0])
+    await second.close()
+
+  it "refuses to reset the shared pool while a lease is active", async ->
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+
+    await expect(resetRequestDatabasePoolForTests()).rejects.toThrow(
+      "Cannot reset the request database pool with active leases",
+    )
+    expect(driver.pools[0]?.end).not.toHaveBeenCalled()
+
+    await resource.close()
+    await resetRequestDatabasePoolForTests()
+    expect(driver.pools[0]?.end).toHaveBeenCalledOnce()
+
+  it "does not leak capacity when a pooled connection attempt fails", async ->
     const connectionFailure = new Error("connection failed")
     driver.failNextConnection(connectionFailure)
 
     await expect(
       createRequestDatabase({ connectionString: CONNECTION_STRING }),
     ).rejects.toBe(connectionFailure)
-    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
-    expect(driver.clients[0]?.options).toEqual({
-      connectionString: CONNECTION_STRING,
-      connectionTimeoutMillis: 10_000,
-      query_timeout: 10_000,
-    })
+    expect(driver.pools).toHaveLength(1)
+    expect(driver.pools[0]?.connect).toHaveBeenCalledOnce()
+    expect(driver.poolClients).toHaveLength(0)
 
-  it "closes a connected request client after a query rejects in handler cleanup", async ->
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    expect(driver.pools).toHaveLength(1)
+    expect(driver.pools[0]?.connect).toHaveBeenCalledTimes(2)
+    await resource.close()
+    expect(driver.poolClients[0]?.release).toHaveBeenCalledOnce()
+
+  it "rejects exactly beyond request pool capacity without adding pool waiters", async ->
+    const resources = await Promise.all(Array.from(
+      { length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS },
+      () => createRequestDatabase({ connectionString: CONNECTION_STRING }),
+    ))
+    expect(driver.pools[0]?.connect).toHaveBeenCalledTimes(
+      REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+    )
+
+    await expect(
+      createRequestDatabase({ connectionString: CONNECTION_STRING }),
+    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError)
+    expect(driver.pools[0]?.connect).toHaveBeenCalledTimes(
+      REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+    )
+
+    await resources[0]!.close()
+    const replacement = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    expect(driver.pools[0]?.connect).toHaveBeenCalledTimes(
+      REQUEST_DATABASE_POOL_MAX_CONNECTIONS + 1,
+    )
+    await Promise.all([
+      ...resources.slice(1).map(({ close }) => close()),
+      replacement.close(),
+    ])
+
+  it "releases capacity even when client release throws", async ->
+    const resource = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    const releaseFailure = new Error("release failed")
+    driver.failNextRelease(releaseFailure)
+
+    await expect(resource.close()).rejects.toBe(releaseFailure)
+    await expect(resource.close()).resolves.toBeUndefined()
+    const replacement = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    await replacement.close()
+
+  it "preserves database initialization failures when lease cleanup also fails", async ->
+    const databaseFailure = new Error("database initialization failed")
+    const releaseFailure = new Error("release after initialization failed")
+    driver.drizzle.mockImplementationOnce(() =>
+      throw databaseFailure
+    )
+    driver.failNextRelease(releaseFailure)
+
+    await expect(
+      createRequestDatabase({ connectionString: CONNECTION_STRING }),
+    ).rejects.toBe(databaseFailure)
+    expect(driver.poolClients[0]?.release).toHaveBeenCalledOnce()
+
+    const replacement = await createRequestDatabase({
+      connectionString: CONNECTION_STRING,
+    })
+    await replacement.close()
+
+  it "releases a pooled client after a query rejects in handler cleanup", async ->
     const resource = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
     })
     const queryFailure = new Error("query failed")
-    driver.clients[0]!.query.mockRejectedValueOnce(queryFailure)
+    driver.poolClients[0]!.query.mockRejectedValueOnce(queryFailure)
 
     try
-      await expect(driver.clients[0]!.query("select 1")).rejects.toBe(
+      await expect(driver.poolClients[0]!.query("select 1")).rejects.toBe(
         queryFailure,
       )
     finally
       await resource.close()
 
-    expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
+    expect(driver.poolClients[0]!.release).toHaveBeenCalledOnce()
+    expect(driver.poolClients[0]!.end).not.toHaveBeenCalled()
 
 
   it "runs migrations from the package folder unless explicitly overridden", async ->
@@ -331,31 +504,14 @@ describe "database client factories", ->
       withTransaction(failingDatabase as never, async () => "unreachable"),
     ).rejects.toBe(rollbackError)
 
-  it "preserves a connection failure when cleanup also fails", async ->
-    const connectionFailure = new Error("connection failed")
-    const cleanupFailure = new Error("cleanup failed")
-    driver.failNextConnection(connectionFailure)
-    driver.failNextEnd(cleanupFailure)
 
-    await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBe(connectionFailure)
-    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
-
-  it "propagates pool and request-client close failures", async ->
+  it "propagates private Node pool close failures", async ->
     const poolResource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
     })
     const poolFailure = new Error("pool close failed")
     driver.pools[0]!.end.mockRejectedValueOnce(poolFailure)
     await expect(poolResource.close()).rejects.toBe(poolFailure)
-
-    const requestResource = await createRequestDatabase({
-      connectionString: CONNECTION_STRING,
-    })
-    const requestFailure = new Error("request close failed")
-    driver.clients[0]!.end.mockRejectedValueOnce(requestFailure)
-    await expect(requestResource.close()).rejects.toBe(requestFailure)
 
   it "propagates migration-provider failures without rewriting them", async ->
     const resource = createNodeDatabase({ connectionString: CONNECTION_STRING })

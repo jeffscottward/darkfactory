@@ -1,0 +1,91 @@
+import { Card, CardContent, CardHeader, CardTitle, cn } from "@darkfactory/ui"
+import Link from "next/link"
+
+import {
+  WORKFLOW_STATES,
+  type OperatorRunSummary,
+  type WorkflowState,
+} from "./operator-client.civet"
+import { abbreviatedHash, formatOperatorDate, operatorRunTitle } from "./operator-format.civet"
+import { WorkflowStatus, workflowStateLabel } from "./workflow-status.civet"
+
+export const runsByWorkflowState = (
+  runs: readonly OperatorRunSummary[],
+): Readonly<Record<WorkflowState, readonly OperatorRunSummary[]>> =>
+  const grouped = Object.fromEntries(
+    WORKFLOW_STATES.map((state) => [state, [] as OperatorRunSummary[]]),
+  ) as Record<WorkflowState, OperatorRunSummary[]>
+  for (const run of runs) grouped[run.state].push(run)
+  for (const state of WORKFLOW_STATES)
+    grouped[state].sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
+  return grouped
+
+const RunLink = ({
+  run,
+  selected,
+}: {
+  readonly run: OperatorRunSummary
+  readonly selected: boolean
+}) => (
+  <li className="border-t border-border first:border-t-0">
+    <Link
+      aria-current={selected ? "true" : undefined}
+      aria-label={`Open ${operatorRunTitle(run)}, ${workflowStateLabel(run.state)}`}
+      className={cn(
+        "block min-h-11 min-w-0 px-1 py-3 transition-colors duration-base ease-out hover:bg-accent focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+        selected && "bg-accent",
+      )}
+      href={`/operator/runs/${encodeURIComponent(run.id)}`}
+    >
+      <span className="block break-words text-sm font-semibold text-foreground">
+        {operatorRunTitle(run)}
+      <span className="mt-2 flex flex-wrap items-center gap-2">
+        <WorkflowStatus state={run.state} />
+        <time className="text-xs text-muted-foreground" dateTime={run.updatedAt.toISOString()}>
+          {formatOperatorDate(run.updatedAt)}
+      <code className="mt-2 block break-all font-mono text-xs text-muted-foreground">
+        seq {run.sequence} · {abbreviatedHash(run.headHash)}
+      {run.blockedReason === undefined ? null : (
+        <span className="mt-2 block text-xs leading-5 text-destructive">{run.blockedReason}
+      )}
+)
+
+export interface RunKanbanProps {
+  readonly runs: readonly OperatorRunSummary[]
+  readonly selectedRunId?: string | undefined
+}
+
+export const RunKanban = ({ runs, selectedRunId }: RunKanbanProps) =>
+  const grouped = runsByWorkflowState(runs)
+  return (
+    <section aria-labelledby="run-kanban-title" className="space-y-4">
+      <div className="border-b border-border pb-4">
+        <h2 className="font-heading text-xl font-semibold tracking-tight text-foreground" id="run-kanban-title">
+          Run board
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">
+          Owner-scoped runs grouped by current state. Open a run for its journal, approval binding, stored evidence, and messages.
+      <div className="grid min-w-0 gap-4 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
+        {WORKFLOW_STATES.map((state) =>
+          const stateRuns = grouped[state]
+          return (
+            <Card className="min-w-0" key={state}>
+              <CardHeader className="flex-row items-center justify-between gap-3 p-4">
+                <CardTitle className="text-base" headingLevel={3}>{workflowStateLabel(state)}
+                <span className="font-mono text-xs text-muted-foreground" aria-label={`${stateRuns.length} runs`}>
+                  {stateRuns.length}
+              <CardContent className="px-3 py-0">
+                {stateRuns.length === 0 ? (
+                  <p className="py-4 text-sm text-muted-foreground">No runs in this state.
+                ) : (
+                  <ul>
+                    {stateRuns.map((run) => (
+                      <RunLink
+                        key={run.id}
+                        run={run}
+                        selected={run.id === selectedRunId}
+                      />
+                    ))}
+                )}
+          )
+        )}
+)

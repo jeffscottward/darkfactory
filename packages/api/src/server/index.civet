@@ -60,6 +60,26 @@ export type {
   DashboardServiceErrorCode,
   DashboardSummaryOutput,
 } from "./dashboard-service.civet"
+export {
+  OperatorServiceError,
+  OperatorWorkflowPortError,
+  createOperatorService,
+} from "./operator-service.civet"
+export type {
+  OperatorActionContext,
+  OperatorSubmitContext,
+  OperatorService,
+  OperatorServiceErrorCode,
+  OperatorWorkflowPort,
+  WorkflowOperatorDetail,
+  WorkflowOperatorEvidence,
+  WorkflowOperatorMessage,
+  WorkflowOperatorRunSummary,
+  WorkflowOperatorTimelineEntry,
+} from "./operator-service.civet"
+export { createOperatorWorkflowPort } from "./workflow-runtime.civet"
+export type { OperatorWorkflowPortOptions } from "./workflow-runtime.civet"
+
 export type {
   ChangeFeatureStatusInput,
   CreateFeatureInput,

@@ -1,4 +1,8 @@
 import { CANONICAL_APP_URL } from "./client.civet"
+import {
+  RequestDatabaseEndpointError,
+  validateRequestDatabaseEndpoint,
+} from "./database.civet"
 import { z } from "zod"
 
 const emptyStringToUndefined = (value: unknown): unknown =>
@@ -101,9 +105,6 @@ const isPostgresUrl = (value: string): boolean =>
     url.hostname.length > 0
   )
 
-const usesVerifiedPostgresTls = (value: string): boolean =>
-  const sslModes = parseUrl(value)?.searchParams.getAll("sslmode") ?? []
-  return sslModes.length === 1 && sslModes[0]?.toLowerCase() === "verify-full"
 
 const databaseUrlSchema = z
   .string({ error: "DATABASE_URL is required" })
@@ -128,6 +129,7 @@ const baseServerEnvSchema = z.object({
   BETTER_AUTH_SECRET: secretSchema("BETTER_AUTH_SECRET"),
   BETTER_AUTH_URL: httpsUrl("BETTER_AUTH_URL").default(CANONICAL_APP_URL),
   CONTACT_THROTTLE_SECRET: secretSchema("CONTACT_THROTTLE_SECRET"),
+  WORKFLOW_REPOSITORY_GRANTS: optionalString,
 
   AI_PROVIDER: z.enum(["groq"]).default("groq"),
   GROQ_API_KEY: optionalString,
@@ -192,12 +194,20 @@ export const serverEnvSchema = baseServerEnvSchema.superRefine((env, context): v
         path: [name],
         message: `${name} cannot use a local origin in production`,
       })
-    if (!usesVerifiedPostgresTls(env.DATABASE_URL))
-      context.addIssue({
-        code: "custom",
-        path: ["DATABASE_URL"],
-        message: "DATABASE_URL must use sslmode=verify-full in production",
-      })
+    if (isPostgresUrl(env.DATABASE_URL))
+      try
+        validateRequestDatabaseEndpoint({
+          appEnvironment: env.APP_ENV,
+          provider: env.DATABASE_PROVIDER,
+          connectionString: env.DATABASE_URL,
+        })
+      catch error
+        if (!(error instanceof RequestDatabaseEndpointError)) throw error
+        context.addIssue({
+          code: "custom",
+          path: ["DATABASE_URL"],
+          message: error.diagnostic,
+        })
 
   if (
     (env.EMAIL_PROVIDER === "disabled") !==

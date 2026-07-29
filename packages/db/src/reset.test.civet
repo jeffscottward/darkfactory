@@ -48,7 +48,7 @@ describe "development database reset", ->
 
       const result = await resetDevelopment(double.database, { environment })
 
-      expect(result).toEqual({ tablesCleared: 10 })
+      expect(result).toEqual({ tablesCleared: 19 })
       expect(Object.isFrozen(result)).toBe(true)
       expect(double.lifecycle).toEqual(["begin", "commit"])
       expect(double.transaction).toHaveBeenCalledOnce()
@@ -63,9 +63,18 @@ describe "development database reset", ->
         "profiles",
         "user_preferences",
         "feature_items",
+        "contact_rate_limits",
+        "workflow_omp_resources",
+        "workflow_messages",
+        "workflow_evidence",
+        "workflow_approvals",
+        "workflow_snapshots",
+        "workflow_journal",
+        "workflow_runs",
         "audit_records",
         "user",
         "verification",
+        "rate_limit",
         "outbox_events",
       ])
         expect(query).toContain(`"${table}"`)

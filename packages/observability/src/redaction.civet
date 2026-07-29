@@ -265,20 +265,7 @@ export const redact = (
   const active = new WeakSet<object>()
   let visitedNodes = 0
 
-  const visit = (value: unknown, depth: number): RedactedValue =>
-    visitedNodes += 1
-    if (visitedNodes > maxTotalNodes) return TRUNCATED
-
-    if (value === null) return null
-    if (typeof value === "string")
-      return boundedString(value, maxStringLength)
-    if (typeof value === "boolean") return value
-    if (typeof value === "number")
-      return Number.isFinite(value) ? value : NON_FINITE
-    if (typeof value === "undefined") return "[Undefined]"
-    if (typeof value === "bigint") return "[BigInt]"
-    if (typeof value === "symbol") return "[Symbol]"
-    if (typeof value === "function") return "[Function]"
+  function visitObject(value: object, depth: number): RedactedValue
     if (depth >= maxDepth) return TRUNCATED
     if (active.has(value)) return CIRCULAR
 
@@ -355,6 +342,29 @@ export const redact = (
     finally
       active.delete(value)
 
+  function visit(value: unknown, depth: number): RedactedValue
+    visitedNodes += 1
+    if (visitedNodes > maxTotalNodes) return TRUNCATED
+
+    if (value === null) return null
+    switch typeof value
+      when "string"
+        return boundedString(value, maxStringLength)
+      when "boolean"
+        return value
+      when "number"
+        return Number.isFinite(value) ? value : NON_FINITE
+      when "undefined"
+        return "[Undefined]"
+      when "bigint"
+        return "[BigInt]"
+      when "symbol"
+        return "[Symbol]"
+      when "function"
+        return "[Function]"
+      else
+        return visitObject(value as object, depth)
+
   return visit(input, 0)
 
 const unsafeSnapshot = (): TypeError =>
@@ -367,37 +377,41 @@ const freezeValue = (
   depth: number,
 ): void =>
   if (value === null || typeof value !== "object") return
-  if (seen.has(value)) return
-  state.nodes += 1
-  if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH)
-    throw unsafeSnapshot()
-
-  let array: boolean
-  let keys: (string | symbol)[]
-  try
-    array = Array.isArray(value)
-    if (!hasPlainPrototype(value, array)) throw unsafeSnapshot()
-    keys = Reflect.ownKeys(value)
-  catch
-    throw unsafeSnapshot()
-  const dataKeys = array ? keys.filter((key) => key !== "length") : keys
-  if (dataKeys.length > MAX_FREEZE_KEYS) throw unsafeSnapshot()
-
-  seen.add(value)
-  for (const key of dataKeys)
-    if (typeof key !== "string") throw unsafeSnapshot()
-    let descriptor: PropertyDescriptor | undefined
-    try
-      descriptor = Object.getOwnPropertyDescriptor(value, key)
-    catch
+  if (seen.has(value))
+    return
+  else
+    state.nodes += 1
+    if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH)
       throw unsafeSnapshot()
-    if (descriptor === undefined || !("value" in descriptor))
-      throw unsafeSnapshot()
-    freezeValue(descriptor.value, seen, state, depth + 1)
-  try
-    Object.freeze(value)
-  catch
-    throw unsafeSnapshot()
+    else
+      let array: boolean
+      let keys: (string | symbol)[]
+      try
+        array = Array.isArray(value)
+        if (!hasPlainPrototype(value, array)) throw unsafeSnapshot()
+        keys = Reflect.ownKeys(value)
+      catch
+        throw unsafeSnapshot()
+      const dataKeys = array ? keys.filter((key) => key !== "length") : keys
+      if (dataKeys.length > MAX_FREEZE_KEYS) throw unsafeSnapshot()
+
+      seen.add(value)
+      for (const key of dataKeys)
+        if (typeof key !== "string")
+          throw unsafeSnapshot()
+        else
+          let descriptor: PropertyDescriptor | undefined
+          try
+            descriptor = Object.getOwnPropertyDescriptor(value, key)
+          catch
+            throw unsafeSnapshot()
+          if (descriptor === undefined || !("value" in descriptor))
+            throw unsafeSnapshot()
+          freezeValue(descriptor.value, seen, state, depth + 1)
+      try
+        Object.freeze(value)
+      catch
+        throw unsafeSnapshot()
 
 export const freezeSnapshot = <T>(value: T): T =>
   try

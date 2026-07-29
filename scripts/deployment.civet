@@ -1,0 +1,7 @@
+import { runProductionWebDatabaseCheck } from "./deployment/database.civet"
+
+process.exitCode = runProductionWebDatabaseCheck(
+  process.env,
+  process.stdout,
+  process.stderr,
+)

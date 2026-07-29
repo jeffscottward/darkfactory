@@ -51,6 +51,7 @@ vi.mock("@darkfactory/config/server", -> ({
     BETTER_AUTH_SECRET: "configured-secret".repeat(2),
     CONTACT_THROTTLE_SECRET: "contact-throttle-secret".repeat(2),
     BETTER_AUTH_URL: "https://darkfactory.localhost",
+    WORKFLOW_REPOSITORY_GRANTS: "user-1=darkfactory",
     OTEL_ENABLED: false,
     OTEL_SERVICE_NAME: "darkfactory-web",
     OTEL_EXPORTER_OTLP_ENDPOINT: undefined,
@@ -67,7 +68,10 @@ vi.mock("@darkfactory/config/server", -> ({
   }),
 }))
 vi.mock("@darkfactory/db/server", -> ({
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
+  RequestDatabaseCapacityError: class RequestDatabaseCapacityError extends Error
   createRequestDatabase: vi.fn(async () => ({ db: { request: true }, close: mocks.close })),
+  createWorkflowRepository: () => ({})
   createRepositories: () => ({}),
   createContactThrottleRepository: (_database: unknown, options?: { maxRequests?: number }) => ({
     consume: options?.maxRequests === 30 ? mocks.edgeConsume : mocks.submitConsume,

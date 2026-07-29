@@ -1,5 +1,5 @@
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres"
-import { Client, Pool } from "pg"
+import { Pool, type PoolClient } from "pg"
 import * as schema from "../schema/index.civet"
 
 export type Database = NodePgDatabase<typeof schema>
@@ -83,7 +83,7 @@ const normalizePlanetScaleSystemRoot = (connectionString: string): string =>
   rawQueryParameters.splice(systemRootIndex, 1)
   return `${connectionString.slice(0, queryIndex + 1)}${rawQueryParameters.join("&")}`
 
-const drizzleDatabase = (client: Pool | Client): Database =>
+const drizzleDatabase = (client: Pool | PoolClient): Database =>
   drizzle({ client, schema })
 
 export const createNodeDatabase = (
@@ -110,7 +110,28 @@ export const createNodeDatabase = (
 
 const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000
 const REQUEST_QUERY_TIMEOUT_MILLISECONDS = 10_000
+export const REQUEST_DATABASE_POOL_MAX_CONNECTIONS = 8
 const UNSAFE_REQUEST_CONNECTION_STRING_PATTERN = /[\u0000-\u001f]|\u0020$/u
+
+export type RequestDatabasePoolDiagnostic = Readonly<{
+  code: "REQUEST_DATABASE_POOL_ERROR"
+}>
+export type RequestDatabasePoolDiagnosticSink = (
+  diagnostic: RequestDatabasePoolDiagnostic,
+) => void
+
+const REQUEST_DATABASE_POOL_ERROR_DIAGNOSTIC =
+  Object.freeze<RequestDatabasePoolDiagnostic>({
+    code: "REQUEST_DATABASE_POOL_ERROR",
+  })
+const ignoreRequestDatabasePoolDiagnostic: RequestDatabasePoolDiagnosticSink =
+  () => undefined
+let requestDatabasePoolDiagnosticSink = ignoreRequestDatabasePoolDiagnostic
+
+export const setRequestDatabasePoolDiagnosticSinkForTests = (
+  sink: RequestDatabasePoolDiagnosticSink,
+): void =>
+  requestDatabasePoolDiagnosticSink = sink
 
 const assertSafeRequestConnectionString = (
   connectionString: string,
@@ -134,29 +155,116 @@ const assertSafeRequestConnectionString = (
       "Request database connection strings cannot set query_timeout",
     )
 
+type SharedRequestPool = {
+  pool: Pool
+  connectionString: string
+  connectionTimeoutMillis: number
+  activeLeases: number
+}
+
+let sharedRequestPool: SharedRequestPool | undefined
+
+export class RequestDatabaseCapacityError extends Error
+  override readonly name = "RequestDatabaseCapacityError"
+
+  constructor()
+    super("Request database capacity is exhausted")
+
+const requestPoolFor = (
+  connectionString: string,
+  connectionTimeoutMillis: number,
+): SharedRequestPool =>
+  if (sharedRequestPool !== undefined)
+    if (
+      sharedRequestPool.connectionString !== connectionString ||
+      sharedRequestPool.connectionTimeoutMillis !== connectionTimeoutMillis
+    )
+      throw new TypeError(
+        "Request database pool is already configured for this isolate",
+      )
+    return sharedRequestPool
+
+  const pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis,
+    max: REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+    maxUses: 1,
+    query_timeout: REQUEST_QUERY_TIMEOUT_MILLISECONDS,
+  })
+  pool.on("error", () =>
+    try
+      requestDatabasePoolDiagnosticSink(
+        REQUEST_DATABASE_POOL_ERROR_DIAGNOSTIC,
+      )
+    catch
+      // A diagnostic failure must not turn a handled pool event into a crash.
+  )
+  sharedRequestPool = {
+    pool,
+    connectionString,
+    connectionTimeoutMillis,
+    activeLeases: 0,
+  }
+  return sharedRequestPool
+
+export const resetRequestDatabasePoolForTests = async (): Promise<void> =>
+  requestDatabasePoolDiagnosticSink = ignoreRequestDatabasePoolDiagnostic
+  const current = sharedRequestPool
+  if (current === undefined) return
+  if (current.activeLeases !== 0)
+    throw new Error("Cannot reset the request database pool with active leases")
+  sharedRequestPool = undefined
+  await current.pool.end()
+
+const closeRequestDatabaseLease = (
+  pool: SharedRequestPool,
+  client: PoolClient,
+): (() => Promise<void>) =>
+  let closed = false
+  return async () =>
+    if (closed) return
+    closed = true
+    try
+      client.release()
+    finally
+      pool.activeLeases -= 1
+
 export const createRequestDatabase = async (
   options: RequestDatabaseOptions,
 ): Promise<DatabaseResource> =>
   assertSafeRequestConnectionString(options.connectionString)
-  const client = new Client({
-    connectionString: normalizePlanetScaleSystemRoot(options.connectionString),
-    connectionTimeoutMillis:
-      options.connectionTimeoutMillis ??
-      DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS,
-    query_timeout: REQUEST_QUERY_TIMEOUT_MILLISECONDS,
-  })
+  const connectionString = normalizePlanetScaleSystemRoot(
+    options.connectionString,
+  )
+  const connectionTimeoutMillis =
+    options.connectionTimeoutMillis ??
+    DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS
+  const requestPool = requestPoolFor(
+    connectionString,
+    connectionTimeoutMillis,
+  )
+  if (
+    requestPool.activeLeases >= REQUEST_DATABASE_POOL_MAX_CONNECTIONS
+  )
+    throw new RequestDatabaseCapacityError()
 
+  requestPool.activeLeases += 1
+  let client: PoolClient
   try
-    await client.connect()
+    client = await requestPool.pool.connect()
   catch error
-    await client.end().catch(() => undefined)
+    requestPool.activeLeases -= 1
     throw error
 
-  return {
-    db: drizzleDatabase(client),
-    close: async () =>
-      await client.end();
-  }
+  const close = closeRequestDatabaseLease(requestPool, client)
+  try
+    return {
+      db: drizzleDatabase(client),
+      close,
+    }
+  catch error
+    await close().catch(() => undefined)
+    throw error
 
 
 export const withTransaction = async <Result>(

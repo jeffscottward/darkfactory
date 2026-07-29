@@ -155,7 +155,7 @@ describe.sequential "DF-040 development database lifecycle", ->
       if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
   , 60_000)
 
-  it("rejects unsafe reset environments before mutation, explicitly clears all ten tables, preserves the journal, and reseeds", async () =>
+  it("rejects unsafe reset environments before mutation, reports eighteen cleared tables, preserves the journal, and reseeds", async () =>
     await seed()
     await populateSessionAndVerification()
 
@@ -173,7 +173,7 @@ describe.sequential "DF-040 development database lifecycle", ->
 
     await expect(resetDevelopment(databaseResource.db, {
       environment: "test",
-    })).resolves.toEqual({ tablesCleared: 10 })
+    })).resolves.toEqual({ tablesCleared: 18 })
     expect(await tableCounts()).toEqual(Object.fromEntries(
       TABLES.map((table) => [table, 0]),
     ))
@@ -233,7 +233,7 @@ describe.sequential "DF-040 development database lifecycle", ->
     expectNoUnexpectedStderr(secondSeed.stderr)
 
     const reset = await runCli("reset", "test", "test")
-    expect(JSON.parse(reset.stdout)).toEqual({ tablesCleared: 10 })
+    expect(JSON.parse(reset.stdout)).toEqual({ tablesCleared: 18 })
     expect(reset.stdout).not.toContain("Development123!")
     expect(reset.stdout).not.toContain(AUTH_SECRET)
     expectNoUnexpectedStderr(reset.stderr)

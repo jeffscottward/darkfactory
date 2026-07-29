@@ -25,6 +25,46 @@
       "import": "./src/server/inline.civet",
       "default": "./src/server/inline.civet"
     },
+    "./server/omp": {
+      "types": "./src/server/omp.civet.d.ts",
+      "workerd": "./src/server/unsupported.civet",
+      "worker": "./src/server/unsupported.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/omp.civet",
+      "default": "./src/server/omp.civet"
+    },
+    "./server/workflow-worker": {
+      "types": "./src/server/workflow-worker.civet.d.ts",
+      "workerd": "./src/server/unsupported.civet",
+      "worker": "./src/server/unsupported.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/workflow-worker.civet",
+      "default": "./src/server/workflow-worker.civet"
+    },
+    "./server/workflow-runtime": {
+      "types": "./src/server/workflow-runtime.civet.d.ts",
+      "workerd": "./src/server/workflow-runtime.civet",
+      "worker": "./src/server/workflow-runtime.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/workflow-runtime.civet",
+      "default": "./src/server/workflow-runtime.civet"
+    },
+    "./server/plan-evidence": {
+      "types": "./src/server/plan-evidence.civet.d.ts",
+      "workerd": "./src/server/plan-evidence.civet",
+      "worker": "./src/server/plan-evidence.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/plan-evidence.civet",
+      "default": "./src/server/plan-evidence.civet"
+    },
+    "./server/pilot-worker": {
+      "types": "./src/server/pilot-worker.civet.d.ts",
+      "workerd": "./src/server/unsupported.civet",
+      "worker": "./src/server/unsupported.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/pilot-worker.civet",
+      "default": "./src/server/pilot-worker.civet"
+    },
     "./test": {
       "types": "./src/test.civet.d.ts",
       "import": "./src/test.civet",
@@ -32,10 +72,15 @@
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet && bunx --bun --no-install civet --emit-declaration src/server/inline.civet && bunx --bun --no-install civet --emit-declaration src/test.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/inline.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/omp.civet src/server/plan-evidence.civet src/server/workflow-worker.civet src/server/workflow-runtime.civet src/server/pilot-worker.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet"
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "worker:pilot": "bun --preload @danielx/civet/bun-civet src/server/pilot-worker-cli.civet"
+  },
+  "dependencies": {
+    "@darkfactory/db": "workspace:*",
+    "@darkfactory/state": "workspace:*"
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",

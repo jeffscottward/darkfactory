@@ -1,0 +1,99 @@
+import { constants } from "node:fs"
+import { lstat, open, realpath } from "node:fs/promises"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+
+const relativeCivetSpecifier =
+  /(\b(?:from\s+|import\s*(?:\(\s*)?))(["'])(\.{1,2}\/[^"']+\.civet)\2/gu
+
+const packageRoot = await realpath(resolve("."))
+const sourcePath = resolve("src")
+const sourceStats = await lstat(sourcePath)
+const sourceRoot = await realpath(sourcePath)
+const declarationPaths = [
+  "src/index.civet.d.ts"
+  "src/client.civet.d.ts"
+  "src/setup-flow.civet.d.ts"
+  "src/workflow/index.civet.d.ts"
+  "src/workflow/types.civet.d.ts"
+  "src/workflow/canonical.civet.d.ts"
+  "src/workflow/guards.civet.d.ts"
+  "src/workflow/grants.civet.d.ts"
+  "src/workflow/approval.civet.d.ts"
+  "src/workflow/machine.civet.d.ts"
+  "src/workflow/projection.civet.d.ts"
+] as const
+
+const isWithin = (root: string, path: string): boolean =>
+  const fromRoot = relative(root, path)
+  return (
+    fromRoot.length > 0 &&
+    !isAbsolute(fromRoot) &&
+    fromRoot !== ".." &&
+    !fromRoot.startsWith(`..${sep}`)
+  )
+
+if (
+  sourceStats.isSymbolicLink() ||
+  !sourceStats.isDirectory() ||
+  !isWithin(packageRoot, sourceRoot)
+)
+  throw new Error("State declaration source root is unsafe")
+
+for (const relativeDeclarationPath of declarationPaths)
+  const declarationPath = resolve(relativeDeclarationPath)
+  const handle = await open(
+    declarationPath,
+    constants.O_RDWR | constants.O_NOFOLLOW,
+  )
+  try
+    const handleStats = await handle.stat()
+    const pathStats = await lstat(declarationPath)
+    const canonicalDeclarationPath = await realpath(declarationPath)
+    if (
+      !handleStats.isFile() ||
+      pathStats.isSymbolicLink() ||
+      !pathStats.isFile() ||
+      handleStats.dev !== pathStats.dev ||
+      handleStats.ino !== pathStats.ino ||
+      !isWithin(sourceRoot, canonicalDeclarationPath)
+    )
+      throw new Error("Generated state declaration path is unsafe")
+
+    const source = await handle.readFile({ encoding: "utf8" })
+    for (const match of source.matchAll(relativeCivetSpecifier))
+      const target = resolve(dirname(declarationPath), `${match[3]!}.d.ts`)
+      const targetStats = await lstat(target).catch(() => undefined)
+      const canonicalTarget = await realpath(target).catch(() => undefined)
+      if (
+        targetStats === undefined ||
+        canonicalTarget === undefined ||
+        targetStats.isSymbolicLink() ||
+        !targetStats.isFile() ||
+        !isWithin(sourceRoot, canonicalTarget)
+      )
+        throw new Error(
+          `Missing or unsafe state declaration imported by ${relative(sourceRoot, canonicalDeclarationPath)}`,
+        )
+
+    const normalized = source.replace(
+      relativeCivetSpecifier,
+      (_match, prefix: string, quote: string, specifier: string): string =>
+        return `${prefix}${quote}${specifier}.d.js${quote}`
+    )
+    if normalized !== source
+      const content = Buffer.from(normalized, "utf8")
+      let offset = 0
+      while offset < content.length
+        const { bytesWritten } = await handle.write(
+          content,
+          offset,
+          content.length - offset,
+          offset,
+        )
+        if bytesWritten <= 0
+          throw new Error("Generated state declaration write made no progress")
+        offset += bytesWritten
+      await handle.truncate(content.length)
+      await handle.sync()
+  finally
+    await handle.close()

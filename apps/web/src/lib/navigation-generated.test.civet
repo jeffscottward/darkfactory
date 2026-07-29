@@ -1,4 +1,4 @@
-import { LayoutList } from "lucide-react"
+import { GitBranch, LayoutList } from "lucide-react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("../features/generated-navigation.civet", () => ({
@@ -17,7 +17,7 @@ import {
   ROUTE_PAGE_FILES,
 } from "./navigation.civet"
 
-describe "generated navigation composition", ->
+describe "navigation composition", ->
   it "projects generated destinations into portal and route manifests", ->
     expect(PORTAL_NAVIGATION).toContainEqual({
       label: "Generated reports",
@@ -26,3 +26,12 @@ describe "generated navigation composition", ->
     })
     expect(EXPOSED_ROUTE_PATHS).toContain("/reports")
     expect(ROUTE_PAGE_FILES["/reports"]).toBe("(portal)/reports/page.civet")
+
+  it "exposes the authenticated operator root with its implemented page", ->
+    expect(PORTAL_NAVIGATION).toContainEqual({
+      label: "Operator",
+      href: "/operator",
+      icon: GitBranch,
+    })
+    expect(EXPOSED_ROUTE_PATHS).toContain("/operator")
+    expect(ROUTE_PAGE_FILES["/operator"]).toBe("(portal)/operator/page.civet")

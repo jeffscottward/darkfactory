@@ -20,13 +20,28 @@ const mocks = vi.hoisted(->
     remaining: 4,
     retryAfterSeconds: 0,
   }))
+  class RequestDatabaseCapacityError extends Error
+    override readonly name = "RequestDatabaseCapacityError"
+
+    constructor()
+      super("Request database capacity is exhausted")
+
+  const workflowRepository = { runtime: "postgres-workflow" }
+  const workflowOperator = { submit: vi.fn(), workspace: vi.fn() }
+  let repeatDatabaseClose = false
+  const runDatabaseClose = async (closeDatabase: () => Promise<void>): Promise<void> =>
+    await closeDatabase()
+    if (repeatDatabaseClose) await closeDatabase()
   return {
+    setRepeatDatabaseClose: (enabled: boolean) => repeatDatabaseClose = enabled,
+    runDatabaseClose,
     waitUntil,
     close,
     forceFlush,
     span,
     withSpan,
     consumeContactThrottle,
+    RequestDatabaseCapacityError,
     initializeTelemetry: vi.fn(() => ({
       state: { status: "in-memory" },
       withSpan,
@@ -47,9 +62,19 @@ const mocks = vi.hoisted(->
       requireSession: vi.fn(),
       requireRole: vi.fn(),
     })),
+    workflowRepository,
+    workflowOperator,
+    createOperatorWorkflowPort: vi.fn((_options: Readonly<{
+      repository: unknown
+      authorizeRepository: (ownerId: string, repositoryId: string) => boolean
+    }>) => workflowOperator),
+    createWorkflowRepository: vi.fn(() => workflowRepository),
     resolveApiRequestId: vi.fn(() => "request-stable"),
     createRequestDatabase: vi.fn(async () => ({ db: { request: true }, close })),
-    createRepositories: vi.fn(() => ({ featureItems: {} })),
+    createRepositories: vi.fn(() => ({
+      featureItems: {},
+      workflows: workflowRepository,
+    })),
     createContactThrottleRepository: vi.fn(() => ({ consume: consumeContactThrottle })),
     composeDatabaseProfile: vi.fn(() => ({
       connection: { connectionString: "postgres://configured.invalid/db" },
@@ -64,6 +89,7 @@ const mocks = vi.hoisted(->
       BETTER_AUTH_SECRET: "configured-secret".repeat(2),
       CONTACT_THROTTLE_SECRET: "contact-throttle-secret".repeat(2),
       BETTER_AUTH_URL: "https://darkfactory.localhost",
+      WORKFLOW_REPOSITORY_GRANTS: "user-1=darkfactory",
       OTEL_ENABLED: true,
       OTEL_SERVICE_NAME: "darkfactory-web",
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.configured.test:4318/base",
@@ -77,7 +103,9 @@ const mocks = vi.hoisted(->
     requireRole: vi.fn(),
     selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
     selectContactEmailPort: vi.fn(() => ({ sendContact: vi.fn() })),
-    handleOrpcRequest: vi.fn(async () => new Response("handled", { status: 202 })),
+    handleOrpcRequest: vi.fn(async (_request: Request) =>
+      new Response("handled", { status: 202 })
+    ),
   }
 )
 
@@ -85,6 +113,7 @@ vi.mock("cloudflare:workers", -> ({ waitUntil: mocks.waitUntil }))
 vi.mock("@darkfactory/api/server", -> ({
   createApiContext: mocks.createApiContext,
   resolveApiRequestId: mocks.resolveApiRequestId,
+  createOperatorWorkflowPort: mocks.createOperatorWorkflowPort,
 }))
 vi.mock("@darkfactory/analytics/server/posthog", -> ({
   createPostHogAnalyticsPort: mocks.createPostHogAnalyticsPort,
@@ -109,9 +138,12 @@ vi.mock("@darkfactory/config/server", -> ({
   }),
 }))
 vi.mock("@darkfactory/db/server", -> ({
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
+  RequestDatabaseCapacityError: mocks.RequestDatabaseCapacityError,
   createRepositories: mocks.createRepositories,
   createRequestDatabase: mocks.createRequestDatabase,
   createContactThrottleRepository: mocks.createContactThrottleRepository,
+  createWorkflowRepository: mocks.createWorkflowRepository,
 }))
 vi.mock("@darkfactory/email/server", -> ({
   selectEmailPort: mocks.selectEmailPort,
@@ -128,25 +160,46 @@ vi.mock("@darkfactory/observability/server/otel", -> ({
   initializeTelemetry: mocks.initializeTelemetry,
 }))
 vi.mock("./handler.civet", -> ({ handleOrpcRequest: mocks.handleOrpcRequest }))
+vi.mock("../../../../lib/background-task-lifecycle.civet", async (importOriginal) =>
+  const actual = await importOriginal<
+    typeof import("../../../../lib/background-task-lifecycle.civet")
+  >()
+  return {
+    ...actual,
+    createBackgroundTaskLifecycle: (
+      scheduleExternal: (task: Promise<unknown>) => void,
+      closeDatabase: () => Promise<void>,
+    ) => actual.createBackgroundTaskLifecycle(
+      scheduleExternal,
+      () => mocks.runDatabaseClose(closeDatabase),
+    ),
+  }
+)
 
 import { CONTACT_REQUEST_MAX_BYTES } from "./contact-runtime.civet"
 import {
   DELETE,
   GET,
   handleOrpcRuntimeRequest,
+  ORPC_DATABASE_CONCURRENCY_LIMIT,
+  ORPC_REQUEST_MAX_BYTES,
   PATCH,
   POST,
 } from "./route.civet"
 
 describe "oRPC Worker route provider composition", ->
   beforeEach ->
+    mocks.setRepeatDatabaseClose(false)
     mocks.waitUntil.mockClear()
     mocks.close.mockClear()
     mocks.forceFlush.mockClear()
     mocks.createEvlogSink.mockClear()
     mocks.createSemanticEventFanout.mockClear()
     mocks.createApiContext.mockClear()
+    mocks.createOperatorWorkflowPort.mockClear()
+    mocks.createWorkflowRepository.mockClear()
     mocks.createRequestDatabase.mockClear()
+    mocks.composeDatabaseProfile.mockClear()
     mocks.createAuth.mockClear()
     mocks.createContactThrottleRepository.mockClear()
     mocks.consumeContactThrottle.mockReset()
@@ -207,6 +260,17 @@ describe "oRPC Worker route provider composition", ->
       span: mocks.span,
       waitUntil: mocks.waitUntil,
     })
+    const workflowOptions = mocks.createOperatorWorkflowPort.mock.calls[0]![0]
+    expect(workflowOptions).toMatchObject({
+      repository: mocks.workflowRepository,
+    })
+    expect(workflowOptions.authorizeRepository("user-1", "darkfactory")).toBe(true)
+    expect(workflowOptions.authorizeRepository("user-2", "darkfactory")).toBe(false)
+    expect(workflowOptions.authorizeRepository("user-1", "other")).toBe(false)
+    expect(mocks.createApiContext.mock.calls[0]?.[1]).toMatchObject({
+      workflowOperator: mocks.workflowOperator,
+    })
+    expect(mocks.workflowOperator.submit).toBeTypeOf("function")
     expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(2)
     expect(mocks.close).toHaveBeenCalledTimes(2)
     expect(mocks.forceFlush).toHaveBeenCalledTimes(2)
@@ -356,6 +420,356 @@ describe "oRPC Worker route provider composition", ->
     expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
     expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
 
+  it "uses deny-all workflow grants when the web grant setting is absent", async ->
+    const configured = mocks.parseServerEnv()
+    mocks.parseServerEnv.mockReturnValueOnce({
+      ...configured,
+      WORKFLOW_REPOSITORY_GRANTS: undefined,
+    } as never)
+
+    const response = await GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))
+
+    expect(response.status).toBe(202)
+    const workflowOptions = mocks.createOperatorWorkflowPort.mock.calls[0]![0]
+    expect(workflowOptions.authorizeRepository("user-1", "darkfactory")).toBe(false)
+    expect(workflowOptions.authorizeRepository("other", "repository")).toBe(false)
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+
+  it "rejects malformed web workflow grants before opening the database", async ->
+    const configured = mocks.parseServerEnv()
+    mocks.parseServerEnv.mockReturnValueOnce({
+      ...configured,
+      WORKFLOW_REPOSITORY_GRANTS: "owner==repository",
+    } as never)
+
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toThrow("Workflow repository grant is malformed")
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
+
+  it "does not allocate a request database when production endpoint composition fails", async ->
+    const endpointError = new Error(
+      "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432",
+    )
+    mocks.composeDatabaseProfile.mockImplementationOnce(() =>
+      throw endpointError
+    )
+
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toBe(endpointError)
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
+
+  it "rejects unsupported methods before opening the database", async ->
+    const response = await handleOrpcRuntimeRequest(
+      new Request(
+        "https://darkfactory.localhost/api/orpc/dashboard/summary",
+        { method: "PUT" },
+      ),
+      mocks.waitUntil,
+    )
+
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, POST, PATCH, DELETE")
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
+
+  it "rejects declared, lying, and lengthless oversized bodies before database allocation", async ->
+    const declared = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      {
+        method: "POST",
+        headers: {
+          "content-length": String(ORPC_REQUEST_MAX_BYTES + 1),
+          origin: "https://darkfactory.localhost",
+        },
+        body: "small",
+      },
+    )
+    const oversizedStream = () => new ReadableStream<Uint8Array>({
+      start(controller)
+        controller.enqueue(new Uint8Array(ORPC_REQUEST_MAX_BYTES))
+        controller.enqueue(new Uint8Array([1]))
+        controller.close()
+    })
+    const lying = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      {
+        method: "POST",
+        headers: {
+          "content-length": "1",
+          origin: "https://darkfactory.localhost",
+        },
+        body: oversizedStream(),
+        duplex: "half",
+      } as RequestInit,
+    )
+    const lengthless = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/create",
+      {
+        method: "POST",
+        headers: { origin: "https://darkfactory.localhost" },
+        body: oversizedStream(),
+        duplex: "half",
+      } as RequestInit,
+    )
+    lengthless.headers.delete("content-length")
+
+    const responses = await Promise.all([
+      POST(declared),
+      POST(lying),
+      POST(lengthless),
+    ])
+
+    expect(responses.map(({ status }) => status)).toEqual([413, 413, 413])
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
+
+  it "reconstructs an exact-boundary body with its request metadata", async ->
+    const body = new Uint8Array(ORPC_REQUEST_MAX_BYTES)
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/featureItems/update?source=operator",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/octet-stream",
+          origin: "https://darkfactory.localhost",
+          "x-request-marker": "preserved",
+        },
+        body,
+      },
+    )
+    request.headers.delete("content-length")
+
+    const response = await PATCH(request)
+
+    expect(response.status).toBe(202)
+    const forwarded = mocks.handleOrpcRequest.mock.calls[0]![0] as Request
+    expect(forwarded).not.toBe(request)
+    expect(forwarded.url).toBe(request.url)
+    expect(forwarded.method).toBe("PATCH")
+    expect(forwarded.headers.get("x-request-marker")).toBe("preserved")
+    expect(forwarded.headers.get("content-length")).toBe(
+      String(ORPC_REQUEST_MAX_BYTES),
+    )
+    expect((await forwarded.arrayBuffer()).byteLength).toBe(
+      ORPC_REQUEST_MAX_BYTES,
+    )
+
+  it "returns a retryable 503 without queueing beyond isolate DB capacity", async ->
+    let releaseHandlers!: () => void
+    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+    mocks.handleOrpcRequest.mockImplementation(async () =>
+      await handlerGate
+      return new Response("handled", { status: 202 })
+    )
+    const admitted = Array.from(
+      { length: ORPC_DATABASE_CONCURRENCY_LIMIT },
+      (_, index) => GET(new Request(
+        `https://darkfactory.localhost/api/orpc/dashboard/summary?slot=${index}`,
+      )),
+    )
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
+        ORPC_DATABASE_CONCURRENCY_LIMIT,
+      )
+    )
+
+    const excess = await GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?slot=excess",
+    ))
+
+    expect(excess.status).toBe(503)
+    expect(excess.headers.get("retry-after")).toBe("1")
+    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(
+      ORPC_DATABASE_CONCURRENCY_LIMIT,
+    )
+    releaseHandlers()
+    await Promise.all(admitted)
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?slot=reused",
+    ))).resolves.toMatchObject({ status: 202 })
+    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(
+      ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+    )
+
+  it "does not read a body stream when no request admission slot is available", async ->
+    let releaseHandlers!: () => void
+    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+    mocks.handleOrpcRequest.mockImplementation(async () =>
+      await handlerGate
+      return new Response("handled", { status: 202 })
+    )
+    const admitted = Array.from(
+      { length: ORPC_DATABASE_CONCURRENCY_LIMIT },
+      (_, index) => GET(new Request(
+        `https://darkfactory.localhost/api/orpc/dashboard/summary?body-slot=${index}`,
+      )),
+    )
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
+        ORPC_DATABASE_CONCURRENCY_LIMIT,
+      )
+    )
+    const getReader = vi.fn(() =>
+      throw new Error("body must not be read")
+    )
+    const excessRequest = {
+      body: { getReader },
+      headers: new Headers({ origin: "https://darkfactory.localhost" }),
+      method: "POST",
+      url: "https://darkfactory.localhost/api/orpc/featureItems/create",
+    } as unknown as Request
+
+    const response = await POST(excessRequest)
+
+    expect(response.status).toBe(503)
+    expect(getReader).not.toHaveBeenCalled()
+    releaseHandlers()
+    await Promise.all(admitted)
+
+  it "holds admission through deferred database close and releases it exactly once", async ->
+    let resolveBackgroundTask!: () => void
+    const backgroundTask = new Promise<void>(
+      (resolve) => resolveBackgroundTask = resolve,
+    )
+    mocks.handleOrpcRequest.mockImplementationOnce(async () =>
+      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0]
+      if (!authOptions) throw new Error("Expected auth options")
+      authOptions.scheduleBackgroundTask(backgroundTask)
+      return new Response("handled", { status: 202 })
+    )
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?deferred=1",
+    ))).resolves.toMatchObject({ status: 202 })
+    expect(mocks.close).not.toHaveBeenCalled()
+
+    let releaseHandlers!: () => void
+    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+    mocks.handleOrpcRequest.mockImplementation(async () =>
+      await handlerGate
+      return new Response("handled", { status: 202 })
+    )
+    const occupied = Array.from(
+      { length: ORPC_DATABASE_CONCURRENCY_LIMIT - 1 },
+      (_, index) => GET(new Request(
+        `https://darkfactory.localhost/api/orpc/dashboard/summary?occupied=${index}`,
+      )),
+    )
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
+        ORPC_DATABASE_CONCURRENCY_LIMIT,
+      )
+    )
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=pending",
+    ))).resolves.toMatchObject({ status: 503 })
+
+    resolveBackgroundTask()
+    await Promise.allSettled(
+      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
+    )
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+    const replacement = GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?replacement=1",
+    ))
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
+        ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+      )
+    )
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=double-release",
+    ))).resolves.toMatchObject({ status: 503 })
+
+    releaseHandlers()
+    await Promise.all([...occupied, replacement])
+    expect(mocks.close).toHaveBeenCalledTimes(
+      ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+    )
+
+  it "keeps isolate admission idempotent when lifecycle closure repeats", async ->
+    mocks.setRepeatDatabaseClose(true)
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close=1",
+    ))).resolves.toMatchObject({ status: 202 })
+    expect(mocks.close).toHaveBeenCalledTimes(2)
+
+    let releaseHandlers!: () => void
+    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+    mocks.handleOrpcRequest.mockImplementation(async () =>
+      await handlerGate
+      return new Response("handled", { status: 202 })
+    )
+    const occupied = Array.from(
+      { length: ORPC_DATABASE_CONCURRENCY_LIMIT },
+      (_, index) => GET(new Request(
+        `https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close-slot=${index}`,
+      )),
+    )
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
+        ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+      )
+    )
+
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close=excess",
+    ))).resolves.toMatchObject({ status: 503 })
+
+    releaseHandlers()
+    await Promise.all(occupied)
+
+  it "maps shared-pool capacity rejection to 503 and releases isolate admission", async ->
+    for (let index = 0; index < ORPC_DATABASE_CONCURRENCY_LIMIT; index += 1)
+      mocks.createRequestDatabase.mockRejectedValueOnce(
+        new mocks.RequestDatabaseCapacityError(),
+      )
+
+    for (let index = 0; index < ORPC_DATABASE_CONCURRENCY_LIMIT; index += 1)
+      const exhausted = await GET(new Request(
+        `https://darkfactory.localhost/api/orpc/dashboard/summary?pool=full-${index}`,
+      ))
+      expect(exhausted.status).toBe(503)
+      expect(exhausted.headers.get("retry-after")).toBe("1")
+
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?pool=recovered",
+    ))).resolves.toMatchObject({ status: 202 })
+    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(
+      ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+    )
+
+  it "releases isolate admission when pooled connection acquisition rejects", async ->
+    const connectionFailure = new Error("connection failed")
+    mocks.createRequestDatabase.mockRejectedValueOnce(connectionFailure)
+
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?connect=failed",
+    ))).rejects.toBe(connectionFailure)
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?connect=recovered",
+    ))).resolves.toMatchObject({ status: 202 })
+    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2)
+
+
+  it "releases an isolate DB slot when request handling rejects", async ->
+    const applicationError = new Error("application failure")
+    mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError)
+
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?attempt=failed",
+    ))).rejects.toBe(applicationError)
+    await expect(GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary?attempt=retry",
+    ))).resolves.toMatchObject({ status: 202 })
+    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2)
+
   it "counts malformed contact requests in a separate pre-parse bucket", async ->
     mocks.handleOrpcRequest.mockResolvedValue(
       new Response("invalid", { status: 400 }),
@@ -437,6 +851,37 @@ describe "oRPC Worker route provider composition", ->
     expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(2)
     expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
     expect(mocks.close).toHaveBeenCalledTimes(2)
+
+  it "gives an edge denial precedence over an oversized contact payload", async ->
+    mocks.consumeContactThrottle.mockResolvedValueOnce({
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: 45,
+    })
+
+    const response = await POST(new Request(
+      "https://darkfactory.localhost/api/orpc/contact/submit",
+      {
+        method: "POST",
+        headers: {
+          "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
+          origin: "https://darkfactory.localhost",
+        },
+        body: "small",
+      },
+    ))
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get("retry-after")).toBe("45")
+    expect(await response.json()).toMatchObject({
+      json: {
+        defined: true,
+        code: "TOO_MANY_REQUESTS",
+        status: 429,
+      },
+    })
+    expect(mocks.consumeContactThrottle).toHaveBeenCalledOnce()
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
 
   it "isolates auth and contact previews inside the same proven E2E run", async ->
     mocks.handleOrpcRequest.mockResolvedValue(
