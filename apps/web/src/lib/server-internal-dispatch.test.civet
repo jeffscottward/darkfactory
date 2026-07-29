@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   handleAuthRequest: vi.fn(),
   handleOrpcRuntimeRequest: vi.fn(),
-  waitUntil: vi.fn((task: Promise<unknown>) => { void task.catch(() => undefined) }),
+  waitUntil: vi.fn((task: Promise<unknown>) => void task.catch(() => undefined)),
 }))
 
 vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }))
@@ -19,15 +19,15 @@ import {
   dispatchInternalOrpcRequest,
 } from "./server-internal-dispatch.civet"
 
-const deferredResponse = () => {
+const deferredResponse = () =>
   let reject!: (error: unknown) => void
   let resolve!: (response: Response) => void
-  const promise = new Promise<Response>((settle, fail) => {
+  const promise = new Promise<Response>((settle, fail) =>
     reject = fail
     resolve = settle
-  })
+    return
+  )
   return { promise, reject, resolve }
-}
 
 beforeEach ->
   vi.clearAllMocks()
@@ -164,9 +164,9 @@ describe "request-local internal dispatch", ->
       { signal: controller.signal },
     )
     mocks.handleAuthRequest.mockReturnValueOnce(operation.promise)
-    mocks.waitUntil.mockImplementationOnce(() => {
+    mocks.waitUntil.mockImplementationOnce(() =>
       throw new Error("scheduler unavailable")
-    })
+    )
 
     const pending = dispatchInternalAuthRequest(request)
     const reason = new DOMException("session deadline", "AbortError")
@@ -191,10 +191,10 @@ describe "request-local internal dispatch", ->
       value: undefined,
     })
     vi.spyOn(request.signal, "addEventListener").mockImplementationOnce(
-      (type, listener, options) => {
+      (type, listener, options) =>
         addAbortListener(type, listener, options)
         controller.abort(new Error("runtime-specific reason"))
-      },
+        return
     )
     mocks.handleOrpcRuntimeRequest.mockReturnValueOnce(operation.promise)
 

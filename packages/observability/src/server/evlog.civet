@@ -29,20 +29,17 @@ export type EvlogSinkOptions = Readonly<{
 
 export const initializeEvlog = (
   options: EvlogRuntimeOptions,
-): EvlogRuntime => {
+): EvlogRuntime =>
   const serviceName = options.serviceName.trim()
-  if (serviceName.length === 0) {
+  if (serviceName.length === 0)
     throw new Error("evlog Worker runtime configuration is invalid")
-  }
   const silent = options.silent ?? false
   const configuration = JSON.stringify({ serviceName, silent })
 
-  if (activeRuntime !== undefined) {
-    if (configuration !== activeConfiguration) {
+  if (activeRuntime !== undefined)
+    if (configuration !== activeConfiguration)
       throw new Error("evlog Worker runtime is already initialized")
-    }
     return activeRuntime
-  }
 
   initWorkersLogger({
     env: { service: serviceName },
@@ -58,16 +55,14 @@ export const initializeEvlog = (
   activeConfiguration = configuration
   activeRuntime = runtime
   return runtime
-}
 
 export const createEvlogSink = (
   options: EvlogSinkOptions,
-): StructuredEventSink => {
-  if (!runtimes.has(options.runtime)) {
+): StructuredEventSink =>
+  if (!runtimes.has(options.runtime))
     throw new Error("evlog Worker runtime is invalid")
-  }
 
-  const emit = async (event: SemanticEvent): Promise<void> => {
+  const emit = async (event: SemanticEvent): Promise<void> =>
     const snapshot = redactSemanticEvent(event)
     const logger = createWorkersLogger(options.request, {
       ...(options.executionContext === undefined
@@ -76,7 +71,7 @@ export const createEvlogSink = (
       requestId: snapshot.correlation.requestId,
     })
 
-    try {
+    try
       await logger.emit({
         event: {
           id: snapshot.eventId,
@@ -109,10 +104,7 @@ export const createEvlogSink = (
           ? {}
           : { attributes: snapshot.attributes }),
       })
-    } catch {
+    catch
       throw new Error("Structured event emission failed")
-    }
-  }
 
   return Object.freeze({ emit })
-}

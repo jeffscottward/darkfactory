@@ -11,11 +11,10 @@ export type ApiClientOptions = Readonly<{
   fetch?: (request: Request) => Promise<Response>
 }>
 
-export const createApiClient = (options: ApiClientOptions): ApiClient => {
+export const createApiClient = (options: ApiClientOptions): ApiClient =>
   const baseUrl = new URL(options.baseUrl)
   const link = new RPCLink({
     url: () => new URL("/api/orpc", baseUrl),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   })
   return createORPCClient<ApiClient>(link)
-}

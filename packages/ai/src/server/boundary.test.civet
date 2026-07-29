@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
 
-const resolveExport = (conditions: readonly string[]): string => {
+const resolveExport = (conditions: readonly string[]): string =>
   const conditionArguments = conditions.flatMap((condition) => [
     "--conditions",
     condition,
@@ -24,7 +24,6 @@ const resolveExport = (conditions: readonly string[]): string => {
   expect(resolution.status).toBe(0)
   expect(resolution.stderr).toBe("")
   return resolution.stdout.trim().replaceAll("\\", "/")
-}
 
 describe "AI package boundaries", ->
   it "keeps root and test exports provider-safe", async ->
@@ -61,10 +60,9 @@ describe "AI package boundaries", ->
 
   it.each(["workerd", "worker"])(
     "prefers the real %s module when Worker and browser conditions coexist",
-    (workerCondition) => {
+    (workerCondition) =>
       expect(resolveExport([workerCondition, "browser"])).toMatch(
         /\/packages\/ai\/src\/server\/groq\.civet$/,
       )
       return undefined
-    },
   )

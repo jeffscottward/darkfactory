@@ -35,7 +35,7 @@ const PHYSICAL_SQL_TYPE_COMPATIBILITY: Readonly<
 const compareRequiredContract = (
   generatedTable: Parameters<typeof tableContract>[0],
   productionTable: Parameters<typeof tableContract>[0],
-) => {
+) =>
   const generated = tableContract(generatedTable)
   const production = tableContract(productionTable, {
     ignoreExtraIndexExpressions: true,
@@ -45,7 +45,7 @@ const compareRequiredContract = (
   expect(production.columns.map(({ name }) => name)).toEqual(
     generated.columns.map(({ name }) => name),
   )
-  for (const requiredColumn of generated.columns) {
+  for (const requiredColumn of generated.columns)
     const actualColumn = production.columns.find(
       ({ name }) => name === requiredColumn.name,
     )
@@ -65,29 +65,22 @@ const compareRequiredContract = (
       unique: requiredColumn.unique,
       hasOnUpdate: requiredColumn.hasOnUpdate,
     })
-    if (requiredColumn.hasDefault) {
+    if (requiredColumn.hasDefault)
       expect(actualColumn?.hasDefault).toBe(true)
-    }
-    if (requiredColumn.defaultValue !== null) {
+    if (requiredColumn.defaultValue !== null)
       expect(actualColumn?.defaultValue).toBe(requiredColumn.defaultValue)
-    }
-  }
   expect(production.foreignKeys).toEqual(generated.foreignKeys)
 
-  for (const requiredIndex of generated.indexes) {
+  for (const requiredIndex of generated.indexes)
     expect(production.indexes).toContainEqual(requiredIndex)
-  }
 
   // DarkFactory deliberately hardens the CLI baseline with timestamptz,
   // expiration indexes, composite uniqueness, and database checks. Those
   // additions are allowed; weakening any CLI-required metadata is not.
-  for (const timestamp of production.timestamps) {
+  for (const timestamp of production.timestamps)
     expect(timestamp.withTimezone).toBe(true)
-  }
-  for (const timestamp of generated.timestamps) {
+  for (const timestamp of generated.timestamps)
     expect(timestamp.withTimezone).toBe(false)
-  }
-}
 
 describe "Better Auth 1.6.24 generated schema contract", ->
   it "matches required physical tables, columns, constraints, defaults, hooks, FKs, and indexes", ->

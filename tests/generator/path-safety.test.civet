@@ -28,11 +28,10 @@ import {
 
 const temporaryDirectories: string[] = []
 
-const createTemporaryDirectory = async (): Promise<string> => {
+const createTemporaryDirectory = async (): Promise<string> =>
   const directory = await mkdtemp(join(tmpdir(), "darkfactory-path-safety-"))
   temporaryDirectories.push(directory)
   return directory
-}
 
 afterEach async ->
   await Promise.all(

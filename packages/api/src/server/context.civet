@@ -50,19 +50,17 @@ const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
 export const resolveApiRequestId = (
   _request: Request,
   options: ApiRequestIdOptions = {},
-): string => {
-  if (options.requestId !== undefined) {
+): string =>
+  if (options.requestId !== undefined)
     if (!REQUEST_ID_PATTERN.test(options.requestId))
       throw new TypeError("requestId must be 1-128 safe correlation characters")
     return options.requestId
-  }
 
 
   const generated = options.generateRequestId?.() ?? crypto.randomUUID()
   if (!REQUEST_ID_PATTERN.test(generated))
     throw new TypeError("generated requestId must be 1-128 safe correlation characters")
   return generated
-}
 
 export const createApiContext = (
   request: Request,

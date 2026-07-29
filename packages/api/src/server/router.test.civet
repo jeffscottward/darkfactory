@@ -189,14 +189,14 @@ const contextFor = (overrides: Partial<ApiContext> = {}): ApiContext => ({
   repositories: repositories(),
   capabilities,
   requireSession: vi.fn(async () => memberSession),
-  requireRole: vi.fn(async (role) => {
+  requireRole: vi.fn(async (role) =>
     if (role !== "member")
       throw new AuthAuthorizationError(
         AUTHORIZATION_ERROR_CODES.FORBIDDEN,
         403,
       )
     return memberSession
-  }),
+  ),
   ...overrides,
 })
 const clientFor = (context: ApiContext) => createRouterClient(appRouter, { context })
@@ -205,15 +205,13 @@ const expectDefinedError = async (
   promise: Promise<unknown>,
   code: string,
   status: number,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     await promise
     throw new Error("Expected the router operation to fail")
-  } catch (error) {
+  catch (error)
     expect(error).toBeInstanceOf(ORPCError)
     expect(error).toMatchObject({ code, status, defined: true })
-  }
-}
 
 const contactInput = {
   name: "Ada Lovelace",
@@ -268,7 +266,9 @@ describe "router authentication context", ->
     },
   ] as const)("maps session denial to $code", async ({ failure, code, status }) ->
     const client = clientFor(contextFor({
-      requireSession: vi.fn(async () => { throw failure }),
+      requireSession: vi.fn(async () =>
+        throw failure
+      ),
     }))
 
     await expectDefinedError(client.account.profile.get({}), code, status)
@@ -277,19 +277,21 @@ describe "router authentication context", ->
   it "preserves unexpected authentication adapter failures", async ->
     const failure = new Error("authentication adapter unavailable")
     const client = clientFor(contextFor({
-      requireSession: vi.fn(async () => { throw failure }),
+      requireSession: vi.fn(async () =>
+        throw failure
+      ),
     }))
 
     await expect(client.account.profile.get({})).rejects.toBe(failure)
 
   it "denies every account mutation when no session is available", async ->
     const client = clientFor(contextFor({
-      requireSession: vi.fn(async () => {
+      requireSession: vi.fn(async () =>
         throw new AuthAuthorizationError(
           AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
           401,
         )
-      }),
+      ),
     }))
     const operations: ReadonlyArray<() => Promise<unknown>> = [
       () => client.account.profile.update({
@@ -339,7 +341,9 @@ describe "router authentication context", ->
     },
   ] as const)("maps admin denial to $code", async ({ failure, code, status }) ->
     const client = clientFor(contextFor({
-      requireRole: vi.fn(async () => { throw failure }),
+      requireRole: vi.fn(async () =>
+        throw failure
+      ),
     }))
 
     await expectDefinedError(
@@ -366,7 +370,9 @@ describe "router authentication context", ->
   it "preserves unexpected role adapter failures", async ->
     const failure = new Error("role adapter unavailable")
     const client = clientFor(contextFor({
-      requireRole: vi.fn(async () => { throw failure }),
+      requireRole: vi.fn(async () =>
+        throw failure
+      ),
     }))
 
     await expect(
@@ -808,10 +814,9 @@ describe "router status and serialization boundaries", ->
     const accountFailure = new Error("unexpected address serializer failure")
     const accountRepos = repositories()
     const poisonedAddress = new Proxy(address(), {
-      get: (target, property, receiver) => {
+      get: (target, property, receiver) =>
         if (property === "id") throw accountFailure
         return Reflect.get(target, property, receiver)
-      },
     })
     vi.mocked(accountRepos.addresses.listByUserId).mockResolvedValue([
       poisonedAddress,
@@ -825,9 +830,8 @@ describe "router status and serialization boundaries", ->
     const adminFailure = new Error("unexpected admin repository boundary failure")
     const adminRepos = repositories()
     Object.defineProperty(adminRepos, "adminUsers", {
-      get: () => {
+      get: () =>
         throw adminFailure
-      },
     })
     await expect(
       clientFor(contextFor({
@@ -845,10 +849,9 @@ describe "router status and serialization boundaries", ->
       archived: 0,
       recent: [] as FeatureItem[],
     }, {
-      get: (target, property, receiver) => {
+      get: (target, property, receiver) =>
         if (property === "recent") throw dashboardFailure
         return Reflect.get(target, property, receiver)
-      },
     })
     vi.mocked(dashboardRepos.dashboard.getFeatureSummary).mockResolvedValue(
       poisonedSummary,
@@ -865,9 +868,8 @@ describe "router status and serialization boundaries", ->
       contactThrottleKey: "k".repeat(64),
     })
     Object.defineProperty(contactContext, "contactDelivery", {
-      get: () => {
+      get: () =>
         throw contactFailure
-      },
     })
     await expect(
       clientFor(contactContext).contact.submit(contactInput),

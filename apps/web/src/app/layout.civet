@@ -52,11 +52,10 @@ export const RootDocument = ({
   children,
   initialTheme,
   themeAuthority = "anonymous",
-}: RootDocumentProps) => (
+}: RootDocumentProps) =>
   <html {...themeRootAttributes(initialTheme, themeAuthority, cookieStatus)} lang="en" suppressHydrationWarning>
     <head>
       <script src={THEME_BOOTSTRAP_PATH} />
-    </head>
     <body>
       <ThemeController
         initialPreference={initialTheme}
@@ -64,25 +63,19 @@ export const RootDocument = ({
       >
         <a className="skip-link" href="#main-content">
           Skip to main content
-        </a>
         {children}
-      </ThemeController>
-    </body>
-  </html>
-)
 
 type RootLayoutProps = Readonly<{
   children: ReactNode
 }>
 
-const trustedAppUrl = (): URL => {
+const trustedAppUrl = (): URL =>
   const configured = process.env["APP_URL"]?.trim()
   const url = new URL(configured || CANONICAL_APP_URL)
   if (url.protocol !== "https:") throw new TypeError("APP_URL must use HTTPS")
   return url
-}
 
-export default async function RootLayout({ children }: RootLayoutProps) {
+export default async function RootLayout({ children }: RootLayoutProps)
   const requestHeaders = await headers()
   const resolvedTheme = await resolveRequestTheme({
     cookieHeader: requestHeaders.get("cookie"),
@@ -93,13 +86,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       requestId: requestHeaders.get("x-request-id"),
     }),
   })
-  return (
-    <RootDocument
-      cookieStatus={resolvedTheme.cookie.status}
-      initialTheme={resolvedTheme.preference}
-      themeAuthority={resolvedTheme.authority}
-    >
-      {children}
-    </RootDocument>
-  )
-}
+  return <RootDocument
+    cookieStatus={resolvedTheme.cookie.status}
+    initialTheme={resolvedTheme.preference}
+    themeAuthority={resolvedTheme.authority}
+  >
+    {children}

@@ -46,10 +46,10 @@ describe "createSemanticEventFanout", ->
   it "snapshots and redacts once, then performs exactly one sink, span-event, metric, and consented analytics call", async ->
     const sinkEvents: SemanticEvent[] = []
     const sink: StructuredEventSink = {
-      emit: vi.fn((event: SemanticEvent) => {
+      emit: vi.fn((event: SemanticEvent) =>
         sinkEvents.push(event)
         return undefined
-      }),
+      ),
     }
     const analyticsCapture = vi.fn(async -> ({
       status: "captured" as const,
@@ -120,7 +120,7 @@ describe "createSemanticEventFanout", ->
       vi.fn(async -> "denied" as const),
       vi.fn(async -> "unknown" as const),
       vi.fn(async -> throw new Error("raw-consent-provider-body")),
-    ]) {
+    ])
       const analyticsCapture = vi.fn()
       const fanout = createSemanticEventFanout({
         sink: { emit: vi.fn() },
@@ -133,7 +133,6 @@ describe "createSemanticEventFanout", ->
       expect(analyticsCapture).not.toHaveBeenCalled()
       expect(result.analytics).toBe("skipped")
       expect(JSON.stringify(result)).not.toContain("raw-consent-provider-body")
-    }
 
     const analyticsCapture = vi.fn()
     const fanout = createSemanticEventFanout({
@@ -275,7 +274,7 @@ describe "createSemanticEventFanout", ->
       ],
     ] as const
 
-    for (const [adapterResult, expectedStatus] of cases) {
+    for (const [adapterResult, expectedStatus] of cases)
       const capture = vi.fn(async () => adapterResult)
       const resolveConsent = vi.fn(() => "granted" as const)
       const fanout = createSemanticEventFanout({
@@ -289,20 +288,17 @@ describe "createSemanticEventFanout", ->
       expect(resolveConsent).toHaveBeenCalledWith(baseEvent.correlation)
       expect(capture).toHaveBeenCalledOnce()
       expect(result.analytics).toBe(expectedStatus)
-    }
 
   it "records span failure while still attempting both span operations", async ->
-    for (const failingOperation of ["event", "metric"] as const) {
-      const addEvent = vi.fn((_event: SemanticEvent) => {
-        if (failingOperation === "event") {
+    for (const failingOperation of ["event", "metric"] as const)
+      const addEvent = vi.fn((_event: SemanticEvent) =>
+        if (failingOperation === "event")
           throw new Error("span event unavailable")
-        }
-      })
-      const recordMetric = vi.fn((_metric: MetricObservation) => {
-        if (failingOperation === "metric") {
+      )
+      const recordMetric = vi.fn((_metric: MetricObservation) =>
+        if (failingOperation === "metric")
           throw new Error("span metric unavailable")
-        }
-      })
+      )
       const span: SpanHandle = {
         correlation,
         addEvent,
@@ -321,21 +317,20 @@ describe "createSemanticEventFanout", ->
         span: "failed",
         analytics: "skipped",
       })
-    }
 
   it "contains an asynchronous sink failure and a broken lifetime hook", async ->
     const sink = {
-      emit: vi.fn(async () => {
+      emit: vi.fn(async () =>
         throw new Error("structured transport unavailable")
-      }),
+      ),
     }
     const capture = vi.fn(async () => ({
       status: "captured" as const,
       eventId: baseEvent.eventId,
     }))
-    const waitUntil = vi.fn((_task: Promise<unknown>) => {
+    const waitUntil = vi.fn((_task: Promise<unknown>) =>
       throw "raw-provider-token=hidden"
-    })
+    )
     const fanout = createSemanticEventFanout({
       sink,
       analytics: { capture },

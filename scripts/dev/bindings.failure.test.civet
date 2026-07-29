@@ -42,15 +42,15 @@ const regularMetadata = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-beforeEach(() => {
+beforeEach(() =>
   vi.clearAllMocks()
   mocks.lstat.mockRejectedValue(errno("ENOENT"))
   mocks.rename.mockResolvedValue(undefined)
   mocks.rm.mockResolvedValue(undefined)
-})
+)
 
-describe("Worker binding failure cleanup", () => {
-  it("rejects a symbolic identity even when metadata also reports a file", async () => {
+describe("Worker binding failure cleanup", () =>
+  it("rejects a symbolic identity even when metadata also reports a file", async () =>
     mocks.lstat.mockResolvedValueOnce(regularMetadata({
       isSymbolicLink: () => true,
     }))
@@ -59,9 +59,9 @@ describe("Worker binding failure cleanup", () => {
       "Existing Worker bindings path is unsafe",
     )
     expect(mocks.open).not.toHaveBeenCalled()
-  })
+  )
 
-  it("preserves unexpected filesystem inspection errors", async () => {
+  it("preserves unexpected filesystem inspection errors", async () =>
     const unclassified = new Error("inspection failed")
     mocks.lstat.mockRejectedValueOnce(unclassified)
     await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toBe(
@@ -78,15 +78,19 @@ describe("Worker binding failure cleanup", () => {
     await expect(writeWorkerBindings("/repo/.dev.vars", validBindings)).rejects.toBe(
       denied,
     )
-  })
+  )
 
-  it("closes and removes a temporary file even when both cleanup operations reject", async () => {
+  it("closes and removes a temporary file even when both cleanup operations reject", async () =>
     const primaryFailure = new Error("write failed")
     const handle = {
-      writeFile: vi.fn(async () => { throw primaryFailure }),
+      writeFile: vi.fn(async () =>
+        throw primaryFailure
+      ),
       chmod: vi.fn(),
       sync: vi.fn(),
-      close: vi.fn(async () => { throw new Error("close failed") }),
+      close: vi.fn(async () =>
+        throw new Error("close failed")
+      ),
     }
     mocks.open.mockResolvedValueOnce(handle)
     mocks.rm.mockRejectedValueOnce(new Error("remove failed"))
@@ -104,9 +108,9 @@ describe("Worker binding failure cleanup", () => {
       "/repo/.dev.vars.fixed-uuid.tmp",
       { force: true },
     )
-  })
+  )
 
-  it("removes a completed temporary file when the atomic rename fails", async () => {
+  it("removes a completed temporary file when the atomic rename fails", async () =>
     const handle = {
       writeFile: vi.fn(async () => undefined),
       chmod: vi.fn(async () => undefined),
@@ -127,9 +131,9 @@ describe("Worker binding failure cleanup", () => {
       "/repo/.dev.vars.fixed-uuid.tmp",
       { force: true },
     )
-  })
+  )
 
-  it("uses the current working directory by default without continuing after resolver failure", async () => {
+  it("uses the current working directory by default without continuing after resolver failure", async () =>
     mocks.spawnSync.mockReturnValueOnce({
       status: 1,
       error: undefined,
@@ -145,5 +149,5 @@ describe("Worker binding failure cleanup", () => {
       expect.objectContaining({ cwd: process.cwd() }),
     )
     expect(mocks.lstat).not.toHaveBeenCalled()
-  })
-})
+  )
+)

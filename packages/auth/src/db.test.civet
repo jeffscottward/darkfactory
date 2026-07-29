@@ -14,7 +14,7 @@ import {
 const TRUSTED_ORIGIN = "https://darkfactory.localhost"
 const SIGNING_SECRET = "strict-logout-test-secret-at-least-thirty-two-characters"
 
-const signedCookie = async (value: string): Promise<string> => {
+const signedCookie = async (value: string): Promise<string> =>
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(SIGNING_SECRET),
@@ -27,7 +27,6 @@ const signedCookie = async (value: string): Promise<string> => {
   )
   const signature = btoa(String.fromCharCode(...bytes))
   return encodeURIComponent(`${value}.${signature}`)
-}
 const ACTIVE_COOKIE = "better-auth.session_token=old-session-token"
 
 const request = (origin: string | null = TRUSTED_ORIGIN, method = "POST") =>
@@ -164,17 +163,17 @@ describe "confirmed Better Auth session revocation", ->
         ? { sessionId: "session-current", userId: "user-current" }
         : null
     ))
-    const revokeCurrentSession = vi.fn(async ({ sessionId }: { sessionId: string }) => {
+    const revokeCurrentSession = vi.fn(async ({ sessionId }: { sessionId: string }) =>
       order.push("revoke")
       return activeSessions.delete(sessionId) ? "revoked" : "missing"
-    })
-    const expireSessionCookie = vi.fn(async () => {
+    )
+    const expireSessionCookie = vi.fn(async () =>
       order.push("expire-cookie")
       return Response.json(
         { success: true },
         { headers: { "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax" } },
       )
-    })
+    )
     const handler = createConfirmedSignOutHandler(dependencies({
       currentSession,
       revokeCurrentSession,
@@ -507,7 +506,7 @@ describe "confirmed Better Auth session revocation", ->
       }),
     ]
 
-    for (const expiryResponse of expiryResponses) {
+    for (const expiryResponse of expiryResponses)
       const handler = createConfirmedSignOutHandler(dependencies({
         expireSessionCookie: vi.fn().mockResolvedValue(expiryResponse),
       }))
@@ -518,7 +517,6 @@ describe "confirmed Better Auth session revocation", ->
         code: CONFIRMED_SIGN_OUT_ERROR_CODE,
         message: "Sign out could not be confirmed.",
       })
-    }
 
   it "reads suspended and deactivated Better Auth session identities without the active-user guard", async ->
     for status of ["suspended", "deactivated"]
@@ -577,14 +575,13 @@ describe "confirmed Better Auth session revocation", ->
       ".signature",
       "value.",
       "value.%",
-    ]) {
+    ])
       await expect(hasValidBetterAuthSessionCookie(
         new Headers({
           cookie: `better-auth.session_token=${encodeURIComponent(malformedValue)}`,
         }),
         SIGNING_SECRET,
       )).resolves.toBe(false)
-    }
   it.each([
     [[{ id: "session-current" }], [], "revoked"],
     [[{ id: "different-session" }], [], "missing"],

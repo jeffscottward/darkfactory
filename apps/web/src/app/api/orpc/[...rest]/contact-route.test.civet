@@ -3,26 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(->
   let submitCount = 0
   let edgeMode: "allow" | "deny" | "fail" = "allow"
-  const edgeConsume = vi.fn(async () => {
+  const edgeConsume = vi.fn(async () =>
     if edgeMode === "fail" then throw new Error("private database failure")
     return edgeMode === "allow"
       ? { allowed: true, remaining: 29, retryAfterSeconds: 0 }
       : { allowed: false, remaining: 0, retryAfterSeconds: 600 }
-  })
-  const submitConsume = vi.fn(async () => {
+  )
+  const submitConsume = vi.fn(async () =>
     submitCount += 1
     return submitCount <= 5
       ? { allowed: true, remaining: 5 - submitCount, retryAfterSeconds: 0 }
       : { allowed: false, remaining: 0, retryAfterSeconds: 600 }
-  })
+  )
   const close = vi.fn(async () => undefined)
   return {
     close,
     edgeConsume,
     submitConsume,
-    setEdgeMode: (mode: "allow" | "deny" | "fail") => { edgeMode = mode },
-    resetCounts: () => { submitCount = 0 },
-    waitUntil: vi.fn((promise: Promise<unknown>) => { void promise.catch(() => undefined) }),
+    setEdgeMode: (mode: "allow" | "deny" | "fail") => void (edgeMode = mode),
+    resetCounts: () => void (submitCount = 0),
+    waitUntil: vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined)),
   }
 )
 
@@ -115,22 +115,19 @@ const input = {
 
 const client = createApiClient({
   baseUrl: "https://darkfactory.localhost",
-  fetch: (request) => {
+  fetch: (request) =>
     const headers = new Headers(request.headers)
     headers.set("origin", "https://darkfactory.localhost")
     headers.set("cf-connecting-ip", "203.0.113.42")
     return POST(new Request(request, { headers }))
-  },
 })
 
-const expectCode = async (promise: Promise<unknown>, code: string, status: number) => {
-  try {
+const expectCode = async (promise: Promise<unknown>, code: string, status: number) =>
+  try
     await promise
     throw new Error("Expected typed contact failure")
-  } catch (error) {
+  catch error
     expect(error).toMatchObject({ code, status, defined: true })
-  }
-}
 
 describe "DF-076 full exported contact route", ->
   beforeEach ->
@@ -141,9 +138,8 @@ describe "DF-076 full exported contact route", ->
     mocks.close.mockClear()
 
   it "lets the normal sixth valid request reach the typed submit throttle", async ->
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 5; attempt += 1)
       await expect(client.contact.submit(input)).resolves.toEqual({ status: "sent" })
-    }
     await expectCode(client.contact.submit(input), "TOO_MANY_REQUESTS", 429)
     expect(mocks.edgeConsume).toHaveBeenCalledTimes(6)
     expect(mocks.submitConsume).toHaveBeenCalledTimes(6)

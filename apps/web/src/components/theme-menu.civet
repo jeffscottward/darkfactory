@@ -37,7 +37,7 @@ export const createThemePreferenceClient = ({
   readonly baseUrl: string | URL
   readonly clientFactory?: (options: ApiClientOptions) => ApiClient
   readonly fetchRequest: typeof globalThis.fetch
-}): ThemePreferenceClient => {
+}): ThemePreferenceClient =>
   const client = clientFactory({
     baseUrl,
     fetch: async (request) => fetchThemeApiRequest({
@@ -49,7 +49,6 @@ export const createThemePreferenceClient = ({
     get: () => client.preferences.theme.get({}),
     update: (preference) => client.preferences.theme.update(preference),
   }
-}
 
 export const selectThemeMenuPreference = async ({
   authority,
@@ -71,14 +70,13 @@ export const selectThemeMenuPreference = async ({
   readonly setError: (error: string | null) => void
   readonly setPending: (pending: boolean) => void
   readonly store: UiStore
-}): Promise<void> => {
+}): Promise<void> =>
   if (authority === "indeterminate") return
-  if (authority === "anonymous") {
+  if (authority === "anonymous")
     setError(null)
     setPending(false)
     store.setState(nextPreference)
     return
-  }
 
   const selectionAuthorityEpoch = authorityEpoch()
   const selectionRequestSequence = requestSequence.current + 1
@@ -99,21 +97,16 @@ export const selectThemeMenuPreference = async ({
     || authorityEpoch() !== selectionAuthorityEpoch
     || requestSequence.current !== selectionRequestSequence
   ) return
-  switch (result) {
-    case "failed":
+  switch result
+    when "failed"
       setError("Could not save theme settings. Try again.")
-      break
-    case "reconciled":
+    when "reconciled"
       setError("Theme settings were refreshed from your account. Review them before trying again.")
-      break
-    case "unconfirmed":
+    when "unconfirmed"
       setError("Could not confirm theme save. Reload before retrying.")
-      break
-  }
   setPending(false)
-}
 
-export const ThemeMenu = () => {
+export const ThemeMenu = () =>
   const store = useUiStoreApi()
   const authority = useThemeAuthority()
   const authorityRef = useRef(authority)
@@ -121,7 +114,7 @@ export const ThemeMenu = () => {
   const requestSequence = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  useLayoutEffect(() => {
+  useLayoutEffect(() =>
     if (authorityRef.current === authority) return undefined
     authorityRef.current = authority
     authorityEpoch.current += 1
@@ -129,19 +122,18 @@ export const ThemeMenu = () => {
     setError(null)
     setPending(false)
     return undefined
-  }, [authority])
-  useLayoutEffect(() => {
-    const invalidate = (): void => {
+  , [authority])
+  useLayoutEffect(() =>
+    const invalidate = (): void =>
       authorityEpoch.current += 1
       requestSequence.current += 1
-    }
     return invalidate
-  }, [])
+  , [])
   const controlsEnabled = authority !== "indeterminate" && !pending
 
   const selectPreference = (
     nextPreference: Readonly<AnonymousThemePreference>,
-  ): void => {
+  ): void =>
     const selection = selectThemeMenuPreference({
       authority,
       authorityEpoch: () => authorityEpoch.current,
@@ -157,7 +149,6 @@ export const ThemeMenu = () => {
       store,
     })
     void selection
-  }
 
 
   const triggerLabel = authority === "indeterminate"
@@ -183,4 +174,3 @@ export const ThemeMenu = () => {
       triggerLabel={triggerLabel}
     />
   )
-}

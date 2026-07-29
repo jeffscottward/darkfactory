@@ -33,10 +33,10 @@ describe "admin user directory cursor", ->
     Buffer.from(JSON.stringify({ v: 1, createdAt: "bad", id: "user" }), "utf8").toString("base64url"),
     Buffer.from(JSON.stringify({ v: 1, createdAt: "2026-01-02T03:04:05.000Z", id: "" }), "utf8").toString("base64url"),
     Buffer.from(JSON.stringify({ v: 2, createdAt: "2026-01-02T03:04:05.000Z", id: "user" }), "utf8").toString("base64url"),
-  ])("rejects malformed cursor %s", (cursor) => {
+  ])("rejects malformed cursor %s", (cursor) =>
     expect(() => decodeAdminUsersCursor(cursor)).toThrow(InvalidAdminUsersCursorError)
     return undefined
-  })
+  )
 
 describe "feature list bounds", ->
   it "applies the default cap and accepts the maximum cap", async ->
@@ -56,12 +56,12 @@ describe "feature list bounds", ->
     expect(limit).toHaveBeenNthCalledWith(1, 50)
     expect(limit).toHaveBeenNthCalledWith(2, 100)
 
-  it.each([0, 101, 1.5])("rejects invalid limit %s before querying", async (limit) => {
+  it.each([0, 101, 1.5])("rejects invalid limit %s before querying", async (limit) =>
     const repository = createFeatureItemRepository({} as Database)
     await expect(repository.listByOwner("owner-1", { limit })).rejects.toBeInstanceOf(
       InvalidRepositoryInputError,
     )
-  })
+  )
 
 type DashboardCountRow = Readonly<{
   status: "draft" | "active" | "archived"
@@ -78,17 +78,17 @@ const createDashboardDatabaseDouble = ({
   recent?: readonly Record<string, unknown>[]
   countError?: unknown
   recentError?: unknown
-} = {}) => {
-  const groupBy = vi.fn(async () => {
+} = {}) =>
+  const groupBy = vi.fn(async () =>
     if (countError !== undefined) throw countError
     return counts
-  })
+  )
   const countWhere = vi.fn(() => ({ groupBy }))
   const countFrom = vi.fn(() => ({ where: countWhere }))
-  const limit = vi.fn(async (_recentLimit: number) => {
+  const limit = vi.fn(async (_recentLimit: number) =>
     if (recentError !== undefined) throw recentError
     return recent
-  })
+  )
   const orderBy = vi.fn(() => ({ limit }))
   const recentWhere = vi.fn(() => ({ orderBy }))
   const recentFrom = vi.fn(() => ({ where: recentWhere }))
@@ -102,7 +102,6 @@ const createDashboardDatabaseDouble = ({
     limit,
     select,
   }
-}
 
 describe "dashboard feature summary", ->
   it "aggregates available statuses and preserves deterministic recent rows", async ->
@@ -131,7 +130,7 @@ describe "dashboard feature summary", ->
     expect(double.limit).toHaveBeenCalledWith(2)
 
   it "returns an empty summary at both accepted recent-limit boundaries", async ->
-    for (const recentLimit of [0, 100]) {
+    for (const recentLimit of [0, 100])
       const double = createDashboardDatabaseDouble()
       await expect(
         createDashboardRepository(double.database).getFeatureSummary(
@@ -146,7 +145,6 @@ describe "dashboard feature summary", ->
         recent: [],
       })
       expect(double.limit).toHaveBeenCalledWith(recentLimit)
-    }
 
   it "rejects blank owners and invalid recent limits before querying", async ->
     const select = vi.fn()
@@ -172,13 +170,12 @@ describe "dashboard feature summary", ->
       countError: providerError,
     })
     let mapped: unknown
-    try {
+    try
       await createDashboardRepository(
         countFailure.database,
       ).getFeatureSummary("owner-1", 10)
-    } catch (error) {
+    catch error
       mapped = error
-    }
     expect(mapped).toBeInstanceOf(DashboardPersistenceError)
     expect(mapped).not.toBe(providerError)
     expect(String(mapped)).not.toContain("provider detail")

@@ -66,10 +66,9 @@ let testDatabase: PostgresTestDatabase
 let databaseResource: ReturnType<typeof createNodeDatabase>
 let backgroundTasks: Promise<unknown>[]
 
-const awaitBackgroundTasks = async (): Promise<void> => {
+const awaitBackgroundTasks = async (): Promise<void> =>
   const tasks = backgroundTasks.splice(0)
   await Promise.all(tasks)
-}
 
 const prepareIdentity: PrepareSeedIdentities = async (identities) =>
   await ensureDevelopmentSeedIdentity({
@@ -79,54 +78,50 @@ const prepareIdentity: PrepareSeedIdentities = async (identities) =>
     trustedOrigins: [BASE_URL],
   }, identities)
 
-const tableCount = async (table: string): Promise<number> => {
+const tableCount = async (table: string): Promise<number> =>
   const rows = await testDatabase.query<{ count: string }>(
     `SELECT count(*)::text AS count FROM "${table}"`,
   )
   const row = rows[0]
   if (!row) throw new Error("Count query returned no rows")
   return Number(row.count)
-}
-const tableCounts = async (tables: readonly string[]): Promise<number[]> => {
+const tableCounts = async (tables: readonly string[]): Promise<number[]> =>
   const counts: number[] = []
   for (const table of tables) counts.push(await tableCount(table))
   return counts
-}
 
-const seed = async () => {
+const seed = async () =>
   const result = await seedDevelopment(databaseResource.db, {
     environment: "test",
     prepareIdentity,
   })
   await awaitBackgroundTasks()
   return result
-}
 
 describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
-  beforeAll(async () => {
+  beforeAll(async () =>
     testDatabase = await createPostgresTestDatabase()
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
       maxConnections: 4,
     })
     await migrate(databaseResource.db)
-  }, 60_000)
+  , 60_000)
 
-  beforeEach(async () => {
+  beforeEach(async () =>
     backgroundTasks = []
     await resetDevelopment(databaseResource.db, { environment: "test" })
     sendEmailVerification.mockClear()
-  })
+  )
 
-  afterAll(async () => {
-    try {
+  afterAll(async () =>
+    try
       if (databaseResource !== undefined) await databaseResource.close()
-    } finally {
+    finally
       if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
-    }
-  }, 60_000)
+  , 60_000)
 
-  it("seeds the three exact personas through Better Auth with hashed credentials and valid sign-in", async () => {
+  it("seeds the three exact personas through Better Auth with hashed credentials and valid sign-in", async () =>
     const result = await seed()
     expect(sendEmailVerification).not.toHaveBeenCalled()
 
@@ -210,10 +205,9 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       account_id: IDS.users[index],
       provider_id: "credential",
     })))
-    for (const account of accounts) {
+    for (const account of accounts)
       expect(account.password).toEqual(expect.any(String))
       expect(account.password).not.toBe(DEVELOPMENT_PASSWORD)
-    }
 
     const profiles = await testDatabase.query(
       `SELECT user_id, first_name, last_name, display_name, avatar_url, phone,
@@ -347,15 +341,14 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       "admin@domain.test",
       "alice@domain.test",
       "bob@domain.test",
-    ]) {
+    ])
       await expect(auth.api.signInEmail({
         body: { email: emailAddress, password: DEVELOPMENT_PASSWORD },
       })).resolves.toMatchObject({ user: { email: emailAddress } })
-    }
     await awaitBackgroundTasks()
-  }, 60_000)
+  , 60_000)
 
-  it("is idempotent without adding audit or outbox records and repairs drift", async () => {
+  it("is idempotent without adding audit or outbox records and repairs drift", async () =>
     await seed()
     const auth = createAuth({
       database: databaseResource.db,
@@ -435,9 +428,9 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       "audit_records",
       "outbox_events",
     ])).resolves.toEqual([beforeAudit + 1, beforeOutbox + 1])
-  }, 60_000)
+  , 60_000)
 
-  it("rolls back identity and application resources when provisioning fails", async () => {
+  it("rolls back identity and application resources when provisioning fails", async () =>
     await testDatabase.query(`
       CREATE FUNCTION fail_seed_profile_insert() RETURNS trigger
       LANGUAGE plpgsql AS $$
@@ -450,25 +443,24 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       FOR EACH ROW EXECUTE FUNCTION fail_seed_profile_insert();
     `)
 
-    try {
+    try
       await expect(seed()).rejects.toThrow(/insert into "profiles"/i)
       await expect(tableCounts([
         "user", "account", "profiles", "user_preferences",
       ])).resolves.toEqual([0, 0, 0, 0])
-    } finally {
+    finally
       await testDatabase.query(`
         DROP TRIGGER IF EXISTS fail_seed_profile_insert ON profiles;
         DROP FUNCTION IF EXISTS fail_seed_profile_insert();
       `)
-    }
 
     await expect(seed()).resolves.toMatchObject({ identitiesCreated: 3 })
     await expect(tableCounts([
       "user", "account", "profiles", "user_preferences",
     ])).resolves.toEqual([3, 3, 3, 3])
-  }, 60_000)
+  , 60_000)
 
-  it("serializes concurrent seed callers and converges both", async () => {
+  it("serializes concurrent seed callers and converges both", async () =>
     const results = await Promise.all([seed(), seed()])
 
     expect(results.map(({ identitiesCreated }) => identitiesCreated).sort())
@@ -477,13 +469,13 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       "user", "account", "profiles", "user_preferences", "addresses",
       "feature_items", "audit_records", "outbox_events",
     ])).resolves.toEqual([3, 3, 3, 3, 3, 3, 3, 3])
-  }, 60_000)
+  , 60_000)
 
-  it("does not mutate when credential hashing fails", async () => {
+  it("does not mutate when credential hashing fails", async () =>
     const hash = vi.spyOn(developmentSeedCrypto, "hashPassword")
       .mockRejectedValueOnce(new Error("Injected password hash failure"))
 
-    try {
+    try
       await expect(seedDevelopment(databaseResource.db, {
         environment: "test",
         prepareIdentity,
@@ -491,15 +483,14 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       await expect(tableCounts([
         "user", "account", "profiles", "user_preferences",
       ])).resolves.toEqual([0, 0, 0, 0])
-    } finally {
+    finally
       hash.mockRestore()
-    }
 
     await expect(seed()).resolves.toMatchObject({ identitiesCreated: 3 })
     await expect(tableCounts(["user", "account"])).resolves.toEqual([3, 3])
-  }, 60_000)
+  , 60_000)
 
-  it("rejects unsafe setup environments before hashing or mutation", async () => {
+  it("rejects unsafe setup environments before hashing or mutation", async () =>
     const identity = {
       userId: IDS.users[0],
       accountId: IDS.accounts[0],
@@ -510,9 +501,9 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       password: DEVELOPMENT_PASSWORD,
     }
 
-    for (const environment of ["production", "staging", undefined]) {
+    for (const environment of ["production", "staging", undefined])
       const hash = vi.spyOn(developmentSeedCrypto, "hashPassword")
-      try {
+      try
         await expect(ensureDevelopmentSeedIdentity({
           environment,
           secret: AUTH_SECRET,
@@ -523,13 +514,11 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
         await expect(tableCounts([
           "user", "account", "profiles", "user_preferences",
         ])).resolves.toEqual([0, 0, 0, 0])
-      } finally {
+      finally
         hash.mockRestore()
-      }
-    }
-  })
+  )
 
-  it("preflights a late-persona credential collision before creating any identity", async () => {
+  it("preflights a late-persona credential collision before creating any identity", async () =>
     await testDatabase.query(
       `INSERT INTO "user" (id, name, email, email_verified, role, status)
        VALUES ($1, $2, $3, true, 'member', 'active')`,
@@ -577,9 +566,9 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       "user", "account", "profiles", "user_preferences", "addresses",
       "feature_items", "audit_records", "outbox_events",
     ])).resolves.toEqual([1, 1, 0, 0, 0, 0, 0, 0])
-  })
+  )
 
-  it("rejects every environment outside development and test before database or identity mutation", async () => {
+  it("rejects every environment outside development and test before database or identity mutation", async () =>
     await testDatabase.query(
       `INSERT INTO "user" (id, name, email, email_verified, role, status)
        VALUES ($1, $2, $3, true, 'member', 'active')`,
@@ -589,7 +578,7 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
     const preparer = vi.fn<PrepareSeedIdentities>()
       .mockResolvedValue(assurer)
 
-    for (const environment of ["production", "staging", "", undefined]) {
+    for (const environment of ["production", "staging", "", undefined])
       await expect(seedDevelopment(databaseResource.db, {
         environment: environment as never,
         prepareIdentity: preparer,
@@ -598,5 +587,4 @@ describe.sequential "DF-040 and DF-046 through DF-050 development seeds", ->
       expect(preparer).not.toHaveBeenCalled()
       expect(assurer).not.toHaveBeenCalled()
       expect(await tableCount("user")).toBe(1)
-    }
-  })
+  )

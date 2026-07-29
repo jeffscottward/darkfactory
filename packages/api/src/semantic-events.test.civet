@@ -77,8 +77,8 @@ const clientFor = (
   semanticEvents?: SemanticEventPort,
   span?: SpanHandle,
   waitUntil?: WaitUntil,
-) => {
-  const fetch = async (request: Request): Promise<Response> => {
+) =>
+  const fetch = async (request: Request): Promise<Response> =>
     const context = createApiContext(request, {
       repositories: repositories(featureItems),
       requestId: "request-1",
@@ -87,36 +87,32 @@ const clientFor = (
         telemetryExport: false, storage: false, errorTracking: false,
       },
       requireSession: async () => session,
-      requireRole: async (_headers, role) => {
+      requireRole: async (_headers, role) =>
         if (role !== "member")
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.FORBIDDEN,
             403,
           )
         return session
-      },
       ...(semanticEvents === undefined ? {} : { semanticEvents }),
       ...(span === undefined ? {} : { span }),
       ...(waitUntil === undefined ? {} : { waitUntil }),
     })
     return handleApiRequest(request, context)
-  }
 
   return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
-}
 
-const recordingPort = () => {
+const recordingPort = () =>
   const events: SemanticEvent[] = []
-  const emit = vi.fn(async (event: SemanticEvent) => {
+  const emit = vi.fn(async (event: SemanticEvent) =>
     events.push(event)
     return {
       structuredEvent: "emitted" as const,
       span: "skipped" as const,
       analytics: "skipped" as const,
     }
-  })
+  )
   return { events, port: { emit } satisfies SemanticEventPort }
-}
 
 const expectSafeStableEvent = (
   event: SemanticEvent,
@@ -128,7 +124,7 @@ const expectSafeStableEvent = (
     outcome: "success" | "failure"
   }>,
   expectedEntityId: string | null = "item-1",
-): void => {
+): void =>
   expect(event).toMatchObject({
     name: expected.name,
     correlation: {
@@ -151,7 +147,6 @@ const expectSafeStableEvent = (
   expect(Number.isNaN(Date.parse(event.occurredAt))).toBe(false)
   expect(JSON.stringify(event.attributes)).not.toContain("private mutation input")
   expect(Object.keys(event.attributes ?? {})).toHaveLength(1)
-}
 
 describe "feature mutation semantic events", ->
   it "ignores an untrusted public request ID header at the request boundary", ->
@@ -218,9 +213,9 @@ describe "feature mutation semantic events", ->
   
 
   it "emits one safe failure event without replaying the mutation", async ->
-    const create = vi.fn(async () => {
+    const create = vi.fn(async () =>
       throw new Error("private provider payload")
-    })
+    )
     const recording = recordingPort()
 
     await expect(
@@ -245,9 +240,9 @@ describe "feature mutation semantic events", ->
   it "does not replay or fail a successful mutation when event emission fails", async ->
     const create = vi.fn(async () => baseItem)
     const semanticEvents: SemanticEventPort = {
-      emit: vi.fn(async () => {
+      emit: vi.fn(async () =>
         throw new Error("provider unavailable")
-      }),
+      ),
     }
 
     await expect(

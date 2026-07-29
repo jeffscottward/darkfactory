@@ -22,18 +22,18 @@ const clientFor = (
   throttle: ContactThrottlePort,
   events: SemanticEvent[],
   wireResponses: Response[] = [],
-) => {
+) =>
   const semanticEvents: SemanticEventPort = {
-    emit: vi.fn(async (event) => {
+    emit: vi.fn(async (event) =>
       events.push(event)
       return {
         structuredEvent: "emitted" as const,
         span: "skipped" as const,
         analytics: "skipped" as const,
       }
-    }),
+    ),
   }
-  const fetch = async (request: Request): Promise<Response> => {
+  const fetch = async (request: Request): Promise<Response> =>
     const context = createApiContext(request, {
       repositories: {} as never,
       capabilities: {
@@ -44,8 +44,12 @@ const clientFor = (
         storage: false,
         errorTracking: false,
       },
-      requireSession: vi.fn(async () => { throw new Error("Contact must stay public") }),
-      requireRole: vi.fn(async () => { throw new Error("Contact must stay public") }),
+      requireSession: vi.fn(async () =>
+        throw new Error("Contact must stay public")
+      ),
+      requireRole: vi.fn(async () =>
+        throw new Error("Contact must stay public")
+      ),
       requestId: "contact-request-1",
       semanticEvents,
       contactDelivery: delivery,
@@ -55,9 +59,7 @@ const clientFor = (
     const response = await handleApiRequest(request, context)
     wireResponses.push(response.clone())
     return response
-  }
   return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
-}
 
 const allowThrottle = (): ContactThrottlePort => ({
   consume: vi.fn(async () => ({ allowed: true, remaining: 4, retryAfterSeconds: 0 })),
@@ -67,16 +69,14 @@ const expectError = async (
   promise: Promise<unknown>,
   code: string,
   status: number,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     await promise
     throw new Error("Expected contact operation to fail")
-  } catch (error) {
+  catch (error)
     expect(error).toBeInstanceOf(ORPCError)
     expect(error).toMatchObject({ code, status, defined: true })
     expect(JSON.stringify(error)).not.toContain("provider secret")
-  }
-}
 
 describe "DF-076 contact handler", ->
   it.each([
@@ -119,9 +119,8 @@ describe "DF-076 contact handler", ->
     })
     expect(Object.values(events[0]?.attributes ?? {}).every((value) => typeof value === "boolean")).toBe(true)
     const serialized = JSON.stringify(events[0])
-    for (const privateValue of Object.values(input)) {
+    for (const privateValue of Object.values(input))
       expect(serialized).not.toContain(privateValue)
-    }
     expect(serialized).not.toContain("203.0.113.42")
 
   it "returns a typed 429 before contacting the provider", async ->

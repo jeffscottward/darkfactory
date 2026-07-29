@@ -9,7 +9,7 @@ interface FeatureItemPageProps {
   readonly params: Promise<Readonly<{ id: string }>>
 }
 
-export default async function FeatureItemPage({ params }: FeatureItemPageProps) {
+export default async function FeatureItemPage({ params }: FeatureItemPageProps)
   const { id } = await params
   return (
     <div className="space-y-10">
@@ -18,13 +18,10 @@ export default async function FeatureItemPage({ params }: FeatureItemPageProps) 
           <a className={buttonVariants({ variant: "ghost" })} href="/feature-items">
             <ArrowLeft aria-hidden="true" className="size-4" />
             Back to feature items
-          </a>
         )}
         description="Inspect this owner-scoped record. Available actions reflect its lifecycle state."
         eyebrow="Feature items"
         title="Feature item details"
       />
       <FeatureItemEditor id={id} />
-    </div>
   )
-}

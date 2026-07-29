@@ -24,45 +24,37 @@ const cleanResources = async ({
   closePreviewCaptureServer,
   database,
   dropDatabase,
-}: E2ELifecycleResources): Promise<void> => {
+}: E2ELifecycleResources): Promise<void> =>
   await cleanWorkerBindings?.()
   await closePreviewCaptureServer?.()
   const errors: unknown[] = []
-  if (database !== undefined) {
-    try {
+  if (database !== undefined)
+    try
       await dropDatabase(database)
-    } catch (error) {
+    catch (error)
       errors.push(error)
-    }
-  }
-  try {
+  try
     await cleanPreviewArtifacts()
-  } catch (error) {
+  catch (error)
     errors.push(error)
-  }
-  if (errors.length > 0) {
+  if (errors.length > 0)
     throw new AggregateError(errors, "E2E resource cleanup failed")
-  }
-}
 
 const cleanResourcesThenReleaseOwner = async (
   resources: E2ELifecycleResources,
-): Promise<void> => {
+): Promise<void> =>
   await cleanResources(resources)
   await resources.releaseOwnerLock?.()
   await resources.releaseWorkerBindingsLock?.()
-}
 
 export const cleanupE2ELifecycle = async (
   resources: E2ELifecycleResources,
-): Promise<void> => {
-  if (resources.server === undefined) {
+): Promise<void> =>
+  if (resources.server === undefined)
     await cleanResourcesThenReleaseOwner(resources)
     return
-  }
   await terminateOwnedProcessTreeThen(
     resources.server,
     async () => cleanResourcesThenReleaseOwner(resources),
     resources.termination,
   )
-}

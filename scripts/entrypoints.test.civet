@@ -8,7 +8,7 @@ type CliStreams = Readonly<{
   writeError: (value: string) => void
 }>
 
-afterEach(() => {
+afterEach(() =>
   process.argv = [...originalArguments]
   process.exitCode = originalExitCode
   vi.restoreAllMocks()
@@ -28,15 +28,15 @@ afterEach(() => {
   vi.doUnmock("./graph/cli.civet")
   vi.doUnmock("./graph/system.civet")
   vi.resetModules()
-})
+)
 
-describe("root executable wrappers", () => {
-  it("forwards capability input, validation, streams, and usage exit status", async () => {
+describe("root executable wrappers", () =>
+  it("forwards capability input, validation, streams, and usage exit status", async () =>
     const files = Object.freeze({ kind: "capability-files" })
     const invalidManifest = new Error("invalid capability manifest")
-    const loadCapabilityManifest = vi.fn((source: string): void => {
+    const loadCapabilityManifest = vi.fn((source: string): void =>
       if (source === "{malformed") throw invalidManifest
-    })
+    )
     const runCapabilityCli = vi.fn(async (
       arguments_: readonly string[],
       dependencies: Readonly<{
@@ -44,7 +44,7 @@ describe("root executable wrappers", () => {
         validateManifest: (source: string) => void
       }>,
       streams: CliStreams,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["../escape"])
       expect(dependencies.files).toBe(files)
       expect(() => dependencies.validateManifest("{malformed")).toThrow(invalidManifest)
@@ -52,7 +52,7 @@ describe("root executable wrappers", () => {
       streams.writeOutput("capability-output\n")
       streams.writeError("capability-error\n")
       return 64
-    })
+    )
     vi.doMock("../packages/config/src/server/capabilities.civet", () => ({
       loadCapabilityManifest,
     }))
@@ -74,21 +74,21 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("capability-output\n")
     expect(stderr).toHaveBeenCalledWith("capability-error\n")
     expect(process.exitCode).toBe(64)
-  })
+  )
 
-  it("forwards coverage generation dependencies, streams, and success status", async () => {
+  it("forwards coverage generation dependencies, streams, and success status", async () =>
     const files = Object.freeze({ kind: "coverage-files" })
     const runCoverageCli = vi.fn(async (
       arguments_: readonly string[],
       dependencies: Readonly<{ files: unknown }>,
       streams: CliStreams,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["generate"])
       expect(dependencies.files).toBe(files)
       streams.writeOutput("coverage-output\n")
       streams.writeError("coverage-warning\n")
       return 0
-    })
+    )
     vi.doMock("./coverage/cli.civet", () => ({ runCoverageCli }))
     vi.doMock("./coverage/system.civet", () => ({
       nodeCoverageFileSystem: files,
@@ -103,9 +103,9 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("coverage-output\n")
     expect(stderr).toHaveBeenCalledWith("coverage-warning\n")
     expect(process.exitCode).toBe(0)
-  })
+  )
 
-  it("forwards malformed development commands and preserves the CLI exit status", async () => {
+  it("forwards malformed development commands and preserves the CLI exit status", async () =>
     const files = Object.freeze({ kind: "development-files" })
     const processAdapter = Object.freeze({ kind: "development-process" })
     const runDevelopmentCli = vi.fn(async (
@@ -114,14 +114,14 @@ describe("root executable wrappers", () => {
         files: unknown
         process: unknown
       }>,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["not-a-command"])
       expect(dependencies.files).toBe(files)
       expect(dependencies.process).toBe(processAdapter)
       dependencies.writeOutput("development-output\n")
       dependencies.writeError("development-error\n")
       return 64
-    })
+    )
     vi.doMock("./dev/cli.civet", () => ({ runDevelopmentCli }))
     vi.doMock("./dev/system.civet", () => ({
       nodeLifecycleFileSystem: files,
@@ -137,21 +137,21 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("development-output\n")
     expect(stderr).toHaveBeenCalledWith("development-error\n")
     expect(process.exitCode).toBe(64)
-  })
+  )
 
-  it("forwards documentation checks and their drift exit status", async () => {
+  it("forwards documentation checks and their drift exit status", async () =>
     const files = Object.freeze({ kind: "documentation-files" })
     const runDocsCli = vi.fn(async (
       arguments_: readonly string[],
       dependencies: Readonly<{ files: unknown }>,
       streams: CliStreams,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["check"])
       expect(dependencies.files).toBe(files)
       streams.writeOutput("documentation-output\n")
       streams.writeError("documentation-drift\n")
       return 1
-    })
+    )
     vi.doMock("./docs/cli.civet", () => ({ runDocsCli }))
     vi.doMock("./docs/system.civet", () => ({ nodeDocsFileSystem: files }))
     process.argv = ["node", "docs.civet", "check"]
@@ -164,21 +164,21 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("documentation-output\n")
     expect(stderr).toHaveBeenCalledWith("documentation-drift\n")
     expect(process.exitCode).toBe(1)
-  })
+  )
 
-  it("forwards doctor dependencies, streams, and success status", async () => {
+  it("forwards doctor dependencies, streams, and success status", async () =>
     const doctor = Object.freeze({ kind: "doctor-dependencies" })
     const nodeDoctorDependencies = vi.fn(() => doctor)
     const runDoctorCli = vi.fn(async (
       arguments_: readonly string[],
       dependencies: CliStreams & Readonly<{ doctor: unknown }>,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["--json"])
       expect(dependencies.doctor).toBe(doctor)
       dependencies.writeOutput("doctor-output\n")
       dependencies.writeError("doctor-warning\n")
       return 0
-    })
+    )
     vi.doMock("./doctor/cli.civet", () => ({ runDoctorCli }))
     vi.doMock("./doctor/system.civet", () => ({ nodeDoctorDependencies }))
     process.argv = ["node", "doctor.civet", "--json"]
@@ -192,19 +192,19 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("doctor-output\n")
     expect(stderr).toHaveBeenCalledWith("doctor-warning\n")
     expect(process.exitCode).toBe(0)
-  })
+  )
 
-  it("forwards malformed feature names, cwd, streams, and usage status", async () => {
+  it("forwards malformed feature names, cwd, streams, and usage status", async () =>
     const runFeatureGeneratorCli = vi.fn(async (
       arguments_: readonly string[],
       dependencies: CliStreams & Readonly<{ targetRoot: string }>,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["bad/name"])
       expect(dependencies.targetRoot).toBe("/workspace")
       dependencies.writeOutput("feature-output\n")
       dependencies.writeError("feature-error\n")
       return 64
-    })
+    )
     vi.doMock("./generate-feature/cli.civet", () => ({ runFeatureGeneratorCli }))
     process.argv = ["node", "generate-feature.civet", "bad/name"]
     vi.spyOn(process, "cwd").mockReturnValue("/workspace")
@@ -217,9 +217,9 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("feature-output\n")
     expect(stderr).toHaveBeenCalledWith("feature-error\n")
     expect(process.exitCode).toBe(64)
-  })
+  )
 
-  it("forwards graph verification adapters, streams, and nonzero status", async () => {
+  it("forwards graph verification adapters, streams, and nonzero status", async () =>
     const files = Object.freeze({ kind: "graph-files" })
     const processAdapter = Object.freeze({ kind: "graph-process" })
     const runGraphCli = vi.fn(async (
@@ -227,14 +227,14 @@ describe("root executable wrappers", () => {
       dependencies: CliStreams & Readonly<{
         graph: Readonly<{ files: unknown; process: unknown }>
       }>,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["verify"])
       expect(dependencies.graph.files).toBe(files)
       expect(dependencies.graph.process).toBe(processAdapter)
       dependencies.writeOutput("graph-output\n")
       dependencies.writeError("graph-error\n")
       return 2
-    })
+    )
     vi.doMock("./graph/cli.civet", () => ({ runGraphCli }))
     vi.doMock("./graph/system.civet", () => ({
       nodeGraphFileSystem: files,
@@ -250,13 +250,13 @@ describe("root executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("graph-output\n")
     expect(stderr).toHaveBeenCalledWith("graph-error\n")
     expect(process.exitCode).toBe(2)
-  })
+  )
 
-  it("surfaces root CLI exceptions without replacing the current exit status", async () => {
+  it("surfaces root CLI exceptions without replacing the current exit status", async () =>
     const failure = new Error("graph CLI failed")
-    const runGraphCli = vi.fn(async () => {
+    const runGraphCli = vi.fn(async () =>
       throw failure
-    })
+    )
     vi.doMock("./graph/cli.civet", () => ({ runGraphCli }))
     vi.doMock("./graph/system.civet", () => ({
       nodeGraphFileSystem: Object.freeze({}),
@@ -269,9 +269,9 @@ describe("root executable wrappers", () => {
 
     expect(runGraphCli).toHaveBeenCalledOnce()
     expect(process.exitCode).toBe(17)
-  })
+  )
 
-  it("materializes validated development bindings and reports the protected target", async () => {
+  it("materializes validated development bindings and reports the protected target", async () =>
     const materializeWorkerBindings = vi.fn(async () => undefined)
     vi.doMock("./dev/bindings.civet", () => ({ materializeWorkerBindings }))
     process.exitCode = undefined
@@ -286,12 +286,12 @@ describe("root executable wrappers", () => {
     )
     expect(stderr).not.toHaveBeenCalled()
     expect(process.exitCode).toBeUndefined()
-  })
+  )
 
-  it("normalizes binding materialization exceptions to a safe error and exit code", async () => {
-    const materializeWorkerBindings = vi.fn(async () => {
+  it("normalizes binding materialization exceptions to a safe error and exit code", async () =>
+    const materializeWorkerBindings = vi.fn(async () =>
       throw new Error("private binding payload")
-    })
+    )
     vi.doMock("./dev/bindings.civet", () => ({ materializeWorkerBindings }))
     process.exitCode = undefined
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
@@ -306,5 +306,5 @@ describe("root executable wrappers", () => {
     )
     expect(stderr).not.toHaveBeenCalledWith(expect.stringContaining("private binding payload"))
     expect(process.exitCode).toBe(1)
-  })
-})
+  )
+)

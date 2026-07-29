@@ -20,75 +20,54 @@ export const metadata = {
   description: "Why DarkFactory favors infrastructure minimalism, AI-native context, and a stable core with replaceable adapters.",
 }
 
-export default function AboutPage() {
+export default function AboutPage()
   return (
     <PublicPage
-      actions={<PublicLink href="/resources" variant="secondary">Read the source material</PublicLink>}
+      actions={<PublicLink href="/resources" variant="secondary">Read the source material}
       description="DarkFactory is a reusable application foundation for teams that want production structure without inherited product assumptions. Its point of view is architectural: fewer accidental systems, clearer authority, and evidence close to the code."
       eyebrow="About"
       title="A foundation should make change easier to reason about."
     >
       <section aria-labelledby="principles-title" className="py-16 md:py-20">
-        <h2 className="sr-only" id="principles-title">DarkFactory principles</h2>
+        <h2 className="sr-only" id="principles-title">DarkFactory principles
         <ol className="divide-y divide-border border-y border-border">
           {principles.map((principle, index) => (
             <li className="grid gap-6 py-10 md:grid-cols-12 md:py-12" key={principle.title}>
-              <p aria-hidden="true" className="text-sm font-semibold text-muted-foreground md:col-span-1">0{index + 1}</p>
+              <p aria-hidden="true" className="text-sm font-semibold text-muted-foreground md:col-span-1">0{index + 1}
               <h3 className="font-heading text-3xl font-semibold tracking-tight text-foreground md:col-span-4">
                 {principle.title}
-              </h3>
               <p className="text-lg leading-8 text-muted-foreground md:col-span-6 md:col-start-7">
                 {principle.body}
-              </p>
-            </li>
           ))}
-        </ol>
-      </section>
 
       <section aria-labelledby="classification-title" className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20">
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">A shared vocabulary</p>
+          <p className="text-sm font-semibold tracking-wide text-primary">A shared vocabulary
           <h2 className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground" id="classification-title">
             Every decision declares what kind of decision it is.
-          </h2>
           <p className="mt-5 text-base leading-7 text-muted-foreground">
             The classification prevents today’s provider or file layout from becoming tomorrow’s accidental architecture.
-          </p>
-        </div>
         <dl className="divide-y divide-border border-y border-border md:col-span-6 md:col-start-7">
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">Core</dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">Present in every DarkFactory project and changed only through an explicit architecture decision.</dd>
-          </div>
+            <dt className="font-heading text-xl font-semibold text-foreground">Core
+            <dd className="mt-2 text-base leading-7 text-muted-foreground">Present in every DarkFactory project and changed only through an explicit architecture decision.
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">Capability</dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">Optional, intentionally enabled, and removable through a declared manifest and adapter boundary.</dd>
-          </div>
+            <dt className="font-heading text-xl font-semibold text-foreground">Capability
+            <dd className="mt-2 text-base leading-7 text-muted-foreground">Optional, intentionally enabled, and removable through a declared manifest and adapter boundary.
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">Convention</dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">A rule contributors and agents follow consistently across the repository.</dd>
-          </div>
+            <dt className="font-heading text-xl font-semibold text-foreground">Convention
+            <dd className="mt-2 text-base leading-7 text-muted-foreground">A rule contributors and agents follow consistently across the repository.
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">Implementation</dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">A replaceable mechanism that may change while its contract and responsibility remain stable.</dd>
-          </div>
-        </dl>
-      </section>
+            <dt className="font-heading text-xl font-semibold text-foreground">Implementation
+            <dd className="mt-2 text-base leading-7 text-muted-foreground">A replaceable mechanism that may change while its contract and responsibility remain stable.
 
       <section aria-labelledby="about-next-title" className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20">
         <div className="md:col-span-7">
           <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id="about-next-title">
             Evaluate the system from its observable boundaries.
-          </h2>
           <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
             Start with the capability overview, then follow the generated contracts and implementation sources rather than relying on this summary alone.
-          </p>
-        </div>
         <div className="flex flex-col gap-3 sm:flex-row md:col-span-4 md:col-start-9 md:justify-end">
-          <PublicLink href="/features" variant="secondary">Review features</PublicLink>
-          <PublicLink href="/resources">Open resources</PublicLink>
-        </div>
-      </section>
-    </PublicPage>
+          <PublicLink href="/features" variant="secondary">Review features
+          <PublicLink href="/resources">Open resources
   )
-}

@@ -26,7 +26,7 @@ const MESSAGE_TEXT_PATTERN = /^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]*$
 export const validateContactField = (
   field: ContactFieldName,
   value: string,
-): string | undefined => {
+): string | undefined =>
   const trimmed = value.trim()
   switch field
     when "name"
@@ -48,7 +48,6 @@ export const validateContactField = (
       if !MESSAGE_TEXT_PATTERN.test(trimmed)
         return "Message contains unsupported control characters."
   return undefined
-}
 
 export const createContactGateway = (client: ApiClient): ContactGateway => ({
   submit: (input) => client.contact.submit(input),
@@ -59,7 +58,7 @@ export const createBrowserContactGateway = (): ContactGateway =>
 
 export const contactFeedbackForOutput = (
   output: ContactSubmitOutput,
-): ContactFeedback => {
+): ContactFeedback =>
   switch output.status
     when "sent"
       return { tone: "success", message: "Your message was sent." }
@@ -76,9 +75,8 @@ export const contactFeedbackForOutput = (
           "Contact delivery is not configured. Your message was not sent.",
       }
   throw new TypeError("Unsupported contact delivery status")
-}
 
-const errorCode = (error: unknown): string | null => {
+const errorCode = (error: unknown): string | null =>
   if (typeof error !== "object" || error === null) return null
   const code = Reflect.get(error, "code")
   if (typeof code === "string") return code
@@ -86,9 +84,8 @@ const errorCode = (error: unknown): string | null => {
   if (typeof data !== "object" || data === null) return null
   const nestedCode = Reflect.get(data, "code")
   return typeof nestedCode === "string" ? nestedCode : null
-}
 
-export const safeContactFailure = (error: unknown): ContactFeedback => {
+export const safeContactFailure = (error: unknown): ContactFeedback =>
   switch errorCode(error)
     when "TOO_MANY_REQUESTS"
       return {
@@ -117,4 +114,3 @@ export const safeContactFailure = (error: unknown): ContactFeedback => {
         message:
           "Your message could not be submitted. It was not sent. Try again.",
       }
-}

@@ -21,9 +21,9 @@ const decisionRows = (decision?: AuthRateLimitDecision) => ({
 
 const cleanupRows = { rows: [] }
 
-afterEach(() => {
+afterEach(() =>
   vi.restoreAllMocks()
-})
+)
 
 describe "atomic auth rate-limit storage get/set adapter", ->
   it.each([
@@ -33,7 +33,7 @@ describe "atomic auth rate-limit storage get/set adapter", ->
       lastRequest: 1_700_000_000_000,
     }],
     ["a missing row", [], null],
-  ] as const)("returns %s through the Better Auth storage contract", async (_case, rows, expected) => {
+  ] as const)("returns %s through the Better Auth storage contract", async (_case, rows, expected) =>
     const limit = vi.fn().mockResolvedValue(rows)
     const where = vi.fn<(predicate: SQL) => { limit: typeof limit }>(() => ({ limit }))
     const from = vi.fn(() => ({ where }))
@@ -48,9 +48,9 @@ describe "atomic auth rate-limit storage get/set adapter", ->
     const query = queryFor(predicate)
     expect(query.sql).toContain('"rate_limit"."key"')
     expect(query.params).toEqual(["signin:member"])
-  })
+  )
 
-  it("upserts the caller value regardless of Better Auth's update hint", async () => {
+  it("upserts the caller value regardless of Better Auth's update hint", async () =>
     const execute = vi.fn().mockResolvedValue(cleanupRows)
     const storage = createAtomicAuthRateLimitStorage({ execute } as never)
 
@@ -72,9 +72,9 @@ describe "atomic auth rate-limit storage get/set adapter", ->
       4,
       1_700_000_000_500,
     ])
-  })
+  )
 
-  it("propagates a get adapter failure", async () => {
+  it("propagates a get adapter failure", async () =>
     const failure = new Error("rate-limit select unavailable")
     const limit = vi.fn().mockRejectedValue(failure)
     const database = {
@@ -88,9 +88,9 @@ describe "atomic auth rate-limit storage get/set adapter", ->
     await expect(
       createAtomicAuthRateLimitStorage(database as never).get("signin:member"),
     ).rejects.toBe(failure)
-  })
+  )
 
-  it("propagates a set adapter failure", async () => {
+  it("propagates a set adapter failure", async () =>
     const failure = new Error("rate-limit upsert unavailable")
     const execute = vi.fn().mockRejectedValue(failure)
 
@@ -99,13 +99,13 @@ describe "atomic auth rate-limit storage get/set adapter", ->
       { key: "signin:member", count: 1, lastRequest: 1000 },
     )).rejects.toBe(failure)
     expect(execute).toHaveBeenCalledOnce()
-  })
+  )
 
 describe "atomic auth rate-limit decisions", ->
   it.each([
     ["first request", { allowed: true, retryAfter: null }],
     ["exhausted window", { allowed: false, retryAfter: 17 }],
-  ] as const)("returns the database's %s decision", async (_case, expected) => {
+  ] as const)("returns the database's %s decision", async (_case, expected) =>
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000)
     const execute = vi.fn()
       .mockResolvedValueOnce(decisionRows(expected))
@@ -134,9 +134,9 @@ describe "atomic auth rate-limit decisions", ->
       1_700_000_000_000 - 60_000,
       100,
     ])
-  })
+  )
 
-  it("retries once when a concurrent delete removes the decision row", async () => {
+  it("retries once when a concurrent delete removes the decision row", async () =>
     const execute = vi.fn()
       .mockResolvedValueOnce(decisionRows())
       .mockResolvedValueOnce(decisionRows({ allowed: true, retryAfter: null }))
@@ -151,9 +151,9 @@ describe "atomic auth rate-limit decisions", ->
     expect(queryFor(execute.mock.calls[0]?.[0]).sql).toContain("with attempted as")
     expect(queryFor(execute.mock.calls[1]?.[0]).sql).toContain("with attempted as")
     expect(queryFor(execute.mock.calls[2]?.[0]).sql).toContain("delete from rate_limit")
-  })
+  )
 
-  it("fails deterministically when contention yields no decision twice", async () => {
+  it("fails deterministically when contention yields no decision twice", async () =>
     const execute = vi.fn()
       .mockResolvedValueOnce(decisionRows())
       .mockResolvedValueOnce(decisionRows())
@@ -167,12 +167,12 @@ describe "atomic auth rate-limit decisions", ->
     expect(execute.mock.calls.every(([statement]) =>
       queryFor(statement).sql.includes("with attempted as")
     )).toBe(true)
-  })
+  )
 
   it.each([
     ["minimum window and max", { window: 1, max: 1 }],
     ["maximum window and safe max", { window: 60, max: Number.MAX_SAFE_INTEGER }],
-  ] as const)("accepts the %s boundary", async (_case, rule) => {
+  ] as const)("accepts the %s boundary", async (_case, rule) =>
     const execute = vi.fn()
       .mockResolvedValueOnce(decisionRows({ allowed: true, retryAfter: null }))
       .mockResolvedValueOnce(cleanupRows)
@@ -183,7 +183,7 @@ describe "atomic auth rate-limit decisions", ->
       retryAfter: null,
     })
     expect(execute).toHaveBeenCalledTimes(2)
-  })
+  )
 
   it.each([
     ["zero window", { window: 0, max: 1 }],
@@ -195,7 +195,7 @@ describe "atomic auth rate-limit decisions", ->
     ["negative max", { window: 1, max: -1 }],
     ["fractional max", { window: 1, max: 1.5 }],
     ["unsafe max", { window: 1, max: Number.MAX_SAFE_INTEGER + 1 }],
-  ] as const)("rejects a rule with %s before accessing the adapter", async (_case, rule) => {
+  ] as const)("rejects a rule with %s before accessing the adapter", async (_case, rule) =>
     const execute = vi.fn()
     const storage = createAtomicAuthRateLimitStorage({ execute } as never)
 
@@ -203,12 +203,12 @@ describe "atomic auth rate-limit decisions", ->
       "Auth rate limit rule is outside the supported bounds",
     )
     expect(execute).not.toHaveBeenCalled()
-  })
+  )
 
-  it("preserves exactly max admissions from a serialized adapter fake", async () => {
+  it("preserves exactly max admissions from a serialized adapter fake", async () =>
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000)
     const rows = new Map<string, { count: number; lastRequest: number }>()
-    const execute = vi.fn(async (statement: unknown) => {
+    const execute = vi.fn(async (statement: unknown) =>
       const query = queryFor(statement)
       if (!query.sql.includes("with attempted as")) return cleanupRows
 
@@ -221,14 +221,12 @@ describe "atomic auth rate-limit decisions", ->
       if (
         current === undefined ||
         current.lastRequest < now - windowMilliseconds
-      ) {
+      )
         rows.set(key, { count: 1, lastRequest: now })
         return decisionRows({ allowed: true, retryAfter: null })
-      }
-      if (current.count < max) {
+      if (current.count < max)
         rows.set(key, { count: current.count + 1, lastRequest: now })
         return decisionRows({ allowed: true, retryAfter: null })
-      }
       return decisionRows({
         allowed: false,
         retryAfter: Math.max(
@@ -236,7 +234,7 @@ describe "atomic auth rate-limit decisions", ->
           Math.ceil((current.lastRequest + windowMilliseconds - now) / 1000),
         ),
       })
-    })
+    )
     const storage = createAtomicAuthRateLimitStorage({ execute } as never)
 
     const decisions = await Promise.all(
@@ -252,9 +250,9 @@ describe "atomic auth rate-limit decisions", ->
     )).toBe(true)
     expect(rows.get("shared-signin-window")?.count).toBe(3)
     expect(execute).toHaveBeenCalledTimes(24)
-  })
+  )
 
-  it("propagates a decision adapter failure without attempting cleanup", async () => {
+  it("propagates a decision adapter failure without attempting cleanup", async () =>
     const failure = new Error("atomic decision unavailable")
     const execute = vi.fn().mockRejectedValue(failure)
     const storage = createAtomicAuthRateLimitStorage({ execute } as never)
@@ -264,9 +262,9 @@ describe "atomic auth rate-limit decisions", ->
       max: 5,
     })).rejects.toBe(failure)
     expect(execute).toHaveBeenCalledOnce()
-  })
+  )
 
-  it("propagates cleanup failure after an otherwise allowed decision", async () => {
+  it("propagates cleanup failure after an otherwise allowed decision", async () =>
     const failure = new Error("rate-limit cleanup unavailable")
     const execute = vi.fn()
       .mockResolvedValueOnce(decisionRows({ allowed: true, retryAfter: null }))
@@ -278,4 +276,4 @@ describe "atomic auth rate-limit decisions", ->
       max: 5,
     })).rejects.toBe(failure)
     expect(execute).toHaveBeenCalledTimes(2)
-  })
+  )

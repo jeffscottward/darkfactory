@@ -11,14 +11,12 @@ import {
   useTheme,
 } from "./theme.civet"
 
-const ThemeProbe = () => {
+const ThemeProbe = () =>
   const { preference } = useTheme()
   return (
     <output data-mode={preference.themeMode} data-palette={preference.palette}>
       {preference.themeMode}:{preference.palette}
-    </output>
   )
-}
 
 describe "semantic theme components", ->
   it "provides the controlled semantic theme contract to descendants", ->
@@ -38,10 +36,9 @@ describe "semantic theme components", ->
   it "delegates preference changes without owning persistence policy", ->
     const onPreferenceChange = vi.fn()
     let selectPreference: ((preference: ThemePreference) => void) | undefined
-    const SelectionProbe = () => {
+    const SelectionProbe = () =>
       selectPreference = useTheme().onPreferenceChange
       return null
-    }
     renderToStaticMarkup(
       createElement(ThemeProvider, {
         children: createElement(SelectionProbe),

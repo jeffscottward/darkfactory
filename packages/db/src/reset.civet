@@ -11,27 +11,24 @@ export type ResetDevelopmentResult = Readonly<{
   tablesCleared: number
 }>
 
-export class DevelopmentResetError extends Error {
-  constructor(message: string) {
+export class DevelopmentResetError extends Error
+  constructor(message: string)
     super(message)
     this.name = "DevelopmentResetError"
-  }
-}
 
 export const resetDevelopment = async (
   database: Database,
   options: ResetDevelopmentOptions,
-): Promise<ResetDevelopmentResult> => {
+): Promise<ResetDevelopmentResult> =>
   if (
     options.environment !== "development" &&
     options.environment !== "test"
-  ) {
+  )
     throw new DevelopmentResetError(
       "Development reset requires an explicit development or test environment",
     )
-  }
 
-  await withTransaction(database, async (transaction) => {
+  await withTransaction(database, async (transaction) =>
     await transaction.execute(sql`
       TRUNCATE TABLE
         "session",
@@ -46,7 +43,6 @@ export const resetDevelopment = async (
         "outbox_events"
       RESTART IDENTITY
     `)
-  })
+  )
 
   return Object.freeze({ tablesCleared: 10 })
-}

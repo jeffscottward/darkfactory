@@ -5,7 +5,7 @@ export type AccountFeedback = Readonly<{
   message: string
 }>
 
-export const AccountFeedbackMessage = ({ feedback }: { readonly feedback?: AccountFeedback | null | undefined }) => {
+export const AccountFeedbackMessage = ({ feedback }: { readonly feedback?: AccountFeedback | null | undefined }) =>
   if (feedback === undefined || feedback === null) return null
   return (
     <p
@@ -19,6 +19,4 @@ export const AccountFeedbackMessage = ({ feedback }: { readonly feedback?: Accou
       role={feedback.tone === "error" ? "alert" : "status"}
     >
       {feedback.message}
-    </p>
   )
-}

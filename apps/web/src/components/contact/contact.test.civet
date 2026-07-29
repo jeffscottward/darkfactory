@@ -2,30 +2,27 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ApiClient, ApiClientOptions } from "@darkfactory/api"
 
-const contactReactRuntime = vi.hoisted(() => {
+const contactReactRuntime = vi.hoisted(() =>
   const stateSlots: Array<{ value: unknown }> = []
   const refSlots: Array<{ current: unknown }> = []
   let stateCursor = 0
   let refCursor = 0
   return {
-    begin: (): void => {
+    begin: (): void =>
       stateCursor = 0
       refCursor = 0
-    },
-    reset: (): void => {
+    reset: (): void =>
       stateSlots.length = 0
       refSlots.length = 0
       stateCursor = 0
       refCursor = 0
-    },
-    useRef: <Value>(initialValue: Value): { current: Value } => {
+    useRef: <Value>(initialValue: Value): { current: Value } =>
       const index = refCursor++
       refSlots[index] ??= { current: initialValue }
       return refSlots[index] as { current: Value }
-    },
     useState: <Value>(
       initializer: Value | (() => Value),
-    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] =>
       const index = stateCursor++
       stateSlots[index] ??= {
         value: typeof initializer === "function"
@@ -35,17 +32,15 @@ const contactReactRuntime = vi.hoisted(() => {
       const slot = stateSlots[index]!
       return [
         slot.value as Value,
-        (next) => {
+        (next) =>
           slot.value = typeof next === "function"
             ? (next as (current: Value) => Value)(slot.value as Value)
             : next
-        },
       ]
-    },
   }
-})
+)
 
-const contactFormRuntime = vi.hoisted(() => {
+const contactFormRuntime = vi.hoisted(() =>
   type ElementRecord = Readonly<{ props: Record<string, unknown> }>
   type Values = Record<string, string>
   type Validator = (context: Readonly<{ value: string }>) => string | undefined
@@ -72,14 +67,13 @@ const contactFormRuntime = vi.hoisted(() => {
     isValid: true,
   }
 
-  const textOf = (node: unknown): string => {
+  const textOf = (node: unknown): string =>
     if (typeof node === "string" || typeof node === "number") return String(node)
     if (Array.isArray(node)) return node.map(textOf).join("")
     if (typeof node !== "object" || node === null) return ""
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return ""
     return textOf(Reflect.get(props, "children"))
-  }
 
   const capture = (node: unknown, seen = new WeakSet<object>()): void ->
     if Array.isArray(node)
@@ -101,17 +95,15 @@ const contactFormRuntime = vi.hoisted(() => {
     for value of Object.values(element.props)
       capture(value, seen)
 
-  const synchronizeValidity = (): void => {
+  const synchronizeValidity = (): void =>
     state.isValid = Object.values(errors).every((error) => error === undefined)
     state.canSubmit = state.isValid
-  }
 
-  const validate = (name: string, trigger: "onBlur" | "onSubmit"): void => {
+  const validate = (name: string, trigger: "onBlur" | "onSubmit"): void =>
     const error = validators[name]?.[trigger]?.({ value: values[name] ?? "" })
     if (error === undefined) delete errors[name]
     else errors[name] = error
     synchronizeValidity()
-  }
 
   const Field = (props: Readonly<{
     children: (field: Readonly<{
@@ -125,13 +117,12 @@ const contactFormRuntime = vi.hoisted(() => {
     }>) => unknown
     name: string
     validators?: Validators
-  }>) => {
+  }>) =>
     validators[props.name] = props.validators
     const tree = props.children({
       handleBlur: () => validate(props.name, "onBlur"),
-      handleChange: (value) => {
+      handleChange: (value) =>
         values[props.name] = value
-      },
       name: props.name,
       state: {
         meta: {
@@ -142,7 +133,6 @@ const contactFormRuntime = vi.hoisted(() => {
     })
     capture(tree)
     return tree
-  }
 
   const Subscribe = (props: Readonly<{
     children: (selection: readonly [boolean, boolean]) => unknown
@@ -150,56 +140,48 @@ const contactFormRuntime = vi.hoisted(() => {
       canSubmit: boolean
       isSubmitting: boolean
     }>) => readonly [boolean, boolean]
-  }>) => {
+  }>) =>
     synchronizeValidity()
     const tree = props.children(props.selector(state))
     capture(tree)
     return tree
-  }
 
-  const resetValues = (): void => {
+  const resetValues = (): void =>
     values = { ...initialValues }
     errors = {}
     resetCount += 1
     synchronizeValidity()
-  }
 
-  const submit = async (): Promise<void> => {
+  const submit = async (): Promise<void> =>
     if (config === undefined) throw new Error("Render the contact form before submitting it.")
     for (const name of Object.keys(validators)) validate(name, "onSubmit")
     if (!state.isValid) return
     state.isSubmitting = true
-    try {
+    try
       await config.onSubmit({ value: { ...values } })
-    } finally {
+    finally
       state.isSubmitting = false
-    }
-  }
 
   return {
-    blur: (id: string): void => {
+    blur: (id: string): void =>
       const onBlur = controls.get(id)?.props["onBlur"]
       if (typeof onBlur !== "function") throw new Error(`Expected #${id} to support blur.`)
       ;(onBlur as () => void)()
-    },
-    button: (label: string): ElementRecord => {
+    button: (label: string): ElementRecord =>
       const button = buttons.get(label)
       if (button === undefined) throw new Error(`Expected button named ${label}.`)
       return button
-    },
-    changeText: (id: string, value: string): void => {
+    changeText: (id: string, value: string): void =>
       const onChange = controls.get(id)?.props["onChange"]
       if (typeof onChange !== "function") throw new Error(`Expected #${id} to accept text.`)
       ;(onChange as (event: Readonly<{ target: Readonly<{ value: string }> }>) => void)({
         target: { value },
       })
-    },
-    control: (id: string): ElementRecord => {
+    control: (id: string): ElementRecord =>
       const control = controls.get(id)
       if (control === undefined) throw new Error(`Expected control #${id}.`)
       return control
-    },
-    reset: (): void => {
+    reset: (): void =>
       config = undefined
       initialValues = {}
       values = {}
@@ -211,15 +193,13 @@ const contactFormRuntime = vi.hoisted(() => {
       state.canSubmit = true
       state.isSubmitting = false
       state.isValid = true
-    },
     resetCount: (): number => resetCount,
     state: () => state,
     submit,
-    useForm: (nextConfig: FormConfig) => {
-      if (config === undefined) {
+    useForm: (nextConfig: FormConfig) =>
+      if (config === undefined)
         initialValues = { ...nextConfig.defaultValues }
         values = { ...nextConfig.defaultValues }
-      }
       config = nextConfig
       controls.clear()
       buttons.clear()
@@ -230,45 +210,41 @@ const contactFormRuntime = vi.hoisted(() => {
         reset: resetValues,
         state,
       }
-    },
     values: (): Readonly<Values> => ({ ...values }),
   }
-})
+)
 
-const contactApiRuntime = vi.hoisted(() => {
+const contactApiRuntime = vi.hoisted(() =>
   type Factory = (options: ApiClientOptions) => ApiClient
   let factory: Factory | undefined
   let options: ApiClientOptions[] = []
   return {
-    configure: (nextFactory: Factory): void => {
+    configure: (nextFactory: Factory): void =>
       factory = nextFactory
-    },
-    create: (fallback: Factory, nextOptions: ApiClientOptions): ApiClient => {
+    create: (fallback: Factory, nextOptions: ApiClientOptions): ApiClient =>
       options.push(nextOptions)
       return (factory ?? fallback)(nextOptions)
-    },
     options: (): readonly ApiClientOptions[] => options,
-    reset: (): void => {
+    reset: (): void =>
       factory = undefined
       options = []
-    },
   }
-})
+)
 
-vi.mock("react", async (importOriginal) => {
+vi.mock("react", async (importOriginal) =>
   const actual = await importOriginal<typeof import("react")>()
   return {
     ...actual,
     useRef: contactReactRuntime.useRef,
     useState: contactReactRuntime.useState,
   }
-})
+)
 
 vi.mock("@tanstack/react-form", () => ({
   useForm: contactFormRuntime.useForm,
 }))
 
-vi.mock("@darkfactory/api", async (importOriginal) => {
+vi.mock("@darkfactory/api", async (importOriginal) =>
   const actual = await importOriginal<typeof import("@darkfactory/api")>()
   return {
     ...actual,
@@ -277,7 +253,7 @@ vi.mock("@darkfactory/api", async (importOriginal) => {
       options,
     ),
   }
-})
+)
 import {
   contactFeedbackForOutput,
   createContactGateway,
@@ -295,13 +271,12 @@ const validValues = {
   website: "",
 } as const
 
-const flushContactMicrotasks = async (): Promise<void> => {
+const flushContactMicrotasks = async (): Promise<void> =>
   for (let index = 0; index < 8; index += 1) await Promise.resolve()
-}
 
 const renderContactForm = (
   props: Parameters<typeof ContactForm>[0],
-) => {
+) =>
   contactReactRuntime.begin()
   const tree = ContactForm(props) as Readonly<{
     props: Record<string, unknown>
@@ -310,18 +285,17 @@ const renderContactForm = (
     html: renderToStaticMarkup(tree as never),
     tree,
   }
-}
 
-const installContactBrowser = () => {
+const installContactBrowser = () =>
   const timers: Array<() => void> = []
   let statusTarget: Readonly<{ focus: () => void }> | null = null
   let validationTarget: Readonly<{ focus: () => void }> | null = null
   const getElementById = vi.fn(() => statusTarget)
   const querySelector = vi.fn(() => validationTarget)
-  const setTimeout = vi.fn((callback: () => void, _delay: number) => {
+  const setTimeout = vi.fn((callback: () => void, _delay: number) =>
     timers.push(callback)
     return timers.length
-  })
+  )
   vi.stubGlobal("document", { getElementById, querySelector })
   vi.stubGlobal("window", {
     location: { origin: "https://darkfactory.example" },
@@ -330,16 +304,13 @@ const installContactBrowser = () => {
   return {
     getElementById,
     querySelector,
-    setStatusTarget: (target: Readonly<{ focus: () => void }> | null): void => {
+    setStatusTarget: (target: Readonly<{ focus: () => void }> | null): void =>
       statusTarget = target
-    },
-    setValidationTarget: (target: Readonly<{ focus: () => void }> | null): void => {
+    setValidationTarget: (target: Readonly<{ focus: () => void }> | null): void =>
       validationTarget = target
-    },
     setTimeout,
     timers,
   }
-}
 
 afterEach ->
   contactReactRuntime.reset()
@@ -556,9 +527,9 @@ describe "ContactForm browser behavior", ->
     const statusFocus = vi.fn()
     browser.setStatusTarget({ focus: statusFocus })
     let resolveSubmission!: (value: { status: "sent" }) => void
-    const submission = new Promise<{ status: "sent" }>((resolve) => {
+    const submission = new Promise<{ status: "sent" }>((resolve) =>
       resolveSubmission = resolve
-    })
+    )
     const submit = vi.fn(async () => submission)
     contactApiRuntime.configure(() => ({
       contact: { submit },
@@ -618,9 +589,9 @@ describe "ContactForm browser behavior", ->
     const browser = installContactBrowser()
     browser.setStatusTarget(null)
     let resolveRetry!: (value: { status: "previewed" }) => void
-    const retrySubmission = new Promise<{ status: "previewed" }>((resolve) => {
+    const retrySubmission = new Promise<{ status: "previewed" }>((resolve) =>
       resolveRetry = resolve
-    })
+    )
     const submit = vi.fn()
       .mockRejectedValueOnce({
         data: { code: "SERVICE_UNAVAILABLE" },

@@ -49,10 +49,9 @@ const profileFields: readonly ProfileFieldDefinition[] = [
   { name: "dateOfBirth", label: "Date of birth", maximum: 10, type: "date", autoComplete: "bday" },
 ]
 
-const nullableText = (value: string): string | null => {
+const nullableText = (value: string): string | null =>
   const normalized = value.trim()
   return normalized.length === 0 ? null : normalized
-}
 
 const defaultsFor = (profile: ProfileOutput) => ({
   firstName: profile.firstName ?? "",
@@ -71,41 +70,34 @@ const defaultsFor = (profile: ProfileOutput) => ({
 export const changedProfileInput = (
   initial: ProfileOutput,
   current: Omit<ProfileOutput, "updatedAt">,
-): ProfileUpdateInput => {
+): ProfileUpdateInput =>
   const patch: Record<string, unknown> = { expectedUpdatedAt: initial.updatedAt }
   const fields = [
     "firstName", "lastName", "displayName", "avatarUrl", "phone",
     "businessName", "jobTitle", "biography", "timezone", "locale", "dateOfBirth",
   ] as const
-  for (const field of fields) {
+  for (const field of fields)
     const value = field === "timezone" || field === "locale"
       ? current[field].trim()
       : nullableText(current[field] ?? "")
     if (value !== initial[field]) patch[field] = value
-  }
   return patch as ProfileUpdateInput
-}
 
 const fieldError = (
   value: string,
   definition: ProfileFieldDefinition,
-): string | undefined => {
-  if (definition.required === true && value.trim().length === 0) {
+): string | undefined =>
+  if (definition.required === true && value.trim().length === 0)
     return `${definition.label} is required.`
-  }
-  if (value.length > definition.maximum) {
+  if (value.length > definition.maximum)
     return `${definition.label} must be ${definition.maximum} characters or fewer.`
-  }
-  if (definition.name === "avatarUrl" && value.trim().length > 0) {
-    try {
+  if (definition.name === "avatarUrl" && value.trim().length > 0)
+    try
       const url = new URL(value)
       if (url.protocol !== "https:") return "Avatar URL must use HTTPS."
-    } catch {
+    catch
       return "Enter a valid avatar URL."
-    }
-  }
   return undefined
-}
 
 export interface ProfileFormProps {
   readonly feedback?: AccountFeedback | null | undefined
@@ -113,12 +105,11 @@ export interface ProfileFormProps {
   readonly onSave: (input: ProfileUpdateInput) => Promise<unknown> | unknown
 }
 
-export const ProfileForm = ({ feedback, initialProfile, onSave }: ProfileFormProps) => {
+export const ProfileForm = ({ feedback, initialProfile, onSave }: ProfileFormProps) =>
   const form = useForm({
     defaultValues: defaultsFor(initialProfile),
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }) =>
       await onSave(changedProfileInput(initialProfile, value))
-    },
   })
 
   return (
@@ -126,13 +117,13 @@ export const ProfileForm = ({ feedback, initialProfile, onSave }: ProfileFormPro
       className="space-y-8"
       id="profile-form"
       noValidate
-      onSubmit={(event) => {
+      onSubmit={(event) =>
         event.preventDefault()
         event.stopPropagation()
-        void form.handleSubmit().then(() => {
+        void form.handleSubmit().then(() =>
           document.querySelector<HTMLElement>("#profile-form [aria-invalid=\"true\"]")?.focus()
-        })
-      }}
+        )
+      }
     >
       <AccountFeedbackMessage feedback={feedback} />
       <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
@@ -145,12 +136,12 @@ export const ProfileForm = ({ feedback, initialProfile, onSave }: ProfileFormPro
               onSubmit: ({ value }) => fieldError(value, definition),
             }}
           >
-            {(field) => {
+            {(field) =>
               const error = field.state.meta.errors[0]
               const describedBy = error === undefined ? undefined : `${field.name}-error`
               return (
                 <div className={definition.multiline === true ? "space-y-2 md:col-span-2" : "space-y-2"}>
-                  <Label htmlFor={field.name}>{definition.label} {definition.required === true ? "(required)" : "(optional)"}</Label>
+                  <Label htmlFor={field.name}>{definition.label} {definition.required === true ? "(required)" : "(optional)"}
                   {definition.multiline === true ? (
                     <Textarea
                       aria-describedby={describedBy}
@@ -182,14 +173,11 @@ export const ProfileForm = ({ feedback, initialProfile, onSave }: ProfileFormPro
                     />
                   )}
                   {error === undefined ? null : (
-                    <p aria-live="assertive" className="text-sm text-destructive" id={describedBy} role="alert">{String(error)}</p>
+                    <p aria-live="assertive" className="text-sm text-destructive" id={describedBy} role="alert">{String(error)}
                   )}
-                </div>
               )
-            }}
-          </form.Field>
+            }
         ))}
-      </div>
       <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
         {([canSubmit, isDirty, isSubmitting]) => (
           <Button
@@ -199,9 +187,5 @@ export const ProfileForm = ({ feedback, initialProfile, onSave }: ProfileFormPro
             type="submit"
           >
             Save profile
-          </Button>
         )}
-      </form.Subscribe>
-    </form>
   )
-}

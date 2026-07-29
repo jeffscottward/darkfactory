@@ -132,10 +132,9 @@ const isEnabled = (
 const hasConfiguration = (
   source: CapabilityReadinessEnvironment,
   key: CapabilityConfigurationKey,
-): boolean => {
+): boolean =>
   const value = source[key]
   return typeof value === "string" && value.trim().length > 0
-}
 
 const readiness = (
   provider: string,
@@ -144,13 +143,13 @@ const readiness = (
   requirements: readonly CapabilityConfigurationKey[],
   source: CapabilityReadinessEnvironment,
   inventory: CapabilityRuntimeInventory,
-): CapabilityReadiness => {
+): CapabilityReadiness =>
   const missingRequirements = requirements.filter((key) => !hasConfiguration(source, key))
   const configured = missingRequirements.length === 0
   const installed = inventory.installed[dependency]
   const available = installed && inventory.bindings[dependency]
 
-  if (!enabled) {
+  if (!enabled)
     return {
       provider,
       enabled,
@@ -160,8 +159,7 @@ const readiness = (
       reason: "capability_disabled",
       missingRequirements,
     }
-  }
-  if (!configured) {
+  if (!configured)
     return {
       provider,
       enabled,
@@ -171,8 +169,7 @@ const readiness = (
       reason: "missing_required_configuration",
       missingRequirements,
     }
-  }
-  if (!available) {
+  if (!available)
     return {
       provider,
       enabled,
@@ -182,7 +179,6 @@ const readiness = (
       reason: installed ? "binding_unavailable" : "dependency_not_installed",
       missingRequirements,
     }
-  }
   return {
     provider,
     enabled,
@@ -191,7 +187,6 @@ const readiness = (
     status: "ready",
     missingRequirements,
   }
-}
 
 const STORAGE_REQUIREMENTS = [
   "R2_ACCOUNT_ID",

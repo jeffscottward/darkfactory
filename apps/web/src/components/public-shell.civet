@@ -22,7 +22,7 @@ import { ThemeMenu } from "./theme-menu.civet"
 
 export const getPublicNavigationModel = (
   availableRoutes: readonly string[],
-) => {
+) =>
   const routes = PUBLIC_NAVIGATION.filter((item) => (
     isRouteExposed(item.href, availableRoutes)
   ))
@@ -36,7 +36,6 @@ export const getPublicNavigationModel = (
     signIn: routes.find((item) => item.href === "/sign-in"),
     support,
   }
-}
 
 export interface PublicNavigationProps {
   readonly availableRoutes?: readonly string[]
@@ -44,21 +43,20 @@ export interface PublicNavigationProps {
 
 export const PublicHeader = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
-}: PublicNavigationProps) => {
+}: PublicNavigationProps) =>
   const store = useUiStoreApi()
   const mobileNavigationOpen = useUiState((state) => state.mobileNavigationOpen)
   const navigation = getPublicNavigationModel(availableRoutes)
   const headerRef = useRef<HTMLElement>(null)
-  useEffect(() => {
+  useEffect(() =>
     const shell = headerRef.current?.parentElement
     if (!mobileNavigationOpen || shell === null || shell === undefined) return
     const wasInert = shell.inert
     shell.inert = true
-    return () => {
+    return () =>
       shell.inert = wasInert
       return undefined
-    }
-  }, [mobileNavigationOpen])
+  , [mobileNavigationOpen])
 
   return (
     <header className="sticky top-0 z-overlay border-b border-border bg-background" ref={headerRef}>
@@ -67,7 +65,6 @@ export const PublicHeader = ({
         {navigation.showNavigation ? (
           <nav aria-label="Primary navigation" className="hidden lg:block">
             <NavigationLinks items={navigation.primary} />
-          </nav>
         ) : null}
         <div className="flex items-center gap-1">
           <ThemeMenu />
@@ -77,7 +74,6 @@ export const PublicHeader = ({
               href={navigation.signIn.href}
             >
               {navigation.signIn.label}
-            </a>
           ) : null}
           {navigation.showNavigation ? (
             <Dialog
@@ -88,8 +84,6 @@ export const PublicHeader = ({
               <DialogTrigger asChild>
                 <IconButton aria-label="Open navigation" className="lg:hidden" variant="ghost">
                   <Menu aria-hidden="true" />
-                </IconButton>
-              </DialogTrigger>
               <DialogContent
                 aria-modal="true"
                 className="left-auto right-0 top-0 h-dvh max-h-dvh w-full max-w-sm translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0"
@@ -103,19 +97,12 @@ export const PublicHeader = ({
                     orientation="vertical"
                     showIcons
                   />
-                </nav>
-              </DialogContent>
-            </Dialog>
           ) : null}
-        </div>
-      </div>
-    </header>
   )
-}
 
 export const PublicFooter = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
-}: PublicNavigationProps) => {
+}: PublicNavigationProps) =>
   const navigation = getPublicNavigationModel(availableRoutes)
   return (
     <footer className="border-t border-border py-10">
@@ -124,8 +111,6 @@ export const PublicFooter = ({
           <BrandLink />
           <p className="text-sm leading-6 text-muted-foreground">
             A domain-neutral foundation for production applications and inspectable AI workflows.
-          </p>
-        </div>
         {navigation.showNavigation ? (
           <div className="flex flex-col gap-4 sm:items-end">
             <nav aria-label="Footer navigation">
@@ -134,13 +119,9 @@ export const PublicFooter = ({
                 items={[...navigation.primary, ...navigation.support]}
                 linkClassName="px-2"
               />
-            </nav>
-          </div>
         ) : null}
-      </div>
-    </footer>
+
   )
-}
 
 export interface PublicShellProps extends PublicNavigationProps {
   readonly children: ReactNode
@@ -154,7 +135,5 @@ export const PublicShell = ({
     <PublicHeader availableRoutes={availableRoutes} />
     <main className="min-w-0 flex-1" id="main-content" tabIndex={-1}>
       {children}
-    </main>
     <PublicFooter availableRoutes={availableRoutes} />
-  </div>
 )

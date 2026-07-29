@@ -45,7 +45,7 @@ export const metadata = {
   description: "A candid, domain-neutral foundation for production applications and inspectable AI workflows.",
 }
 
-export default function HomePage() {
+export default function HomePage()
   return (
     <>
       <section
@@ -55,45 +55,34 @@ export default function HomePage() {
         <div className="space-y-8 md:col-span-7">
           <p className="text-sm font-semibold tracking-wide text-primary">
             Domain-neutral application foundation
-          </p>
           <h1
             className="max-w-4xl font-heading text-display font-semibold tracking-tight text-foreground"
             id="home-title"
           >
             Build the product. Keep the foundation legible.
-          </h1>
           <p className="max-w-reading text-lg leading-8 text-muted-foreground">
             DarkFactory connects a refined public surface, an authenticated portal,
             typed contracts, PostgreSQL persistence, and observable operations. The
             seams stay explicit so a team can adapt the system without first removing
             someone else’s business model.
-          </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <PublicLink href="/features">Explore the foundation</PublicLink>
+            <PublicLink href="/features">Explore the foundation
             <PublicLink href="#foundation-capabilities" variant="secondary">
               Read the foundation
-            </PublicLink>
-          </div>
-        </div>
         <aside
           aria-label="Foundation posture"
           className="border-y border-border py-8 md:col-span-4 md:col-start-9"
         >
           <p className="font-heading text-2xl font-semibold tracking-tight text-foreground">
             Opinionated about structure. Quiet about your domain.
-          </p>
           <p className="mt-4 text-base leading-7 text-muted-foreground">
             Core choices are documented. Optional infrastructure is declared. Example
             product language is kept neutral and labeled for what it is.
-          </p>
           <a
             className="mt-6 inline-flex min-h-11 items-center font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             href="/about"
           >
             Read the design posture
-          </a>
-        </aside>
-      </section>
 
       <section
         aria-labelledby="foundation-layers-title"
@@ -105,21 +94,16 @@ export default function HomePage() {
           <div className="md:col-span-4">
             <p className="text-sm font-semibold tracking-wide text-primary">
               The capability story
-            </p>
             <h2
               className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
               id="foundation-layers-title"
             >
               A small core with visible extension points.
-            </h2>
             <p className="mt-5 text-base leading-7 text-muted-foreground">
               The architecture distinguishes what every project needs from what a
               particular deployment may enable.
-            </p>
             <PublicLink className="mt-4" href="#request-path" variant="link">
               Trace one request
-            </PublicLink>
-          </div>
           <dl className="divide-y divide-border border-y border-border md:col-span-7 md:col-start-6">
             {foundationLayers.map((layer, index) => (
               <div className="grid gap-4 py-8 sm:grid-cols-12" key={layer.title}>
@@ -129,27 +113,17 @@ export default function HomePage() {
                     className="text-sm font-semibold text-muted-foreground"
                   >
                     0{index + 1}
-                  </span>
                   <h3 className="mt-2 font-heading text-2xl font-semibold tracking-tight text-foreground">
                     {layer.title}
-                  </h3>
-                </dt>
                 <dd className="sm:col-span-7">
                   <p className="max-w-reading text-base leading-7 text-muted-foreground">
                     {layer.body}
-                  </p>
                   <a
                     className="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     href={layer.href}
                   >
                     {layer.link}
-                  </a>
-                </dd>
-              </div>
             ))}
-          </dl>
-        </div>
-      </section>
 
       <section
         aria-labelledby="request-path-title"
@@ -161,18 +135,14 @@ export default function HomePage() {
           <div className="md:col-span-5">
             <p className="text-sm font-semibold tracking-wide text-primary">
               One vertical, end to end
-            </p>
             <h2
               className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
               id="request-path-title"
             >
               Follow behavior instead of guessing at wiring.
-            </h2>
             <p className="mt-5 max-w-reading text-base leading-7 text-muted-foreground">
               The neutral slice is not a product recommendation. It is working evidence
               of the boundaries a real feature will cross.
-            </p>
-          </div>
           <ol className="grid gap-8 md:col-span-6 md:col-start-7">
             {requestPath.map((step, index) => (
               <li className="grid grid-cols-[auto_1fr] gap-4" key={step.label}>
@@ -181,42 +151,25 @@ export default function HomePage() {
                   className="flex size-11 items-center justify-center rounded-pill border border-border-strong font-semibold text-foreground"
                 >
                   {index + 1}
-                </span>
                 <div>
                   <h3 className="font-heading text-xl font-semibold tracking-tight text-foreground">
                     {step.label}
-                  </h3>
                   <p className="mt-2 text-base leading-7 text-muted-foreground">
                     {step.detail}
-                  </p>
-                </div>
-              </li>
             ))}
-          </ol>
-        </div>
-      </section>
 
       <section aria-labelledby="home-next-title" className="border-t border-border bg-muted">
         <div className="df-container grid gap-8 py-16 md:grid-cols-12 md:items-end md:py-20">
           <div className="md:col-span-7">
             <p className="text-sm font-semibold tracking-wide text-primary">
               Start with evidence
-            </p>
             <h2
               className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
               id="home-next-title"
             >
               Inspect the contracts, then enter the portal.
-            </h2>
-          </div>
           <div className="flex flex-col gap-3 sm:flex-row md:col-span-4 md:col-start-9 md:justify-end">
             <PublicLink href="/resources" variant="secondary">
               Open the source index
-            </PublicLink>
-            <PublicLink href="/sign-in">Sign in to the portal</PublicLink>
-          </div>
-        </div>
-      </section>
-    </>
+            <PublicLink href="/sign-in">Sign in to the portal
   )
-}

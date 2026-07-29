@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const otlp = vi.hoisted(() => {
+const otlp = vi.hoisted(() =>
   type ExportCallback = (result: { code: number }) => void
   const traceExporters: Array<{
     options: unknown
@@ -16,36 +16,32 @@ const otlp = vi.hoisted(() => {
     shutdown: ReturnType<typeof vi.fn>
   }> = []
 
-  class TraceExporter {
+  class TraceExporter
     options: unknown
     batches: unknown[][] = []
-    export = vi.fn((batch: unknown[], callback: ExportCallback): void => {
+    export = vi.fn((batch: unknown[], callback: ExportCallback): void =>
       this.batches.push(batch)
       callback({ code: 0 })
-    })
+    )
     shutdown = vi.fn(async () => undefined)
 
-    constructor(options: unknown) {
+    constructor(options: unknown)
       this.options = options
       traceExporters.push(this)
-    }
-  }
 
-  class MetricExporter {
+  class MetricExporter
     options: unknown
     batches: unknown[] = []
-    export = vi.fn((batch: unknown, callback: ExportCallback): void => {
+    export = vi.fn((batch: unknown, callback: ExportCallback): void =>
       this.batches.push(batch)
       callback({ code: 0 })
-    })
+    )
     forceFlush = vi.fn(async () => undefined)
     shutdown = vi.fn(async () => undefined)
 
-    constructor(options: unknown) {
+    constructor(options: unknown)
       this.options = options
       metricExporters.push(this)
-    }
-  }
 
   return {
     MetricExporter,
@@ -53,7 +49,7 @@ const otlp = vi.hoisted(() => {
     metricExporters,
     traceExporters,
   }
-})
+)
 
 vi.mock("@opentelemetry/exporter-trace-otlp-http", () => ({
   OTLPTraceExporter: otlp.TraceExporter,
@@ -64,10 +60,10 @@ vi.mock("@opentelemetry/exporter-metrics-otlp-http", () => ({
 
 import { initializeTelemetry } from "./otel.civet"
 
-beforeEach(() => {
+beforeEach(() =>
   otlp.traceExporters.length = 0
   otlp.metricExporters.length = 0
-})
+)
 
 describe "OpenTelemetry exporter lifecycle", ->
   it "uses fake exporters for normalized configuration and resources", async ->
@@ -118,7 +114,7 @@ describe "OpenTelemetry exporter lifecycle", ->
           Record<string, string | number | boolean>
         >,
       },
-      (span) => {
+      (span) =>
         span.addEvent({
           eventId: "event_export",
           name: "feature-item.created",
@@ -130,7 +126,6 @@ describe "OpenTelemetry exporter lifecycle", ->
           value: 1,
           attributes: { eventName: "feature-item.created" },
         })
-      }
     )
     await runtime.forceFlush()
 

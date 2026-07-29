@@ -12,57 +12,49 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? value as Record<string, unknown>
     : null
 
-const exportTarget = (value: unknown): string | null => {
+const exportTarget = (value: unknown): string | null =>
   if (typeof value === "string") return value.endsWith(".civet") ? value : null
   const record = asRecord(value)
   if (!record) return null
-  for (const condition of ["import", "workerd", "worker", "default"]) {
+  for (const condition of ["import", "workerd", "worker", "default"])
     const candidate = record[condition]
     if (typeof candidate === "string" && candidate.endsWith(".civet")) return candidate
-  }
   return null
-}
 
-const safePackageTarget = (directory: string, target: string): string => {
+const safePackageTarget = (directory: string, target: string): string =>
   if (!target.startsWith("./") || target.includes("\\")) throw new Error("Unsafe workspace export target")
   const normalized = posix.normalize(posix.join(directory, target.slice(2)))
-  if (normalized === directory || !normalized.startsWith(`${directory}/`) || !normalized.endsWith(".civet")) {
+  if (normalized === directory || !normalized.startsWith(`${directory}/`) || !normalized.endsWith(".civet"))
     throw new Error("Workspace export target escapes its package")
-  }
   return normalized
-}
 
 export const deriveWorkspaceAliases = (
   manifests: readonly WorkspaceManifest[],
-): ReadonlyMap<string, string> => {
+): ReadonlyMap<string, string> =>
   const aliases = new Map<string, string>()
-  for (const manifest of manifests) {
+  for (const manifest of manifests)
     const parsed = asRecord(JSON.parse(manifest.source))
     const name = parsed?.["name"]
     const exports_ = asRecord(parsed?.["exports"])
     if (typeof name !== "string" || !name.startsWith("@darkfactory/") || !exports_) continue
-    for (const [subpath, declaration] of Object.entries(exports_)) {
+    for (const [subpath, declaration] of Object.entries(exports_))
       if (subpath !== "." && !subpath.startsWith("./")) throw new Error("Unsafe workspace export subpath")
       const target = exportTarget(declaration)
       if (!target) continue
       const alias = subpath === "." ? name : `${name}/${subpath.slice(2)}`
       if (aliases.has(alias)) throw new Error(`Duplicate workspace alias: ${alias}`)
       aliases.set(alias, safePackageTarget(manifest.directory, target))
-    }
-  }
   return aliases
-}
 
-const relativeModulePath = (fromFile: string, targetFile: string): string => {
+const relativeModulePath = (fromFile: string, targetFile: string): string =>
   const relative = posix.relative(posix.dirname(fromFile), targetFile.replace(/\.civet$/, ".tsx"))
   return relative.startsWith(".") ? relative : `./${relative}`
-}
 
 export const rewriteWorkspaceAliases = (
   compiledFile: string,
   compiledSource: string,
   aliases: ReadonlyMap<string, string>,
-): string => {
+): string =>
   const sourceFile = ts.createSourceFile(
     compiledFile,
     compiledSource,
@@ -71,7 +63,7 @@ export const rewriteWorkspaceAliases = (
     ts.ScriptKind.TSX,
   )
   const replacements: Array<Readonly<{ start: number; end: number; value: string }>> = []
-  const recordSpecifier = (literal: ts.StringLiteralLike | undefined) => {
+  const recordSpecifier = (literal: ts.StringLiteralLike | undefined) =>
     if (!literal?.text.startsWith("@darkfactory/")) return
     const target = aliases.get(literal.text)
     if (!target) throw new Error(`Unknown workspace alias: ${literal.text}`)
@@ -82,38 +74,32 @@ export const rewriteWorkspaceAliases = (
       end: literal.getEnd(),
       value: `${quote}${relativeModulePath(compiledFile, target)}${quote}`,
     })
-  }
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+  const visit = (node: ts.Node): void =>
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
       recordSpecifier(node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)
         ? node.moduleSpecifier
         : undefined)
-    } else if (
+    else if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(node.expression) && node.expression.text === "require"))
-    ) {
+    )
       const argument = node.arguments[0]
       recordSpecifier(argument && ts.isStringLiteralLike(argument) ? argument : undefined)
-    }
     ts.forEachChild(node, visit)
-  }
   visit(sourceFile)
   let rewritten = compiledSource
-  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
+  for (const replacement of replacements.sort((left, right) => right.start - left.start))
     rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`
-  }
   return rewritten
-}
 
 export const compileCivetSnapshot = async (
   sourcePath: string,
   source: string,
   aliases: ReadonlyMap<string, string>,
-): Promise<Readonly<{ path: string; content: string }>> => {
-  if (!sourcePath.endsWith(".civet") || sourcePath.endsWith(".civet.d.ts")) {
+): Promise<Readonly<{ path: string; content: string }>> =>
+  if (!sourcePath.endsWith(".civet") || sourcePath.endsWith(".civet.d.ts"))
     throw new Error("Snapshot compiler accepts authored Civet only")
-  }
   const outputPath = sourcePath.replace(/\.civet$/, ".tsx")
   const compiled = await compile(source, {
     filename: sourcePath,
@@ -123,4 +109,3 @@ export const compileCivetSnapshot = async (
     path: outputPath,
     content: rewriteWorkspaceAliases(outputPath, compiled, aliases),
   })
-}

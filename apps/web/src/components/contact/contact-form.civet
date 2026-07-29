@@ -46,7 +46,7 @@ export const ContactStatus = ({
   feedback,
 }: {
   readonly feedback: ContactFeedback
-}) => {
+}) =>
   const isError = feedback.tone === "error"
   return (
     <p
@@ -66,11 +66,9 @@ export const ContactStatus = ({
       tabIndex={-1}
     >
       {feedback.message}
-    </p>
   )
-}
 
-export const ContactForm = ({ gateway }: ContactFormProps) => {
+export const ContactForm = ({ gateway }: ContactFormProps) =>
   const [feedback, setFeedback] = useState<ContactFeedback | null>(null)
   const [validationSummary, setValidationSummary] = useState<string | null>(null)
   const submissionInFlight = useRef(false)
@@ -82,11 +80,11 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
       message: "",
       website: "",
     },
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }) =>
       if (submissionInFlight.current) return
       submissionInFlight.current = true
       setFeedback(null)
-      try {
+      try
         const output = await (gateway ?? createBrowserContactGateway()).submit({
           name: value.name.trim(),
           email: value.email.trim(),
@@ -96,13 +94,11 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
         })
         setFeedback(contactFeedbackForOutput(output))
         if (output.status === "sent") form.reset()
-      } catch (error) {
+      catch error
         setFeedback(safeContactFailure(error))
-      } finally {
+      finally
         submissionInFlight.current = false
         window.setTimeout(() => document.getElementById("contact-status")?.focus(), 0)
-      }
-    },
   })
 
   return (
@@ -111,31 +107,27 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
       className="relative space-y-6 border-y border-border py-8"
       id="contact-form"
       noValidate
-      onSubmit={(event) => {
+      onSubmit={(event) =>
         event.preventDefault()
         event.stopPropagation()
         setValidationSummary(null)
-        void form.handleSubmit().then(() => {
-          if (!form.state.isValid) {
+        void form.handleSubmit().then(() =>
+          if (!form.state.isValid)
             setValidationSummary(
               "Review the highlighted fields. Your message was not submitted.",
             )
             document
               .querySelector<HTMLElement>('#contact-form [aria-invalid="true"]')
               ?.focus()
-          }
-        })
-      }}
+        )
+      }
       role="form"
     >
       <div>
         <h2 className="font-heading text-2xl font-semibold tracking-tight text-foreground" id="contact-form-title">
           Send a message
-        </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           All fields marked required must be completed. Your entries stay in the form if delivery fails.
-        </p>
-      </div>
 
       {validationSummary === null ? null : (
         <p
@@ -144,7 +136,6 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
           role="alert"
         >
           {validationSummary}
-        </p>
       )}
       {feedback === null ? null : <ContactStatus feedback={feedback} />}
 
@@ -158,13 +149,13 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
               onSubmit: ({ value }) => validateContactField(definition.name as ContactFieldName, value),
             }}
           >
-            {(field) => {
+            {(field) =>
               const error = field.state.meta.errors[0]
               const helpId = `${field.name}-help`
               const errorId = `${field.name}-error`
               return (
                 <div className={definition.name === "subject" ? "space-y-2 sm:col-span-2" : "space-y-2"}>
-                  <Label htmlFor={field.name}>{definition.label} (required)</Label>
+                  <Label htmlFor={field.name}>{definition.label} (required)
                   <Input
                     aria-describedby={error === undefined ? helpId : `${helpId} ${errorId}`}
                     aria-invalid={error === undefined ? undefined : true}
@@ -175,23 +166,20 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
                     name={field.name}
                     type={definition.name === "email" ? "email" : "text"}
                     onBlur={field.handleBlur}
-                    onChange={(event) => {
+                    onChange={(event) =>
                       setValidationSummary(null)
                       field.handleChange(event.target.value)
-                    }}
+                    }
                     required
                     value={field.state.value}
                   />
-                  <p className="text-sm leading-6 text-muted-foreground" id={helpId}>{definition.help}</p>
+                  <p className="text-sm leading-6 text-muted-foreground" id={helpId}>{definition.help}
                   {error === undefined ? null : (
                     <p className="text-sm text-destructive" id={errorId}>
                       {String(error)}
-                    </p>
                   )}
-                </div>
               )
-            }}
-          </form.Field>
+            }
         ))}
 
         <form.Field
@@ -201,13 +189,13 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
             onSubmit: ({ value }) => validateContactField("message", value),
           }}
         >
-          {(field) => {
+          {(field) =>
             const error = field.state.meta.errors[0]
             const helpId = "message-help"
             const errorId = "message-error"
             return (
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="message">Message (required)</Label>
+                <Label htmlFor="message">Message (required)
                 <Textarea
                   aria-describedby={error === undefined ? helpId : `${helpId} ${errorId}`}
                   aria-invalid={error === undefined ? undefined : true}
@@ -215,32 +203,27 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
                   id="message"
                   name="message"
                   onBlur={field.handleBlur}
-                  onChange={(event) => {
+                  onChange={(event) =>
                     setValidationSummary(null)
                     field.handleChange(event.target.value)
-                  }}
+                  }
                   required
                   rows={8}
                   value={field.state.value}
                 />
                 <p className="text-sm leading-6 text-muted-foreground" id={helpId}>
                   Include enough context to understand the request. Maximum 5,000 characters.
-                </p>
                 {error === undefined ? null : (
                   <p className="text-sm text-destructive" id={errorId}>
                     {String(error)}
-                  </p>
                 )}
-              </div>
             )
-          }}
-        </form.Field>
-      </div>
+          }
 
       <form.Field name="website">
         {(field) => (
           <div aria-hidden="true" className="hidden">
-            <label htmlFor="website">Website</label>
+            <label htmlFor="website">Website
             <input
               autoComplete="off"
               id="website"
@@ -251,9 +234,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
               type="text"
               value={field.state.value}
             />
-          </div>
         )}
-      </form.Field>
 
       <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
         {([canSubmit, isSubmitting]) => (
@@ -265,9 +246,5 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
             type="submit"
           >
             Send message
-          </Button>
         )}
-      </form.Subscribe>
-    </form>
   )
-}

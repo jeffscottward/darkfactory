@@ -10,13 +10,11 @@ type IdentifierSource = string & {
 
 export const createIdentifier = <Kind extends string>(
   value: IdentifierSource,
-): Identifier<Kind> => {
-  if (value.length === 0) {
+): Identifier<Kind> =>
+  if (value.length === 0)
     throw new TypeError("Identifier must not be empty")
-  }
 
   return value as Identifier<Kind>
-}
 
 export type Success<Value> = Readonly<{
   ok: true
@@ -58,13 +56,11 @@ export const matchResult = <
     success: (value: ResultValue<MatchedResult>) => SuccessOutput
     failure: (error: ResultReason<MatchedResult>) => FailureOutput
   }>,
-): SuccessOutput | FailureOutput => {
-  if (result.ok) {
+): SuccessOutput | FailureOutput =>
+  if (result.ok)
     return handlers.success(result.value as ResultValue<MatchedResult>)
-  }
 
   return handlers.failure(result.error as ResultReason<MatchedResult>)
-}
 
 export type NormalizedError = Readonly<{
   code: "UNEXPECTED_ERROR"

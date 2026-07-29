@@ -38,71 +38,60 @@ export const createCapabilityFileSystem = async (
   repositoryPath: string,
   hooks: GuardHooks = {},
   dependencies: CapabilitySystemDependencies = nodeCapabilitySystemDependencies,
-): Promise<CapabilityFileSystem> => {
+): Promise<CapabilityFileSystem> =>
   const root = await realpath(repositoryPath)
   const manifestPath = resolve(root, "capabilities.yaml")
-  const contained = (path: string): string => {
+  const contained = (path: string): string =>
     const target = resolve(root, path)
     const relation = relative(root, target)
-    if (relation === ".." || relation.startsWith(`..${sep}`)) {
+    if (relation === ".." || relation.startsWith(`..${sep}`))
       throw new Error("Capability path escapes repository")
-    }
     return target
-  }
-  const readManifest = async (): Promise<string> => {
+  const readManifest = async (): Promise<string> =>
     const handle = await dependencies.openManifest(
       manifestPath,
       constants.O_RDONLY | constants.O_NOFOLLOW,
     )
-    try {
+    try
       const stats = await handle.stat()
       if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES) throw new Error("Capability manifest is invalid")
       const source = await handle.readFile({ encoding: "utf8" })
       if (Buffer.byteLength(source, "utf8") > MAX_MANIFEST_BYTES) throw new Error("Capability manifest is too large")
       return source
-    } finally {
+    finally
       await handle.close()
-    }
-  }
-  const manifestIdentity = async (): Promise<Identity> => {
+  const manifestIdentity = async (): Promise<Identity> =>
     const stats = await lstat(manifestPath)
     if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("Capability manifest identity is unsafe")
     return Object.freeze({ dev: stats.dev, ino: stats.ino })
-  }
 
   return Object.freeze({
     readManifest,
-    exists: async (path) => {
-      try {
+    exists: async (path) =>
+      try
         await lstat(contained(path))
         return true
-      } catch (error) {
+      catch (error)
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
         throw error
-      }
-    },
-    commit: async (plan) => {
-      if (plan.manifestSource !== plan.expectedManifestSource) {
+    commit: async (plan) =>
+      if (plan.manifestSource !== plan.expectedManifestSource)
         throw new Error("Capability generator cannot mutate the strict v0.1 manifest")
-      }
       const expectedIdentity = await manifestIdentity()
       if (await readManifest() !== plan.expectedManifestSource) throw new Error("Capability manifest changed during planning")
-      const assertManifest = async (): Promise<void> => {
+      const assertManifest = async (): Promise<void> =>
         if (!sameIdentity(expectedIdentity, await manifestIdentity())) throw new Error("Capability manifest identity changed")
         if (await readManifest() !== plan.expectedManifestSource) throw new Error("Capability manifest content changed")
-      }
-      const beforePublish = async (): Promise<void> => {
+      const beforePublish = async (): Promise<void> =>
         await assertManifest()
         await hooks.beforePublish?.()
         await assertManifest()
         return undefined
-      }
-      const afterPublish = async (): Promise<void> => {
+      const afterPublish = async (): Promise<void> =>
         await assertManifest()
         await hooks.afterPublish?.()
         await assertManifest()
         return undefined
-      }
       await guardedWrite(
         root,
         plan.descriptorPath,
@@ -110,8 +99,6 @@ export const createCapabilityFileSystem = async (
         "create",
         { beforePublish, afterPublish },
       )
-    },
   })
-}
 
 export const nodeCapabilityFileSystem = await createCapabilityFileSystem(process.cwd())

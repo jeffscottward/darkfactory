@@ -13,10 +13,10 @@ vi.mock("node:fs/promises", () => ({
   open: mocks.open,
   opendir: mocks.opendir,
 }))
-vi.mock("node:path", async (importOriginal) => {
+vi.mock("node:path", async (importOriginal) =>
   const actual = await importOriginal<typeof import("node:path")>()
   return { ...actual, relative: mocks.relative }
-})
+)
 
 
 import { auditTypeExports } from "./type-exports.civet"
@@ -76,9 +76,8 @@ const dirent = (
 })
 
 const asyncDirectory = (entries: Iterable<VirtualDirent>) => ({
-  async *[Symbol.asyncIterator]() {
+  async *[Symbol.asyncIterator]()
     for (const entry of entries) yield entry
-  },
 })
 
 const fileHandle = (
@@ -86,7 +85,7 @@ const fileHandle = (
   opened: Metadata = metadata("file", {
     size: Buffer.byteLength(source, "utf8"),
   }),
-) => {
+) =>
   const bytes = Buffer.from(source)
   return {
     stat: vi.fn(async () => opened),
@@ -95,25 +94,23 @@ const fileHandle = (
       offset: number,
       length: number,
       position: number,
-    ) => {
+    ) =>
       const bytesRead = Math.min(length, Math.max(0, bytes.length - position))
       if (bytesRead > 0) bytes.copy(buffer, offset, position, position + bytesRead)
       return { bytesRead, buffer }
-    }),
+    ),
     close: vi.fn(async () => undefined),
   }
-}
 
-const resetFileSystemMocks = (): void => {
+const resetFileSystemMocks = (): void =>
   mocks.lstat.mockReset()
   mocks.open.mockReset()
   mocks.opendir.mockReset()
   mocks.relative.mockReset()
-  mocks.relative.mockImplementation((from: string, to: string) => {
+  mocks.relative.mockImplementation((from: string, to: string) =>
     const prefix = `${from}/`
     return to.startsWith(prefix) ? to.slice(prefix.length) : to
-  })
-}
+  )
 
 const installVirtualWorkspace = (
   manifests: readonly (readonly [string, Readonly<Record<string, unknown>>])[],
@@ -121,7 +118,7 @@ const installVirtualWorkspace = (
     patterns?: readonly string[]
     metadataFactory?: () => Metadata
   }> = {},
-): void => {
+): void =>
   resetFileSystemMocks()
   const patterns = options.patterns ?? ["packages/*"]
   const files = new Map<string, string>([[
@@ -132,30 +129,28 @@ const installVirtualWorkspace = (
     [ROOT, [dirent("packages", "directory")]],
     [`${ROOT}/packages`, manifests.map(([name]) => dirent(name, "directory"))],
   ])
-  for (const [directory, manifest] of manifests) {
+  for (const [directory, manifest] of manifests)
     const packageDirectory = `${ROOT}/packages/${directory}`
     directories.set(packageDirectory, [dirent("package.json", "file")])
     files.set(`${packageDirectory}/package.json`, `${JSON.stringify(manifest)}\n`)
-  }
 
   const metadataFactory = options.metadataFactory ?? (() => metadata())
   mocks.lstat.mockImplementation(async () => metadataFactory())
-  mocks.open.mockImplementation(async (path: string) => {
+  mocks.open.mockImplementation(async (path: string) =>
     const source = files.get(String(path))
     if (source === undefined) throw new Error(`Unexpected virtual file: ${String(path)}`)
     return fileHandle(source, metadataFactory())
-  })
+  )
   mocks.opendir.mockImplementation(async (path: string) =>
     asyncDirectory(directories.get(String(path)) ?? [])
   )
-}
 
 const configureWorkspaceConfigRead = (
   source: string,
   before: Metadata,
   opened: Metadata,
   after: Metadata = before,
-) => {
+) =>
   resetFileSystemMocks()
   const handle = fileHandle(source, opened)
   mocks.lstat
@@ -164,7 +159,6 @@ const configureWorkspaceConfigRead = (
   mocks.open.mockResolvedValueOnce(handle)
   mocks.opendir.mockResolvedValue(asyncDirectory([]))
   return handle
-}
 
 const targetExports = (
   count: number,
@@ -176,20 +170,20 @@ const targetExports = (
   ]),
 )
 
-beforeEach(() => {
+beforeEach(() =>
   resetFileSystemMocks()
-})
+)
 
-afterEach(() => {
+afterEach(() =>
   vi.restoreAllMocks()
-})
+)
 
-describe("type export filesystem and aggregate boundaries", () => {
-  it("rejects an opened workspace config that changes type or crosses its size bound", async () => {
+describe("type export filesystem and aggregate boundaries", () =>
+  it("rejects an opened workspace config that changes type or crosses its size bound", async () =>
     for (const opened of [
       metadata("other"),
       metadata("file", { size: WORKSPACE_CONFIG_BYTES + 1 }),
-    ]) {
+    ])
       const handle = configureWorkspaceConfigRead(
         'packages:\n  - "packages/*"\n',
         metadata(),
@@ -199,10 +193,9 @@ describe("type export filesystem and aggregate boundaries", () => {
         /regular non-symbolic file|exceeds 65536 bytes/i,
       )
       expect(handle.close).toHaveBeenCalledOnce()
-    }
-  })
+  )
 
-  it("rejects a workspace config that grows beyond the read buffer", async () => {
+  it("rejects a workspace config that grows beyond the read buffer", async () =>
     const handle = configureWorkspaceConfigRead(
       "x".repeat(WORKSPACE_CONFIG_BYTES + 1),
       metadata("file", { size: 1 }),
@@ -214,9 +207,9 @@ describe("type export filesystem and aggregate boundaries", () => {
     )
     expect(handle.read).toHaveBeenCalledOnce()
     expect(handle.close).toHaveBeenCalledOnce()
-  })
+  )
 
-  it("detects every post-open identity race and always closes the handle", async () => {
+  it("detects every post-open identity race and always closes the handle", async () =>
     const changedMetadata = [
       metadata("file", { isSymbolicLink: () => true }),
       metadata("other"),
@@ -224,7 +217,7 @@ describe("type export filesystem and aggregate boundaries", () => {
       metadata("file", { ino: 2 }),
     ]
 
-    for (const after of changedMetadata) {
+    for (const after of changedMetadata)
       const handle = configureWorkspaceConfigRead(
         'packages:\n  - "packages/*"\n',
         metadata(),
@@ -235,10 +228,9 @@ describe("type export filesystem and aggregate boundaries", () => {
         "pnpm-workspace.yaml changed during audit",
       )
       expect(handle.close).toHaveBeenCalledOnce()
-    }
-  })
+  )
 
-  it("opens bounded files with the supported no-follow flag", async () => {
+  it("opens bounded files with the supported no-follow flag", async () =>
     installVirtualWorkspace([])
 
     await expect(auditTypeExports(ROOT)).resolves.toEqual([])
@@ -246,46 +238,44 @@ describe("type export filesystem and aggregate boundaries", () => {
       `${ROOT}/pnpm-workspace.yaml`,
       constants.O_RDONLY | constants.O_NOFOLLOW,
     )
-  })
+  )
 
-  it("enforces the aggregate workspace directory limit", async () => {
+  it("enforces the aggregate workspace directory limit", async () =>
     resetFileSystemMocks()
     const config = 'packages:\n  - "workspaces/*"\n'
     mocks.lstat.mockResolvedValue(metadata())
     mocks.open.mockResolvedValue(fileHandle(config))
-    mocks.opendir.mockImplementation(async (path: string) => {
+    mocks.opendir.mockImplementation(async (path: string) =>
       if (String(path) === ROOT) return asyncDirectory([dirent("workspaces", "directory")])
-      if (String(path) === `${ROOT}/workspaces`) {
-        return asyncDirectory((function* () {
-          for (let index = 0; index < WORKSPACE_DIRECTORIES; index += 1) {
+      if (String(path) === `${ROOT}/workspaces`)
+        return asyncDirectory((function* ()
+          for (let index = 0; index < WORKSPACE_DIRECTORIES; index += 1)
             yield dirent(`workspace-${index}`, "directory")
-          }
-        })())
-      }
+        )())
       return asyncDirectory([])
-    })
+    )
 
     await expect(auditTypeExports(ROOT)).rejects.toThrow(
       `Workspace directory count exceeds ${WORKSPACE_DIRECTORIES}`,
     )
-  }, 30_000)
+  , 30_000)
 
-  it("enforces the aggregate workspace entry limit before sorting", async () => {
+  it("enforces the aggregate workspace entry limit before sorting", async () =>
     resetFileSystemMocks()
     const config = 'packages:\n  - "packages/*"\n'
     mocks.lstat.mockResolvedValue(metadata())
     mocks.open.mockResolvedValue(fileHandle(config))
-    mocks.opendir.mockResolvedValue(asyncDirectory((function* () {
+    mocks.opendir.mockResolvedValue(asyncDirectory((function* ()
       const entry = dirent("entry")
       for (let index = 0; index <= WORKSPACE_ENTRIES; index += 1) yield entry
-    })()))
+    )()))
 
     await expect(auditTypeExports(ROOT)).rejects.toThrow(
       `Workspace directory entries exceed ${WORKSPACE_ENTRIES}`,
     )
-  }, 30_000)
+  , 30_000)
 
-  it("enforces the aggregate workspace package limit", async () => {
+  it("enforces the aggregate workspace package limit", async () =>
     installVirtualWorkspace(Array.from(
       { length: WORKSPACE_PACKAGES + 1 },
       (_, index) => [
@@ -297,9 +287,9 @@ describe("type export filesystem and aggregate boundaries", () => {
     await expect(auditTypeExports(ROOT)).rejects.toThrow(
       `Workspace package count exceeds ${WORKSPACE_PACKAGES}`,
     )
-  }, 30_000)
+  , 30_000)
 
-  it("enforces the aggregate export node limit across individually valid packages", async () => {
+  it("enforces the aggregate export node limit across individually valid packages", async () =>
     const exports = Array.from({ length: EXPORT_NODES - 1 }, () => null)
     installVirtualWorkspace(Array.from(
       { length: Math.floor(TOTAL_EXPORT_NODES / EXPORT_NODES) + 1 },
@@ -312,9 +302,9 @@ describe("type export filesystem and aggregate boundaries", () => {
     await expect(auditTypeExports(ROOT)).rejects.toThrow(
       `Workspace exports exceed ${TOTAL_EXPORT_NODES} total nodes`,
     )
-  }, 30_000)
+  , 30_000)
 
-  it("enforces the aggregate type-target limit across individually valid packages", async () => {
+  it("enforces the aggregate type-target limit across individually valid packages", async () =>
     const exports = targetExports(TYPE_TARGETS)
     installVirtualWorkspace(Array.from(
       { length: Math.floor(TOTAL_TYPE_TARGETS / TYPE_TARGETS) + 1 },
@@ -327,9 +317,9 @@ describe("type export filesystem and aggregate boundaries", () => {
     await expect(auditTypeExports(ROOT)).rejects.toThrow(
       `Workspace exports exceed ${TOTAL_TYPE_TARGETS} total type targets`,
     )
-  }, 30_000)
+  , 30_000)
 
-  it("enforces the aggregate target-lstat limit across deep valid targets", async () => {
+  it("enforces the aggregate target-lstat limit across deep valid targets", async () =>
     const deepTarget = "./a/b/c/d/e/f/g/h/i/j/index.d.ts"
     const exports = targetExports(TYPE_TARGETS, deepTarget)
     installVirtualWorkspace(Array.from(
@@ -343,10 +333,10 @@ describe("type export filesystem and aggregate boundaries", () => {
     await expect(auditTypeExports(ROOT)).rejects.toThrow(
       `Type export audit exceeds ${TOTAL_TARGET_LSTATS} total filesystem checks`,
     )
-  }, 30_000)
+  , 30_000)
 
-  it("rejects every resolved package-relative escape shape", async () => {
-    for (const escaped of ["..", "../outside.d.ts", "/outside.d.ts"]) {
+  it("rejects every resolved package-relative escape shape", async () =>
+    for (const escaped of ["..", "../outside.d.ts", "/outside.d.ts"])
       installVirtualWorkspace([[
         "escaped",
         {
@@ -359,10 +349,9 @@ describe("type export filesystem and aggregate boundaries", () => {
       await expect(auditTypeExports(ROOT)).rejects.toThrow(
         "path traversal is not allowed",
       )
-    }
-  })
+  )
 
-  it("propagates non-ENOENT declaration inspection errors", async () => {
+  it("propagates non-ENOENT declaration inspection errors", async () =>
     installVirtualWorkspace([[
       "denied",
       {
@@ -371,19 +360,19 @@ describe("type export filesystem and aggregate boundaries", () => {
       },
     ]])
     const denied = Object.assign(new Error("permission denied"), { code: "EACCES" })
-    mocks.lstat.mockImplementation(async (path: string) => {
+    mocks.lstat.mockImplementation(async (path: string) =>
       if (String(path).includes("/types")) throw denied
       return metadata()
-    })
+    )
 
     await expect(auditTypeExports(ROOT)).rejects.toBe(denied)
 
     const rawFailure = "raw declaration inspection failure"
-    mocks.lstat.mockImplementation(async (path: string) => {
+    mocks.lstat.mockImplementation(async (path: string) =>
       if (String(path).includes("/types")) throw rawFailure
       return metadata()
-    })
+    )
     await expect(auditTypeExports(ROOT)).rejects.toBe(rawFailure)
-  })
+  )
 
-})
+)

@@ -14,11 +14,11 @@ export interface AccountNavigationProps {
   readonly currentPath?: string
 }
 
-export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
+export const AccountNavigation = ({ currentPath }: AccountNavigationProps) =>
   return (
     <nav aria-label="Account settings" className="border-b border-border">
       <ul className="flex flex-wrap gap-1" role="list">
-        {accountRoutes.map((route) => {
+        {accountRoutes.map((route) =>
           const isCurrent = currentPath === route.href
           return (
             <li key={route.href}>
@@ -33,11 +33,6 @@ export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
                 href={route.href}
               >
                 {route.label}
-              </a>
-            </li>
           )
-        })}
-      </ul>
-    </nav>
+        )}
   )
-}

@@ -31,7 +31,7 @@ export const PageHeader = ({
   >
     <div className="min-w-0 space-y-3">
       {eyebrow === undefined ? null : (
-        <p className="font-body text-xs font-semibold uppercase tracking-wide text-primary">{eyebrow}</p>
+        <p className="font-body text-xs font-semibold uppercase tracking-wide text-primary">{eyebrow}
       )}
       <h1
         className={cn(
@@ -40,7 +40,6 @@ export const PageHeader = ({
         )}
       >
         {title}
-      </h1>
       {description === undefined ? null : (
         <p
           className={cn(
@@ -49,13 +48,10 @@ export const PageHeader = ({
           )}
         >
           {description}
-        </p>
       )}
-    </div>
     {actions === undefined ? null : (
-      <div className="flex flex-wrap items-center gap-3 md:justify-end">{actions}</div>
+      <div className="flex flex-wrap items-center gap-3 md:justify-end">{actions}
     )}
-  </header>
 )
 
 export type SectionHeadingLevel = 2 | 3 | 4 | 5 | 6
@@ -74,7 +70,7 @@ export const SectionHeader = ({
   headingLevel = 2,
   title,
   ...props
-}: SectionHeaderProps) => {
+}: SectionHeaderProps) =>
   const Heading = `h${headingLevel}` as keyof Pick<JSX.IntrinsicElements, "h2" | "h3" | "h4" | "h5" | "h6">
 
   return (
@@ -88,12 +84,10 @@ export const SectionHeader = ({
       <div className="min-w-0 space-y-1">
         <Heading className="font-heading text-xl font-semibold tracking-tight text-foreground">
           {title}
-        </Heading>
         {description === undefined ? null : (
-          <p className="max-w-reading text-sm leading-5 text-muted-foreground">{description}</p>
+          <p className="max-w-reading text-sm leading-5 text-muted-foreground">{description}
         )}
-      </div>
-      {actions === undefined ? null : <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>}
-    </div>
+      {actions === undefined ? null : (
+        <div className="flex shrink-0 flex-wrap gap-3">{actions}
+      )}
   )
-}

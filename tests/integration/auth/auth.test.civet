@@ -59,11 +59,10 @@ let email: EmailPort
 let auth: AuthInstance
 let handler: (request: Request) => Promise<Response>
 
-const resetDatabase = async (): Promise<void> => {
+const resetDatabase = async (): Promise<void> =>
   await testDatabase.query(
     'TRUNCATE TABLE "verification", "session", "account", "profiles", "user_preferences", "user" CASCADE',
   )
-}
 
 const jsonRequest = (
   path: string,
@@ -80,25 +79,23 @@ const jsonRequest = (
     body: JSON.stringify(body),
   })
 
-const call = async (request: Request): Promise<HttpResult> => {
+const call = async (request: Request): Promise<HttpResult> =>
   const response = await handler(request)
   const text = await response.text()
   return {
     response,
     body: text.length === 0 ? null : JSON.parse(text),
   }
-}
 
-const cookieFrom = (response: Response): string => {
+const cookieFrom = (response: Response): string =>
   const setCookie = response.headers.get("set-cookie")
   if (!setCookie) throw new Error("Expected an auth cookie")
   return setCookie.split(";", 1)[0]!
-}
 
 const signUp = async (
   emailAddress = "member@example.test",
   overrides: Readonly<Record<string, unknown>> = {},
-): Promise<HttpResult> => {
+): Promise<HttpResult> =>
   const deliveryCount = verificationDeliveries.length
   const result = await call(
     jsonRequest("/sign-up/email", {
@@ -111,14 +108,12 @@ const signUp = async (
   await Promise.all(backgroundTasks)
   backgroundTasks = []
   const verification = verificationDeliveries[deliveryCount]
-  if (result.response.status === 200 && verification !== undefined) {
+  if (result.response.status === 200 && verification !== undefined)
     const verified = await auth.handler(new Request(verification.verificationUrl, {
       headers: { origin: BASE_URL },
     }))
     expect(verified.status).toBeLessThan(400)
-  }
   return result
-}
 
 const signIn = async (
   emailAddress = "member@example.test",
@@ -128,21 +123,18 @@ const signIn = async (
 
 const authorizationError = async (
   operation: () => Promise<unknown>,
-): Promise<AuthAuthorizationError> => {
-  try {
+): Promise<AuthAuthorizationError> =>
+  try
     await operation()
-  } catch (error) {
+  catch (error)
     if (error instanceof AuthAuthorizationError) return error
     throw error
-  }
   throw new Error("Expected authorization to fail")
-}
 
-const resetTokenFrom = (delivery: ResetDelivery): string => {
+const resetTokenFrom = (delivery: ResetDelivery): string =>
   const match = new URL(delivery.resetUrl).pathname.match(/\/reset-password\/([^/]+)$/u)
   if (!match?.[1]) throw new Error("Reset URL did not contain a token")
   return match[1]
-}
 
 describe.sequential "DF-041 through DF-045 Better Auth integration", ->
   beforeAll(async ->
@@ -160,25 +152,22 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     deliveries = []
     verificationDeliveries = []
     email = {
-      sendPasswordReset: async (input) => {
-        if (!input.recipientName) {
+      sendPasswordReset: async (input) =>
+        if (!input.recipientName)
           throw new Error("Expected reset recipient name")
-        }
         deliveries.push({ ...input, recipientName: input.recipientName })
         return {
           status: "previewed",
           provider: "preview",
           artifactPath: `/tmp/reset-${deliveries.length}.html`,
         }
-      },
-      sendEmailVerification: async (input) => {
+      sendEmailVerification: async (input) =>
         verificationDeliveries.push(input)
         return {
           status: "previewed",
           provider: "preview",
           artifactPath: `/tmp/auth-verification-${verificationDeliveries.length}.html`,
         }
-      },
     }
     auth = createAuth({
       database: databaseResource.db,
@@ -186,9 +175,8 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       baseURL: BASE_URL,
       trustedOrigins: [BASE_URL],
       email,
-      scheduleBackgroundTask: (task) => {
+      scheduleBackgroundTask: (task) =>
         backgroundTasks.push(task)
-      },
       resetPasswordTokenExpiresInSeconds: 60,
       resetRateLimitMax: 100,
       rateLimitEnabled: false,
@@ -202,11 +190,10 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
   )
 
   afterAll(async ->
-    try {
+    try
       if (databaseResource !== undefined) await databaseResource.close()
-    } finally {
+    finally
       if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
-    }
   , 60_000)
 
   it "DF-041 signs up through Better Auth hashing and reliably provisions defaults", async ->
@@ -289,7 +276,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
        FOR EACH ROW EXECUTE FUNCTION auth_test_reject_account()`,
     )
 
-    try {
+    try
       const failed = await signUp("rollback@example.test")
       expect(failed.response.status).toBe(500)
       const [counts] = await testDatabase.query<{
@@ -301,14 +288,13 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
            (SELECT count(*)::int FROM account) AS account_count`,
       )
       expect(counts).toEqual({ user_count: 0, account_count: 0 })
-    } finally {
+    finally
       await testDatabase.query(
         "DROP TRIGGER IF EXISTS auth_test_reject_account ON account",
       )
       await testDatabase.query(
         "DROP FUNCTION IF EXISTS auth_test_reject_account()",
       )
-    }
 
   it "rolls back both provisioning rows while leaving the committed auth user repairable", async ->
     await testDatabase.query(
@@ -324,7 +310,7 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
        FOR EACH ROW EXECUTE FUNCTION auth_test_reject_preferences()`,
     )
 
-    try {
+    try
       const failed = await signUp("repairable@example.test")
       expect(failed.response.status).toBe(500)
       const [counts] = await testDatabase.query<{
@@ -345,14 +331,13 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
         profile_count: 0,
         preference_count: 0,
       })
-    } finally {
+    finally
       await testDatabase.query(
         "DROP TRIGGER IF EXISTS auth_test_reject_preferences ON user_preferences",
       )
       await testDatabase.query(
         "DROP FUNCTION IF EXISTS auth_test_reject_preferences()",
       )
-    }
 
     const verificationRequested = await call(
       jsonRequest("/send-verification-email", {
@@ -485,9 +470,8 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     expect(listedSessions.map((session) => session["id"])).toContain(
       currentSessionId,
     )
-    for (const session of listedSessions) {
+    for (const session of listedSessions)
       expect(session).not.toHaveProperty("token")
-    }
 
     const signedOut = await call(jsonRequest("/sign-out", {}, { cookie }))
     expect(signedOut.response.status).toBe(200)
@@ -624,16 +608,15 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
     let releaseDelivery: (() => void) | undefined
     const scheduled: Promise<unknown>[] = []
     const delayedEmail: EmailPort = {
-      sendPasswordReset: async () => {
-        return await new Promise<EmailDeliveryResult>((resolve) => {
+      sendPasswordReset: async () =>
+        return await new Promise<EmailDeliveryResult>((resolve) =>
           releaseDelivery = () =>
             resolve({
               status: "previewed",
               provider: "preview",
               artifactPath: "/tmp/delayed-reset.html",
             })
-        })
-      },
+        )
       sendEmailVerification: async () => ({
         status: "previewed",
         provider: "preview",
@@ -646,9 +629,8 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       baseURL: BASE_URL,
       trustedOrigins: [BASE_URL],
       email: delayedEmail,
-      scheduleBackgroundTask: (task) => {
+      scheduleBackgroundTask: (task) =>
         scheduled.push(task)
-      },
       resetPasswordTokenExpiresInSeconds: 60,
       resetRateLimitMax: 100,
       rateLimitEnabled: false,
@@ -754,9 +736,8 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       baseURL: BASE_URL,
       trustedOrigins: [BASE_URL],
       email: failingEmail,
-      scheduleBackgroundTask: (task) => {
+      scheduleBackgroundTask: (task) =>
         backgroundTasks.push(task)
-      },
       resetPasswordTokenExpiresInSeconds: 60,
       resetRateLimitMax: 100,
       rateLimitEnabled: false,
@@ -834,15 +815,14 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       "CONTACT_THROTTLE_SECRET",
       "integration-contact-throttle-secret-with-at-least-32-characters",
     )
-    try {
+    try
       const [before] = await testDatabase.query<{ connection_count: number }>(
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()",
       )
       const response = await handleAuthRequest(
         new Request(`${BASE_URL}/api/auth/ok`),
-        (task) => {
+        (task) =>
           backgroundTasks.push(task)
-        },
       )
       const [after] = await testDatabase.query<{ connection_count: number }>(
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()",
@@ -851,9 +831,8 @@ describe.sequential "DF-041 through DF-045 Better Auth integration", ->
       expect(response).toBeInstanceOf(Response)
       expect(response.status).toBe(200)
       expect(after?.connection_count).toBe(before?.connection_count)
-    } finally {
+    finally
       vi.unstubAllEnvs()
-    }
 
   it "bridges Better Auth through Web Request/Response and rejects untrusted origins", async ->
     const ok = await handler(new Request(`${BASE_URL}/api/auth/ok`))

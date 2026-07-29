@@ -115,9 +115,8 @@ describe "normalizeAuthDestination", ->
       42,
     ]
 
-    for (const callback of hostileCallbacks) {
+    for (const callback of hostileCallbacks)
       expect(normalizeAuthDestination(callback)).toBe("/dashboard")
-    }
 
   it "decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", ->
     for (const callback of [
@@ -126,19 +125,17 @@ describe "normalizeAuthDestination", ->
       "/safe/%252e%252e/admin",
       "/dashboard%0A.evil",
       "/%252f%252fattacker.test/steal",
-    ]) {
+    ])
       expect(normalizeAuthDestination(callback)).toBe("/dashboard")
-    }
     expect(normalizeAuthDestination("  /feature-items?status=active#results  ")).toBe(
       "/feature-items?status=active#results",
     )
 
   it "falls back when the runtime URL parser rejects an otherwise local destination", ->
-    vi.stubGlobal("URL", class {
-      constructor() {
+    vi.stubGlobal("URL", class
+      constructor()
         throw new TypeError("URL parser unavailable")
-      }
-    })
+    )
 
     expect(normalizeAuthDestination("/feature-items")).toBe("/dashboard")
 
@@ -151,9 +148,8 @@ describe "normalizeAuthDestination", ->
       "/reset-password?token=secret",
       "/verify-email?error=INVALID_TOKEN",
       "/api/auth/get-session",
-    ]) {
+    ])
       expect(normalizeAuthDestination(callback)).toBe("/dashboard")
-    }
 
 describe "auth field validation", ->
   it "validates email absence, syntax, maximum length, and a trimmed valid address", ->
@@ -332,7 +328,7 @@ describe "typed auth operations", ->
       "a".repeat(4097),
       "token with spaces",
       "tökén-value-that-is-long-enough",
-    ]) {
+    ])
       await expect(
         submitResetPassword(client, {
           token: malformedToken,
@@ -344,7 +340,6 @@ describe "typed auth operations", ->
         actionHref: "/forgot-password",
         actionLabel: "Request a new link",
       })
-    }
     expect(resetPassword).not.toHaveBeenCalled()
 
     const invalidClient = authClient({

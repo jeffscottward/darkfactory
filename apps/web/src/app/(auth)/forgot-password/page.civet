@@ -9,7 +9,7 @@ export const metadata = {
   description: "Request a one-time DarkFactory password reset link.",
 }
 
-export default function ForgotPasswordPage() {
+export default function ForgotPasswordPage()
   return (
     <AuthPanel
       description="Request a one-time link to choose a new password."
@@ -20,13 +20,9 @@ export default function ForgotPasswordPage() {
           href="/sign-in"
         >
           Return to sign in
-        </Link>
       }
       title="Reset access without exposing the account."
     >
       <SessionRedirect callbackURL="/dashboard">
         <EmailActionForm operation="password-reset" />
-      </SessionRedirect>
-    </AuthPanel>
   )
-}

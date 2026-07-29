@@ -28,11 +28,10 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
   )
 
   afterAll(async ->
-    try {
+    try
       if (databaseResource !== undefined) await databaseResource.close()
-    } finally {
+    finally
       if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
-    }
   , 60_000)
 
   it "stores only a 64-character HMAC key and no raw IP column", async ->
@@ -76,9 +75,8 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
 
   it "opens a fresh window after expiry", async ->
     const repository = createContactThrottleRepository(databaseResource.db)
-    for (let request = 0; request < 5; request += 1) {
+    for (let request = 0; request < 5; request += 1)
       expect((await repository.consume("c".repeat(64))).allowed).toBe(true)
-    }
     expect((await repository.consume("c".repeat(64))).allowed).toBe(false)
     await testDatabase.query(
       "UPDATE contact_rate_limits SET window_started_at = clock_timestamp() - interval '16 minutes', expires_at = clock_timestamp() - interval '1 second' WHERE key_hash = $1",
@@ -124,9 +122,8 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
       maxRows: 2,
     })
     const firstKey = "7".repeat(64)
-    for (let request = 0; request < 5; request += 1) {
+    for (let request = 0; request < 5; request += 1)
       expect((await repository.consume(firstKey)).allowed).toBe(true)
-    }
     expect((await repository.consume(firstKey)).allowed).toBe(false)
     expect((await repository.consume("8".repeat(64))).allowed).toBe(true)
     expect((await repository.consume("9".repeat(64))).allowed).toBe(false)
@@ -138,9 +135,8 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
     })
     const key = "6".repeat(64)
     const decisions = []
-    for (let attempt = 0; attempt < 31; attempt += 1) {
+    for (let attempt = 0; attempt < 31; attempt += 1)
       decisions.push(await repository.consume(key))
-    }
     expect(decisions.filter(({ allowed }) => allowed)).toHaveLength(30)
     expect(decisions[30]).toMatchObject({ allowed: false, remaining: 0 })
 
@@ -159,7 +155,7 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
     )
 
     const blocker = await testDatabase.openConnection()
-    try {
+    try
       await blocker.query("BEGIN")
       await blocker.query(
         "SELECT key_hash FROM contact_rate_limits WHERE key_hash = $1 FOR UPDATE",
@@ -168,7 +164,7 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
       const expiredDecision = repository.consume(expiredKey)
 
       let blocked = false
-      for (let attempt = 0; attempt < 100; attempt += 1) {
+      for (let attempt = 0; attempt < 100; attempt += 1)
         const rows = await testDatabase.query<{ blocked: boolean }>(
           `SELECT EXISTS (
             SELECT 1
@@ -178,12 +174,10 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
               AND query ILIKE '%contact_rate_limits%'
           ) AS blocked`,
         )
-        if (rows[0]?.blocked) {
+        if (rows[0]?.blocked)
           blocked = true
           break
-        }
         await Promise.resolve()
-      }
       expect(blocked).toBe(true)
 
       await blocker.query(
@@ -209,10 +203,9 @@ describe.sequential "DF-076 atomic contact throttle on real Postgres", ->
         "SELECT count(*)::int AS count FROM contact_rate_limits",
       )
       expect(rows).toEqual([{ count: 2 }])
-    } finally {
+    finally
       await blocker.query("ROLLBACK").catch(() => undefined)
       await blocker.close()
-    }
 
   it "rejects non-HMAC keys before touching Postgres", async ->
     const repository = createContactThrottleRepository(databaseResource.db)

@@ -34,42 +34,36 @@ const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => 
 
 type ElementRecord = Readonly<{ props: Record<string, unknown>; type: unknown }>
 
-const textOf = (node: unknown): string => {
+const textOf = (node: unknown): string =>
   if (typeof node === "string" || typeof node === "number") return String(node)
   if (Array.isArray(node)) return node.map(textOf).join("")
   if (typeof node !== "object" || node === null) return ""
   const props = Reflect.get(node, "props")
   if (typeof props !== "object" || props === null) return ""
   return textOf(Reflect.get(props, "children"))
-}
 
 const findElement = (
   tree: unknown,
   predicate: (element: ElementRecord) => boolean,
-): ElementRecord | undefined => {
+): ElementRecord | undefined =>
   const seen = new WeakSet<object>()
-  const visit = (node: unknown): ElementRecord | undefined => {
-    if (Array.isArray(node)) {
-      for (const child of node) {
+  const visit = (node: unknown): ElementRecord | undefined =>
+    if (Array.isArray(node))
+      for (const child of node)
         const found = visit(child)
         if (found !== undefined) return found
-      }
       return undefined
-    }
     if (typeof node !== "object" || node === null || seen.has(node)) return undefined
     seen.add(node)
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return undefined
     const element = node as ElementRecord
     if (predicate(element)) return element
-    for (const value of Object.values(element.props)) {
+    for (const value of Object.values(element.props))
       const found = visit(value)
       if (found !== undefined) return found
-    }
     return undefined
-  }
   return visit(tree)
-}
 
 describe "partial create recovery", ->
   it "updates a retained durable draft with current edits before activation retry", async ->
@@ -212,11 +206,11 @@ describe "archive serialization", ->
     const noHandlerArchive = findElement(noHandlerTree, (candidate) => (
       candidate.props["aria-label"] === "Archive Original name"
     ))
-    expect(() => {
+    expect(() =>
       ;(noHandlerArchive!.props["onClick"] as (
         event: { currentTarget: HTMLButtonElement },
       ) => void)({ currentTarget: trigger })
-    }).not.toThrow()
+    ).not.toThrow()
 
 describe "single editor mutation lock", ->
   it "locks every editor surface while any mutation is pending", ->
@@ -228,9 +222,9 @@ describe "single editor mutation lock", ->
   it "rejects a second mutation while a delayed save owns the lock", async ->
     const guard = createEditorMutationGuard()
     let releaseSave: (() => void) | undefined
-    const delayedSave = new Promise<void>((resolve) => {
+    const delayedSave = new Promise<void>((resolve) =>
       releaseSave = resolve
-    })
+    )
 
     expect(guard.isLocked()).toBe(false)
     expect(guard.acquire()).toBe(true)

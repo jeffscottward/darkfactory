@@ -72,11 +72,9 @@ export type E2ERunnerState =
   | Readonly<{ version: 1; phase: "progress"; progress: JourneyProgress }>
   | Readonly<{ version: 1; phase: "result"; report: JourneySuiteReport }>
 
-const safeIdentity = (spec: string, runId: string): void => {
-  if (!SPEC_PATH.test(spec) || !RUN_ID.test(runId)) {
+const safeIdentity = (spec: string, runId: string): void =>
+  if (!SPEC_PATH.test(spec) || !RUN_ID.test(runId))
     throw new Error("E2E runner state identity is invalid")
-  }
-}
 
 const lifecycleFields = (value: JourneyProgress): Readonly<{
   lifecycleStatus: NonNullable<JourneyProgress["lifecycleStatus"]>
@@ -85,7 +83,7 @@ const lifecycleFields = (value: JourneyProgress): Readonly<{
   lifecycleObservationReason: NonNullable<
     JourneyProgress["lifecycleObservationReason"]
   >
-}> => {
+}> =>
   if (
     value.lifecycleStatus === undefined ||
     value.lifecycleStage === undefined ||
@@ -102,13 +100,12 @@ const lifecycleFields = (value: JourneyProgress): Readonly<{
     lifecycleObservation: value.lifecycleObservation,
     lifecycleObservationReason: value.lifecycleObservationReason,
   })
-}
 
-const sanitizedProgress = (progress: JourneyProgress): JourneyProgress => {
+const sanitizedProgress = (progress: JourneyProgress): JourneyProgress =>
   safeIdentity(progress.spec, progress.runId)
   const base = { spec: progress.spec, runId: progress.runId, stage: progress.stage }
-  switch (progress.stage) {
-    case "playwright-finished":
+  switch progress.stage
+    when "playwright-finished"
       if (
         typeof progress.playwrightOk !== "boolean" ||
         typeof progress.processTreeTerminated !== "boolean"
@@ -119,61 +116,51 @@ const sanitizedProgress = (progress: JourneyProgress): JourneyProgress => {
         processTreeTerminated: progress.processTreeTerminated,
         ...lifecycleFields(progress),
       })
-    case "scan-finished":
-      if (typeof progress.scanOk !== "boolean" || typeof progress.purged !== "boolean") {
+    when "scan-finished"
+      if (typeof progress.scanOk !== "boolean" || typeof progress.purged !== "boolean")
         throw new Error("E2E runner progress is invalid")
-      }
       return Object.freeze({
         ...base,
         ...lifecycleFields(progress),
         scanOk: progress.scanOk,
         purged: progress.purged,
       })
-    case "result":
+    when "result"
       if (typeof progress.ok !== "boolean") throw new Error("E2E runner progress is invalid")
       return Object.freeze({
         ...base,
         ...lifecycleFields(progress),
         ok: progress.ok,
       })
-    case "scan-start":
+    when "scan-start"
       return Object.freeze({ ...base, ...lifecycleFields(progress) })
-    case "created":
-    case "prepared":
-    case "playwright-start":
+    when "created", "prepared", "playwright-start"
       return Object.freeze(base)
-    default:
+    else
       throw new Error("E2E runner progress stage is invalid")
-  }
-}
 
 const sanitizedDiagnostics = (
   diagnostics: readonly string[],
-): readonly string[] => {
+): readonly string[] =>
   const safe: string[] = []
-  for (const diagnostic of diagnostics.slice(-4)) {
+  for (const diagnostic of diagnostics.slice(-4))
     const lifecycle = LIFECYCLE_FAILURE.exec(diagnostic)
     if (
       lifecycle !== null &&
       LIFECYCLE_STAGES.has(lifecycle[2]!)
-    ) {
+    )
       safe.push(
         `E2E lifecycle ${lifecycle[1]} failed during ${lifecycle[2]}`,
       )
       continue
-    }
-    if (diagnostic.includes("Process from config.webServer was not able to start")) {
+    if (diagnostic.includes("Process from config.webServer was not able to start"))
       safe.push("Playwright webServer process failed before tests")
       continue
-    }
-    if (diagnostic.includes("ELIFECYCLE")) {
+    if (diagnostic.includes("ELIFECYCLE"))
       safe.push("Package lifecycle exited nonzero")
-    }
-  }
   return Object.freeze([...new Set(safe)])
-}
 
-const sanitizedResult = (result: JourneyResult): JourneyResult => {
+const sanitizedResult = (result: JourneyResult): JourneyResult =>
   safeIdentity(result.spec, result.runId)
   if (
     !Number.isSafeInteger(result.playwrightExitCode) ||
@@ -210,11 +197,10 @@ const sanitizedResult = (result: JourneyResult): JourneyResult => {
       reason: result.scan.ok ? "scan-complete" : "scan-failed",
     }),
   })
-}
 
 export const sanitizeE2ERunnerReport = (
   report: JourneySuiteReport,
-): JourneySuiteReport => {
+): JourneySuiteReport =>
   if (
     typeof report.ok !== "boolean" ||
     (report.mode !== "e2e" && report.mode !== "a11y") ||
@@ -229,9 +215,8 @@ export const sanitizeE2ERunnerReport = (
     results,
     reason: report.ok ? "journey-suite-complete" : "journey-suite-failed",
   })
-}
 
-const sanitizedState = (state: E2ERunnerState): E2ERunnerState => {
+const sanitizedState = (state: E2ERunnerState): E2ERunnerState =>
   if (state.version !== 1) throw new Error("E2E runner state version is invalid")
   if (state.phase === "progress") return Object.freeze({
     version: 1,
@@ -244,7 +229,6 @@ const sanitizedState = (state: E2ERunnerState): E2ERunnerState => {
     report: sanitizeE2ERunnerReport(state.report),
   })
   throw new Error("E2E runner state phase is invalid")
-}
 
 const isNodeError = (error: unknown, code: string): boolean =>
   error !== null &&
@@ -255,14 +239,13 @@ const isNodeError = (error: unknown, code: string): boolean =>
 export const persistE2ERunnerState = (
   repositoryPath: string,
   state: E2ERunnerState,
-): void => {
+): void =>
   const root = realpathSync(repositoryPath)
   const parent = join(root, "test-results")
-  try {
+  try
     mkdirSync(parent, { mode: 0o700 })
-  } catch (error) {
+  catch (error)
     if (!isNodeError(error, "EEXIST")) throw error
-  }
   const parentStats = lstatSync(parent)
   if (
     parentStats.isSymbolicLink() ||
@@ -271,25 +254,22 @@ export const persistE2ERunnerState = (
   ) throw new Error("E2E runner state parent is unsafe")
 
   const target = join(parent, "e2e-runner-state.json")
-  try {
+  try
     const targetStats = lstatSync(target)
-    if (targetStats.isSymbolicLink() || !targetStats.isFile()) {
+    if (targetStats.isSymbolicLink() || !targetStats.isFile())
       throw new Error("E2E runner state target is unsafe")
-    }
-  } catch (error) {
+  catch (error)
     if (!isNodeError(error, "ENOENT")) throw error
-  }
 
   const encoded = `${JSON.stringify(sanitizedState(state))}\n`
-  if (Buffer.byteLength(encoded, "utf8") > MAX_STATE_BYTES) {
+  if (Buffer.byteLength(encoded, "utf8") > MAX_STATE_BYTES)
     throw new Error("E2E runner state exceeds its fixed bound")
-  }
   const temporary = join(
     parent,
     `.e2e-runner-state.${process.pid}-${randomUUID()}.tmp`,
   )
   let descriptor: number | undefined
-  try {
+  try
     descriptor = openSync(
       temporary,
       constants.O_CREAT |
@@ -299,12 +279,11 @@ export const persistE2ERunnerState = (
       0o600,
     )
     const opened = fstatSync(descriptor)
-    if (!opened.isFile() || (opened.mode & 0o777) !== 0o600) {
+    if (!opened.isFile() || (opened.mode & 0o777) !== 0o600)
       throw new Error("E2E runner state temporary is unsafe")
-    }
     const content = Buffer.from(encoded, "utf8")
     let offset = 0
-    while (offset < content.byteLength) {
+    while (offset < content.byteLength)
       const written = writeSync(
         descriptor,
         content,
@@ -313,7 +292,6 @@ export const persistE2ERunnerState = (
       )
       if (written <= 0) throw new Error("E2E runner state write made no progress")
       offset += written
-    }
     fsyncSync(descriptor)
     closeSync(descriptor)
     descriptor = undefined
@@ -327,19 +305,15 @@ export const persistE2ERunnerState = (
     ) throw new Error("E2E runner state parent identity changed")
     renameSync(temporary, target)
     const directory = openSync(parent, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
-    try {
+    try
       fsyncSync(directory)
-    } finally {
+    finally
       closeSync(directory)
-    }
-  } catch (error) {
-    if (descriptor !== undefined) {
+  catch (error)
+    if (descriptor !== undefined)
       try
         closeSync(descriptor)
       catch
         undefined
-    }
     rmSync(temporary, { force: true })
     throw error
-  }
-}

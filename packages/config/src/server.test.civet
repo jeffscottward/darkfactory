@@ -14,16 +14,14 @@ const validCoreEnv = (): Record<string, string> => ({
 
 const captureValidationError = (
   source: Record<string, string | undefined>,
-): EnvironmentValidationError => {
-  try {
+): EnvironmentValidationError =>
+  try
     parseServerEnv(source)
-  } catch (error) {
+  catch (error)
     if (error instanceof EnvironmentValidationError) return error
     throw error
-  }
 
   throw new Error("Expected environment validation to fail")
-}
 
 describe "parseServerEnv", ->
   it "reports every missing core database and authentication variable", ->

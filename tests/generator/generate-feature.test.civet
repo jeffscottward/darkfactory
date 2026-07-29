@@ -62,14 +62,13 @@ const generateFeature = (
 
 
 const cleanups: Array<() => Promise<void>> = []
-afterEach(async () => {
+afterEach(async () =>
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
-})
-const fixture = async () => {
+)
+const fixture = async () =>
   const created = await createGeneratorFixture()
   cleanups.push(created.cleanup)
   return created
-}
 const registryPaths = [
   ".darkfactory/features.json",
   "apps/web/src/features/generated-navigation.civet",
@@ -217,15 +216,33 @@ describe "DF-069 issued deterministic planning", ->
     await expect(readFile(outsideRegistry, "utf8")).resolves.toBe(contents)
 
   it.each([
-    ["built-in table", (registry: any) => { registry.builtIn.table = "wrong" }, undefined],
-    ["generated migration path", (registry: any) => { registry.generated[0].migration = "../escape" }, undefined],
-    ["generated docs path", (registry: any) => { registry.generated[0].docs = "../escape" }, undefined],
-    ["generated graph path", (registry: any) => { registry.generated[0].graph = "../escape" }, undefined],
-    ["journal index type", undefined, (journal: any) => { journal.entries[0].idx = "0" }],
-    ["journal timestamp type", undefined, (journal: any) => { journal.entries[0].when = "1" }],
-    ["journal tag path", undefined, (journal: any) => { journal.entries[0].tag = "../escape" }],
-    ["journal breakpoint type", undefined, (journal: any) => { journal.entries[0].breakpoints = "true" }],
-    ["descriptor journal mismatch", (registry: any) => { registry.generated[0].migration = "9999_order_items" }, undefined],
+    ["built-in table", (registry: any) =>
+      registry.builtIn.table = "wrong"
+    , undefined],
+    ["generated migration path", (registry: any) =>
+      registry.generated[0].migration = "../escape"
+    , undefined],
+    ["generated docs path", (registry: any) =>
+      registry.generated[0].docs = "../escape"
+    , undefined],
+    ["generated graph path", (registry: any) =>
+      registry.generated[0].graph = "../escape"
+    , undefined],
+    ["journal index type", undefined, (journal: any) =>
+      journal.entries[0].idx = "0"
+    ],
+    ["journal timestamp type", undefined, (journal: any) =>
+      journal.entries[0].when = "1"
+    ],
+    ["journal tag path", undefined, (journal: any) =>
+      journal.entries[0].tag = "../escape"
+    ],
+    ["journal breakpoint type", undefined, (journal: any) =>
+      journal.entries[0].breakpoints = "true"
+    ],
+    ["descriptor journal mismatch", (registry: any) =>
+      registry.generated[0].migration = "9999_order_items"
+    , undefined],
   ])("rejects tampered registry metadata: %s", async (_label, mutateRegistry, mutateJournal) ->
     const { root } = await fixture()
     const initial = await createGenerationPlan(root, validateFeatureName("order-item"))
@@ -342,7 +359,7 @@ describe "DF-069 transactional live apply and verification", ->
     )).toBe(false)
 
   it "rejects missing and stale replacement targets after planning", async ->
-    for (const mutation of ["missing", "stale"] as const) {
+    for (const mutation of ["missing", "stale"] as const)
       const { root } = await fixture()
       const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
       const registryPath = join(root, ".darkfactory/features.json")
@@ -358,7 +375,6 @@ describe "DF-069 transactional live apply and verification", ->
         await expect(readFile(registryPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       else
         await expect(readFile(registryPath, "utf8")).resolves.toBe("user registry edit")
-    }
 
   it "serializes different features that share generated registries", async ->
     const { root } = await fixture()
@@ -367,10 +383,9 @@ describe "DF-069 transactional live apply and verification", ->
     const entered = Promise.withResolvers<void>()
     const release = Promise.withResolvers<void>()
     const firstApply = applyGenerationPlan(firstPlan, {
-      beforePromotion: async () => {
+      beforePromotion: async () =>
         entered.resolve()
         await release.promise
-      },
     })
     await entered.promise
 
@@ -411,10 +426,9 @@ describe "DF-069 transactional live apply and verification", ->
     const movedDirectory = join(root, "apps/web/src/features/order-item-moved")
 
     await expect(applyGenerationPlan(plan, {
-      beforePromotion: async () => {
+      beforePromotion: async () =>
         await rename(featureDirectory, movedDirectory)
         await mkdir(featureDirectory)
-      },
     })).rejects.toMatchObject({ code: "ROLLBACK_UNSAFE" })
     expect(await listFixtureEntries(featureDirectory)).toEqual([])
 
@@ -438,10 +452,9 @@ describe "DF-069 transactional live apply and verification", ->
     const destination = join(root, "apps/web/src/app/(portal)/order-items/page.civet")
 
     await expect(applyGenerationPlan(plan, {
-      beforePromotion: async () => {
+      beforePromotion: async () =>
         await mkdir(join(root, "apps/web/src/app/(portal)/order-items"), { recursive: true })
         await writeFile(destination, "user work", "utf8")
-      },
     })).rejects.toMatchObject({ code: "ROLLBACK_UNSAFE" })
     await expect(readFile(destination, "utf8")).resolves.toBe("user work")
     expect(await readGeneratedFiles(root, registryPaths)).toEqual(before)
@@ -453,11 +466,10 @@ describe "DF-069 transactional live apply and verification", ->
     const firstPath = join(root, ...first.path.split("/"))
 
     await expect(applyGenerationPlan(plan, {
-      afterFilePromotion: async (_file, index) => {
+      afterFilePromotion: async (_file, index) =>
         if (index !== 0) return
         await writeFile(firstPath, "replacement user work", "utf8")
         throw new Error("injected replacement")
-      },
     } as ApplyGenerationOptions)).rejects.toMatchObject({ code: "ROLLBACK_UNSAFE" })
     await expect(readFile(firstPath, "utf8")).resolves.toBe("replacement user work")
   it "does not delete a same-byte replacement with a different inode", async ->
@@ -467,12 +479,11 @@ describe "DF-069 transactional live apply and verification", ->
     const firstPath = join(root, ...first.path.split("/"))
 
     await expect(applyGenerationPlan(plan, {
-      afterFilePromotion: async (_file, index) => {
+      afterFilePromotion: async (_file, index) =>
         if (index !== 0) return
         await unlink(firstPath)
         await writeFile(firstPath, first.content, "utf8")
         throw new Error("injected same-byte replacement")
-      },
     })).rejects.toMatchObject({ code: "ROLLBACK_UNSAFE" })
     await expect(readFile(firstPath, "utf8")).resolves.toBe(first.content)
 
@@ -488,23 +499,20 @@ describe "DF-069 transactional live apply and verification", ->
 
     await expect(applyGenerationPlan(plan, {
       dependencies: {
-        assertNoSymlinkPath: async (targetRoot, relativePath) => {
+        assertNoSymlinkPath: async (targetRoot, relativePath) =>
           const candidate = join(targetRoot, ...relativePath.split("/"))
-          if (rollbackReady && candidate === destination) {
+          if (rollbackReady && candidate === destination)
             rollbackValidations += 1
             throw Object.assign(new Error("injected rollback validation failure"), {
               code: "EIO",
             })
-          }
           return assertNoSymlinkPath(targetRoot, relativePath)
-        },
       },
-      afterFilePromotion: async (file) => {
+      afterFilePromotion: async (file) =>
         if (file.path !== created.path) return
         promotedIdentity = await identityAt(destination)
         rollbackReady = true
         throw new Error("injected post-promotion failure")
-      },
     })).rejects.toMatchObject({
       code: "ROLLBACK_UNSAFE",
       cause: { message: "injected post-promotion failure" },
@@ -527,10 +535,9 @@ describe "DF-069 transactional live apply and verification", ->
     )
 
     await expect(applyGenerationPlan(plan, {
-      afterFilePromotion: async (_file, index) => {
+      afterFilePromotion: async (_file, index) =>
         if (index === 1)
           await writeFile(join(root, navigationPath), "raced user navigation", "utf8")
-      },
     })).rejects.toMatchObject({ code: "TARGET_COLLISION" })
 
     await expect(readFile(join(root, navigationPath), "utf8")).resolves.toBe(
@@ -552,9 +559,8 @@ describe "DF-069 transactional live apply and verification", ->
     const destinationParent = join(root, "apps/web/src/app/(portal)/order-items")
 
     await expect(applyGenerationPlan(plan, {
-      beforePromotion: async () => {
+      beforePromotion: async () =>
         await rm(destinationParent, { force: true, recursive: true })
-      },
     })).rejects.toMatchObject({
       code: "ROLLBACK_UNSAFE",
       cause: { code: "ANCESTOR_CHANGED" },
@@ -566,13 +572,12 @@ describe "DF-069 transactional live apply and verification", ->
     const { root } = await fixture()
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
     const result = await applyGenerationPlan(plan, {
-      afterPromotion: async () => {
+      afterPromotion: async () =>
         const stagingEntry = (await listFixtureEntries(root)).find(
           (entry) => entry.startsWith(".generate-feature-") && !entry.includes("/"),
         )
         if (!stagingEntry) throw new Error("Expected generator staging directory")
         await rm(join(root, stagingEntry), { force: true, recursive: true })
-      },
     })
 
     expect(result.cleanup).toBe("manual-cleanup-required")
@@ -602,16 +607,15 @@ describe "DF-069 transactional live apply and verification", ->
     const getSpy = vi.spyOn(Map.prototype, "get").mockImplementation(function (
       this: Map<unknown, unknown>,
       key: unknown,
-    ): unknown {
+    ): unknown
       if (key === registryPath && ++registryGets === 2) return undefined
       return originalGet.call(this, key)
-    })
+    )
 
-    try {
+    try
       await expect(applyGenerationPlan(plan, {
-        afterFilePromotion: async (_file, index) => {
+        afterFilePromotion: async (_file, index) =>
           if (index === 0) throw new Error("injected post-replacement failure")
-        },
       })).rejects.toMatchObject({
         code: "ROLLBACK_UNSAFE",
         cause: { message: "injected post-replacement failure" },
@@ -620,9 +624,8 @@ describe "DF-069 transactional live apply and verification", ->
       await expect(readFile(join(root, registryPath), "utf8")).resolves.toBe(
         plan.files[0]!.content,
       )
-    } finally {
+    finally
       getSpy.mockRestore()
-    }
 
   it "detects generated registry tampering", async ->
     const { root } = await fixture()
@@ -671,7 +674,7 @@ describe "DF-069 transactional live apply and verification", ->
     }))
     vi.resetModules()
 
-    try {
+    try
       const [
         { applyGenerationPlan: applyPortably },
         { createGenerationPlan: createPortablePlan },
@@ -687,10 +690,9 @@ describe "DF-069 transactional live apply and verification", ->
         isValid: true,
         filesChecked: plan.files.length,
       })
-    } finally {
+    finally
       vi.doUnmock("node:fs")
       vi.resetModules()
-    }
 
   it "fails closed if application returns without running verification", async ->
     const { root } = await fixture()
@@ -703,7 +705,7 @@ describe "DF-069 transactional live apply and verification", ->
       })),
     }))
 
-    try {
+    try
       const { generateFeature: generateWithoutVerification } = await import(
         "../../scripts/generate-feature/workflow.civet"
       )
@@ -711,10 +713,9 @@ describe "DF-069 transactional live apply and verification", ->
         generateWithoutVerification(["order-item"], { targetRoot: root }),
       ).rejects.toThrow("Generation verification did not complete")
       expect(await listFixtureEntries(root)).toEqual(before)
-    } finally {
+    finally
       vi.doUnmock("../../scripts/generate-feature/apply.civet")
       vi.resetModules()
-    }
 
 describe "DF-070 deterministic reports and thin CLI", ->
   it "renders deterministic human and machine reports", async ->
@@ -801,7 +802,8 @@ describe "DF-070 deterministic reports and thin CLI", ->
       ["order-item", "--dry-run", "--json"],
       {
         targetRoot: root,
-        writeOutput: () => { throw new Error("private sink failure") },
+        writeOutput: () =>
+          throw new Error("private sink failure")
         writeError: (value) => genericErrors.push(value),
       },
     )

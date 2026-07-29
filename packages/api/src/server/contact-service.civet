@@ -38,15 +38,13 @@ const CONTACT_SERVICE_ERROR_MESSAGES: Record<ContactServiceErrorCode, string> = 
   SERVICE_UNAVAILABLE: "Contact delivery unavailable",
 }
 
-export class ContactServiceError extends Error {
+export class ContactServiceError extends Error
   readonly code: ContactServiceErrorCode
 
-  constructor(code: ContactServiceErrorCode) {
+  constructor(code: ContactServiceErrorCode)
     super(CONTACT_SERVICE_ERROR_MESSAGES[code])
     this.name = "ContactServiceError"
     this.code = code
-  }
-}
 
 export type ContactServiceDependencies = Readonly<{
   delivery: ContactDeliveryPort
@@ -59,20 +57,18 @@ export const createContactService = (
 ) => ({
   submit: async (
     input: ContactSubmitInput,
-  ): Promise<ContactSubmitOutput> => {
+  ): Promise<ContactSubmitOutput> =>
     if (input.website?.trim()) return { status: "not-delivered" }
 
     let throttleResult: ContactThrottleResult
-    try {
+    try
       throttleResult = await dependencies.throttle.consume(
         dependencies.throttleKey,
       )
-    } catch {
+    catch
       throw new ContactServiceError("SERVICE_UNAVAILABLE")
-    }
-    if (!throttleResult.allowed) {
+    if (!throttleResult.allowed)
       throw new ContactServiceError("TOO_MANY_REQUESTS")
-    }
 
     const deliveryInput = {
       name: input.name,
@@ -81,11 +77,10 @@ export const createContactService = (
       message: input.message,
     }
     let deliveryResult: ContactDeliveryResult
-    try {
+    try
       deliveryResult = await dependencies.delivery.sendContact(deliveryInput)
-    } catch {
+    catch
       throw new ContactServiceError("SERVICE_UNAVAILABLE")
-    }
 
     switch deliveryResult.status
       when "sent"
@@ -96,5 +91,4 @@ export const createContactService = (
         if deliveryResult.code === "CONTACT_DELIVERY_DISABLED"
           return { status: "not-delivered" }
         throw new ContactServiceError("SERVICE_UNAVAILABLE")
-  },
 })

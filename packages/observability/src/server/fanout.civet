@@ -46,16 +46,15 @@ const emitAnalytics = async (
   actorId: string,
   analytics: AnalyticsCaptureFacade,
   resolveConsent: ConsentResolver,
-): Promise<"captured" | "skipped" | "failed"> => {
+): Promise<"captured" | "skipped" | "failed"> =>
   let consent
-  try {
+  try
     consent = await resolveConsent(event.correlation)
-  } catch {
+  catch
     return "skipped"
-  }
   if (consent !== "granted") return "skipped"
 
-  try {
+  try
     const result = await analytics.capture(
       toAnalyticsCapture(event, actorId, consent),
     )
@@ -64,34 +63,31 @@ const emitAnalytics = async (
       : result.status === "failed"
         ? "failed"
         : "skipped"
-  } catch {
+  catch
     return "failed"
-  }
-}
 
 const registerWaitUntil = (
   waitUntil: WaitUntil | undefined,
   task: Promise<unknown>,
-): void => {
+): void =>
   if (waitUntil === undefined) return
   // Emission still awaits the task, so a broken lifetime hook cannot retry it.
-  try {
+  try
     waitUntil(task)
-  } catch (_error) {}
-}
+  catch (_error)
+    undefined
 
 const recordOnSpan = (
   span: SpanHandle,
   event: SemanticEvent,
-): "recorded" | "failed" => {
+): "recorded" | "failed" =>
   let failed = false
-  try {
+  try
     span.addEvent(event)
-  } catch (_error) {
+  catch (_error)
     failed = true
-  }
 
-  try {
+  try
     span.recordMetric({
       name: "darkfactory.semantic_event",
       value: 1,
@@ -100,27 +96,24 @@ const recordOnSpan = (
         ...(event.outcome === undefined ? {} : { outcome: event.outcome }),
       },
     })
-  } catch (_error) {
+  catch (_error)
     failed = true
-  }
   return failed ? "failed" : "recorded"
-}
 
 export const createSemanticEventFanout = (
   options: SemanticEventFanoutOptions,
-): SemanticEventPort => {
+): SemanticEventPort =>
   const emit = async (
     event: SemanticEvent,
     context: SemanticEmissionContext = {},
-  ): Promise<SemanticEmissionResult> => {
+  ): Promise<SemanticEmissionResult> =>
     const snapshot = redactSemanticEvent(event)
 
     let structuredEvent: SemanticEmissionResult["structuredEvent"] = "emitted"
-    try {
+    try
       await options.sink.emit(snapshot)
-    } catch (_error) {
+    catch (_error)
       structuredEvent = "failed"
-    }
 
     const span =
       context.span === undefined
@@ -134,7 +127,7 @@ export const createSemanticEventFanout = (
       options.resolveConsent !== undefined &&
       actorId !== undefined &&
       actorId !== "[Undefined]"
-    ) {
+    )
       const task = emitAnalytics(
         snapshot,
         actorId,
@@ -143,10 +136,7 @@ export const createSemanticEventFanout = (
       )
       registerWaitUntil(context.waitUntil, task)
       analytics = await task
-    }
 
     return Object.freeze({ structuredEvent, span, analytics })
-  }
 
   return Object.freeze({ emit })
-}

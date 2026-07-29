@@ -43,64 +43,49 @@ export const CreateWorkflowStep = ({
   partialCreated = false,
   state,
   status,
-}: CreateWorkflowStepProps) => {
+}: CreateWorkflowStepProps) =>
   const stateName = String(state)
-  if (stateName === "details") {
+  if (stateName === "details")
     return (
       <div>
-        <p className="text-sm font-semibold text-primary">Step 1 of 3</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Describe the item</h2>
+        <p className="text-sm font-semibold text-primary">Step 1 of 3
+        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Describe the item
         <p className="mt-2 max-w-reading text-sm leading-6 text-muted-foreground">
           Give this neutral starter record a clear name and useful context.
-        </p>
-      </div>
     )
-  }
-  if (stateName === "preferences") {
+  if (stateName === "preferences")
     return (
       <div>
-        <p className="text-sm font-semibold text-primary">Step 2 of 3</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Choose its starting state</h2>
+        <p className="text-sm font-semibold text-primary">Step 2 of 3
+        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Choose its starting state
         <p className="mt-2 max-w-reading text-sm leading-6 text-muted-foreground">
           Draft creates a persisted owner-scoped record that remains editable. Active marks it ready for use.
-        </p>
-      </div>
     )
-  }
-  if (stateName === "review") {
+  if (stateName === "review")
     return (
       <div>
-        <p className="text-sm font-semibold text-primary">Step 3 of 3</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Review before creating</h2>
+        <p className="text-sm font-semibold text-primary">Step 3 of 3
+        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Review before creating
         <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
           <div className="min-w-0">
-            <dt className="text-muted-foreground">Name</dt>
-            <dd className="mt-1 font-medium text-foreground" style={{ overflowWrap: "anywhere" }}>{name}</dd>
-          </div>
+            <dt className="text-muted-foreground">Name
+            <dd className="mt-1 font-medium text-foreground" style={{ overflowWrap: "anywhere" }}>{name}
           <div>
-            <dt className="text-muted-foreground">Starting state</dt>
-            <dd className="mt-1 font-medium capitalize text-foreground">{status}</dd>
-          </div>
+            <dt className="text-muted-foreground">Starting state
+            <dd className="mt-1 font-medium capitalize text-foreground">{status}
           <div className="min-w-0 sm:col-span-2">
-            <dt className="text-muted-foreground">Description</dt>
+            <dt className="text-muted-foreground">Description
             <dd className="mt-1 whitespace-pre-wrap text-foreground" style={{ overflowWrap: "anywhere" }}>
               {description.length === 0 ? "None provided" : description}
-            </dd>
-          </div>
-        </dl>
-      </div>
     )
-  }
-  if (stateName === "submitting") {
+  if (stateName === "submitting")
     return (
       <div aria-live="polite">
-        <p className="text-sm font-semibold text-primary">Saving through oRPC</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Creating the feature item</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Keep this page open while the owner-scoped request completes.</p>
-      </div>
+        <p className="text-sm font-semibold text-primary">Saving through oRPC
+        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">Creating the feature item
+        <p className="mt-2 text-sm text-muted-foreground">Keep this page open while the owner-scoped request completes.
     )
-  }
-  if (stateName === "failure") {
+  if (stateName === "failure")
     const title = creationOutcomeUnknown
       ? "Creation outcome unknown"
       : partialCreated
@@ -108,53 +93,44 @@ export const CreateWorkflowStep = ({
         : "Creation was interrupted"
     return (
       <div role="alert">
-        <p className="text-sm font-semibold text-destructive">{title}</p>
+        <p className="text-sm font-semibold text-destructive">{title}
         <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
           {partialCreated ? "The persisted draft is still available" : "Your entries are still here"}
-        </h2>
-        <p className="mt-2 text-sm text-muted-foreground">{error ?? "The request could not be completed."}</p>
+        <p className="mt-2 text-sm text-muted-foreground">{error ?? "The request could not be completed."}
         {creationOutcomeUnknown ? (
           <p className="mt-2 text-sm font-medium text-foreground">
             Check the feature item list before trying again to avoid a duplicate.
-          </p>
         ) : (
-          <p className="mt-2 text-sm font-medium text-foreground">Try again or return to review.</p>
+          <p className="mt-2 text-sm font-medium text-foreground">Try again or return to review.
         )}
         {partialCreated ? (
           <dl className="mt-4 min-w-0 text-sm">
-            <dt className="text-muted-foreground">Current description</dt>
+            <dt className="text-muted-foreground">Current description
             <dd className="mt-1 whitespace-pre-wrap text-foreground" style={{ overflowWrap: "anywhere" }}>
               {description.length === 0 ? "None provided" : description}
-            </dd>
-          </dl>
         ) : null}
-      </div>
     )
-  }
   return (
     <div role="status">
-      <p className="text-sm font-semibold text-success-foreground">Created</p>
-      <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">The feature item is ready</h2>
-    </div>
+      <p className="text-sm font-semibold text-success-foreground">Created
+      <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">The feature item is ready
   )
-}
 
-const useSetupFlow = (): readonly [SetupFlowActor, SetupFlowSnapshot] => {
+const useSetupFlow = (): readonly [SetupFlowActor, SetupFlowSnapshot] =>
   const [actor] = useState(() => createSetupFlowActor())
   const subscriberCount = useRef(0)
 
-  const subscribe = useCallback((notify: () => void) => {
+  const subscribe = useCallback((notify: () => void) =>
     subscriberCount.current += 1
     actor.start()
     const subscription = actor.subscribe(notify)
-    return () => {
+    return () =>
       subscription.unsubscribe()
       subscriberCount.current -= 1
-      queueMicrotask(() => {
+      queueMicrotask(() =>
         if (subscriberCount.current === 0) actor.stop()
-      })
-    }
-  }, [actor])
+      )
+  , [actor])
 
   const getSnapshot = useCallback(() => actor.getSnapshot(), [actor])
 
@@ -164,13 +140,12 @@ const useSetupFlow = (): readonly [SetupFlowActor, SetupFlowSnapshot] => {
     getSnapshot,
   )
   return [actor, snapshot]
-}
 
 export interface FeatureItemCreateWorkflowProps {
   readonly gateway?: FeatureItemGateway
 }
 
-export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureItemCreateWorkflowProps) => {
+export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureItemCreateWorkflowProps) =>
   const [gateway] = useState(() => suppliedGateway ?? createBrowserFeatureItemGateway())
   const [actor, snapshot] = useSetupFlow()
   const [name, setName] = useState("")
@@ -187,80 +162,69 @@ export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureI
   const stateName = String(snapshot.value)
   const detailsComplete = name.trim().length > 0 && name.trim().length <= 200 && description.length <= 10_000
 
-  useEffect(() => {
+  useEffect(() =>
     stepRef.current?.focus()
     return undefined
-  }, [stateName])
+  , [stateName])
 
-  const updateName = (value: string) => {
+  const updateName = (value: string) =>
     setName(value)
     actor.send({
       type: "SET_DETAILS_COMPLETE",
       value: value.trim().length > 0 && value.trim().length <= 200 && description.length <= 10_000,
     })
-  }
 
-  const updateDescription = (value: string) => {
+  const updateDescription = (value: string) =>
     setDescription(value)
     actor.send({
       type: "SET_DETAILS_COMPLETE",
       value: name.trim().length > 0 && name.trim().length <= 200 && value.length <= 10_000,
     })
-  }
 
-  const continueFromDetails = () => {
+  const continueFromDetails = () =>
     setShowValidation(true)
     if (!detailsComplete) queueMicrotask(() => nameInputRef.current?.focus())
     actor.send({ type: "SET_DETAILS_COMPLETE", value: detailsComplete });
     actor.send({ type: "NEXT" });
-  }
 
-  const continueFromPreferences = () => {
+  const continueFromPreferences = () =>
     actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true });
     actor.send({ type: "NEXT" });
-  }
 
-  const performSubmission = async () => {
+  const performSubmission = async () =>
     if (submissionInFlightRef.current) return
     submissionInFlightRef.current = true
-    try {
+    try
       const input = { name: name.trim(), description }
       let nextItem = createdDraftRef.current
-      if (nextItem === null) {
+      if (nextItem === null)
         nextItem = await gateway.create(input)
-      } else {
+      else
         nextItem = await synchronizeRetainedFeatureItem(gateway, nextItem, input)
-      }
       createdDraftRef.current = nextItem
-      if (status === "active" && nextItem.status !== "active") {
+      if (status === "active" && nextItem.status !== "active")
         nextItem = await gateway.changeStatus(nextItem.id, "active")
         createdDraftRef.current = nextItem
-      }
       setCreatedItem(nextItem)
       setCreationOutcomeUnknown(false)
       actor.send({ type: "SUCCEED" })
-    } catch (error) {
+    catch (error)
       const failure = classifyFeatureFailure(error)
       setFailureKind(failure.kind)
-      if (createdDraftRef.current === null && failure.kind === "unknown") {
+      if (createdDraftRef.current === null && failure.kind === "unknown")
         setCreationOutcomeUnknown(true)
-      }
       actor.send({ type: "FAIL", message: failure.message })
-    } finally {
+    finally
       submissionInFlightRef.current = false
-    }
-  }
 
-  const submit = async () => {
+  const submit = async () =>
     setCreationOutcomeUnknown(false)
     actor.send({ type: "SUBMIT" })
     await performSubmission()
-  }
 
-  const retry = async () => {
+  const retry = async () =>
     actor.send({ type: "RETRY" })
     await performSubmission()
-  }
 
   return (
     <section className="space-y-8 border-t border-border pt-8">
@@ -274,12 +238,11 @@ export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureI
           state={snapshot.value}
           status={status}
         />
-      </div>
 
       {stateName === "details" ? (
         <div className="max-w-reading space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="feature-name">Name <span className="text-muted-foreground">(required)</span></Label>
+            <Label htmlFor="feature-name">Name <span className="text-muted-foreground">(required)
             <Input
               aria-describedby={showValidation && !detailsComplete ? "feature-name-help feature-name-error" : "feature-name-help"}
               aria-errormessage={showValidation && !detailsComplete ? "feature-name-error" : undefined}
@@ -290,11 +253,12 @@ export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureI
               ref={nameInputRef}
               value={name}
             />
-            <p className="text-sm text-muted-foreground" id="feature-name-help">Use a concise label that explains the record.</p>
-            {showValidation && name.trim().length === 0 ? <p className="text-sm text-destructive" id="feature-name-error" role="alert">Enter a name before continuing.</p> : null}
-          </div>
+            <p className="text-sm text-muted-foreground" id="feature-name-help">Use a concise label that explains the record.
+            {showValidation && name.trim().length === 0 ? (
+              <p className="text-sm text-destructive" id="feature-name-error" role="alert">Enter a name before continuing.
+            ) : null}
           <div className="space-y-2">
-            <Label htmlFor="feature-description">Description</Label>
+            <Label htmlFor="feature-description">Description
             <Textarea
               aria-describedby="feature-description-help"
               id="feature-description"
@@ -302,65 +266,55 @@ export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureI
               onChange={(event) => updateDescription(event.currentTarget.value)}
               value={description}
             />
-            <p className="text-sm text-muted-foreground" id="feature-description-help">Optional context remains owner scoped.</p>
-          </div>
+            <p className="text-sm text-muted-foreground" id="feature-description-help">Optional context remains owner scoped.
           <Button onClick={continueFromDetails}>
             Continue
             <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
-        </div>
       ) : null}
 
       {stateName === "preferences" ? (
         <div className="max-w-reading space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="feature-status">Starting state</Label>
+            <Label htmlFor="feature-status">Starting state
             <select
               className="min-h-11 w-full rounded-md border border-border-strong bg-surface px-3 font-body text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               id="feature-status"
               onChange={(event) => setStatus(event.currentTarget.value as "draft" | "active")}
               value={status}
             >
-              <option value="draft">Draft</option>
-              <option value="active">Active</option>
-            </select>
-          </div>
+              <option value="draft">Draft
+              <option value="active">Active
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => actor.send({ type: "BACK" })} variant="ghost"><ArrowLeft aria-hidden="true" className="size-4" />Back</Button>
-            <Button onClick={continueFromPreferences}>Review<ArrowRight aria-hidden="true" className="size-4" /></Button>
-          </div>
-        </div>
+            <Button onClick={() => actor.send({ type: "BACK" })} variant="ghost"><ArrowLeft aria-hidden="true" className="size-4" />Back
+            <Button onClick={continueFromPreferences}>Review<ArrowRight aria-hidden="true" className="size-4" />
       ) : null}
 
       {stateName === "review" ? (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => actor.send({ type: "BACK" })} variant="ghost"><ArrowLeft aria-hidden="true" className="size-4" />Back</Button>
-          <Button onClick={submit}><Check aria-hidden="true" className="size-4" />Create feature item</Button>
-        </div>
+          <Button onClick={() => actor.send({ type: "BACK" })} variant="ghost"><ArrowLeft aria-hidden="true" className="size-4" />Back
+          <Button onClick={submit}><Check aria-hidden="true" className="size-4" />Create feature item
       ) : null}
 
-      {stateName === "submitting" ? <Button loading loadingLabel="Creating feature item">Create feature item</Button> : null}
+      {stateName === "submitting" ? (
+        <Button loading loadingLabel="Creating feature item">Create feature item
+      ) : null}
 
       {stateName === "failure" ? (
         <div className="flex flex-wrap gap-2">
           {creationOutcomeUnknown ? (
             <a className={buttonVariants({ variant: "secondary" })} href="/feature-items">
               View feature item list
-            </a>
           ) : failureKind === "unauthorized" || failureKind === "forbidden" || failureKind === "not-found" ? (
             <FeatureRecoveryAction kind={failureKind} returnHref="/feature-items" />
           ) : (
             <>
-              <Button onClick={() => actor.send({ type: "BACK" })} variant="ghost"><ArrowLeft aria-hidden="true" className="size-4" />Back to review</Button>
-              <Button onClick={retry} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again</Button>
-            </>
+              <Button onClick={() => actor.send({ type: "BACK" })} variant="ghost"><ArrowLeft aria-hidden="true" className="size-4" />Back to review
+              <Button onClick={retry} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again
           )}
           {createdDraftRef.current === null ? null : (
             <a className={buttonVariants({ variant: "secondary" })} href={`/feature-items/${encodeURIComponent(createdDraftRef.current.id)}`}>
               View persisted draft
-            </a>
           )}
-        </div>
       ) : null}
 
       {stateName === "success" && createdItem !== null ? (
@@ -370,8 +324,5 @@ export const FeatureItemCreateWorkflow = ({ gateway: suppliedGateway }: FeatureI
           style={{ overflowWrap: "anywhere" }}
         >
           View {createdItem.name}
-        </a>
       ) : null}
-    </section>
   )
-}

@@ -5,17 +5,14 @@ import type { ReactNode } from "react"
 import { getRequestPortalSession } from "../../../lib/request-portal-session.civet"
 import { portalSignInHref } from "../../../lib/server-session.civet"
 
-export default async function AdminLayout({ children }: { readonly children: ReactNode }) {
+export default async function AdminLayout({ children }: { readonly children: ReactNode })
   const requestHeaders = await headers()
   const session = await getRequestPortalSession(
     requestHeaders.get("cookie"),
     requestHeaders.get("cf-connecting-ip"),
   )
-  if (session === null) {
+  if (session === null)
     return redirect(portalSignInHref(requestHeaders))
-  }
-  if (session.role !== "admin") {
+  if (session.role !== "admin")
     return redirect("/dashboard")
-  }
-  return <>{children}</>
-}
+  return <>{children}

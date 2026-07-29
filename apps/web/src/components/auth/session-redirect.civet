@@ -13,14 +13,12 @@ import {
 export const destinationForSession = (
   response: Readonly<{ data: unknown; error: AuthError }>,
   callbackURL: unknown,
-): string | null => {
-  if (response.error || typeof response.data !== "object" || response.data === null) {
+): string | null =>
+  if (response.error || typeof response.data !== "object" || response.data === null)
     return null
-  }
   const session = (response.data as { session?: unknown }).session
   if (typeof session !== "object" || session === null) return null
   return normalizeAuthDestination(callbackURL)
-}
 
 export const SessionRedirect = ({
   callbackURL,
@@ -30,31 +28,29 @@ export const SessionRedirect = ({
   callbackURL: unknown
   children?: ReactNode
   auth?: AuthFlowClient
-}>) => {
+}>) =>
   const [isChecking, setIsChecking] = useState(true)
   const router = useRouter()
 
-  useEffect(() => {
+  useEffect(() =>
     let isActive = true
     void auth
       .getSession()
-      .then((response) => {
+      .then((response) =>
         if (!isActive) return
         const destination = destinationForSession(response, callbackURL)
-        if (destination) {
+        if (destination)
           router.replace(destination)
           return
-        }
         setIsChecking(false)
-      })
+      )
       .catch(() => void (isActive && setIsChecking(false)))
-    return () => {
+    return () =>
       isActive = false
       return undefined
-    }
-  }, [auth, callbackURL, router])
+  , [auth, callbackURL, router])
 
-  if (isChecking) {
+  if (isChecking)
     return (
       <div
         aria-live="polite"
@@ -62,8 +58,5 @@ export const SessionRedirect = ({
         role="status"
       >
         Checking your session…
-      </div>
     )
-  }
   return children ?? null
-}

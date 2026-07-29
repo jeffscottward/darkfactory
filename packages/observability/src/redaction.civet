@@ -90,15 +90,14 @@ const REDACTED_SEMANTIC_EVENTS = new WeakSet<object>()
 const normalizeLimit = (
   value: number | undefined,
   fallback: number,
-): number => {
+): number =>
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback
   return Math.max(0, Math.floor(value))
-}
 
 const normalizeKey = (key: string): string =>
   key.toLowerCase().replace(/[^a-z0-9]/g, "")
 
-const isSensitiveKey = (key: string): boolean => {
+const isSensitiveKey = (key: string): boolean =>
   const normalized = normalizeKey(key)
   return (
     SENSITIVE_KEYS.has(normalized) ||
@@ -121,19 +120,17 @@ const isSensitiveKey = (key: string): boolean => {
     normalized.includes("providerrequest") ||
     normalized.includes("providerresponse")
   )
-}
 
 const BASIC_CREDENTIAL_MAX_LENGTH = DEFAULT_MAX_STRING_LENGTH
 
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/-_"
 
-const base64Digit = (character: string): number => {
+const base64Digit = (character: string): number =>
   const digit = BASE64_ALPHABET.indexOf(character)
   return digit > 63 ? digit - 2 : digit
-}
 
-const isBasicCredential = (token: string): boolean => {
+const isBasicCredential = (token: string): boolean =>
   if (token.length < 3) return false
   if (token.length > BASIC_CREDENTIAL_MAX_LENGTH) return true
 
@@ -154,7 +151,7 @@ const isBasicCredential = (token: string): boolean => {
   const standardAlphabet = /[+/]/.test(token)
   const urlAlphabet = /[-_]/.test(token)
   if (standardAlphabet && urlAlphabet) return false
-  for (let index = 0; index < payloadLength; index += 1) {
+  for (let index = 0; index < payloadLength; index += 1)
     const digit = base64Digit(token.charAt(index))
     buffer = (buffer << 6) | digit
     bits += 6
@@ -163,10 +160,8 @@ const isBasicCredential = (token: string): boolean => {
     const byte = (buffer >> bits) & 0xff
     if (byte === 58) hasColon = true
     buffer &= (1 << bits) - 1
-  }
 
   return buffer === 0 && hasColon
-}
 
 const scrubString = (input: string): string =>
   input
@@ -222,38 +217,33 @@ const scrubString = (input: string): string =>
       REDACTED,
     )
 
-const boundedString = (input: string, maxLength: number): string => {
+const boundedString = (input: string, maxLength: number): string =>
   if (input.length > maxLength) return TRUNCATED
   return scrubString(input)
-}
 
-const sanitizeKey = (key: string, maxLength: number): string => {
+const sanitizeKey = (key: string, maxLength: number): string =>
   const normalized = normalizeKey(key)
   if (
     isSensitiveKey(key) &&
     !SAFE_SENSITIVE_FIELD_NAMES.has(normalized)
-  ) {
+  )
     return REDACTED_KEY
-  }
   const sanitized = boundedString(key, maxLength)
   return sanitized.length === 0 ? "[EmptyKey]" : sanitized
-}
 
-const hasPlainPrototype = (value: object, array: boolean): boolean => {
-  try {
+const hasPlainPrototype = (value: object, array: boolean): boolean =>
+  try
     const prototype = Object.getPrototypeOf(value)
     return array
       ? prototype === Array.prototype
       : prototype === Object.prototype || prototype === null
-  } catch {
+  catch
     return false
-  }
-}
 
 export const redact = (
   input: unknown,
   options: RedactionOptions = {},
-): RedactedValue => {
+): RedactedValue =>
   const maxDepth = normalizeLimit(options.maxDepth, DEFAULT_MAX_DEPTH)
   const maxEntries = normalizeLimit(options.maxEntries, DEFAULT_MAX_ENTRIES)
   const maxKeyLength = normalizeLimit(
@@ -275,18 +265,16 @@ export const redact = (
   const active = new WeakSet<object>()
   let visitedNodes = 0
 
-  const visit = (value: unknown, depth: number): RedactedValue => {
+  const visit = (value: unknown, depth: number): RedactedValue =>
     visitedNodes += 1
     if (visitedNodes > maxTotalNodes) return TRUNCATED
 
     if (value === null) return null
-    if (typeof value === "string") {
+    if (typeof value === "string")
       return boundedString(value, maxStringLength)
-    }
     if (typeof value === "boolean") return value
-    if (typeof value === "number") {
+    if (typeof value === "number")
       return Number.isFinite(value) ? value : NON_FINITE
-    }
     if (typeof value === "undefined") return "[Undefined]"
     if (typeof value === "bigint") return "[BigInt]"
     if (typeof value === "symbol") return "[Symbol]"
@@ -295,36 +283,33 @@ export const redact = (
     if (active.has(value)) return CIRCULAR
 
     let array: boolean
-    try {
+    try
       array = Array.isArray(value)
-    } catch {
+    catch
       return UNSERIALIZABLE
-    }
     if (!hasPlainPrototype(value, array)) return UNSERIALIZABLE
 
     active.add(value)
-    try {
-      if (array) {
+    try
+      if (array)
         let length: number
-        try {
+        try
           const candidate = Reflect.get(value, "length")
           if (
             typeof candidate !== "number" ||
             !Number.isSafeInteger(candidate) ||
             candidate < 0
-          ) {
+          )
             return UNSERIALIZABLE
-          }
           length = candidate
-        } catch {
+        catch
           return UNSERIALIZABLE
-        }
 
         const result: RedactedValue[] = []
         const count = Math.min(length, maxEntries)
-        for (let index = 0; index < count; index += 1) {
+        for (let index = 0; index < count; index += 1)
           let child: unknown
-          try {
+          try
             const descriptor = Object.getOwnPropertyDescriptor(
               value,
               index.toString(),
@@ -335,54 +320,42 @@ export const redact = (
                 : "value" in descriptor
                   ? descriptor.value
                   : UNSERIALIZABLE
-          } catch (error) {
+          catch (error)
             void error
             child = UNSERIALIZABLE
-          }
           result.push(visit(child, depth + 1))
-        }
         if (length > count) result.push(TRUNCATED)
         return result
-      }
 
       const output: Record<string, RedactedValue> = Object.create(null)
       let processed = 0
-      try {
-        for (const rawKey in value) {
+      try
+        for (const rawKey in value)
           if (!Object.hasOwn(value, rawKey)) continue
-          if (processed >= maxObjectKeys) {
+          if (processed >= maxObjectKeys)
             output[TRUNCATED] = TRUNCATED
             break
-          }
           processed += 1
-          if (rawKey.length > maxKeyLength) {
+          if (rawKey.length > maxKeyLength)
             output[REDACTED_KEY] = REDACTED
             continue
-          }
           const key = sanitizeKey(rawKey, maxKeyLength)
-          if (isSensitiveKey(rawKey)) {
+          if (isSensitiveKey(rawKey))
             output[key] = REDACTED
             continue
-          }
 
           const descriptor = Object.getOwnPropertyDescriptor(value, rawKey)
-          if (descriptor === undefined || !("value" in descriptor)) {
+          if (descriptor === undefined || !("value" in descriptor))
             output[key] = UNSERIALIZABLE
             continue
-          }
           output[key] = visit(descriptor.value, depth + 1)
-        }
-      } catch {
+      catch
         return UNSERIALIZABLE
-      }
       return output
-    } finally {
+    finally
       active.delete(value)
-    }
-  }
 
   return visit(input, 0)
-}
 
 const unsafeSnapshot = (): TypeError =>
   new TypeError("Unsafe snapshot value")
@@ -392,99 +365,82 @@ const freezeValue = (
   seen: WeakSet<object>,
   state: { nodes: number },
   depth: number,
-): void => {
+): void =>
   if (value === null || typeof value !== "object") return
   if (seen.has(value)) return
   state.nodes += 1
-  if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH) {
+  if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH)
     throw unsafeSnapshot()
-  }
 
   let array: boolean
   let keys: (string | symbol)[]
-  try {
+  try
     array = Array.isArray(value)
     if (!hasPlainPrototype(value, array)) throw unsafeSnapshot()
     keys = Reflect.ownKeys(value)
-  } catch {
+  catch
     throw unsafeSnapshot()
-  }
   const dataKeys = array ? keys.filter((key) => key !== "length") : keys
   if (dataKeys.length > MAX_FREEZE_KEYS) throw unsafeSnapshot()
 
   seen.add(value)
-  for (const key of dataKeys) {
+  for (const key of dataKeys)
     if (typeof key !== "string") throw unsafeSnapshot()
     let descriptor: PropertyDescriptor | undefined
-    try {
+    try
       descriptor = Object.getOwnPropertyDescriptor(value, key)
-    } catch {
+    catch
       throw unsafeSnapshot()
-    }
-    if (descriptor === undefined || !("value" in descriptor)) {
+    if (descriptor === undefined || !("value" in descriptor))
       throw unsafeSnapshot()
-    }
     freezeValue(descriptor.value, seen, state, depth + 1)
-  }
-  try {
+  try
     Object.freeze(value)
-  } catch {
+  catch
     throw unsafeSnapshot()
-  }
-}
 
-export const freezeSnapshot = <T>(value: T): T => {
-  try {
+export const freezeSnapshot = <T>(value: T): T =>
+  try
     freezeValue(value, new WeakSet<object>(), { nodes: 0 }, 0)
     return value
-  } catch {
+  catch
     throw unsafeSnapshot()
-  }
-}
 
 const invalidSemanticEvent = (): TypeError =>
   new TypeError(INVALID_EVENT_MESSAGE)
 
-const requirePlainRecord = (value: unknown): Record<string, unknown> => {
-  if (value === null || typeof value !== "object") {
+const requirePlainRecord = (value: unknown): Record<string, unknown> =>
+  if (value === null || typeof value !== "object")
     throw invalidSemanticEvent()
-  }
   let array: boolean
-  try {
+  try
     array = Array.isArray(value)
-  } catch {
+  catch
     throw invalidSemanticEvent()
-  }
-  if (array || !hasPlainPrototype(value, false)) {
+  if (array || !hasPlainPrototype(value, false))
     throw invalidSemanticEvent()
-  }
   return value as Record<string, unknown>
-}
 
 const readDataProperty = (
   record: Record<string, unknown>,
   key: string,
-): unknown => {
+): unknown =>
   let descriptor: PropertyDescriptor | undefined
-  try {
+  try
     descriptor = Object.getOwnPropertyDescriptor(record, key)
-  } catch {
+  catch
     throw invalidSemanticEvent()
-  }
   if (descriptor === undefined) return undefined
   if (!("value" in descriptor)) throw invalidSemanticEvent()
   return descriptor.value
-}
 
 const requireEventString = (
   value: unknown,
   maxLength: number,
-): string => {
-  if (typeof value !== "string" || value.length === 0) {
+): string =>
+  if (typeof value !== "string" || value.length === 0)
     throw invalidSemanticEvent()
-  }
   return boundedString(value, maxLength)
-}
 
 const optionalEventString = (
   value: unknown,
@@ -494,7 +450,7 @@ const optionalEventString = (
     ? boundedString(value, maxLength)
     : undefined
 
-const canonicalCorrelation = (value: unknown): CorrelationContext => {
+const canonicalCorrelation = (value: unknown): CorrelationContext =>
   const input = requirePlainRecord(value)
   const requestId = requireEventString(
     readDataProperty(input, "requestId"),
@@ -517,16 +473,14 @@ const canonicalCorrelation = (value: unknown): CorrelationContext => {
     ...(route === undefined ? {} : { route }),
     ...(procedure === undefined ? {} : { procedure }),
   }
-}
 
-export const redactSemanticEvent = (event: SemanticEvent): SemanticEvent => {
+export const redactSemanticEvent = (event: SemanticEvent): SemanticEvent =>
   if (
     event !== null &&
     typeof event === "object" &&
     REDACTED_SEMANTIC_EVENTS.has(event)
-  ) {
+  )
     return event
-  }
 
   const input = requirePlainRecord(event)
   const eventId = requireEventString(readDataProperty(input, "eventId"), 256)
@@ -608,4 +562,3 @@ export const redactSemanticEvent = (event: SemanticEvent): SemanticEvent => {
   freezeSnapshot(snapshot)
   REDACTED_SEMANTIC_EVENTS.add(snapshot)
   return snapshot
-}

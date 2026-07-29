@@ -13,16 +13,15 @@ const pause = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 const portAcceptsConnections = async (port: number): Promise<boolean> =>
-  new Promise((resolve) => {
+  new Promise((resolve) =>
     const socket = createConnection({ host: "127.0.0.1", port })
-    const finish = (connected: boolean): void => {
+    const finish = (connected: boolean): void =>
       socket.destroy()
       resolve(connected)
-    }
     socket.setTimeout(500, () => finish(false))
     socket.once("connect", () => finish(true))
     socket.once("error", () => finish(false))
-  })
+  )
 
 const grandchildScript = `
   import { createServer } from "node:net";
@@ -73,29 +72,29 @@ type FixtureAddress = Readonly<{ pid: number; port: number }>
 
 const fixtureAddress = async (
   fixture: ReturnType<typeof spawnOwnedProcess>,
-): Promise<FixtureAddress> => new Promise((resolve, reject) => {
+): Promise<FixtureAddress> => new Promise((resolve, reject) =>
   const timeout = setTimeout(
     () => reject(new Error("Timed out waiting for E2E process-tree fixture")),
     5_000,
   )
   let output = ""
-  fixture.stdout.on("data", (chunk: Buffer) => {
+  fixture.stdout.on("data", (chunk: Buffer) =>
     output += chunk.toString()
     const lineEnd = output.indexOf("\n")
     if (lineEnd < 0) return
     clearTimeout(timeout)
     resolve(JSON.parse(output.slice(0, lineEnd)) as FixtureAddress)
-  })
-  fixture.once("error", (error) => {
+  )
+  fixture.once("error", (error) =>
     clearTimeout(timeout)
     reject(error)
-  })
-})
+  )
+)
 
 const fakeDatabase = {} as PostgresTestDatabase
 
-describe("E2E lifecycle cleanup", () => {
-  it("cleans an empty pre-resource lifecycle without error", async () => {
+describe("E2E lifecycle cleanup", () =>
+  it("cleans an empty pre-resource lifecycle without error", async () =>
     const cleanPreviewArtifacts = vi.fn(async () => undefined)
     const dropDatabase = vi.fn(async () => undefined)
 
@@ -105,9 +104,9 @@ describe("E2E lifecycle cleanup", () => {
     })).resolves.toBeUndefined()
     expect(cleanPreviewArtifacts).toHaveBeenCalledOnce()
     expect(dropDatabase).not.toHaveBeenCalled()
-  })
+  )
 
-  it("retains databases and locks when Worker binding cleanup fails closed", async () => {
+  it("retains databases and locks when Worker binding cleanup fails closed", async () =>
     const dropDatabase = vi.fn(async () => undefined)
     const cleanPreviewArtifacts = vi.fn(async () => undefined)
     const releaseOwnerLock = vi.fn(async () => undefined)
@@ -115,9 +114,8 @@ describe("E2E lifecycle cleanup", () => {
 
     await expect(cleanupE2ELifecycle({
       cleanPreviewArtifacts,
-      cleanWorkerBindings: async () => {
+      cleanWorkerBindings: async () =>
         throw new Error("binding ownership mismatch")
-      },
       database: fakeDatabase,
       dropDatabase,
       releaseOwnerLock,
@@ -127,15 +125,15 @@ describe("E2E lifecycle cleanup", () => {
     expect(cleanPreviewArtifacts).not.toHaveBeenCalled()
     expect(releaseOwnerLock).not.toHaveBeenCalled()
     expect(releaseWorkerBindingsLock).not.toHaveBeenCalled()
-  })
+  )
 
-  it("does not retain a timer that can signal a reused process group after early exit", async () => {
+  it("does not retain a timer that can signal a reused process group after early exit", async () =>
     const child = spawnOwnedProcess(
       process.execPath,
       ["--input-type=module", "--eval", "setTimeout(() => undefined, 25);"],
     )
     const kill = vi.spyOn(process, "kill")
-    try {
+    try
       await cleanupE2ELifecycle({
         cleanPreviewArtifacts: async () => undefined,
         dropDatabase: async () => undefined,
@@ -151,49 +149,42 @@ describe("E2E lifecycle cleanup", () => {
       expect(
         kill.mock.calls.some(([, signal]) => signal === "SIGKILL"),
       ).toBe(false)
-    } finally {
+    finally
       kill.mockRestore()
       await terminateOwnedProcessTree(child).catch(() => undefined)
-    }
-  })
+  )
 
-  it("proves descendants and their port are gone before DB and preview cleanup", async () => {
+  it("proves descendants and their port are gone before DB and preview cleanup", async () =>
     const child = spawnOwnedProcess(
       process.execPath,
       ["--input-type=module", "--eval", parentScript],
     )
-    try {
+    try
       const address = await fixtureAddress(child)
       const cleanupOrder: string[] = []
       expect(await portAcceptsConnections(address.port)).toBe(true)
       await cleanupE2ELifecycle({
-        cleanPreviewArtifacts: async () => {
+        cleanPreviewArtifacts: async () =>
           expect(processExists(address.pid)).toBe(false)
           expect(await portAcceptsConnections(address.port)).toBe(false)
           cleanupOrder.push("preview")
-        },
-        cleanWorkerBindings: async () => {
+        cleanWorkerBindings: async () =>
           expect(processExists(child.pid!)).toBe(false)
           expect(processExists(address.pid)).toBe(false)
           cleanupOrder.push("worker-bindings")
-        },
-        closePreviewCaptureServer: async () => {
+        closePreviewCaptureServer: async () =>
           expect(processExists(address.pid)).toBe(false)
           cleanupOrder.push("preview-server")
-        },
         database: fakeDatabase,
-        dropDatabase: async () => {
+        dropDatabase: async () =>
           expect(processExists(child.pid!)).toBe(false)
           expect(processExists(address.pid)).toBe(false)
           expect(await portAcceptsConnections(address.port)).toBe(false)
           cleanupOrder.push("database")
-        },
-        releaseOwnerLock: async () => {
+        releaseOwnerLock: async () =>
           cleanupOrder.push("route-lock")
-        },
-        releaseWorkerBindingsLock: async () => {
+        releaseWorkerBindingsLock: async () =>
           cleanupOrder.push("worker-bindings-lock")
-        },
         server: child,
       })
       expect(cleanupOrder).toEqual([
@@ -204,22 +195,21 @@ describe("E2E lifecycle cleanup", () => {
         "route-lock",
         "worker-bindings-lock",
       ])
-    } finally {
+    finally
       await terminateOwnedProcessTree(child).catch(() => undefined)
-    }
-  }, 15_000)
+  , 15_000)
 
-  it("waits for an escaped detached descendant with inherited stdio before cleanup", async () => {
+  it("waits for an escaped detached descendant with inherited stdio before cleanup", async () =>
     const child = spawnOwnedProcess(
       process.execPath,
       ["--input-type=module", "--eval", exitingDetachedWrapperScript],
     )
-    try {
+    try
       const address = await fixtureAddress(child)
-      const cleanup = vi.fn(async () => {
+      const cleanup = vi.fn(async () =>
         expect(processExists(address.pid)).toBe(false)
         expect(await portAcceptsConnections(address.port)).toBe(false)
-      })
+      )
       expect(await portAcceptsConnections(address.port)).toBe(true)
       await cleanupE2ELifecycle({
         cleanPreviewArtifacts: cleanup,
@@ -231,31 +221,28 @@ describe("E2E lifecycle cleanup", () => {
         },
       })
       expect(cleanup).toHaveBeenCalledOnce()
-    } finally {
+    finally
       await terminateOwnedProcessTree(child).catch(() => undefined)
-    }
-  }, 15_000)
+  , 15_000)
 
-  it("drains an in-flight preview capture before deleting its artifacts", async () => {
+  it("drains an in-flight preview capture before deleting its artifacts", async () =>
     const cleanupOrder: string[] = []
     let releaseCapture!: () => void
     let captureCloseStarted!: () => void
-    const captureCloseStartedPromise = new Promise<void>((resolve) => {
+    const captureCloseStartedPromise = new Promise<void>((resolve) =>
       captureCloseStarted = resolve
-    })
-    const captureReleased = new Promise<void>((resolve) => {
+    )
+    const captureReleased = new Promise<void>((resolve) =>
       releaseCapture = resolve
-    })
+    )
     const cleanupPromise = cleanupE2ELifecycle({
-      cleanPreviewArtifacts: async () => {
+      cleanPreviewArtifacts: async () =>
         cleanupOrder.push("preview")
-      },
-      closePreviewCaptureServer: async () => {
+      closePreviewCaptureServer: async () =>
         cleanupOrder.push("preview-server:start")
         captureCloseStarted()
         await captureReleased
         cleanupOrder.push("preview-server:drained")
-      },
       dropDatabase: async () => undefined,
     })
 
@@ -268,5 +255,5 @@ describe("E2E lifecycle cleanup", () => {
       "preview-server:drained",
       "preview",
     ])
-  })
-})
+  )
+)

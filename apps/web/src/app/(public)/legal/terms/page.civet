@@ -5,6 +5,5 @@ export const metadata = {
   description: "A starter terms outline that requires qualified legal review before production use.",
 }
 
-export default function LegalTermsPage() {
+export default function LegalTermsPage()
   return <LegalPage kind="terms" />
-}

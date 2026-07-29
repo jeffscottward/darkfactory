@@ -7,12 +7,10 @@ import {
 } from "../schema/index.civet"
 import type { DatabaseExecutor } from "./client.civet"
 
-export class DashboardPersistenceError extends Error {
-  constructor() {
+export class DashboardPersistenceError extends Error
+  constructor()
     super("Dashboard storage is unavailable")
     this.name = "DashboardPersistenceError"
-  }
-}
 
 export type DashboardFeatureSummary = Readonly<{
   total: number
@@ -29,10 +27,10 @@ export type DashboardRepository = Readonly<{
 export const createDashboardRepository = (
   database: DatabaseExecutor,
 ): DashboardRepository => ({
-  getFeatureSummary: async (ownerId, recentLimit) => {
+  getFeatureSummary: async (ownerId, recentLimit) =>
     if (ownerId.trim().length === 0 || !Number.isInteger(recentLimit) || recentLimit < 0 || recentLimit > 100)
       throw new DashboardPersistenceError()
-    try {
+    try
       const [counts, recent] = await Promise.all([
         database
           .select({ status: featureItems.status, value: count() })
@@ -57,9 +55,7 @@ export const createDashboardRepository = (
         ...byStatus,
         recent,
       }
-    } catch (error) {
+    catch error
       if (error instanceof DashboardPersistenceError) throw error
       throw new DashboardPersistenceError()
-    }
-  },
 })

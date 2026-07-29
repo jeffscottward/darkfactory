@@ -15,7 +15,7 @@ export type { BackgroundTaskScheduler } from "../../../../lib/background-task-li
 export const handleAuthRequest = async (
   request: Request,
   scheduleBackgroundTask: BackgroundTaskScheduler,
-): Promise<Response> => {
+): Promise<Response> =>
   const env = parseServerEnv(process.env)
   const previewOptions = resolveE2eEmailPreviewOptions()
   const databaseProfile = composeDatabaseProfile(env)
@@ -27,7 +27,7 @@ export const handleAuthRequest = async (
     database.close,
   )
 
-  try {
+  try
     const email = selectEmailPort({
       environment: env.APP_ENV,
       transport: env.EMAIL_TRANSPORT,
@@ -48,7 +48,5 @@ export const handleAuthRequest = async (
       scheduleBackgroundTask: backgroundTasks.schedule,
     })
     return await createAuthHandler(auth)(request)
-  } finally {
+  finally
     await backgroundTasks.finalize()
-  }
-}

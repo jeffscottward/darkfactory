@@ -57,22 +57,20 @@ let devVarsLease: OwnedDevVarsLease | undefined
 let workerBindingEnvironment: E2EProcessEnvironment = {}
 let serverOutput = ""
 
-const availablePort = async (): Promise<number> => {
+const availablePort = async (): Promise<number> =>
   const server = createServer()
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) =>
     server.once("error", reject)
     server.listen(0, "127.0.0.1", resolve)
-  })
+  )
   const address = server.address()
-  if (address === null || typeof address === "string") {
+  if (address === null || typeof address === "string")
     server.close()
     throw new Error("Failed to reserve a Worker test port")
-  }
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) =>
     server.close((error) => error === undefined ? resolve() : reject(error))
-  })
+  )
   return address.port
-}
 
 type LockContenderResult = Readonly<{
   exitCode: number | null
@@ -81,7 +79,7 @@ type LockContenderResult = Readonly<{
   stdout: string
 }>
 
-const runLockContender = async (lockPath: string): Promise<LockContenderResult> => {
+const runLockContender = async (lockPath: string): Promise<LockContenderResult> =>
   const script = `
     import { mkdir, rm } from "node:fs/promises";
     const lockPath = ${JSON.stringify(lockPath)};
@@ -102,22 +100,21 @@ const runLockContender = async (lockPath: string): Promise<LockContenderResult> 
   )
   let stderr = ""
   let stdout = ""
-  contender.stderr.on("data", (chunk: Buffer) => {
+  contender.stderr.on("data", (chunk: Buffer) =>
     stderr += chunk.toString()
-  })
-  contender.stdout.on("data", (chunk: Buffer) => {
+  )
+  contender.stdout.on("data", (chunk: Buffer) =>
     stdout += chunk.toString()
-  })
-  return await new Promise<LockContenderResult>((resolve, reject) => {
+  )
+  return await new Promise<LockContenderResult>((resolve, reject) =>
     contender.once("error", reject)
-    contender.once("exit", (exitCode, signal) => {
+    contender.once("exit", (exitCode, signal) =>
       resolve({ exitCode, signal, stderr, stdout })
-    })
+    )
     return undefined
-  })
-}
+  )
 
-const writeWorkerVars = async (): Promise<void> => {
+const writeWorkerVars = async (): Promise<void> =>
   const environment = {
     APP_ENV: "test",
     APP_URL: APP_ORIGIN,
@@ -146,7 +143,6 @@ const writeWorkerVars = async (): Promise<void> => {
     environment,
     webDirectory: WEB_DIRECTORY,
   })
-}
 
 const safeDiagnostic = (value: string): string =>
   redactSensitiveBindingValues(value, workerBindingEnvironment)
@@ -163,7 +159,7 @@ const createWorkerProcessEnvironment = (port: number): NodeJS.ProcessEnv => ({
 })
 
 
-const startWorker = (port: number): OwnedProcess => {
+const startWorker = (port: number): OwnedProcess =>
   serverOutput = ""
   const server = spawnOwnedProcess(
     process.execPath,
@@ -173,23 +169,21 @@ const startWorker = (port: number): OwnedProcess => {
       env: createWorkerProcessEnvironment(port),
     },
   )
-  const consume = (chunk: Buffer): void => {
+  const consume = (chunk: Buffer): void =>
     serverOutput = safeDiagnostic(`${serverOutput}${chunk.toString()}`)
-  }
   server.stdout.on("data", consume)
   server.stderr.on("data", consume)
   return server
-}
 
-class WorkerReadinessError extends Error {}
+class WorkerReadinessError extends Error
 
-const requestWorkerReadiness = async (): Promise<Response> => {
+const requestWorkerReadiness = async (): Promise<Response> =>
   const controller = new AbortController()
   const timeout = setTimeout(
     () => controller.abort(),
     READINESS_ATTEMPT_TIMEOUT_MILLIS,
   )
-  try {
+  try
     return await fetch(`${baseUrl}/api/orpc/preferences/theme/get`, {
       method: "POST",
       headers: {
@@ -199,47 +193,39 @@ const requestWorkerReadiness = async (): Promise<Response> => {
       body: JSON.stringify({ json: {} }),
       signal: controller.signal,
     })
-  } finally {
+  finally
     clearTimeout(timeout)
-  }
-}
 
-const waitForWorker = async (): Promise<void> => {
+const waitForWorker = async (): Promise<void> =>
   const server = devServer
   if (server === undefined) throw new Error("Worker process was not started")
 
   const deadline = Date.now() + READINESS_TIMEOUT_MILLIS
-  while (Date.now() < deadline) {
-    if (hasProcessExited(server)) {
+  while (Date.now() < deadline)
+    if (hasProcessExited(server))
       throw new WorkerReadinessError(
         `Vinext Worker exited before readiness:\n${serverOutput}`,
       )
-    }
 
-    try {
+    try
       const response = await requestWorkerReadiness()
-      if (response.status === 401) {
+      if (response.status === 401)
         await response.body?.cancel()
         return
-      }
-      if (response.status === 500) {
+      if (response.status === 500)
         const body = safeDiagnostic(await response.text())
         throw new WorkerReadinessError(
           `Vinext Worker route failed during readiness:\n${body}\n${serverOutput}`,
         )
-      }
       await response.body?.cancel()
-    } catch (error) {
+    catch (error)
       if (error instanceof WorkerReadinessError) throw error
-    }
 
     await new Promise((resolve) => setTimeout(resolve, 250))
-  }
 
   throw new WorkerReadinessError(
     `Timed out waiting for Vinext Worker route:\n${serverOutput}`,
   )
-}
 
 type ProcessState = Readonly<{
   exitCode: number | null
@@ -249,28 +235,24 @@ type ProcessState = Readonly<{
 const hasProcessExited = (server: ProcessState): boolean =>
   server.exitCode !== null || server.signalCode !== null
 
-const stopWorker = async (): Promise<void> => {
+const stopWorker = async (): Promise<void> =>
   const server = devServer
   if (server === undefined) return
   await terminateOwnedProcessTree(server, WORKER_TERMINATION_OPTIONS)
   if (devServer === server) devServer = undefined
-}
 
-const cleanupWorkerResources = async (): Promise<void> => {
+const cleanupWorkerResources = async (): Promise<void> =>
   const lease = devVarsLease
   if (lease !== undefined) await removeOwnedDevVarsFile(lease)
   if (database !== undefined) await dropPostgresTestDatabase(database)
-  if (lease !== undefined) {
+  if (lease !== undefined)
     await releaseOwnedDevVarsLock(lease)
     if (devVarsLease === lease) devVarsLease = undefined
-  }
-}
 
-const cookieFrom = (response: Response): string => {
+const cookieFrom = (response: Response): string =>
   const setCookie = response.headers.get("set-cookie")
   if (setCookie === null) throw new Error("Expected Better Auth session cookie")
   return setCookie.split(";", 1)[0]!
-}
 
 type ThemeRpcPayload = Readonly<{
   json: Readonly<{
@@ -299,46 +281,43 @@ const rpc = async (
   }),
 })
 
-describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
-  beforeAll(async () => {
+describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () =>
+  beforeAll(async () =>
     database = await createPostgresTestDatabase({ runId: "vinext_worker_pg" })
     const migrationDatabase = createNodeDatabase({
       connectionString: database.databaseUrl,
       maxConnections: 1,
     })
-    try {
+    try
       await migrate(migrationDatabase.db)
-    } finally {
+    finally
       await migrationDatabase.close()
-    }
 
     const port = await availablePort()
     baseUrl = `http://127.0.0.1:${port}`
     await writeWorkerVars()
     devServer = startWorker(port)
     await waitForWorker()
-  }, 240_000)
+  , 240_000)
 
-  afterAll(async () => {
+  afterAll(async () =>
     const server = devServer
-    if (server === undefined) {
+    if (server === undefined)
       await cleanupWorkerResources()
       return
-    }
 
-    try {
+    try
       await terminateOwnedProcessTreeThen(
         server,
-        async () => {
-          if (ownedProcessTreeExists(server)) {
+        async () =>
+          if (ownedProcessTreeExists(server))
             throw new Error("Owned Vinext process tree is still running")
-          }
           if (devServer === server) devServer = undefined
           await cleanupWorkerResources()
-        },
+        ,
         WORKER_TERMINATION_OPTIONS,
       )
-    } catch (error) {
+    catch (error)
       const diagnostic = safeDiagnostic(
         error instanceof Error
           ? error.stack ?? error.message
@@ -348,10 +327,9 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
         `Worker teardown failed; retained test resources and lock:\n${diagnostic}`,
         { cause: error },
       )
-    }
-  }, 30_000)
+  , 30_000)
 
-  it("runs authenticated typed theme reads and writes through real PostgreSQL", async () => {
+  it("runs authenticated typed theme reads and writes through real PostgreSQL", async () =>
     const email = `worker-${database.runId}@domain.test`
     const lease = devVarsLease
     if (lease === undefined) throw new Error("Worker lock was not acquired")
@@ -395,13 +373,12 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
       connectionString: database.databaseUrl,
       maxConnections: 1,
     })
-    try {
-      await withTransaction(setupDatabase.db, async (transaction) => {
+    try
+      await withTransaction(setupDatabase.db, async (transaction) =>
         await setupIdentity(identity, false, transaction)
-      })
-    } finally {
+      )
+    finally
       await setupDatabase.close()
-    }
 
     const signIn = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
       method: "POST",
@@ -467,40 +444,39 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
       "SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()",
     )
     expect(openWorkerConnections).toEqual([{ count: 0 }])
-  }, 60_000)
+  , 60_000)
 
-  it("does not forward unrelated host secrets to the Worker process", () => {
+  it("does not forward unrelated host secrets to the Worker process", () =>
     const previousUnrelated = process.env["UNRELATED_SECRET"]
     const previousProvider = process.env["AWS_SECRET_ACCESS_KEY"]
     process.env["UNRELATED_SECRET"] = "must-not-reach-worker"
     process.env["AWS_SECRET_ACCESS_KEY"] = "must-not-reach-worker-provider"
-    try {
+    try
       const environment = createWorkerProcessEnvironment(43_123)
       expect(environment["UNRELATED_SECRET"]).toBeUndefined()
       expect(environment["AWS_SECRET_ACCESS_KEY"]).toBeUndefined()
       expect(environment["PATH"]).toBe(process.env["PATH"])
       expect(environment["HOST"]).toBe("127.0.0.1")
       expect(environment["PORT"]).toBe("43123")
-    } finally {
+    finally
       if (previousUnrelated === undefined) delete process.env["UNRELATED_SECRET"]
       else process.env["UNRELATED_SECRET"] = previousUnrelated
       if (previousProvider === undefined) delete process.env["AWS_SECRET_ACCESS_KEY"]
       else process.env["AWS_SECRET_ACCESS_KEY"] = previousProvider
-    }
-  })
+  )
 
-  it("stops the exact Vinext process tree before teardown resolves", async () => {
+  it("stops the exact Vinext process tree before teardown resolves", async () =>
     const server = devServer
     if (server === undefined) throw new Error("Worker process was not started")
     await stopWorker()
     expect(ownedProcessTreeExists(server)).toBe(false)
-  }, 15_000)
+  , 15_000)
 
-  it("recognizes a signal-terminated Worker as already exited", () => {
+  it("recognizes a signal-terminated Worker as already exited", () =>
     expect(hasProcessExited({
       exitCode: null,
       signalCode: "SIGTERM",
     })).toBe(true)
-  })
+  )
   return undefined
-})
+)

@@ -28,38 +28,35 @@ const malformedCaptureCases: ReadonlyArray<
 > = [
   ["getter", () => ({
     ...plainCapture(),
-    get event() {
+    get event()
       return "member@domain.test"
-    },
   })],
   ["proxy", () => new Proxy(plainCapture(), {
-    getOwnPropertyDescriptor: () => {
+    getOwnPropertyDescriptor: () =>
       throw new Error("private proxy failure")
-    },
   })],
   ["throwing accessor", () => ({
     ...plainCapture(),
-    get consent(): "granted" {
+    get consent(): "granted"
       throw new Error("private accessor failure")
-    },
   })],
-  ["non-enumerable field", () => {
+  ["non-enumerable field", () =>
     const capture = plainCapture()
     Object.defineProperty(capture, "email", {
       enumerable: false,
       value: "member@domain.test",
     })
     return capture
-  }],
+  ],
   ["symbol field", () => ({
     ...plainCapture(),
     [Symbol("email")]: "member@domain.test",
   })],
-  ["inherited field", () => {
+  ["inherited field", () =>
     const capture = plainCapture() as Record<string, unknown>
     const { consent, ...ownFields } = capture
     return Object.assign(Object.create({ consent }), ownFields) as AnalyticsCapture
-  }],
+  ],
   ["array properties", () => ({
     ...plainCapture(),
     properties: [],
@@ -70,22 +67,21 @@ const malformedCaptureCases: ReadonlyArray<
     ...plainCapture(),
     properties: { action: { email: "member@domain.test" } },
   }) as never],
-  ["cyclic property", () => {
+  ["cyclic property", () =>
     const value: Record<string, unknown> = {}
     value["action"] = value
     return { ...plainCapture(), properties: value } as never
-  }],
+  ],
   ["BigInt property", () => ({
     ...plainCapture(),
     properties: { action: 1n },
   }) as never],
-  ["excess fields", () => {
+  ["excess fields", () =>
     const capture = plainCapture() as Record<string, unknown>
-    for (let index = 0; index < 1_000; index += 1) {
+    for (let index = 0; index < 1_000; index += 1)
       capture[`extra-${index}`] = index
-    }
     return capture as AnalyticsCapture
-  }],
+  ],
   ["oversized timestamp", () => ({
     ...plainCapture(),
     timestamp: "0".repeat(100_000),
@@ -96,20 +92,20 @@ const malformedCaptureCases: ReadonlyArray<
   })],
 ]
 
-describe("AnalyticsPort contract", () => {
+describe("AnalyticsPort contract", () =>
   it.each([
     ["denied", "consent-denied"],
     ["unknown", "consent-unknown"],
-  ] as const)("skips %s consent without recording", async (consent, reason) => {
+  ] as const)("skips %s consent without recording", async (consent, reason) =>
     const analytics = createRecordingAnalyticsPort()
 
     const result = await analytics.capture(createAnalyticsCapture({ consent }))
 
     expect(result).toEqual({ status: "skipped", reason })
     expect(analytics.captures).toEqual([])
-  })
+  )
 
-  it("records an immutable snapshot and returns the event correlation", async () => {
+  it("records an immutable snapshot and returns the event correlation", async () =>
     const analytics = createRecordingAnalyticsPort()
     const input = createAnalyticsCapture({
       eventId: "event-002",
@@ -122,9 +118,9 @@ describe("AnalyticsPort contract", () => {
     expect(analytics.captures).toEqual([input])
     expect(Object.isFrozen(analytics.captures[0])).toBe(true)
     expect(Object.isFrozen(analytics.captures[0]?.properties)).toBe(true)
-  })
+  )
 
-  it("isolates recorded snapshots from later caller mutation", async () => {
+  it("isolates recorded snapshots from later caller mutation", async () =>
     const analytics = createRecordingAnalyticsPort()
     const properties = {
       action: "created",
@@ -148,9 +144,9 @@ describe("AnalyticsPort contract", () => {
       eventId: "event-001",
       properties: { action: "created" },
     })
-  })
+  )
 
-  it("preserves deterministic invocation order for concurrent captures", async () => {
+  it("preserves deterministic invocation order for concurrent captures", async () =>
     const analytics = createRecordingAnalyticsPort()
 
     await Promise.all([
@@ -166,9 +162,9 @@ describe("AnalyticsPort contract", () => {
     ])
     analytics.clear()
     expect(analytics.captures).toEqual([])
-  })
+  )
 
-  it("rejects unknown or PII property keys before recording", async () => {
+  it("rejects unknown or PII property keys before recording", async () =>
     const analytics = createRecordingAnalyticsPort()
     const invalid = createAnalyticsCapture({
       properties: {
@@ -183,23 +179,21 @@ describe("AnalyticsPort contract", () => {
       retryable: false,
     })
     expect(analytics.captures).toEqual([])
-  })
+  )
 
   it.each(malformedCaptureCases)(
     "rejects malformed %s captures across local ports",
-    async (_name, buildCapture) => {
+    async (_name, buildCapture) =>
       const recording = createRecordingAnalyticsPort()
       const ports = [recording, createDisabledAnalyticsPort()]
 
-      for (const analytics of ports) {
+      for (const analytics of ports)
         await expect(analytics.capture(buildCapture())).resolves.toEqual({
           status: "failed",
           category: "invalid-capture",
           retryable: false,
         })
-      }
       expect(recording.captures).toEqual([])
-    },
   )
 
   it.each([
@@ -211,7 +205,7 @@ describe("AnalyticsPort contract", () => {
     { properties: { requestId: "request with spaces" } },
   ] as Array<Partial<AnalyticsCapture>>)(
     "rejects unsafe capture values %#",
-    async (overrides) => {
+    async (overrides) =>
       const analytics = createRecordingAnalyticsPort()
       const result = await analytics.capture(createAnalyticsCapture(overrides))
 
@@ -221,34 +215,33 @@ describe("AnalyticsPort contract", () => {
         retryable: false,
       })
       expect(analytics.captures).toEqual([])
-    },
   )
 
-  it("returns an explicit disabled result without retaining input", async () => {
+  it("returns an explicit disabled result without retaining input", async () =>
     const analytics = createDisabledAnalyticsPort()
 
     expect(await analytics.capture(createAnalyticsCapture())).toEqual({
       status: "skipped",
       reason: "disabled",
     })
-  })
+  )
 
-  it("gives consent refusal precedence over disabled configuration", async () => {
+  it("gives consent refusal precedence over disabled configuration", async () =>
     const analytics = createDisabledAnalyticsPort()
 
     expect(
       await analytics.capture(createAnalyticsCapture({ consent: "unknown" })),
     ).toEqual({ status: "skipped", reason: "consent-unknown" })
-  })
+  )
   it.each([
     null,
     "capture",
     1,
     true,
     [],
-  ])("rejects non-record top-level captures %#", (input) => {
+  ])("rejects non-record top-level captures %#", (input) =>
     expect(snapshotAnalyticsCapture(input)).toBeUndefined()
-  })
+  )
 
   it "accepts only canonical ISO timestamps", ->
     const canonical = "2026-07-23T12:34:56.000Z"
@@ -300,7 +293,7 @@ describe("AnalyticsPort contract", () => {
     { traceId: "trace with spaces" },
     { source: "browser" },
     { source: 1 },
-  ])("rejects unsafe optional property values %#", async (properties) => {
+  ])("rejects unsafe optional property values %#", async (properties) =>
     const analytics = createRecordingAnalyticsPort()
 
     await expect(
@@ -311,14 +304,13 @@ describe("AnalyticsPort contract", () => {
       retryable: false,
     })
     expect(analytics.captures).toEqual([])
-  })
+  )
 
   it "rejects disappearing and non-enumerable data fields without reading them", ->
     const disappearing = new Proxy(plainCapture(), {
-      getOwnPropertyDescriptor: (target, key) => {
+      getOwnPropertyDescriptor: (target, key) =>
         if (key === "event") return undefined
         return Reflect.getOwnPropertyDescriptor(target, key)
-      },
     })
     const hidden = plainCapture()
     Object.defineProperty(hidden, "event", {
@@ -331,4 +323,4 @@ describe("AnalyticsPort contract", () => {
     expect(snapshotAnalyticsCapture(disappearing)).toBeUndefined()
     expect(snapshotAnalyticsCapture(hidden)).toBeUndefined()
 
-})
+)

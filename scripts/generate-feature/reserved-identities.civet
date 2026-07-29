@@ -24,7 +24,7 @@ export const RESERVED_CORE_IDENTITIES: readonly ReservedIdentity[] = Object.free
   { name: "verification", schemaExport: "verifications", table: "verification" },
 ].map((identity) => Object.freeze(identity)))
 
-export const assertCoreIdentityAvailable = (names: FeatureNames): void => {
+export const assertCoreIdentityAvailable = (names: FeatureNames): void =>
   const candidate = {
     name: names.kebab,
     schemaExport: names.pluralCamel,
@@ -41,4 +41,3 @@ export const assertCoreIdentityAvailable = (names: FeatureNames): void => {
   )
   if (collision)
     throw new GeneratorError("TARGET_COLLISION", "Feature identity collides with a reserved core resource")
-}

@@ -21,13 +21,12 @@ const verificationInput: EmailVerificationEmailInput = {
 }
 const temporaryDirectories: string[] = []
 
-const createTemporaryDirectory = async (): Promise<string> => {
+const createTemporaryDirectory = async (): Promise<string> =>
   const directory = await realpath(
     await mkdtemp(join(tmpdir(), "darkfactory-verification-")),
   )
   temporaryDirectories.push(directory)
   return directory
-}
 
 afterEach async ->
   vi.restoreAllMocks()

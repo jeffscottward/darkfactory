@@ -57,17 +57,15 @@ export const safeErrorCategory = (error: unknown): string ->
     return "range"
   return "application"
 
-const defaultIdFactory = (width: number): (() => string) => {
+const defaultIdFactory = (width: number): (() => string) =>
   let counter = 0
-  return () => {
+  return () =>
     counter += 1
     return counter.toString(16).padStart(width, "0")
-  }
-}
 
 export const createRecordingTelemetry = (
   options: RecordingTelemetryOptions = {},
-): RecordingTelemetry => {
+): RecordingTelemetry =>
   const now = options.now ?? Date.now
   const createTraceId = options.createTraceId ?? defaultIdFactory(32)
   const createSpanId = options.createSpanId ?? defaultIdFactory(16)
@@ -78,7 +76,7 @@ export const createRecordingTelemetry = (
   const withSpan = async <T>(
     input: SpanInput,
     run: (span: SpanHandle) => T | Promise<T>,
-  ): Promise<T> => {
+  ): Promise<T> =>
     const startedAt = now()
     const attributes =
       input.attributes === undefined
@@ -97,10 +95,9 @@ export const createRecordingTelemetry = (
     let errorCategory: string | undefined
     const span: SpanHandle = {
       correlation,
-      addEvent: (event) => {
+      addEvent: (event) =>
         events.push(redactSemanticEvent(event))
-      },
-      recordMetric: (metric) => {
+      recordMetric: (metric) =>
         const sanitized = redact(metric) as unknown as MetricObservation
         metrics.push({
           ...sanitized,
@@ -108,16 +105,15 @@ export const createRecordingTelemetry = (
           traceId,
           spanId,
         })
-      },
     }
 
-    try {
+    try
       return await run(span)
-    } catch (error) {
+    catch (error)
       outcome = "failure"
       errorCategory = safeErrorCategory(error)
       throw error
-    } finally {
+    finally
       const endedAt = now()
       spans.push(
         Object.freeze({
@@ -138,32 +134,25 @@ export const createRecordingTelemetry = (
           events: Object.freeze([...events]),
         }),
       )
-    }
-  }
 
   return {
     state: Object.freeze({ status: "in-memory" as const }),
     spans,
     metrics,
-    get disposed() {
+    get disposed()
       return disposed
-    },
     withSpan,
     forceFlush: async () => undefined,
-    dispose: async () => {
+    dispose: async () =>
       disposed = true
       return undefined
-    },
   }
-}
 
-export const createRecordingEventSink = (): RecordingEventSink => {
+export const createRecordingEventSink = (): RecordingEventSink =>
   const events: SemanticEvent[] = []
   return {
     events,
-    emit: (event) => {
+    emit: (event) =>
       events.push(redactSemanticEvent(event))
       return undefined
-    },
   }
-}

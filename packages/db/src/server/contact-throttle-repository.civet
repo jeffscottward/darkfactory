@@ -41,17 +41,15 @@ const positiveBoundedInteger = (
   value: number,
   maximum: number,
   name: string,
-): number => {
-  if (!Number.isInteger(value) || value <= 0 || value > maximum) {
+): number =>
+  if (!Number.isInteger(value) || value <= 0 || value > maximum)
     throw new RangeError(`${name} must be an integer between 1 and ${maximum}`)
-  }
   return value
-}
 
 export const createContactThrottleRepository = (
   database: DatabaseExecutor,
   options: ContactThrottleRepositoryOptions = {},
-): ContactThrottleRepository => {
+): ContactThrottleRepository =>
   const maxRows = positiveBoundedInteger(
     options.maxRows ?? DEFAULT_MAX_ROWS,
     DEFAULT_MAX_ROWS,
@@ -69,12 +67,11 @@ export const createContactThrottleRepository = (
   )
 
   return Object.freeze({
-    consume: async (keyHash: string): Promise<ContactThrottleResult> => {
-      if (!HMAC_KEY_PATTERN.test(keyHash)) {
+    consume: async (keyHash: string): Promise<ContactThrottleResult> =>
+      if (!HMAC_KEY_PATTERN.test(keyHash))
         throw new TypeError("keyHash must be a lowercase SHA-256 HMAC")
-      }
 
-      return await withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) =>
         await transaction.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${keyHash}, 0))`,
         )
@@ -89,7 +86,7 @@ export const createContactThrottleRepository = (
           existingResult as unknown as QueryRows<Readonly<{ key_hash: string }>>
         ).rows.length > 0
 
-        if (!existing) {
+        if (!existing)
           await transaction.execute(
             sql`select pg_advisory_xact_lock(hashtextextended('darkfactory.contact-rate-limit.capacity', 0))`,
           )
@@ -116,17 +113,14 @@ export const createContactThrottleRepository = (
           const capacity = (
             capacityResult as unknown as QueryRows<ContactThrottleCapacityRow>
           ).rows[0]
-          if (capacity === undefined) {
+          if (capacity === undefined)
             throw new Error("Contact throttle did not return table capacity")
-          }
-          if (capacity.row_count >= maxRows) {
+          if (capacity.row_count >= maxRows)
             return {
               allowed: false,
               remaining: 0,
               retryAfterSeconds: capacity.retry_after_seconds ?? 1,
             }
-          }
-        }
 
         const queryResult = await transaction.execute(sql`
           with attempted as (
@@ -184,15 +178,12 @@ export const createContactThrottleRepository = (
           queryResult as unknown as QueryRows<ContactThrottleRow>
         ).rows
         const result = rows[0]
-        if (result === undefined) {
+        if (result === undefined)
           throw new Error("Contact throttle did not return a decision")
-        }
         return {
           allowed: result.allowed,
           remaining: result.remaining,
           retryAfterSeconds: result.retry_after_seconds,
         }
-      })
-    },
+      )
   })
-}

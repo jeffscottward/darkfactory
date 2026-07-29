@@ -57,13 +57,12 @@ describe "resolveOtlpSignalUrls", ->
       "https://user:password@collector.example.test/otlp",
       "https://collector.example.test/otlp?token=hidden",
       "https://collector.example.test/otlp#secret",
-    ]) {
+    ])
       expect(
         resolveOtlpSignalUrls(endpoint, {
           allowedHosts: ["collector.example.test"],
         })
       ).toBeUndefined()
-    }
 
   it "supports normalized loopback forms only when explicitly enabled", ->
     expect(
@@ -116,14 +115,13 @@ describe "resolveOtlpSignalUrls", ->
       ["https://[fd00::1]", "fd00::1"],
       ["https://[fe80::1]", "fe80::1"],
     ] as const
-    for (const [endpoint, allowedHost] of privateCollectors) {
+    for (const [endpoint, allowedHost] of privateCollectors)
       expect(
         resolveOtlpSignalUrls(endpoint, {
           allowedHosts: [allowedHost],
           allowInsecureLocalhost: true,
         })
       ).toBeUndefined()
-    }
 
     expect(
       resolveOtlpSignalUrls("https://collector.example.test", {
@@ -176,26 +174,24 @@ describe "resolveOtlpSignalUrls", ->
       ["https://198.17.0.1", "198.17.0.1"],
       ["https://198.20.0.1", "198.20.0.1"],
     ] as const
-    for (const [endpoint, allowedHost] of publicCollectors) {
+    for (const [endpoint, allowedHost] of publicCollectors)
       expect(resolveOtlpSignalUrls(endpoint, {
         allowedHosts: [allowedHost],
       })).toEqual({
         traces: `${endpoint}/v1/traces`,
         metrics: `${endpoint}/v1/metrics`,
       })
-    }
 
     for (const [endpoint, allowedHost] of [
       ["https://100.127.0.1", "100.127.0.1"],
       ["https://172.31.0.1", "172.31.0.1"],
       ["https://198.19.0.1", "198.19.0.1"],
       ["https://[::]", "::"],
-    ] as const) {
+    ] as const)
       expect(resolveOtlpSignalUrls(endpoint, {
         allowedHosts: [allowedHost],
         allowInsecureLocalhost: true,
       })).toBeUndefined()
-    }
 
 describe "initialize telemetry edge paths", ->
 
@@ -203,7 +199,7 @@ describe "initialize telemetry edge paths", ->
     let descriptorReads = 0
     const headers = new Proxy({}, {
       ownKeys: () => ["coverage-inherited-header"],
-      getOwnPropertyDescriptor: () => {
+      getOwnPropertyDescriptor: () =>
         descriptorReads += 1
         return descriptorReads === 1
           ? {
@@ -213,7 +209,6 @@ describe "initialize telemetry edge paths", ->
               writable: true,
             }
           : undefined
-      },
     }) as Readonly<Record<string, string>>
     const runtime = initializeTelemetry({
       enabled: true,
@@ -250,36 +245,32 @@ describe "initialize telemetry edge paths", ->
     Object.defineProperties(metricAttributes, {
       eventName: {
         enumerable: true,
-        get: () => {
+        get: () =>
           accessorReads += 1
           return "feature-item.created"
-        },
       },
       outcome: {
         enumerable: true,
-        get: () => {
+        get: () =>
           accessorReads += 1
           return "success"
-        },
       },
     })
 
-    for (const attributes of [null, [], "private scalar"] as const) {
+    for (const attributes of [null, [], "private scalar"] as const)
       await runtime.withSpan(
         {
           name: "non-record.attributes",
           correlation: { requestId: "request_non_record" },
           attributes: attributes as never,
         },
-        (span) => {
+        (span) =>
           span.recordMetric({
             name: "darkfactory.semantic_event",
             value: 1,
             attributes: metricAttributes,
           })
-        },
       )
-    }
     await runtime.forceFlush()
 
     expect(accessorReads).toBe(0)
@@ -323,7 +314,7 @@ describe "initializeTelemetry", ->
     })
 
     let callbacks = 0
-    for (const runtime of [disabled, unconfigured, invalidEndpoint, noExport]) {
+    for (const runtime of [disabled, unconfigured, invalidEndpoint, noExport])
       await expect(
         runtime.withSpan(
           { name: "noop", correlation: { requestId: "request_noop" } },
@@ -335,7 +326,6 @@ describe "initializeTelemetry", ->
       await runtime.forceFlush()
       await runtime.dispose()
       await runtime.dispose()
-    }
     expect(callbacks).toBe(4)
 
   it "exports correlated spans and metrics deterministically in memory with explicit parent context", async ->
@@ -490,21 +480,19 @@ describe "initializeTelemetry", ->
     const throwingHeaders = new Proxy(
       {},
       {
-        getPrototypeOf: () => {
+        getPrototypeOf: () =>
           throw new Error("header metadata unavailable")
-        },
       }
     )
     let disappearingDescriptorReads = 0
     const disappearingHeaders = new Proxy(
       { authorization: "credential-marker" },
       {
-        getOwnPropertyDescriptor: (target, key) => {
+        getOwnPropertyDescriptor: (target, key) =>
           disappearingDescriptorReads += 1
           return disappearingDescriptorReads === 3
             ? undefined
             : Reflect.getOwnPropertyDescriptor(target, key)
-        },
       },
     )
     const invalidHeaders: unknown[] = [
@@ -536,7 +524,7 @@ describe "initializeTelemetry", ->
       throwingHeaders,
     ]
 
-    for (const headers of invalidHeaders) {
+    for (const headers of invalidHeaders)
       expect(
         initializeTelemetry({
           enabled: true,
@@ -548,7 +536,6 @@ describe "initializeTelemetry", ->
         status: "unconfigured",
         reason: "headers-invalid",
       })
-    }
 
   it "provides frozen no-op handles and preserves callback outcomes while inactive", async ->
     const runtime = initializeTelemetry({ enabled: false })
@@ -558,7 +545,7 @@ describe "initializeTelemetry", ->
     await expect(
       runtime.withSpan(
         { name: "inactive", correlation },
-        async (span) => {
+        async (span) =>
           observedCorrelation = span.correlation
           span.addEvent(event)
           span.recordMetric({
@@ -566,7 +553,6 @@ describe "initializeTelemetry", ->
             value: 1,
           })
           return "inactive-result"
-        }
       )
     ).resolves.toBe("inactive-result")
     expect(observedCorrelation).not.toBe(correlation)
@@ -577,9 +563,8 @@ describe "initializeTelemetry", ->
     await expect(
       runtime.withSpan(
         { name: "inactive.failure", correlation },
-        () => {
+        () =>
           throw callbackError
-        }
       )
     ).rejects.toBe(callbackError)
 
@@ -607,20 +592,18 @@ describe "initializeTelemetry", ->
       },
     ]
 
-    for (const correlation of correlations) {
+    for (const correlation of correlations)
       await runtime.withSpan(
         { name: `root.${correlation.requestId}`, correlation },
         () => undefined
       )
-    }
     await runtime.forceFlush()
 
     const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
     expect(spans).toHaveLength(correlations.length)
-    for (const span of spans) {
+    for (const span of spans)
       expect(span.parentSpanContext).toBeUndefined()
       expect(span.attributes["darkfactory.duration_ms"]).toBe(0)
-    }
     await runtime.dispose()
 
   it "converts full semantic events and accepts only bounded semantic counters", async ->
@@ -633,9 +616,8 @@ describe "initializeTelemetry", ->
     const metricMetadataFailure = new Proxy(
       {},
       {
-        getOwnPropertyDescriptor: () => {
+        getOwnPropertyDescriptor: () =>
           throw new Error("metric metadata unavailable")
-        },
       }
     ) as Readonly<Record<string, string | number | boolean>>
 

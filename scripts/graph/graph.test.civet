@@ -53,7 +53,7 @@ const fixture = (options: {
   manifest?: string
   graphifyExitCode?: number
   mutateSourceOnExtract?: boolean
-} = {}) => {
+} = {}) =>
   const files = new Map<string, string>([[".graphify/config.json", CONFIG]])
   const sourceFiles = options.source ?? new Map(source)
   for (const [path, content] of sourceFiles) files.set(path, content)
@@ -65,27 +65,23 @@ const fixture = (options: {
   const resets: string[] = []
   const fileSystem: GraphFileSystem = {
     exists: async (path) => files.has(path),
-    inspect: async (path) => {
+    inspect: async (path) =>
       const value = files.get(path)
       return value === undefined
         ? { kind: "missing", size: 0 }
         : { kind: "file", size: Buffer.byteLength(value, "utf8") }
-    },
-    readText: async (path) => {
+    readText: async (path) =>
       const value = files.get(path)
       if (value === undefined) throw new Error(`missing ${path}`)
       return value
-    },
-    writeText: async (path, content) => {
+    writeText: async (path, content) =>
       writes.push([path, content])
       files.set(path, content)
       return undefined
-    },
     listSourceFiles: async () => [...sourceFiles.keys()].reverse(),
-    resetGraphOutput: async (path) => {
+    resetGraphOutput: async (path) =>
       resets.push(path)
       files.delete(path)
-    },
     createSourceSnapshot: async () => ({
       path: "/tmp/darkfactory-graphify-test",
       cleanup: async () => undefined,
@@ -94,35 +90,29 @@ const fixture = (options: {
   const dependencies: GraphDependencies = {
     files: fileSystem,
     process: {
-      run: async (command, arguments_, commandOptions) => {
+      run: async (command, arguments_, commandOptions) =>
         calls.push([command, [...arguments_]])
         processCalls.push({ arguments_: [...arguments_], options: commandOptions })
-        if (arguments_[0] === "--version") {
+        if (arguments_[0] === "--version")
           return { exitCode: options.graphifyExitCode ?? 0, stdout: "graphify 2.4.0\n", stderr: "" }
-        }
-        if (arguments_[0] === "extract") {
+        if (arguments_[0] === "extract")
           files.set("graphify-out/graph.json", GRAPH)
-          if (options.mutateSourceOnExtract) {
+          if (options.mutateSourceOnExtract)
             sourceFiles.set("packages/api/src/contract.civet", "changed during extraction\n")
             files.set("packages/api/src/contract.civet", "changed during extraction\n")
-          }
-        }
-        if (arguments_[0] === "path") {
+        if (arguments_[0] === "path")
           return {
             exitCode: options.graphifyExitCode ?? 0,
             stdout: `Shortest path (2 hops): ${arguments_[1]} -> ${arguments_[2]}\n`,
             stderr: "",
           }
-        }
         return { exitCode: options.graphifyExitCode ?? 0, stdout: "ok\n", stderr: "" }
-      },
     },
   }
   return { calls, dependencies, files, processCalls, resets, sourceFiles, writes }
-}
 
-describe("Graphify workflow", () => {
-  it("calculates stable fingerprints and rejects platform-absolute config paths", () => {
+describe("Graphify workflow", () =>
+  it("calculates stable fingerprints and rejects platform-absolute config paths", () =>
     const entries = [...source.entries()]
     expect(calculateSourceFingerprint(entries)).toBe(calculateSourceFingerprint([...entries].reverse()))
     expect(calculateSourceFingerprint(entries)).not.toBe(calculateSourceFingerprint([
@@ -137,9 +127,9 @@ describe("Graphify workflow", () => {
     expect(() => parseGraphConfig(JSON.stringify(unsupportedOutput))).toThrow(
       /supported graph output path/i,
     )
-  })
+  )
 
-  it("hashes equivalent semantic graphs deterministically and detects semantic mutations", () => {
+  it("hashes equivalent semantic graphs deterministically and detects semantic mutations", () =>
     const firstNodeId = "/tmp/darkfactory-graphify-first/src/service.civet::service"
     const secondNodeId = "/tmp/darkfactory-graphify-first/src/service.civet::repository"
     const first = JSON.stringify({
@@ -271,15 +261,15 @@ describe("Graphify workflow", () => {
     expect(calculateGraphDigest(equivalent)).not.toBe(calculateGraphDigest(semanticMutation))
     expect(calculateGraphDigest(equivalent)).not.toBe(calculateGraphDigest(JSON.stringify(importRetarget)))
     expect(calculateGraphDigest(equivalent)).not.toBe(calculateGraphDigest(JSON.stringify(importRemoval)))
-  })
+  )
 
-  it("rejects non-finite numeric graph values instead of hashing them as null", () => {
+  it("rejects non-finite numeric graph values instead of hashing them as null", () =>
     const nonFinite = "{\"nodes\":[{\"id\":\"route\",\"score\":1e400}],\"links\":[]}"
 
     expect(() => calculateGraphDigest(nonFinite)).toThrow(/finite/i)
-  })
+  )
 
-  it("serializes repeated equivalent links without order-dependent drift", () => {
+  it("serializes repeated equivalent links without order-dependent drift", () =>
     const link = { source: "a", target: "b", relation: "calls" }
     const graph = JSON.stringify({
       nodes: [{ id: "a", label: "a" }, { id: "b", label: "b" }],
@@ -291,9 +281,9 @@ describe("Graphify workflow", () => {
       nodes: [{ id: "b", label: "b" }, { id: "a", label: "a" }],
       links: [{ ...link }, link],
     })))
-  })
+  )
 
-  it("rejects malformed, undersized, repeated, and colliding hyperedges", () => {
+  it("rejects malformed, undersized, repeated, and colliding hyperedges", () =>
     const nodes = ["a", "b", "c", "d"].map((id) => ({ id, label: id }))
     const graphWith = (hyperedges: readonly unknown[]): string => JSON.stringify({
       nodes,
@@ -314,12 +304,11 @@ describe("Graphify workflow", () => {
         { id: "group", nodes: ["a", "c", "d"] },
       ],
       [{ id: "a", nodes: ["a", "b", "c"] }],
-    ]) {
+    ])
       expect(() => calculateGraphDigest(graphWith(hyperedges))).toThrow(/hyperedge/i)
-    }
-  })
+  )
 
-  it("accepts the alternate hyperedge member key and rejects identity and link boundaries", () => {
+  it("accepts the alternate hyperedge member key and rejects identity and link boundaries", () =>
     const nodes = ["a", "b", "c"].map((id) => ({ id, label: id }))
     expect(() => calculateGraphDigest(JSON.stringify({
       nodes,
@@ -343,15 +332,14 @@ describe("Graphify workflow", () => {
       { source: 1, target: "b" },
       { source: "a", target: 2 },
       { source: "missing", target: "b" },
-    ]) {
+    ])
       expect(() => calculateGraphDigest(JSON.stringify({
         nodes,
         links: [link],
       }))).toThrow(/invalid link endpoint/i)
-    }
-  })
+  )
 
-  it("builds with a supported argument array and records source, config, and graph digests", async () => {
+  it("builds with a supported argument array and records source, config, and graph digests", async () =>
     const state = fixture()
 
     const report = await runGraphAction("build", state.dependencies)
@@ -364,18 +352,18 @@ describe("Graphify workflow", () => {
     })
     expect(state.resets).toEqual(["graphify-out/graph.json"])
     expect(state.writes).toEqual([[".graphify/manifest.json", manifestFor()]])
-  })
+  )
 
-  it("updates all tracked source kinds through Graphify's supported extract command", async () => {
+  it("updates all tracked source kinds through Graphify's supported extract command", async () =>
     const state = fixture({ graphExists: true, manifest: manifestFor() })
 
     await expect(runGraphAction("update", state.dependencies)).resolves.toMatchObject({ ok: true })
     expect(state.calls).toContainEqual(["graphify", ["extract", "/tmp/darkfactory-graphify-test", "--out", "."]])
     expect(state.resets).toEqual(["graphify-out/graph.json"])
     expect(state.calls.some(([, arguments_]) => arguments_.includes("--update"))).toBe(false)
-  })
+  )
 
-  it("checks fresh metadata without mutating files", async () => {
+  it("checks fresh metadata without mutating files", async () =>
     const state = fixture({ graphExists: true, manifest: manifestFor() })
 
     await expect(runGraphAction("check", state.dependencies)).resolves.toMatchObject({
@@ -384,9 +372,9 @@ describe("Graphify workflow", () => {
     })
     expect(state.writes).toHaveLength(0)
     expect(state.calls).toEqual([["graphify", ["--version"]]])
-  })
+  )
 
-  it("rejects stale sources, missing or empty graphs, and graph digest rollback", async () => {
+  it("rejects stale sources, missing or empty graphs, and graph digest rollback", async () =>
     const changed = new Map(source)
     changed.set("packages/api/src/contract.civet", "changed contract\n")
     const stale = fixture({ source: changed, graphExists: true, manifest: manifestFor() })
@@ -420,9 +408,9 @@ describe("Graphify workflow", () => {
       reason: expect.stringMatching(/digest|stale/i),
     })
     expect(missing.writes).toHaveLength(0)
-  })
+  )
 
-  it("verifies route-to-adapter paths without query-log mutation", async () => {
+  it("verifies route-to-adapter paths without query-log mutation", async () =>
     const state = fixture({ graphExists: true, manifest: manifestFor() })
 
     await expect(runGraphAction("verify", state.dependencies)).resolves.toMatchObject({
@@ -441,9 +429,9 @@ describe("Graphify workflow", () => {
       (options as { environment?: Record<string, string> }).environment?.["GRAPHIFY_QUERY_LOG_DISABLE"] === "1"
     )).toBe(true)
     expect(state.writes).toHaveLength(0)
-  })
+  )
 
-  it("fails unavailable Graphify, malformed metadata, and exit-zero no-path output", async () => {
+  it("fails unavailable Graphify, malformed metadata, and exit-zero no-path output", async () =>
     const unavailable = fixture({ graphifyExitCode: 127 })
     await expect(runGraphAction("build", unavailable.dependencies)).resolves.toMatchObject({ ok: false })
 
@@ -458,7 +446,7 @@ describe("Graphify workflow", () => {
     const failingDependencies: GraphDependencies = {
       ...failedQuery.dependencies,
       process: {
-        run: async (_command, arguments_) => {
+        run: async (_command, arguments_) =>
           if (arguments_[0] === "path") paths += 1
           return arguments_[0] === "path" && paths === 3
             ? { exitCode: 0, stdout: "Shortest path (2 hops): Other -> Nodes\n", stderr: "" }
@@ -469,7 +457,6 @@ describe("Graphify workflow", () => {
                   : `Shortest path (2 hops): ${arguments_[1]} -> ${arguments_[2]}`,
                 stderr: "",
               }
-        },
       },
     }
     await expect(runGraphAction("verify", failingDependencies)).resolves.toMatchObject({
@@ -477,21 +464,19 @@ describe("Graphify workflow", () => {
       reason: "Graph verification path failed between createFeatureItemService and FeatureItemRepository",
       queriesVerified: 2,
     })
-  })
+  )
 
-  it("refuses metadata when sources change during extraction", async () => {
+  it("refuses metadata when sources change during extraction", async () =>
     const state = fixture()
     let listings = 0
     const unstableFiles: GraphFileSystem = {
       ...state.dependencies.files,
-      listSourceFiles: async (config) => {
+      listSourceFiles: async (config) =>
         const paths = await state.dependencies.files.listSourceFiles(config)
         listings += 1
-        if (listings === 2) {
+        if (listings === 2)
           state.files.set("packages/api/src/contract.civet", "changed during extraction\n")
-        }
         return paths
-      },
     }
     const unstable: GraphDependencies = {
       ...state.dependencies,
@@ -503,9 +488,9 @@ describe("Graphify workflow", () => {
       reason: expect.stringMatching(/changed during/i),
     })
     expect(state.writes).toHaveLength(0)
-  })
+  )
 
-  it("maps CLI success, stale, and invalid invocations to exit codes", async () => {
+  it("maps CLI success, stale, and invalid invocations to exit codes", async () =>
     const output: string[] = []
     const fresh = fixture({ graphExists: true, manifest: manifestFor() })
     await expect(runGraphCli(["check"], {
@@ -526,9 +511,9 @@ describe("Graphify workflow", () => {
       writeOutput: (value) => output.push(value),
       writeError: () => undefined,
     })).resolves.toBe(2)
-  })
+  )
 
-  it("maps missing and extra CLI arguments and redacts unexpected dispatch failures", async () => {
+  it("maps missing and extra CLI arguments and redacts unexpected dispatch failures", async () =>
     const state = fixture({ graphExists: true, manifest: manifestFor() })
     const errors: string[] = []
     const output = {
@@ -546,17 +531,16 @@ describe("Graphify workflow", () => {
     })).resolves.toBe(2)
 
     const unexpected = {
-      get graph(): GraphDependencies {
+      get graph(): GraphDependencies
         throw new Error("private graph dependency failure")
-      },
       ...output,
     }
     await expect(runGraphCli(["check"], unexpected)).resolves.toBe(1)
     expect(errors.join("")).toContain("Graph check failed unexpectedly")
     expect(errors.join("")).not.toContain("private graph dependency failure")
-  })
+  )
 
-  it("rejects malformed graph configs and unsafe cross-platform paths with stable diagnostics", () => {
+  it("rejects malformed graph configs and unsafe cross-platform paths with stable diagnostics", () =>
     expect(() => parseGraphConfig("{")).toThrow(/config is malformed/i)
     expect(() => parseGraphConfig(" ".repeat(262_145))).toThrow(/config is too large/i)
     expect(() => parseGraphConfig("null")).toThrow(/version or source is invalid/i)
@@ -590,17 +574,16 @@ describe("Graphify workflow", () => {
       "safe/./manifest.json",
       "safe//manifest.json",
       "safe:manifest.json",
-    ]) {
+    ])
       const unsafe = JSON.parse(CONFIG)
       unsafe.manifestPath = path
       expect(() => parseGraphConfig(JSON.stringify(unsafe))).toThrow(/unsafe path/i)
-    }
     const unsafeRoot = JSON.parse(CONFIG)
     unsafeRoot.source.roots = ["safe/../outside"]
     expect(() => parseGraphConfig(JSON.stringify(unsafeRoot))).toThrow(/unsafe path/i)
-  })
+  )
 
-  it("rejects malformed graph structures before recording a semantic digest", () => {
+  it("rejects malformed graph structures before recording a semantic digest", () =>
     expect(() => calculateGraphDigest("{")).toThrow(/output is malformed/i)
     expect(() => calculateGraphDigest(JSON.stringify({ nodes: [], links: [] })))
       .toThrow(/no nodes/i)
@@ -634,9 +617,9 @@ describe("Graphify workflow", () => {
     expect(calculateSourceFingerprint([["ab", "c"]])).not.toBe(
       calculateSourceFingerprint([["a", "bc"]]),
     )
-  })
+  )
 
-  it("treats malformed manifest shapes as missing metadata", async () => {
+  it("treats malformed manifest shapes as missing metadata", async () =>
     const valid = JSON.parse(manifestFor())
     const invalidManifests = [
       "{",
@@ -647,7 +630,7 @@ describe("Graphify workflow", () => {
       JSON.stringify({ ...valid, sourceFileCount: 1.5 }),
     ]
 
-    for (const manifest of invalidManifests) {
+    for (const manifest of invalidManifests)
       const state = fixture({ graphExists: true, manifest })
       await expect(runGraphAction("check", state.dependencies)).resolves.toMatchObject({
         ok: false,
@@ -655,23 +638,21 @@ describe("Graphify workflow", () => {
         reason: "Graph manifest is missing or malformed",
       })
       expect(state.writes).toHaveLength(0)
-    }
-  })
+  )
 
-  it("distinguishes each stale digest decision from a Graphify version change", async () => {
+  it("distinguishes each stale digest decision from a Graphify version change", async () =>
     const valid = JSON.parse(manifestFor())
     for (const manifest of [
       { ...valid, configDigest: "0".repeat(64) },
       { ...valid, graphDigest: "0".repeat(64) },
       { ...valid, sourceFileCount: source.size + 1 },
-    ]) {
+    ])
       const state = fixture({ graphExists: true, manifest: JSON.stringify(manifest) })
       await expect(runGraphAction("check", state.dependencies)).resolves.toMatchObject({
         ok: false,
         fresh: false,
         reason: "Graph metadata is stale or its digest differs",
       })
-    }
 
     const versionChanged = fixture({
       graphExists: true,
@@ -683,10 +664,10 @@ describe("Graphify workflow", () => {
       reason: "Graphify version differs from the recorded manifest",
       graphifyVersion: "2.4.0",
     })
-  })
+  )
 
-  it("reports bounded graph files and unavailable version probes without mutations", async () => {
-    for (const size of [-1, 67_108_865]) {
+  it("reports bounded graph files and unavailable version probes without mutations", async () =>
+    for (const size of [-1, 67_108_865])
       const state = fixture({ graphExists: true, manifest: manifestFor() })
       const bounded: GraphDependencies = {
         ...state.dependencies,
@@ -702,13 +683,13 @@ describe("Graphify workflow", () => {
         reason: "Graph output is too large",
       })
       expect(state.writes).toHaveLength(0)
-    }
 
     const rejectedProbe = fixture()
     const unavailable: GraphDependencies = {
       ...rejectedProbe.dependencies,
       process: {
-        run: async () => { throw new Error("spawn denied") },
+        run: async () =>
+          throw new Error("spawn denied")
       },
     }
     await expect(runGraphAction("check", unavailable)).resolves.toMatchObject({
@@ -727,15 +708,16 @@ describe("Graphify workflow", () => {
       ok: false,
       reason: "Graphify is unavailable or returned an invalid version",
     })
-  })
+  )
 
-  it("diagnoses snapshot and output-reset failures and always cleans owned snapshots", async () => {
+  it("diagnoses snapshot and output-reset failures and always cleans owned snapshots", async () =>
     const snapshotState = fixture()
     const snapshotFailure: GraphDependencies = {
       ...snapshotState.dependencies,
       files: {
         ...snapshotState.dependencies.files,
-        createSourceSnapshot: async () => { throw new Error("snapshot denied") },
+        createSourceSnapshot: async () =>
+          throw new Error("snapshot denied")
       },
     }
     await expect(runGraphAction("build", snapshotFailure)).resolves.toMatchObject({
@@ -751,9 +733,11 @@ describe("Graphify workflow", () => {
         ...resetState.dependencies.files,
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
-          cleanup: async () => { resetCleanups += 1 },
+          cleanup: async () =>
+            resetCleanups += 1
         }),
-        resetGraphOutput: async () => { throw new Error("unsafe output") },
+        resetGraphOutput: async () =>
+          throw new Error("unsafe output")
       },
     }
     await expect(runGraphAction("build", resetFailure)).resolves.toMatchObject({
@@ -771,7 +755,8 @@ describe("Graphify workflow", () => {
         ...extractState.dependencies.files,
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
-          cleanup: async () => { extractCleanups += 1 },
+          cleanup: async () =>
+            extractCleanups += 1
         }),
       },
       process: {
@@ -786,9 +771,9 @@ describe("Graphify workflow", () => {
     })
     expect(extractCleanups).toBe(1)
     expect(extractState.writes).toHaveLength(0)
-  })
+  )
 
-  it("cleans snapshots after rejected commands and redacts non-Error adapter failures", async () => {
+  it("cleans snapshots after rejected commands and redacts non-Error adapter failures", async () =>
     const commandState = fixture()
     let cleanups = 0
     const rejectedCommand: GraphDependencies = {
@@ -797,7 +782,8 @@ describe("Graphify workflow", () => {
         ...commandState.dependencies.files,
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
-          cleanup: async () => { cleanups += 1 },
+          cleanup: async () =>
+            cleanups += 1
         }),
       },
       process: {
@@ -829,18 +815,17 @@ describe("Graphify workflow", () => {
       ...graphState.dependencies,
       files: {
         ...graphState.dependencies.files,
-        inspect: async (path) => {
+        inspect: async (path) =>
           if (path === "graphify-out/graph.json") return Promise.reject("private graph race")
           return graphState.dependencies.files.inspect(path)
-        },
       },
     })).resolves.toMatchObject({
       ok: false,
       reason: "Missing graph output",
     })
-  })
+  )
 
-  it("refuses metadata when a successful extract does not produce a regular graph", async () => {
+  it("refuses metadata when a successful extract does not produce a regular graph", async () =>
     const state = fixture()
     let cleanups = 0
     const dependencies: GraphDependencies = {
@@ -849,7 +834,8 @@ describe("Graphify workflow", () => {
         ...state.dependencies.files,
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
-          cleanup: async () => { cleanups += 1 },
+          cleanup: async () =>
+            cleanups += 1
         }),
       },
       process: {
@@ -865,10 +851,10 @@ describe("Graphify workflow", () => {
     })
     expect(cleanups).toBe(1)
     expect(state.writes).toHaveLength(0)
-  })
+  )
 
-  it("fails closed for empty, unsafe, irregular, oversized, and excessive source corpora", async () => {
-    const checkWith = async (overrides: Partial<GraphFileSystem>) => {
+  it("fails closed for empty, unsafe, irregular, oversized, and excessive source corpora", async () =>
+    const checkWith = async (overrides: Partial<GraphFileSystem>) =>
       const state = fixture({ graphExists: true, manifest: manifestFor() })
       const dependencies: GraphDependencies = {
         ...state.dependencies,
@@ -877,7 +863,6 @@ describe("Graphify workflow", () => {
       const report = await runGraphAction("check", dependencies)
       expect(state.writes).toHaveLength(0)
       return report
-    }
 
     const empty = await checkWith({ listSourceFiles: async () => [] })
     expect(empty).toMatchObject({ ok: false, reason: "Graph check inspection failed" })
@@ -921,8 +906,8 @@ describe("Graphify workflow", () => {
       },
     })
     expect(excessiveBytes).toMatchObject({ ok: false, reason: "Graph check inspection failed" })
-  })
-  it("fails closed when bounded config and source reads outgrow their inspected sizes", async () => {
+  )
+  it("fails closed when bounded config and source reads outgrow their inspected sizes", async () =>
     const missingConfig = fixture()
     await expect(runGraphAction("check", {
       ...missingConfig.dependencies,
@@ -987,9 +972,9 @@ describe("Graphify workflow", () => {
     })
     expect(oversizedSource.writes).toHaveLength(0)
     expect(grownSource.writes).toHaveLength(0)
-  })
+  )
 
-  it("redacts non-Error output reset and generated graph inspection failures", async () => {
+  it("redacts non-Error output reset and generated graph inspection failures", async () =>
     const resetState = fixture()
     await expect(runGraphAction("build", {
       ...resetState.dependencies,
@@ -1023,5 +1008,5 @@ describe("Graphify workflow", () => {
       reason: "Graphify produced no graph",
     })
     expect(graphState.writes).toHaveLength(0)
-  })
-})
+  )
+)

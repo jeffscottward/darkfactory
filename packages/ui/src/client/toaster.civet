@@ -60,7 +60,7 @@ export const Toaster = ({
   theme = "system",
   toastOptions,
   ...props
-}: DarkFactoryToasterProps) => {
+}: DarkFactoryToasterProps) =>
   const {
     classNames: callerClassNames,
     ...callerToastOptions
@@ -79,4 +79,3 @@ export const Toaster = ({
       classNames: mergeToastClassNames(callerClassNames),
     },
   })
-}

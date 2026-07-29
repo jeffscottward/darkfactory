@@ -79,10 +79,10 @@ describe "DF-076 contact service", ->
     { label: "configured provider", throttleFailure: false },
   ])("maps $label failure to a redacted typed 503", async ({ throttleFailure }) ->
     const contactThrottle: ContactThrottlePort = {
-      consume: vi.fn(async () => {
+      consume: vi.fn(async () =>
         if (throttleFailure) throw new Error("database and raw IP detail")
         return { allowed: true, remaining: 4, retryAfterSeconds: 0 }
-      }),
+      ),
     }
     const contactDelivery: ContactDeliveryPort = {
       sendContact: vi.fn(async () => ({
@@ -126,9 +126,9 @@ describe "DF-076 contact service", ->
   it "redacts a provider exception before it crosses the service boundary", async ->
     const service = createContactService({
       delivery: {
-        sendContact: vi.fn(async () => {
+        sendContact: vi.fn(async () =>
           throw new Error("provider secret and recipient payload")
-        }),
+        ),
       },
       throttle: throttle(true),
       throttleKey: "f".repeat(64),

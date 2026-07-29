@@ -75,13 +75,12 @@ const analyticsFor = (env: ServerEnv) =>
     ...(env.POSTHOG_HOST === undefined ? {} : { host: env.POSTHOG_HOST }),
   })
 
-const unsafeRequestDenied = (request: Request, appUrl: string): boolean => {
+const unsafeRequestDenied = (request: Request, appUrl: string): boolean =>
   if (!["POST", "PATCH", "DELETE"].includes(request.method.toUpperCase())) return false
   const trustedOrigin = new URL(appUrl).origin
   if (request.headers.get("origin") !== trustedOrigin) return true
   const fetchSite = request.headers.get("sec-fetch-site")
   return fetchSite !== null && fetchSite !== "same-origin"
-}
 
 const forbiddenOriginResponse = (): Response =>
   Response.json({ error: "Forbidden" }, { status: 403 })
@@ -92,7 +91,7 @@ const CONTACT_EDGE_MAX_REQUESTS = 30
 const contactAbuseResponse = (
   code: "PAYLOAD_TOO_LARGE" | "TOO_MANY_REQUESTS" | "SERVICE_UNAVAILABLE",
   retryAfterSeconds?: number,
-): Response => {
+): Response =>
   const definition = CONTACT_ERRORS[code]
   const error = {
     defined: true,
@@ -109,11 +108,10 @@ const contactAbuseResponse = (
         : { headers: { "retry-after": String(retryAfterSeconds) } }),
     },
   )
-}
 export const handleOrpcRuntimeRequest = async (
   request: Request,
   scheduleBackgroundTask: BackgroundTaskScheduler,
-): Promise<Response> => {
+): Promise<Response> =>
   const env = parseServerEnv(process.env)
   const previewOptions = resolveE2eEmailPreviewOptions()
   if (unsafeRequestDenied(request, env.APP_URL)) return forbiddenOriginResponse()
@@ -135,23 +133,21 @@ export const handleOrpcRuntimeRequest = async (
       attributes: { "rpc.system": "orpc" },
     },
     scheduleBackgroundTask,
-    async (span) => {
+    async (span) =>
       const databaseProfile = composeDatabaseProfile(env)
       const database = await createRequestDatabase({
         connectionString: databaseProfile.connection.connectionString,
       })
       const backgroundTasks = createBackgroundTaskLifecycle(
         scheduleBackgroundTask,
-        async () => {
-          try {
+        async () =>
+          try
             await database.close()
-          } catch (_error) {
+          catch _error
             // Closure is best-effort after the request result has been determined.
-          }
-        },
       )
 
-      try {
+      try
         const contactThrottle = isContactSubmission
           ? createContactThrottleRepository(database.db)
           : undefined
@@ -161,33 +157,29 @@ export const handleOrpcRuntimeRequest = async (
               maxRequests: CONTACT_EDGE_MAX_REQUESTS,
             })
           : undefined
-        if (contactThrottle !== undefined && contactEdgeThrottle !== undefined) {
+        if (contactThrottle !== undefined && contactEdgeThrottle !== undefined)
           const edgeKey = await createContactThrottleKey(
             effectiveRequest,
             env.CONTACT_THROTTLE_SECRET,
             "edge",
           )
           let edgeResult
-          try {
+          try
             edgeResult = await contactEdgeThrottle.consume(edgeKey)
-          } catch {
+          catch
             return contactAbuseResponse("SERVICE_UNAVAILABLE")
-          }
-          if (!edgeResult.allowed) {
+          if (!edgeResult.allowed)
             return contactAbuseResponse(
               "TOO_MANY_REQUESTS",
               edgeResult.retryAfterSeconds,
             )
-          }
-          if (bufferedContact.tooLarge) {
+          if (bufferedContact.tooLarge)
             return contactAbuseResponse("PAYLOAD_TOO_LARGE")
-          }
           contactThrottleKey = await createContactThrottleKey(
             effectiveRequest,
             env.CONTACT_THROTTLE_SECRET,
             "submit",
           )
-        }
         const email = selectEmailPort({
           environment: env.APP_ENV,
           transport: env.EMAIL_TRANSPORT,
@@ -244,12 +236,9 @@ export const handleOrpcRuntimeRequest = async (
             : { contactDelivery, contactThrottle, contactThrottleKey }),
         })
         return await handleOrpcRequest(effectiveRequest, context)
-      } finally {
+      finally
         await backgroundTasks.finalize()
-      }
-    },
   )
-}
 
 const handleOrpc = (request: Request): Promise<Response> =>
   handleOrpcRuntimeRequest(request, waitUntil)

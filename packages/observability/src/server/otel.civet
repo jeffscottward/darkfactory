@@ -88,23 +88,20 @@ export interface OpenTelemetryRuntime extends TelemetryRuntime {
 const normalizedHostname = (hostname: string): string =>
   hostname.toLowerCase().replace(/^\[|\]$/g, "")
 
-const ipv4Parts = (hostname: string): number[] | undefined => {
+const ipv4Parts = (hostname: string): number[] | undefined =>
   const parts = hostname.split(".")
   if (parts.length !== 4) return undefined
   const numbers = parts.map((part) => Number(part))
-  for (const value of numbers) {
+  for (const value of numbers)
     if (
       !Number.isInteger(value) ||
       value < 0 ||
       value > 255
-    ) {
+    )
       return undefined
-    }
-  }
   return numbers
-}
 
-const isLoopbackHost = (hostname: string): boolean => {
+const isLoopbackHost = (hostname: string): boolean =>
   const normalized = normalizedHostname(hostname)
   const parts = ipv4Parts(normalized)
   return (
@@ -113,12 +110,11 @@ const isLoopbackHost = (hostname: string): boolean => {
     normalized === "::1" ||
     (parts !== undefined && parts[0] === 127)
   )
-}
 
-const isPrivateHost = (hostname: string): boolean => {
+const isPrivateHost = (hostname: string): boolean =>
   const normalized = normalizedHostname(hostname)
   const parts = ipv4Parts(normalized)
-  if (parts !== undefined) {
+  if (parts !== undefined)
     const [first = 0, second = 0] = parts
     return (
       first === 0 ||
@@ -131,7 +127,6 @@ const isPrivateHost = (hostname: string): boolean => {
       (first === 198 && (second === 18 || second === 19)) ||
       first >= 224
     )
-  }
   return (
     normalized === "::" ||
     normalized === "::1" ||
@@ -143,20 +138,18 @@ const isPrivateHost = (hostname: string): boolean => {
     normalized.endsWith(".internal") ||
     !normalized.includes(".")
   )
-}
 
 export const resolveOtlpSignalUrls = (
   endpoint: string,
   policy?: OtlpEndpointPolicy,
-): OtlpSignalUrls | undefined => {
-  try {
+): OtlpSignalUrls | undefined =>
+  try
     if (
       policy === undefined ||
       policy.allowedHosts.length === 0 ||
       policy.allowedHosts.length > 16
-    ) {
+    )
       return undefined
-    }
     const base = new URL(endpoint)
     if (
       base.username.length > 0 ||
@@ -164,9 +157,8 @@ export const resolveOtlpSignalUrls = (
       base.search.length > 0 ||
       base.hash.length > 0 ||
       base.pathname.length > 1_024
-    ) {
+    )
       return undefined
-    }
 
     const hostname = normalizedHostname(base.hostname)
     const allowedHosts = new Set(
@@ -175,9 +167,8 @@ export const resolveOtlpSignalUrls = (
     if (!allowedHosts.has(hostname)) return undefined
 
     const loopback = isLoopbackHost(hostname)
-    if (isPrivateHost(hostname)) {
+    if (isPrivateHost(hostname))
       if (!loopback || !policy.allowInsecureLocalhost) return undefined
-    }
     if (
       base.protocol !== "https:" &&
       !(
@@ -185,9 +176,8 @@ export const resolveOtlpSignalUrls = (
         loopback &&
         policy.allowInsecureLocalhost
       )
-    ) {
+    )
       return undefined
-    }
 
     const pathname = base.pathname.replace(/\/+$/, "")
     base.pathname = `${pathname}/v1/traces`
@@ -195,10 +185,8 @@ export const resolveOtlpSignalUrls = (
     base.pathname = `${pathname}/v1/metrics`
     const metrics = base.toString()
     return Object.freeze({ traces, metrics })
-  } catch {
+  catch
     return undefined
-  }
-}
 
 type OtlpHeaderSnapshot =
   | Readonly<{
@@ -209,52 +197,45 @@ type OtlpHeaderSnapshot =
 
 const snapshotOtlpHeaders = (
   input: Readonly<Record<string, string>> | undefined,
-): OtlpHeaderSnapshot => {
+): OtlpHeaderSnapshot =>
   if (input === undefined) return Object.freeze({ valid: true })
-  try {
+  try
     const prototype = Object.getPrototypeOf(input)
-    if (prototype !== Object.prototype && prototype !== null) {
+    if (prototype !== Object.prototype && prototype !== null)
       return Object.freeze({ valid: false })
-    }
 
     const headers: Record<string, string> = Object.create(null)
-    for (const rawName in input) {
+    for (const rawName in input)
       if (!Object.hasOwn(input, rawName)) continue
 
       const name = rawName.toLowerCase()
       if (
         !ALLOWED_OTLP_HEADER_NAMES.has(name) ||
         Object.hasOwn(headers, name)
-      ) {
+      )
         return Object.freeze({ valid: false })
-      }
       const descriptor = Object.getOwnPropertyDescriptor(input, rawName)
-      if (descriptor === undefined || !("value" in descriptor)) {
+      if (descriptor === undefined || !("value" in descriptor))
         return Object.freeze({ valid: false })
-      }
       const value = descriptor.value
       if (
         typeof value !== "string" ||
         value.length === 0 ||
         value.length > 4_096 ||
         /[\r\n]/.test(value)
-      ) {
+      )
         return Object.freeze({ valid: false })
-      }
       headers[name] = value
-    }
     return Object.freeze({
       valid: true,
       headers: Object.freeze(headers),
     })
-  } catch {
+  catch
     return Object.freeze({ valid: false })
-  }
-}
 
 const createInactiveRuntime = (
   state: TelemetryRuntimeState,
-): OpenTelemetryRuntime => {
+): OpenTelemetryRuntime =>
   const withSpan = async <T>(
     input: SpanInput,
     run: (span: SpanHandle) => T | Promise<T>,
@@ -274,32 +255,27 @@ const createInactiveRuntime = (
     forceFlush: () => settled,
     dispose: () => settled,
   })
-}
 
-const toAttributes = (input: unknown): Attributes => {
+const toAttributes = (input: unknown): Attributes =>
   const sanitized = redact(input)
-  if (sanitized === null || typeof sanitized !== "object" || Array.isArray(sanitized)) {
+  if (sanitized === null || typeof sanitized !== "object" || Array.isArray(sanitized))
     return {}
-  }
 
   const attributes: Attributes = {}
-  for (const [key, value] of Object.entries(sanitized)) {
+  for (const [key, value] of Object.entries(sanitized))
     if (
       typeof value === "string" ||
       typeof value === "number" ||
       typeof value === "boolean"
-    ) {
+    )
       attributes[key] = value
-    }
-  }
   return attributes
-}
 
 const semanticMetricAttributes = (
   input: MetricObservation["attributes"],
-): Attributes => {
+): Attributes =>
   if (input === undefined) return {}
-  try {
+  try
     const eventNameDescriptor = Object.getOwnPropertyDescriptor(
       input,
       "eventName",
@@ -326,10 +302,8 @@ const semanticMetricAttributes = (
       ...(eventName === undefined ? {} : { eventName }),
       ...(outcome === undefined ? {} : { outcome }),
     }
-  } catch {
+  catch
     return {}
-  }
-}
 
 const eventAttributes = (event: SemanticEvent): Attributes => ({
   "event.id": event.eventId,
@@ -340,15 +314,14 @@ const eventAttributes = (event: SemanticEvent): Attributes => ({
   ...(event.source === undefined ? {} : { "event.source": event.source }),
 })
 
-const createParentContext = (correlation: CorrelationContext) => {
+const createParentContext = (correlation: CorrelationContext) =>
   if (
     correlation.traceId === undefined ||
     correlation.spanId === undefined ||
     !isValidTraceId(correlation.traceId) ||
     !isValidSpanId(correlation.spanId)
-  ) {
+  )
     return ROOT_CONTEXT
-  }
 
   return trace.setSpanContext(ROOT_CONTEXT, {
     traceId: correlation.traceId,
@@ -356,18 +329,16 @@ const createParentContext = (correlation: CorrelationContext) => {
     traceFlags: TraceFlags.SAMPLED,
     isRemote: true,
   })
-}
 
 export const initializeTelemetry = (
   options: InitializeTelemetryOptions,
-): OpenTelemetryRuntime => {
+): OpenTelemetryRuntime =>
   if (!options.enabled) return createInactiveRuntime({ status: "disabled" })
-  if (options.serviceName === undefined || options.serviceName.trim().length === 0) {
+  if (options.serviceName === undefined || options.serviceName.trim().length === 0)
     return createInactiveRuntime({
       status: "unconfigured",
       reason: "service-name-missing",
     })
-  }
   const serviceName = options.serviceName.trim()
 
   const signalUrls =
@@ -382,22 +353,19 @@ export const initializeTelemetry = (
                   options.allowInsecureOtlpLocalhost,
               }),
         })
-  if (options.otlpEndpoint !== undefined && signalUrls === undefined) {
+  if (options.otlpEndpoint !== undefined && signalUrls === undefined)
     return createInactiveRuntime({
       status: "unconfigured",
       reason: "endpoint-invalid",
     })
-  }
   const headerSnapshot = snapshotOtlpHeaders(options.otlpHeaders)
-  if (!headerSnapshot.valid) {
+  if (!headerSnapshot.valid)
     return createInactiveRuntime({
       status: "unconfigured",
       reason: "headers-invalid",
     })
-  }
-  if (!options.testExport && signalUrls === undefined) {
+  if (!options.testExport && signalUrls === undefined)
     return createInactiveRuntime({ status: "no-export" })
-  }
 
   const headers = headerSnapshot.headers
   const resource = defaultResource().merge(
@@ -440,7 +408,7 @@ export const initializeTelemetry = (
   const withSpan = async <T>(
     input: SpanInput,
     run: (span: SpanHandle) => T | Promise<T>,
-  ): Promise<T> => {
+  ): Promise<T> =>
     const startedAt = now()
     const parentContext = createParentContext(input.correlation)
     const otelSpan = tracer.startSpan(
@@ -471,31 +439,27 @@ export const initializeTelemetry = (
     })
     const handle: SpanHandle = Object.freeze({
       correlation,
-      addEvent: (event: SemanticEvent) => {
+      addEvent: (event: SemanticEvent) =>
         const sanitized = redactSemanticEvent(event)
         otelSpan.addEvent(sanitized.name, eventAttributes(sanitized))
-      },
-      recordMetric: (metric: MetricObservation) => {
+      recordMetric: (metric: MetricObservation) =>
         if (
           !ALLOWED_METRIC_NAMES.has(metric.name) ||
           !Number.isFinite(metric.value) ||
           metric.value < 0
-        ) {
+        )
           return
-        }
         let counter = counters.get(metric.name)
-        if (counter === undefined) {
+        if (counter === undefined)
           counter = meter.createCounter(metric.name)
           counters.set(metric.name, counter)
-        }
         counter.add(
           metric.value,
           semanticMetricAttributes(metric.attributes),
         )
-      },
     })
 
-    try {
+    try
       const result = await run(handle)
       const durationMs = Math.max(0, now() - startedAt)
       otelSpan.setAttributes({
@@ -504,7 +468,7 @@ export const initializeTelemetry = (
       })
       otelSpan.setStatus({ code: SpanStatusCode.OK })
       return result
-    } catch (error) {
+    catch (error)
       const durationMs = Math.max(0, now() - startedAt)
       otelSpan.setAttributes({
         "darkfactory.outcome": "failure",
@@ -513,10 +477,8 @@ export const initializeTelemetry = (
       })
       otelSpan.setStatus({ code: SpanStatusCode.ERROR })
       throw error
-    } finally {
+    finally
       otelSpan.end()
-    }
-  }
 
   const testExports = options.testExport
     ? Object.freeze({
@@ -526,21 +488,19 @@ export const initializeTelemetry = (
     : undefined
 
   let disposal: Promise<void> | undefined
-  const dispose = (): Promise<void> => {
+  const dispose = (): Promise<void> =>
     if (disposal !== undefined) return disposal
     disposal = Promise.all([
       tracerProvider.shutdown(),
       meterProvider.shutdown(),
     ]).then(() => undefined)
     return disposal
-  }
-  const forceFlush = (): Promise<void> => {
+  const forceFlush = (): Promise<void> =>
     if (disposal !== undefined) return disposal
     return Promise.all([
       tracerProvider.forceFlush(),
       meterProvider.forceFlush(),
     ]).then(() => undefined)
-  }
 
   return Object.freeze({
     state: Object.freeze({
@@ -551,4 +511,3 @@ export const initializeTelemetry = (
     forceFlush,
     dispose,
   })
-}

@@ -20,14 +20,12 @@ import type {
 
 export type AccountServiceErrorCode = "NOT_FOUND" | "CONFLICT" | "VALIDATION_ERROR" | "STORAGE_ERROR"
 
-export class AccountServiceError extends Error {
+export class AccountServiceError extends Error
   readonly code: AccountServiceErrorCode
-  constructor(code: AccountServiceErrorCode, message: string) {
+  constructor(code: AccountServiceErrorCode, message: string)
     super(message)
     this.name = "AccountServiceError"
     this.code = code
-  }
-}
 
 export type AccountRepositories = Readonly<{
   profiles: ProfileRepository
@@ -66,24 +64,20 @@ const toPreferencesOutput = (value: UserPreferences): PreferencesOutput => ({
   updatedAt: value.updatedAt,
 })
 
-const mapAccountRepositoryError = (error: unknown): never => {
+const mapAccountRepositoryError = (error: unknown): never =>
   if (error instanceof AccountServiceError) throw error
   if (error instanceof InvalidRepositoryInputError)
     throw new AccountServiceError("VALIDATION_ERROR", "Account validation failed")
   if (error instanceof DatabaseConflictError)
     throw new AccountServiceError("CONFLICT", "Account resource conflict")
   throw new AccountServiceError("STORAGE_ERROR", "Account storage is unavailable")
-}
-const runRepository = async <T>(operation: () => Promise<T>): Promise<T> => {
-  try {
+const runRepository = async <T>(operation: () => Promise<T>): Promise<T> =>
+  try
     return await operation()
-  } catch (error) {
+  catch (error)
     return mapAccountRepositoryError(error)
-  }
-}
-const missingAddress = (): never => {
+const missingAddress = (): never =>
   throw new AccountServiceError("NOT_FOUND", "Address not found")
-}
 
 export type AccountService = Readonly<{
   getProfile: (session: SafeAuthSession) => Promise<AccountProfileOutput>
@@ -97,18 +91,17 @@ export type AccountService = Readonly<{
   updatePreferences: (principal: SafePrincipal, input: PreferencesUpdateInput) => Promise<PreferencesOutput>
 }>
 
-export const createAccountService = (repositories: AccountRepositories): AccountService => {
-  const getProfile = async (session: SafeAuthSession): Promise<AccountProfileOutput> => {
+export const createAccountService = (repositories: AccountRepositories): AccountService =>
+  const getProfile = async (session: SafeAuthSession): Promise<AccountProfileOutput> =>
     const stored = await runRepository(() => repositories.profiles.findByUserId(session.principal.userId))
     return {
       identity: { email: session.user.email, emailVerified: session.user.emailVerified },
       profile: stored === null ? DEFAULT_PROFILE : toProfileOutput(stored),
     }
-  }
   const updateProfile = async (
     session: SafeAuthSession,
     input: ProfileUpdateInput,
-  ): Promise<AccountProfileOutput> => {
+  ): Promise<AccountProfileOutput> =>
     const stored = await runRepository(() => repositories.profiles.findByUserId(session.principal.userId))
     const current = stored === null ? DEFAULT_PROFILE : toProfileOutput(stored)
     const updated = await runRepository(() => repositories.profiles.updateOptimistic({
@@ -130,7 +123,6 @@ export const createAccountService = (repositories: AccountRepositories): Account
       identity: { email: session.user.email, emailVerified: session.user.emailVerified },
       profile: toProfileOutput(updated),
     }
-  }
   const listAddresses = (owner: SafePrincipal): Promise<Address[]> =>
     runRepository(() => repositories.addresses.listByUserId(owner.userId))
   const createAddress = (owner: SafePrincipal, input: AddressCreateInput): Promise<Address> =>
@@ -145,7 +137,7 @@ export const createAccountService = (repositories: AccountRepositories): Account
       country: input.country,
       ...(input.isPrimary === undefined ? {} : { isPrimary: input.isPrimary }),
     }))
-  const updateAddress = async (owner: SafePrincipal, input: AddressUpdateInput): Promise<Address> => {
+  const updateAddress = async (owner: SafePrincipal, input: AddressUpdateInput): Promise<Address> =>
     const updated = await runRepository(() => repositories.addresses.updateOptimistic({
       userId: owner.userId,
       id: input.id,
@@ -159,8 +151,7 @@ export const createAccountService = (repositories: AccountRepositories): Account
       ...(input.country === undefined ? {} : { country: input.country }),
     }))
     return updated === null ? missingAddress() : updated
-  }
-  const removeAddress = async (owner: SafePrincipal, input: AddressIdInput): Promise<RemoveAddressResult> => {
+  const removeAddress = async (owner: SafePrincipal, input: AddressIdInput): Promise<RemoveAddressResult> =>
     const removed = await runRepository(() => repositories.addresses.removeOptimistic({
       id: input.id,
       userId: owner.userId,
@@ -168,23 +159,20 @@ export const createAccountService = (repositories: AccountRepositories): Account
     }))
     if (!removed) return missingAddress()
     return { removed: true }
-  }
-  const setPrimaryAddress = async (owner: SafePrincipal, input: AddressIdInput): Promise<Address> => {
+  const setPrimaryAddress = async (owner: SafePrincipal, input: AddressIdInput): Promise<Address> =>
     const updated = await runRepository(() => repositories.addresses.setPrimaryOptimistic({
       id: input.id,
       userId: owner.userId,
       expectedUpdatedAt: input.expectedUpdatedAt,
     }))
     return updated === null ? missingAddress() : updated
-  }
-  const getPreferences = async (owner: SafePrincipal): Promise<PreferencesOutput> => {
+  const getPreferences = async (owner: SafePrincipal): Promise<PreferencesOutput> =>
     const stored = await runRepository(() => repositories.userPreferences.findByUserId(owner.userId))
     return stored === null ? DEFAULT_PREFERENCES : toPreferencesOutput(stored)
-  }
   const updatePreferences = async (
     owner: SafePrincipal,
     input: PreferencesUpdateInput,
-  ): Promise<PreferencesOutput> => {
+  ): Promise<PreferencesOutput> =>
     const current = await runRepository(() =>
       repositories.userPreferences.findByUserId(owner.userId)
     )
@@ -207,7 +195,6 @@ export const createAccountService = (repositories: AccountRepositories): Account
         : input.profileVisibility,
     }))
     return toPreferencesOutput(stored)
-  }
   return Object.freeze({
     getProfile,
     updateProfile,
@@ -219,4 +206,3 @@ export const createAccountService = (repositories: AccountRepositories): Account
     getPreferences,
     updatePreferences,
   })
-}

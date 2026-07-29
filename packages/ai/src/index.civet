@@ -37,7 +37,7 @@ export type AiPort = Readonly<{
 
 export const createDisabledAiPort = (
   reason: AiDisabledReason = "disabled",
-): AiPort => {
+): AiPort =>
   const result: AiResult = Object.freeze({
     status: "disabled",
     reason,
@@ -46,4 +46,3 @@ export const createDisabledAiPort = (
   return Object.freeze({
     generateText: async (): Promise<AiResult> => result,
   })
-}

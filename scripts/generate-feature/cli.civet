@@ -22,8 +22,8 @@ const failureFrom = (error: unknown): Readonly<{ code: string; message: string }
 export const runFeatureGeneratorCli = async (
   arguments_: readonly string[],
   dependencies: GeneratorCliDependencies,
-): Promise<number> => {
-  try {
+): Promise<number> =>
+  try
     const result = await generateFeature(arguments_, {
       targetRoot: dependencies.targetRoot,
     })
@@ -33,7 +33,7 @@ export const runFeatureGeneratorCli = async (
         : `${formatHumanReport(result.report)}\n`,
     )
     return 0
-  } catch (error) {
+  catch (error)
     const failure = failureFrom(error)
     dependencies.writeError(
       arguments_.includes("--json")
@@ -41,5 +41,3 @@ export const runFeatureGeneratorCli = async (
         : `Feature generation failed [${failure.code}]: ${failure.message}\n`,
     )
     return 1
-  }
-}

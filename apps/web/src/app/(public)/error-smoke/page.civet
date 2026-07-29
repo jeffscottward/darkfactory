@@ -3,7 +3,6 @@ import { notFound } from "next/navigation"
 import { isE2eFixtureEnabled } from "../../../lib/e2e-fixtures.civet"
 import { RecoverableErrorFixture } from "./recoverable-error-fixture.civet"
 
-export default function ErrorSmokePage() {
+export default function ErrorSmokePage()
   if (!isE2eFixtureEnabled()) notFound()
   return <RecoverableErrorFixture />
-}

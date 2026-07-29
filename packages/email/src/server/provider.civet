@@ -107,21 +107,19 @@ const isRetryableProviderError = (error: ResendProviderError): boolean =>
 
 export const createResendEmailPort = (
   options: ResendEmailPortOptions,
-): EmailPort => {
-  if (!options.enabled) {
+): EmailPort =>
+  if (!options.enabled)
     return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
-  }
 
   const apiKey = options.apiKey?.trim()
   const from = options.from?.trim()
-  if (!apiKey || !from) {
+  if (!apiKey || !from)
     return createDisabledEmailPort("EMAIL_PROVIDER_NOT_CONFIGURED")
-  }
 
   const sdkClient = options.client ? undefined : new Resend(apiKey)
   const send = options.client
     ? (message: ResendMessage) => options.client!.emails.send(message)
-    : async (message: ResendMessage) => {
+    : async (message: ResendMessage) =>
         const response = await sdkClient!.emails.send({
           ...message,
           to: [...message.to],
@@ -130,7 +128,6 @@ export const createResendEmailPort = (
           data: response.data,
           error: response.error,
         }
-      }
 
   const deliver = async (
     recipientValue: string,
@@ -139,21 +136,19 @@ export const createResendEmailPort = (
       html: string
       text: string
     }>,
-  ): Promise<EmailDeliveryResult> => {
+  ): Promise<EmailDeliveryResult> =>
     const recipient = normalizeRecipient(recipientValue)
-    if (!recipient) {
+    if (!recipient)
       return resendFailure("EMAIL_RECIPIENT_INVALID", false)
-    }
 
     let rendered
-    try {
+    try
       rendered = await renderEmail()
-    } catch {
+    catch
       return resendFailure("EMAIL_RENDER_FAILED", false)
-    }
 
     let response
-    try {
+    try
       response = await send({
         from,
         to: [recipient],
@@ -161,55 +156,48 @@ export const createResendEmailPort = (
         html: rendered.html,
         text: rendered.text,
       })
-    } catch {
+    catch
       return resendFailure("EMAIL_PROVIDER_UNAVAILABLE", true)
-    }
 
-    if (response.error) {
+    if (response.error)
       const retryable = isRetryableProviderError(response.error)
       return resendFailure(
         retryable ? "EMAIL_PROVIDER_UNAVAILABLE" : "EMAIL_PROVIDER_REJECTED",
         retryable,
       )
-    }
 
-    if (!response.data?.id) {
+    if (!response.data?.id)
       return resendFailure("EMAIL_PROVIDER_INVALID_RESPONSE", false)
-    }
 
     return {
       status: "sent",
       provider: "resend",
       messageId: response.data.id,
     }
-  }
 
   return Object.freeze({
     sendPasswordReset: async (
       input: PasswordResetEmailInput,
-    ): Promise<EmailDeliveryResult> => {
+    ): Promise<EmailDeliveryResult> =>
       const renderEmail = () =>
         renderPasswordResetEmail(input, {
           trustedAppOrigin: options.trustedAppOrigin,
         })
       return await deliver(input.to, renderEmail)
-    },
     sendEmailVerification: async (
       input: EmailVerificationEmailInput,
-    ): Promise<EmailDeliveryResult> => {
+    ): Promise<EmailDeliveryResult> =>
       const renderEmail = () =>
         renderEmailVerificationEmail(input, {
           trustedAppOrigin: options.trustedAppOrigin,
         })
       return await deliver(input.to, renderEmail)
-    },
   })
-}
 
 export const selectEmailPort = (
   options: SelectEmailPortOptions,
-): EmailPort => {
-  if (options.transport === "resend") {
+): EmailPort =>
+  if (options.transport === "resend")
     return createResendEmailPort({
       enabled: true,
       apiKey: options.resendApiKey,
@@ -217,26 +205,22 @@ export const selectEmailPort = (
       trustedAppOrigin: options.trustedAppOrigin,
       client: options.resendClient,
     })
-  }
 
   const isLocal =
     options.environment === "development" || options.environment === "test"
-  if (isLocal && (options.transport === undefined || options.transport === "preview")) {
-    if (options.previewCaptureEndpoint !== undefined) {
-      if (options.previewBinding === undefined) {
+  if (isLocal && (options.transport === undefined || options.transport === "preview"))
+    if (options.previewCaptureEndpoint !== undefined)
+      if (options.previewBinding === undefined)
         throw new Error("Remote preview transport requires a binding")
-      }
       return createRemotePreviewEmailPort({
         environment: options.environment,
         endpoint: options.previewCaptureEndpoint,
         binding: options.previewBinding,
       })
-    }
     if (
       (process.env as { readonly NODE_ENV?: string }).NODE_ENV === "production"
-    ) {
+    )
       return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
-    }
     const previewOptions: PreviewEmailPortOptions = {
       environment: options.environment,
       directory: options.previewDirectory,
@@ -246,10 +230,8 @@ export const selectEmailPort = (
       trustedAppOrigin: options.trustedAppOrigin,
     }
     return createPreviewEmailPort(previewOptions)
-  }
 
   return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
-}
 
 export {
   createPreviewEmailPort,

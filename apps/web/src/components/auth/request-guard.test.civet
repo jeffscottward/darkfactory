@@ -11,13 +11,12 @@ import {
 import { signInRequestController } from "./sign-in-form.civet"
 import { resetPasswordRequestController } from "./reset-password-form.civet"
 
-const deferred = <T>() => {
+const deferred = <T>() =>
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => {
+  const promise = new Promise<T>((next) =>
     resolve = next
-  })
+  )
   return { promise, resolve }
-}
 
 const run = <T>(
   guard: RequestGuard,
@@ -105,9 +104,8 @@ describe "auth request guard", ->
     await expect(
       runGuardedRequest({
         guard,
-        request: async () => {
+        request: async () =>
           throw failure
-        },
         commit,
         settle,
       }),

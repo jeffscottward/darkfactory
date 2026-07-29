@@ -57,36 +57,31 @@ const errorCode = (error: unknown): string | undefined =>
 const removeEmptyOwned = async (
   identity: PathIdentity,
   dependencies: ApplyGenerationDependencies,
-): Promise<boolean> => {
-  try {
+): Promise<boolean> =>
+  try
     if (!await dependencies.hasIdentity(identity)) return false
     await dependencies.rmdir(identity.path)
     return true
-  } catch (error) {
+  catch (error)
     return errorCode(error) === "ENOENT"
-  }
-}
 
 const createSafeParents = async (
   root: string,
   relativeDirectory: string,
   created: PathIdentity[],
   dependencies: ApplyGenerationDependencies,
-): Promise<void> => {
+): Promise<void> =>
   let current = root
-  for (const segment of relativeDirectory.split("/").filter(Boolean)) {
+  for (const segment of relativeDirectory.split("/").filter(Boolean))
     current = join(current, segment)
-    try {
+    try
       await dependencies.mkdir(current)
       created.push(await dependencies.identityAt(current))
-    } catch (error) {
+    catch (error)
       if (errorCode(error) !== "EEXIST") throw error
       const stats = await dependencies.lstat(current)
       if (!stats.isDirectory() || stats.isSymbolicLink())
         throw new GeneratorError("SYMLINK_UNSAFE", "Generated ancestor is not a safe directory")
-    }
-  }
-}
 
 const hashAt = async (path: string): Promise<string> => sha256(await readFile(path, "utf8"))
 
@@ -95,35 +90,30 @@ const rollbackApplied = async (
   applied: readonly AppliedFile[],
   parentChains: ReadonlyMap<string, readonly PathIdentity[]>,
   dependencies: ApplyGenerationDependencies,
-): Promise<boolean> => {
+): Promise<boolean> =>
   let safe = true
-  for (const entry of [...applied].reverse()) {
+  for (const entry of [...applied].reverse())
     const destination = join(plan.targetRoot, ...entry.file.path.split("/"))
-    try {
+    try
       await assertDirectoryChain(parentChains.get(dirname(entry.file.path))!)
       await dependencies.assertNoSymlinkPath(plan.targetRoot, entry.file.path)
-      if (!await dependencies.hasIdentity(entry.destinationIdentity) || !await dependencies.pathExists(destination) || await hashAt(destination) !== entry.file.sha256) {
+      if (!await dependencies.hasIdentity(entry.destinationIdentity) || !await dependencies.pathExists(destination) || await hashAt(destination) !== entry.file.sha256)
         safe = false
         continue
-      }
-      if (entry.file.operation === "create") {
+      if (entry.file.operation === "create")
         await unlink(destination)
-      } else if (entry.backupPath) {
+      else if (entry.backupPath)
         await rename(entry.backupPath, destination)
-      } else {
+      else
         safe = false
-      }
-    } catch (_error) {
+    catch (_error)
       safe = false
-    }
-  }
   return safe
-}
 
 export const applyGenerationPlan = async (
   plan: GenerationPlan,
   options: ApplyGenerationOptions = {},
-): Promise<ApplyResult> => {
+): Promise<ApplyResult> =>
   assertGenerationPlanIntegrity(plan)
   const dependencies: ApplyGenerationDependencies = Object.freeze({
     assertNoSymlinkPath:
@@ -151,41 +141,38 @@ export const applyGenerationPlan = async (
   let failure: unknown
   const tempRoot = await mkdtemp(join(plan.targetRoot, ".generate-feature-"))
 
-  try {
+  try
     tempIdentity = await dependencies.identityAt(tempRoot)
     await chmod(tempRoot, 0o700)
     await dependencies.assertNoSymlinkPath(plan.targetRoot, ".darkfactory/.generate-feature.lock")
     const lockParentIdentities = await captureDirectoryChain(plan.targetRoot, ".darkfactory")
     await assertDirectoryChain(lockParentIdentities)
     const lockPath = join(plan.targetRoot, ".darkfactory/.generate-feature.lock")
-    try {
+    try
       await dependencies.mkdir(lockPath, { mode: 0o700 })
       lockIdentity = await dependencies.identityAt(lockPath)
-    } catch (error) {
+    catch (error)
       if (errorCode(error) === "EEXIST")
         throw new GeneratorError("TARGET_COLLISION", "Feature generation is already in progress")
       throw error
-    }
     const stagedPaths = new Map<string, string>()
     const backupPaths = new Map<string, string>()
 
-    for (const [index, file] of plan.files.entries()) {
+    for (const [index, file] of plan.files.entries())
       await dependencies.assertNoSymlinkPath(plan.targetRoot, file.path)
       const destination = join(plan.targetRoot, ...file.path.split("/"))
-      if (file.operation === "create") {
+      if (file.operation === "create")
         if (await dependencies.pathExists(destination))
           throw new GeneratorError("TARGET_COLLISION", "Feature target collision")
-      } else {
+      else
         if (!await dependencies.pathExists(destination) || await hashAt(destination) !== file.previousSha256)
           throw new GeneratorError("TARGET_COLLISION", "Generated registry changed after planning")
         const backupPath = join(tempRoot, `backup-${index}`)
         await writeFile(backupPath, await readFile(destination, "utf8"), { flag: "wx" })
         backupPaths.set(file.path, backupPath)
-      }
       const stagedPath = join(tempRoot, `staged-${index}`)
       await writeFile(stagedPath, file.content, { encoding: "utf8", flag: "wx" })
       stagedPaths.set(file.path, stagedPath)
-    }
 
     const ownedRoots = [
       plan.containerRoot,
@@ -193,44 +180,40 @@ export const applyGenerationPlan = async (
       `packages/api/src/generated/${plan.names.kebab}`,
       `packages/db/src/generated/${plan.names.kebab}`,
     ].sort()
-    for (const ownedRoot of ownedRoots) {
+    for (const ownedRoot of ownedRoots)
       const parent = dirname(ownedRoot)
       await createSafeParents(plan.targetRoot, parent, createdParents, dependencies)
       const absoluteRoot = join(plan.targetRoot, ...ownedRoot.split("/"))
-      try {
+      try
         await dependencies.mkdir(absoluteRoot)
         createdParents.push(await dependencies.identityAt(absoluteRoot))
-      } catch (error) {
+      catch (error)
         if (errorCode(error) === "EEXIST")
           throw new GeneratorError("TARGET_COLLISION", "Feature-owned directory collision")
         throw error
-      }
-    }
 
     const parents = [...new Set(plan.files.map((file) => dirname(file.path)))].sort()
-    for (const parent of parents) {
+    for (const parent of parents)
       await createSafeParents(plan.targetRoot, parent, createdParents, dependencies)
       parentChains.set(parent, await captureDirectoryChain(plan.targetRoot, parent))
-    }
 
 
     await options.beforePromotion?.()
-    for (const [index, file] of plan.files.entries()) {
+    for (const [index, file] of plan.files.entries())
       await assertDirectoryChain(parentChains.get(dirname(file.path))!)
       await dependencies.assertNoSymlinkPath(plan.targetRoot, file.path)
       const destination = join(plan.targetRoot, ...file.path.split("/"))
       const stagedPath = stagedPaths.get(file.path)!
-      if (file.operation === "create") {
-        await dependencies.link(stagedPath, destination).catch((error: unknown) => {
+      if (file.operation === "create")
+        await dependencies.link(stagedPath, destination).catch((error: unknown) =>
           if (errorCode(error) === "EEXIST")
             throw new GeneratorError("TARGET_COLLISION", "Feature target collision")
           throw error
-        })
-      } else {
+        )
+      else
         if (await hashAt(destination) !== file.previousSha256)
           throw new GeneratorError("TARGET_COLLISION", "Generated registry changed during promotion")
         await rename(stagedPath, destination)
-      }
       const destinationIdentity = await dependencies.identityAt(destination)
       const backupPath = backupPaths.get(file.path)
       applied.push(Object.freeze({
@@ -239,32 +222,29 @@ export const applyGenerationPlan = async (
         ...(backupPath === undefined ? {} : { backupPath }),
       }))
       await options.afterFilePromotion?.(file, index)
-    }
     await options.afterPromotion?.()
     committed = true
-  } catch (error) {
+  catch (error)
     failure = error
     cleanupComplete = await rollbackApplied(plan, applied, parentChains, dependencies) && cleanupComplete
-  } finally {
+  finally
     if (lockIdentity) cleanupComplete = await removeEmptyOwned(lockIdentity, dependencies) && cleanupComplete
-    if (!committed) {
+    if (!committed)
       for (const identity of [...createdParents].reverse())
         cleanupComplete = await removeEmptyOwned(identity, dependencies) && cleanupComplete
-    }
     if (tempIdentity && await dependencies.hasIdentity(tempIdentity))
-      await dependencies.rm(tempRoot, { force: true, recursive: true }).catch(() => { cleanupComplete = false })
+      await dependencies.rm(tempRoot, { force: true, recursive: true }).catch(() =>
+        cleanupComplete = false
+      )
     else cleanupComplete = false
-  }
 
-  if (failure !== undefined) {
+  if (failure !== undefined)
     if (!cleanupComplete)
       throw new GeneratorError("ROLLBACK_UNSAFE", "Rollback cleanup was not safe", { cause: failure })
     throw failure
-  }
 
   return Object.freeze({
     capsulePath: join(plan.targetRoot, ...plan.containerRoot.split("/")),
     promotedFiles: Object.freeze(plan.files.map((file) => file.path)),
     cleanup: cleanupComplete ? "complete" as const : "manual-cleanup-required" as const,
   })
-}

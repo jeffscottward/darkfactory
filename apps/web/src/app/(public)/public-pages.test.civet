@@ -13,12 +13,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Button } from "@darkfactory/ui"
 
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((href: string): never => {
+  redirect: vi.fn((href: string): never =>
     throw new Error(`redirect:${href}`)
-  }),
-  notFound: vi.fn((): never => {
+  ),
+  notFound: vi.fn((): never =>
     throw new Error("not-found")
-  }),
+  ),
 }))
 vi.mock("next/link", () => ({ default: "a" }))
 
@@ -58,27 +58,23 @@ type InteractiveElement = ReactElement<{
   readonly tabIndex?: number
 }>
 
-const findButton = (node: ReactNode): InteractiveElement | undefined => {
+const findButton = (node: ReactNode): InteractiveElement | undefined =>
   if (!isValidElement<InteractiveElement["props"]>(node)) return undefined
   if (node.type === Button) return node
-  for (const child of Children.toArray(node.props.children)) {
+  for (const child of Children.toArray(node.props.children))
     const match = findButton(child)
     if (match !== undefined) return match
-  }
   return undefined
-}
 
 const findFocusableSection = (
   node: ReactNode,
-): InteractiveElement | undefined => {
+): InteractiveElement | undefined =>
   if (!isValidElement<InteractiveElement["props"]>(node)) return undefined
   if (node.type === "section" && node.props.tabIndex === -1) return node
-  for (const child of Children.toArray(node.props.children)) {
+  for (const child of Children.toArray(node.props.children))
     const match = findFocusableSection(child)
     if (match !== undefined) return match
-  }
   return undefined
-}
 
 const publicPages = [
   { route: "/", Page: HomePage },
@@ -109,29 +105,24 @@ const internalDestinations = new Set([
 const headingLevels = (html: string): number[] =>
   [...html.matchAll(/<h([1-6])\b/g)].map((match) => Number(match[1]))
 
-const assertHeadingHierarchy = (html: string): void => {
+const assertHeadingHierarchy = (html: string): void =>
   const levels = headingLevels(html)
   expect(levels[0]).toBe(1)
   expect(levels.filter((level) => level === 1)).toHaveLength(1)
-  for (let index = 1; index < levels.length; index += 1) {
+  for (let index = 1; index < levels.length; index += 1)
     expect(levels[index]).toBeLessThanOrEqual(levels[index - 1]! + 1)
-  }
-}
 
-const assertLinksResolve = (html: string): void => {
+const assertLinksResolve = (html: string): void =>
   const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]))
   const hrefs = [...html.matchAll(/\shref="([^"]+)"/g)].map((match) => match[1]!)
   expect(hrefs.length).toBeGreaterThan(0)
-  for (const href of hrefs) {
-    if (href.startsWith("#")) {
+  for (const href of hrefs)
+    if (href.startsWith("#"))
       expect(ids.has(href.slice(1)), `missing in-page target ${href}`).toBe(true)
-    } else if (href.startsWith("/")) {
+    else if (href.startsWith("/"))
       expect(internalDestinations.has(href), `undeclared internal target ${href}`).toBe(true)
-    } else {
+    else
       expect(href.startsWith("https://github.com/jeffscottward/darkfactory"), `unexpected external target ${href}`).toBe(true)
-    }
-  }
-}
 
 describe "public route identity and semantics", ->
   it "renders a distinct, hierarchical page identity for every non-legal route", ->

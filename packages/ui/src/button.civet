@@ -67,15 +67,12 @@ export const Button = ({
   >
     <span className={cn("inline-flex items-center gap-2", loading && "invisible")}>
       {children}
-    </span>
     {loading ? (
       <>
         <LoaderCircle
           aria-hidden="true"
           className="absolute size-5 animate-spin motion-reduce:animate-none"
         />
-        <span className="sr-only">{loadingLabel}</span>
-      </>
+        <span className="sr-only">{loadingLabel}
     ) : null}
-  </button>
 )

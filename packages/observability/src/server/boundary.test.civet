@@ -43,7 +43,7 @@ describe "observability package boundaries", ->
       "@darkfactory/observability/server/otel",
       "@darkfactory/observability/server/evlog",
       "@darkfactory/observability/server/fanout",
-    ]) {
+    ])
       expect(resolveExport(specifier, ["browser"])).toMatch(
         /\/src\/server\/unsupported\.civet$/
       )
@@ -53,7 +53,6 @@ describe "observability package boundaries", ->
       expect(resolveExport(specifier, ["workerd", "browser"])).toMatch(
         /\/src\/server\/(otel|evlog|fanout)\.civet$/
       )
-    }
 
   it "preserves browser poison in a side-effect-only Vite bundle", ->
     const fixtureDirectory = mkdtempSync(
@@ -116,7 +115,7 @@ describe "observability package boundaries", ->
       "./server/otel",
       "./server/evlog",
       "./server/fanout",
-    ]) {
+    ])
       expect(Object.keys(manifest.exports[subpath] ?? {})).toEqual([
         "types",
         "workerd",
@@ -125,7 +124,6 @@ describe "observability package boundaries", ->
         "import",
         "default",
       ])
-    }
 
   it "executes the browser poison module as a fail-closed boundary", async ->
     await expect(import("./unsupported.civet")).rejects.toThrow(

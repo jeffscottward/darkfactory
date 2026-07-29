@@ -25,8 +25,8 @@ const runWithConditions = (
     { cwd: workspaceRoot, encoding: "utf8" },
   )
 
-describe("analytics package boundaries", () => {
-  it("keeps root and test exports provider-safe", async () => {
+describe("analytics package boundaries", () =>
+  it("keeps root and test exports provider-safe", async () =>
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     )
@@ -42,9 +42,9 @@ describe("analytics package boundaries", () => {
     ])
     expect(rootSource).not.toMatch(forbiddenVendorSurface)
     expect(testSource).not.toMatch(forbiddenVendorSurface)
-  })
+  )
 
-  it("orders real Worker conditions before browser poison and fallbacks", async () => {
+  it("orders real Worker conditions before browser poison and fallbacks", async () =>
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     )
@@ -57,9 +57,9 @@ describe("analytics package boundaries", () => {
       "import",
       "default",
     ])
-  })
+  )
 
-  it("fails closed for browser-only server resolution", async () => {
+  it("fails closed for browser-only server resolution", async () =>
     const poisonSource = await readFile(
       new URL("./server/unsupported.js", import.meta.url),
       "utf8",
@@ -75,11 +75,11 @@ describe("analytics package boundaries", () => {
     expect(result.status).toBe(1)
     expect(output).toContain(browserError)
     expect(output).not.toMatch(/api_key|phc_|POSTHOG_KEY/i)
-  })
+  )
 
   it.each(["workerd", "worker"])(
     "resolves the real module for simultaneous %s and browser conditions",
-    (workerCondition) => {
+    (workerCondition) =>
       const result = runWithConditions(
         `process.stdout.write(import.meta.resolve(${JSON.stringify(serverSpecifier)}))`,
         [workerCondition, "browser"],
@@ -92,10 +92,9 @@ describe("analytics package boundaries", () => {
       expect(result.stdout.replaceAll("\\", "/")).toMatch(
         /\/packages\/analytics\/src\/server\/posthog\.civet$/,
       )
-    },
   )
-  it("executes the browser poison module as a fail-closed boundary", async () => {
+  it("executes the browser poison module as a fail-closed boundary", async () =>
     await expect(import("./server/unsupported.js")).rejects.toThrow(browserError)
-  })
+  )
 
-})
+)

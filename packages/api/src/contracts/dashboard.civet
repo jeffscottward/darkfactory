@@ -30,7 +30,7 @@ export const DASHBOARD_ERRORS = {
 
 export const createDashboardContract = <Schema extends z.ZodType>(
   featureItemSchema: Schema,
-) => {
+) =>
   const DashboardSummarySchema = z.object({
     session: DashboardSessionProjectionSchema,
     featureItems: z.object({
@@ -53,6 +53,5 @@ export const createDashboardContract = <Schema extends z.ZodType>(
   }).input(z.object({}).strict()).output(DashboardSummarySchema)
 
   return { contract: { summary }, schema: DashboardSummarySchema }
-}
 
 export type CapabilityProjection = z.infer<typeof CapabilityProjectionSchema>

@@ -20,43 +20,40 @@ type PreferencesState =
   | Readonly<{ type: "error"; kind: AccountFailureKind }>
   | Readonly<{ type: "ready"; preferences: PreferencesOutput; version: number }>
 
-export const PreferencesPageClient = () => {
+export const PreferencesPageClient = () =>
   const [gateway] = useState(createBrowserAccountGateway)
   const store = useUiStoreApi()
   const [state, setState] = useState<PreferencesState>({ type: "loading" })
   const [feedback, setFeedback] = useState<AccountFeedback | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async () =>
     setFeedback(null)
     setState({ type: "loading" })
-    try {
+    try
       const preferences = await gateway.getPreferences()
       setState({ type: "ready", preferences, version: 0 })
-    } catch (error) {
+    catch error
       setState({ type: "error", kind: accountFailureKind(error) })
-    }
-  }, [gateway])
+  , [gateway])
 
-  useEffect(() => {
+  useEffect(() =>
     void load()
     return undefined
-  }, [load])
+  , [load])
 
-  if (state.type === "loading") {
+  if (state.type === "loading")
     return (
       <div aria-busy="true" aria-live="polite" className="space-y-5" role="status">
-        <span className="sr-only">Loading preferences</span>
+        <span className="sr-only">Loading preferences
         <Skeleton className="h-11 w-full max-w-xl" />
         <Skeleton className="h-40 w-full" />
-      </div>
     )
-  }
-  if (state.type === "error") {
+  if (state.type === "error")
     const action = state.kind === "unauthorized"
-      ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fpreferences">Sign in</a>
+      ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fpreferences">Sign in
       : state.kind === "forbidden" || state.kind === "not-found"
-        ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account</a>
-        : <Button onClick={() => void load()} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again</Button>
+        ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account
+        : <Button onClick={() => void load()} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again
     return (
       <div aria-live="assertive" role="alert">
         <EmptyState
@@ -65,35 +62,29 @@ export const PreferencesPageClient = () => {
           icon={<RotateCcw />}
           title="Preferences unavailable"
         />
-      </div>
     )
-  }
 
-  const save = async (input: PreferencesUpdateInput): Promise<void> => {
+  const save = async (input: PreferencesUpdateInput): Promise<void> =>
     setFeedback(null)
-    try {
+    try
       const preferences = await gateway.updatePreferences(input)
       setState((current) => current.type === "ready"
         ? { type: "ready", preferences, version: current.version + 1 }
         : current)
       setFeedback({ tone: "success", message: "Preferences saved." })
-    } catch (error) {
-      if (accountFailureKind(error) === "conflict") {
-        try {
+    catch error
+      if (accountFailureKind(error) === "conflict")
+        try
           const preferences = await gateway.getPreferences()
           const ui = store.getState()
           if (ui.themeMode !== preferences.themeMode) ui.setThemeMode(preferences.themeMode)
           if (ui.palette !== preferences.palette) ui.setPalette(preferences.palette)
           setState((current) => current.type === "ready" ? { ...current, preferences } : current)
-        } catch (_error) {
+        catch _error
           // The mounted form keeps its unsaved values when reconciliation is unavailable.
-        }
         setFeedback({ tone: "error", message: "Preferences changed elsewhere. Your choices are preserved; review them and save again." })
-      } else {
+      else
         setFeedback({ tone: "error", message: safeAccountFeedback(error) })
-      }
-    }
-  }
 
   return (
     <PreferencesForm
@@ -103,4 +94,3 @@ export const PreferencesPageClient = () => {
       onSave={save}
     />
   )
-}

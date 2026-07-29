@@ -73,18 +73,18 @@ const isNodeError = (error: unknown, code: string): boolean =>
   error instanceof Error && "code" in error && error.code === code
 
 const displayValue = (value: string): string =>
-  value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (character) => {
+  value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (character) =>
     const codePoint = character.codePointAt(0)!
     return codePoint <= 0xffff
       ? `\\u${codePoint.toString(16).padStart(4, "0")}`
       : `\\u{${codePoint.toString(16)}}`
-  })
+  )
 
 const readBoundedRegularFile = async (
   path: string,
   label: string,
   maximumBytes: number,
-): Promise<Readonly<{ size: number; source: string }>> => {
+): Promise<Readonly<{ size: number; source: string }>> =>
   const before = await lstat(path)
   if before.isSymbolicLink() || !before.isFile()
     throw new Error(`${label} must be a regular non-symbolic file`)
@@ -93,7 +93,7 @@ const readBoundedRegularFile = async (
 
   const noFollowFlag = constants.O_NOFOLLOW
   const handle = await open(path, constants.O_RDONLY | noFollowFlag)
-  try {
+  try
     const opened = await handle.stat()
     if !opened.isFile()
       throw new Error(`${label} must be a regular non-symbolic file`)
@@ -102,7 +102,7 @@ const readBoundedRegularFile = async (
 
     const buffer = Buffer.allocUnsafe(maximumBytes + 1)
     let size = 0
-    while (size < buffer.length) {
+    while size < buffer.length
       const result = await handle.read(
         buffer,
         size,
@@ -111,7 +111,6 @@ const readBoundedRegularFile = async (
       )
       if result.bytesRead === 0 then break
       size += result.bytesRead
-    }
     if size > maximumBytes
       throw new Error(`${label} exceeds ${maximumBytes} bytes`)
 
@@ -126,67 +125,59 @@ const readBoundedRegularFile = async (
       size,
       source: buffer.subarray(0, size).toString("utf8"),
     }
-  } finally {
+  finally
     await handle.close()
-  }
-}
 
-const segmentMatches = (pattern: string, value: string): boolean => {
+const segmentMatches = (pattern: string, value: string): boolean =>
   let patternIndex = 0
   let valueIndex = 0
   let starIndex = -1
   let starValueIndex = -1
 
-  while (valueIndex < value.length) {
+  while valueIndex < value.length
     const patternCharacter = pattern[patternIndex]
-    if patternCharacter === "?" || patternCharacter === value[valueIndex] {
+    if patternCharacter === "?" || patternCharacter === value[valueIndex]
       patternIndex += 1
       valueIndex += 1
-    } else if patternCharacter === "*" {
+    else if patternCharacter === "*"
       starIndex = patternIndex
       starValueIndex = valueIndex
       patternIndex += 1
-    } else if starIndex >= 0 {
+    else if starIndex >= 0
       patternIndex = starIndex + 1
       starValueIndex += 1
       valueIndex = starValueIndex
-    } else {
+    else
       return false
-    }
-  }
   while (pattern[patternIndex] === "*") patternIndex += 1
   return patternIndex === pattern.length
-}
 
 const workspacePatternMatches = (
   pattern: WorkspacePattern,
   workspacePath: string,
-): boolean => {
+): boolean =>
   const values = workspacePath.split("/")
   const states = Array.from(
     { length: pattern.segments.length + 1 },
     () => new Uint8Array(values.length + 1),
   )
   states[0]![0] = 1
-  for (let patternIndex = 0; patternIndex < pattern.segments.length; patternIndex += 1) {
+  for (let patternIndex = 0; patternIndex < pattern.segments.length; patternIndex += 1)
     const patternSegment = pattern.segments[patternIndex]!
-    for (let valueIndex = 0; valueIndex <= values.length; valueIndex += 1) {
+    for (let valueIndex = 0; valueIndex <= values.length; valueIndex += 1)
       if states[patternIndex]![valueIndex] === 0 then continue
-      if patternSegment === "**" {
+      if patternSegment === "**"
         states[patternIndex + 1]![valueIndex] = 1
         if valueIndex < values.length
           states[patternIndex]![valueIndex + 1] = 1
-      } else if valueIndex < values.length &&
+      else if valueIndex < values.length &&
         segmentMatches(patternSegment, values[valueIndex]!)
         states[patternIndex + 1]![valueIndex + 1] = 1
-    }
-  }
   return states[pattern.segments.length]![values.length] === 1
-}
 
 const readWorkspacePatterns = async (
   rootDirectory: string,
-): Promise<readonly WorkspacePattern[]> => {
+): Promise<readonly WorkspacePattern[]> =>
   const workspaceConfigPath = join(rootDirectory, "pnpm-workspace.yaml")
   const workspaceConfig = await readBoundedRegularFile(
     workspaceConfigPath,
@@ -197,11 +188,10 @@ const readWorkspacePatterns = async (
   const patterns: WorkspacePattern[] = []
   let readingPackages = false
 
-  for (const line of source.split(/\r?\n/)) {
-    if !readingPackages {
+  for (const line of source.split(/\r?\n/))
+    if !readingPackages
       if /^packages:\s*(?:#.*)?$/.test(line) then readingPackages = true
       continue
-    }
     if /^\S/.test(line) then break
     if /^\s*(?:#.*)?$/.test(line) then continue
 
@@ -235,17 +225,15 @@ const readWorkspacePatterns = async (
       throw new Error(
         `Workspace pattern count exceeds ${MAX_WORKSPACE_PATTERNS}`,
       )
-  }
 
   if patterns.length === 0
     throw new Error("pnpm-workspace.yaml must configure at least one package pattern")
   return patterns
-}
 
 const isWorkspacePath = (
   workspacePath: string,
   patterns: readonly WorkspacePattern[],
-): boolean => {
+): boolean =>
   const included = patterns.some(
     (pattern) => !pattern.excluded && workspacePatternMatches(pattern, workspacePath),
   )
@@ -253,11 +241,10 @@ const isWorkspacePath = (
     (pattern) => pattern.excluded && workspacePatternMatches(pattern, workspacePath),
   )
   return included && !excluded
-}
 
 const readWorkspacePackages = async (
   rootDirectory: string,
-): Promise<readonly WorkspacePackage[]> => {
+): Promise<readonly WorkspacePackage[]> =>
   const patterns = await readWorkspacePatterns(rootDirectory)
   const packages: WorkspacePackage[] = []
   const pending: Array<
@@ -267,7 +254,7 @@ const readWorkspacePackages = async (
   let entryCount = 0
   let totalManifestBytes = 0
 
-  while (pending.length > 0) {
+  while pending.length > 0
     const current = pending.pop()!
     directoryCount += 1
     if directoryCount > MAX_WORKSPACE_DIRECTORIES
@@ -277,14 +264,13 @@ const readWorkspacePackages = async (
 
     const entries: Dirent[] = []
     const directory = await opendir(current.directory)
-    for await (const entry of directory) {
+    for await (const entry of directory)
       entryCount += 1
       if entryCount > MAX_WORKSPACE_ENTRIES
         throw new Error(
           `Workspace directory entries exceed ${MAX_WORKSPACE_ENTRIES}`,
         )
       entries.push(entry)
-    }
     entries.sort((left, right) => compareText(left.name, right.name))
 
     const configuredWorkspace =
@@ -293,7 +279,7 @@ const readWorkspacePackages = async (
     const manifestEntry = entries.find((entry) => entry.name === "package.json")
     const currentIsPackage =
       configuredWorkspace && manifestEntry !== undefined && manifestEntry.isFile()
-    const unsafeSymlink = entries.find((entry) => {
+    const unsafeSymlink = entries.find((entry) =>
       if !entry.isSymbolicLink() || PRUNED_DIRECTORIES.has(entry.name)
         return false
       const candidatePath = current.relativeDirectory.length === 0
@@ -302,7 +288,7 @@ const readWorkspacePackages = async (
       return entry.name === "package.json" ||
         !currentIsPackage ||
         isWorkspacePath(candidatePath, patterns)
-    })
+    )
     if unsafeSymlink !== undefined
       const symlinkPath = current.relativeDirectory.length === 0
         ? unsafeSymlink.name
@@ -311,7 +297,7 @@ const readWorkspacePackages = async (
         `Symbolic links are not allowed during workspace discovery: ${displayValue(symlinkPath)}`,
       )
 
-    if configuredWorkspace && manifestEntry !== undefined {
+    if configuredWorkspace && manifestEntry !== undefined
       if !manifestEntry.isFile()
         throw new Error(
           `Workspace manifest ${displayValue(current.relativeDirectory)}/package.json must be a regular non-symbolic file`,
@@ -354,9 +340,8 @@ const readWorkspacePackages = async (
         throw new Error(
           `Workspace package count exceeds ${MAX_WORKSPACE_PACKAGES}`,
         )
-    }
 
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
+    for (let index = entries.length - 1; index >= 0; index -= 1)
       const entry = entries[index]!
       if !entry.isDirectory() || PRUNED_DIRECTORIES.has(entry.name) then continue
       const childRelativeDirectory = current.relativeDirectory.length === 0
@@ -366,20 +351,17 @@ const readWorkspacePackages = async (
         directory: join(current.directory, entry.name),
         relativeDirectory: childRelativeDirectory,
       })
-    }
-  }
 
-  packages.sort((left, right) => {
+  packages.sort((left, right) =>
     return compareText(left.name, right.name) ||
       compareText(left.relativeDirectory, right.relativeDirectory)
-  })
+  )
 
   const pathsByName = new Map<string, string[]>()
-  for (const workspacePackage of packages) {
+  for (const workspacePackage of packages)
     const paths = pathsByName.get(workspacePackage.name) ?? []
     paths.push(workspacePackage.relativeDirectory)
     pathsByName.set(workspacePackage.name, paths)
-  }
   const duplicateNames = [...pathsByName.entries()]
     .filter(([, paths]) => paths.length > 1)
     .sort(([left], [right]) => compareText(left, right))
@@ -392,11 +374,11 @@ const readWorkspacePackages = async (
     ].join("\n"))
 
   return packages
-}
+
 const collectPackageTargets = (
   workspacePackage: WorkspacePackage,
   budget: AuditBudget,
-): readonly TypeExportTarget[] => {
+): readonly TypeExportTarget[] =>
   const targets: TypeExportTarget[] = []
   const pending: Array<
     Readonly<{
@@ -416,7 +398,7 @@ const collectPackageTargets = (
   let keyCount = 0
   let nodeCount = 0
 
-  while (pending.length > 0) {
+  while pending.length > 0
     const current = pending.pop()!
     nodeCount += 1
     budget.exportNodes += 1
@@ -446,12 +428,12 @@ const collectPackageTargets = (
     keyCount += conditions.length
     if keyCount > MAX_EXPORT_KEYS
       throw new Error(`${manifestLabel} exceed ${MAX_EXPORT_KEYS} keys`)
-    for (let index = conditions.length - 1; index >= 0; index -= 1) {
+    for (let index = conditions.length - 1; index >= 0; index -= 1)
       const [condition, nestedValue] = conditions[index]!
       const nestedSubpath = current.topLevel && condition.startsWith(".")
         ? condition
         : current.subpath
-      if condition === "types" && typeof nestedValue === "string" {
+      if condition === "types" && typeof nestedValue === "string"
         targets.push({
           packageName: workspacePackage.name,
           subpath: nestedSubpath,
@@ -466,25 +448,21 @@ const collectPackageTargets = (
           throw new Error(
             `${manifestLabel} exceed ${MAX_TYPE_TARGETS} type targets`,
           )
-      } else {
+      else
         pending.push({
           depth: current.depth + 1,
           subpath: nestedSubpath,
           topLevel: false,
           value: nestedValue,
         })
-      }
-    }
-  }
 
   return targets
-}
 
 const targetProblemReason = async (
   packageDirectory: string,
   target: string,
   budget: AuditBudget,
-): Promise<string | undefined> => {
+): Promise<string | undefined> =>
   if isAbsolute(target) || win32.isAbsolute(target)
     return "absolute path is not allowed"
   if target.includes("\0") then return "NUL bytes are not allowed"
@@ -502,7 +480,7 @@ const targetProblemReason = async (
 
   const segments = packageRelativePath.split(sep).filter(Boolean)
   let currentPath = packageDirectory
-  for (const [index, segment] of segments.entries()) {
+  for (const [index, segment] of segments.entries())
     currentPath = join(currentPath, segment)
     let metadata
     budget.targetLstats += 1
@@ -525,14 +503,12 @@ const targetProblemReason = async (
         : "missing or not a regular file"
     if !metadata.isDirectory()
       return "missing or not a regular file"
-  }
 
   return "missing or not a regular file"
-}
 
 export const inspectTypeExports = async (
   rootDirectory: string,
-): Promise<TypeExportReport> => {
+): Promise<TypeExportReport> =>
   const workspacePackages = await readWorkspacePackages(resolve(rootDirectory))
   const budget: AuditBudget = {
     exportNodes: 0,
@@ -544,8 +520,8 @@ export const inspectTypeExports = async (
     Readonly<{ directory: string; target: TypeExportTarget }>
   >()
 
-  for (const workspacePackage of workspacePackages) {
-    for (const target of collectPackageTargets(workspacePackage, budget)) {
+  for (const workspacePackage of workspacePackages)
+    for (const target of collectPackageTargets(workspacePackage, budget))
       const key = JSON.stringify([
         workspacePackage.directory,
         target.subpath,
@@ -555,15 +531,13 @@ export const inspectTypeExports = async (
         directory: workspacePackage.directory,
         target,
       })
-    }
-  }
 
   const locatedTargets = [...uniqueTargets.values()].sort((left, right) =>
     compareTargets(left.target, right.target)
   )
   const targets = locatedTargets.map(({ target }) => target)
   const problems: TypeExportProblem[] = []
-  for (const locatedTarget of locatedTargets) {
+  for (const locatedTarget of locatedTargets)
     const reason = await targetProblemReason(
       locatedTarget.directory,
       locatedTarget.target.target,
@@ -571,13 +545,11 @@ export const inspectTypeExports = async (
     )
     if reason !== undefined
       problems.push({ ...locatedTarget.target, reason })
-  }
 
   return {
     targets,
     problems: problems.sort(compareTargets),
   }
-}
 
 export const formatTypeExportProblems = (
   problems: readonly TypeExportProblem[],
@@ -599,12 +571,11 @@ export const formatTypeExportTargets = (
 
 export const auditTypeExports = async (
   rootDirectory: string,
-): Promise<readonly TypeExportTarget[]> => {
+): Promise<readonly TypeExportTarget[]> =>
   const report = await inspectTypeExports(rootDirectory)
   if report.problems.length > 0
     throw new Error(formatTypeExportProblems(report.problems))
   return report.targets
-}
 
 export type TypeExportEntrypointDependencies = Readonly<{
   invokedPath: string | undefined
@@ -619,7 +590,7 @@ export type TypeExportEntrypointDependencies = Readonly<{
 const writeEntrypointFailure = (
   dependencies: TypeExportEntrypointDependencies,
   message: string,
-): void => {
+): void =>
   try
     dependencies.writeError(`${message}\n`)
   catch
@@ -628,11 +599,10 @@ const writeEntrypointFailure = (
     dependencies.exitState.exitCode = 1
   catch
     undefined
-}
 
 export const runTypeExportsEntrypoint = async (
   dependencies: TypeExportEntrypointDependencies,
-): Promise<void> => {
+): Promise<void> =>
   if dependencies.invokedPath === undefined ||
     pathToFileURL(resolve(dependencies.invokedPath)).href !==
       dependencies.moduleUrl
@@ -651,7 +621,6 @@ export const runTypeExportsEntrypoint = async (
     dependencies.writeOutput(`${formatTypeExportTargets(report.targets)}\n`)
   catch
     writeEntrypointFailure(dependencies, "Type export audit failed safely")
-}
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 await runTypeExportsEntrypoint({

@@ -145,25 +145,20 @@ const DEFAULT_DEVELOPMENT_CONTENT: DevelopmentContentSeed = {
 export const convergeDevelopmentContent = async (
   database: DatabaseExecutor,
   content: DevelopmentContentSeed = DEFAULT_DEVELOPMENT_CONTENT,
-): Promise<void> => {
+): Promise<void> =>
   const addresses = createAddressRepository(database)
-  for (const expected of content.addresses) {
+  for (const expected of content.addresses)
     const current = await addresses.findByIdForUser(expected.id!, expected.userId)
-    if (!current) {
+    if (!current)
       await addresses.create(expected)
-    } else if (!matchesAddress(current, expected)) {
+    else if (!matchesAddress(current, expected))
       await addresses.update(addressUpdate(current, expected))
-    }
-  }
 
   const features = createFeatureItemRepository(database)
-  for (const expected of content.featureItems) {
+  for (const expected of content.featureItems)
     const current = await features.findByIdForOwner(expected.id!, expected.ownerId)
     const context = mutationContext(expected.ownerId)
-    if (!current) {
+    if (!current)
       await features.create(expected, context)
-    } else if (!matchesFeatureItem(current, expected)) {
+    else if (!matchesFeatureItem(current, expected))
       await features.update(featureUpdate(expected), context)
-    }
-  }
-}

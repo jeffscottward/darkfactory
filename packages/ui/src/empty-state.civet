@@ -22,7 +22,7 @@ export const EmptyState = ({
   icon,
   title,
   ...props
-}: EmptyStateProps) => {
+}: EmptyStateProps) =>
   const generatedId = useId()
   const titleId = `${generatedId}-title`
   const Heading = `h${headingLevel}` as keyof Pick<
@@ -43,7 +43,6 @@ export const EmptyState = ({
       {icon === undefined ? null : (
         <span aria-hidden="true" className="text-muted-foreground [&_svg]:size-6">
           {icon}
-        </span>
       )}
       <div className="space-y-2">
         <Heading
@@ -51,10 +50,8 @@ export const EmptyState = ({
           className="font-heading text-2xl font-semibold tracking-tight text-foreground"
         >
           {title}
-        </Heading>
-        <p className="max-w-reading text-base leading-6 text-muted-foreground">{description}</p>
-      </div>
-      {action === undefined ? null : <div className="pt-2">{action}</div>}
-    </section>
+        <p className="max-w-reading text-base leading-6 text-muted-foreground">{description}
+      {action === undefined ? null : (
+        <div className="pt-2">{action}
+      )}
   )
-}

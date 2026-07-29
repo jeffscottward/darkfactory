@@ -25,16 +25,15 @@ const importWithConditions = (specifier: string, conditions: readonly string[]) 
 const expectBrowserImportToFailClosed = (
   specifier: string,
   expectedMessage: string,
-): void => {
+): void =>
   const result = importWithConditions(specifier, ["browser"])
   const output = `${result.stdout}\n${result.stderr}`
 
   expect(result.status).toBe(1)
   expect(output).toContain(expectedMessage)
   expect(output).not.toMatch(forbiddenServerDependencies)
-}
 
-const bundleBrowserPoisonModule = (specifier: string) => {
+const bundleBrowserPoisonModule = (specifier: string) =>
   const fixtureSource = [
     `import ${JSON.stringify(specifier)};`,
     "export const marker = true;",
@@ -71,7 +70,6 @@ const bundleBrowserPoisonModule = (specifier: string) => {
     ["--input-type=module", "--eval", script],
     { cwd: webPackageRoot, encoding: "utf8" },
   )
-}
 
 describe "config package boundaries", ->
   it "keeps the root export limited to the dependency-free client module", async ->
@@ -190,7 +188,7 @@ describe "config package boundaries", ->
     expect(poisonSource).not.toMatch(forbiddenServerDependencies)
     expectBrowserImportToFailClosed(specifier, message)
 
-    for (const workerCondition of ["workerd", "worker"]) {
+    for (const workerCondition of ["workerd", "worker"])
       const resolution = spawnSync(
         process.execPath,
         [
@@ -210,7 +208,6 @@ describe "config package boundaries", ->
         resolution.stdout.trim().replaceAll("\\", "/").endsWith(runtimePath),
       ).toBe(true)
       expect(resolution.stderr).toBe("")
-    }
     return undefined
   )
 
@@ -243,6 +240,5 @@ describe "config package boundaries", ->
       },
     ]
 
-    for (const { specifier, message } of poisonModules) {
+    for (const { specifier, message } of poisonModules)
       await expect(import(specifier)).rejects.toThrowError(message)
-    }

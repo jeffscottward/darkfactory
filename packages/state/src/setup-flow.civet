@@ -27,23 +27,23 @@ const setupFlow = setup({
     preferencesAreComplete: ({ context }) => context.preferencesComplete,
   },
   actions: {
-    setDetailsComplete: assign(({ context, event }) => {
+    setDetailsComplete: assign(({ context, event }) =>
       if (event.type !== "SET_DETAILS_COMPLETE") return context
       return { ...context, detailsComplete: event.value }
-    }),
-    setPreferencesComplete: assign(({ context, event }) => {
+    ),
+    setPreferencesComplete: assign(({ context, event }) =>
       if (event.type !== "SET_PREFERENCES_COMPLETE") return context
       return { ...context, preferencesComplete: event.value }
-    }),
+    ),
     prepareSubmission: assign(({ context }) => ({
       ...context,
       submissionAttempts: context.submissionAttempts + 1,
       error: null,
     })),
-    recordFailure: assign(({ context, event }) => {
+    recordFailure: assign(({ context, event }) =>
       if (event.type !== "FAIL") return context
       return { ...context, error: event.message }
-    }),
+    ),
     clearFailure: assign(({ context }) => ({ ...context, error: null })),
   },
 })

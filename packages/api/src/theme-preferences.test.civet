@@ -58,12 +58,12 @@ const themeRepository = (
 ): UserPreferencesRepository => ({
   findByUserId: vi.fn(async () => null),
   findThemeByUserId: vi.fn(async () => null),
-  upsert: vi.fn(async () => {
+  upsert: vi.fn(async () =>
     throw new Error("Legacy full-preference upsert must not be called")
-  }),
-  updateOptimistic: vi.fn(async () => {
+  ),
+  updateOptimistic: vi.fn(async () =>
     throw new Error("Full preference update must not be called")
-  }),
+  ),
   upsertTheme: vi.fn(async (input) => ({
     mode: input.mode,
     colorScheme: input.colorScheme,
@@ -85,8 +85,8 @@ const clientFor = (
   requestSession: SafeAuthSession | null,
   userPreferences: UserPreferencesRepository = themeRepository(),
   semanticEvents?: SemanticEventPort,
-) => {
-  const fetch = async (request: Request): Promise<Response> => {
+) =>
+  const fetch = async (request: Request): Promise<Response> =>
     const context = createApiContext(request, {
       repositories: repositories(userPreferences),
       requestId: "request-theme-1",
@@ -94,61 +94,54 @@ const clientFor = (
         ai: false, emailDelivery: false, analytics: false,
         telemetryExport: false, storage: false, errorTracking: false,
       },
-      requireSession: async () => {
+      requireSession: async () =>
         if (requestSession === null)
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
             401,
           )
         return requestSession
-      },
-      requireRole: async () => {
+      requireRole: async () =>
         if (requestSession === null)
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
             401,
           )
         return requestSession
-      },
       ...(semanticEvents === undefined ? {} : { semanticEvents }),
     })
     return handleApiRequest(request, context)
-  }
 
   return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
-}
 
 const expectError = async (
   promise: Promise<unknown>,
   code: string,
   status: number,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     await promise
     throw new Error("Expected the oRPC call to fail")
-  } catch (error) {
+  catch (error)
     expect(error).toBeInstanceOf(ORPCError)
     expect(error).toMatchObject({ code, status, defined: true })
-  }
-}
 
 const recordingPort = (): Readonly<{
   events: SemanticEvent[]
   port: SemanticEventPort
-}> => {
+}> =>
   const events: SemanticEvent[] = []
   const port: SemanticEventPort = {
-    emit: vi.fn(async (event) => {
+    emit: vi.fn(async (event) =>
       events.push(event)
       return {
         structuredEvent: "emitted" as const,
         span: "skipped" as const,
         analytics: "skipped" as const,
       }
-    }),
+    ),
   }
   return { events, port }
-}
 
 describe "DF-088 theme preference service", ->
   it "maps missing storage to canonical database defaults", async ->
@@ -206,9 +199,9 @@ describe "DF-088 theme preference service", ->
   it "sanitizes expected storage failures", async ->
     const service = createThemePreferenceService(
       themeRepository({
-        findThemeByUserId: vi.fn(async () => {
+        findThemeByUserId: vi.fn(async () =>
           throw new DatabasePersistenceError("private preference query")
-        }),
+        ),
       }),
     )
 
@@ -235,7 +228,9 @@ describe "DF-088 theme preference service", ->
   ] as const)("maps repository failures to the stable $code contract", async ({ failure, code, message }) ->
     const service = createThemePreferenceService(
       themeRepository({
-        upsertTheme: vi.fn(async () => { throw failure }),
+        upsertTheme: vi.fn(async () =>
+          throw failure
+        ),
       }),
     )
 
@@ -257,7 +252,9 @@ describe "DF-088 theme preference service", ->
     )
     const classifiedService = createThemePreferenceService(
       themeRepository({
-        findThemeByUserId: vi.fn(async () => { throw classified }),
+        findThemeByUserId: vi.fn(async () =>
+          throw classified
+        ),
       }),
     )
     await expect(
@@ -267,7 +264,9 @@ describe "DF-088 theme preference service", ->
     const unexpected = new Error("unexpected theme adapter contract violation")
     const unexpectedService = createThemePreferenceService(
       themeRepository({
-        findThemeByUserId: vi.fn(async () => { throw unexpected }),
+        findThemeByUserId: vi.fn(async () =>
+          throw unexpected
+        ),
       }),
     )
     await expect(
@@ -398,9 +397,9 @@ describe "DF-088 authenticated theme preference router", ->
     expect(JSON.stringify(recording.events[0])).not.toContain("dark")
 
   it "emits one sanitized failure event without replaying the update", async ->
-    const upsertTheme = vi.fn(async () => {
+    const upsertTheme = vi.fn(async () =>
       throw new DatabasePersistenceError("private theme values")
-    })
+    )
     const recording = recordingPort()
 
     await expectError(
@@ -433,9 +432,9 @@ describe "DF-088 authenticated theme preference router", ->
       updatedAt: THEME_VERSION,
     }))
     const semanticEvents: SemanticEventPort = {
-      emit: vi.fn(async () => {
+      emit: vi.fn(async () =>
         throw new Error("event provider unavailable")
-      }),
+      ),
     }
 
     await expect(

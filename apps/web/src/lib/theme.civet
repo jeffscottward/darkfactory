@@ -38,22 +38,20 @@ export type ThemeCookieStatus = ThemeCookieParseResult["status"]
 
 export const parseThemeCookieHeader = (
   cookieHeader: unknown,
-): ThemeCookieParseResult => {
-  if (cookieHeader === undefined || cookieHeader === null || cookieHeader === "") {
+): ThemeCookieParseResult =>
+  if (cookieHeader === undefined || cookieHeader === null || cookieHeader === "")
     return { status: "missing" }
-  }
-  if (typeof cookieHeader !== "string" || cookieHeader.length > MAX_COOKIE_HEADER_LENGTH) {
+  if (typeof cookieHeader !== "string" || cookieHeader.length > MAX_COOKIE_HEADER_LENGTH)
     return { status: "invalid" }
-  }
 
   const values = cookieHeader
     .split(";")
     .map((segment) => segment.trim())
-    .filter((segment) => {
+    .filter((segment) =>
       const separatorIndex = segment.indexOf("=")
       const name = separatorIndex === -1 ? segment : segment.slice(0, separatorIndex).trim()
       return name === THEME_COOKIE_NAME
-    })
+    )
 
   if (values.length === 0) return { status: "missing" }
   if (values.length !== 1) return { status: "invalid" }
@@ -67,7 +65,7 @@ export const parseThemeCookieHeader = (
     || encodedValue.length > MAX_THEME_COOKIE_VALUE_LENGTH
   ) return { status: "invalid" }
 
-  try {
+  try
     const [themeMode, palette, extra] = decodeURIComponent(encodedValue).split(":")
     if (
       extra !== undefined
@@ -78,10 +76,8 @@ export const parseThemeCookieHeader = (
       status: "valid",
       preference: { themeMode, palette },
     }
-  } catch {
+  catch
     return { status: "invalid" }
-  }
-}
 
 export const THEME_MODE_LABELS: Readonly<Record<ThemeMode, string>> = Object.freeze({
   light: "Light",

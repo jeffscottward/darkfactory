@@ -40,10 +40,9 @@ describe "authenticated dashboard transport", ->
       const fetchDashboard = createAuthenticatedDashboardFetch(
         cookieHeader,
         "https://darkfactory.localhost",
-        async (request) => {
+        async (request) =>
           forwarded = request
           return new Response("{}")
-        },
       )
 
       await fetchDashboard(new Request(
@@ -120,11 +119,10 @@ describe "authenticated dashboard transport", ->
     let bodyReads = 0
     Object.defineProperty(response, "body", {
       configurable: true,
-      get: () => {
+      get: () =>
         bodyReads += 1
         if (bodyReads === 1) caller.abort("caller cancelled during body acquisition")
         return body
-      },
     })
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
@@ -171,14 +169,13 @@ describe "authenticated dashboard transport", ->
   it "forwards a same-origin request and reconstructs a bounded response", async ->
     let forwarded: Request | undefined
     const encoder = new TextEncoder()
-    const fetcher = vi.fn(async (request: Request) => {
+    const fetcher = vi.fn(async (request: Request) =>
       forwarded = request
       return new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
+        start(controller)
           controller.enqueue(encoder.encode('{"json":'))
           controller.enqueue(encoder.encode('{"total":1}}'))
           controller.close()
-        },
       }), {
         headers: {
           "content-length": "not-declared",
@@ -187,7 +184,7 @@ describe "authenticated dashboard transport", ->
         status: 206,
         statusText: "Partial Content",
       })
-    })
+    )
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=trusted",
       "https://darkfactory.localhost",
@@ -231,7 +228,7 @@ describe "authenticated dashboard transport", ->
       "not a URL",
       "http://darkfactory.localhost",
       "https://darkfactory.localhost/path",
-    ]) {
+    ])
       const fetchDashboard = createAuthenticatedDashboardFetch(
         "better-auth.session_token=opaque",
         trustedOrigin,
@@ -240,19 +237,18 @@ describe "authenticated dashboard transport", ->
       await expect(fetchDashboard(new Request(
         "https://darkfactory.localhost/api/orpc/dashboard/summary",
       ))).rejects.toBeInstanceOf(TypeError)
-    }
     expect(fetcher).not.toHaveBeenCalled()
 
   it "propagates caller cancellation after transport has started", async ->
     const caller = new AbortController()
     const fetcher = vi.fn((request: Request) => new Promise<Response>(
-      (_resolve, reject) => {
+      (_resolve, reject) =>
         request.signal.addEventListener(
           "abort",
           () => reject(request.signal.reason),
           { once: true },
         )
-      },
+        return
     ))
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
@@ -274,9 +270,8 @@ describe "authenticated dashboard transport", ->
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",
-      async () => {
+      async () =>
         throw failure
-      },
     )
 
     await expect(fetchDashboard(new Request(
@@ -284,9 +279,9 @@ describe "authenticated dashboard transport", ->
     ))).rejects.toBe(failure)
 
   it "fails closed when oversized-response cancellation rejects", async ->
-    const declaredCancel = vi.fn(async () => {
+    const declaredCancel = vi.fn(async () =>
       throw new Error("declared cancellation unavailable")
-    })
+    )
     const declaredFetch = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",
@@ -299,16 +294,15 @@ describe "authenticated dashboard transport", ->
     ))).rejects.toThrow("Dashboard response exceeded the safe size limit")
     expect(declaredCancel).toHaveBeenCalledOnce()
 
-    const streamedCancel = vi.fn(async () => {
+    const streamedCancel = vi.fn(async () =>
       throw new Error("stream cancellation unavailable")
-    })
+    )
     const streamedFetch = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",
       async () => new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
+        start(controller)
           controller.enqueue(new Uint8Array(65_537))
-        },
         cancel: streamedCancel,
       })),
     )
@@ -319,16 +313,15 @@ describe "authenticated dashboard transport", ->
 
   it "propagates a primitive streamed-response cancellation failure", async ->
     const failure = "primitive stream cancellation failure"
-    const cancel = vi.fn(async () => {
+    const cancel = vi.fn(async () =>
       throw failure
-    })
+    )
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",
       async () => new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
+        start(controller)
           controller.enqueue(new Uint8Array(65_537))
-        },
         cancel,
       })),
     )
@@ -340,9 +333,9 @@ describe "authenticated dashboard transport", ->
 
   it "absorbs failed deadline cancellation and reports the bounded timeout", async ->
     vi.useFakeTimers()
-    const cancel = vi.fn(async () => {
+    const cancel = vi.fn(async () =>
       throw new Error("deadline cancellation unavailable")
-    })
+    )
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",
@@ -379,17 +372,20 @@ describe "authenticated dashboard transport", ->
 
   it "cancels a response body that arrives only after the deadline aborts", async ->
     vi.useFakeTimers()
-    const cancel = vi.fn(async () => {
+    const cancel = vi.fn(async () =>
       throw new Error("late cancellation unavailable")
-    })
+    )
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",
-      (request) => new Promise<Response>((resolve) => {
-        request.signal.addEventListener("abort", () => {
-          resolve(new Response(new ReadableStream<Uint8Array>({ cancel })))
-        }, { once: true })
-      }),
+      (request) => new Promise<Response>((resolve) =>
+        request.signal.addEventListener(
+          "abort",
+          () => void resolve(new Response(new ReadableStream<Uint8Array>({ cancel }))),
+          { once: true },
+        )
+        return
+      ),
       5,
     )
     const pending = fetchDashboard(new Request(

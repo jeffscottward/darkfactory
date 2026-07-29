@@ -21,7 +21,7 @@ const formatSequence = (sequence: number): string =>
 
 const cloneEnvelope = <Name extends string, Payload extends object>(
   envelope: JobEnvelope<Name, Payload>,
-): JobEnvelope<Name, Payload> => {
+): JobEnvelope<Name, Payload> =>
   const snapshot = snapshotJobPayload(envelope.payload)
   if (snapshot.status === "invalid")
     throw new Error("recorded job payload invariant violated")
@@ -29,11 +29,10 @@ const cloneEnvelope = <Name extends string, Payload extends object>(
     ...envelope,
     payload: snapshot.payload as JobPayload<Payload>,
   })
-}
 
 export const createRecordingJobPort = (
   options: RecordingJobPortOptions = {},
-): RecordingJobPort => {
+): RecordingJobPort =>
   const now = options.now ?? (() => "1970-01-01T00:00:00.000Z")
   const envelopes: JobEnvelope<string, JsonObject>[] = []
   let sequence = 0
@@ -45,7 +44,7 @@ export const createRecordingJobPort = (
   >(
     definition: JobDefinition<Name, Payload, Result>,
     payload: JobPayload<Payload>,
-  ): Promise<JobReceipt<Name, Result>> => {
+  ): Promise<JobReceipt<Name, Result>> =>
     sequence += 1
     const jobId = `recording-job-${formatSequence(sequence)}`
     const jobName = definition.name
@@ -79,11 +78,10 @@ export const createRecordingJobPort = (
       jobName,
       enqueuedAt,
     })
-  }
 
-  const flush = async (): Promise<void> => {}
+  const flush = async (): Promise<void> =>
+    return
   const getEnvelopes = (): readonly JobEnvelope<string, JsonObject>[] =>
     Object.freeze(envelopes.map((envelope) => cloneEnvelope(envelope)))
 
   return Object.freeze({ enqueue, flush, getEnvelopes })
-}

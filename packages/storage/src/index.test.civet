@@ -101,15 +101,13 @@ describe "recording storage adapter", ->
 
   it "copies bytes without invoking a Uint8Array subclass override", async ->
     let sliceCalls = 0
-    class OverriddenBytes extends Uint8Array {
+    class OverriddenBytes extends Uint8Array
       override slice(
         _start?: number,
         _end?: number,
-      ): Uint8Array<ArrayBuffer> {
+      ): Uint8Array<ArrayBuffer>
         sliceCalls += 1
         return this
-      }
-    }
     const input = new OverriddenBytes([4, 5, 6])
     const storage = createRecordingStoragePort()
 
@@ -134,22 +132,18 @@ describe "recording storage adapter", ->
   it "captures every put input property exactly once", async ->
     const reads = { key: 0, body: 0, contentType: 0, checksum: 0 }
     const input: PutObjectInput = {
-      get key() {
+      get key()
         reads.key += 1
         return reads.key === 1 ? "stable" : "changed"
-      },
-      get body() {
+      get body()
         reads.body += 1
         return reads.body === 1 ? bytes(7) : bytes(9, 9)
-      },
-      get contentType() {
+      get contentType()
         reads.contentType += 1
         return reads.contentType === 1 ? "application/test" : "changed"
-      },
-      get checksum() {
+      get checksum()
         reads.checksum += 1
         return reads.checksum === 1 ? "checksum" : "changed"
-      },
     }
     const storage = createRecordingStoragePort()
 

@@ -52,12 +52,9 @@ const matchesPreferences = (
 
 export const convergeDevelopmentPreferences = async (
   database: DatabaseExecutor,
-): Promise<void> => {
+): Promise<void> =>
   const repository = createUserPreferencesRepository(database)
-  for (const preferences of DEVELOPMENT_PREFERENCES) {
+  for (const preferences of DEVELOPMENT_PREFERENCES)
     const current = await repository.findByUserId(preferences.userId)
-    if (!current || !matchesPreferences(current, preferences)) {
+    if (!current || !matchesPreferences(current, preferences))
       await repository.upsert(preferences)
-    }
-  }
-}

@@ -22,17 +22,16 @@ interface PortalNavigationProps {
   readonly mobile?: boolean
 }
 
-const closePortalNavigation = () => {
+const closePortalNavigation = () =>
   const navigation = document.getElementById("portal-navigation")
   const hidePopover = navigation?.hidePopover
   if (typeof hidePopover === "function") hidePopover.call(navigation)
-}
 
 const PortalNavigation = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
   isAdmin = false,
   mobile = false,
-}: PortalNavigationProps) => {
+}: PortalNavigationProps) =>
   const portalItems = PORTAL_NAVIGATION.filter((item) => (
     isRouteExposed(item.href, availableRoutes)
   ))
@@ -48,13 +47,11 @@ const PortalNavigation = ({
     portalItems.length === 0
     && accountItems.length === 0
     && (!isAdmin || adminItems.length === 0)
-  ) {
+  )
     return (
       <p className="px-3 text-sm leading-6 text-muted-foreground" role="status">
         Portal destinations appear as their page implementations become available.
-      </p>
     )
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -62,29 +59,21 @@ const PortalNavigation = ({
         <nav aria-label={mobile ? "Mobile portal navigation" : "Portal navigation"}>
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Workspace
-          </p>
           <NavigationLinks items={portalItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
-        </nav>
       ) : null}
       {accountItems.length > 0 ? (
         <nav aria-label={mobile ? "Mobile account navigation" : "Account navigation"}>
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Account settings
-          </p>
           <NavigationLinks items={accountItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
-        </nav>
       ) : null}
       {isAdmin && adminItems.length > 0 ? (
         <nav aria-label={mobile ? "Mobile administration navigation" : "Administration navigation"}>
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Administration
-          </p>
           <NavigationLinks items={adminItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
-        </nav>
       ) : null}
-    </div>
   )
-}
 
 export const PortalSidebar = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
@@ -93,10 +82,8 @@ export const PortalSidebar = ({
   <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col">
     <div className="flex min-h-16 items-center border-b border-border px-4">
       <BrandLink />
-    </div>
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-6">
       <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} />
-    </div>
     <div className="border-t border-border p-3">
       <a
         className="inline-flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
@@ -104,9 +91,6 @@ export const PortalSidebar = ({
       >
         <ExternalLink aria-hidden="true" className="size-5" />
         View public site
-      </a>
-    </div>
-  </aside>
 )
 
 export const PortalTopbar = ({
@@ -124,7 +108,6 @@ export const PortalTopbar = ({
           variant="ghost"
         >
           <Menu aria-hidden="true" />
-        </IconButton>
         <div
           aria-describedby="portal-navigation-description"
           aria-labelledby="portal-navigation-title"
@@ -137,14 +120,11 @@ export const PortalTopbar = ({
             <div>
               <h2 className="text-lg font-semibold" id="portal-navigation-title">
                 Portal navigation
-              </h2>
               <p
                 className="mt-1 text-sm leading-6 text-muted-foreground"
                 id="portal-navigation-description"
               >
                 Open portal and account destinations.
-              </p>
-            </div>
             <IconButton
               aria-label="Close portal navigation"
               autoFocus
@@ -153,20 +133,12 @@ export const PortalTopbar = ({
               variant="ghost"
             >
               <X aria-hidden="true" />
-            </IconButton>
-          </div>
           <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} mobile />
-        </div>
         <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
           Application portal
-        </span>
-      </div>
       <div className="flex items-center gap-1">
         <ThemeMenu />
         <SignOutAction />
-      </div>
-    </div>
-  </header>
 )
 
 export interface PortalShellProps {
@@ -190,7 +162,4 @@ export const PortalShell = ({
         tabIndex={-1}
       >
         {children}
-      </main>
-    </div>
-  </div>
 )

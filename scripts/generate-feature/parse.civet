@@ -5,28 +5,25 @@ const SUPPORTED_OPTIONS = new Set(["--dry-run", "--json"])
 
 export const parseGeneratorArguments = (
   arguments_: readonly string[],
-): GeneratorArguments => {
+): GeneratorArguments =>
   const options = arguments_.filter((argument) => argument.startsWith("--"))
   const names = arguments_.filter((argument) => !argument.startsWith("--"))
 
-  if (arguments_.some((argument) => /[\u0000-\u001f\u007f]/.test(argument))) {
+  if (arguments_.some((argument) => /[\u0000-\u001f\u007f]/.test(argument)))
     throw new GeneratorError("ARGUMENTS_INVALID", "Generator arguments are invalid")
-  }
   const hasUnknown = options.some((option) => !SUPPORTED_OPTIONS.has(option))
   if (
     hasUnknown ||
     new Set(options).size !== options.length ||
     names.length !== 1
-  ) {
+  )
     throw new GeneratorError(
       "ARGUMENTS_INVALID",
       "Usage: pnpm generate:feature <name> [--dry-run] [--json]",
     )
-  }
 
   return Object.freeze({
     name: names[0]!,
     dryRun: options.includes("--dry-run"),
     json: options.includes("--json"),
   })
-}

@@ -3,7 +3,7 @@ import type { ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const hookRuntime = vi.hoisted(() => {
+const hookRuntime = vi.hoisted(() =>
   type Effect = () => void | (() => void)
   type DependencySlot<Value> = Readonly<{
     deps: readonly unknown[] | undefined
@@ -34,23 +34,20 @@ const hookRuntime = vi.hoisted(() => {
   )
 
   return {
-    begin: (): void => {
+    begin: (): void =>
       stateCursor = 0
       callbackCursor = 0
       effectCursor = 0
       pendingEffects.length = 0
-    },
-    commit: (): void => {
-      for (const pending of pendingEffects.splice(0)) {
+    commit: (): void =>
+      for (const pending of pendingEffects.splice(0))
         effectSlots[pending.index]?.value?.()
         const cleanup = pending.effect()
         effectSlots[pending.index] = {
           deps: pending.deps,
           value: typeof cleanup === "function" ? cleanup : undefined,
         }
-      }
-    },
-    reset: (): void => {
+    reset: (): void =>
       for (const slot of effectSlots) slot.value?.()
       stateSlots.length = 0
       callbackSlots.length = 0
@@ -59,26 +56,21 @@ const hookRuntime = vi.hoisted(() => {
       stateCursor = 0
       callbackCursor = 0
       effectCursor = 0
-    },
-    useCallback: <Callback>(callback: Callback, deps?: readonly unknown[]): Callback => {
+    useCallback: <Callback>(callback: Callback, deps?: readonly unknown[]): Callback =>
       const index = callbackCursor++
       const previous = callbackSlots[index]
-      if (previous !== undefined && !dependenciesChanged(previous.deps, deps)) {
+      if (previous !== undefined && !dependenciesChanged(previous.deps, deps))
         return previous.value as Callback
-      }
       callbackSlots[index] = { deps, value: callback }
       return callback
-    },
-    useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+    useEffect: (effect: Effect, deps?: readonly unknown[]): void =>
       const index = effectCursor++
       const previous = effectSlots[index]
-      if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
+      if (previous === undefined || dependenciesChanged(previous.deps, deps))
         pendingEffects.push({ deps, effect, index })
-      }
-    },
     useState: <Value>(
       initializer: Value | (() => Value),
-    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] =>
       const index = stateCursor++
       stateSlots[index] ??= {
         value: typeof initializer === "function"
@@ -88,20 +80,18 @@ const hookRuntime = vi.hoisted(() => {
       const slot = stateSlots[index]!
       return [
         slot.value as Value,
-        (next) => {
+        (next) =>
           slot.value = typeof next === "function"
             ? (next as (current: Value) => Value)(slot.value as Value)
             : next
-        },
       ]
-    },
   }
-})
+)
 
 const apiClientRuntime = vi.hoisted(() => ({ create: vi.fn() }))
 const gatewayRuntime = vi.hoisted(() => ({ current: null as unknown }))
 
-vi.mock("react", async (importOriginal) => {
+vi.mock("react", async (importOriginal) =>
   const actual = await importOriginal<typeof import("react")>()
   return {
     ...actual,
@@ -109,17 +99,17 @@ vi.mock("react", async (importOriginal) => {
     useEffect: hookRuntime.useEffect,
     useState: hookRuntime.useState,
   }
-})
+)
 
-vi.mock("@darkfactory/api", async (importOriginal) => {
+vi.mock("@darkfactory/api", async (importOriginal) =>
   const actual = await importOriginal<typeof import("@darkfactory/api")>()
   return {
     ...actual,
     createApiClient: apiClientRuntime.create,
   }
-})
+)
 
-vi.mock("./admin-users-client.civet", async (importOriginal) => {
+vi.mock("./admin-users-client.civet", async (importOriginal) =>
   const actual = await importOriginal<typeof import("./admin-users-client.civet")>()
   return {
     ...actual,
@@ -129,7 +119,7 @@ vi.mock("./admin-users-client.civet", async (importOriginal) => {
         : gatewayRuntime.current as never
     ),
   }
-})
+)
 
 import {
   adminFailureKind,
@@ -199,71 +189,61 @@ interface ElementRecord {
   readonly type: unknown
 }
 
-const textOf = (node: unknown): string => {
+const textOf = (node: unknown): string =>
   if (typeof node === "string" || typeof node === "number") return String(node)
   if (Array.isArray(node)) return node.map(textOf).join("")
   if (typeof node !== "object" || node === null) return ""
   const props = Reflect.get(node, "props")
   if (typeof props !== "object" || props === null) return ""
   return textOf(Reflect.get(props, "children"))
-}
 
 const findElement = (
   tree: unknown,
   predicate: (element: ElementRecord) => boolean,
-): ElementRecord | undefined => {
+): ElementRecord | undefined =>
   const seen = new WeakSet<object>()
-  const visit = (node: unknown): ElementRecord | undefined => {
-    if (Array.isArray(node)) {
-      for (const child of node) {
+  const visit = (node: unknown): ElementRecord | undefined =>
+    if (Array.isArray(node))
+      for (const child of node)
         const found = visit(child)
         if (found !== undefined) return found
-      }
       return undefined
-    }
     if (typeof node !== "object" || node === null || seen.has(node)) return undefined
     seen.add(node)
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return undefined
     const element = node as ElementRecord
     if (predicate(element)) return element
-    for (const value of Object.values(element.props)) {
+    for (const value of Object.values(element.props))
       const found = visit(value)
       if (found !== undefined) return found
-    }
     return undefined
-  }
   return visit(tree)
-}
 
-const component = (tree: unknown, type: unknown): ElementRecord => {
+const component = (tree: unknown, type: unknown): ElementRecord =>
   const element = findElement(tree, (candidate) => candidate.type === type)
   expect(element, "Expected rendered component").toBeDefined()
   return element!
-}
 
-const controlByText = (tree: unknown, label: string): ElementRecord => {
+const controlByText = (tree: unknown, label: string): ElementRecord =>
   const control = findElement(tree, (candidate) => (
     typeof candidate.props["onClick"] === "function"
     && textOf(candidate).replace(/\s+/gu, " ").trim() === label
   ))
   expect(control, `Expected control named ${label}`).toBeDefined()
   return control!
-}
 
-const invoke = <Result>(element: ElementRecord, name: string, value?: unknown): Result => {
+const invoke = <Result>(element: ElementRecord, name: string, value?: unknown): Result =>
   const callback = element.props[name]
   if (typeof callback !== "function") throw new Error(`Expected ${name} callback.`)
   return (callback as (argument?: unknown) => Result)(value)
-}
 
 const mount = (renderComponent: () => ReactElement) => ({
-  render: (): ReactElement => {
+  render: (): ReactElement =>
     hookRuntime.begin()
     const tree = renderComponent()
     hookRuntime.commit()
     return tree
-  },
 })
 
 const flushMicrotasks = async (): Promise<void> ->
@@ -272,23 +252,20 @@ const flushMicrotasks = async (): Promise<void> ->
   await Promise.resolve()
   await Promise.resolve()
 
-const deferred = <Value>() => {
-  let resolvePromise = (_value: Value): void => {
+const deferred = <Value>() =>
+  let resolvePromise = (_value: Value): void =>
     throw new Error("Deferred promise was not initialized.")
-  }
-  let rejectPromise = (_reason: unknown): void => {
+  let rejectPromise = (_reason: unknown): void =>
     throw new Error("Deferred promise was not initialized.")
-  }
-  const promise = new Promise<Value>((resolve, reject) => {
+  const promise = new Promise<Value>((resolve, reject) =>
     resolvePromise = resolve
     rejectPromise = reject
-  })
+  )
   return { promise, reject: rejectPromise, resolve: resolvePromise }
-}
 
 const renderSearchForm = (
   props: Parameters<typeof AdminUsersDirectory>[0],
-): ReactElement => {
+): ReactElement =>
   const tree = AdminUsersDirectory(props)
   const searchForm = findElement(tree, (candidate) => (
     typeof candidate.type === "function"
@@ -297,7 +274,6 @@ const renderSearchForm = (
   expect(searchForm, "Expected search form component").toBeDefined()
   const render = searchForm!.type as (input: Record<string, unknown>) => ReactElement
   return render(searchForm!.props)
-}
 
 const directoryState = (tree: unknown): AdminUsersDirectoryState =>
   component(tree, AdminUsersDirectory).props["state"] as AdminUsersDirectoryState
@@ -381,9 +357,8 @@ describe "admin user directory states", ->
   it "submits the directory query and tolerates an omitted search callback", ->
     let submittedValue: string | null = "  Alice Adams  "
     const getValue = vi.fn((_name: string): string | null => submittedValue)
-    class StubFormData {
+    class StubFormData
       readonly get = getValue
-    }
     vi.stubGlobal("FormData", StubFormData)
     const onSearch = vi.fn()
     const form = renderSearchForm({

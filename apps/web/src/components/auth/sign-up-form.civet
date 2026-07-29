@@ -23,7 +23,7 @@ const firstError = (errors: readonly unknown[]): string | undefined =>
 
 export const SignUpForm = ({
   auth = browserAuthClient,
-}: Readonly<{ auth?: AuthFlowClient }>) => {
+}: Readonly<{ auth?: AuthFlowClient }>) =>
   const [result, setResult] = useState<AuthFlowResult | null>(null)
   const [isPending, setIsPending] = useState(false)
   const form = useForm({
@@ -33,35 +33,32 @@ export const SignUpForm = ({
       password: "",
       confirmPassword: "",
     },
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }) =>
       setResult(null)
       setIsPending(true)
-      try {
+      try
         const nextResult = await submitSignUp(auth, {
           name: value.name,
           email: value.email,
           password: value.password,
         })
         setResult(nextResult)
-      } finally {
+      finally
         setIsPending(false)
-      }
-    },
   })
 
   return (
     <form
       className="grid gap-6"
       noValidate
-      onSubmit={(event) => {
+      onSubmit={(event) =>
         event.preventDefault()
         const formElement = event.currentTarget
-        void form.handleSubmit().then(() => {
-          if (!form.state.isValid) {
+        void form.handleSubmit().then(() =>
+          if (!form.state.isValid)
             formElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
-          }
-        })
-      }}
+        )
+      }
     >
       <form.Field
         name="name"
@@ -70,14 +67,14 @@ export const SignUpForm = ({
           onSubmit: ({ value }) => validateName(value),
         }}
       >
-        {(field) => {
+        {(field) =>
           const error = field.state.meta.isTouched
             ? firstError(field.state.meta.errors)
             : undefined
           const errorId = error ? "sign-up-name-error" : undefined
           return (
             <div className="grid gap-2">
-              <Label htmlFor="sign-up-name">Name</Label>
+              <Label htmlFor="sign-up-name">Name
               <Input
                 aria-describedby={errorId}
                 aria-invalid={error ? true : undefined}
@@ -88,10 +85,10 @@ export const SignUpForm = ({
                 id="sign-up-name"
                 name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(event) => {
+                onChange={(event) =>
                   setResult(null)
                   field.handleChange(event.target.value)
-                }}
+                }
                 type="text"
                 required
                 value={field.state.value}
@@ -99,12 +96,9 @@ export const SignUpForm = ({
               {error ? (
                 <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
                   {error}
-                </p>
               ) : null}
-            </div>
           )
-        }}
-      </form.Field>
+        }
 
       <form.Field
         name="email"
@@ -113,14 +107,14 @@ export const SignUpForm = ({
           onSubmit: ({ value }) => validateEmail(value),
         }}
       >
-        {(field) => {
+        {(field) =>
           const error = field.state.meta.isTouched
             ? firstError(field.state.meta.errors)
             : undefined
           const errorId = error ? "sign-up-email-error" : undefined
           return (
             <div className="grid gap-2">
-              <Label htmlFor="sign-up-email">Email address</Label>
+              <Label htmlFor="sign-up-email">Email address
               <Input
                 aria-describedby={errorId}
                 aria-invalid={error ? true : undefined}
@@ -132,10 +126,10 @@ export const SignUpForm = ({
                 inputMode="email"
                 name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(event) => {
+                onChange={(event) =>
                   setResult(null)
                   field.handleChange(event.target.value)
-                }}
+                }
                 type="email"
                 required
                 value={field.state.value}
@@ -143,12 +137,9 @@ export const SignUpForm = ({
               {error ? (
                 <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
                   {error}
-                </p>
               ) : null}
-            </div>
           )
-        }}
-      </form.Field>
+        }
 
       <form.Field
         name="password"
@@ -171,24 +162,21 @@ export const SignUpForm = ({
             label="Password"
             name={field.name}
             onBlur={field.handleBlur}
-            onChange={(event) => {
+            onChange={(event) =>
               setResult(null)
               field.handleChange(event.target.value)
-            }}
+            }
             value={field.state.value}
           />
         )}
-      </form.Field>
 
       <form.Field
         name="confirmPassword"
         validators={{
-          onChange: ({ value }) => {
+          onChange: ({ value }) =>
             return validatePasswordConfirmation(value, form.state.values.password)
-          },
-          onSubmit: ({ value }) => {
+          onSubmit: ({ value }) =>
             return validatePasswordConfirmation(value, form.state.values.password)
-          },
         }}
       >
         {(field) => (
@@ -204,19 +192,17 @@ export const SignUpForm = ({
             label="Confirm password"
             name={field.name}
             onBlur={field.handleBlur}
-            onChange={(event) => {
+            onChange={(event) =>
               setResult(null)
               field.handleChange(event.target.value)
-            }}
+            }
             value={field.state.value}
           />
         )}
-      </form.Field>
 
       <p className="text-sm leading-6 text-muted-foreground">
         We will send a verification link before you can sign in. The response
         does not disclose whether an address already has an account.
-      </p>
 
       <FormStatus result={result} />
 
@@ -228,9 +214,7 @@ export const SignUpForm = ({
             type="submit"
           >
             {isSubmitting || isPending ? "Creating account…" : "Create account"}
-          </Button>
         )}
-      </form.Subscribe>
 
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
@@ -239,8 +223,4 @@ export const SignUpForm = ({
           href="/sign-in"
         >
           Sign in
-        </Link>
-      </p>
-    </form>
   )
-}

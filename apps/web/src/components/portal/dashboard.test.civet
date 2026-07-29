@@ -102,7 +102,7 @@ describe "DashboardContent", ->
     for (const summaryState of [
       { type: "error" },
       { type: "unauthorized" },
-    ] as const) {
+    ] as const)
       const html = renderToStaticMarkup(
         <DashboardContent summaryState={summaryState} />,
       )
@@ -115,7 +115,6 @@ describe "DashboardContent", ->
       expect(html).not.toContain("Administrator access")
       expect(html).not.toContain("Session authority")
       expect(html).not.toContain("Verified by Better Auth")
-    }
 
   it "renders honest empty data without inventing an unavailable metric", ->
     const emptyHtml = renderToStaticMarkup(

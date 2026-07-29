@@ -53,17 +53,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const hasExactKeys = (
   value: Record<string, unknown>,
   keys: readonly string[],
-): boolean => {
+): boolean =>
   const actualKeys = Object.keys(value)
   return actualKeys.length === keys.length && keys.every(
     (key) => Object.prototype.hasOwnProperty.call(value, key),
   )
-}
 
 const isSidebarState = (value: unknown): value is SidebarState =>
   value === "expanded" || value === "collapsed"
 
-const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null => {
+const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null =>
   let snapshotValue: Record<string, unknown>
   if isRecord(value) && hasExactKeys(value, snapshotKeys)
     snapshotValue = value
@@ -97,20 +96,17 @@ const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null => {
       consent,
     },
   }
-}
 
 export const parseUiStateSnapshot = (
   serializedSnapshot: unknown,
-): UiStateSnapshot | null => {
+): UiStateSnapshot | null =>
   if typeof serializedSnapshot !== "string" return null
   if serializedSnapshot.length > MAX_UI_STATE_SNAPSHOT_LENGTH return null
 
-  try {
+  try
     return parseJsonSnapshot(JSON.parse(serializedSnapshot) as unknown)
-  } catch {
+  catch
     return null
-  }
-}
 
 const copyPreferences = (
   preferences: Readonly<UiPreferences>,
@@ -124,9 +120,8 @@ const copyPreferences = (
 
 export const createUiStore = (): UiStore => createStore<UiState>()((set, get) => ({
   ...copyPreferences(DEFAULT_UI_PREFERENCES),
-  setSidebar: (sidebar) => {
+  setSidebar: (sidebar) =>
     if (isSidebarState(sidebar)) set({ sidebar })
-  },
   toggleSidebar: () => set((state) => ({
     sidebar: state.sidebar === "expanded" ? "collapsed" : "expanded",
   })),
@@ -136,24 +131,20 @@ export const createUiStore = (): UiStore => createStore<UiState>()((set, get) =>
     else
       return
   closeMobileNavigation: () => set({ mobileNavigationOpen: false }),
-  setThemeMode: (themeMode) => {
+  setThemeMode: (themeMode) =>
     if (isThemeMode(themeMode)) set({ themeMode })
-  },
-  setPalette: (palette) => {
+  setPalette: (palette) =>
     if (isPalette(palette)) set({ palette })
-  },
-  setConsent: (consent) => {
+  setConsent: (consent) =>
     if (isConsentState(consent)) set({ consent })
-  },
   reset: () => set(copyPreferences(DEFAULT_UI_PREFERENCES)),
-  hydrate: (serializedSnapshot) => {
+  hydrate: (serializedSnapshot) =>
     const snapshot = parseUiStateSnapshot(serializedSnapshot)
     if snapshot === null
       return false
     else
       set(copyPreferences(snapshot.state))
       return true
-  },
   dehydrate: () => ({
     version: UI_STATE_VERSION,
     state: copyPreferences(get()),

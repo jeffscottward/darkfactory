@@ -14,53 +14,47 @@ const commandOptions = Object.freeze({
   env: process.env,
 })
 
-const reservePort = async (): Promise<number> => {
+const reservePort = async (): Promise<number> =>
   const server = createServer()
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) =>
     server.once("error", reject)
     server.listen(0, "127.0.0.1", resolve)
-  })
+  )
   const port = (server.address() as AddressInfo).port
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) =>
     server.close((error) => error === undefined ? resolve() : reject(error))
-  })
+  )
   return port
-}
 
 const portAcceptsConnections = async (port: number): Promise<boolean> =>
-  new Promise((resolve) => {
+  new Promise((resolve) =>
     const socket = createConnection({ host: "127.0.0.1", port })
     let settled = false
-    const finish = (connected: boolean): void => {
+    const finish = (connected: boolean): void =>
       if (settled) return
       settled = true
       socket.destroy()
       resolve(connected)
-    }
     socket.setTimeout(100, () => finish(false))
     socket.once("connect", () => finish(true))
     socket.once("error", () => finish(false))
-  })
+  )
 
-const waitForListeningPort = async (port: number): Promise<void> => {
+const waitForListeningPort = async (port: number): Promise<void> =>
   const deadline = Date.now() + 3_000
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline)
     if (await portAcceptsConnections(port)) return
     await new Promise((resolve) => setTimeout(resolve, 10))
-  }
   throw new Error("Timed out waiting for descendant TCP fixture")
-}
-const waitForFileContents = async (path: string): Promise<string> => {
+const waitForFileContents = async (path: string): Promise<string> =>
   const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline)
     const contents = await readFile(path, "utf8").catch(() => undefined)
     if (contents !== undefined) return contents
     await new Promise((resolve) => setTimeout(resolve, 10))
-  }
   throw new Error("Timed out waiting for escaped descendant write")
-}
 
-const processTreeScript = (port: number, overflow: boolean): string => {
+const processTreeScript = (port: number, overflow: boolean): string =>
   const descendant = `
     import { createServer } from "node:net";
     const server = createServer();
@@ -83,22 +77,20 @@ const processTreeScript = (port: number, overflow: boolean): string => {
     });
     setInterval(() => undefined, 1000);
   `
-}
 
 const expectPortStoppedWithoutTreeProof = async (
   result: Awaited<ReturnType<typeof runOwnedCommand>>,
   port: number,
-): Promise<void> => {
+): Promise<void> =>
   expect(result).toMatchObject({
     exitCode: 1,
     reason: "termination-unproven",
     treeTerminated: false,
   })
   expect(await portAcceptsConnections(port)).toBe(false)
-}
 
-describe("owned E2E command lifecycle", () => {
-  it("captures bounded output and proves the completed process tree is dead", async () => {
+describe("owned E2E command lifecycle", () =>
+  it("captures bounded output and proves the completed process tree is dead", async () =>
     const result = await runOwnedCommand(
       process.execPath,
       ["-e", "process.stdout.write('ready'); process.stderr.write('notice')"],
@@ -112,9 +104,9 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: true,
       reason: "completed",
     })
-  })
+  )
 
-  it("drains scanner output inherited by a short-lived command wrapper", async () => {
+  it("drains scanner output inherited by a short-lived command wrapper", async () =>
     const scannerReport = JSON.stringify({
       kind: "darkfactory-artifact-scanner-report",
       version: 1,
@@ -166,9 +158,9 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: true,
       reason: "completed",
     })
-  })
+  )
 
-  it("survives completed Playwright-like and scanner-like detached process groups", async () => {
+  it("survives completed Playwright-like and scanner-like detached process groups", async () =>
     const parentPid = process.pid
     const completed = await runOwnedCommand(
       process.execPath,
@@ -213,9 +205,9 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: true,
     })
     expect(afterScan).toBe(true)
-  })
+  )
 
-  it("loads auth, database, and testkit modules through the exact Civet loader", async () => {
+  it("loads auth, database, and testkit modules through the exact Civet loader", async () =>
     const result = await runOwnedCommand(
       process.execPath,
       [
@@ -244,9 +236,9 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: true,
     })
     expect(result.stderr).not.toMatch(/Error|ERR_|Cannot find|failed/iu)
-  }, 30_000)
+  , 30_000)
 
-  it("kills a listening descendant when output exceeds its bound", async () => {
+  it("kills a listening descendant when output exceeds its bound", async () =>
     const port = await reservePort()
     const resultPromise = runOwnedCommand(
       process.execPath,
@@ -258,9 +250,9 @@ describe("owned E2E command lifecycle", () => {
 
     expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(256)
     await expectPortStoppedWithoutTreeProof(result, port)
-  })
+  )
 
-  it("kills a listening descendant at the command deadline", async () => {
+  it("kills a listening descendant at the command deadline", async () =>
     const port = await reservePort()
     const resultPromise = runOwnedCommand(
       process.execPath,
@@ -269,15 +261,14 @@ describe("owned E2E command lifecycle", () => {
     )
     await waitForListeningPort(port)
     await expectPortStoppedWithoutTreeProof(await resultPromise, port)
-  })
+  )
 
-  it("bounds cancellation and withholds proof while an escaped descendant writes later", async () => {
+  it("bounds cancellation and withholds proof while an escaped descendant writes later", async () =>
     const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
-      off: (name, listener) => {
+      off: (name, listener) =>
         if (listeners.get(name) === listener) listeners.delete(name)
-      },
     }
     const fixtureRoot = await mkdtemp(join(tmpdir(), "darkfactory-process-"))
     const markerPath = join(fixtureRoot, "escaped-writer.txt")
@@ -318,11 +309,10 @@ describe("owned E2E command lifecycle", () => {
     const holderPid = Number(
       /^holder-pid=(\d+)$/mu.exec(result.stdout)?.[1],
     )
-    try {
+    try
       expect(holderPid).toBeGreaterThan(0)
-      if (process.platform !== "win32") {
+      if (process.platform !== "win32")
         expect(() => process.kill(holderPid, 0)).not.toThrow()
-      }
       expect(result).toMatchObject({
         exitCode: 1,
         reason: "termination-unproven",
@@ -330,29 +320,24 @@ describe("owned E2E command lifecycle", () => {
       })
       expect(elapsedMillis).toBeLessThan(600)
       expect(listeners.size).toBe(0)
-      if (process.platform !== "win32") {
+      if (process.platform !== "win32")
         expect(await waitForFileContents(markerPath)).toBe("escaped-writer")
-      }
-    } finally {
-      if (Number.isSafeInteger(holderPid) && holderPid > 0) {
-        try {
+    finally
+      if (Number.isSafeInteger(holderPid) && holderPid > 0)
+        try
           process.kill(holderPid, "SIGKILL")
-        } catch {
+        catch
           // The bounded fixture may have already reached its safety exit.
-        }
-      }
       await rm(fixtureRoot, { force: true, recursive: true })
-    }
-  })
+  )
 
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    it(`kills a listening descendant and unregisters handlers after ${signal}`, async () => {
+  for (const signal of ["SIGINT", "SIGTERM"] as const)
+    it(`kills a listening descendant and unregisters handlers after ${signal}`, async () =>
       const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
       const signals: ProcessSignals = {
         on: (name, listener) => listeners.set(name, listener),
-        off: (name, listener) => {
+        off: (name, listener) =>
           if (listeners.get(name) === listener) listeners.delete(name)
-        },
       }
       const port = await reservePort()
       const resultPromise = runOwnedCommand(
@@ -364,18 +349,15 @@ describe("owned E2E command lifecycle", () => {
       listeners.get(signal)?.()
       await expectPortStoppedWithoutTreeProof(await resultPromise, port)
       expect(listeners.size).toBe(0)
-    })
-  }
-  it("cannot miss an immediate termination-unproven signal before awaiting exit", async () => {
+    )
+  it("cannot miss an immediate termination-unproven signal before awaiting exit", async () =>
     const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
     const signals: ProcessSignals = {
-      on: (name, listener) => {
+      on: (name, listener) =>
         listeners.set(name, listener)
         if (name === "SIGINT") listener()
-      },
-      off: (name, listener) => {
+      off: (name, listener) =>
         if (listeners.get(name) === listener) listeners.delete(name)
-      },
     }
     const result = await runOwnedCommand(
       process.execPath,
@@ -394,15 +376,14 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: false,
     })
     expect(listeners.size).toBe(0)
-  })
+  )
 
-  it("returns a distinct fail-closed result and detaches listeners when death is unproven", async () => {
+  it("returns a distinct fail-closed result and detaches listeners when death is unproven", async () =>
     const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
-      off: (name, listener) => {
+      off: (name, listener) =>
         if (listeners.get(name) === listener) listeners.delete(name)
-      },
     }
     const result = await runOwnedCommand(
       process.execPath,
@@ -421,9 +402,9 @@ describe("owned E2E command lifecycle", () => {
       treeTerminated: false,
     })
     expect(listeners.size).toBe(0)
-  })
+  )
 
-})
+)
 
 type FakeOwnedChild = EventEmitter & Readonly<{
   pid: number
@@ -440,7 +421,7 @@ const fakeOwnedChild = (): FakeOwnedChild => Object.assign(new EventEmitter(), {
 const loadFakeCommandRunner = async (
   child: FakeOwnedChild,
   terminateOwnedProcessTree = vi.fn(async () => undefined),
-) => {
+) =>
   vi.resetModules()
   const spawnOwnedProcess = vi.fn(() => child)
   vi.doMock("./owned-process-tree.civet", () => ({
@@ -449,26 +430,24 @@ const loadFakeCommandRunner = async (
   }))
   const { runOwnedCommand: runFakeCommand } = await import("./process.civet")
   return { runFakeCommand, spawnOwnedProcess, terminateOwnedProcessTree }
-}
 
-describe("owned command event fakes", () => {
-  afterEach(() => {
+describe("owned command event fakes", () =>
+  afterEach(() =>
     vi.useRealTimers()
     vi.doUnmock("./owned-process-tree.civet")
     vi.resetModules()
     vi.restoreAllMocks()
-  })
+  )
 
-  it("uses exit as the close fallback and releases every child stream listener", async () => {
+  it("uses exit as the close fallback and releases every child stream listener", async () =>
     const child = fakeOwnedChild()
     const { runFakeCommand, spawnOwnedProcess, terminateOwnedProcessTree } =
       await loadFakeCommandRunner(child)
     const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
-      off: (name, listener) => {
+      off: (name, listener) =>
         if (listeners.get(name) === listener) listeners.delete(name)
-      },
     }
 
     const execution = runFakeCommand("trusted-command", ["--safe"], {
@@ -500,9 +479,9 @@ describe("owned command event fakes", () => {
     expect(child.listenerCount("error")).toBe(0)
     expect(child.listenerCount("exit")).toBe(0)
     expect(child.listenerCount("close")).toBe(0)
-  })
+  )
 
-  it("fails closed without PID cleanup after a Windows direct child closes", async () => {
+  it("fails closed without PID cleanup after a Windows direct child closes", async () =>
     vi.spyOn(process, "platform", "get").mockReturnValue("win32")
     const child = fakeOwnedChild()
     const { runFakeCommand, terminateOwnedProcessTree } =
@@ -522,9 +501,9 @@ describe("owned command event fakes", () => {
       reason: "termination-unproven",
     })
     expect(terminateOwnedProcessTree).not.toHaveBeenCalled()
-  })
+  )
 
-  it("withholds proof after an unclosed child error and accepts an observed close", async () => {
+  it("withholds proof after an unclosed child error and accepts an observed close", async () =>
     const erroredChild = fakeOwnedChild()
     const errored = await loadFakeCommandRunner(erroredChild)
     const failed = errored.runFakeCommand("missing-command", [], {
@@ -551,17 +530,16 @@ describe("owned command event fakes", () => {
       reason: "completed",
       treeTerminated: true,
     })
-  })
+  )
 
-  it("shares termination and withholds proof after output overflow", async () => {
+  it("shares termination and withholds proof after output overflow", async () =>
     const child = fakeOwnedChild()
     const { runFakeCommand } = await loadFakeCommandRunner(child)
     const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
-      off: (name, listener) => {
+      off: (name, listener) =>
         if (listeners.get(name) === listener) listeners.delete(name)
-      },
     }
     const terminateTree = vi.fn(async () => true)
 
@@ -585,9 +563,9 @@ describe("owned command event fakes", () => {
     })
     expect(terminateTree).toHaveBeenCalledOnce()
     expect(listeners.size).toBe(0)
-  })
+  )
 
-  it("settles a timeout through fake timers without waiting for a real process", async () => {
+  it("settles a timeout through fake timers without waiting for a real process", async () =>
     vi.useFakeTimers()
     const child = fakeOwnedChild()
     const { runFakeCommand } = await loadFakeCommandRunner(child)
@@ -608,13 +586,13 @@ describe("owned command event fakes", () => {
       treeTerminated: false,
     })
     expect(terminateTree).toHaveBeenCalledOnce()
-  })
+  )
 
-  it("fails closed when default and in-flight termination promises reject", async () => {
+  it("fails closed when default and in-flight termination promises reject", async () =>
     const completedChild = fakeOwnedChild()
-    const terminateOwnedProcessTree = vi.fn(async () => {
+    const terminateOwnedProcessTree = vi.fn(async () =>
       throw new Error("private termination failure")
-    })
+    )
     const completed = await loadFakeCommandRunner(
       completedChild,
       terminateOwnedProcessTree,
@@ -637,9 +615,8 @@ describe("owned command event fakes", () => {
       cwd: "/workspace",
       env: {},
       maxOutputBytes: 1,
-      terminateTree: async () => {
+      terminateTree: async () =>
         throw new Error("private stop failure")
-      },
     })
     overflowingChild.stderr.emit("data", "too much")
     await expect(overflow).resolves.toMatchObject({
@@ -647,5 +624,5 @@ describe("owned command event fakes", () => {
       reason: "termination-unproven",
       treeTerminated: false,
     })
-  })
-})
+  )
+)

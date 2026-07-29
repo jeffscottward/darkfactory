@@ -24,15 +24,13 @@ export type FeatureServiceErrorCode =
   | "VALIDATION_ERROR"
   | "STORAGE_ERROR"
 
-export class FeatureServiceError extends Error {
+export class FeatureServiceError extends Error
   readonly code: FeatureServiceErrorCode
 
-  constructor(code: FeatureServiceErrorCode, message: string) {
+  constructor(code: FeatureServiceErrorCode, message: string)
     super(message)
     this.name = "FeatureServiceError"
     this.code = code
-  }
-}
 
 export type OwnerScopeInput = Readonly<{
   ownerId?: string | undefined
@@ -84,7 +82,7 @@ export type FeatureItemService = Readonly<{
   ) => Promise<FeatureItem>
 }>
 
-const ownerFor = (principal: SafePrincipal, requestedOwnerId?: string): string => {
+const ownerFor = (principal: SafePrincipal, requestedOwnerId?: string): string =>
   if (
     requestedOwnerId !== undefined &&
     requestedOwnerId !== principal.userId &&
@@ -96,9 +94,8 @@ const ownerFor = (principal: SafePrincipal, requestedOwnerId?: string): string =
     )
 
   return requestedOwnerId ?? principal.userId
-}
 
-const mapRepositoryError = (error: unknown): never => {
+const mapRepositoryError = (error: unknown): never =>
   if (error instanceof FeatureServiceError) throw error
   if (error instanceof InvalidRepositoryInputError)
     throw new FeatureServiceError("VALIDATION_ERROR", error.message)
@@ -110,21 +107,17 @@ const mapRepositoryError = (error: unknown): never => {
       "Feature item storage is unavailable",
     )
   throw error
-}
 
-const runRepository = async <T>(operation: () => Promise<T>): Promise<T> => {
-  try {
+const runRepository = async <T>(operation: () => Promise<T>): Promise<T> =>
+  try
     return await operation()
-  } catch (error) {
+  catch (error)
     return mapRepositoryError(error)
-  }
-}
 
-const requireItem = (item: FeatureItem | null): FeatureItem => {
+const requireItem = (item: FeatureItem | null): FeatureItem =>
   if (item === null)
     throw new FeatureServiceError("NOT_FOUND", "Feature item not found")
   return item
-}
 
 const ALLOWED_STATUS_TRANSITIONS: Readonly<
   Record<FeatureItemStatus, readonly FeatureItemStatus[]>
@@ -137,7 +130,7 @@ const ALLOWED_STATUS_TRANSITIONS: Readonly<
 export const createFeatureItemService = (
   repository: FeatureItemRepository,
 ): FeatureItemService => ({
-  list: async (principal, input) => {
+  list: async (principal, input) =>
     const ownerId = ownerFor(principal, input.ownerId)
     if (
       input.query === undefined &&
@@ -149,19 +142,17 @@ export const createFeatureItemService = (
       ...(input.status === undefined ? {} : { status: input.status }),
       ...(input.limit === undefined ? {} : { limit: input.limit }),
     }))
-  },
 
-  get: async (principal, input) => {
+  get: async (principal, input) =>
     const ownerId = ownerFor(principal, input.ownerId)
-    const found = await runRepository(() => {
+    const found = await runRepository(() =>
       return repository.findByIdForOwner(input.id, ownerId)
-    })
+    )
     return requireItem(found)
-  },
 
-  create: async (principal, input, requestId) => {
+  create: async (principal, input, requestId) =>
     const ownerId = ownerFor(principal, input.ownerId)
-    return runRepository(() => {
+    return runRepository(() =>
       return repository.create(
         {
           ownerId,
@@ -171,12 +162,11 @@ export const createFeatureItemService = (
         },
         { actorUserId: principal.userId, requestId },
       )
-    })
-  },
+    )
 
-  update: async (principal, input, requestId) => {
+  update: async (principal, input, requestId) =>
     const ownerId = ownerFor(principal, input.ownerId)
-    const updated = await runRepository(() => {
+    const updated = await runRepository(() =>
       return repository.update(
         {
           id: input.id,
@@ -189,16 +179,15 @@ export const createFeatureItemService = (
         },
         { actorUserId: principal.userId, requestId },
       )
-    })
+    )
     return requireItem(updated)
-  },
 
-  changeStatus: async (principal, input, requestId) => {
+  changeStatus: async (principal, input, requestId) =>
     const ownerId = ownerFor(principal, input.ownerId)
     const current = requireItem(
-      await runRepository(() => {
+      await runRepository(() =>
         return repository.findByIdForOwner(input.id, ownerId)
-      }),
+      ),
     )
     if (!ALLOWED_STATUS_TRANSITIONS[current.status].includes(input.status))
       throw new FeatureServiceError(
@@ -206,33 +195,31 @@ export const createFeatureItemService = (
         `Cannot change feature item status from ${current.status} to ${input.status}`,
       )
 
-    const updated = await runRepository(() => {
+    const updated = await runRepository(() =>
       return repository.update(
         { id: input.id, ownerId, status: input.status },
         { actorUserId: principal.userId, requestId },
       )
-    })
+    )
     return requireItem(updated)
-  },
 
-  archive: async (principal, input, requestId) => {
+  archive: async (principal, input, requestId) =>
     const ownerId = ownerFor(principal, input.ownerId)
     const current = requireItem(
-      await runRepository(() => {
+      await runRepository(() =>
         return repository.findByIdForOwner(input.id, ownerId)
-      }),
+      ),
     )
     if (current.status === "archived")
       throw new FeatureServiceError("CONFLICT", "Feature item is already archived")
 
-    const archived = await runRepository(() => {
+    const archived = await runRepository(() =>
       return repository.archive(input.id, ownerId, {
         actorUserId: principal.userId,
         requestId,
       })
-    })
+    )
     return requireItem(archived)
-  },
 })
 
 export type ThemePreferenceServiceErrorCode =
@@ -240,15 +227,13 @@ export type ThemePreferenceServiceErrorCode =
   | "VALIDATION_ERROR"
   | "STORAGE_ERROR"
 
-export class ThemePreferenceServiceError extends Error {
+export class ThemePreferenceServiceError extends Error
   readonly code: ThemePreferenceServiceErrorCode
 
-  constructor(code: ThemePreferenceServiceErrorCode, message: string) {
+  constructor(code: ThemePreferenceServiceErrorCode, message: string)
     super(message)
     this.name = "ThemePreferenceServiceError"
     this.code = code
-  }
-}
 
 export type ThemePreferenceService = Readonly<{
   get: (principal: SafePrincipal) => Promise<ThemePreferenceOutput>
@@ -272,7 +257,7 @@ const toThemePreferenceOutput = (
   updatedAt: preference.updatedAt,
 })
 
-const mapThemeRepositoryError = (error: unknown): never => {
+const mapThemeRepositoryError = (error: unknown): never =>
   if (error instanceof ThemePreferenceServiceError) throw error
   if (error instanceof InvalidRepositoryInputError)
     throw new ThemePreferenceServiceError(
@@ -290,31 +275,27 @@ const mapThemeRepositoryError = (error: unknown): never => {
       "Theme preference storage is unavailable",
     )
   throw error
-}
 
 const runThemeRepository = async <T>(
   operation: () => Promise<T>,
-): Promise<T> => {
-  try {
+): Promise<T> =>
+  try
     return await operation()
-  } catch (error) {
+  catch (error)
     return mapThemeRepositoryError(error)
-  }
-}
 
 export const createThemePreferenceService = (
   repository: UserPreferencesRepository,
 ): ThemePreferenceService => ({
-  get: async (principal) => {
+  get: async (principal) =>
     const operation = (): Promise<UserThemePreference | null> =>
       repository.findThemeByUserId(principal.userId)
     const preference = await runThemeRepository(operation)
     return preference === null
       ? DEFAULT_THEME_PREFERENCE
       : toThemePreferenceOutput(preference)
-  },
 
-  update: async (principal, input) => {
+  update: async (principal, input) =>
     const operation = (): Promise<UserThemePreference> =>
       repository.upsertTheme({
         userId: principal.userId,
@@ -323,5 +304,4 @@ export const createThemePreferenceService = (
         expectedUpdatedAt: input.expectedUpdatedAt,
       })
     return toThemePreferenceOutput(await runThemeRepository(operation))
-  },
 })

@@ -14,7 +14,6 @@ export const BrandMark = ({ className, ...props }: ComponentPropsWithRef<"svg">)
       d="M5 5h10v10H5V5Zm12 0h10v22H17V5ZM5 17h10v10H5V17Z"
       fill="currentColor"
     />
-  </svg>
 )
 
 export const BrandLink = ({ className }: { readonly className?: string }) => (
@@ -26,6 +25,5 @@ export const BrandLink = ({ className }: { readonly className?: string }) => (
     href="/"
   >
     <BrandMark />
-    <span>DarkFactory</span>
-  </a>
+    <span>DarkFactory
 )

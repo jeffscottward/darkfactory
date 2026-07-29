@@ -57,29 +57,27 @@ const agentFriendlyAssessment = JSON.parse(
 }
 const projectRoot = fileURLToPath(new URL("../..", import.meta.url))
 const execFileAsync = promisify(execFile)
-const isIgnored = async (path: string): Promise<boolean> => {
-  try {
+const isIgnored = async (path: string): Promise<boolean> =>
+  try
     await execFileAsync("git", ["check-ignore", "--no-index", "--quiet", path], {
       cwd: projectRoot,
     })
     return true
-  } catch (error) {
+  catch (error)
     if ((error as { code?: number }).code === 1) return false
     throw error
-  }
-}
 const turboConfig = JSON.parse(
   await readFile(new URL("../../turbo.json", import.meta.url), "utf8"),
 ) as { globalDependencies: string[]; tasks: Record<string, { passThroughEnv?: string[] }> }
 const vitestConfig = await readFile(new URL("../../vitest.config.ts", import.meta.url), "utf8")
 const packageUnitScripts = await Promise.all(
-  ["ai", "analytics", "api", "db", "ui"].map(async (name) => {
+  ["ai", "analytics", "api", "db", "ui"].map(async (name) =>
     const manifest = JSON.parse(await readFile(
       new URL(`../../packages/${name}/package.json`, import.meta.url),
       "utf8",
     )) as { scripts: Record<string, string> }
     return [name, manifest.scripts["test:unit"]] as const
-  }),
+  ),
 )
 const EXPECTED_DEV_ENV = [
   "HOST",
@@ -99,6 +97,7 @@ const EXPECTED_LANES = {
     "lint",
     "auth:schema:check",
     "openapi:check",
+    "civet:style:check",
     "typecheck",
     "build",
     "test:unit",
@@ -112,17 +111,17 @@ const EXPECTED_LANES = {
   "verify:browser": ["test:e2e", "test:a11y"],
 } as const
 
-describe("DF-101/106 lifecycle contract", () => {
-  it("keeps Claude policy byte-identical to the canonical agent policy", async () => {
+describe("DF-101/106 lifecycle contract", () =>
+  it("keeps Claude policy byte-identical to the canonical agent policy", async () =>
     const [agentsPolicy, claudePolicy] = await Promise.all([
       readFile(new URL("../../AGENTS.md", import.meta.url)),
       readFile(new URL("../../CLAUDE.md", import.meta.url)),
     ])
 
     expect(claudePolicy.equals(agentsPolicy)).toBe(true)
-  })
+  )
 
-  it("pins the hybrid runtime without giving Bun package-manager ownership", async () => {
+  it("pins the hybrid runtime without giving Bun package-manager ownership", async () =>
     expect(bunVersion.trim()).toBe("1.3.14")
     expect(nodeVersion.trim()).toBe("22.13.1")
     expect(rootPackage).toMatchObject({
@@ -141,9 +140,9 @@ describe("DF-101/106 lifecycle contract", () => {
     await expect(access(new URL("../../bun.lockb", import.meta.url))).rejects.toMatchObject({
       code: "ENOENT",
     })
-  })
+  )
 
-  it("keeps Bun orchestration while isolating measured Node compatibility exceptions", () => {
+  it("keeps Bun orchestration while isolating measured Node compatibility exceptions", () =>
     const rootScripts = Object.values(rootPackage.scripts)
     expect(rootPackage.scripts["dev:https"]).toBe(
       "bun --preload @danielx/civet/bun-civet scripts/dev.civet start",
@@ -162,11 +161,9 @@ describe("DF-101/106 lifecycle contract", () => {
     )
     expect(rootScripts.some((script) => /(?:^|&& )civet\b/u.test(script))).toBe(false)
     expect(rootScripts.some((script) => /(?:^|&& )(?:vitest|turbo|tsc|biome|husky)\b/u.test(script))).toBe(false)
-    for (const script of rootScripts) {
-      if (script.includes("vitest")) {
+    for (const script of rootScripts)
+      if (script.includes("vitest"))
         expect(script).toMatch(/(?:^|&& )corepack pnpm exec vitest /u)
-      }
-    }
     expect(rootPackage.scripts["deploy:web"]).toBe(
       "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
     )
@@ -199,26 +196,23 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(byName.get("@darkfactory/db")?.scripts?.["db:generate"]).toBe(
       "bun run db:schema && bunx --bun --no-install drizzle-kit generate --config drizzle.config.ts",
     )
-    for (const manifest of packageManifests) {
-      for (const script of Object.values(manifest.scripts ?? {})) {
-        if (script.includes("vitest")) {
+    for (const manifest of packageManifests)
+      for (const script of Object.values(manifest.scripts ?? {}))
+        if (script.includes("vitest"))
           expect(script).toMatch(/(?:^|&& )corepack pnpm exec vitest /u)
-        }
         expect(script).not.toMatch(/(?:^|&& )pnpm run\b/u)
         expect(script).not.toMatch(/(?:^|&& )(?:civet|vitest|vinext|drizzle-kit)\b/u)
-      }
-    }
-  })
+  )
 
-  it("uses Bun for hooks and setup entrypoints", () => {
+  it("uses Bun for hooks and setup entrypoints", () =>
     const hookCommand =
       "exec bun --preload @danielx/civet/bun-civet scripts/hooks/"
     expect(preCommitHook).toContain(`${hookCommand}pre-commit.civet`)
     expect(prePushHook).toContain(`${hookCommand}pre-push.civet`)
     expect(makefile).toMatch(/setup:\n\tsh scripts\/install-prerequisites\.sh/u)
-  })
+  )
 
-  it("exposes every required root command while preserving API aliases", () => {
+  it("exposes every required root command while preserving API aliases", () =>
     for (const name of [
       "test:contract",
       "test:operations",
@@ -233,13 +227,13 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["openapi:check"]).toContain("api:openapi:check")
     expect(rootPackage.scripts["api:openapi:generate"]).toContain("@darkfactory/api")
     expect(rootPackage.scripts["api:openapi:check"]).toContain("@darkfactory/api")
-  })
+  )
 
-  it("forwards only non-secret development process controls", () => {
+  it("forwards only non-secret development process controls", () =>
     expect(turboConfig.tasks.dev?.passThroughEnv).toEqual(EXPECTED_DEV_ENV)
-  })
+  )
 
-  it("composes the complete lifecycle from exact, unique verification lanes", () => {
+  it("composes the complete lifecycle from exact, unique verification lanes", () =>
     const laneNames = Object.keys(EXPECTED_LANES)
     expect(rootPackage.scripts.ci).toBe("bun run verify")
     expect(turboConfig.globalDependencies).toContain("package.json")
@@ -247,9 +241,8 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["test:unit"]).toBe(
       "bunx --no-install turbo run test:unit --concurrency=50%",
     )
-    for (const scriptName of ["dev", "build", "types", "typecheck", "test:unit"]) {
+    for (const scriptName of ["dev", "build", "types", "typecheck", "test:unit"])
       expect(rootPackage.scripts[scriptName]).not.toContain("bunx --bun --no-install turbo")
-    }
     expect(rootPackage.scripts["test:contract"]).toContain("--project contract")
     expect(rootPackage.scripts["test:operations"]).toContain("--project operations")
     expect(rootPackage.scripts["test:operations"]).toContain("--project e2e-helpers")
@@ -265,16 +258,14 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(vitestConfig).toContain('"playwright.config.test.ts"')
     expect(vitestConfig).toContain('"tests/e2e/helpers/*.test.civet"')
     expect(vitestConfig).toContain('"tests/e2e/helpers/*.test.ts"')
-    for (const [, script] of packageUnitScripts) {
+    for (const [, script] of packageUnitScripts)
       expect(script).toContain('--exclude "**/*contract.test.civet"')
-    }
 
     const leafScripts: string[] = []
-    for (const [lane, expectedScripts] of Object.entries(EXPECTED_LANES)) {
+    for (const [lane, expectedScripts] of Object.entries(EXPECTED_LANES))
       const observed = runScriptNames(rootPackage.scripts[lane])
       expect(observed).toEqual(expectedScripts)
       leafScripts.push(...observed)
-    }
     expect(new Set(leafScripts).size).toBe(leafScripts.length)
     expect(rootPackage.scripts["test:e2e"]).toBe(
       "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet e2e",
@@ -282,9 +273,9 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(rootPackage.scripts["test:a11y"]).toBe(
       "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet a11y",
     )
-  })
+  )
 
-  it("allowlists exactly the authored coverage sources while ignoring generated output", async () => {
+  it("allowlists exactly the authored coverage sources while ignoring generated output", async () =>
     const authoredCoverageFiles = [
       "scripts/coverage/cli.civet",
       "scripts/coverage/coverage.civet",
@@ -315,16 +306,15 @@ describe("DF-101/106 lifecycle contract", () => {
     await expect(Promise.all(ignoredCoveragePaths.map(isIgnored))).resolves.toEqual(
       ignoredCoveragePaths.map(() => true),
     )
-  })
+  )
 
-  it("runs isolated CI lanes concurrently while preserving only verified browser evidence", () => {
-    const workflowStep = (name: string): string => {
+  it("runs isolated CI lanes concurrently while preserving only verified browser evidence", () =>
+    const workflowStep = (name: string): string =>
       const header = `      - name: ${name}\n`
       expect(workflow.split(header)).toHaveLength(2)
       const start = workflow.indexOf(header)
       const next = workflow.indexOf("\n      - ", start + header.length)
       workflow.slice(start, next === -1 ? undefined : next)
-    }
     const proxyStart = workflowStep("Start local HTTPS proxy without system trust")
     const proxyReadiness = workflowStep("Verify local HTTPS proxy readiness")
     const proxyTrust = workflowStep("Trust portless CA in Chromium")
@@ -338,7 +328,7 @@ describe("DF-101/106 lifecycle contract", () => {
     const postgresCleanup = workflowStep("Stop PostgreSQL integration service")
     const graphIdentityFields =
       '["graphifyVersion", "configDigest", "sourceFingerprint", "sourceFileCount"]'
-    const expectOwnedPortlessSignals = (step: string): void => {
+    const expectOwnedPortlessSignals = (step: string): void =>
       expect(step).toContain("owns_portless_process_group() {")
       expect(step).toContain(
         '[[ "$owner" =~ ^darkfactory-ci-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]',
@@ -364,7 +354,6 @@ describe("DF-101/106 lifecycle contract", () => {
       expect(step).toContain('kill -KILL -- "-$portless_pid"')
       expect(step).not.toContain('kill -TERM "$portless_pid"')
       expect(step).not.toContain('kill -KILL "$portless_pid"')
-    }
     expect(rootPackage.devDependencies["@axe-core/playwright"]).toBe("catalog:")
     expect(workspace).toContain('"@axe-core/playwright": 4.12.1')
     expect(workflow).toContain("matrix:")
@@ -810,12 +799,11 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(workflow).toMatch(/Stop PostgreSQL integration service\n\s+if: \(matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'\) && always\(\)/)
     expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1)
     expect(workflow).toContain("persist-credentials: false")
-    for (const action of workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g)) {
+    for (const action of workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g))
       expect(action[1]).toMatch(/^[0-9a-f]{40}$/)
-    }
-  })
+  )
 
-  it("presents the exact health badge set without a separate Scorecard score", () => {
+  it("presents the exact health badge set without a separate Scorecard score", () =>
     const healthTable = readme.match(
       /\| Category \| Status \|\n\| --- \| --- \|\n(?<rows>(?:\|.*\|\n){3})/,
     )?.groups?.rows
@@ -844,9 +832,9 @@ describe("DF-101/106 lifecycle contract", () => {
     expect(readme).toContain(
       "they are not a production-readiness, deployment, coverage-completeness, or security certification",
     )
-  })
+  )
 
-  it("links a truthful versioned Agent Friendly score to exact evidence", () => {
+  it("links a truthful versioned Agent Friendly score to exact evidence", () =>
     expect(readme).toContain(
       "[![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-0acd6c2.json)",
     )
@@ -862,17 +850,17 @@ describe("DF-101/106 lifecycle contract", () => {
       worktreeClean: true,
       result: { overall: 98.7, warnings: [] },
     })
-  })
+  )
 
-  it("executes the exact core lane through the pre-push runner", () => {
+  it("executes the exact core lane through the pre-push runner", () =>
     const calls: string[][] = []
-    const exitCode = runPrePush((scripts) => {
+    const exitCode = runPrePush((scripts) =>
       calls.push([...scripts])
       return 17
-    })
+    )
 
     expect(exitCode).toBe(17)
     expect(PRE_PUSH_SCRIPTS).toEqual(["verify:core"])
     expect(calls).toEqual([["verify:core"]])
-  })
-})
+  )
+)

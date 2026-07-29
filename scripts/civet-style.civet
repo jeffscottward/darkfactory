@@ -1,0 +1,543 @@
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
+import { promisify } from "node:util"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+export type CivetStyleViolation = Readonly<{
+  file: string
+  line: number
+  message: string
+}>
+
+export type CivetStyleReport = Readonly<{
+  files: readonly string[]
+  violations: readonly CivetStyleViolation[]
+}>
+
+export type GitRunner = (
+  command: string,
+  arguments_: readonly string[],
+  options: Readonly<{ cwd: string }>,
+) => Promise<Readonly<{ stdout: string }>>
+
+export type CivetStyleDependencies = Readonly<{
+  discoverFiles: (root: string) => Promise<readonly string[]>
+  readSource: (root: string, file: string) => Promise<string>
+}>
+
+export type CivetStyleStreams = Readonly<{
+  writeOutput: (value: string) => void
+  writeError: (value: string) => void
+}>
+
+type Token = Readonly<{
+  text: string
+  index: number
+  line: number
+}>
+
+const STRUCTURAL_MESSAGE = "structural brace block is forbidden; use Civet indentation"
+const JSX_MESSAGE = "JSX closing tag is forbidden; use Civet indentation"
+const MAX_GIT_OUTPUT_BYTES = 16 * 1024 * 1024
+const execFileAsync = promisify(execFile)
+
+const compareText = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0
+
+const compareViolations = (
+  left: CivetStyleViolation,
+  right: CivetStyleViolation,
+): number =>
+  compareText(left.file, right.file) ||
+  left.line - right.line ||
+  compareText(left.message, right.message)
+
+const isIdentifierStart = (character: string | undefined): boolean =>
+  character !== undefined && /[A-Za-z_$]/u.test(character)
+
+const isIdentifierPart = (character: string | undefined): boolean =>
+  character !== undefined && /[A-Za-z0-9_$]/u.test(character)
+
+const regexCanFollow = (previous: Token | undefined): boolean =>
+  previous === undefined ||
+  [
+    "(", "[", "{", ",", ";", ":", "=", "=>", "!", "?", "&&", "||", "??",
+    "return", "throw", "case", "delete", "void", "typeof", "yield", "await", "in", "of",
+  ].includes(previous.text)
+
+const tokenizeCode = (source: string): readonly Token[] =>
+  const tokens: Token[] = []
+  let line = 1
+
+  const consumeQuoted = (start: number, quote: string): number =>
+    let index = start + 1
+    while index < source.length
+      const character = source[index]!
+      if character === "\\"
+        if source[index + 1] === "\n" then line += 1
+        index += 2
+      else
+        if character === "\n" then line += 1
+        index += 1
+        if character === quote then break
+    return index
+
+  const consumeLineComment = (start: number): number =>
+    let index = start + 2
+    while index < source.length && source[index] !== "\n"
+      index += 1
+    return index
+
+  const consumeBlockComment = (start: number): number =>
+    let index = start + 2
+    while index < source.length
+      if source[index] === "*" && source[index + 1] === "/"
+        return index + 2
+      if source[index] === "\n" then line += 1
+      index += 1
+    return index
+
+  const consumeRegex = (start: number): number =>
+    let index = start + 1
+    let inCharacterClass = false
+    while index < source.length
+      const character = source[index]!
+      if character === "\\"
+        index += 2
+      else if character === "["
+        inCharacterClass = true
+        index += 1
+      else if character === "]"
+        inCharacterClass = false
+        index += 1
+      else if character === "/" && !inCharacterClass
+        index += 1
+        while /[A-Za-z]/u.test(source[index] ?? "")
+          index += 1
+        return index
+      else
+        if character === "\n" then line += 1
+        index += 1
+    return index
+
+  const scanCode = (start: number, stopAtTemplateBrace: boolean): number =>
+    let index = start
+    let braceDepth = 0
+    while index < source.length
+      const character = source[index]!
+      const next = source[index + 1]
+
+      if /\s/u.test(character)
+        if character === "\n" then line += 1
+        index += 1
+        continue
+
+      if character === "/" && next === "/"
+        index = consumeLineComment(index)
+        continue
+      if character === "/" && next === "*"
+        index = consumeBlockComment(index)
+        continue
+      if character === "'" || character === '"'
+        index = consumeQuoted(index, character)
+        continue
+      if character === "`"
+        index += 1
+        while index < source.length
+          const templateCharacter = source[index]!
+          if templateCharacter === "\\"
+            if source[index + 1] === "\n" then line += 1
+            index += 2
+          else if templateCharacter === "`"
+            index += 1
+            break
+          else if templateCharacter === "$" && source[index + 1] === "{"
+            index = scanCode(index + 2, true)
+          else
+            if templateCharacter === "\n" then line += 1
+            index += 1
+        continue
+
+      if character === "/" && regexCanFollow(tokens[tokens.length - 1])
+        index = consumeRegex(index)
+        continue
+
+      if stopAtTemplateBrace && character === "}" && braceDepth === 0
+        return index + 1
+
+      const tokenLine = line
+      if isIdentifierStart(character)
+        let end = index + 1
+        while isIdentifierPart(source[end])
+          end += 1
+        tokens.push({ text: source.slice(index, end), index, line: tokenLine })
+        index = end
+        continue
+
+      if /[0-9]/u.test(character)
+        let end = index + 1
+        while /[A-Za-z0-9_.]/u.test(source[end] ?? "")
+          end += 1
+        tokens.push({ text: source.slice(index, end), index, line: tokenLine })
+        index = end
+        continue
+
+      const twoCharacters = source.slice(index, index + 2)
+      const threeCharacters = source.slice(index, index + 3)
+      if ["=>", "&&", "||", "??", "?.", "==", "!=", "<=", ">=", "++", "--", "**"].includes(twoCharacters)
+        tokens.push({ text: twoCharacters, index, line: tokenLine })
+        index += 2
+        continue
+      if threeCharacters === "..." || threeCharacters === "===" || threeCharacters === "!=="
+        tokens.push({ text: threeCharacters, index, line: tokenLine })
+        index += 3
+        continue
+
+      tokens.push({ text: character, index, line: tokenLine })
+      if character === "{" then braceDepth += 1
+      else if character === "}" && braceDepth > 0 then braceDepth -= 1
+      index += 1
+    return index
+
+  scanCode(0, false)
+  return tokens
+
+const matchingOpenParenthesis = (
+  tokens: readonly Token[],
+  closeIndex: number,
+): number | undefined =>
+  let depth = 0
+  for (let index = closeIndex; index >= 0; index -= 1)
+    const text = tokens[index]!.text
+    if text === ")" then depth += 1
+    else if text === "("
+      depth -= 1
+      if depth === 0 then return index
+  return undefined
+
+
+const callableBeforeParenthesis = (
+  tokens: readonly Token[],
+  openParenthesis: number,
+): boolean =>
+  const previous = tokens[openParenthesis - 1]?.text
+  if previous === undefined then return false
+  if ["if", "for", "while", "switch", "with", "catch"].includes(previous)
+    return true
+  if previous === "function" then return true
+  if isIdentifierPart(previous.at(-1))
+    return true
+  return previous === "]" || previous === ">"
+
+const callableBodyBefore = (
+  tokens: readonly Token[],
+  braceIndex: number,
+): boolean =>
+  const previous = tokens[braceIndex - 1]
+  if previous?.text === ")"
+    const openParenthesis = matchingOpenParenthesis(tokens, braceIndex - 1)
+    if openParenthesis === undefined then return false
+    if previous.line !== tokens[braceIndex]!.line
+      const beforeCallable = tokens[openParenthesis - 2]?.text
+      if [".", "?.", "new"].includes(beforeCallable) then return false
+    return callableBeforeParenthesis(tokens, openParenthesis)
+  if previous?.text === ":" then return false
+
+  let parenthesisDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+  let angleDepth = 0
+  for (let index = braceIndex - 1; index >= 0; index -= 1)
+    const text = tokens[index]!.text
+    if text === ")"
+      if parenthesisDepth === 0 && bracketDepth === 0 &&
+        braceDepth === 0 && angleDepth === 0 &&
+        tokens[index + 1]?.text === ":"
+        const openParenthesis = matchingOpenParenthesis(tokens, index)
+        return openParenthesis !== undefined &&
+          callableBeforeParenthesis(tokens, openParenthesis)
+      parenthesisDepth += 1
+    else if text === "("
+      if parenthesisDepth === 0 then return false
+      parenthesisDepth -= 1
+    else if text === "]" then bracketDepth += 1
+    else if text === "["
+      if bracketDepth === 0 then return false
+      bracketDepth -= 1
+    else if text === "}" then braceDepth += 1
+    else if text === "{"
+      if braceDepth === 0 then return false
+      braceDepth -= 1
+    else if text === ">" then angleDepth += 1
+    else if text === "<"
+      if angleDepth === 0 then return false
+      angleDepth -= 1
+    else if parenthesisDepth === 0 && bracketDepth === 0 &&
+      braceDepth === 0 && angleDepth === 0 &&
+      [
+        ";", "=", "=>", "interface", "type", "class", "const", "let", "var",
+        "return", "yield", "throw", "import", "export",
+      ].includes(text)
+      return false
+  return false
+ 
+const typeDeclarationBefore = (
+  tokens: readonly Token[],
+  startIndex: number,
+): boolean =>
+  const startLine = tokens[startIndex]?.line
+  if startLine === undefined then return false
+  for (let index = startIndex; index >= 0; index -= 1)
+    const text = tokens[index]!.text
+    if tokens[index]!.line !== startLine
+      return text === "type" || text === "interface"
+    if text === "type" || text === "interface" then return true
+    if [
+      ";", "const", "let", "var", "function", "class", "return", "yield",
+      "throw", "import", "export",
+    ].includes(text) then return false
+  return false
+
+const classBodyBefore = (
+  tokens: readonly Token[],
+  braceIndex: number,
+): boolean =>
+  let angleDepth = 0
+  for (let index = braceIndex - 1; index >= 0; index -= 1)
+    const text = tokens[index]!.text
+    if text === ">" then angleDepth += 1
+    else if text === "<" then angleDepth -= 1
+    if text === "class"
+      return angleDepth === 0
+    if [
+      ";", "{", "}", "interface", "type", "const", "let", "var", "return",
+      "yield", "throw", "import", "export",
+    ].includes(text)
+      return false
+  return false
+
+const colonStartsTypeAnnotation = (
+  tokens: readonly Token[],
+  colonIndex: number,
+): boolean =>
+  let parenthesisDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+  for (let index = colonIndex - 1; index >= 0; index -= 1)
+    const text = tokens[index]!.text
+    if text === ")" then parenthesisDepth += 1
+    else if text === "("
+      if parenthesisDepth === 0 && bracketDepth === 0 && braceDepth === 0
+        return true
+      parenthesisDepth -= 1
+    else if text === "]" then bracketDepth += 1
+    else if text === "["
+      if parenthesisDepth === 0 && bracketDepth === 0 && braceDepth === 0
+        return true
+      bracketDepth -= 1
+    else if text === "}" then braceDepth += 1
+    else if text === "{"
+      if parenthesisDepth === 0 && bracketDepth === 0 && braceDepth === 0
+        return typeDeclarationBefore(tokens, index - 1)
+      braceDepth -= 1
+    else if parenthesisDepth === 0 && bracketDepth === 0 && braceDepth === 0
+      if ["const", "let", "var", "type", "interface", "as", "satisfies"].includes(text)
+        return true
+      if ["=", ";", "=>"].includes(text) then return false
+  return false
+
+const arrowStartsTypeExpression = (
+  tokens: readonly Token[],
+  arrowIndex: number,
+): boolean =>
+  let angleDepth = 0
+  const closeParameters = tokens[arrowIndex - 1]
+  if closeParameters?.text === ")"
+    const openParameters = matchingOpenParenthesis(tokens, arrowIndex - 1)
+    if openParameters !== undefined
+      const marker = tokens[openParameters - 1]?.text
+      if marker === ":" && colonStartsTypeAnnotation(tokens, openParameters - 1)
+        return true
+      if marker === "=" && typeDeclarationBefore(tokens, openParameters - 2)
+        return true
+      let assertionIndex = openParameters - 1
+      while tokens[assertionIndex]?.text === "("
+        assertionIndex -= 1
+      if ["as", "satisfies"].includes(tokens[assertionIndex]?.text)
+        return true
+  for (let index = arrowIndex - 1; index >= 0; index -= 1)
+    const text = tokens[index]!.text
+    if text === ">" then angleDepth += 1
+    else if text === "<"
+      if angleDepth === 0 then return true
+      angleDepth -= 1
+    if [
+      ";", "=", "{", "}", "const", "let", "var", "function", "class",
+      "return", "yield", "throw",
+    ].includes(text) then return false
+  return false
+
+const isStructuralBrace = (
+  tokens: readonly Token[],
+  braceIndex: number,
+): boolean =>
+  const previous = tokens[braceIndex - 1]?.text
+  if previous === undefined then return true
+  if previous === "=>"
+    return !arrowStartsTypeExpression(tokens, braceIndex - 1)
+  if ["else", "try", "catch", "finally", "do", "static"].includes(previous)
+    return true
+  if callableBodyBefore(tokens, braceIndex) then return true
+  const canEndClassHeader = previous === ">" || previous === "]" ||
+    isIdentifierPart(previous.at(-1))
+  return canEndClassHeader && classBodyBefore(tokens, braceIndex)
+
+const jsxClosingTagLines = (
+  source: string,
+  tokens: readonly Token[],
+): readonly number[] =>
+  const lines: number[] = []
+  for (let index = 0; index < tokens.length; index += 1)
+    const opening = tokens[index]!
+    const slash = tokens[index + 1]
+    if opening.text !== "<" || slash?.text !== "/" then continue
+    if source.slice(opening.index, slash.index + 1) !== "</" then continue
+
+    let cursor = index + 2
+    if tokens[cursor]?.text === ">"
+      lines.push(opening.line)
+      continue
+    if !isIdentifierStart(tokens[cursor]?.text[0]) then continue
+    cursor += 1
+    while cursor < tokens.length
+      const text = tokens[cursor]!.text
+      if text === ">"
+        lines.push(opening.line)
+        break
+      if [".", ":", "-"].includes(text) && isIdentifierStart(tokens[cursor + 1]?.text[0])
+        cursor += 2
+        continue
+      break
+  return lines
+
+export const scanCivetSource = (
+  source: string,
+  file = "<source>",
+): readonly CivetStyleViolation[] =>
+  const tokens = tokenizeCode(source)
+  const violations: CivetStyleViolation[] = []
+
+  for (let index = 0; index < tokens.length; index += 1)
+    const token = tokens[index]!
+    if token.text === "{" && isStructuralBrace(tokens, index)
+      violations.push({ file, line: token.line, message: STRUCTURAL_MESSAGE })
+
+  for (const line of jsxClosingTagLines(source, tokens))
+    violations.push({ file, line, message: JSX_MESSAGE })
+
+  return violations.sort(compareViolations)
+
+export const parseGitCivetPaths = (output: string): readonly string[] =>
+  const paths = new Set<string>()
+  for (const path of output.split("\0"))
+    if path.length > 0 && path.endsWith(".civet")
+      paths.add(path.replaceAll("\\", "/"))
+  return [...paths].sort(compareText)
+
+const defaultGitRunner: GitRunner = async (command, arguments_, options) =>
+  const result = await execFileAsync(command, [...arguments_], {
+    cwd: options.cwd,
+    encoding: "utf8",
+    maxBuffer: MAX_GIT_OUTPUT_BYTES,
+  })
+  return { stdout: String(result.stdout) }
+
+export const discoverCivetFiles = async (
+  root: string,
+  runGit: GitRunner = defaultGitRunner,
+): Promise<readonly string[]> =>
+  const result = await runGit(
+    "git",
+    [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      "--",
+      "*.civet",
+    ],
+    { cwd: root },
+  )
+  return parseGitCivetPaths(result.stdout)
+
+const defaultDependencies: CivetStyleDependencies = {
+  discoverFiles: discoverCivetFiles,
+  readSource: async (root, file) => readFile(join(root, file), "utf8"),
+}
+
+export const scanCivetRepository = async (
+  root: string,
+  dependencies: CivetStyleDependencies = defaultDependencies,
+): Promise<CivetStyleReport> =>
+  const files = [...new Set(await dependencies.discoverFiles(root))].sort(compareText)
+  const violations: CivetStyleViolation[] = []
+  for (const file of files)
+    const source = await dependencies.readSource(root, file)
+    violations.push(...scanCivetSource(source, file))
+  return { files, violations: violations.sort(compareViolations) }
+
+export const formatCivetStyleViolation = (
+  violation: CivetStyleViolation,
+): string => `${violation.file}:${violation.line}: ${violation.message}`
+
+export const runCivetStyleCli = async (
+  root: string,
+  streams: CivetStyleStreams,
+  dependencies: CivetStyleDependencies = defaultDependencies,
+): Promise<number> =>
+  try
+    const report = await scanCivetRepository(root, dependencies)
+    if report.violations.length > 0
+      streams.writeError(`${report.violations.map(formatCivetStyleViolation).join("\n")}\n`)
+      return 1
+    const noun = report.files.length === 1 ? "file" : "files"
+    streams.writeOutput(`Civet style check passed (${report.files.length} ${noun}).\n`)
+    return 0
+  catch
+    streams.writeError("civet-style: scan failed\n")
+    return 1
+
+export type CivetStyleEntrypointDependencies = Readonly<{
+  invokedPath: string | undefined
+  moduleUrl: string
+  root: string
+  streams: CivetStyleStreams
+  exitState: { exitCode?: string | number | null | undefined }
+  runCli: (root: string, streams: CivetStyleStreams) => Promise<number>
+}>
+
+export const runCivetStyleEntrypoint = async (
+  dependencies: CivetStyleEntrypointDependencies,
+): Promise<void> =>
+  if dependencies.invokedPath === undefined ||
+    pathToFileURL(resolve(dependencies.invokedPath)).href !== dependencies.moduleUrl
+    return
+  dependencies.exitState.exitCode = await dependencies.runCli(
+    dependencies.root,
+    dependencies.streams,
+  )
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+await runCivetStyleEntrypoint({
+  invokedPath: process.argv[1],
+  moduleUrl: import.meta.url,
+  root: repositoryRoot,
+  streams: {
+    writeOutput: process.stdout.write.bind(process.stdout),
+    writeError: process.stderr.write.bind(process.stderr),
+  },
+  exitState: process,
+  runCli: runCivetStyleCli,
+})

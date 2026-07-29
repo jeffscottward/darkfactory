@@ -39,10 +39,10 @@ describe "email server browser bundle", ->
       })
       const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
       const bundle = builds
-        .flatMap((result) => {
+        .flatMap((result) =>
           if (!("output" in result)) throw new Error("Vite build did not finish")
           return result.output
-        })
+        )
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
         .join("\n")
@@ -121,10 +121,10 @@ export const contactResult = await selectContactEmailPort({
       vi.unstubAllEnvs()
       const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
       const bundle = builds
-        .flatMap((result) => {
+        .flatMap((result) =>
           if (!("output" in result)) throw new Error("Vite build did not finish")
           return result.output
-        })
+        )
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
         .join("\n")

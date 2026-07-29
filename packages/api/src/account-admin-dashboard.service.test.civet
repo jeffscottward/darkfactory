@@ -58,7 +58,7 @@ const preferences = (overrides: Partial<UserPreferences> = {}): UserPreferences 
   updatedAt: new Date("2026-01-01T00:00:00.000Z"), ...overrides,
 })
 
-const accountRepositories = () => {
+const accountRepositories = () =>
   const profiles: ProfileRepository = {
     findByUserId: vi.fn(async () => null),
     upsert: vi.fn(async (input) => profile(input)),
@@ -87,7 +87,6 @@ const accountRepositories = () => {
     updateOptimistic: vi.fn(async (input) => preferences(input)),
   }
   return { profiles, addresses, userPreferences }
-}
 
 describe "account service", ->
   it "returns safe identity with default profile when the row is missing", async ->
@@ -396,7 +395,9 @@ describe "account service", ->
 
 describe "admin user and dashboard services", ->
   it "maps malformed cursors to BAD_REQUEST and storage failures to safe STORAGE_ERROR", async ->
-    const repository: AdminUsersRepository = { search: vi.fn(async () => { throw new InvalidAdminUsersCursorError() }) }
+    const repository: AdminUsersRepository = { search: vi.fn(async () =>
+      throw new InvalidAdminUsersCursorError()
+    ) }
     await expect(createAdminUsersService(repository).list({ limit: 20 })).rejects.toEqual(
       expect.objectContaining({ code: "BAD_REQUEST", message: "Invalid user directory cursor" }),
     )

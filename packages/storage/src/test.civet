@@ -29,11 +29,10 @@ const byteLengthGetter = Object.getOwnPropertyDescriptor(
 )!.get!
 const typedArraySet = ByteArray.prototype.set
 
-const copyBytes = (source: Uint8Array): Uint8Array => {
+const copyBytes = (source: Uint8Array): Uint8Array =>
   const copy = new ByteArray(apply(byteLengthGetter, source, []))
   apply(typedArraySet, copy, [source])
   return copy
-}
 
 const copyMetadata = (metadata: ObjectMetadata): ObjectMetadata =>
   Object.freeze({ ...metadata })
@@ -45,18 +44,17 @@ const copyStoredObject = (object: StoredObject): StoredObject => ({
 
 export const createRecordingStoragePort = (
   options: RecordingStoragePortOptions = {},
-): RecordingStoragePort => {
+): RecordingStoragePort =>
   const now = options.now ?? (() => "1970-01-01T00:00:00.000Z")
   const objects = new Map<string, StoredObject>()
   const operations: StorageOperation[] = []
 
-  const record = (operation: StorageOperation["operation"], key: string): void => {
+  const record = (operation: StorageOperation["operation"], key: string): void =>
     operations.push(Object.freeze({ operation, key }))
-  }
 
   const put = async (
     input: PutObjectInput,
-  ): Promise<StorageResult<ObjectMetadata>> => {
+  ): Promise<StorageResult<ObjectMetadata>> =>
     const key = input.key
     const body = input.body
     const contentType = input.contentType
@@ -78,25 +76,21 @@ export const createRecordingStoragePort = (
     })
 
     return { status: "ok", value: copyMetadata(metadata) }
-  }
 
-  const get = async (key: string): Promise<StorageResult<StoredObject>> => {
+  const get = async (key: string): Promise<StorageResult<StoredObject>> =>
     record("get", key)
     const object = objects.get(key)
     if (!object) return { status: "not-found" }
 
     return { status: "ok", value: copyStoredObject(object) }
-  }
 
-  const remove = async (key: string): Promise<StorageResult<DeletedObject>> => {
+  const remove = async (key: string): Promise<StorageResult<DeletedObject>> =>
     record("delete", key)
     if (!objects.delete(key)) return { status: "not-found" }
 
     return { status: "ok", value: { deleted: true } }
-  }
 
   const getOperations = (): readonly StorageOperation[] =>
     Object.freeze(operations.map((operation) => Object.freeze({ ...operation })))
 
   return Object.freeze({ put, get, delete: remove, getOperations })
-}

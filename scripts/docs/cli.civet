@@ -10,15 +10,13 @@ export const runDocsCli = async (
   arguments_: readonly string[],
   dependencies: DocsDependencies,
   output: DocsCliOutput,
-): Promise<number> => {
+): Promise<number> =>
   const action = arguments_[0]
-  if ((action !== "generate" && action !== "check") || arguments_.length !== 1) {
+  if ((action !== "generate" && action !== "check") || arguments_.length !== 1)
     output.writeError("Usage: pnpm docs:generate | pnpm docs:check\n")
     return 2
-  }
   const report = await runDocsAction(action, dependencies)
   const rendered = `${JSON.stringify(report, null, 2)}\n`
   if (report.ok) output.writeOutput(rendered)
   else output.writeError(rendered)
   return report.ok ? 0 : 1
-}

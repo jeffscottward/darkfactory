@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation"
 
-export default function PrivacyAliasPage() {
+export default function PrivacyAliasPage()
   redirect("/legal/privacy")
-}

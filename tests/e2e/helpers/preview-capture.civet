@@ -40,17 +40,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const exactKeys = (
   value: Record<string, unknown>,
   expected: readonly string[],
-): boolean => {
+): boolean =>
   const actual = Object.keys(value).sort()
   const sortedExpected = [...expected].sort()
   return actual.length === sortedExpected.length &&
     actual.every((key, index) => key === sortedExpected[index])
-}
 
-const parsePayload = (value: unknown): CapturePayload | null => {
-  if (!isRecord(value) || !exactKeys(value, ["input", "operation", "runId", "version"])) {
+const parsePayload = (value: unknown): CapturePayload | null =>
+  if (!isRecord(value) || !exactKeys(value, ["input", "operation", "runId", "version"]))
     return null
-  }
   if (
     value.version !== 1 ||
     typeof value.runId !== "string" ||
@@ -58,60 +56,52 @@ const parsePayload = (value: unknown): CapturePayload | null => {
     (value.operation !== "contact" &&
       value.operation !== "reset-password" &&
       value.operation !== "verify-email")
-  ) {
+  )
     return null
-  }
   return value as CapturePayload
-}
 
 const hasValidAuthorization = (
   request: IncomingMessage,
   hmacKey: string,
-): boolean => {
+): boolean =>
   const authorization = request.headers.authorization
   if (typeof authorization !== "string") return false
   const actual = Buffer.from(authorization, "utf8")
   const expected = Buffer.from(`Bearer ${hmacKey}`, "utf8")
   return actual.length === expected.length && timingSafeEqual(actual, expected)
-}
 
-const readRequestBody = async (request: IncomingMessage): Promise<unknown> => {
+const readRequestBody = async (request: IncomingMessage): Promise<unknown> =>
   const declaredLength = Number(request.headers["content-length"] ?? 0)
-  if (!Number.isSafeInteger(declaredLength) || declaredLength < 1 || declaredLength > MAX_REQUEST_BYTES) {
+  if (!Number.isSafeInteger(declaredLength) || declaredLength < 1 || declaredLength > MAX_REQUEST_BYTES)
     throw new Error("Invalid preview capture content length")
-  }
 
   const chunks: Buffer[] = []
   let size = 0
-  for await (const chunk of request) {
+  for await (const chunk of request)
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     size += bytes.byteLength
-    if (size > MAX_REQUEST_BYTES) {
+    if (size > MAX_REQUEST_BYTES)
       request.destroy()
       throw new Error("Preview capture payload is too large")
-    }
     chunks.push(bytes)
-  }
   if (size !== declaredLength) throw new Error("Preview capture body is incomplete")
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
-}
 
 const respond = (
   response: ServerResponse,
   status: number,
   body: "accepted" | "rejected",
-): void => {
+): void =>
   response.writeHead(status, {
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
     "x-content-type-options": "nosniff",
   })
   response.end(JSON.stringify({ status: body }))
-}
 
 export const startPreviewCaptureServer = async (
   options: PreviewCaptureServerOptions,
-): Promise<PreviewCaptureServer> => {
+): Promise<PreviewCaptureServer> =>
   const authEmail = createPreviewEmailPort({
     environment: "test",
     directory: options.authDirectory,
@@ -123,8 +113,8 @@ export const startPreviewCaptureServer = async (
     directory: options.contactDirectory,
   })
 
-  const server = createServer(async (request, response) => {
-    try {
+  const server = createServer(async (request, response) =>
+    try
       const remoteAddress = request.socket.remoteAddress
       if (
         request.method !== "POST" ||
@@ -132,59 +122,52 @@ export const startPreviewCaptureServer = async (
         (remoteAddress !== "127.0.0.1" && remoteAddress !== "::ffff:127.0.0.1") ||
         request.headers["content-type"] !== "application/json" ||
         !hasValidAuthorization(request, options.binding.hmacKey)
-      ) {
+      )
         respond(response, 404, "rejected")
         return
-      }
 
       const payload = parsePayload(await readRequestBody(request))
-      if (payload === null || payload.runId !== options.binding.runId) {
+      if (payload === null || payload.runId !== options.binding.runId)
         respond(response, 400, "rejected")
         return
-      }
 
       const result = payload.operation === "contact"
         ? await contactEmail.sendContact(payload.input as ContactEmailInput)
         : payload.operation === "reset-password"
           ? await authEmail.sendPasswordReset(payload.input as PasswordResetEmailInput)
           : await authEmail.sendEmailVerification(payload.input as EmailVerificationEmailInput)
-      if (result.status !== "previewed") {
+      if (result.status !== "previewed")
         respond(response, 503, "rejected")
         return
-      }
       respond(response, 201, "accepted")
-    } catch {
+    catch
       if (!response.headersSent) respond(response, 400, "rejected")
       else response.destroy()
-    }
-  })
+  )
   server.headersTimeout = REQUEST_TIMEOUT_MS
   server.requestTimeout = REQUEST_TIMEOUT_MS
   server.keepAliveTimeout = 1_000
   server.maxHeadersCount = 16
 
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) =>
     const onError = (error: Error): void => reject(error)
     server.once("error", onError)
-    server.listen({ host: "127.0.0.1", port: 0, exclusive: true }, () => {
+    server.listen({ host: "127.0.0.1", port: 0, exclusive: true }, () =>
       server.off("error", onError)
       resolve()
-    })
-  })
+    )
+  )
   const address = server.address()
-  if (address === null || typeof address === "string") {
+  if (address === null || typeof address === "string")
     server.close()
     throw new Error("Preview capture server did not bind an owned TCP port")
-  }
 
   return Object.freeze({
     endpoint: `http://127.0.0.1:${address.port}${CAPTURE_PATH}`,
-    close: async (): Promise<void> => {
+    close: async (): Promise<void> =>
       server.closeIdleConnections()
       if (!server.listening) return
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve, reject) =>
         server.close((error) => error ? reject(error) : resolve())
-      })
-    },
+      )
   })
-}

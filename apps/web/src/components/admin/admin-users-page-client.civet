@@ -18,13 +18,12 @@ import {
 const mergeUsers = (
   current: readonly AdminUserSummaryOutput[],
   next: readonly AdminUserSummaryOutput[],
-): AdminUserSummaryOutput[] => {
+): AdminUserSummaryOutput[] =>
   const merged = new Map(current.map((user) => [user.id, user]))
   for (const user of next) merged.set(user.id, user)
   return [...merged.values()]
-}
 
-export const AdminUsersPageClient = () => {
+export const AdminUsersPageClient = () =>
   const [gateway] = useState(createBrowserAdminUsersGateway)
   const [requests] = useState(createAdminRequestGuard)
   const [query, setQuery] = useState("")
@@ -32,65 +31,61 @@ export const AdminUsersPageClient = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [paginationError, setPaginationError] = useState<string | null>(null)
 
-  const load = useCallback(async (nextQuery: string) => {
+  const load = useCallback(async (nextQuery: string) =>
     const request = requests.next()
     setState({ type: "loading" })
     setIsLoadingMore(false)
     setPaginationError(null)
-    try {
+    try
       const result = await gateway.list({
         ...(nextQuery.length === 0 ? {} : { query: nextQuery }),
         limit: 20,
       })
-      if (requests.isLatest(request)) {
+      if (requests.isLatest(request))
         setState({ type: "ready", items: result.items, nextCursor: result.nextCursor })
-      }
-    } catch (error) {
-      if (requests.isLatest(request)) {
+    catch error
+      if (requests.isLatest(request))
         setState({ type: "error", kind: adminFailureKind(error), message: safeAdminFeedback(error) })
-      }
-    }
-  }, [gateway, requests])
+  , [gateway, requests])
 
-  useEffect(() => {
+  useEffect(() =>
     void load("")
     return undefined
-  }, [load])
+  , [load])
 
-  const search = (rawQuery: string): void => {
+  const search = (rawQuery: string): void =>
     const nextQuery = normalizeAdminQuery(rawQuery)
     setQuery(nextQuery)
     void load(nextQuery)
-  }
 
-  const loadMore = async (): Promise<void> => {
+  const loadMore = async (): Promise<void> =>
     if (state.type !== "ready" || state.nextCursor === null || isLoadingMore) return
     const request = requests.next()
     setIsLoadingMore(true)
     setPaginationError(null)
-    try {
+    try
       const result = await gateway.list({
         ...(query.length === 0 ? {} : { query }),
         cursor: state.nextCursor,
         limit: 20,
       })
-      if (requests.isLatest(request)) {
+      if (requests.isLatest(request))
         setState({
           type: "ready",
           items: mergeUsers(state.items, result.items),
           nextCursor: result.nextCursor,
         })
-      }
-    } catch (error) {
+    catch error
       if (requests.isLatest(request)) setPaginationError(safeAdminFeedback(error))
-    } finally {
+    finally
       if (requests.isLatest(request)) setIsLoadingMore(false)
-    }
-  }
 
   return (
     <div className="space-y-4">
-      {paginationError === null ? null : <p aria-live="assertive" className="border-l-2 border-destructive py-2 pl-3 text-sm text-destructive" role="alert">{paginationError}</p>}
+      {paginationError === null
+        ? null
+        : <p aria-live="assertive" className="border-l-2 border-destructive py-2 pl-3 text-sm text-destructive" role="alert">{paginationError}
+      }
       <AdminUsersDirectory
         isLoadingMore={isLoadingMore}
         onClearSearch={() => search("")}
@@ -100,6 +95,4 @@ export const AdminUsersPageClient = () => {
         query={query}
         state={state}
       />
-    </div>
   )
-}

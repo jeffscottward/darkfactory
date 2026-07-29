@@ -7,7 +7,7 @@ export const metadata = {
   description: "Create and verify a DarkFactory account.",
 }
 
-export default function SignUpPage() {
+export default function SignUpPage()
   return (
     <AuthPanel
       description="Create an account, then confirm the email address before signing in."
@@ -16,7 +16,4 @@ export default function SignUpPage() {
     >
       <SessionRedirect callbackURL="/dashboard">
         <SignUpForm />
-      </SessionRedirect>
-    </AuthPanel>
   )
-}

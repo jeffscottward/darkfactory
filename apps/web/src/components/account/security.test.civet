@@ -53,7 +53,7 @@ describe "supported Better Auth security gateway", ->
 
   it "correlates current identity through the real Better Auth browser client", async ->
     const observedUrls: URL[] = []
-    const fetchRequest = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchRequest = vi.fn(async (input: RequestInfo | URL) =>
       const url = new URL(
         typeof input === "string"
           ? input
@@ -71,9 +71,9 @@ describe "supported Better Auth security gateway", ->
         headers: { "content-type": "application/json" },
         status: body === null ? 404 : 200,
       })
-    })
+    )
     vi.stubGlobal("fetch", fetchRequest)
-    try {
+    try
       const gateway = createSecurityGateway(
         createAuthClient("https://darkfactory.localhost/api/auth"),
       )
@@ -86,9 +86,8 @@ describe "supported Better Auth security gateway", ->
         url.pathname.endsWith("/get-session")
       )
       expect(getSessionUrl?.searchParams.get("disableCookieCache")).toBe("true")
-    } finally {
+    finally
       vi.unstubAllGlobals()
-    }
 
   it "maps raw session records to metadata that cannot render tokens", ->
     const safe = toSafeSessions([session], "session-current")

@@ -10,59 +10,52 @@ export type BufferedContactRequest = Readonly<{
 export const bufferContactRequest = async (
   request: Request,
   maximumBytes = CONTACT_REQUEST_MAX_BYTES,
-): Promise<BufferedContactRequest> => {
+): Promise<BufferedContactRequest> =>
   const declaredLength = request.headers.get("content-length")
   if (
     declaredLength !== null &&
     /^\d+$/.test(declaredLength) &&
     Number(declaredLength) > maximumBytes
-  ) {
+  )
     await request.body?.cancel().catch(() => undefined)
     return { request, tooLarge: true }
-  }
   if (request.body === null) return { request, tooLarge: false }
 
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
   let totalBytes = 0
-  while (true) {
+  while (true)
     const { done, value } = await reader.read()
     if (done) break
     totalBytes += value.byteLength
-    if (totalBytes > maximumBytes) {
+    if (totalBytes > maximumBytes)
       await reader.cancel().catch(() => undefined)
       return { request, tooLarge: true }
-    }
     chunks.push(value)
-  }
 
   const body = new Uint8Array(totalBytes)
   let offset = 0
-  for (const chunk of chunks) {
+  for (const chunk of chunks)
     body.set(chunk, offset)
     offset += chunk.byteLength
-  }
   const headers = new Headers(request.headers)
   headers.set("content-length", String(totalBytes))
   return {
     request: new Request(request.url, { body, headers, method: request.method }),
     tooLarge: false,
   }
-}
 
 const UNKNOWN_CONTACT_SOURCE = "unknown"
-const canonicalIpv4 = (value: string): string | undefined => {
+const canonicalIpv4 = (value: string): string | undefined =>
   const octets = value.split(".")
   if (
     octets.length !== 4 ||
     !octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
-  ) {
+  )
     return undefined
-  }
   return octets.map((octet) => String(Number(octet))).join(".")
-}
 
-const canonicalIpv6 = (value: string): string | undefined => {
+const canonicalIpv6 = (value: string): string | undefined =>
   if (
     value.length < 2 ||
     value.length > 45 ||
@@ -70,42 +63,34 @@ const canonicalIpv6 = (value: string): string | undefined => {
     value.includes("%") ||
     value.includes("[") ||
     value.includes("]")
-  ) {
+  )
     return undefined
-  }
-  try {
+  try
     const hostname = new URL(`http://[${value}]/`).hostname
     if (!hostname.startsWith("[") || !hostname.endsWith("]")) return undefined
     return hostname.slice(1, -1)
-  } catch {
+  catch
     return undefined
-  }
-}
 
-const trustedContactSource = (request: Request): string => {
+const trustedContactSource = (request: Request): string =>
   const candidate = request.headers.get("cf-connecting-ip")?.trim()
-  if (candidate === undefined || candidate.length === 0) {
+  if (candidate === undefined || candidate.length === 0)
     return UNKNOWN_CONTACT_SOURCE
-  }
   return canonicalIpv4(candidate) ?? canonicalIpv6(candidate) ?? UNKNOWN_CONTACT_SOURCE
-}
 
-const hexDigest = (buffer: ArrayBuffer): string => {
+const hexDigest = (buffer: ArrayBuffer): string =>
   let result = ""
-  for (const byte of new Uint8Array(buffer)) {
+  for (const byte of new Uint8Array(buffer))
     result += byte.toString(16).padStart(2, "0")
-  }
   return result
-}
 
 export const createContactThrottleKey = async (
   request: Request,
   secret: string,
   domain: ContactThrottleDomain = "submit",
-): Promise<string> => {
-  if (secret.length < 32) {
+): Promise<string> =>
+  if (secret.length < 32)
     throw new TypeError("contact throttle secret must contain at least 32 characters")
-  }
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
     "raw",
@@ -119,4 +104,3 @@ export const createContactThrottleKey = async (
     key,
     encoder.encode(`darkfactory.contact.${domain}\u0000${trustedContactSource(request)}`),
   ))
-}

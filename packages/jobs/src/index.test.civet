@@ -32,22 +32,20 @@ const jsonJob: JobDefinition<"json", JsonObject, JsonObject> = {
 
 const asPayload = (value: unknown): JsonObject => value as JsonObject
 
-const nestedPayload = (depth: number): JsonObject => {
+const nestedPayload = (depth: number): JsonObject =>
   let payload: JsonObject = {}
   for (let index = 0; index < depth; index += 1)
     payload = { nested: payload }
   return payload
-}
 
 describe "recording jobs adapter", ->
   it "records typed envelopes deterministically without executing jobs", async ->
     let executions = 0
     const definition: JobDefinition<"count", { amount: number }, number> = {
       name: "count",
-      execute: async ({ amount }) => {
+      execute: async ({ amount }) =>
         executions += 1
         return amount
-      },
     }
     const jobs = createRecordingJobPort({
       now: () => "2026-01-02T03:04:05.000Z",
@@ -175,10 +173,9 @@ describe "recording jobs adapter", ->
     const accessorContainer = {}
     Object.defineProperty(accessorContainer, "secret", {
       enumerable: true,
-      get: () => {
+      get: () =>
         getterCalls += 1
         return "secret"
-      },
     })
     cyclic["zAccessor"] = accessorContainer
     const jobs = createRecordingJobPort()
@@ -200,7 +197,7 @@ describe "recording jobs adapter", ->
     let descriptorCalls = 0
     const payload = new Proxy({}, {
       ownKeys: () => keys,
-      getOwnPropertyDescriptor: () => {
+      getOwnPropertyDescriptor: () =>
         descriptorCalls += 1
         return {
           configurable: true,
@@ -208,7 +205,6 @@ describe "recording jobs adapter", ->
           value: null,
           writable: true,
         }
-      },
     })
     const jobs = createRecordingJobPort()
 
@@ -253,15 +249,13 @@ describe "recording jobs adapter", ->
       negativeZero: -0,
     })
     expect(valid.status).toBe("valid")
-    if (valid.status === "valid") {
+    if (valid.status === "valid")
       expect(valid.payload["disabled"]).toBe(false)
       expect(valid.payload["negativeZero"]).toBe(0)
       expect(Object.is(valid.payload["negativeZero"], -0)).toBe(false)
-    }
 
-    for (const primitive of [null, "root", 1, false]) {
+    for (const primitive of [null, "root", 1, false])
       expect(snapshotJobPayload(primitive)).toEqual({ status: "invalid" })
-    }
 
     const sparse = new Array(1)
     const outOfOrder = new Proxy([0], {
@@ -285,10 +279,9 @@ describe "recording jobs adapter", ->
     Object.defineProperty(accessor, "0", {
       configurable: true,
       enumerable: true,
-      get: () => {
+      get: () =>
         accessorReads += 1
         return 0
-      },
     })
     const hidden = [0]
     Object.defineProperty(hidden, "0", {
@@ -308,11 +301,10 @@ describe "recording jobs adapter", ->
       accessor,
       hidden,
       disappearing,
-    ]) {
+    ])
       expect(snapshotJobPayload({ values: array })).toEqual({
         status: "invalid",
       })
-    }
     expect(accessorReads).toBe(0)
 
 describe "jobs dependency inventory", ->

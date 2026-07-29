@@ -29,7 +29,7 @@ const errno = (code: string, message = code): NodeJS.ErrnoException =>
 const textHandle = (
   chunks: readonly Buffer[],
   options: Readonly<{ file?: boolean; size?: number; readError?: Error }> = {},
-) => {
+) =>
   let index = 0
   const size = options.size ?? chunks.reduce((total, chunk) => total + chunk.length, 0)
   return {
@@ -37,38 +37,37 @@ const textHandle = (
       size,
       isFile: () => options.file ?? true,
     })),
-    read: vi.fn(async (buffer: Buffer) => {
+    read: vi.fn(async (buffer: Buffer) =>
       if (options.readError) throw options.readError
       const chunk = chunks[index++]
       if (!chunk) return { bytesRead: 0, buffer }
       chunk.copy(buffer)
       return { bytesRead: chunk.length, buffer }
-    }),
+    ),
     close: vi.fn(async () => undefined),
   }
-}
 
 const fakeSocket = (outcome: "connect" | "error" | "none") => ({
   destroy: vi.fn(),
-  once: vi.fn((event: string, listener: () => void) => {
+  once: vi.fn((event: string, listener: () => void) =>
     if (event === outcome) queueMicrotask(listener)
-  }),
+  ),
 })
 
-beforeEach(() => {
+beforeEach(() =>
   vi.clearAllMocks()
   mocks.access.mockResolvedValue(undefined)
-})
+)
 
-afterEach(() => {
+afterEach(() =>
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.useRealTimers()
-})
+)
 
-describe("doctor Node process adapter", () => {
-  it("runs bounded commands with only allowed and explicitly added environment", async () => {
+describe("doctor Node process adapter", () =>
+  it("runs bounded commands with only allowed and explicitly added environment", async () =>
     vi.stubEnv("PATH", "/safe/bin")
     vi.stubEnv("DOCKER_HOST", "unix:///safe/docker.sock")
     vi.stubEnv("GROQ_API_KEY", "must-not-leak")
@@ -78,10 +77,10 @@ describe("doctor Node process adapter", () => {
       _arguments: readonly string[],
       options: Record<string, unknown>,
       callback: (error: Error | null, stdout: string, stderr: string) => void,
-    ) => {
+    ) =>
       capturedOptions = options
       callback(null, "v1\n", "")
-    })
+    )
 
     await expect(nodeDoctorProcess.run("docker", ["--version"], {
       timeoutMs: 40,
@@ -107,10 +106,10 @@ describe("doctor Node process adapter", () => {
       _arguments: readonly string[],
       options: Record<string, unknown>,
       callback: (error: NodeJS.ErrnoException, stdout?: null, stderr?: null) => void,
-    ) => {
+    ) =>
       capturedOptions = options
       callback(errno("ENOENT"), null, null)
-    })
+    )
     await expect(nodeDoctorProcess.run("missing", [])).resolves.toEqual({
       exitCode: 1,
       stdout: "",
@@ -129,9 +128,9 @@ describe("doctor Node process adapter", () => {
       stdout: "partial",
       stderr: "failure",
     })
-  })
+  )
 
-  it("reports trusted HTTPS status and unavailable probes without leaking fetch errors", async () => {
+  it("reports trusted HTTPS status and unavailable probes without leaking fetch errors", async () =>
     const fetchRequest = vi.fn()
       .mockResolvedValueOnce({ status: 302 })
       .mockResolvedValueOnce({ status: 404 })
@@ -155,11 +154,11 @@ describe("doctor Node process adapter", () => {
       redirect: "manual",
       signal: expect.any(AbortSignal),
     })
-  })
-})
+  )
+)
 
-describe("doctor bounded filesystem adapter", () => {
-  it("maps existence and reads bounded regular files while always closing handles", async () => {
+describe("doctor bounded filesystem adapter", () =>
+  it("maps existence and reads bounded regular files while always closing handles", async () =>
     mocks.access.mockResolvedValueOnce(undefined).mockRejectedValueOnce(errno("ENOENT"))
     await expect(nodeDoctorFileSystem.exists("present.json")).resolves.toBe(true)
     await expect(nodeDoctorFileSystem.exists("missing.json")).resolves.toBe(false)
@@ -169,17 +168,16 @@ describe("doctor bounded filesystem adapter", () => {
     await expect(nodeDoctorFileSystem.readText("report.txt", 32)).resolves.toBe("doctor data")
     expect(mocks.open).toHaveBeenCalledWith("report.txt", expect.any(Number))
     expect(handle.close).toHaveBeenCalledOnce()
-  })
+  )
 
-  it("rejects non-files, declared oversize files, and bytes beyond the read bound", async () => {
+  it("rejects non-files, declared oversize files, and bytes beyond the read bound", async () =>
     for (const handle of [
       textHandle([], { file: false }),
       textHandle([], { size: 5 }),
-    ]) {
+    ])
       mocks.open.mockResolvedValueOnce(handle)
       await expect(nodeDoctorFileSystem.readText("unsafe", 4)).rejects.toThrow(/bound/i)
       expect(handle.close).toHaveBeenCalledOnce()
-    }
 
     const underreported = textHandle([Buffer.from("12345")], { size: 4 })
     mocks.open.mockResolvedValueOnce(underreported)
@@ -192,11 +190,11 @@ describe("doctor bounded filesystem adapter", () => {
       code: "EIO",
     })
     expect(failedRead.close).toHaveBeenCalledOnce()
-  })
-})
+  )
+)
 
-describe("doctor dependency discovery", () => {
-  it("exposes injected runtime paths and treats only nonempty environment values as configured", () => {
+describe("doctor dependency discovery", () =>
+  it("exposes injected runtime paths and treats only nonempty environment values as configured", () =>
     vi.stubEnv("EMPTY_DOCTOR_VALUE", "")
     vi.stubEnv("SPACE_DOCTOR_VALUE", " ")
     const dependencies = nodeDoctorDependencies({
@@ -212,9 +210,9 @@ describe("doctor dependency discovery", () => {
     expect(dependencies.process).toBe(nodeDoctorProcess)
     expect(dependencies.files).toBe(nodeDoctorFileSystem)
     expect(dependencies.probeHttps).toBe(probeTrustedHttps)
-  })
+  )
 
-  it("requires a live bounded PM2 PID and connected socket", async () => {
+  it("requires a live bounded PM2 PID and connected socket", async () =>
     vi.stubEnv("PM2_HOME", "/doctor/pm2")
     const handle = textHandle([Buffer.from("654\n")])
     mocks.open.mockResolvedValueOnce(handle)
@@ -232,9 +230,9 @@ describe("doctor dependency discovery", () => {
     mocks.open.mockResolvedValueOnce(textHandle([Buffer.from("654")]))
     mocks.createConnection.mockReturnValueOnce(fakeSocket("error"))
     await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(false)
-  })
+  )
 
-  it("rejects missing, malformed, dead, oversized, and unresponsive PM2 state", async () => {
+  it("rejects missing, malformed, dead, oversized, and unresponsive PM2 state", async () =>
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true)
     mocks.open.mockRejectedValueOnce(errno("ENOENT"))
     await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(false)
@@ -244,15 +242,16 @@ describe("doctor dependency discovery", () => {
       textHandle([Buffer.from("not-a-pid")]),
       textHandle([], { file: false }),
       textHandle([], { size: 33 }),
-    ]) {
+    ])
       mocks.open.mockResolvedValueOnce(handle)
       await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(false)
       expect(handle.close).toHaveBeenCalledOnce()
-    }
     expect(mocks.createConnection).not.toHaveBeenCalled()
 
     mocks.open.mockResolvedValueOnce(textHandle([Buffer.from("44")]))
-    kill.mockImplementationOnce(() => { throw errno("ESRCH") })
+    kill.mockImplementationOnce(() =>
+      throw errno("ESRCH")
+    )
     await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(false)
 
     vi.useFakeTimers()
@@ -261,5 +260,5 @@ describe("doctor dependency discovery", () => {
     const availability = nodeDoctorDependencies().pm2DaemonAvailable()
     await vi.advanceTimersByTimeAsync(500)
     await expect(availability).resolves.toBe(false)
-  })
-})
+  )
+)

@@ -37,7 +37,7 @@ import {
 } from "./system.civet"
 import { runOwnedCommand } from "./process.civet"
 
-const streams = () => {
+const streams = () =>
   const output: string[] = []
   const errors: string[] = []
   return {
@@ -48,7 +48,6 @@ const streams = () => {
       writeError: (value: string) => errors.push(value),
     },
   }
-}
 const SCANNER_REPORT_NONCE = "r".repeat(43)
 const scannerEnvelope = (
   report: Readonly<Record<string, unknown>>,
@@ -62,8 +61,8 @@ const scannerEnvelope = (
 const scannerReportFrom = (value: string): Record<string, unknown> =>
   (JSON.parse(value) as { report: Record<string, unknown> }).report
 
-describe("E2E lifecycle CLIs", () => {
-  it("maps malformed invocations to usage exit code 2", async () => {
+describe("E2E lifecycle CLIs", () =>
+  it("maps malformed invocations to usage exit code 2", async () =>
     const scanner = streams()
     await expect(runArtifactScannerCli([], "/unused", scanner.streams)).resolves.toBe(2)
     expect(scanner.errors.join("")).toContain("Usage")
@@ -78,9 +77,9 @@ describe("E2E lifecycle CLIs", () => {
     const runner = streams()
     await expect(runJourneyCli(["unknown"], "/unused", runner.streams)).resolves.toBe(2)
     expect(runner.errors.join("")).toContain("Usage")
-  })
+  )
 
-  it("serializes progress as one bounded secret-free JSON line", () => {
+  it("serializes progress as one bounded secret-free JSON line", () =>
     const rendered = serializeJourneyProgress({
       spec: "tests/e2e/auth.spec.ts",
       runId: "safe_run",
@@ -100,9 +99,9 @@ describe("E2E lifecycle CLIs", () => {
       processTreeTerminated: true,
     })
     expect(rendered).not.toMatch(/password|token|authorization|cookie|https?:/iu)
-  })
+  )
 
-  it("emits canonical runJourneyCli progress through the real stream renderer", async () => {
+  it("emits canonical runJourneyCli progress through the real stream renderer", async () =>
     const cli = streams()
     const exitCode = await runJourneyCli(
       ["e2e"],
@@ -163,9 +162,9 @@ describe("E2E lifecycle CLIs", () => {
     expect(rendered).not.toMatch(
       /private-adoption|private-ownership|k{43}|password|token|https?:/iu
     )
-  })
+  )
 
-  it("emits only a safe scanner category while persisting the generic scan failure", async () => {
+  it("emits only a safe scanner category while persisting the generic scan failure", async () =>
     const cli = streams()
     const persisted: unknown[] = []
     const exitCode = await runJourneyCli(["e2e"], "/workspace", cli.streams, {
@@ -206,12 +205,12 @@ describe("E2E lifecycle CLIs", () => {
     expect(`${persistedResult}${cli.errors.join("")}`).not.toMatch(
       /private raw archive error|\/tmp\/private\.zip/u,
     )
-  })
+  )
 
-  it("persists an injected webserver failure and emits a filter-visible safe summary", async () => {
+  it("persists an injected webserver failure and emits a filter-visible safe summary", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-state-"))
     const cli = streams()
-    try {
+    try
       const exitCode = await runJourneyCli(["e2e"], root, cli.streams, {
         listSpecs: async () => ["tests/e2e/auth.spec.ts"],
         createRunId: () => "webserver_state_run",
@@ -274,12 +273,11 @@ describe("E2E lifecycle CLIs", () => {
       expect(`${persisted}${cli.errors.join("")}`).not.toMatch(
         /private@example|domain\.test|token=|Password123|private-adoption|private-ownership|w{43}/iu,
       )
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("fails generically without claiming a final report when state persistence fails", async () => {
+  it("fails generically without claiming a final report when state persistence fails", async () =>
     const cli = streams()
     const exitCode = await runJourneyCli(["e2e"], "/workspace", cli.streams, {
       listSpecs: async () => ["tests/e2e/auth.spec.ts"],
@@ -289,9 +287,8 @@ describe("E2E lifecycle CLIs", () => {
         adoption: "private-adoption",
         ownership: "private-ownership",
       }),
-      persistState: () => {
+      persistState: () =>
         throw new Error("private filesystem detail")
-      },
       runPlaywright: async () => ({ exitCode: 0, treeTerminated: true }),
       scanArtifacts: async () => ({
         ok: true,
@@ -310,9 +307,9 @@ describe("E2E lifecycle CLIs", () => {
     expect(cli.errors.join("")).not.toContain('"stage":"result"')
     expect(cli.errors.join("")).not.toContain('"ok":true')
     expect(cli.errors.join("")).not.toContain("private filesystem detail")
-  })
+  )
 
-  it("loads the live entrypoint through the exact package-script launcher", async () => {
+  it("loads the live entrypoint through the exact package-script launcher", async () =>
     const repositoryPath = fileURLToPath(new URL("../../", import.meta.url))
     const state = join(repositoryPath, "test-results", "e2e-runner-state.json")
     const stateBefore = await readFile(state, "utf8").catch(() => undefined)
@@ -342,9 +339,9 @@ describe("E2E lifecycle CLIs", () => {
     )
     const stateAfter = await readFile(state, "utf8").catch(() => undefined)
     expect(stateAfter).toBe(stateBefore)
-  }, 30_000)
+  , 30_000)
 
-  it("launches the scanner directly without a package-manager proxy", () => {
+  it("launches the scanner directly without a package-manager proxy", () =>
     const scanner = createArtifactScannerInvocation("/workspace", "/trusted/node", {
       runId: "run_safe",
       ownership: "[ownership]",
@@ -365,9 +362,9 @@ describe("E2E lifecycle CLIs", () => {
     ])
     expect(scanner.arguments).not.toContain("corepack")
     expect(scanner.arguments).not.toContain("pnpm")
-  })
+  )
 
-  it("captures the nonce-bound report from the real external scanner entrypoint", async () => {
+  it("captures the nonce-bound report from the real external scanner entrypoint", async () =>
     const repositoryPath = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `scanner_entry_${process.pid}_${Date.now()}`
     const reportNonce = "s".repeat(43)
@@ -384,7 +381,7 @@ describe("E2E lifecycle CLIs", () => {
       "evidence",
       runId,
     )
-    try {
+    try
       await writeFile(
         join(runRoot, "playwright-report.json"),
         '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}',
@@ -434,15 +431,14 @@ describe("E2E lifecycle CLIs", () => {
       await expect(readFile(evidenceRoot, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })
-    } finally {
+    finally
       await rm(runRoot, { force: true, recursive: true })
       await rm(evidenceRoot, { force: true, recursive: true })
-    }
-  }, 30_000)
+  , 30_000)
 
-  it("returns zero for clean fixtures and nonzero while purging only a contaminated owned run", async () => {
+  it("returns zero for clean fixtures and nonzero while purging only a contaminated owned run", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-"))
-    try {
+    try
       const cleanOwnership = encodeOwnedRunProof(
         await prepareOwnedRun(root, "clean_run", "no-binary"),
       )
@@ -514,14 +510,13 @@ describe("E2E lifecycle CLIs", () => {
       expect(rendered).not.toContain("BrowserReset123")
       await expect(readFile(join(other, "safe.txt"), "utf8")).resolves.toBe("must remain")
       await expect(readFile(join(owned, "test.trace"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("purges truncated archives and unreadable outputs while preserving sibling runs", async () => {
+  it("purges truncated archives and unreadable outputs while preserving sibling runs", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-errors-"))
-    try {
+    try
       const sibling = join(root, "test-results", "e2e-runs", "prior_run")
       await mkdir(sibling, { recursive: true })
       await writeFile(join(sibling, "safe.txt"), "prior evidence")
@@ -572,14 +567,13 @@ describe("E2E lifecycle CLIs", () => {
       })
       await expect(readFile(privateFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(join(sibling, "safe.txt"), "utf8")).resolves.toBe("prior evidence")
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("discovers only regular top-level specs and rejects matching symlinks", async () => {
+  it("discovers only regular top-level specs and rejects matching symlinks", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-discovery-"))
-    try {
+    try
       const directory = join(root, "tests", "e2e")
       await mkdir(directory, { recursive: true })
       await writeFile(join(directory, "auth.spec.ts"), "export {}")
@@ -590,12 +584,11 @@ describe("E2E lifecycle CLIs", () => {
       await expect(discoverJourneySpecs(root)).rejects.toThrow(
         "E2E journey candidates must be regular files",
       )
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("inherits only the explicit Playwright environment allowlist", () => {
+  it("inherits only the explicit Playwright environment allowlist", () =>
     const environment = createPlaywrightEnvironment({
       APP_ENV: "production",
       DATABASE_URL: "postgres://isolated",
@@ -620,9 +613,9 @@ describe("E2E lifecycle CLIs", () => {
     expect(environment["GROQ_API_KEY"]).toBe("")
     expect(environment["OPENAI_API_KEY"]).toBeUndefined()
     expect(environment["NODE_OPTIONS"]).toBeUndefined()
-  })
+  )
 
-  it("maps only exact ANSI-stripped webserver lifecycle failure lines", () => {
+  it("maps only exact ANSI-stripped webserver lifecycle failure lines", () =>
     const missing = {
       lifecycleStatus: "unavailable" as const,
       lifecycleStage: "unavailable" as const,
@@ -654,9 +647,8 @@ describe("E2E lifecycle CLIs", () => {
       "Error: E2E lifecycle startup failed during validation. token=secret",
       "Error: E2E lifecycle startup failed during unknown.",
       "Error: E2E lifecycle startup failed during validation",
-    ]) {
+    ])
       expect(observeWebServerLifecycleFailure("", nearMatch)).toBeUndefined()
-    }
     expect(observeWebServerLifecycleFailure(
       "",
       startup +
@@ -680,9 +672,9 @@ describe("E2E lifecycle CLIs", () => {
       "ordinary browser output",
       "ordinary browser error",
     )).toBe(missing)
-  })
+  )
 
-  it("observes the exact adopted lifecycle state before scanner cleanup", async () => {
+  it("observes the exact adopted lifecycle state before scanner cleanup", async () =>
     const root = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `reader_${process.pid}_${Date.now()}`
     const proof = await prepareOwnedRun(root, runId, "no-binary")
@@ -693,7 +685,7 @@ describe("E2E lifecycle CLIs", () => {
       "test-results",
       `.outside-lifecycle-${process.pid}-${Date.now()}.json`,
     )
-    try {
+    try
       await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
       await expect(observeE2ELifecycle({
         E2E_RUN_ID: runId,
@@ -760,12 +752,11 @@ describe("E2E lifecycle CLIs", () => {
         JSON.stringify(extraIdentity),
         JSON.stringify(negativeIdentity),
         ` ${canonicalAdoption}`,
-      ]) {
+      ])
         expect(() => decodeOwnedRunAdoption(
           Buffer.from(invalidCanonical, "utf8").toString("base64url"),
           runId,
         )).toThrow(/adoption/i)
-      }
       expect(() =>
         decodeOwnedRunAdoption(`${encodedAdoption}=`, runId)
       ).toThrow(/adoption/i)
@@ -801,7 +792,7 @@ describe("E2E lifecycle CLIs", () => {
         '{"version":1,"status":"startup-failed","stage":"module-loading","extra":true}',
         '{"version":1,"status":"ready","stage":"module-loading"}',
         ' {"version":1,"status":"startup-failed","stage":"module-loading"}',
-      ]) {
+      ])
         await writeFile(statePath, invalidState, "utf8")
         await expect(observeE2ELifecycle({
           E2E_RUN_ID: runId,
@@ -812,7 +803,6 @@ describe("E2E lifecycle CLIs", () => {
           lifecycleObservation: "invalid",
           lifecycleObservationReason: "state-invalid",
         })
-      }
       await rm(statePath)
       await writeFile(
         outsideStatePath,
@@ -844,18 +834,17 @@ describe("E2E lifecycle CLIs", () => {
         lifecycleObservation: "missing",
         lifecycleObservationReason: "inputs-missing",
       })
-    } finally {
+    finally
       await rm(outsideStatePath, { force: true })
       await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
       await rm(paths.evidence, { force: true, recursive: true })
-    }
-  })
-  it("observes a passing Playwright SIGTERM race as stopped", async () => {
+  )
+  it("observes a passing Playwright SIGTERM race as stopped", async () =>
     const root = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `clean_signal_reader_${process.pid}_${Date.now()}`
     const proof = await prepareOwnedRun(root, runId, "no-binary")
     const paths = createE2ERunPaths(runId)
-    try {
+    try
       await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
       const writer = await createOwnedE2ELifecycleStateWriter(paths)
       for (const stage of [
@@ -866,9 +855,8 @@ describe("E2E lifecycle CLIs", () => {
         "database-reset",
         "database-seed",
         "server-spawn",
-      ] as const) {
+      ] as const)
         await writer.write({ version: 1, status: "starting", stage })
-      }
       await writer.write({
         version: 1,
         status: "stopped",
@@ -898,13 +886,12 @@ describe("E2E lifecycle CLIs", () => {
           lifecycleObservationReason: "observed-state",
         },
       })
-    } finally {
+    finally
       await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
       await rm(paths.evidence, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("preserves post-probe startup failure through the actual Civet CLI loader boundary", async () => {
+  it("preserves post-probe startup failure through the actual Civet CLI loader boundary", async () =>
     const root = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `subprocess_reader_${process.pid}_${Date.now()}`
     const proof = await prepareOwnedRun(root, runId, "no-binary")
@@ -914,7 +901,7 @@ describe("E2E lifecycle CLIs", () => {
       "test-results",
       `.lifecycle-observer-${process.pid}-${Date.now()}.civet`,
     )
-    try {
+    try
       await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
       const writer = await createOwnedE2ELifecycleStateWriter(paths)
       for (const stage of [
@@ -926,9 +913,8 @@ describe("E2E lifecycle CLIs", () => {
         "database-seed",
         "server-spawn",
         "server-probed",
-      ] as const) {
+      ] as const)
         await writer.write({ version: 1, status: "starting", stage })
-      }
       await writer.write({
         version: 1,
         status: "startup-failed",
@@ -982,15 +968,14 @@ describe("E2E lifecycle CLIs", () => {
           lifecycleObservationReason: "observed-state",
         },
       })
-    } finally {
+    finally
       await rm(canaryPath, { force: true })
       await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
       await rm(paths.evidence, { force: true, recursive: true })
-    }
-  }, 30_000)
+  , 30_000)
 
 
-  it("accepts only an authenticated, exact, bounded scanner envelope", () => {
+  it("accepts only an authenticated, exact, bounded scanner envelope", () =>
     const cleanReport = {
       ok: true,
       scannedEntries: 3,
@@ -1128,12 +1113,11 @@ describe("E2E lifecycle CLIs", () => {
         failureCategory: "archive-validation",
       },
     ]
-    for (const invalid of invalidReports) {
+    for (const invalid of invalidReports)
       expect(parseScannerReport(
         scannerEnvelope(invalid),
         SCANNER_REPORT_NONCE,
       )).toBeUndefined()
-    }
     expect(parseScannerReport(JSON.stringify({
       kind: "darkfactory-artifact-scanner-report",
       version: 1,
@@ -1141,9 +1125,9 @@ describe("E2E lifecycle CLIs", () => {
       report: cleanReport,
       extra: "rejected",
     }), SCANNER_REPORT_NONCE)).toBeUndefined()
-  })
+  )
 
-  it("requires the parent nonce across separate scanner process channels", () => {
+  it("requires the parent nonce across separate scanner process channels", () =>
     const report = {
       ok: false,
       scannedEntries: 0,
@@ -1173,20 +1157,19 @@ describe("E2E lifecycle CLIs", () => {
       `${authentic}\nprivate stderr /tmp/secret.zip\n`,
       SCANNER_REPORT_NONCE,
     ))).not.toMatch(/BrowserReset123|\/tmp\/secret/u)
-  })
+  )
 
-  it("suppresses observed structured cookie and authorization diffs before output", () => {
+  it("suppresses observed structured cookie and authorization diffs before output", () =>
     for (const unsafe of [
       '{"name":"__Secure-better-auth.session_token","value":"opaque-session; Path=/"}',
       '{"value":"opaque-reverse-session","name":"__Secure-better-auth.session_token"}',
       String.raw`{\"value\":\"opaque-escaped-session\",\"name\":\"better-auth.session_token\"}`,
       '[{"value":"Bearer opaque-access","name":"authorization"}]',
       '\u001b[31m{name:&quot;better-auth.session_token&quot;,value:&quot;opaque-cookie&quot;}\u001b[0m',
-    ]) {
+    ])
       const redacted = redactProcessOutput(unsafe)
       expect(redacted).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
       expect(redacted).not.toContain("opaque-")
-    }
     for (const unsafe of [
       '{"authorization":"Bearer direct-value"}',
       "{ 'authorization' : 'Basic direct-value' }",
@@ -1195,12 +1178,11 @@ describe("E2E lifecycle CLIs", () => {
       String.raw`{\"name\":\"authorization\",\"value\":\"Bearer escaped-value\"}`,
       '\u001b[31m{&quot;authorization&quot;:&quot;Bearer ansi-value&quot;}\u001b[0m',
       "authorization: Bearer opaque-header-value",
-    ]) {
+    ])
       const redacted = redactProcessOutput(`normal test title\n${unsafe}\n`)
       expect(redacted).toContain("normal test title")
       expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
       expect(redacted).not.toContain("-value")
-    }
     expect(redactProcessOutput("password validation title\n")).toBe(
       "password validation title\n",
     )
@@ -1217,13 +1199,12 @@ describe("E2E lifecycle CLIs", () => {
       "/api/auth/verify-email/opaque\u001b[31m-verification-token\u001b[0m",
       "https://darkfactory.localhost/reset-password?token=opaque\u001b[32m-reset-token\u001b[0m",
       "/reset-password?callbackURL=%2Fdashboard&amp;token=opaque-html-token",
-    ]) {
+    ])
       const redacted = redactProcessOutput(`normal title\n${unsafe}\n`)
       expect(redacted).toContain("normal title")
       expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
       expect(redacted).not.toContain("opaque")
       expect(redacted).not.toContain("456!")
-    }
     for (const unsafe of [
       '{"resetToken":"opaqueResetToken123456789"}',
       '{"verifyToken":"opaqueVerifyToken123456789"}',
@@ -1235,13 +1216,12 @@ describe("E2E lifecycle CLIs", () => {
       "api_key: OpaqueApiValue123456789",
       String.raw`{\"clientSecret\":\"OpaqueClientValue123456789\"}`,
       String.raw`{\"password\":\"OpaquePasswordValue123456789\"}`,
-    ]) {
+    ])
       const redacted = redactProcessOutput(`safe diagnostic\n${unsafe}\n`)
       expect(redacted).toContain("safe diagnostic")
       expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
       expect(redacted).not.toContain("Opaque")
       expect(redacted).not.toContain("opaque")
-    }
     expect(redactProcessOutput("x".repeat(16 * 1024 + 1))).toBe(
       "[REDACTED OVERSIZED PROCESS OUTPUT]\n",
     )
@@ -1257,7 +1237,7 @@ describe("E2E lifecycle CLIs", () => {
     expect(url).not.toContain("opaque-token")
     expect(redactProcessOutput("safe failure summary")).toBe("safe failure summary")
     expect(redactProcessOutput("")).toBe("")
-  })
+  )
 
   it "redacts pretty-printed multiline authorization, session, and token structures", () =>
     for unsafe of [
@@ -1468,11 +1448,11 @@ describe("E2E lifecycle CLIs", () => {
       .mockImplementation(function (
         this: string,
         pattern: RegExp,
-      ): ReturnType<typeof String.prototype.matchAll> {
+      ): ReturnType<typeof String.prototype.matchAll>
         if (String(this) === "safecompact")
           return [outsideSource].values() as never
         return originalMatchAll.call(this, pattern)
-      })
+      )
     try
       expect(redactProcessOutput("safe compact")).toBe(
         "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
@@ -1519,11 +1499,10 @@ describe("E2E lifecycle CLIs", () => {
     )).toBe("[REDACTED OVERSIZED PROCESS OUTPUT]\n")
 
     const throwingValues = new Proxy([] as string[], {
-      get(target, property, receiver) {
+      get(target, property, receiver)
         if (property === Symbol.iterator)
           throw new Error("Injected known-value iterator failure")
         return Reflect.get(target, property, receiver)
-      },
     })
     expect(redactProcessOutput("safe", throwingValues)).toBe(
       "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
@@ -1567,7 +1546,7 @@ describe("E2E lifecycle CLIs", () => {
     ])
     expect(collectProcessDiagnostics("", "")).toEqual([])
 
-  it("retains only bounded redacted failure tails for per-spec reports", () => {
+  it("retains only bounded redacted failure tails for per-spec reports", () =>
     const diagnostics = collectProcessDiagnostics(
       [
         "old stdout 1",
@@ -1598,6 +1577,6 @@ describe("E2E lifecycle CLIs", () => {
     expect(diagnostics.join("\n")).not.toContain("databasePasswordValue")
     expect(diagnostics.join("\n")).not.toContain("OpaquePreviewHmac")
     expect(diagnostics.every((line) => line.length <= 408)).toBe(true)
-  })
+  )
 
-})
+)

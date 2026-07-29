@@ -20,14 +20,12 @@ export type DashboardSummaryOutput = Readonly<{
 
 export type DashboardServiceErrorCode = "STORAGE_ERROR"
 
-export class DashboardServiceError extends Error {
+export class DashboardServiceError extends Error
   readonly code: DashboardServiceErrorCode
-  constructor(code: DashboardServiceErrorCode, message: string) {
+  constructor(code: DashboardServiceErrorCode, message: string)
     super(message)
     this.name = "DashboardServiceError"
     this.code = code
-  }
-}
 
 export type DashboardService = Readonly<{
   summary: (principal: SafePrincipal) => Promise<DashboardSummaryOutput>
@@ -37,16 +35,14 @@ export const createDashboardService = (
   repository: DashboardRepository,
   capabilities: CapabilityProjection,
 ): DashboardService => ({
-  summary: async (principal) => {
-    try {
+  summary: async (principal) =>
+    try
       return {
         featureItems: await repository.getFeatureSummary(principal.userId, 5),
         capabilities,
       }
-    } catch (error) {
+    catch (error)
       if (error instanceof DashboardPersistenceError)
         throw new DashboardServiceError("STORAGE_ERROR", "Dashboard storage is unavailable")
       throw new DashboardServiceError("STORAGE_ERROR", "Dashboard storage is unavailable")
-    }
-  },
 })

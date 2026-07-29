@@ -23,7 +23,7 @@ export const CardTitle = ({
   className,
   headingLevel = 3,
   ...props
-}: CardTitleProps) => {
+}: CardTitleProps) =>
   const Heading = `h${headingLevel}` as keyof Pick<
     JSX.IntrinsicElements,
     "h2" | "h3" | "h4" | "h5" | "h6"
@@ -35,7 +35,6 @@ export const CardTitle = ({
       {...props}
     />
   )
-}
 
 export const CardDescription = ({ className, ...props }: ComponentPropsWithRef<"p">) => (
   <p className={cn("text-sm leading-5 text-muted-foreground", className)} {...props} />

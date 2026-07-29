@@ -15,9 +15,9 @@ describe "request background task lifecycle", ->
 
   it "keeps the request database open until every scheduled task settles", async ->
     let releaseTask!: () => void
-    const task = new Promise<void>((resolve) => {
+    const task = new Promise<void>((resolve) =>
       releaseTask = resolve
-    })
+    )
     const close = vi.fn(async () => undefined)
     const scheduled: Promise<unknown>[] = []
     const lifecycle = createBackgroundTaskLifecycle(
@@ -38,10 +38,10 @@ describe "request background task lifecycle", ->
     let calls = 0
     const close = vi.fn(async () => undefined)
     const lifecycle = createBackgroundTaskLifecycle(
-      () => {
+      () =>
         calls += 1
         if (calls === 2) throw new Error("waitUntil unavailable")
-      },
+      ,
       close,
     )
     lifecycle.schedule(Promise.resolve())

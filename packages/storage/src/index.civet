@@ -56,7 +56,7 @@ const unavailableResult = (
 
 export const createDisabledStoragePort = (
   reason: StorageUnavailableReason = "capability-disabled",
-): StoragePort => {
+): StoragePort =>
   const result = unavailableResult(reason)
 
   return Object.freeze({
@@ -64,4 +64,3 @@ export const createDisabledStoragePort = (
     get: async () => result,
     delete: async () => result,
   })
-}

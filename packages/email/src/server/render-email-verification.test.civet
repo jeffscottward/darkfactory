@@ -58,7 +58,7 @@ describe "renderEmailVerificationEmail", ->
       `${verificationUrl}&token=second-token`,
     ]
 
-    for (const unsafeUrl of unsafeUrls) {
+    for (const unsafeUrl of unsafeUrls)
       await expect(
         renderEmailVerificationEmail({
           ...verificationInput,
@@ -67,7 +67,6 @@ describe "renderEmailVerificationEmail", ->
       ).rejects.toThrowError(
         "verificationUrl must be a trusted email verification URL",
       )
-    }
 
   it "accepts an explicitly configured trusted application origin", async ->
     const trustedAppOrigin = "https://app.domain.test"
@@ -111,13 +110,12 @@ describe "renderEmailVerificationEmail", ->
     expect(rendered.text).not.toContain("1 minutes")
 
   it "rejects malformed configured origins, verification URLs, and callback URLs", async ->
-    for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"]) {
+    for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"])
       await expect(renderEmailVerificationEmail(verificationInput, {
         trustedAppOrigin,
       })).rejects.toThrowError(
         "verificationUrl must be a trusted email verification URL",
       )
-    }
 
     await expect(renderEmailVerificationEmail({
       ...verificationInput,

@@ -78,40 +78,34 @@ const defaultArtifactName = (
   operation: PreviewOperation,
 ): string => `${operation}-${randomUUID()}`
 
-const sanitizeArtifactName = (candidate: string): string => {
+const sanitizeArtifactName = (candidate: string): string =>
   const leafName = basename(candidate.replaceAll("\\", "/"))
   const safeName = leafName
     .replaceAll(/[^a-zA-Z0-9._-]+/g, "-")
     .replaceAll(/^[.-]+|[.-]+$/g, "")
 
   return safeName || `email-preview-${randomUUID()}`
-}
 
-const assertCanonicalDirectory = async (directory: string): Promise<string> => {
+const assertCanonicalDirectory = async (directory: string): Promise<string> =>
   const requestedPath = resolve(directory)
   await mkdir(requestedPath, { recursive: true, mode: 0o700 })
   const requestedDirectory = await lstat(requestedPath)
-  if (!requestedDirectory.isDirectory()) {
+  if (!requestedDirectory.isDirectory())
     throw new Error("Unsafe preview directory")
-  }
 
   const canonicalDirectory = await realpath(requestedPath)
-  if (canonicalDirectory !== requestedPath) {
+  if (canonicalDirectory !== requestedPath)
     throw new Error("Unsafe preview directory ancestry")
-  }
   const root = parse(requestedPath).root
   let currentDirectory = requestedPath
-  while (currentDirectory !== root) {
+  while (currentDirectory !== root)
     const current = await lstat(currentDirectory)
-    if (!current.isDirectory()) {
+    if (!current.isDirectory())
       throw new Error("Unsafe preview directory ancestry")
-    }
     currentDirectory = dirname(currentDirectory)
-  }
 
   await chmod(canonicalDirectory, 0o700)
   return canonicalDirectory
-}
 
 const METADATA_SUFFIX = ".metadata.json"
 const DELETING_SUFFIX = ".deleting.json"
@@ -130,49 +124,42 @@ type ArtifactInventory = {
   hasDeleting: boolean
 }
 
-const removeFile = async (path: string): Promise<void> => {
+const removeFile = async (path: string): Promise<void> =>
   await rm(path, { force: true })
-}
 
 const lstatIfPresent = async (
   path: string,
-): Promise<Stats | undefined> => {
-  try {
+): Promise<Stats | undefined> =>
+  try
     return await lstat(path)
-  } catch (error) {
+  catch error
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
     throw error
-  }
-}
 const quarantineMetadata = async (
   directory: string,
   artifactName: string,
-): Promise<string> => {
+): Promise<string> =>
   const metadataPath = join(directory, `${artifactName}${METADATA_SUFFIX}`)
   const deletingPath = join(directory, `${artifactName}${DELETING_SUFFIX}`)
-  try {
+  try
     await rename(metadataPath, deletingPath)
-  } catch (error) {
+  catch error
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-  }
   return deletingPath
-}
 
 const deleteArtifactUnit = async (
   directory: string,
   artifactName: string,
   removeArtifactFile: RemoveFile,
-): Promise<void> => {
+): Promise<void> =>
   const deletingPath = await quarantineMetadata(directory, artifactName)
   const contentResults = await Promise.allSettled([
     removeArtifactFile(join(directory, `${artifactName}.html`)),
     removeArtifactFile(join(directory, `${artifactName}.txt`)),
   ])
-  if (contentResults.some((result) => result.status === "rejected")) {
+  if (contentResults.some((result) => result.status === "rejected"))
     throw new Error("Preview content cleanup failed")
-  }
   await removeArtifactFile(deletingPath)
-}
 
 type ResolvedPreviewBinding = Readonly<{
   runId: string
@@ -181,20 +168,16 @@ type ResolvedPreviewBinding = Readonly<{
 
 const resolveBinding = (
   binding?: PreviewEmailBinding,
-): ResolvedPreviewBinding => {
-  if (!binding) {
+): ResolvedPreviewBinding =>
+  if (!binding)
     return { runId: "local", hmacKey: randomBytes(32) }
-  }
   const runId = binding.runId.trim()
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(runId)) {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(runId))
     throw new TypeError("Preview email binding runId is invalid")
-  }
-  if (!/^[A-Za-z0-9_-]{43}$/.test(binding.hmacKey)) {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(binding.hmacKey))
     throw new TypeError("Preview email binding HMAC key is invalid")
-  }
   const hmacKey = Buffer.from(binding.hmacKey, "base64url")
   return { runId, hmacKey }
-}
 
 const createMetadata = (
   operation: PreviewOperation,
@@ -203,7 +186,7 @@ const createMetadata = (
   html: string,
   text: string,
   binding: ResolvedPreviewBinding,
-): string => {
+): string =>
   const htmlSha256 = createHash("sha256").update(html, "utf8").digest("hex")
   const textSha256 = createHash("sha256").update(text, "utf8").digest("hex")
   const hmacPayload = JSON.stringify([
@@ -232,14 +215,13 @@ const createMetadata = (
     },
   }
   return JSON.stringify(metadata)
-}
 
 const removeExpiredArtifacts = async (
   directory: string,
   maxArtifacts: number,
   maxBytes: number,
   removeArtifactFile: RemoveFile,
-): Promise<void> => {
+): Promise<void> =>
   const fileNames = await readdir(directory)
   const activeArtifactNames = new Set<string>()
   const inventories = new Map<string, ArtifactInventory>()
@@ -318,12 +300,12 @@ const removeExpiredArtifacts = async (
     else
       completeArtifacts.push(inventory)
 
-  const sortedArtifacts = completeArtifacts.sort((left, right) => {
+  const sortedArtifacts = completeArtifacts.sort((left, right) =>
     return (
       left.modifiedAt - right.modifiedAt ||
       left.artifactName.localeCompare(right.artifactName)
     )
-  })
+  )
   let remainingBytes = sortedArtifacts.reduce(
     (total, artifact) => total + artifact.totalBytes,
     0,
@@ -340,43 +322,38 @@ const removeExpiredArtifacts = async (
       deleteArtifactUnit(directory, artifactName, removeArtifactFile)
     ),
   )
-}
 const cleanupPartialArtifacts = async (
   handles: readonly FileHandle[],
   temporaryPaths: readonly string[],
   publishedContentPaths: readonly string[],
   publishedMetadataPath: string | undefined,
-): Promise<void> => {
+): Promise<void> =>
   await Promise.allSettled(handles.map((handle) => handle.close()))
   await Promise.allSettled(
     temporaryPaths.map((path) => rm(path, { force: true })),
   )
 
   let deletingPath: string | undefined
-  if (publishedMetadataPath) {
+  if (publishedMetadataPath)
     const artifactName = basename(
       publishedMetadataPath,
       METADATA_SUFFIX,
     )
-    try {
+    try
       deletingPath = await quarantineMetadata(
         dirname(publishedMetadataPath),
         artifactName,
       )
-    } catch {
+    catch
       return
-    }
-  }
   const contentResults = await Promise.allSettled(
     publishedContentPaths.map((path) => rm(path, { force: true })),
   )
   if (
     deletingPath &&
     contentResults.every((result) => result.status === "fulfilled")
-  ) {
+  )
     await rm(deletingPath, { force: true }).catch(() => undefined)
-  }
-}
 
 const renderFailure = (): EmailDeliveryResult => ({
   status: "failed",
@@ -416,35 +393,32 @@ type PreviewWriter = <Input>(
 async function sendPasswordResetPreview(
   writePreview: PreviewWriter,
   input: PasswordResetEmailInput,
-): Promise<EmailDeliveryResult> {
+): Promise<EmailDeliveryResult>
   return await writePreview(
     "reset-password",
     input.to,
     renderPasswordResetEmail,
     input,
   )
-}
 
 async function sendEmailVerificationPreview(
   writePreview: PreviewWriter,
   input: EmailVerificationEmailInput,
-): Promise<EmailDeliveryResult> {
+): Promise<EmailDeliveryResult>
   return await writePreview(
     "verify-email",
     input.to,
     renderEmailVerificationEmail,
     input,
   )
-}
 
 const createPreviewPort = (
   options: PreviewEmailPortOptions,
   artifactName: (operation: PreviewOperation) => string,
   removeArtifactFile: RemoveFile,
-): EmailPort => {
-  if (options.environment === "production") {
+): EmailPort =>
+  if (options.environment === "production")
     throw new Error("Preview email transport is unavailable in production")
-  }
 
   const directory = options.directory ?? defaultPreviewDirectory()
   const maxArtifacts = options.maxArtifacts ?? DEFAULT_MAX_ARTIFACTS
@@ -455,36 +429,33 @@ const createPreviewPort = (
     maxArtifacts <= 0 ||
     !Number.isInteger(maxBytes) ||
     maxBytes <= 0
-  ) {
+  )
     throw new RangeError("Preview retention bounds must be positive integers")
-  }
 
   const writePreview = async <Input>(
     operation: PreviewOperation,
     recipient: string,
     renderer: PreviewRenderer<Input>,
     input: Input,
-  ): Promise<EmailDeliveryResult> => {
+  ): Promise<EmailDeliveryResult> =>
     const normalizedRecipient = normalizeRecipient(recipient)
     if (!normalizedRecipient) return recipientFailure()
 
     let rendered
-    try {
+    try
       rendered = await renderer(input, {
         trustedAppOrigin: options.trustedAppOrigin,
       })
-    } catch {
+    catch
       return renderFailure()
-    }
 
     let safeArtifactName: string
     let canonicalDirectory: string
-    try {
+    try
       safeArtifactName = sanitizeArtifactName(artifactName(operation))
       canonicalDirectory = await assertCanonicalDirectory(directory)
-    } catch {
+    catch
       return writeFailure()
-    }
 
     const metadata = createMetadata(
       operation,
@@ -494,17 +465,15 @@ const createPreviewPort = (
       rendered.text,
       binding,
     )
-    if (Buffer.byteLength(metadata, "utf8") > MAX_METADATA_BYTES) {
+    if (Buffer.byteLength(metadata, "utf8") > MAX_METADATA_BYTES)
       return writeFailure()
-    }
     if (
       Buffer.byteLength(rendered.html, "utf8") +
         Buffer.byteLength(rendered.text, "utf8") +
         Buffer.byteLength(metadata, "utf8") >
       maxBytes
-    ) {
+    )
       return writeFailure()
-    }
 
     const htmlPath = join(canonicalDirectory, `${safeArtifactName}.html`)
     const textPath = join(canonicalDirectory, `${safeArtifactName}.txt`)
@@ -539,7 +508,7 @@ const createPreviewPort = (
     let publishedMetadataPath: string | undefined
     let reservationOwned = false
 
-    try {
+    try
       const reservationHandle = await open(reservationPath, "wx", 0o600)
       reservationOwned = true
       handles.push(reservationHandle)
@@ -555,37 +524,31 @@ const createPreviewPort = (
         textHandle.writeFile(rendered.text, "utf8"),
         metadataHandle.writeFile(metadata, "utf8"),
       ])
-      if (writeResults.some((result) => result.status === "rejected")) {
+      if (writeResults.some((result) => result.status === "rejected"))
         throw new Error("Preview write failed")
-      }
 
       const syncResults = await Promise.allSettled(
         handles.map((handle) => handle.sync()),
       )
-      if (syncResults.some((result) => result.status === "rejected")) {
+      if (syncResults.some((result) => result.status === "rejected"))
         throw new Error("Preview sync failed")
-      }
       const closeResults = await Promise.allSettled(
         handles.map((handle) => handle.close()),
       )
-      if (closeResults.some((result) => result.status === "rejected")) {
+      if (closeResults.some((result) => result.status === "rejected"))
         throw new Error("Preview handle close failed")
-      }
       handles.length = 0
 
       const publishResults = await Promise.allSettled([
         link(temporaryHtmlPath, htmlPath),
         link(temporaryTextPath, textPath),
       ])
-      if (publishResults[0]!.status === "fulfilled") {
+      if (publishResults[0]!.status === "fulfilled")
         publishedContentPaths.push(htmlPath)
-      }
-      if (publishResults[1]!.status === "fulfilled") {
+      if (publishResults[1]!.status === "fulfilled")
         publishedContentPaths.push(textPath)
-      }
-      if (publishResults.some((result) => result.status === "rejected")) {
+      if (publishResults.some((result) => result.status === "rejected"))
         throw new Error("Preview content publish failed")
-      }
 
       await link(temporaryMetadataPath, metadataPath)
       publishedMetadataPath = metadataPath
@@ -593,9 +556,8 @@ const createPreviewPort = (
       const unlinkResults = await Promise.allSettled(
         temporaryPaths.map((path) => rm(path, { force: true })),
       )
-      if (unlinkResults.some((result) => result.status === "rejected")) {
+      if (unlinkResults.some((result) => result.status === "rejected"))
         throw new Error("Preview temporary cleanup failed")
-      }
       await rm(reservationPath, { force: true })
       reservationOwned = false
       await removeExpiredArtifacts(
@@ -604,42 +566,36 @@ const createPreviewPort = (
         maxBytes,
         removeArtifactFile,
       )
-    } catch {
+    catch
       await cleanupPartialArtifacts(
         handles,
         temporaryPaths,
         publishedContentPaths,
         publishedMetadataPath,
       )
-      if (reservationOwned) {
+      if (reservationOwned)
         await rm(reservationPath, { force: true }).catch(() => undefined)
-      }
       return writeFailure()
-    }
 
     return {
       status: "previewed",
       provider: "preview",
       artifactPath: htmlPath,
     }
-  }
 
   async function sendPasswordReset(
     input: PasswordResetEmailInput,
-  ): Promise<EmailDeliveryResult> {
+  ): Promise<EmailDeliveryResult>
     return await sendPasswordResetPreview(writePreview, input)
-  }
   async function sendEmailVerification(
     input: EmailVerificationEmailInput,
-  ): Promise<EmailDeliveryResult> {
+  ): Promise<EmailDeliveryResult>
     return await sendEmailVerificationPreview(writePreview, input)
-  }
 
   return Object.freeze({
     sendPasswordReset,
     sendEmailVerification,
   })
-}
 
 export const createPreviewEmailPort = (
   options: PreviewEmailPortOptions,

@@ -141,11 +141,10 @@ describe "composeDatabaseProfile", ->
     expect(compose).toThrow(
       "request binding connectionString must be a PostgreSQL URL",
     )
-    try {
+    try
       compose()
-    } catch (error) {
+    catch (error)
       expect(String(error)).not.toContain(malformedConnectionString)
-    }
   it "does not add database configuration or secrets to client config", ->
     const env = serverEnvFor("planetscale")
     const clientEnv = toClientEnv(env)

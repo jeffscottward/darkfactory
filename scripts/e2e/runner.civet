@@ -130,19 +130,16 @@ const SPEC_PATH = /^tests\/e2e\/[A-Za-z0-9][A-Za-z0-9._-]*\.spec\.ts$/u
 
 export const classifyJourneySpecs = (
   discovered: readonly string[],
-): JourneyClassification => {
-  if (new Set(discovered).size !== discovered.length) {
+): JourneyClassification =>
+  if (new Set(discovered).size !== discovered.length)
     throw new Error("Duplicate E2E journey path")
-  }
   const sorted = [...discovered].sort()
-  if (sorted.length === 0 || sorted.some((spec) => !SPEC_PATH.test(spec))) {
+  if (sorted.length === 0 || sorted.some((spec) => !SPEC_PATH.test(spec)))
     throw new Error("Invalid E2E journey path")
-  }
   return Object.freeze({
     e2e: Object.freeze(sorted.filter((spec) => !spec.endsWith(".a11y.spec.ts"))),
     a11y: Object.freeze(sorted.filter((spec) => spec.endsWith(".a11y.spec.ts"))),
   })
-}
 
 const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/
 const PUBLIC_VISUAL_SPEC = "tests/e2e/public-visual.spec.ts"
@@ -234,24 +231,23 @@ const unavailableScan = (reason: string): ArtifactScanReport => Object.freeze({
 const reportProgress = (
   dependencies: JourneyDependencies,
   progress: JourneyProgress,
-): void => {
+): void =>
   try
     dependencies.reportProgress?.(Object.freeze(progress))
   catch
     undefined
-}
 
 
 export const runJourneySuite = async (
   mode: E2eMode,
   dependencies: JourneyDependencies,
-): Promise<JourneySuiteReport> => {
+): Promise<JourneySuiteReport> =>
   let specs: readonly string[]
-  try {
+  try
     const classified = classifyJourneySpecs(await dependencies.listSpecs())
     specs = classified[mode]
     if (specs.length === 0) throw new Error("No E2E journeys discovered")
-  } catch {
+  catch
     return Object.freeze({
       ok: false,
       mode,
@@ -259,20 +255,18 @@ export const runJourneySuite = async (
       results: [],
       reason: "Unable to classify the exact E2E journey set",
     })
-  }
   const results: JourneyResult[] = []
-  for (const spec of specs) {
+  for (const spec of specs)
     let runId = "not-started"
     let hmacKey = ""
-    try {
+    try
       const candidateRunId = dependencies.createRunId()
       const candidateHmacKey = dependencies.createHmacKey()
-      if (!RUN_ID.test(candidateRunId) || !HMAC_KEY.test(candidateHmacKey)) {
+      if (!RUN_ID.test(candidateRunId) || !HMAC_KEY.test(candidateHmacKey))
         throw new Error("Unsafe generated E2E credentials")
-      }
       runId = candidateRunId
       hmacKey = candidateHmacKey
-    } catch {
+    catch
       const scan = unavailableScan(
         "Artifact scanning was not started because safe run credentials were unavailable",
       )
@@ -307,10 +301,9 @@ export const runJourneySuite = async (
         results: Object.freeze(results),
         reason: "Unable to create safe isolated E2E credentials",
       })
-    }
     reportProgress(dependencies, { spec, runId, stage: "created" })
     let prepared: PreparedJourneyRun
-    try {
+    try
       prepared = await dependencies.prepareRun(runId, artifactProfileForSpec(spec))
       if (
         prepared.adoption.length === 0 ||
@@ -318,7 +311,7 @@ export const runJourneySuite = async (
         prepared.ownership.length === 0 ||
         prepared.ownership.length > 8_192
       ) throw new Error("Invalid prepared run capability")
-    } catch {
+    catch
       const scan = unavailableScan(
         "Artifact scanning was not started because owned run preparation failed",
       )
@@ -353,7 +346,6 @@ export const runJourneySuite = async (
         results: Object.freeze(results),
         reason: "Unable to prepare isolated owned E2E output roots",
       })
-    }
     reportProgress(dependencies, { spec, runId, stage: "prepared" })
     const runRoot = resolve(
       dependencies.repositoryPath,
@@ -427,7 +419,7 @@ export const runJourneySuite = async (
           ]
         : []),
     ])
-    if (!processTreeTerminated) {
+    if (!processTreeTerminated)
       const scan = Object.freeze({
         ok: false,
         scannedEntries: 0,
@@ -467,7 +459,6 @@ export const runJourneySuite = async (
         results: Object.freeze(results),
         reason: "Unable to prove serialized Playwright process-tree termination",
       })
-    }
     reportProgress(dependencies, {
       spec,
       runId,
@@ -533,7 +524,6 @@ export const runJourneySuite = async (
       results: Object.freeze(results),
       reason: "E2E artifacts failed external secret scanning",
     })
-  }
   const ok = results.every((result) =>
     result.playwrightExitCode === 0 &&
     result.lifecycleStatus === "stopped" &&
@@ -550,4 +540,3 @@ export const runJourneySuite = async (
       ? "Every isolated Playwright journey and artifact scan passed"
       : "One or more serialized Playwright journeys failed with clean purged artifacts",
   })
-}

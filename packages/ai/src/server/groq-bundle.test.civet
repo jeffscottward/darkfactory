@@ -39,10 +39,10 @@ describe "Groq Worker bundle", ->
       })
       const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
       const bundle = builds
-        .flatMap((build) => {
+        .flatMap((build) =>
           if (!("output" in build)) throw new Error("Vite build did not finish")
           return build.output
-        })
+        )
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
         .join("\n")
@@ -87,10 +87,10 @@ describe "Groq Worker bundle", ->
       })
       const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
       const bundle = builds
-        .flatMap((build) => {
+        .flatMap((build) =>
           if (!("output" in build)) throw new Error("Vite build did not finish")
           return build.output
-        })
+        )
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
         .join("\n")

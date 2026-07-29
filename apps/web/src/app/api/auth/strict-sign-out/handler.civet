@@ -17,7 +17,7 @@ import {
 export const handleStrictSignOutRequest = async (
   request: Request,
   scheduleBackgroundTask: BackgroundTaskScheduler,
-): Promise<Response> => {
+): Promise<Response> =>
   const env = parseServerEnv(process.env)
   const previewOptions = resolveE2eEmailPreviewOptions()
   const databaseProfile = composeDatabaseProfile(env)
@@ -29,7 +29,7 @@ export const handleStrictSignOutRequest = async (
     database.close,
   )
 
-  try {
+  try
     const email = selectEmailPort({
       environment: env.APP_ENV,
       transport: env.EMAIL_TRANSPORT,
@@ -53,7 +53,5 @@ export const handleStrictSignOutRequest = async (
       secret: env.BETTER_AUTH_SECRET,
       trustedOrigin: env.APP_URL,
     })(request)
-  } finally {
+  finally
     await backgroundTasks.finalize()
-  }
-}

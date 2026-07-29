@@ -62,31 +62,28 @@ const defaultsFor = (address?: AddressOutput | null) => address === undefined ||
       isPrimary: address.isPrimary,
     }
 
-const requiredError = (label: string, value: string, maximum: number): string | undefined => {
+const requiredError = (label: string, value: string, maximum: number): string | undefined =>
   if (value.trim().length === 0) return `${label} is required.`
   if (value.length > maximum) return `${label} must be ${maximum} characters or fewer.`
   return undefined
-}
 
 export const changedAddressUpdateInput = (
   initial: AddressOutput,
   current: ReturnType<typeof defaultsFor> | AddressOutput,
-): AddressUpdateInput => {
+): AddressUpdateInput =>
   const patch: Record<string, unknown> = {
     id: initial.id,
     expectedUpdatedAt: initial.updatedAt,
   }
   const fields = ["type", "line1", "line2", "city", "region", "postalCode", "country"] as const
-  for (const field of fields) {
+  for (const field of fields)
     const raw = current[field]
     // Every non-line2 field in this contract is a string; line2's nullable case is handled above.
     const value = field === "line2"
       ? (raw === null || raw.trim().length === 0 ? null : raw.trim())
       : (raw as string).trim()
     if (value !== initial[field]) patch[field] = value
-  }
   return patch as AddressUpdateInput
-}
 
 export interface AddressFormProps {
   readonly feedback?: AccountFeedback | null | undefined
@@ -96,11 +93,11 @@ export interface AddressFormProps {
   readonly onSave: (input: AddressCreateInput | AddressUpdateInput) => Promise<unknown> | unknown
 }
 
-export const AddressForm = ({ disabled = false, feedback, initialAddress, onCancel, onSave }: AddressFormProps) => {
+export const AddressForm = ({ disabled = false, feedback, initialAddress, onCancel, onSave }: AddressFormProps) =>
   const isEditing = initialAddress !== undefined && initialAddress !== null
   const form = useForm({
     defaultValues: defaultsFor(initialAddress),
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }) =>
       const fields: AddressCreateInput = {
         type: value.type,
         line1: value.line1.trim(),
@@ -111,38 +108,35 @@ export const AddressForm = ({ disabled = false, feedback, initialAddress, onCanc
         country: value.country.trim().toUpperCase(),
         isPrimary: value.isPrimary,
       }
-      if (isEditing) {
+      if (isEditing)
         await onSave(changedAddressUpdateInput(initialAddress, value))
-      } else {
+      else
         await onSave(fields)
-      }
-    },
   })
 
 
-  return (
+  return
     <form
       className="space-y-6 border-y border-border py-6"
       id="address-form"
       noValidate
-      onSubmit={(event) => {
+      onSubmit={(event) =>
         event.preventDefault()
         event.stopPropagation()
-        void form.handleSubmit().then(() => {
+        void form.handleSubmit().then(() =>
           document.querySelector<HTMLElement>("#address-form [aria-invalid=\"true\"]")?.focus()
-        })
-      }}
+        )
+      }
     >
       <div>
-        <h2 className="font-heading text-lg font-semibold text-foreground">{isEditing ? "Edit address" : "Add an address"}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Required fields are marked in their labels.</p>
-      </div>
+        <h2 className="font-heading text-lg font-semibold text-foreground">{isEditing ? "Edit address" : "Add an address"}
+        <p className="mt-1 text-sm text-muted-foreground">Required fields are marked in their labels.
       <AccountFeedbackMessage feedback={feedback} />
       <div className="grid gap-5 sm:grid-cols-2">
         <form.Field name="type">
-          {(field) => (
+          {(field) =>
             <div className="space-y-2">
-              <Label htmlFor="type">Address type (required)</Label>
+              <Label htmlFor="type">Address type (required)
               <select
                 aria-required="true"
                 autoFocus
@@ -155,14 +149,11 @@ export const AddressForm = ({ disabled = false, feedback, initialAddress, onCanc
                 onChange={(event) => field.handleChange(event.target.value as "home" | "work" | "other")}
                 value={field.state.value}
               >
-                <option value="home">Home</option>
-                <option value="work">Work</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-          )}
-        </form.Field>
-        {textFields.map((definition) => (
+                <option value="home">Home
+                <option value="work">Work
+                <option value="other">Other
+          }
+        {textFields.map (definition) =>
           <form.Field
             key={definition.name}
             name={definition.name}
@@ -175,12 +166,12 @@ export const AddressForm = ({ disabled = false, feedback, initialAddress, onCanc
                 : requiredError(definition.label, value, definition.maximum),
             }}
           >
-            {(field) => {
+            {(field) =>
               const error = field.state.meta.errors[0]
               const errorId = `${field.name}-error`
-              return (
+              return
                 <div className={definition.name === "line1" || definition.name === "line2" ? "space-y-2 sm:col-span-2" : "space-y-2"}>
-                  <Label htmlFor={field.name}>{definition.label}{definition.optional === true ? " (optional)" : " (required)"}</Label>
+                  <Label htmlFor={field.name}>{definition.label}{definition.optional === true ? " (optional)" : " (required)"}
                   <Input
                     aria-describedby={error === undefined ? undefined : errorId}
                     aria-required={definition.optional !== true}
@@ -195,16 +186,13 @@ export const AddressForm = ({ disabled = false, feedback, initialAddress, onCanc
                     required={definition.optional !== true}
                     value={field.state.value}
                   />
-                  {error === undefined ? null : <p aria-live="assertive" className="text-sm text-destructive" id={errorId} role="alert">{String(error)}</p>}
-                </div>
-              )
-            }}
-          </form.Field>
-        ))}
-      </div>
-      {isEditing ? null : (
+                  {error === undefined ? null : <p aria-live="assertive" className="text-sm text-destructive" id={errorId} role="alert">{String(error)}
+                  }
+            }
+        }
+      {if !isEditing
         <form.Field name="isPrimary">
-          {(field) => (
+          {(field) =>
             <label className="flex min-h-11 cursor-pointer items-center gap-3" htmlFor="isPrimary">
               <input
                 checked={field.state.value}
@@ -216,21 +204,13 @@ export const AddressForm = ({ disabled = false, feedback, initialAddress, onCanc
                 onChange={(event) => field.handleChange(event.target.checked)}
                 type="checkbox"
               />
-              <span className="text-sm font-medium text-foreground">Make this the primary address</span>
-            </label>
-          )}
-        </form.Field>
-      )}
+              <span className="text-sm font-medium text-foreground">Make this the primary address
+          }
+      }
       <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
-        {([canSubmit, isDirty, isSubmitting]) => (
+        {([canSubmit, isDirty, isSubmitting]) =>
           <div className="flex flex-wrap gap-3">
             <Button disabled={disabled || !canSubmit || !isDirty || isSubmitting} loading={isSubmitting} loadingLabel="Saving address" type="submit">
               {isEditing ? "Save address" : "Create address"}
-            </Button>
-            <Button disabled={disabled || isSubmitting} onClick={onCancel} type="button" variant="secondary">Cancel</Button>
-          </div>
-        )}
-      </form.Subscribe>
-    </form>
-  )
-}
+            <Button disabled={disabled || isSubmitting} onClick={onCancel} type="button" variant="secondary">Cancel
+        }

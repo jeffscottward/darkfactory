@@ -44,16 +44,14 @@ type BrowserAccountGatewayOptions = Readonly<{
 
 export const createBrowserAccountGateway = (
   options: BrowserAccountGatewayOptions = {},
-): AccountGateway => {
+): AccountGateway =>
   const createClient = options.createClient ?? createApiClient
   const resolveOrigin = options.resolveOrigin ?? (() => window.location.origin)
   let gateway: AccountGateway | undefined
-  const getGateway = (): AccountGateway => {
-    if (gateway === undefined) {
+  const getGateway = (): AccountGateway =>
+    if (gateway === undefined)
       gateway = createAccountGateway(createClient({ baseUrl: resolveOrigin() }))
-    }
     return gateway
-  }
 
   return {
     getProfile: () => getGateway().getProfile(),
@@ -66,9 +64,8 @@ export const createBrowserAccountGateway = (
     getPreferences: () => getGateway().getPreferences(),
     updatePreferences: (input) => getGateway().updatePreferences(input),
   }
-}
 
-const errorCode = (error: unknown): string | null => {
+const errorCode = (error: unknown): string | null =>
   if (typeof error !== "object" || error === null) return null
   const code = Reflect.get(error, "code")
   if (typeof code === "string") return code
@@ -76,7 +73,6 @@ const errorCode = (error: unknown): string | null => {
   if (typeof data !== "object" || data === null) return null
   const nestedCode = Reflect.get(data, "code")
   return typeof nestedCode === "string" ? nestedCode : null
-}
 
 export const isAmbiguousAccountFailure = (error: unknown): boolean =>
   errorCode(error) === null
@@ -86,13 +82,12 @@ export interface LatestRequestGuard {
   readonly isLatest: (generation: number) => boolean
 }
 
-export const createLatestRequestGuard = (): LatestRequestGuard => {
+export const createLatestRequestGuard = (): LatestRequestGuard =>
   let generation = 0
   return {
     next: () => ++generation,
     isLatest: (candidate) => candidate === generation,
   }
-}
 
 export type AccountFailureKind =
   | "unauthorized"
@@ -101,18 +96,16 @@ export type AccountFailureKind =
   | "conflict"
   | "retryable"
 
-export const accountFailureKind = (error: unknown): AccountFailureKind => {
-  switch (errorCode(error)) {
+export const accountFailureKind = (error: unknown): AccountFailureKind =>
+  switch (errorCode(error))
     case "UNAUTHORIZED": return "unauthorized"
     case "FORBIDDEN": return "forbidden"
     case "NOT_FOUND": return "not-found"
     case "CONFLICT": return "conflict"
     default: return "retryable"
-  }
-}
 
-export const safeAccountFeedback = (error: unknown): string => {
-  switch (errorCode(error)) {
+export const safeAccountFeedback = (error: unknown): string =>
+  switch (errorCode(error))
     case "UNAUTHORIZED":
       return "Your session ended. Sign in again to continue."
     case "FORBIDDEN":
@@ -128,5 +121,3 @@ export const safeAccountFeedback = (error: unknown): string => {
       return "Account storage is temporarily unavailable. Try again."
     default:
       return "The request could not be completed. Try again."
-  }
-}

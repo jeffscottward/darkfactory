@@ -15,21 +15,19 @@ const notFound = (): Response => new Response("Not Found", { status: 404 })
 export const handleApiRequest = async (
   request: Request,
   context: ApiContext,
-): Promise<Response> => {
+): Promise<Response> =>
   const result = await rpcHandler.handle(request, {
     prefix: ORPC_RPC_PREFIX,
     context,
   })
   return result.matched ? result.response : notFound()
-}
 
 export const handleOpenApiRequest = async (
   request: Request,
   context: ApiContext,
-): Promise<Response> => {
+): Promise<Response> =>
   const result = await openApiHandler.handle(request, {
     prefix: ORPC_OPENAPI_PREFIX,
     context,
   })
   return result.matched ? result.response : notFound()
-}

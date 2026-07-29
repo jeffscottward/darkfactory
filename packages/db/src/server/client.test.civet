@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const driver = vi.hoisted(() => {
+const driver = vi.hoisted(() =>
   const pools: Array<{
     options: unknown
     end: ReturnType<typeof vi.fn>
@@ -18,59 +18,52 @@ const driver = vi.hoisted(() => {
   let nextConnectionError: unknown
   let nextEndError: unknown
 
-  class Pool {
+  class Pool
     options: unknown
     end = vi.fn(async () => undefined)
 
-    constructor(options: unknown) {
+    constructor(options: unknown)
       this.options = options
       pools.push(this)
-    }
-  }
 
-  class Client {
+  class Client
     options: unknown
-    connect = vi.fn(async () => {
+    connect = vi.fn(async () =>
       if (nextConnectionError === undefined) return
       const error = nextConnectionError
       nextConnectionError = undefined
       throw error
-    })
-    end = vi.fn(async () => {
+    )
+    end = vi.fn(async () =>
       if (nextEndError === undefined) return
       const error = nextEndError
       nextEndError = undefined
       throw error
-    })
+    )
     query = vi.fn(async (_query: unknown) => undefined)
 
-    constructor(options: unknown) {
+    constructor(options: unknown)
       this.options = options
       clients.push(this)
-    }
-  }
 
-  const drizzle = vi.fn(({ client }: { client: unknown }) => {
+  const drizzle = vi.fn(({ client }: { client: unknown }) =>
     const database = {
       client,
       transaction: vi.fn(),
     }
     databases.push(database)
     return database
-  })
+  )
   const runMigrations = vi.fn(async () => undefined)
 
-  const failNextConnection = (error: unknown): void => {
+  const failNextConnection = (error: unknown): void =>
     nextConnectionError = error
-  }
-  const failNextEnd = (error: unknown): void => {
+  const failNextEnd = (error: unknown): void =>
     nextEndError = error
-  }
 
-  const resetFailures = (): void => {
+  const resetFailures = (): void =>
     nextConnectionError = undefined
     nextEndError = undefined
-  }
 
   return {
     Client,
@@ -84,7 +77,7 @@ const driver = vi.hoisted(() => {
     runMigrations,
     resetFailures,
   }
-})
+)
 
 vi.mock("pg", () => ({ Client: driver.Client, Pool: driver.Pool }))
 vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: driver.drizzle }))
@@ -152,7 +145,7 @@ describe "database client factories", ->
       "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full&sslrootcert=system",
       "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full",
     ],
-  ])("uses runtime system roots for %s", async (connectionString, normalized) => {
+  ])("uses runtime system roots for %s", async (connectionString, normalized) =>
     const nodeResource = createNodeDatabase({ connectionString })
     const requestResource = await createRequestDatabase({ connectionString })
 
@@ -165,7 +158,7 @@ describe "database client factories", ->
 
     await nodeResource.close()
     await requestResource.close()
-  })
+  )
   it.each([
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=custom.pem",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=require&sslrootcert=system",
@@ -178,7 +171,7 @@ describe "database client factories", ->
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslmode=disable&sslrootcert=system",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&host=attacker.example",
     "postgresql://worker:credential@%2Ftmp.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&query_timeout_extra=0&application_name=dark factory%ZZ",
-  ])("preserves non-PlanetScale system-root configuration %s", async (connectionString) => {
+  ])("preserves non-PlanetScale system-root configuration %s", async (connectionString) =>
     const nodeResource = createNodeDatabase({ connectionString })
     const requestResource = await createRequestDatabase({ connectionString })
 
@@ -191,7 +184,7 @@ describe "database client factories", ->
 
     await nodeResource.close()
     await requestResource.close()
-  })
+  )
 
   it.each([
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0",
@@ -199,13 +192,12 @@ describe "database client factories", ->
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=10000&query_timeout=0",
     "postgresql://worker:credential-that-must-not-leak@%2Fvar%2Frun%2Fpostgresql/darkfactory?query%5Ftimeout=0",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0#client-fragment",
-  ])("rejects request query timeout URL overrides before constructing a client", async (connectionString) => {
+  ])("rejects request query timeout URL overrides before constructing a client", async (connectionString) =>
     let rejection: unknown
-    try {
+    try
       await createRequestDatabase({ connectionString })
-    } catch (error) {
+    catch error
       rejection = error
-    }
 
     expect(rejection).toBeInstanceOf(TypeError)
     expect((rejection as Error).message).toBe(
@@ -216,7 +208,7 @@ describe "database client factories", ->
     )
     expect(driver.clients).toHaveLength(0)
     expect(driver.drizzle).not.toHaveBeenCalled()
-  })
+  )
 
   it.each([
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_\ntimeout=0",
@@ -226,13 +218,12 @@ describe "database client factories", ->
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout\u001f",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout ",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?application_name=darkfactory\u000b&pool=worker",
-  ])("rejects raw URL controls before constructing a client", async (connectionString) => {
+  ])("rejects raw URL controls before constructing a client", async (connectionString) =>
     let rejection: unknown
-    try {
+    try
       await createRequestDatabase({ connectionString })
-    } catch (error) {
+    catch error
       rejection = error
-    }
 
     expect(rejection).toBeInstanceOf(TypeError)
     expect((rejection as Error).message).toBe(
@@ -243,7 +234,7 @@ describe "database client factories", ->
     )
     expect(driver.clients).toHaveLength(0)
     expect(driver.drizzle).not.toHaveBeenCalled()
-  })
+  )
 
   it "creates and connects a fresh client for every request", async ->
     const first = await createRequestDatabase({
@@ -292,13 +283,12 @@ describe "database client factories", ->
     const queryFailure = new Error("query failed")
     driver.clients[0]!.query.mockRejectedValueOnce(queryFailure)
 
-    try {
+    try
       await expect(driver.clients[0]!.query("select 1")).rejects.toBe(
         queryFailure,
       )
-    } finally {
+    finally
       await resource.close()
-    }
 
     expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
 
@@ -333,9 +323,9 @@ describe "database client factories", ->
 
     const rollbackError = new Error("roll back")
     const failingDatabase = {
-      transaction: vi.fn(async () => {
+      transaction: vi.fn(async () =>
         throw rollbackError
-      }),
+      ),
     }
     await expect(
       withTransaction(failingDatabase as never, async () => "unreachable"),

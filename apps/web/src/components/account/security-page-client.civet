@@ -16,7 +16,7 @@ import {
   type SecurityPanelState,
 } from "./security-panel.civet"
 
-export const SecurityPageClient = () => {
+export const SecurityPageClient = () =>
   const [gateway] = useState(createBrowserSecurityGateway)
   const [state, setState] = useState<SecurityPanelState>({ type: "loading" })
   const [sessionFeedback, setSessionFeedback] = useState<AccountFeedback | null>(null)
@@ -24,58 +24,51 @@ export const SecurityPageClient = () => {
   const [isRevoking, setIsRevoking] = useState(false)
   const [passwordVersion, setPasswordVersion] = useState(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async () =>
     setSessionFeedback(null)
     setState({ type: "loading" })
-    try {
+    try
       const result = await gateway.listSessions()
       setState({ type: "ready", sessions: result.sessions })
-    } catch (error) {
+    catch error
       setState({ type: "error", kind: securityFailureKind(error), message: safeSecurityFeedback(error) })
-    }
-  }, [gateway])
+  , [gateway])
 
-  useEffect(() => {
+  useEffect(() =>
     void load()
     return undefined
-  }, [load])
+  , [load])
 
-  const revokeOthers = async (): Promise<void> => {
+  const revokeOthers = async (): Promise<void> =>
     if (isRevoking) return
     setIsRevoking(true)
     setSessionFeedback(null)
-    try {
+    try
       await gateway.revokeOtherSessions()
       setSessionFeedback({ tone: "success", message: "Other sessions signed out." })
-      try {
+      try
         const result = await gateway.listSessions()
         setState({ type: "ready", sessions: result.sessions })
-      } catch {
+      catch
         setSessionFeedback({ tone: "info", message: "Other sessions were signed out, but the session list could not be refreshed." })
-      }
-    } catch (error) {
+    catch error
       setSessionFeedback({ tone: "error", message: safeSecurityFeedback(error) })
-    } finally {
+    finally
       setIsRevoking(false)
-    }
-  }
 
-  const changePassword = async (input: ChangePasswordInput): Promise<void> => {
+  const changePassword = async (input: ChangePasswordInput): Promise<void> =>
     setPasswordFeedback(null)
-    try {
+    try
       await gateway.changePassword(input)
       setPasswordVersion((version) => version + 1)
       setPasswordFeedback({ tone: "success", message: "Password changed." })
-      try {
+      try
         const result = await gateway.listSessions()
         setState({ type: "ready", sessions: result.sessions })
-      } catch {
+      catch
         setSessionFeedback({ tone: "info", message: "Password changed, but the session list could not be refreshed." })
-      }
-    } catch (error) {
+    catch error
       setPasswordFeedback({ tone: "error", message: safeSecurityFeedback(error) })
-    }
-  }
 
   return (
     <div className="space-y-12">
@@ -89,7 +82,4 @@ export const SecurityPageClient = () => {
       <section aria-labelledby="change-password" className="space-y-6 border-t border-border pt-8">
         <SectionHeader description="Changing the password requires the current password. Password values are never displayed after entry." id="change-password" title="Change password" />
         <PasswordForm feedback={passwordFeedback} key={passwordVersion} onSave={changePassword} />
-      </section>
-    </div>
   )
-}

@@ -52,33 +52,25 @@ const nextOptimisticVersion = (candidate: Date, expected: Date): Date =>
   new Date(Math.max(candidate.getTime(), expected.getTime() + 1))
 const MAX_ADDRESSES_PER_USER = 20
 
-export class DatabaseConflictError extends Error {
-  constructor(entity: string) {
+export class DatabaseConflictError extends Error
+  constructor(entity: string)
     super(`${entity} conflicts with an existing record`)
     this.name = "DatabaseConflictError"
-  }
-}
 
-export class OptimisticConcurrencyError extends DatabaseConflictError {
-  constructor(entity: string) {
+export class OptimisticConcurrencyError extends DatabaseConflictError
+  constructor(entity: string)
     super(entity)
     this.name = "OptimisticConcurrencyError"
-  }
-}
 
-export class DatabasePersistenceError extends Error {
-  constructor(operation: string) {
+export class DatabasePersistenceError extends Error
+  constructor(operation: string)
     super(`Database operation failed: ${operation}`)
     this.name = "DatabasePersistenceError"
-  }
-}
 
-export class InvalidRepositoryInputError extends Error {
-  constructor(message: string) {
+export class InvalidRepositoryInputError extends Error
+  constructor(message: string)
     super(`Invalid repository input: ${message}`)
     this.name = "InvalidRepositoryInputError"
-  }
-}
 
 export type RepositoryDependencies = Readonly<{
   now?: () => Date
@@ -99,11 +91,11 @@ const resolveDependencies = (
 
 const databaseErrorDetails = (
   error: unknown,
-): Readonly<{ code?: unknown; constraint?: unknown }> => {
+): Readonly<{ code?: unknown; constraint?: unknown }> =>
   const visited = new Set<object>()
   let current = error
 
-  while (typeof current === "object" && current !== null) {
+  while (typeof current === "object" && current !== null)
     if (visited.has(current)) break
     visited.add(current)
 
@@ -118,20 +110,17 @@ const databaseErrorDetails = (
         constraint: candidate.constraint,
       }
     current = candidate.cause
-  }
 
   return {}
-}
 
 const isUniqueViolation = (error: unknown): boolean =>
   databaseErrorDetails(error).code === "23505"
 
-const mapConflict = (error: unknown, entity: string): never => {
+const mapConflict = (error: unknown, entity: string): never =>
   if (isUniqueViolation(error)) throw new DatabaseConflictError(entity)
   throw error
-}
 
-const mapFeatureMutationError = (error: unknown): never => {
+const mapFeatureMutationError = (error: unknown): never =>
   const details = databaseErrorDetails(error)
   if (
     details.code === "23505" &&
@@ -146,23 +135,20 @@ const mapFeatureMutationError = (error: unknown): never => {
   if (typeof details.code === "string")
     throw new DatabasePersistenceError("feature item mutation")
   throw error
-}
 
-const requireNonBlank = (value: string, field: string): void => {
+const requireNonBlank = (value: string, field: string): void =>
   if (value.trim().length === 0)
     throw new InvalidRepositoryInputError(`${field} must not be blank`)
-}
 
-const invalidJsonMetadata = (): never => {
+const invalidJsonMetadata = (): never =>
   throw new InvalidRepositoryInputError(
     "metadata must contain only strict JSON values",
   )
-}
 
 const normalizeJsonValue = (
   value: unknown,
   ancestors: Set<object>,
-): JsonValue => {
+): JsonValue =>
   if (
     value === null ||
     typeof value === "string" ||
@@ -170,16 +156,15 @@ const normalizeJsonValue = (
   )
     return value
 
-  if (typeof value === "number") {
+  if (typeof value === "number")
     if (!Number.isFinite(value)) return invalidJsonMetadata()
     return value
-  }
 
   if (typeof value !== "object" || value === null)
     return invalidJsonMetadata()
   if (ancestors.has(value)) return invalidJsonMetadata()
 
-  if (Array.isArray(value)) {
+  if (Array.isArray(value))
     const keys = Reflect.ownKeys(value).filter((key) => key !== "length")
     if (
       keys.length !== value.length ||
@@ -189,7 +174,7 @@ const normalizeJsonValue = (
 
     ancestors.add(value)
     const normalized: JsonValue[] = []
-    for (let index = 0; index < value.length; index += 1) {
+    for (let index = 0; index < value.length; index += 1)
       const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
       if (
         descriptor === undefined ||
@@ -198,10 +183,8 @@ const normalizeJsonValue = (
       )
         return invalidJsonMetadata()
       normalized.push(normalizeJsonValue(descriptor.value, ancestors))
-    }
     ancestors.delete(value)
     return normalized
-  }
 
   const prototype = Object.getPrototypeOf(value)
   if (prototype !== Object.prototype && prototype !== null)
@@ -211,7 +194,7 @@ const normalizeJsonValue = (
 
   ancestors.add(value)
   const normalized: Record<string, JsonValue> = {}
-  for (const key of Reflect.ownKeys(value)) {
+  for (const key of Reflect.ownKeys(value))
     if (typeof key !== "string") return invalidJsonMetadata()
     if (key === "__proto__" || key === "prototype" || key === "constructor")
       return invalidJsonMetadata()
@@ -223,12 +206,10 @@ const normalizeJsonValue = (
     )
       return invalidJsonMetadata()
     normalized[key] = normalizeJsonValue(descriptor.value, ancestors)
-  }
   ancestors.delete(value)
   return normalized
-}
 
-const jsonbNumberText = (value: number): string => {
+const jsonbNumberText = (value: number): string =>
   const source = String(value)
   if (!source.includes("e") && !source.includes("E")) return source
 
@@ -243,9 +224,8 @@ const jsonbNumberText = (value: number): string => {
   if (decimalIndex <= 0)
     return `${sign}0.${"0".repeat(-decimalIndex)}${digits}`
   return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`
-}
 
-const jsonbText = (value: JsonValue): string => {
+const jsonbText = (value: JsonValue): string =>
   if (value === null) return "null"
   if (typeof value === "string") return JSON.stringify(value)
   if (typeof value === "boolean") return value ? "true" : "false"
@@ -256,11 +236,10 @@ const jsonbText = (value: JsonValue): string => {
   return `{${Object.entries(value)
     .map(([key, entry]) => `${JSON.stringify(key)}: ${jsonbText(entry)}`)
     .join(", ")}}`
-}
 
 const validateFeatureMetadata = (
   metadata: unknown,
-): FeatureItemMetadata => {
+): FeatureItemMetadata =>
   if (
     typeof metadata !== "object" ||
     metadata === null ||
@@ -269,18 +248,16 @@ const validateFeatureMetadata = (
     throw new InvalidRepositoryInputError("metadata must be a JSON object")
 
   let normalized: JsonValue
-  try {
+  try
     normalized = normalizeJsonValue(metadata, new Set())
-  } catch (error) {
+  catch error
     if (error instanceof InvalidRepositoryInputError) throw error
     return invalidJsonMetadata()
-  }
 
   const serialized = jsonbText(normalized)
   if (new TextEncoder().encode(serialized).byteLength > FEATURE_METADATA_LIMIT_BYTES)
     throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB")
   return normalized as FeatureItemMetadata
-}
 
 export type UpsertProfileInput = Readonly<{
   userId: string
@@ -308,20 +285,19 @@ export type ProfileRepository = Readonly<{
 export const createProfileRepository = (
   database: DatabaseExecutor,
   dependencies: RepositoryDependencies = {},
-): ProfileRepository => {
+): ProfileRepository =>
   const { now } = resolveDependencies(dependencies)
 
   return {
-    findByUserId: async (userId) => {
+    findByUserId: async (userId) =>
       const [profile] = await database
         .select()
         .from(profiles)
         .where(eq(profiles.userId, userId))
         .limit(1)
       return profile ?? null
-    },
 
-    upsert: async (input) => {
+    upsert: async (input) =>
       requireNonBlank(input.userId, "userId")
       requireNonBlank(input.timezone, "timezone")
       requireNonBlank(input.locale, "locale")
@@ -348,9 +324,8 @@ export const createProfileRepository = (
         })
         .returning()
       return profile!
-    },
 
-    updateOptimistic: async (input) => {
+    updateOptimistic: async (input) =>
       requireNonBlank(input.userId, "userId")
       requireNonBlank(input.timezone, "timezone")
       requireNonBlank(input.locale, "locale")
@@ -390,9 +365,7 @@ export const createProfileRepository = (
         throw new OptimisticConcurrencyError("profile")
       else
         return profile
-    },
   }
-}
 
 export type CreateAddressInput = Readonly<{
   id?: string
@@ -443,29 +416,27 @@ const findAddress = async (
   database: DatabaseExecutor,
   id: string,
   userId: string,
-): Promise<Address | null> => {
+): Promise<Address | null> =>
   const [address] = await database
     .select()
     .from(addresses)
     .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
     .limit(1)
   return address ?? null
-}
 
 const lockAddressOwner = async (
   transaction: Transaction,
   userId: string,
-): Promise<void> => {
+): Promise<void> =>
   await transaction.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`,
   )
-}
 const nextPrimaryMutationVersion = async (
   transaction: Transaction,
   userId: string,
   candidate: Date,
   targetVersion?: Date,
-): Promise<Date> => {
+): Promise<Date> =>
   const [primary] = await transaction
     .select({ updatedAt: addresses.updatedAt })
     .from(addresses)
@@ -481,7 +452,6 @@ const nextPrimaryMutationVersion = async (
   return Number.isFinite(priorMilliseconds)
     ? nextOptimisticVersion(candidate, new Date(priorMilliseconds))
     : candidate
-}
 
 
 const clearPrimaryAddress = async (
@@ -489,7 +459,7 @@ const clearPrimaryAddress = async (
   userId: string,
   updatedAt: Date,
   excludedId?: string,
-): Promise<void> => {
+): Promise<void> =>
   await transaction
     .update(addresses)
     .set({ isPrimary: false, updatedAt })
@@ -502,16 +472,15 @@ const clearPrimaryAddress = async (
             ne(addresses.id, excludedId),
           ),
     )
-}
 
 export const createAddressRepository = (
   database: DatabaseExecutor,
   dependencies: RepositoryDependencies = {},
-): AddressRepository => {
+): AddressRepository =>
   const { generateId, now } = resolveDependencies(dependencies)
 
   return {
-    listByUserId: async (userId) => {
+    listByUserId: async (userId) =>
       return database
         .select()
         .from(addresses)
@@ -522,20 +491,18 @@ export const createAddressRepository = (
           asc(addresses.id),
         )
         .limit(MAX_ADDRESSES_PER_USER)
-    },
 
-    findByIdForUser: async (id, userId) => {
+    findByIdForUser: async (id, userId) =>
       return findAddress(database, id, userId)
-    },
 
-    create: async (input) => {
+    create: async (input) =>
       requireNonBlank(input.userId, "userId")
       requireNonBlank(input.line1, "line1")
       if (input.country.length !== 2)
         throw new InvalidRepositoryInputError("country must be a two-letter code")
 
-      try {
-        return await withTransaction(database, async (transaction) => {
+      try
+        return await withTransaction(database, async (transaction) =>
           await lockAddressOwner(transaction, input.userId)
           const [addressCount] = await transaction
             .select({ value: sql<number>`count(*)::int` })
@@ -567,21 +534,19 @@ export const createAddressRepository = (
             })
             .returning()
           return address!
-        })
-      } catch (error) {
+        )
+      catch error
         return mapConflict(error, "address")
-      }
-    },
 
-    update: async (input) => {
+    update: async (input) =>
       requireNonBlank(input.id, "id")
       requireNonBlank(input.userId, "userId")
       if (input.line1 !== undefined) requireNonBlank(input.line1, "line1")
       if (input.country !== undefined && input.country.length !== 2)
         throw new InvalidRepositoryInputError("country must be a two-letter code")
 
-      try {
-        return await withTransaction(database, async (transaction) => {
+      try
+        return await withTransaction(database, async (transaction) =>
           await lockAddressOwner(transaction, input.userId)
           const existing = await findAddress(transaction, input.id, input.userId)
           if (!existing) return null
@@ -624,13 +589,11 @@ export const createAddressRepository = (
             .where(andWhere(eq(addresses.id, input.id), eq(addresses.userId, input.userId)))
             .returning()
           return address ?? null
-        })
-      } catch (error) {
+        )
+      catch error
         return mapConflict(error, "address")
-      }
-    },
 
-    updateOptimistic: async (input) => {
+    updateOptimistic: async (input) =>
       requireNonBlank(input.id, "id")
       requireNonBlank(input.userId, "userId")
       if (input.line1 !== undefined) requireNonBlank(input.line1, "line1")
@@ -654,9 +617,9 @@ export const createAddressRepository = (
           : { isPrimary: input.isPrimary }),
       }
 
-      try {
+      try
         if (input.isPrimary === true)
-          return await withTransaction(database, async (transaction) => {
+          return await withTransaction(database, async (transaction) =>
             await lockAddressOwner(transaction, input.userId)
             const existing = await findAddress(
               transaction,
@@ -693,7 +656,7 @@ export const createAddressRepository = (
             if (address === undefined)
               throw new OptimisticConcurrencyError("address")
             return address
-          })
+          )
 
         const [address] = await database
           .update(addresses)
@@ -711,20 +674,17 @@ export const createAddressRepository = (
         if (await findAddress(database, input.id, input.userId) === null)
           return null
         throw new OptimisticConcurrencyError("address")
-      } catch (error) {
+      catch error
         return mapConflict(error, "address")
-      }
-    },
 
-    remove: async (id, userId) => {
+    remove: async (id, userId) =>
       const removed = await database
         .delete(addresses)
         .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
         .returning({ id: addresses.id })
       return removed.length > 0
-    },
 
-    removeOptimistic: async (input) => {
+    removeOptimistic: async (input) =>
       const removed = await database
         .delete(addresses)
         .where(andWhere(
@@ -736,11 +696,10 @@ export const createAddressRepository = (
       if (removed.length > 0) return true
       if (await findAddress(database, input.id, input.userId) === null) return false
       throw new OptimisticConcurrencyError("address")
-    },
 
-    setPrimary: async (id, userId) => {
-      try {
-        return await withTransaction(database, async (transaction) => {
+    setPrimary: async (id, userId) =>
+      try
+        return await withTransaction(database, async (transaction) =>
           await lockAddressOwner(transaction, userId)
           const existing = await findAddress(transaction, id, userId)
           if (!existing) return null
@@ -757,14 +716,12 @@ export const createAddressRepository = (
             .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
             .returning()
           return address ?? null
-        })
-      } catch (error) {
+        )
+      catch error
         return mapConflict(error, "address")
-      }
-    },
 
-    setPrimaryOptimistic: async (input) => {
-      return withTransaction(database, async (transaction) => {
+    setPrimaryOptimistic: async (input) =>
+      return withTransaction(database, async (transaction) =>
         await lockAddressOwner(transaction, input.userId)
         const existing = await findAddress(transaction, input.id, input.userId)
         if (existing === null) return null
@@ -794,10 +751,8 @@ export const createAddressRepository = (
         if (address === undefined)
           throw new OptimisticConcurrencyError("address")
         return address
-      })
-    },
+      )
   }
-}
 
 export type UpsertUserPreferencesInput = Readonly<{
   userId: string
@@ -843,13 +798,13 @@ export type UserPreferencesRepository = Readonly<{
 export const createUserPreferencesRepository = (
   database: DatabaseExecutor,
   dependencies: RepositoryDependencies = {},
-): UserPreferencesRepository => {
+): UserPreferencesRepository =>
   const { now } = resolveDependencies(dependencies)
 
   return {
-    findThemeByUserId: async (userId) => {
+    findThemeByUserId: async (userId) =>
       requireNonBlank(userId, "userId")
-      try {
+      try
         const [preference] = await database
           .select({
             mode: userPreferences.mode,
@@ -860,28 +815,25 @@ export const createUserPreferencesRepository = (
           .where(eq(userPreferences.userId, userId))
           .limit(1)
         return preference ?? null
-      } catch {
+      catch
         throw new DatabasePersistenceError("theme preference query")
-      }
-    },
 
-    findByUserId: async (userId) => {
+    findByUserId: async (userId) =>
       const [preferences] = await database
         .select()
         .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
         .limit(1)
       return preferences ?? null
-    },
 
-    upsertTheme: async (input) => {
+    upsertTheme: async (input) =>
       requireNonBlank(input.userId, "userId")
       if (!(PREFERENCE_MODES as readonly string[]).includes(input.mode))
         throw new InvalidRepositoryInputError("mode must be canonical")
       if (!(COLOR_SCHEMES as readonly string[]).includes(input.colorScheme))
         throw new InvalidRepositoryInputError("colorScheme must be canonical")
 
-      try {
+      try
         const updatedAt = input.expectedUpdatedAt === null
           ? now()
           : nextOptimisticVersion(now(), input.expectedUpdatedAt)
@@ -920,17 +872,15 @@ export const createUserPreferencesRepository = (
           throw new OptimisticConcurrencyError("theme preference")
         else
           return preference
-      } catch (error) {
+      catch error
         if (
           error instanceof InvalidRepositoryInputError ||
           error instanceof OptimisticConcurrencyError
         )
           throw error
         throw new DatabasePersistenceError("theme preference upsert")
-      }
-    },
 
-    upsert: async (input) => {
+    upsert: async (input) =>
       requireNonBlank(input.userId, "userId")
       const [preferences] = await database
         .insert(userPreferences)
@@ -950,9 +900,8 @@ export const createUserPreferencesRepository = (
         })
         .returning()
       return preferences!
-    },
 
-    updateOptimistic: async (input) => {
+    updateOptimistic: async (input) =>
       requireNonBlank(input.userId, "userId")
       const updatedAt = input.expectedUpdatedAt === null
         ? now()
@@ -983,9 +932,7 @@ export const createUserPreferencesRepository = (
         throw new OptimisticConcurrencyError("user preferences")
       else
         return preferences
-    },
   }
-}
 
 export type FeatureMutationContext = Readonly<{
   actorUserId: string | null
@@ -1039,11 +986,10 @@ type FeatureMutationAction =
   | "feature_item.updated"
   | "feature_item.archived"
 
-const validateMutationContext = (context: FeatureMutationContext): void => {
+const validateMutationContext = (context: FeatureMutationContext): void =>
   requireNonBlank(context.requestId, "requestId")
   if (context.actorUserId !== null)
     requireNonBlank(context.actorUserId, "actorUserId")
-}
 
 const writeMutationRecords = async (
   transaction: Transaction,
@@ -1053,7 +999,7 @@ const writeMutationRecords = async (
   metadata: FeatureItemMetadata,
   dependencies: ResolvedRepositoryDependencies,
   occurredAt: Date,
-): Promise<void> => {
+): Promise<void> =>
   await transaction.insert(auditRecords).values({
     id: dependencies.generateId(),
     actorUserId: context.actorUserId,
@@ -1078,39 +1024,36 @@ const writeMutationRecords = async (
     occurredAt,
     attemptCount: 0,
   });
-}
 
 const findFeatureItem = async (
   database: DatabaseExecutor,
   id: string,
   ownerId: string,
-): Promise<FeatureItem | null> => {
+): Promise<FeatureItem | null> =>
   const [item] = await database
     .select()
     .from(featureItems)
     .where(andWhere(eq(featureItems.id, id), eq(featureItems.ownerId, ownerId)))
     .limit(1)
   return item ?? null
-}
 
 export const createFeatureItemRepository = (
   database: DatabaseExecutor,
   repositoryDependencies: RepositoryDependencies = {},
-): FeatureItemRepository => {
+): FeatureItemRepository =>
   const dependencies = resolveDependencies(repositoryDependencies)
 
   return {
-    listByOwner: async (ownerId, filters = {}) => {
+    listByOwner: async (ownerId, filters = {}) =>
       const limit = filters.limit ?? 50
       if (!Number.isInteger(limit) || limit < 1 || limit > 100)
         throw new InvalidRepositoryInputError("feature list limit must be 1-100")
-      if (filters.query !== undefined) {
+      if (filters.query !== undefined)
         requireNonBlank(filters.query, "query")
         if (filters.query.length > 200)
           throw new InvalidRepositoryInputError("query must not exceed 200 characters")
-      }
       const conditions = [eq(featureItems.ownerId, ownerId)]
-      if (filters.query !== undefined) {
+      if (filters.query !== undefined)
         const escaped = filters.query
           .replaceAll("\\", "\\\\")
           .replaceAll("%", "\\%")
@@ -1120,7 +1063,6 @@ export const createFeatureItemRepository = (
           ilike(featureItems.name, pattern),
           ilike(featureItems.description, pattern),
         )!)
-      }
       if (filters.status !== undefined)
         conditions.push(eq(featureItems.status, filters.status))
       return database
@@ -1129,13 +1071,11 @@ export const createFeatureItemRepository = (
         .where(andWhere(...conditions))
         .orderBy(desc(featureItems.updatedAt), desc(featureItems.id))
         .limit(limit)
-    },
 
-    findByIdForOwner: async (id, ownerId) => {
+    findByIdForOwner: async (id, ownerId) =>
       return findFeatureItem(database, id, ownerId)
-    },
 
-    create: async (input, context) => {
+    create: async (input, context) =>
       requireNonBlank(input.ownerId, "ownerId")
       requireNonBlank(input.name, "name")
       validateMutationContext(context)
@@ -1143,8 +1083,8 @@ export const createFeatureItemRepository = (
         input.metadata === undefined ? {} : input.metadata,
       )
 
-      try {
-        return await withTransaction(database, async (transaction) => {
+      try
+        return await withTransaction(database, async (transaction) =>
           const timestamp = dependencies.now()
           const [item] = await transaction
             .insert(featureItems)
@@ -1169,13 +1109,11 @@ export const createFeatureItemRepository = (
             timestamp,
           )
           return item!
-        })
-      } catch (error) {
+        )
+      catch error
         return mapFeatureMutationError(error)
-      }
-    },
 
-    update: async (input, context) => {
+    update: async (input, context) =>
       requireNonBlank(input.id, "id")
       requireNonBlank(input.ownerId, "ownerId")
       if (input.name !== undefined) requireNonBlank(input.name, "name")
@@ -1196,8 +1134,8 @@ export const createFeatureItemRepository = (
           "feature item update must change at least one field",
         )
 
-      try {
-        return await withTransaction(database, async (transaction) => {
+      try
+        return await withTransaction(database, async (transaction) =>
           const timestamp = dependencies.now()
           const [item] = await transaction
             .update(featureItems)
@@ -1231,19 +1169,17 @@ export const createFeatureItemRepository = (
             timestamp,
           )
           return item
-        })
-      } catch (error) {
+        )
+      catch error
         return mapFeatureMutationError(error)
-      }
-    },
 
-    archive: async (id, ownerId, context) => {
+    archive: async (id, ownerId, context) =>
       requireNonBlank(id, "id")
       requireNonBlank(ownerId, "ownerId")
       validateMutationContext(context)
 
-      try {
-        return await withTransaction(database, async (transaction) => {
+      try
+        return await withTransaction(database, async (transaction) =>
           const timestamp = dependencies.now()
           const [item] = await transaction
             .update(featureItems)
@@ -1264,13 +1200,10 @@ export const createFeatureItemRepository = (
             timestamp,
           )
           return item
-        })
-      } catch (error) {
+        )
+      catch error
         return mapFeatureMutationError(error)
-      }
-    },
   }
-}
 
 export type Repositories = Readonly<{
   profiles: ProfileRepository

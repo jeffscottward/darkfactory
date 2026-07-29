@@ -232,9 +232,8 @@ describe "semantic server-safe primitives", ->
       "Recent activity",
       "Section description",
       "Refresh",
-    ]) {
+    ])
       expect(rendered).toContain(text)
-    }
 
 describe "client primitive wrappers", ->
   it "forwards dropdown props, defaults, indicators, and inset styling", ->

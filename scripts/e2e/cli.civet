@@ -68,17 +68,15 @@ export type JourneyCliDependencies = Readonly<
     resolveNodeExecutable?: (repositoryPath: string) => Promise<string>
   }
 >
-export const serializeJourneyProgress = (progress: JourneyProgress): string => {
+export const serializeJourneyProgress = (progress: JourneyProgress): string =>
   const rendered = JSON.stringify(progress)
-  if (Buffer.byteLength(rendered, "utf8") > 1_024) {
+  if (Buffer.byteLength(rendered, "utf8") > 1_024)
     throw new Error("E2E progress event exceeded its fixed bound")
-  }
   return `${rendered}\n`
-}
 export const serializeJourneyFailureSummary = (
   report: JourneySuiteReport,
   failureCategory?: ArtifactScannerFailureCategory,
-): string => {
+): string =>
   const failed = [...report.results].reverse().find((result) =>
     result.playwrightExitCode !== 0 || !result.scan.ok
   ) ?? report.results.at(-1)
@@ -96,7 +94,6 @@ export const serializeJourneyFailureSummary = (
     `playwrightOk=${failed.playwrightExitCode === 0} ` +
     `treeTerminated=${failed.processTreeTerminated} ` +
     `scanOk=${failed.scan.ok} purged=${failed.scan.purged}${category}\n`
-}
 
 const INHERITED_PLAYWRIGHT_KEYS = [
   "CI", "COLORTERM", "FORCE_COLOR", "HOME", "LANG", "LC_ALL", "LOGNAME",
@@ -126,26 +123,21 @@ const FIXED_EXECUTABLE_DIRECTORIES = Object.freeze([
   "/usr/bin",
   "/bin",
 ])
-const safeExecutableDirectory = (candidate: string): string => {
-  if (!isAbsolute(candidate) || candidate.includes(delimiter)) {
+const safeExecutableDirectory = (candidate: string): string =>
+  if (!isAbsolute(candidate) || candidate.includes(delimiter))
     throw new Error("Trusted executable directory is unsafe")
-  }
   return candidate
-}
-const assertExecutableFile = async (candidate: string): Promise<void> => {
-  if (!(await stat(candidate)).isFile()) {
+const assertExecutableFile = async (candidate: string): Promise<void> =>
+  if (!(await stat(candidate)).isFile())
     throw new Error("Trusted executable target is not a regular file")
-  }
   await access(candidate, constants.X_OK)
-}
 
 const pathIsOutsideRepository = (
   repositoryRoot: string,
   candidate: string,
-): boolean => {
+): boolean =>
   const relation = relative(repositoryRoot, candidate)
   return relation === ".." || relation.startsWith(`..${sep}`)
-}
 type TrustedExecutable = Readonly<{
   command: string
 }>
@@ -165,15 +157,15 @@ const resolveTrustedExecutable = async (
   name: string,
   repositoryPath: string,
   search: ExecutableSearch,
-): Promise<TrustedParentPathExecutable> => {
+): Promise<TrustedParentPathExecutable> =>
   const root = await realpath(repositoryPath)
   const directories = search === "parent-path"
     ? (process.env["PATH"] ?? "")
       .split(delimiter)
       .filter((directory) => directory.length > 0 && isAbsolute(directory))
     : FIXED_EXECUTABLE_DIRECTORIES
-  for (const directory of directories) {
-    try {
+  for (const directory of directories)
+    try
       const candidateDirectory = resolve(directory)
       const canonicalDirectory = await realpath(candidateDirectory)
       safeExecutableDirectory(canonicalDirectory)
@@ -188,12 +180,9 @@ const resolveTrustedExecutable = async (
         command: canonical,
         pathDirectory: canonicalDirectory,
       })
-    } catch {
+    catch
       continue
-    }
-  }
   throw new Error(`Trusted ${name} executable is unavailable`)
-}
 export const resolveTrustedPnpmExecutable = async (
   repositoryPath: string,
 ): Promise<TrustedParentPathExecutable> =>
@@ -204,14 +193,13 @@ export const resolveTrustedParentNodeExecutable = async (
   await resolveTrustedExecutable("node", repositoryPath, "parent-path")
 export const resolveTrustedNodeExecutable = async (
   repositoryPath: string,
-): Promise<TrustedExecutable> => {
+): Promise<TrustedExecutable> =>
   const resolved = await resolveTrustedExecutable(
     "node",
     repositoryPath,
     "fixed",
   )
   return Object.freeze({ command: resolved.command })
-}
 const isMissingExecutable = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
@@ -220,19 +208,17 @@ const isMissingExecutable = (error: unknown): boolean =>
 const resolveOptionalSiblingExecutable = async (
   sourceDirectory: string,
   name: "node" | "pnpm",
-): Promise<string | undefined> => {
+): Promise<string | undefined> =>
   let canonical: string | undefined
-  try {
+  try
     canonical = await realpath(resolve(sourceDirectory, name))
-  } catch (error) {
+  catch (error)
     if (!isMissingExecutable(error)) throw error
-  }
   return canonical
-}
 const assertTrustedPlaywrightExecutablePair = async (
   pnpm: TrustedParentPathExecutable,
   node: TrustedParentPathExecutable,
-): Promise<void> => {
+): Promise<void> =>
   const siblingNode = await resolveOptionalSiblingExecutable(
     pnpm.pathDirectory,
     "node",
@@ -249,21 +235,18 @@ const assertTrustedPlaywrightExecutablePair = async (
     effectiveNode !== node.command ||
     effectivePnpm !== pnpm.command
   ) throw new Error("Trusted executable directory contains a conflicting sibling")
-}
 export const discoverJourneySpecs = async (
   repositoryPath: string,
-): Promise<readonly string[]> => {
+): Promise<readonly string[]> =>
   const entries = await readdir(join(repositoryPath, "tests", "e2e"), {
     withFileTypes: true,
   })
   const candidates = entries.filter((entry) => entry.name.endsWith(".spec.ts"))
-  if (candidates.some((entry) => !entry.isFile())) {
+  if (candidates.some((entry) => !entry.isFile()))
     throw new Error("E2E journey candidates must be regular files")
-  }
   return Object.freeze(candidates
     .map((entry) => `tests/e2e/${entry.name}`)
     .sort())
-}
 
 
 const createPlaywrightEnvironmentWithTrustedDirectories = (
@@ -272,7 +255,7 @@ const createPlaywrightEnvironmentWithTrustedDirectories = (
   isolated: Readonly<Record<string, string>>,
 ) => (
   trustedExecutableDirectories: readonly string[] = [],
-): NodeJS.ProcessEnv => {
+): NodeJS.ProcessEnv =>
   const webScript = source[E2E_WEB_SCRIPT_KEY]
   if (
     webScript !== undefined &&
@@ -292,12 +275,10 @@ const createPlaywrightEnvironmentWithTrustedDirectories = (
   if (webScript !== undefined) environment[E2E_WEB_SCRIPT_KEY] = webScript
   delete environment["NODE_OPTIONS"]
   delete environment["DEBUG"]
-  for (const key of INHERITED_PLAYWRIGHT_KEYS) {
+  for (const key of INHERITED_PLAYWRIGHT_KEYS)
     const value = source[key]
     if (value !== undefined) environment[key] = value
-  }
   return environment
-}
 export const createPlaywrightEnvironment = (
   source: NodeJS.ProcessEnv,
   isolated: Readonly<Record<string, string>>,
@@ -322,41 +303,35 @@ const unavailableLifecycle = (
 export const observeE2ELifecycle = async (
   environment: Readonly<Record<string, string>>,
   repositoryPath = process.cwd(),
-): Promise<LifecycleObservation> => {
+): Promise<LifecycleObservation> =>
   const runId = environment["E2E_RUN_ID"]
   const encodedAdoption = environment["E2E_RUN_ADOPTION"]
-  if (runId === undefined || encodedAdoption === undefined) {
+  if (runId === undefined || encodedAdoption === undefined)
     return unavailableLifecycle("missing", "inputs-missing")
-  }
   let paths: OwnedLifecyclePaths
-  try {
+  try
     paths = await createOwnedLifecyclePaths(repositoryPath, runId)
-  } catch {
+  catch
     return unavailableLifecycle("invalid", "paths-failed")
-  }
   let adoption: OwnedRunAdoption
-  try {
+  try
     adoption = decodeOwnedRunAdoption(encodedAdoption, runId)
     await assertOwnedLifecycleRoots(paths, adoption)
-  } catch {
+  catch
     return unavailableLifecycle("invalid", "adoption-invalid")
-  }
   let state: Awaited<ReturnType<typeof readOwnedLifecycleState>>
-  try {
+  try
     state = await readOwnedLifecycleState(paths, adoption)
-  } catch {
+  catch
     return unavailableLifecycle("invalid", "state-invalid")
-  }
-  if (state === undefined) {
+  if (state === undefined)
     return unavailableLifecycle("missing", "state-missing")
-  }
   return Object.freeze({
     lifecycleStatus: state.status as JourneyLifecycleStatus,
     lifecycleStage: state.stage as JourneyLifecycleStage,
     lifecycleObservation: "state",
     lifecycleObservationReason: "observed-state",
   })
-}
 const lifecycleProvesNestedServerTermination = (
   lifecycle: LifecycleObservation,
 ): boolean =>
@@ -373,7 +348,7 @@ export const finalizeAndObserveE2ELifecycle = async (
   environment: Readonly<Record<string, string>>,
   processResult: Readonly<{ exitCode: number; treeTerminated: boolean }>,
   repositoryPath = process.cwd(),
-): Promise<FinalizedLifecycleObservation> => {
+): Promise<FinalizedLifecycleObservation> =>
   const preFinalizationLifecycle =
     await observeE2ELifecycle(environment, repositoryPath)
   const nestedServerTerminated =
@@ -400,7 +375,6 @@ export const finalizeAndObserveE2ELifecycle = async (
       ? await observeE2ELifecycle(environment, repositoryPath)
       : preFinalizationLifecycle,
   })
-}
 
 
 const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/gu
@@ -410,9 +384,9 @@ const WEB_SERVER_LIFECYCLE_FAILURE =
 export const observeWebServerLifecycleFailure = (
   stdout: string,
   stderr: string,
-): LifecycleObservation | undefined => {
+): LifecycleObservation | undefined =>
   const matches: LifecycleObservation[] = []
-  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/u)) {
+  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/u))
     const match = WEB_SERVER_LIFECYCLE_FAILURE.exec(
       line.replace(ANSI_ESCAPE, "").trim(),
     )
@@ -432,9 +406,7 @@ export const observeWebServerLifecycleFailure = (
       lifecycleObservation: "stderr",
       lifecycleObservationReason: "observed-stderr",
     }))
-  }
   return matches.length === 1 ? matches[0] : undefined
-}
 export const resolveLifecycleObservation = (
   recorded: LifecycleObservation,
   stdout: string,
@@ -464,7 +436,7 @@ export const createArtifactScannerInvocation = (
     reportNonce: string
     purgeOwned: boolean
   }>,
-) => {
+) =>
   const arguments_ = [
     "--experimental-strip-types",
     "--import",
@@ -488,7 +460,6 @@ export const createArtifactScannerInvocation = (
       timeoutMillis: 45_000,
     }),
   })
-}
 
 const MAX_PROCESS_OUTPUT_BYTES = 16 * 1024
 const REDACTED_SENSITIVE_PROCESS_OUTPUT =
@@ -584,7 +555,7 @@ const sensitiveProcessRanges = (value: string): readonly ProcessOutputRange[] =>
   return ranges
 
 
-function redactVisibleProcessValues(value: string): string {
+function redactVisibleProcessValues(value: string): string
   let redacted = value.replace(
     /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]+/giu,
     "[REDACTED]",
@@ -601,12 +572,11 @@ function redactVisibleProcessValues(value: string): string {
     /https?:\/\/[^\s"'<>]+/giu,
     "[REDACTED URL]",
   )
-}
 
 function redactProcessOutputUnsafe(
   value: string,
   knownSensitiveValues: readonly string[],
-): string {
+): string
   if processOutputIsOversized(value)
     return REDACTED_OVERSIZED_PROCESS_OUTPUT
   const normalized = normalizeTerminalControls(value)
@@ -685,18 +655,15 @@ function redactProcessOutputUnsafe(
   return processOutputIsOversized(rendered)
     ? REDACTED_OVERSIZED_PROCESS_OUTPUT
     : rendered
-}
 
 export function redactProcessOutput(
   value: string,
   knownSensitiveValues: readonly string[] = [],
-): string {
-  try {
+): string
+  try
     return redactProcessOutputUnsafe(value, knownSensitiveValues)
-  } catch {
+  catch
     return REDACTED_SENSITIVE_PROCESS_OUTPUT
-  }
-}
 const boundedDiagnosticLines = (value: string, channel: "stderr" | "stdout"): string[] =>
   value
     .split(/\r?\n/gu)
@@ -725,14 +692,13 @@ const decodeDatabaseUrlComponent = (value: string): string =>
   catch
     return value
 
-const databaseUrlSensitiveValues = (value: string): readonly string[] => {
+const databaseUrlSensitiveValues = (value: string): readonly string[] =>
   if (value.length === 0) return []
   let url: URL
-  try {
+  try
     url = new URL(value)
-  } catch {
+  catch
     return Object.freeze([value])
-  }
   return Object.freeze([...new Set([
     value,
     url.username,
@@ -740,7 +706,6 @@ const databaseUrlSensitiveValues = (value: string): readonly string[] => {
     decodeDatabaseUrlComponent(url.username),
     decodeDatabaseUrlComponent(url.password),
   ])])
-}
 
 
 
@@ -751,7 +716,7 @@ export const runArtifactScannerCli = async (
   arguments_: readonly string[],
   repositoryPath: string,
   streams: CliStreams,
-): Promise<number> => {
+): Promise<number> =>
   const purgeOwned =
     arguments_.length === 7 && arguments_[6] === "--purge-owned"
   const reportNonce = arguments_[5] ?? ""
@@ -761,13 +726,12 @@ export const runArtifactScannerCli = async (
     arguments_[4] !== "--report-nonce" ||
     !SCANNER_REPORT_NONCE.test(reportNonce) ||
     (arguments_.length !== 6 && !purgeOwned)
-  ) {
+  )
     streams.writeError(
       "Usage: scan-artifacts --run-id <safe-run-id> --ownership <proof> " +
         "--report-nonce <nonce> [--purge-owned]\n",
     )
     return 2
-  }
   let report: ArtifactScanReport = Object.freeze({
     ok: false,
     scannedEntries: 0,
@@ -776,7 +740,7 @@ export const runArtifactScannerCli = async (
     reason: "Owned E2E artifact scanner initialization failed safely",
     failureCategory: "internal",
   })
-  try {
+  try
     const proof = decodeOwnedRunProof(arguments_[3] ?? "")
     if (proof.runId !== arguments_[1]) throw new Error("Owned proof run mismatch")
     const runId = proof.runId
@@ -790,12 +754,11 @@ export const runArtifactScannerCli = async (
       dependencies,
       purgeOwned,
     )
-  } catch (error) {
+  catch (error)
     report = Object.freeze({
       ...report,
       failureCategory: classifyArtifactScannerFailure(error),
     })
-  }
   const rendered = `${JSON.stringify({
     kind: SCANNER_REPORT_KIND,
     version: 1,
@@ -805,7 +768,6 @@ export const runArtifactScannerCli = async (
   if (report.ok) streams.writeOutput(rendered)
   else streams.writeError(rendered)
   return report.ok ? 0 : 1
-}
 
 const SCANNER_MAX_ENTRIES = 20_000
 const SCANNER_MAX_FINDINGS = 10_000
@@ -857,8 +819,8 @@ const compareScannerFindings = (
 const parseScannerCandidate = (
   value: string,
   expectedNonce: string,
-): ArtifactScanReport | undefined => {
-  try {
+): ArtifactScanReport | undefined =>
+  try
     const envelope = recordValue(JSON.parse(value) as unknown)
     if (
       envelope === undefined ||
@@ -895,7 +857,7 @@ const parseScannerCandidate = (
       (hasFailureCategory && failureCategory === undefined)
     ) return undefined
     const normalizedFindings: Array<Readonly<{ category: string; path: string }>> = []
-    for (const finding of findings) {
+    for (const finding of findings)
       const record = recordValue(finding)
       if (
         record === undefined ||
@@ -909,13 +871,11 @@ const parseScannerCandidate = (
         category: record["category"],
         path: record["path"],
       }))
-    }
-    for (let index = 1; index < normalizedFindings.length; index += 1) {
+    for (let index = 1; index < normalizedFindings.length; index += 1)
       if (compareScannerFindings(
         normalizedFindings[index - 1]!,
         normalizedFindings[index]!,
       ) >= 0) return undefined
-    }
     const ok = parsed["ok"] as boolean
     const purged = parsed["purged"] as boolean
     const scannedEntries = parsed["scannedEntries"] as number
@@ -958,28 +918,24 @@ const parseScannerCandidate = (
       reason,
       ...(failureCategory === undefined ? {} : { failureCategory }),
     }) as ArtifactScanReport
-  } catch {
+  catch
     return undefined
-  }
-}
 export const parseScannerReport = (
   value: string,
   expectedNonce: string,
-): ArtifactScanReport | undefined => {
+): ArtifactScanReport | undefined =>
   if (
     !SCANNER_REPORT_NONCE.test(expectedNonce) ||
     Buffer.byteLength(value, "utf8") > 1024 * 1024
   ) return undefined
   const reports: ArtifactScanReport[] = []
-  for (const line of value.split(/\r?\n/u)) {
+  for (const line of value.split(/\r?\n/u))
     const candidate = line.trim()
     if (candidate.length === 0) continue
     const parsed = parseScannerCandidate(candidate, expectedNonce)
     if (parsed !== undefined) reports.push(parsed)
     if (reports.length > 1) return undefined
-  }
   return reports.length === 1 ? reports[0] : undefined
-}
 export const parseExternalScannerReport = (
   stdout: string,
   stderr: string,
@@ -991,8 +947,8 @@ const purgeAfterScannerFailure = async (
   runId: string,
   encodedProof: string,
   failureCategory: ArtifactScannerFailureCategory,
-): Promise<ArtifactScanReport> => {
-  try {
+): Promise<ArtifactScanReport> =>
+  try
     const proof = decodeOwnedRunProof(encodedProof)
     const dependencies = await createArtifactScannerDependencies(repositoryPath, proof)
     await dependencies.purgeOwnedRun(runId)
@@ -1004,7 +960,7 @@ const purgeAfterScannerFailure = async (
       reason: "External scanner failed; parent purged owned run outputs",
       failureCategory,
     })
-  } catch {
+  catch
     return Object.freeze({
       ok: false,
       scannedEntries: 0,
@@ -1013,13 +969,11 @@ const purgeAfterScannerFailure = async (
       reason: "External scanner failed and parent purge could not be proven",
       failureCategory: "cleanup",
     })
-  }
-}
 async function scanArtifactsWithTrustedNode(
   repositoryPath: string,
   node: string,
   request: Readonly<{ runId: string; purgeOwned: boolean; ownership: string }>,
-): Promise<ArtifactScanReport> {
+): Promise<ArtifactScanReport>
   const reportNonce = randomBytes(32).toString("base64url")
   const scanner = createArtifactScannerInvocation(repositoryPath, node, {
     runId: request.runId,
@@ -1050,7 +1004,6 @@ async function scanArtifactsWithTrustedNode(
     request.ownership,
     parsed?.failureCategory ?? "internal",
   )
-}
 
 
 type StatePersistenceStatus = Set<null>
@@ -1058,27 +1011,24 @@ type StatePersistenceStatus = Set<null>
 const reportStatePersistenceFailure = (
   status: StatePersistenceStatus,
   streams: CliStreams,
-): void => {
+): void =>
   if (status.size === 0)
     streams.writeError("Error: E2E runner state persistence failed\n")
   status.add(null)
-}
 
 const writeJourneyProgress = (
   status: StatePersistenceStatus,
   persistState: NonNullable<JourneyCliDependencies["persistState"]>,
   streams: CliStreams,
   progress: JourneyProgress,
-): void => {
+): void =>
   if (status.size !== 0) return
-  try {
+  try
     persistState({ version: 1, phase: "progress", progress })
-  } catch {
+  catch
     reportStatePersistenceFailure(status, streams)
     return
-  }
   streams.writeError(serializeJourneyProgress(progress))
-}
 const createProgressWriter = (
   status: StatePersistenceStatus,
   persistState: NonNullable<JourneyCliDependencies["persistState"]>,
@@ -1096,13 +1046,12 @@ const prepareDefaultJourneyRun = async (
   repositoryPath: string,
   runId: Parameters<PrepareRunDependency>[0],
   artifactProfile: Parameters<PrepareRunDependency>[1],
-): ReturnType<PrepareRunDependency> => {
+): ReturnType<PrepareRunDependency> =>
   const proof = await prepareOwnedRun(repositoryPath, runId, artifactProfile)
   return Object.freeze({
     adoption: encodeOwnedRunAdoption(proof),
     ownership: encodeOwnedRunProof(proof),
   })
-}
 
 type ScanArtifactsDependency = NonNullable<JourneyDependencies["scanArtifacts"]>
 
@@ -1157,7 +1106,7 @@ const finalizeJourneyCliReport = (
   status: StatePersistenceStatus,
   persistState: NonNullable<JourneyCliDependencies["persistState"]>,
   streams: CliStreams,
-): number => {
+): number =>
   const rawFailureCategory = [...report.results].reverse().find((result) =>
     result.playwrightExitCode !== 0 || !result.scan.ok
   )?.scan.failureCategory
@@ -1167,28 +1116,23 @@ const finalizeJourneyCliReport = (
       ? rawFailureCategory as ArtifactScannerFailureCategory
       : undefined
   let safeReport: JourneySuiteReport
-  try {
+  try
     safeReport = sanitizeE2ERunnerReport(report)
-  } catch {
+  catch
     reportStatePersistenceFailure(status, streams)
     return 1
-  }
-  if (status.size === 0) {
-    try {
+  if (status.size === 0)
+    try
       persistState({ version: 1, phase: "result", report: safeReport })
-    } catch {
+    catch
       reportStatePersistenceFailure(status, streams)
-    }
-  }
   if (status.size !== 0) return 1
   const rendered = `${JSON.stringify(safeReport)}\n`
   if (safeReport.ok) streams.writeOutput(rendered)
-  else {
+  else
     streams.writeError(serializeJourneyFailureSummary(safeReport, safeFailureCategory))
     streams.writeError(rendered)
-  }
   return report.ok ? 0 : 1
-}
 
 
 
@@ -1202,10 +1146,9 @@ const runDefaultPlaywright = async (
   streams: CliStreams,
   playwrightArguments: readonly string[],
   isolatedEnvironment: Readonly<Record<string, string>>,
-): ReturnType<JourneyDependencies["runPlaywright"]> => {
-  if (playwrightArguments[0] !== "pnpm") {
+): ReturnType<JourneyDependencies["runPlaywright"]> =>
+  if (playwrightArguments[0] !== "pnpm")
     throw new Error("Playwright arguments must begin with pnpm")
-  }
   const pnpmArguments = playwrightArguments.slice(1)
   const trustedExecutableDirectories = [
     playwrightNode.pathDirectory,
@@ -1275,46 +1218,41 @@ const runDefaultPlaywright = async (
     nestedServerTerminated: finalizedLifecycle.nestedServerTerminated,
     treeTerminated: result.treeTerminated,
   }
-}
 
 export const runJourneyCli = async (
   arguments_: readonly string[],
   repositoryPath: string,
   streams: CliStreams,
   overrides: JourneyCliDependencies = {},
-): Promise<number> => {
+): Promise<number> =>
   const mode = arguments_[0]
-  if (arguments_.length !== 1 || (mode !== "e2e" && mode !== "a11y")) {
+  if (arguments_.length !== 1 || (mode !== "e2e" && mode !== "a11y"))
     streams.writeError("Usage: e2e-run <e2e|a11y>\n")
     return 2
-  }
   let runPlaywright = overrides.runPlaywright
-  if (runPlaywright === undefined) {
+  if (runPlaywright === undefined)
     let playwrightPnpm: TrustedParentPathExecutable
     let playwrightNode: TrustedParentPathExecutable
-    try {
+    try
       playwrightPnpm = await resolveTrustedPnpmExecutable(repositoryPath)
-    } catch {
+    catch
       streams.writeError("Trusted pnpm executable is unavailable\n")
       return 1
-    }
-    try {
+    try
       playwrightNode = await resolveTrustedParentNodeExecutable(repositoryPath)
-    } catch {
+    catch
       streams.writeError("Trusted parent-PATH Node executable is unavailable\n")
       return 1
-    }
-    try {
+    try
       await assertTrustedPlaywrightExecutablePair(
         playwrightPnpm,
         playwrightNode,
       )
-    } catch {
+    catch
       streams.writeError(
         "Trusted Playwright pnpm/Node executable pairing is unavailable\n",
       )
       return 1
-    }
     runPlaywright = runDefaultPlaywright.bind(
       undefined,
       repositoryPath,
@@ -1322,18 +1260,15 @@ export const runJourneyCli = async (
       playwrightNode,
       streams,
     )
-  }
   let node = ""
-  if (overrides.scanArtifacts === undefined) {
-    try {
+  if (overrides.scanArtifacts === undefined)
+    try
       node = overrides.resolveNodeExecutable === undefined
         ? (await resolveTrustedNodeExecutable(repositoryPath)).command
         : await overrides.resolveNodeExecutable(repositoryPath)
-    } catch (_error) {
+    catch (_error)
       streams.writeError("Trusted Node executable is unavailable\n")
       return 1
-    }
-  }
   const persistState = overrides.persistState ??
     persistE2ERunnerState.bind(undefined, repositoryPath)
   const statePersistenceStatus: StatePersistenceStatus = new Set()
@@ -1342,4 +1277,3 @@ export const runJourneyCli = async (
     makeDependencies(repositoryPath, node, overrides, progressWriter, runPlaywright)
   const report = await runBoundedJourneySuite(mode, dependencies)
   return finalizeJourneyCliReport(report, statePersistenceStatus, persistState, streams)
-}

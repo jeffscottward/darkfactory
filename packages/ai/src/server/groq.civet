@@ -42,7 +42,7 @@ export type GroqAiPortOptions = Readonly<{
 }>
 
 
-const createDefaultClient: GroqClientFactory = async (options) => {
+const createDefaultClient: GroqClientFactory = async (options) =>
   const groqModule = await import("groq-sdk")
   const Groq =
     typeof groqModule.default === "function"
@@ -58,7 +58,7 @@ const createDefaultClient: GroqClientFactory = async (options) => {
   })
 
   return Object.freeze({
-    complete: async (request: GroqTextRequest) => {
+    complete: async (request: GroqTextRequest) =>
       const completion = await client.chat.completions.create(
         {
           model: request.model,
@@ -68,20 +68,16 @@ const createDefaultClient: GroqClientFactory = async (options) => {
         { signal: request.signal },
       )
       return { text: completion.choices?.[0]?.message?.content }
-    },
   })
-}
 
-const normalizeTimeout = (timeoutMs: number | undefined): number => {
-  if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
+const normalizeTimeout = (timeoutMs: number | undefined): number =>
+  if (timeoutMs === undefined || !Number.isFinite(timeoutMs))
     return DEFAULT_TIMEOUT_MS
-  }
 
   return Math.min(
     MAX_TIMEOUT_MS,
     Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)),
   )
-}
 
 const failed = (
   category: AiFailureCategory,
@@ -94,10 +90,10 @@ const failed = (
 
 const errorMetadata = (
   error: unknown,
-): Readonly<{ name?: string; statusCode?: number }> => {
+): Readonly<{ name?: string; statusCode?: number }> =>
   if (typeof error !== "object" || error === null) return {}
 
-  try {
+  try
     const candidate = error as Readonly<{
       name?: unknown
       status?: unknown
@@ -117,73 +113,64 @@ const errorMetadata = (
       ...(name === undefined ? {} : { name }),
       ...(statusCode === undefined ? {} : { statusCode }),
     }
-  } catch (_error) {
+  catch (_error)
     return {}
-  }
-}
 
-const normalizeFailure = (error: unknown): AiResult => {
+const normalizeFailure = (error: unknown): AiResult =>
   if (error === CALL_ABORTED) return failed("aborted", false)
   if (error === CALL_TIMED_OUT) return failed("timeout", true)
 
   const { name, statusCode } = errorMetadata(error)
   if (statusCode === 408) return failed("timeout", true, statusCode)
   if (statusCode === 429) return failed("rate_limited", true, statusCode)
-  if (statusCode !== undefined && statusCode >= 500) {
+  if (statusCode !== undefined && statusCode >= 500)
     return failed("provider_unavailable", true, statusCode)
-  }
-  if (statusCode !== undefined && statusCode >= 400) {
+  if (statusCode !== undefined && statusCode >= 400)
     return failed("provider_rejected", false, statusCode)
-  }
   if (name === "APIConnectionTimeoutError") return failed("timeout", true)
-  if (name === "APIConnectionError" || name === "TypeError") {
+  if (name === "APIConnectionError" || name === "TypeError")
     return failed("network", true)
-  }
   if (name === "AbortError") return failed("aborted", false)
   return failed("unknown", false, statusCode)
-}
 
 const runBounded = async <Result>(
   timeoutMs: number,
   callerSignal: AbortSignal | undefined,
   operation: (signal: AbortSignal) => Promise<Result>,
-): Promise<Result> => {
+): Promise<Result> =>
   if (callerSignal?.aborted) throw CALL_ABORTED
 
   const controller = new AbortController()
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   let removeAbortListener: (() => void) | undefined
 
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutId = setTimeout(() => {
+  const timeout = new Promise<never>((_resolve, reject) =>
+    timeoutId = setTimeout(() =>
       reject(CALL_TIMED_OUT)
       controller.abort()
-    }, timeoutMs)
-  })
-  const callerAbort = new Promise<never>((_resolve, reject) => {
+    , timeoutMs)
+  )
+  const callerAbort = new Promise<never>((_resolve, reject) =>
     if (!callerSignal) return
 
-    const onAbort = () => {
+    const onAbort = () =>
       reject(CALL_ABORTED)
       controller.abort()
-    }
     callerSignal.addEventListener("abort", onAbort, { once: true })
     removeAbortListener = () => callerSignal.removeEventListener("abort", onAbort)
-  })
+  )
 
-  try {
+  try
     return await Promise.race([
       operation(controller.signal),
       timeout,
       callerAbort,
     ])
-  } finally {
+  finally
     if (timeoutId !== undefined) clearTimeout(timeoutId)
     removeAbortListener?.()
-  }
-}
 
-export const createGroqAiPort = (options: GroqAiPortOptions): AiPort => {
+export const createGroqAiPort = (options: GroqAiPortOptions): AiPort =>
   const apiKey = options.apiKey?.trim()
   const model = options.model?.trim()
   if (!apiKey || !model) return createDisabledAiPort("not_configured")
@@ -191,7 +178,7 @@ export const createGroqAiPort = (options: GroqAiPortOptions): AiPort => {
   const timeoutMs = normalizeTimeout(options.timeoutMs)
   const clientFactory = options.clientFactory ?? createDefaultClient
   let clientPromise: Promise<GroqTextClient> | undefined
-  const getClient = (): Promise<GroqTextClient> => {
+  const getClient = (): Promise<GroqTextClient> =>
     clientPromise ??= Promise.resolve(
       clientFactory({
         apiKey,
@@ -201,35 +188,29 @@ export const createGroqAiPort = (options: GroqAiPortOptions): AiPort => {
       }),
     )
     return clientPromise
-  }
 
   return Object.freeze({
-    generateText: async (request: AiRequest): Promise<AiResult> => {
+    generateText: async (request: AiRequest): Promise<AiResult> =>
       if (request.signal?.aborted) return failed("aborted", false)
 
-      try {
+      try
         const completion = await runBounded(
           timeoutMs,
           request.signal,
-          async (signal) => {
+          async (signal) =>
             const client = await getClient()
             return await client.complete({
               model,
               prompt: request.prompt,
               signal,
             })
-          },
         )
         if (
           typeof completion.text !== "string" ||
           completion.text.trim().length === 0
-        ) {
+        )
           return failed("invalid_response", false)
-        }
         return { status: "generated", text: completion.text }
-      } catch (error) {
+      catch (error)
         return normalizeFailure(error)
-      }
-    },
   })
-}

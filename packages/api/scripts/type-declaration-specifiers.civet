@@ -4,7 +4,6 @@ export const RELATIVE_CIVET_DECLARATION_SPECIFIER =
 export const normalizeRelativeCivetDeclarationSpecifiers = (source: string): string =>
   source.replace(
     RELATIVE_CIVET_DECLARATION_SPECIFIER,
-    (_match, prefix: string, quote: string, specifier: string): string => {
+    (_match, prefix: string, quote: string, specifier: string): string =>
       return `${prefix}${quote}${specifier}.d.js${quote}`
-    },
   )

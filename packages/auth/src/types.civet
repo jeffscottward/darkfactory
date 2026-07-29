@@ -12,17 +12,15 @@ export const AUTHORIZATION_ERROR_CODES = {
 export type AuthAuthorizationErrorCode =
   (typeof AUTHORIZATION_ERROR_CODES)[keyof typeof AUTHORIZATION_ERROR_CODES]
 
-export class AuthAuthorizationError extends Error {
+export class AuthAuthorizationError extends Error
   readonly code: AuthAuthorizationErrorCode
   readonly status: 401 | 403
 
-  constructor(code: AuthAuthorizationErrorCode, status: 401 | 403) {
+  constructor(code: AuthAuthorizationErrorCode, status: 401 | 403)
     super(code)
     this.name = "AuthAuthorizationError"
     this.code = code
     this.status = status
-  }
-}
 
 export type SafeAuthUser = Readonly<{
   id: string

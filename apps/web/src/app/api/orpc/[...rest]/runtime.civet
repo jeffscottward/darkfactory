@@ -11,17 +11,16 @@ const canonicalConsent = (value: string): AnalyticsConsent | undefined =>
 
 const consentCookie = (
   cookieHeader: string | null,
-): Readonly<{ present: boolean; value?: AnalyticsConsent; malformed: boolean }> => {
+): Readonly<{ present: boolean; value?: AnalyticsConsent; malformed: boolean }> =>
   if (cookieHeader === null) return { present: false, malformed: false }
 
   const values: string[] = []
-  for (const segment of cookieHeader.split(";")) {
+  for (const segment of cookieHeader.split(";"))
     const separator = segment.indexOf("=")
     if (separator < 0) continue
     const name = segment.slice(0, separator).trim()
     if (name !== "analytics_consent") continue
     values.push(segment.slice(separator + 1))
-  }
   if (values.length === 0) return { present: false, malformed: false }
   if (values.length !== 1)
     return { present: true, malformed: true }
@@ -30,9 +29,8 @@ const consentCookie = (
   return value === undefined
     ? { present: true, malformed: true }
     : { present: true, value, malformed: false }
-}
 
-export const resolveAnalyticsConsent = (request: Request): AnalyticsConsent => {
+export const resolveAnalyticsConsent = (request: Request): AnalyticsConsent =>
   const headerValue = request.headers.get("x-analytics-consent")
   const headerConsent =
     headerValue === null ? undefined : canonicalConsent(headerValue)
@@ -49,51 +47,42 @@ export const resolveAnalyticsConsent = (request: Request): AnalyticsConsent => {
   ) return "unknown"
 
   return headerConsent ?? cookie.value ?? "unknown"
-}
 
 export const configuredOtlpAllowedHosts = (
   endpoint: string | undefined,
-): readonly string[] => {
+): readonly string[] =>
   if (endpoint === undefined) return []
-  try {
+  try
     const hostname = new URL(endpoint).hostname.toLowerCase()
     return hostname.length === 0 ? [] : [hostname]
-  } catch {
+  catch
     return []
-  }
-}
 
 export const runWithRequestTelemetry = async <T>(
   telemetry: TelemetryRuntime,
   input: SpanInput,
   waitUntil: WaitUntil,
   run: (span: SpanHandle) => T | Promise<T>,
-): Promise<T> => {
+): Promise<T> =>
   let operation: Promise<T> | undefined
-  const execute = (span: SpanHandle): Promise<T> => {
+  const execute = (span: SpanHandle): Promise<T> =>
     operation ??= Promise.resolve().then(() => run(span))
     return operation
-  }
-  try {
-    try {
+  try
+    try
       await telemetry.withSpan(input, execute)
-    } catch {
+    catch
       // The application result below remains authoritative over telemetry.
-    }
-    if (operation === undefined) {
+    if (operation === undefined)
       const fallbackSpan: SpanHandle = Object.freeze({
         correlation: Object.freeze({ ...input.correlation }),
         addEvent: () => undefined,
         recordMetric: () => undefined,
       })
       return await execute(fallbackSpan)
-    }
     return await operation
-  } finally {
-    try {
+  finally
+    try
       waitUntil(telemetry.forceFlush().catch(() => undefined))
-    } catch {
+    catch
       // Request completion and domain results never depend on provider flushing.
-    }
-  }
-}

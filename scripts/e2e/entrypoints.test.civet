@@ -3,16 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const originalArguments = [...process.argv]
 const originalExitCode = process.exitCode
 
-afterEach(() => {
+afterEach(() =>
   process.argv = [...originalArguments]
   process.exitCode = originalExitCode
   vi.restoreAllMocks()
   vi.doUnmock("./cli.civet")
   vi.resetModules()
-})
+)
 
-describe("E2E executable wrappers", () => {
-  it("forwards journey arguments, cwd, streams, and exit status", async () => {
+describe("E2E executable wrappers", () =>
+  it("forwards journey arguments, cwd, streams, and exit status", async () =>
     const runJourneyCli = vi.fn(async (
       arguments_: readonly string[],
       repositoryPath: string,
@@ -20,13 +20,13 @@ describe("E2E executable wrappers", () => {
         writeOutput: (value: string) => void
         writeError: (value: string) => void
       }>,
-    ) => {
+    ) =>
       expect(arguments_).toEqual(["e2e", "--grep", "account"])
       expect(repositoryPath).toBe("/workspace")
       streams.writeOutput("journey-output\n")
       streams.writeError("journey-error\n")
       return 7
-    })
+    )
     vi.doMock("./cli.civet", () => ({ runJourneyCli }))
     process.argv = ["node", "run.civet", "e2e", "--grep", "account"]
     vi.spyOn(process, "cwd").mockReturnValue("/workspace")
@@ -42,9 +42,9 @@ describe("E2E executable wrappers", () => {
       "journey-error\n",
     ])
     expect(process.exitCode).toBe(7)
-  })
+  )
 
-  it("forwards artifact scanner arguments, cwd, streams, and exit status", async () => {
+  it("forwards artifact scanner arguments, cwd, streams, and exit status", async () =>
     const runArtifactScannerCli = vi.fn(async (
       arguments_: readonly string[],
       repositoryPath: string,
@@ -52,7 +52,7 @@ describe("E2E executable wrappers", () => {
         writeOutput: (value: string) => void
         writeError: (value: string) => void
       }>,
-    ) => {
+    ) =>
       expect(arguments_).toEqual([
         "--run-id",
         "owned_run",
@@ -63,7 +63,7 @@ describe("E2E executable wrappers", () => {
       streams.writeOutput("scanner-output\n")
       streams.writeError("scanner-error\n")
       return 1
-    })
+    )
     vi.doMock("./cli.civet", () => ({ runArtifactScannerCli }))
     process.argv = [
       "node",
@@ -83,13 +83,13 @@ describe("E2E executable wrappers", () => {
     expect(stdout).toHaveBeenCalledWith("scanner-output\n")
     expect(stderr).toHaveBeenCalledWith("scanner-error\n")
     expect(process.exitCode).toBe(1)
-  })
+  )
 
-  it("surfaces journey CLI failures without swallowing their error", async () => {
+  it("surfaces journey CLI failures without swallowing their error", async () =>
     const failure = new Error("journey CLI failed")
-    const runJourneyCli = vi.fn(async () => {
+    const runJourneyCli = vi.fn(async () =>
       throw failure
-    })
+    )
     vi.doMock("./cli.civet", () => ({ runJourneyCli }))
     process.argv = ["node", "run.civet", "a11y"]
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
@@ -100,18 +100,18 @@ describe("E2E executable wrappers", () => {
     expect(stderr).toHaveBeenCalledWith(
       '{"kind":"darkfactory-e2e-entry","version":1}\n',
     )
-  })
+  )
 
-  it("surfaces artifact scanner CLI failures without swallowing their error", async () => {
+  it("surfaces artifact scanner CLI failures without swallowing their error", async () =>
     const failure = new Error("artifact scanner CLI failed")
-    const runArtifactScannerCli = vi.fn(async () => {
+    const runArtifactScannerCli = vi.fn(async () =>
       throw failure
-    })
+    )
     vi.doMock("./cli.civet", () => ({ runArtifactScannerCli }))
     process.argv = ["node", "scan-artifacts.civet", "--run-id", "owned_run"]
 
     await expect(import("./scan-artifacts.civet")).rejects.toBe(failure)
 
     expect(runArtifactScannerCli).toHaveBeenCalledOnce()
-  })
-})
+  )
+)

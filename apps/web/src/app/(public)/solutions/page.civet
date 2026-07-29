@@ -29,72 +29,52 @@ export const metadata = {
   description: "Truthfully labeled example archetypes for adapting the domain-neutral DarkFactory foundation.",
 }
 
-export default function SolutionsPage() {
+export default function SolutionsPage()
   return (
     <PublicPage
-      actions={<PublicLink href="/features" variant="secondary">Review the foundation first</PublicLink>}
+      actions={<PublicLink href="/features" variant="secondary">Review the foundation first}
       description="These are architecture examples, not finished products, customer stories, or promised integrations. Each one shows how a real domain could reuse the stable core without pushing that domain back into the starter."
       eyebrow="Solutions"
       title="Example compositions, deliberately not a business model."
     >
       <section aria-labelledby="archetypes-title" className="py-16 md:py-20">
-        <h2 className="sr-only" id="archetypes-title">Example solution archetypes</h2>
+        <h2 className="sr-only" id="archetypes-title">Example solution archetypes
         <ol className="divide-y divide-border border-y border-border">
           {archetypes.map((archetype) => (
             <li className="grid gap-6 py-10 md:grid-cols-12 md:py-12" key={archetype.title}>
               <p aria-hidden="true" className="text-sm font-semibold text-muted-foreground md:col-span-1">
                 {archetype.number}
-              </p>
               <div className="md:col-span-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                   {archetype.label}
-                </p>
                 <h3 className="mt-3 font-heading text-3xl font-semibold tracking-tight text-foreground">
                   {archetype.title}
-                </h3>
-              </div>
               <div className="space-y-5 md:col-span-6 md:col-start-7">
-                <p className="text-lg leading-8 text-foreground">{archetype.body}</p>
+                <p className="text-lg leading-8 text-foreground">{archetype.body}
                 <p className="text-base leading-7 text-muted-foreground">
-                  <strong className="font-semibold text-foreground">Foundation path:</strong>{" "}
+                  <strong className="font-semibold text-foreground">Foundation path:
+                  {" "}
                   {archetype.foundation}
-                </p>
-              </div>
-            </li>
           ))}
-        </ol>
-      </section>
 
       <section aria-labelledby="adaptation-title" className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20">
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">A clean adaptation test</p>
+          <p className="text-sm font-semibold tracking-wide text-primary">A clean adaptation test
           <h2 className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground" id="adaptation-title">
             Your domain should replace the example, not fight it.
-          </h2>
-        </div>
         <div className="md:col-span-6 md:col-start-7">
           <ul className="divide-y divide-border border-y border-border text-base leading-7 text-muted-foreground">
-            <li className="py-5">Name the real entity and invariants before generating files.</li>
-            <li className="py-5">Keep the contract, application service, repository, and provider boundaries visible.</li>
-            <li className="py-5">Remove every neutral Feature Item reference from the generated vertical.</li>
-            <li className="py-5">Verify permissions, persistence, events, errors, and user-visible states together.</li>
-          </ul>
-        </div>
-      </section>
+            <li className="py-5">Name the real entity and invariants before generating files.
+            <li className="py-5">Keep the contract, application service, repository, and provider boundaries visible.
+            <li className="py-5">Remove every neutral Feature Item reference from the generated vertical.
+            <li className="py-5">Verify permissions, persistence, events, errors, and user-visible states together.
 
       <section aria-labelledby="solutions-next-title" className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20">
         <div className="md:col-span-7">
           <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id="solutions-next-title">
             Ground the example in repository evidence.
-          </h2>
           <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
             The resource index points to the architecture, generated API description, capability manifest, and repository itself.
-          </p>
-        </div>
         <div className="md:col-span-4 md:col-start-9 md:text-right">
-          <PublicLink href="/resources">Open the source index</PublicLink>
-        </div>
-      </section>
-    </PublicPage>
+          <PublicLink href="/resources">Open the source index
   )
-}

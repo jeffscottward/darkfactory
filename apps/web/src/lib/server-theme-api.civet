@@ -11,11 +11,10 @@ export interface ThemeApiRequestOptions {
   readonly requestId: string | null
 }
 
-const isUnauthorized = (error: unknown): boolean => {
+const isUnauthorized = (error: unknown): boolean =>
   if (typeof error !== "object" || error === null) return false
   const record = error as Record<string, unknown>
   return record["status"] === 401 && record["code"] === "UNAUTHORIZED"
-}
 
 const FORWARDED_THEME_HEADERS = [
   "accept",
@@ -23,13 +22,11 @@ const FORWARDED_THEME_HEADERS = [
   "x-orpc-procedure",
 ] as const
 
-const requireTrustedOrigin = (value: string): string => {
+const requireTrustedOrigin = (value: string): string =>
   const configured = new URL(value)
-  if (configured.protocol !== "https:" || configured.origin !== value) {
+  if (configured.protocol !== "https:" || configured.origin !== value)
     throw new TypeError("Theme transport requires a clean HTTPS app origin")
-  }
   return configured.origin
-}
 
 export const forwardThemeApiRequest = async ({
   cookieHeader,
@@ -45,16 +42,14 @@ export const forwardThemeApiRequest = async ({
   readonly requestId: string | null
   readonly timeoutMs?: number
   readonly trustedOrigin: string
-}): Promise<Response> => {
+}): Promise<Response> =>
   const configuredOrigin = requireTrustedOrigin(trustedOrigin)
-  if (new URL(request.url).origin !== configuredOrigin) {
+  if (new URL(request.url).origin !== configuredOrigin)
     throw new Error("Theme request origin did not match the configured app origin")
-  }
   const forwardedHeaders = new Headers()
-  for (const name of FORWARDED_THEME_HEADERS) {
+  for (const name of FORWARDED_THEME_HEADERS)
     const value = request.headers.get(name)
     if (value !== null) forwardedHeaders.set(name, value)
-  }
   if (cookieHeader !== null) forwardedHeaders.set("cookie", cookieHeader)
   forwardedHeaders.set("origin", configuredOrigin)
   forwardedHeaders.set("sec-fetch-site", "same-origin")
@@ -73,7 +68,6 @@ export const forwardThemeApiRequest = async ({
     request: forwardedRequest,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   })
-}
 
 export const loadApiThemePreference = async ({
   appUrl,
@@ -81,8 +75,8 @@ export const loadApiThemePreference = async ({
   cookieHeader,
   fetch: fetchRequest = globalThis.fetch,
   requestId,
-}: ThemeApiRequestOptions): Promise<unknown> => {
-  try {
+}: ThemeApiRequestOptions): Promise<unknown> =>
+  try
     const configuredAppUrl = new URL(appUrl)
     const trustedOrigin = requireTrustedOrigin(configuredAppUrl.origin)
     const client = clientFactory({
@@ -96,7 +90,5 @@ export const loadApiThemePreference = async ({
       }),
     })
     return await client.preferences.theme.get({})
-  } catch (error) {
+  catch error
     return isUnauthorized(error) ? undefined : INDETERMINATE_THEME
-  }
-}

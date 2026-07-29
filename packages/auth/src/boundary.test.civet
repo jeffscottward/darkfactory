@@ -54,7 +54,7 @@ describe "auth package boundaries", ->
     expect(output).toContain(browserError)
     expect(output).not.toMatch(forbiddenServerDependencies)
 
-    for (const workerCondition of ["workerd", "worker"]) {
+    for (const workerCondition of ["workerd", "worker"])
       const resolution = spawnSync(
         process.execPath,
         [
@@ -77,7 +77,6 @@ describe "auth package boundaries", ->
           .endsWith("/packages/auth/src/server.civet"),
       ).toBe(true)
       expect(resolution.stderr).toBe("")
-    }
     return undefined
 
   it "keeps normal server imports and client/type subpaths operational", ->

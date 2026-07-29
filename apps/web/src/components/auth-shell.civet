@@ -9,17 +9,12 @@ export const AuthShell = ({ children }: { readonly children: ReactNode }) => (
       <div className="df-container flex min-h-18 items-center justify-between gap-4">
         <BrandLink />
         <ThemeMenu />
-      </div>
-    </header>
     <main
       className="df-container flex w-full items-center justify-center py-12 md:py-16"
       id="main-content"
       tabIndex={-1}
     >
-      <div className="w-full max-w-md">{children}</div>
-    </main>
+      <div className="w-full max-w-md">{children}
     <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
       Seeded development access is example evidence, not a production identity.
-    </footer>
-  </div>
 )

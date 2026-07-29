@@ -57,15 +57,14 @@ const capabilitiesSchema = z
       .strict(),
   })
   .strict()
-  .superRefine((capabilities, context): void => {
-    if (capabilities.docs.public && !capabilities.docs.enabled) {
+  .superRefine((capabilities, context): void =>
+    if (capabilities.docs.public && !capabilities.docs.enabled)
       context.addIssue({
         code: "custom",
         path: ["docs", "public"],
         message: "Public docs require docs to be enabled",
       })
-    }
-  })
+  )
 
 export const capabilityManifestSchema = z
   .object({

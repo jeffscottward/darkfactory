@@ -9,7 +9,7 @@ import type {
 } from "@darkfactory/api"
 import { useTheme } from "@darkfactory/ui/client/theme"
 
-const themeHookRuntime = vi.hoisted(() => {
+const themeHookRuntime = vi.hoisted(() =>
   type Effect = () => void | (() => void)
   type EffectSlot = {
     cleanup: (() => void) | undefined
@@ -52,16 +52,14 @@ const themeHookRuntime = vi.hoisted(() => {
   const commit = (
     pendingEffects: PendingEffect[],
     slots: EffectSlot[],
-  ): void => {
-    for (const pending of pendingEffects.splice(0)) {
+  ): void =>
+    for (const pending of pendingEffects.splice(0))
       slots[pending.index]?.cleanup?.()
       const cleanup = pending.effect()
       slots[pending.index] = {
         cleanup: typeof cleanup === "function" ? cleanup : undefined,
         deps: pending.deps,
       }
-    }
-  }
 
   const schedule = (
     effect: Effect,
@@ -69,15 +67,13 @@ const themeHookRuntime = vi.hoisted(() => {
     slots: EffectSlot[],
     pendingEffects: PendingEffect[],
     index: number,
-  ): void => {
+  ): void =>
     const previous = slots[index]
-    if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
+    if (previous === undefined || dependenciesChanged(previous.deps, deps))
       pendingEffects.push({ deps, effect, index })
-    }
-  }
 
   return {
-    begin: (): void => {
+    begin: (): void =>
       stateCursor = 0
       refCursor = 0
       callbackCursor = 0
@@ -85,24 +81,19 @@ const themeHookRuntime = vi.hoisted(() => {
       passiveCursor = 0
       pendingLayouts.length = 0
       pendingPassives.length = 0
-    },
-    captureClientSnapshot: (snapshot: () => unknown): void => {
+    captureClientSnapshot: (snapshot: () => unknown): void =>
       clientSnapshot = snapshot
-    },
-    clientSnapshot: (): unknown => {
-      if (clientSnapshot === undefined) {
+    clientSnapshot: (): unknown =>
+      if (clientSnapshot === undefined)
         throw new Error("Expected a client external-store snapshot.")
-      }
       return clientSnapshot()
-    },
     commitEffects: (): void => commit(pendingPassives, passiveSlots),
     commitLayouts: (): void => commit(pendingLayouts, layoutSlots),
-    ref: (index: number): { current: unknown } => {
+    ref: (index: number): { current: unknown } =>
       const ref = refSlots[index]
       if (ref === undefined) throw new Error(`Expected hook ref ${index}.`)
       return ref
-    },
-    reset: (): void => {
+    reset: (): void =>
       for (const slot of [...layoutSlots, ...passiveSlots]) slot.cleanup?.()
       stateSlots.length = 0
       refSlots.length = 0
@@ -117,32 +108,26 @@ const themeHookRuntime = vi.hoisted(() => {
       callbackCursor = 0
       layoutCursor = 0
       passiveCursor = 0
-    },
-    useCallback: <Callback>(callback: Callback, deps?: readonly unknown[]): Callback => {
+    useCallback: <Callback>(callback: Callback, deps?: readonly unknown[]): Callback =>
       const index = callbackCursor++
       const previous = callbackSlots[index]
-      if (previous !== undefined && !dependenciesChanged(previous.deps, deps)) {
+      if (previous !== undefined && !dependenciesChanged(previous.deps, deps))
         return previous.value as Callback
-      }
       callbackSlots[index] = { deps, value: callback }
       return callback
-    },
-    useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+    useEffect: (effect: Effect, deps?: readonly unknown[]): void =>
       const index = passiveCursor++
       schedule(effect, deps, passiveSlots, pendingPassives, index)
-    },
-    useLayoutEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+    useLayoutEffect: (effect: Effect, deps?: readonly unknown[]): void =>
       const index = layoutCursor++
       schedule(effect, deps, layoutSlots, pendingLayouts, index)
-    },
-    useRef: <Value>(initialValue: Value): { current: Value } => {
+    useRef: <Value>(initialValue: Value): { current: Value } =>
       const index = refCursor++
       refSlots[index] ??= { current: initialValue }
       return refSlots[index] as { current: Value }
-    },
     useState: <Value>(
       initializer: Value | (() => Value),
-    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] =>
       const index = stateCursor++
       stateSlots[index] ??= {
         value: typeof initializer === "function"
@@ -152,74 +137,62 @@ const themeHookRuntime = vi.hoisted(() => {
       const slot = stateSlots[index]!
       return [
         slot.value as Value,
-        (next) => {
-          slot.value = typeof next === "function"
+        (next) =>
+          void (slot.value = typeof next === "function"
             ? (next as (current: Value) => Value)(slot.value as Value)
-            : next
-        },
+            : next)
       ]
-    },
   }
-})
+)
 
-const themeComponentRuntime = vi.hoisted(() => {
+const themeComponentRuntime = vi.hoisted(() =>
   let dialogs: Record<string, unknown>[] = []
   let navigationLinks: Record<string, unknown>[] = []
   let picker: Record<string, unknown> | undefined
   let toaster: Record<string, unknown> | undefined
   return {
-    captureDialog: (props: Record<string, unknown>): void => {
+    captureDialog: (props: Record<string, unknown>): void =>
       dialogs.push(props)
-    },
-    captureNavigationLinks: (props: Record<string, unknown>): void => {
+    captureNavigationLinks: (props: Record<string, unknown>): void =>
       navigationLinks.push(props)
-    },
-    capturePicker: (props: Record<string, unknown>): void => {
+    capturePicker: (props: Record<string, unknown>): void =>
       picker = props
-    },
-    captureToaster: (props: Record<string, unknown>): void => {
+    captureToaster: (props: Record<string, unknown>): void =>
       toaster = props
-    },
     dialogs: (): readonly Record<string, unknown>[] => dialogs,
     navigationLinks: (): readonly Record<string, unknown>[] => navigationLinks,
-    picker: (): Record<string, unknown> => {
+    picker: (): Record<string, unknown> =>
       if (picker === undefined) throw new Error("Expected ThemePicker to render.")
       return picker
-    },
-    reset: (): void => {
+    reset: (): void =>
       dialogs = []
       navigationLinks = []
       picker = undefined
       toaster = undefined
-    },
-    toaster: (): Record<string, unknown> => {
+    toaster: (): Record<string, unknown> =>
       if (toaster === undefined) throw new Error("Expected Toaster to render.")
       return toaster
-    },
   }
-})
+)
 
-const themeApiRuntime = vi.hoisted(() => {
+const themeApiRuntime = vi.hoisted(() =>
   type Factory = (options: ApiClientOptions) => ApiClient
   let factory: Factory | undefined
   let options: ApiClientOptions[] = []
   return {
-    configure: (nextFactory: Factory): void => {
+    configure: (nextFactory: Factory): void =>
       factory = nextFactory
-    },
-    create: (fallback: Factory, nextOptions: ApiClientOptions): ApiClient => {
+    create: (fallback: Factory, nextOptions: ApiClientOptions): ApiClient =>
       options.push(nextOptions)
       return (factory ?? fallback)(nextOptions)
-    },
     options: (): readonly ApiClientOptions[] => options,
-    reset: (): void => {
+    reset: (): void =>
       factory = undefined
       options = []
-    },
   }
-})
+)
 
-vi.mock("react", async (importOriginal) => {
+vi.mock("react", async (importOriginal) =>
   const actual = await importOriginal<typeof import("react")>()
   return {
     ...actual,
@@ -232,18 +205,17 @@ vi.mock("react", async (importOriginal) => {
       subscribe: (onStoreChange: () => void) => () => void,
       getSnapshot: () => Snapshot,
       getServerSnapshot?: () => Snapshot,
-    ): Snapshot => {
+    ): Snapshot =>
       themeHookRuntime.captureClientSnapshot(getSnapshot)
       return actual.useSyncExternalStore(
         subscribe,
         getSnapshot,
         getServerSnapshot,
       )
-    },
   }
-})
+)
 
-vi.mock("@darkfactory/api", async (importOriginal) => {
+vi.mock("@darkfactory/api", async (importOriginal) =>
   const actual = await importOriginal<typeof import("@darkfactory/api")>()
   return {
     ...actual,
@@ -252,14 +224,14 @@ vi.mock("@darkfactory/api", async (importOriginal) => {
       options,
     ),
   }
-})
+)
 
-vi.mock("@darkfactory/ui/client/theme", async (importOriginal) => {
+vi.mock("@darkfactory/ui/client/theme", async (importOriginal) =>
   const actual = await importOriginal<typeof import("@darkfactory/ui/client/theme")>()
   const react = await vi.importActual<typeof import("react")>("react")
   return {
     ...actual,
-    ThemePicker: (props: Record<string, unknown>) => {
+    ThemePicker: (props: Record<string, unknown>) =>
       themeComponentRuntime.capturePicker(props)
       return react.createElement(
         "button",
@@ -271,27 +243,24 @@ vi.mock("@darkfactory/ui/client/theme", async (importOriginal) => {
         props["statusMessage"] as ReactNode,
         props["error"] as ReactNode,
       )
-    },
   }
-})
+)
 
 vi.mock("@darkfactory/ui/client/toaster", () => ({
-  Toaster: (props: Record<string, unknown>) => {
+  Toaster: (props: Record<string, unknown>) =>
     themeComponentRuntime.captureToaster(props)
     return null
-  },
 }))
 
 vi.mock("next/link", () => ({ default: "a" }))
 vi.mock("next/navigation", () => ({ usePathname: () => "" }))
 
-vi.mock("@darkfactory/ui/client/dialog", async () => {
+vi.mock("@darkfactory/ui/client/dialog", async () =>
   const react = await vi.importActual<typeof import("react")>("react")
   return {
-    Dialog: (props: Record<string, unknown>) => {
+    Dialog: (props: Record<string, unknown>) =>
       themeComponentRuntime.captureDialog(props)
       return react.createElement("div", {}, props["children"] as ReactNode)
-    },
     DialogContent: (props: Record<string, unknown>) => react.createElement(
       "section",
       {},
@@ -301,19 +270,18 @@ vi.mock("@darkfactory/ui/client/dialog", async () => {
     ),
     DialogTrigger: (props: Record<string, unknown>) => props["children"] as ReactNode,
   }
-})
+)
 
-vi.mock("./components/navigation-links.civet", async (importOriginal) => {
+vi.mock("./components/navigation-links.civet", async (importOriginal) =>
   const actual = await importOriginal<typeof import("./components/navigation-links.civet")>()
   const react = await vi.importActual<typeof import("react")>("react")
   return {
     ...actual,
-    NavigationLinks: (props: Record<string, unknown>) => {
+    NavigationLinks: (props: Record<string, unknown>) =>
       themeComponentRuntime.captureNavigationLinks(props)
       return react.createElement(actual.NavigationLinks, props as never)
-    },
   }
-})
+)
 
 import {
   consumeInitialThemeBootstrap,
@@ -343,27 +311,24 @@ import {
   useUiStoreApi,
 } from "./lib/ui-store.civet"
 
-const deferred = <Value>() => {
+const deferred = <Value>() =>
   let reject!: (reason?: unknown) => void
   let resolve!: (value: Value) => void
-  const promise = new Promise<Value>((settle, fail) => {
+  const promise = new Promise<Value>((settle, fail) =>
     reject = fail
-    resolve = settle
-  })
+    void (resolve = settle)
+  )
   return { promise, reject, resolve }
-}
 
-const ThemeProbe = () => {
+const ThemeProbe = () =>
   const { preference } = useTheme()
   return createElement("output", {
     "data-mode": preference.themeMode,
     "data-palette": preference.palette,
   })
-}
 
-const flushMicrotasks = async (): Promise<void> => {
+const flushMicrotasks = async (): Promise<void> =>
   for (let index = 0; index < 8; index += 1) await Promise.resolve()
-}
 
 const installThemeBrowser = (options: {
   readonly bootstrap?: unknown
@@ -371,7 +336,7 @@ const installThemeBrowser = (options: {
   readonly cookieFailure?: unknown
   readonly storageThrows?: boolean
   readonly storageFailure?: unknown
-} = {}) => {
+} = {}) =>
   const bootstrap = options.bootstrap
   const cookieFailure = options.cookieFailure
   const cookieThrows: boolean = options.cookieThrows ?? false
@@ -412,14 +377,12 @@ const installThemeBrowser = (options: {
     storageWrites,
     windowStub,
   }
-}
 
 let capturedThemeStore: ReturnType<typeof useUiStoreApi> | undefined
 
-const ThemeStoreProbe = () => {
+const ThemeStoreProbe = () =>
   capturedThemeStore = useUiStoreApi()
   return null
-}
 
 const UiStateSelectionProbe = () => createElement(
   "output",
@@ -439,7 +402,7 @@ const renderThemeRuntime = ({
   readonly authority?: Parameters<typeof ThemeController>[0]["themeAuthority"]
   readonly child?: ReactNode
   readonly initialPreference: Parameters<typeof ThemeController>[0]["initialPreference"]
-}): string => {
+}): string =>
   themeHookRuntime.begin()
   const children = createElement(
     "div",
@@ -456,16 +419,15 @@ const renderThemeRuntime = ({
         themeAuthority: authority,
       }),
   )
-}
 
-afterEach(() => {
+afterEach(() =>
   themeHookRuntime.reset()
   themeComponentRuntime.reset()
   themeApiRuntime.reset()
   capturedThemeStore = undefined
   vi.unstubAllGlobals()
-  vi.restoreAllMocks()
-})
+  void vi.restoreAllMocks()
+)
 
 describe "trusted theme controls", ->
   it "keeps trusted and indeterminate ownership controls discoverable", ->
@@ -507,11 +469,10 @@ describe "trusted theme controls", ->
     for authority of ["trusted", "indeterminate"] as const
       let store: ReturnType<typeof useUiStoreApi> | undefined
       let selectPreference: ReturnType<typeof useTheme>["onPreferenceChange"] | undefined
-      const CaptureTheme = () => {
+      const CaptureTheme = () =>
         store = useUiStoreApi()
         selectPreference = useTheme().onPreferenceChange
         return null
-      }
       renderToStaticMarkup(createElement(ThemeController, {
         children: createElement(CaptureTheme),
         initialPreference: { themeMode: "dark", palette: "rose" },
@@ -551,14 +512,13 @@ describe "trusted theme controls", ->
   it "binds trusted GET then PATCH to the bounded same-origin transport", async ->
     const store = createUiStore()
     const requests: Request[] = []
-    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+    const fetchRequest: typeof globalThis.fetch = async (input, init) =>
       requests.push(input instanceof Request ? input : new Request(input, init))
       return new Response(null, { status: 204 })
-    }
     const clientFactory = (options: ApiClientOptions): ApiClient => ({
       preferences: {
         theme: {
-          get: async () => {
+          get: async () =>
             await options.fetch!(new Request(
               new URL("/api/orpc", options.baseUrl).toString(),
               { method: "GET" },
@@ -568,8 +528,7 @@ describe "trusted theme controls", ->
               palette: "neutral",
               updatedAt: new Date("2026-07-23T10:00:00.000Z"),
             }
-          },
-          update: async () => {
+          update: async () =>
             await options.fetch!(new Request(
               new URL("/api/orpc", options.baseUrl).toString(),
               { method: "PATCH" },
@@ -579,7 +538,6 @@ describe "trusted theme controls", ->
               palette: "rose",
               updatedAt: new Date("2026-07-23T10:00:00.001Z"),
             }
-          },
         },
       },
     } as unknown as ApiClient)
@@ -616,18 +574,16 @@ describe "trusted theme controls", ->
       authority: "trusted",
       authorityEpoch: () => 0,
       createClient: () => ({
-        get: async () => {
+        get: async () =>
           getCount += 1
-          if (getCount === 1) {
+          if (getCount === 1)
             return {
               themeMode: "system",
               palette: "neutral",
               updatedAt: new Date("2026-07-23T10:00:00.000Z"),
             }
-          }
           throw new Error("reconciliation unavailable")
-        },
-        update: async () => { throw new Error("response lost") },
+        update: async -> throw new Error("response lost"),
       }),
       currentAuthority: () => "trusted",
       nextPreference: { themeMode: "dark", palette: "rose" },
@@ -737,9 +693,9 @@ describe "trusted theme controls", ->
     const apply = (
       authority: "anonymous" | "trusted",
       initialPreference: typeof preferenceB | typeof bootstrapA,
-    ) => {
+    ) =>
       const priorAuthority = previousAuthority
-      reconcileThemeAuthorityTransition({
+      void reconcileThemeAuthorityTransition({
         authority,
         bootstrapPreference: consumeInitialThemeBootstrap(
           authority,
@@ -747,13 +703,11 @@ describe "trusted theme controls", ->
           bootstrapA,
         ),
         initialPreference,
-        onAuthorityChange: (nextAuthority) => {
-          previousAuthority = nextAuthority as "anonymous" | "trusted"
-        },
+        onAuthorityChange: (nextAuthority) =>
+          void (previousAuthority = nextAuthority as "anonymous" | "trusted")
         previousAuthority: priorAuthority,
         store,
       })
-    }
 
     apply("anonymous", preferenceB)
     expect(store.getState()).toMatchObject(bootstrapA)
@@ -834,11 +788,10 @@ describe "trusted theme controls", ->
   it "defaults to anonymous authority and applies semantic theme selections locally", ->
     let store: ReturnType<typeof useUiStoreApi> | undefined
     let selectPreference: ReturnType<typeof useTheme>["onPreferenceChange"] | undefined
-    const CaptureTheme = () => {
+    const CaptureTheme = () =>
       store = useUiStoreApi()
       selectPreference = useTheme().onPreferenceChange
       return createElement(AuthorityProbe)
-    }
     const html = renderToStaticMarkup(createElement(ThemeController, {
       children: createElement(CaptureTheme),
       initialPreference: { themeMode: "system", palette: "neutral" },
@@ -878,12 +831,8 @@ describe "trusted theme controls", ->
     const cases = [
       {
         expected: "Could not save theme settings. Try again.",
-        get: vi.fn(async () => {
-          throw new Error("account unavailable")
-        }),
-        update: vi.fn(async () => {
-          throw new Error("update must not run after a failed read")
-        }),
+        get: vi.fn(async -> throw new Error("account unavailable")),
+        update: vi.fn(async -> throw new Error("update must not run after a failed read")),
       },
       {
         expected: "Theme settings were refreshed from your account. Review them before trying again.",
@@ -898,9 +847,7 @@ describe "trusted theme controls", ->
             palette: "blue",
             updatedAt: new Date("2026-07-23T10:00:00.001Z"),
           }),
-        update: vi.fn(async () => {
-          throw new Error("write response unavailable")
-        }),
+        update: vi.fn(async -> throw new Error("write response unavailable")),
       },
     ] as const
 
@@ -995,13 +942,12 @@ describe "trusted theme controls", ->
     if (store === undefined) throw new Error("Expected the theme store to render.")
     const originalSubscribe = store.subscribe.bind(store)
     const unsubscribe = vi.fn()
-    vi.spyOn(store, "subscribe").mockImplementation((listener) => {
+    vi.spyOn(store, "subscribe").mockImplementation((listener) =>
       const stop = originalSubscribe(listener)
-      return () => {
+      return () =>
         unsubscribe()
-        stop()
-      }
-    })
+        void stop()
+    )
 
     render("anonymous")
     themeHookRuntime.commitLayouts()
@@ -1099,7 +1045,7 @@ describe "trusted theme controls", ->
         cookieFailure?: unknown
         storageFailure?: unknown
       }>,
-    ) => {
+    ) =>
       themeHookRuntime.reset()
       themeComponentRuntime.reset()
       capturedThemeStore = undefined
@@ -1115,13 +1061,11 @@ describe "trusted theme controls", ->
       render()
       themeHookRuntime.commitLayouts()
       let thrown: unknown
-      try {
+      try
         themeHookRuntime.commitEffects()
-      } catch (error) {
+      catch error
         thrown = error
-      }
       return { browser, thrown }
-    }
 
     const storage = observeFailure({
       storageFailure: "primitive storage failure",
@@ -1145,7 +1089,7 @@ describe "trusted theme controls", ->
     installThemeBrowser()
     const firstGet = deferred<ThemePreferenceOutput>()
     let getCount = 0
-    const get = vi.fn((): Promise<ThemePreferenceOutput> => {
+    const get = vi.fn((): Promise<ThemePreferenceOutput> =>
       getCount += 1
       if (getCount === 1) return firstGet.promise
       return Promise.resolve({
@@ -1153,7 +1097,7 @@ describe "trusted theme controls", ->
         palette: "neutral",
         updatedAt: new Date("2026-07-23T10:00:00.000Z"),
       })
-    })
+    )
     const update = vi.fn(async () => ({
       themeMode: "dark" as const,
       palette: "rose" as const,
@@ -1306,24 +1250,21 @@ describe "trusted theme controls", ->
 
   it "makes only the public shell inert while mobile navigation is open and restores it on cleanup", ->
     let publicStore: UiStore | undefined
-    const requiredPublicStore = (store: UiStore | undefined): UiStore => {
+    const requiredPublicStore = (store: UiStore | undefined): UiStore =>
       if (store === undefined) throw new Error("Expected the public UI store to render.")
       return store
-    }
-    const renderPublic = (open: boolean): string => {
-      const PreparePublicShell = () => {
+    const renderPublic = (open: boolean): string =>
+      const PreparePublicShell = () =>
         publicStore = useUiStoreApi()
         publicStore.getState().setMobileNavigationOpen(open)
         return createElement(PublicShell, {
           children: createElement("h1", {}, "Public content"),
         })
-      }
       themeHookRuntime.begin()
       return renderToStaticMarkup(createElement(UiStateProvider, {
         children: createElement(PreparePublicShell),
         initialPreference: DEFAULT_ANONYMOUS_THEME,
       }))
-    }
 
     renderPublic(false)
     const closedShell = { inert: false }
@@ -1379,7 +1320,7 @@ describe "trusted theme controls", ->
     expect(openShell.inert).toBe(false)
 
   it "renders public header, footer, sign-in, and navigation suppression branches", ->
-    const renderRoutes = (availableRoutes?: readonly string[]): string => {
+    const renderRoutes = (availableRoutes?: readonly string[]): string =>
       themeHookRuntime.begin()
       const shell = availableRoutes === undefined
         ? createElement(PublicShell, {
@@ -1393,7 +1334,6 @@ describe "trusted theme controls", ->
         children: shell,
         initialPreference: DEFAULT_ANONYMOUS_THEME,
       }))
-    }
 
     const defaultHtml = renderRoutes()
     expect(defaultHtml).toContain("Default public content")

@@ -190,7 +190,7 @@ const CONTACT_RATE_LIMIT_COLUMNS = [
 let testDatabase: PostgresTestDatabase
 let databaseResource: ReturnType<typeof createNodeDatabase>
 
-const createAuthUser = async (id: string, email: string): Promise<void> => {
+const createAuthUser = async (id: string, email: string): Promise<void> =>
   const instant = new Date("2026-01-02T03:04:05.000Z")
 
   await databaseResource.db.insert(users).values({
@@ -201,15 +201,13 @@ const createAuthUser = async (id: string, email: string): Promise<void> => {
     createdAt: instant,
     updatedAt: instant,
   })
-}
 
-const columnNames = async (tableName: string): Promise<string[]> => {
+const columnNames = async (tableName: string): Promise<string[]> =>
   const rows = await testDatabase.query<{ column_name: string }>(
     "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position",
     [tableName],
   )
   return rows.map((row) => row.column_name)
-}
 
 describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
   beforeAll(async ->
@@ -222,15 +220,12 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
   , 60_000)
 
   afterAll(async ->
-    try {
-      if (databaseResource !== undefined) {
+    try
+      if (databaseResource !== undefined)
         await databaseResource.close()
-      }
-    } finally {
-      if (testDatabase !== undefined) {
+    finally
+      if (testDatabase !== undefined)
         await dropPostgresTestDatabase(testDatabase)
-      }
-    }
   , 60_000)
 
   it "DF-031/032 migrates cleanly on ordinary provider-neutral Postgres", async ->
@@ -287,7 +282,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     const storage = createAtomicAuthRateLimitStorage(databaseResource.db)
     const blocker = await testDatabase.openConnection()
 
-    try {
+    try
       await blocker.query("BEGIN")
       await blocker.query(
         "INSERT INTO rate_limit (id, key, count, last_request) VALUES ($1, $2, $3, $4)",
@@ -296,7 +291,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       const pendingDecision = storage.consume(key, { window: 60, max: 1 })
       const deadline = Date.now() + 2_000
       let blocked = false
-      while (!blocked && Date.now() < deadline) {
+      while (!blocked && Date.now() < deadline)
         const [activity] = await testDatabase.query<{ blocked: boolean }>(`
           SELECT EXISTS (
             SELECT 1
@@ -309,21 +304,18 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
           ) AS blocked
         `)
         blocked = activity?.blocked ?? false
-        if (!blocked) {
+        if (!blocked)
           await new Promise<void>((resolve) => setTimeout(resolve, 10))
-        }
-      }
 
       await blocker.query("COMMIT")
       expect(blocked).toBe(true)
       await expect(pendingDecision).resolves.toMatchObject({
         allowed: false,
       })
-    } finally {
+    finally
       await blocker.query("ROLLBACK").catch(() => undefined)
       await blocker.close()
       await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key])
-    }
 
 
   it "DF-033/039 rejects duplicate auth identities, tokens, and provider keys", async ->
@@ -416,12 +408,11 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       indexName: string,
       tableName: string,
       definition: RegExp,
-    ): void => {
+    ): void =>
       expect(indexes.get(indexName)).toMatchObject({
         tablename: tableName,
         indexdef: expect.stringMatching(definition),
       })
-    }
 
     const addressUserIndex = indexes.get("addresses_user_id_idx")
     expect(addressUserIndex?.tablename).toBe("addresses")
@@ -509,11 +500,11 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "SELECT source.relname AS table_name, constraint_row.contype AS constraint_type, array_to_string(array_agg(attribute.attname ORDER BY key_column.ordinality), ',') AS columns FROM pg_constraint AS constraint_row JOIN pg_class AS source ON source.oid = constraint_row.conrelid JOIN pg_namespace AS namespace ON namespace.oid = source.relnamespace CROSS JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY AS key_column(attnum, ordinality) JOIN pg_attribute AS attribute ON attribute.attrelid = source.oid AND attribute.attnum = key_column.attnum WHERE namespace.nspname = 'public' AND constraint_row.contype IN ('p', 'u') GROUP BY source.relname, constraint_row.contype, constraint_row.conname ORDER BY source.relname, constraint_row.conname",
     )
     const actualKeys = rows
-      .map((row) => {
+      .map((row) =>
         return `${row.constraint_type}:${row.table_name}:${row.columns}`
-      })
+      )
       .sort()
-    const expectedKeys = EXPECTED_TABLES.map((tableName) => {
+    const expectedKeys = EXPECTED_TABLES.map((tableName) =>
       const primaryColumn = tableName === "contact_rate_limits"
         ? "key_hash"
         : [
@@ -523,7 +514,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
           ? "user_id"
           : "id"
       return `p:${tableName}:${primaryColumn}`
-    })
+    )
     expectedKeys.push("u:rate_limit:key", "u:session:token", "u:user:email")
     expectedKeys.sort()
 
@@ -543,11 +534,10 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       constraintName: string,
       tableName: string,
       values: readonly string[],
-    ): void => {
+    ): void =>
       const check = checks.get(constraintName)
       expect(check?.table_name).toBe(tableName)
       for (const value of values) expect(check?.definition).toContain(`'${value}'`)
-    }
 
     expectCheck("user_role_check", "user", USER_ROLES)
     expectCheck("user_status_check", "user", USER_STATUSES)
@@ -603,9 +593,8 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     const expectRejected = async (
       statement: string,
       values: unknown[],
-    ): Promise<void> => {
+    ): Promise<void> =>
       await expect(testDatabase.query(statement, values)).rejects.toThrow()
-    }
 
     await expectRejected(
       'INSERT INTO "user" (id, name, email, role) VALUES ($1, $2, $3, $4)',
@@ -716,12 +705,12 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "SELECT source.relname AS source_table, pg_get_constraintdef(constraint_row.oid) AS definition FROM pg_constraint AS constraint_row JOIN pg_class AS source ON source.oid = constraint_row.conrelid WHERE constraint_row.contype = 'f' ORDER BY source.relname, constraint_row.conname",
     )
     const foreignKey = (tableName: string, columnName: string): string | undefined =>
-      rows.find((row) => {
+      rows.find((row) =>
         return (
           row.source_table === tableName &&
           row.definition.includes(`FOREIGN KEY (${columnName})`)
         )
-      })?.definition
+      )?.definition
 
     for (const tableName of [
       "session",
@@ -729,11 +718,10 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "profiles",
       "addresses",
       "user_preferences",
-    ]) {
+    ])
       expect(foreignKey(tableName, "user_id")).toMatch(
         /REFERENCES "user"\(id\).*ON DELETE CASCADE/i,
       )
-    }
     expect(foreignKey("feature_items", "owner_id")).toMatch(
       /REFERENCES "user"\(id\).*ON DELETE CASCADE/i,
     )
@@ -812,19 +800,19 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     ])
     const timestampColumns = new Set(
       rows
-        .filter((row) => {
+        .filter((row) =>
           return (
             row.column_name.endsWith("_at") ||
             row.column_name === "expires_at"
           )
-        })
+        )
         .map((row) => `${row.table_name}.${row.column_name}`),
     )
 
     for (const [tableName, expectedColumnNames] of Object.entries(
       expectedColumnsByTable,
-    )) {
-      for (const columnName of expectedColumnNames) {
+    ))
+      for (const columnName of expectedColumnNames)
         const key = `${tableName}.${columnName}`
         const column = columns.get(key)
         const expectedDataType = booleanColumns.has(key)
@@ -847,8 +835,6 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
           jsonColumns.has(key) ? column?.udt_name : column?.data_type,
           key,
         ).toBe(expectedDataType)
-      }
-    }
 
   it "DF-039 stores offset timestamps as the same UTC instant", async ->
     await testDatabase.query(
@@ -1075,13 +1061,13 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
 
     const createLockControlledDatabase = (
       control: (acquire: () => Promise<unknown>) => Promise<unknown>,
-    ): Database => {
+    ): Database =>
       const transaction = (
         operation: (transaction: Transaction) => Promise<unknown>,
       ) =>
-        databaseResource.db.transaction(async (transaction) => {
+        databaseResource.db.transaction(async (transaction) =>
           const controlledTransaction = new Proxy(transaction, {
-            get: (target, property) => {
+            get: (target, property) =>
               if (property === "execute")
                 return async (
                   statement: Parameters<Transaction["execute"]>[0],
@@ -1090,38 +1076,35 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
               return typeof value === "function"
                 ? value.bind(target)
                 : value
-            },
           }) as Transaction
           return operation(controlledTransaction)
-        })
+        )
       return { transaction } as unknown as Database
-    }
 
-    const deferred = () => {
+    const deferred = () =>
       let resolve!: () => void
-      const promise = new Promise<void>((settle) => {
+      const promise = new Promise<void>((settle) =>
         resolve = settle
-      })
+      )
       return { promise, resolve }
-    }
     const winnerLockAcquired = deferred()
     const releaseWinner = deferred()
     const loserLockAttempted = deferred()
     const winnerRepository = createAddressRepository(
-      createLockControlledDatabase(async (acquire) => {
+      createLockControlledDatabase(async (acquire) =>
         const result = await acquire()
         winnerLockAcquired.resolve()
         await releaseWinner.promise
         return result
-      }),
+      ),
       { now: () => initialVersion },
     )
     const loserRepository = createAddressRepository(
-      createLockControlledDatabase(async (acquire) => {
+      createLockControlledDatabase(async (acquire) =>
         const pending = acquire()
         loserLockAttempted.resolve()
         return pending
-      }),
+      ),
       { now: () => initialVersion },
     )
 
@@ -1212,7 +1195,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     await createAuthUser(userId, "preferences-01@example.test")
     const repository = createUserPreferencesRepository(databaseResource.db)
 
-    for (const colorScheme of COLOR_SCHEMES) {
+    for (const colorScheme of COLOR_SCHEMES)
       await repository.upsert({
         userId,
         mode: "system",
@@ -1229,7 +1212,6 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
         mode: "system",
         profileVisibility: "members",
       })
-    }
 
     expect(await repository.findByUserId(userId)).not.toHaveProperty("reducedMotion")
     expect(await repository.findByUserId(userId)).not.toHaveProperty("privacyLevel")
@@ -1514,7 +1496,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     await createAuthUser(ownerId, "feature-rollback-01@example.test")
 
     await expect(
-      withTransaction(databaseResource.db, async (transaction) => {
+      withTransaction(databaseResource.db, async (transaction) =>
         const repository = createFeatureItemRepository(transaction)
         await repository.create(
           {
@@ -1527,7 +1509,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
           { actorUserId: ownerId, requestId: "request-rollback-01" },
         )
         throw new Error("force rollback after the complete mutation")
-      }),
+      ),
     ).rejects.toThrow(/force rollback/)
 
     const rows = await testDatabase.query<{
@@ -1545,12 +1527,11 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
 
   it "searches escaped admin user text with deterministic opaque keyset pages", async ->
     const directory = createAdminUsersRepository(databaseResource.db)
-    for (const suffix of ["a", "b", "c"]) {
+    for (const suffix of ["a", "b", "c"])
       await createAuthUser(
         `zz-directory-${suffix}`,
         `directory-page-${suffix}@example.test`,
       )
-    }
     await createAuthUser("zz-directory-literal", "literal%_match@example.test")
     await createProfileRepository(databaseResource.db).upsert({
       userId: "zz-directory-literal",
@@ -1575,7 +1556,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
     expect((await directory.search({ query: "Match", limit: 20 })).items)
       .toEqual([])
     const explainConnection = await testDatabase.openConnection()
-    try {
+    try
       await explainConnection.query("BEGIN")
       await explainConnection.query("SET LOCAL enable_seqscan = off")
       const planRows = await explainConnection.query<{ "QUERY PLAN": string }>(
@@ -1600,10 +1581,9 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       expect(plan).toContain("profiles_display_name_prefix_idx")
       expect(plan).toContain("profiles_first_name_prefix_idx")
       expect(plan).toContain("profiles_last_name_prefix_idx")
-    } finally {
+    finally
       await explainConnection.query("ROLLBACK")
       await explainConnection.close()
-    }
 
     const first = await directory.search({ query: "directory-page", limit: 2 })
     expect(first.items.map((item) => item.id)).toEqual([
@@ -1624,7 +1604,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       ["zz-micro-c", 900],
       ["zz-micro-b", 800],
       ["zz-micro-a", 700],
-    ] as const) {
+    ] as const)
       await createAuthUser(id, `micro-page-${id}@example.test`)
       await testDatabase.query(
         `UPDATE "user"
@@ -1633,7 +1613,6 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
          WHERE id = $1`,
         [id, micros],
       )
-    }
     const microFirst = await directory.search({ query: "micro-page", limit: 1 })
     const microSecond = await directory.search({
       query: "micro-page",
@@ -1743,16 +1722,15 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       BEFORE UPDATE ON addresses
       FOR EACH ROW EXECUTE FUNCTION fail_address_primary_update()
     `)
-    try {
+    try
       await expect(
         repository.setPrimary("address-rollback-target", userId),
       ).rejects.toThrow()
-    } finally {
+    finally
       await testDatabase.query(
         "DROP TRIGGER fail_address_primary_update_trigger ON addresses",
       )
       await testDatabase.query("DROP FUNCTION fail_address_primary_update()")
-    }
     const addressesAfterFailure = await repository.listByUserId(userId)
     expect(
       addressesAfterFailure.filter((address) => address.isPrimary)

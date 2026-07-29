@@ -14,9 +14,9 @@ const mocks = vi.hoisted(() -> ({
     "x-pathname": "/feature-items",
   })),
   portalSignInHref: vi.fn(() -> "/sign-in?callbackURL=%2Ffeature-items"),
-  redirect: vi.fn((href: string) -> {
+  redirect: vi.fn((href: string) ->
     throw new Error(`REDIRECT:${href}`)
-  }),
+  ),
 }))
 
 vi.mock("next/headers", () -> ({ headers: mocks.headers }))
@@ -76,7 +76,7 @@ type RuntimeElement = ReactElement<{
   readonly onClick?: (() => void) | undefined
 }>
 
-const runtimeElements = (node: ReactNode): readonly RuntimeElement[] => {
+const runtimeElements = (node: ReactNode): readonly RuntimeElement[] =>
   if (!isValidElement<RuntimeElement["props"]>(node)) return []
   return [
     node,
@@ -86,7 +86,6 @@ const runtimeElements = (node: ReactNode): readonly RuntimeElement[] => {
       node.props.actions,
     ]).flatMap(runtimeElements),
   ]
-}
 
 const runtimeElement = (
   node: ReactNode,
@@ -217,13 +216,12 @@ describe "portal route leaf composition", ->
       FeatureItemsError({ reset }),
     ]
 
-    for (const boundary of boundaries) {
+    for (const boundary of boundaries)
       const retry = runtimeElements(boundary).find(
         (element) => element.props.onClick === reset,
       )
       expect(retry).toBeDefined()
       retry?.props.onClick?.()
-    }
     expect(reset).toHaveBeenCalledTimes(boundaries.length)
 
   it "announces every portal loading boundary without exposing live data", ->
@@ -232,9 +230,8 @@ describe "portal route leaf composition", ->
       AdminLoading(),
       DashboardLoading(),
       FeatureItemsLoading(),
-    ]) {
+    ])
       expect(loading.props).toMatchObject({
         "aria-busy": "true",
         role: "status",
       })
-    }

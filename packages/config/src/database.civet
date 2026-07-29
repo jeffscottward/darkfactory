@@ -24,37 +24,32 @@ export type DatabaseCompositionProfile = Readonly<{
   connection: DatabaseConnectionContract
 }>
 
-export class DatabaseConfigurationError extends Error {
-  constructor(message: string) {
+export class DatabaseConfigurationError extends Error
+  constructor(message: string)
     super(`Invalid database configuration: ${message}`)
     this.name = "DatabaseConfigurationError"
-  }
-}
 
-const isPostgresUrl = (value: string): boolean => {
-  try {
+const isPostgresUrl = (value: string): boolean =>
+  try
     const url = new URL(value)
     return (
       (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
       url.hostname.length > 0
     )
-  } catch {
+  catch
     return false
-  }
-}
 
 const getConnectionString = (
   env: ServerEnv,
   requestBinding?: DatabaseRequestBinding,
-): string => {
+): string =>
   if (
     requestBinding &&
     requestBinding.trustedPlatform !== "cloudflare-hyperdrive"
-  ) {
+  )
     throw new DatabaseConfigurationError(
       "request binding must declare the trusted Cloudflare Hyperdrive platform",
     )
-  }
   if (!requestBinding) return env.DATABASE_URL
 
   const connectionString = requestBinding.connectionString.trim()
@@ -63,7 +58,6 @@ const getConnectionString = (
   throw new DatabaseConfigurationError(
     "request binding connectionString must be a PostgreSQL URL",
   )
-}
 
 export const composeDatabaseProfile = (
   env: ServerEnv,

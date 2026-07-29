@@ -9,12 +9,11 @@ import {
 const artifactUrl = new URL("../openapi.json", import.meta.url)
 const generated = serializeOpenApiDocument(await buildOpenApiDocument())
 
-if (process.argv.includes("--write")) {
+if (process.argv.includes("--write"))
   await writeFile(artifactUrl, generated, "utf8")
-} else {
+else
   const checkedIn = await readFile(fileURLToPath(artifactUrl), "utf8")
   if (checkedIn !== generated)
     throw new Error(
       "packages/api/openapi.json is stale; run @darkfactory/api openapi:generate",
     )
-}

@@ -8,9 +8,8 @@ const resendMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("resend", () => ({
-  Resend: class {
+  Resend: class
     emails = { send: resendMocks.send }
-  },
 }))
 
 import type { PasswordResetEmailInput } from "../index.civet"
@@ -41,13 +40,12 @@ const verificationInput = {
 
 const temporaryDirectories: string[] = []
 
-const createTemporaryDirectory = async (): Promise<string> => {
+const createTemporaryDirectory = async (): Promise<string> =>
   const directory = await realpath(
     await mkdtemp(join(tmpdir(), "darkfactory-provider-")),
   )
   temporaryDirectories.push(directory)
   return directory
-}
 
 afterEach async ->
   resendMocks.send.mockReset()
@@ -295,7 +293,7 @@ describe "createResendEmailPort", ->
       { name: "rate_limit_exceeded", statusCode: 429 },
       { name: "application_error", statusCode: 500 },
       { name: "internal_server_error" },
-    ]) {
+    ])
       const send = vi.fn().mockResolvedValue({ data: null, error })
       const email = createResendEmailPort({
         enabled: true,
@@ -313,13 +311,12 @@ describe "createResendEmailPort", ->
         retryable: true,
       })
       expect(JSON.stringify(result)).not.toContain(error.name)
-    }
 
   it "does not retry daily or monthly quota exhaustion", async ->
     for (const name of [
       "daily_quota_exceeded",
       "monthly_quota_exceeded",
-    ]) {
+    ])
       const send = vi.fn().mockResolvedValue({
         data: null,
         error: { name, statusCode: 429 },
@@ -340,7 +337,6 @@ describe "createResendEmailPort", ->
         retryable: false,
       })
       expect(JSON.stringify(result)).not.toContain(name)
-    }
 
   it "returns a redacted typed failure and never logs provider secrets or message content", async ->
     const apiKey = "re_secret-do-not-log"

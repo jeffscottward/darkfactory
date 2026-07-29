@@ -60,9 +60,8 @@ describe.sequential "real Postgres test database lifecycle", ->
       databaseName: "darkfactory_test_forged",
       runId: "forged",
       query: async -> [],
-      openConnection: async -> {
+      openConnection: async ->
         throw new Error("not a real connection")
-      },
     }) as PostgresTestDatabase
 
     await expect(dropPostgresTestDatabase(forgedDatabase)).rejects.toThrow(
@@ -76,7 +75,7 @@ describe.sequential "real Postgres test database lifecycle", ->
     let dropped = false
     let recreated: PostgresTestDatabase | undefined
 
-    try {
+    try
       const rows = await liveConnection.query<{ current_database: string }>(
         "SELECT current_database()",
       )
@@ -104,11 +103,10 @@ describe.sequential "real Postgres test database lifecycle", ->
       expect(
         await recreated.query<{ current_database: string }>("SELECT current_database()"),
       ).toEqual([{ current_database: database.databaseName }])
-    } finally {
+    finally
       await liveConnection.close().catch(() => undefined)
       if (!dropped) await dropPostgresTestDatabase(database)
       if (recreated !== undefined) await dropPostgresTestDatabase(recreated)
-    }
 
     await expect(dropPostgresTestDatabase(database)).rejects.toThrow(
       /unowned or already-dropped/,
@@ -156,12 +154,12 @@ describe.sequential "real Postgres test database lifecycle", ->
 
       cleanup = dropPostgresTestDatabase(database)
       void cleanup.then(
-        () => {
+        () =>
           cleanupSettled = true
-        },
-        () => {
+        ,
+        () =>
           cleanupSettled = true
-        },
+        ,
       )
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(cleanupSettled).toBe(false)
@@ -197,34 +195,32 @@ describe.sequential "real Postgres test database lifecycle", ->
     let replacement: PostgresTestDatabase | undefined
     let replacementPromise: Promise<PostgresTestDatabase> | undefined
 
-    try {
+    try
       await blocker.connect()
       await monitor.connect()
       cleanup = dropPostgresTestDatabase(original)
       void cleanup.catch(() => undefined)
       let lockObserved = false
-      for _attempt in [0...40] {
+      for _attempt in [0...40]
         const result = await monitor.query<{ lock_held: boolean }>(
           "WITH attempt AS MATERIALIZED (SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired) SELECT NOT acquired AS lock_held, CASE WHEN acquired THEN pg_advisory_unlock(hashtextextended($1, 0)) ELSE false END AS released FROM attempt",
           [`darkfactory-testkit:${original.databaseName}`],
         )
-        if result.rows[0]?.lock_held {
+        if result.rows[0]?.lock_held
           lockObserved = true
           break
-        }
         await new Promise((resolve) => setTimeout(resolve, 25))
-      }
       expect(lockObserved).toBe(true)
 
       let replacementSettled = false
       replacementPromise = createPostgresTestDatabase({ runId })
       void replacementPromise.then(
-        () => {
+        () =>
           replacementSettled = true
-        },
-        () => {
+        ,
+        () =>
           replacementSettled = true
-        },
+        ,
       )
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(replacementSettled).toBe(false)
@@ -236,25 +232,21 @@ describe.sequential "real Postgres test database lifecycle", ->
       expect(replacement.databaseName).toBe(original.databaseName)
       expect(await replacement.query("SELECT 1 AS alive")).toEqual([{ alive: 1 }])
       await expect(original.openConnection()).rejects.toThrow(/dropped/)
-    } finally {
+    finally
       await blocker.end().catch(() => undefined)
       await cleanup?.then(
-        () => {
+        () =>
           originalDropped = true
-        },
+        ,
         () => undefined,
       )
-      if (replacement === undefined && replacementPromise !== undefined) {
+      if (replacement === undefined && replacementPromise !== undefined)
         replacement = await replacementPromise.catch(() => undefined)
-      }
       await monitor.end().catch(() => undefined)
-      if (!originalDropped) {
+      if (!originalDropped)
         await dropPostgresTestDatabase(original).catch(() => undefined)
-      }
-      if (replacement !== undefined) {
+      if (replacement !== undefined)
         await dropPostgresTestDatabase(replacement)
-      }
-    }
   , 15_000
 
   it "reports a real prepared transaction through preflight diagnostics", async ->
@@ -269,7 +261,7 @@ describe.sequential "real Postgres test database lifecycle", ->
     let prepared = false
     let dropped = false
 
-    try {
+    try
       await transaction.connect()
       await transaction.query("BEGIN")
       await transaction.query("SELECT 1")
@@ -293,32 +285,28 @@ describe.sequential "real Postgres test database lifecycle", ->
         connectionString: database.databaseUrl,
         connectionTimeoutMillis: 5_000,
       })
-      try {
+      try
         await rollback.connect()
         await rollback.query(`ROLLBACK PREPARED '${gid}'`)
         prepared = false
-      } finally {
+      finally
         await rollback.end().catch(() => undefined)
-      }
 
       await dropPostgresTestDatabase(database)
       dropped = true
-    } finally {
+    finally
       await transaction.end().catch(() => undefined)
-      if (prepared) {
+      if (prepared)
         const rollback = new Client({
           connectionString: database.databaseUrl,
           connectionTimeoutMillis: 5_000,
         })
-        try {
+        try
           await rollback.connect()
           await rollback.query(`ROLLBACK PREPARED '${gid}'`)
-        } finally {
+        finally
           await rollback.end().catch(() => undefined)
-        }
-      }
       if (!dropped) await dropPostgresTestDatabase(database)
-    }
   , 15_000
 
   it "hashes the full run ID so long shared prefixes remain isolated", async ->
@@ -326,15 +314,14 @@ describe.sequential "real Postgres test database lifecycle", ->
     const first = await createPostgresTestDatabase({ runId: `${sharedPrefix}_a` })
     let second: PostgresTestDatabase | undefined
 
-    try {
+    try
       second = await createPostgresTestDatabase({ runId: `${sharedPrefix}_b` })
       expect(first.databaseName).not.toBe(second.databaseName)
       expect(first.databaseName.length).toBeLessThanOrEqual(63)
       expect(second.databaseName.length).toBeLessThanOrEqual(63)
-    } finally {
+    finally
       await dropPostgresTestDatabase(first)
       if (second !== undefined) await dropPostgresTestDatabase(second)
-    }
 
   it "reports a concurrent normalized run-ID collision without dropping the winner", async ->
     const runId = `collision_${randomUUID()}`
@@ -345,14 +332,14 @@ describe.sequential "real Postgres test database lifecycle", ->
     const fulfilled = results.filter(
       (
         result,
-      ): result is PromiseFulfilledResult<PostgresTestDatabase> => {
+      ): result is PromiseFulfilledResult<PostgresTestDatabase> =>
         return result.status === "fulfilled"
-      },
+      ,
     )
     const rejected = results.filter(
-      (result): result is PromiseRejectedResult => {
+      (result): result is PromiseRejectedResult =>
         return result.status === "rejected"
-      },
+      ,
     )
 
     expect(fulfilled).toHaveLength(1)
@@ -364,8 +351,7 @@ describe.sequential "real Postgres test database lifecycle", ->
     const winner = fulfilled[0]?.value
     if (winner === undefined) throw new Error("Expected one collision winner")
 
-    try {
+    try
       expect(await winner.query("SELECT 1 AS alive")).toEqual([{ alive: 1 }])
-    } finally {
+    finally
       await dropPostgresTestDatabase(winner)
-    }

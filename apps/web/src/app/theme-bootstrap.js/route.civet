@@ -1,6 +1,6 @@
 import { THEME_BOOTSTRAP_SCRIPT } from "../../lib/theme.civet"
 
-export function GET() {
+export function GET()
   return new Response(THEME_BOOTSTRAP_SCRIPT, {
     headers: {
       "Cache-Control": "public, max-age=300",
@@ -8,4 +8,3 @@ export function GET() {
       "X-Content-Type-Options": "nosniff",
     },
   })
-}

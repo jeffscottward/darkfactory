@@ -30,7 +30,7 @@ export const load = async (url, context, nextLoad) => {
 };
 `
 
-const registerPackageLoader = (): void => {
+const registerPackageLoader = (): void =>
   const source = packageLoaderSource(
     import.meta.resolve("@danielx/civet/esm"),
     import.meta.resolve("typescript"),
@@ -39,59 +39,50 @@ const registerPackageLoader = (): void => {
     `data:text/javascript,${encodeURIComponent(source)}`,
     import.meta.url,
   )
-}
 
 type DevelopmentEnvironment = "development" | "test"
 
 const CONFIRMATION_PREFIX = "--confirm-environment="
 const CONFIRMATION_USAGE = "--confirm-environment=<development|test>"
 
-const commandFrom = (argument: string | undefined): "seed" | "reset" => {
+const commandFrom = (argument: string | undefined): "seed" | "reset" =>
   if (argument === "seed" || argument === "reset") return argument
   throw new Error("Database command must be either seed or reset")
-}
 const developmentEnvironmentFrom = (
   value: string | undefined,
-): DevelopmentEnvironment => {
+): DevelopmentEnvironment =>
   if (value === "development" || value === "test") return value
   throw new Error(
     "APP_ENV must be explicitly set to development or test for database seed/reset",
   )
-}
 
 const confirmationEnvironmentFrom = (
   arguments_: readonly string[],
   environment: DevelopmentEnvironment,
-): DevelopmentEnvironment => {
+): DevelopmentEnvironment =>
   const explicitArguments = arguments_[0] === "--"
     ? arguments_.slice(1)
     : arguments_
-  if (explicitArguments.length === 0) {
+  if (explicitArguments.length === 0)
     throw new Error(`Database seed/reset requires ${CONFIRMATION_USAGE}`)
-  }
 
   const confirmations = explicitArguments.filter((argument) =>
     argument === "--confirm-environment" ||
     argument.startsWith(CONFIRMATION_PREFIX)
   )
-  if (confirmations.length > 1) {
+  if (confirmations.length > 1)
     throw new Error("Database confirmation must be provided exactly once")
-  }
-  if (explicitArguments.length !== 1 || confirmations.length !== 1) {
+  if (explicitArguments.length !== 1 || confirmations.length !== 1)
     throw new Error(`Database confirmation must use ${CONFIRMATION_USAGE}`)
-  }
 
   const value = confirmations[0]?.slice(CONFIRMATION_PREFIX.length)
-  if (value !== "development" && value !== "test") {
+  if (value !== "development" && value !== "test")
     throw new Error(`Database confirmation must use ${CONFIRMATION_USAGE}`)
-  }
-  if (value !== environment) {
+  if (value !== environment)
     throw new Error("Database confirmation must match APP_ENV exactly")
-  }
   return value
-}
 
-const main = async (): Promise<void> => {
+const main = async (): Promise<void> =>
   const command = commandFrom(process.argv[2])
   const environment = developmentEnvironmentFrom(process.env.APP_ENV)
   confirmationEnvironmentFrom(process.argv.slice(3), environment)
@@ -112,13 +103,13 @@ const main = async (): Promise<void> => {
   })
   let output = ""
 
-  try {
-    if (command === "reset") {
+  try
+    if (command === "reset")
       const result = await databaseModule.resetDevelopment(resource.db, {
         environment,
       })
       output = JSON.stringify(result)
-    } else {
+    else
       const prepareIdentity: PrepareSeedIdentities = async (identities) =>
         await authModule.ensureDevelopmentSeedIdentity({
           environment,
@@ -132,11 +123,8 @@ const main = async (): Promise<void> => {
         prepareIdentity,
       })
       output = JSON.stringify(result)
-    }
-  } finally {
+  finally
     await resource.close()
-  }
   process.stdout.write(`${output}\n`)
-}
 
 await main()

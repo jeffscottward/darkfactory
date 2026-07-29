@@ -21,7 +21,7 @@ export const createGenerationReport = (
   cleanup,
 })
 
-export const formatHumanReport = (report: GenerationReport): string => {
+export const formatHumanReport = (report: GenerationReport): string =>
   const heading = report.status === "planned" ? "Feature generation plan" : "Feature capsule generated"
   const action = report.dryRun ? "No files were written." : "The capsule was atomically promoted and verified."
   return [
@@ -34,7 +34,6 @@ export const formatHumanReport = (report: GenerationReport): string => {
     "Integration: generator-owned runtime registries and composition hooks were atomically updated.",
     ...report.files.map((path) => `  - ${path}`),
   ].join("\n")
-}
 
 export const serializeGenerationReport = (report: GenerationReport): string =>
   `${JSON.stringify(report, null, 2)}\n`

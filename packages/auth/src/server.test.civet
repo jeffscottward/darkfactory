@@ -13,13 +13,13 @@ vi.mock("better-auth", () => ({ betterAuth: mocks.betterAuth }))
 vi.mock("@better-auth/drizzle-adapter", () => ({
   drizzleAdapter: mocks.drizzleAdapter,
 }))
-vi.mock("better-auth/api", async (importOriginal) => {
+vi.mock("better-auth/api", async (importOriginal) =>
   const actual = await importOriginal<typeof import("better-auth/api")>()
   return {
     ...actual,
     createAuthMiddleware: mocks.createAuthMiddleware,
   }
-})
+)
 vi.mock("better-auth/crypto", () => ({
   hashPassword: mocks.hashPassword,
   verifyPassword: mocks.verifyPassword,
@@ -106,23 +106,21 @@ type ResourceState = Readonly<{
 
 const createResourceDatabase = (
   initialProfiles: Readonly<Record<string, string>> = {},
-) => {
+) =>
   const state: ResourceState = {
     profiles: new Map(Object.entries(initialProfiles)),
     preferences: new Set(),
   }
   const insert = vi.fn((_table: unknown) => ({
     values: vi.fn((value: Readonly<Record<string, unknown>>) => ({
-      onConflictDoNothing: vi.fn(async () => {
+      onConflictDoNothing: vi.fn(async () =>
         const userId = String(value["userId"])
-        if ("displayName" in value) {
-          if (!state.profiles.has(userId)) {
+        if ("displayName" in value)
+          if (!state.profiles.has(userId))
             state.profiles.set(userId, String(value["displayName"]))
-          }
-        } else {
+        else
           state.preferences.add(userId)
-        }
-      }),
+      ),
     })),
   }))
   const database = {
@@ -130,12 +128,10 @@ const createResourceDatabase = (
     transaction: vi.fn(),
   }
   database.transaction.mockImplementation(
-    async (operation: (transaction: typeof database) => Promise<unknown>) => {
+    async (operation: (transaction: typeof database) => Promise<unknown>) =>
       return await operation(database)
-    },
   )
   return { database, state, insert }
-}
 
 const createEmail = () => ({
   sendPasswordReset: vi.fn().mockResolvedValue({
@@ -198,7 +194,7 @@ const request = (path: string, method = "POST") =>
 const handlerAuth = (
   response: Response,
   ...sessions: unknown[]
-) => {
+) =>
   const session = sessions.length === 0 ? null : sessions[0]
   const getSession = vi.fn().mockResolvedValue(session)
   const handler = vi.fn().mockResolvedValue(response)
@@ -207,7 +203,6 @@ const handlerAuth = (
     getSession,
     handler,
   }
-}
 
 const jsonBody = async (response: Response) =>
   await response.json() as Record<string, unknown>
@@ -588,13 +583,12 @@ describe("createAuth hooks", ->
       .databaseHooks.session.create.before
     const result = beforeSessionCreate({ userId: "user-status" })
 
-    if (errorCode === undefined) {
+    if (errorCode === undefined)
       await expect(result).resolves.toBeUndefined()
-    } else {
+    else
       await expect(result).rejects.toMatchObject({
         body: { code: errorCode, message: "Account is unavailable" },
       })
-    }
     return undefined
   )
 
@@ -652,7 +646,7 @@ describe("fetch-native auth handler status gate", ->
     status = 200,
     statusText = "OK",
     contentType: string | null = "application/json; charset=utf-8",
-  ): Response => {
+  ): Response =>
     const response = new Response(body, {
       status,
       statusText,
@@ -665,7 +659,6 @@ describe("fetch-native auth handler status gate", ->
     })
     if (contentType === null) response.headers.delete("content-type")
     return response
-  }
 
   it.each([
     ["active", JSON.stringify({
@@ -979,7 +972,9 @@ describe("fetch-native auth response normalization", ->
     const { auth } = handlerAuth(Response.json(body, { status }))
     const pending = createAuthHandler(auth)(request("/api/auth/sign-up/email"))
     let settled = false
-    void pending.then(() => { settled = true })
+    void pending.then(() =>
+      settled = true
+    )
 
     await vi.advanceTimersByTimeAsync(249)
     expect(settled).toBe(false)
@@ -1278,41 +1273,40 @@ type SeedAccount = Record<string, unknown> & Readonly<{ id: string }>
 const createSeedAdapter = (
   initialUser?: SeedUser,
   initialAccounts: readonly SeedAccount[] = [],
-) => {
+) =>
   let currentUser = initialUser === undefined ? undefined : { ...initialUser }
   let accounts = initialAccounts.map((account) => ({ ...account }))
   const adapter = {
-    createUser: vi.fn(async (value: SeedUser) => {
+    createUser: vi.fn(async (value: SeedUser) =>
       currentUser = { ...value }
       return { ...currentUser }
-    }),
-    linkAccount: vi.fn(async (value: SeedAccount) => {
+    ),
+    linkAccount: vi.fn(async (value: SeedAccount) =>
       accounts.push({ ...value })
       return { ...value }
-    }),
+    ),
     findUserById: vi.fn(async (_userId: string) =>
       currentUser === undefined ? null : { ...currentUser }
     ),
-    updateUser: vi.fn(async (_userId: string, value: Record<string, unknown>) => {
+    updateUser: vi.fn(async (_userId: string, value: Record<string, unknown>) =>
       currentUser = { ...currentUser, ...value } as SeedUser
       return { ...currentUser }
-    }),
+    ),
     findAccounts: vi.fn(async (_userId: string) =>
       accounts.map((account) => ({ ...account }))
     ),
-    updateAccount: vi.fn(async (accountId: string, value: Record<string, unknown>) => {
+    updateAccount: vi.fn(async (accountId: string, value: Record<string, unknown>) =>
       accounts = accounts.map((account) =>
         account.id === accountId ? { ...account, ...value } : account
       )
       return accounts.find((account) => account.id === accountId)
-    }),
+    ),
   }
   return {
     adapter,
     user: () => currentUser,
     accounts: () => accounts,
   }
-}
 
 const exactExistingSeedUser = (identity: DevelopmentSeedIdentity = IDENTITY): SeedUser => ({
   id: identity.userId,
@@ -1551,7 +1545,7 @@ describe("development seed identity preparation", ->
   )
 
   it("reports a missing or passwordless credential without creating resources", async ->
-    for (const accounts of [[], [{ ...seedCredential(), password: undefined }]]) {
+    for (const accounts of [[], [{ ...seedCredential(), password: undefined }]])
       const seed = createSeedAdapter(exactExistingSeedUser(), accounts as SeedAccount[])
       const { database, state } = createResourceDatabase()
       mocks.context = { internalAdapter: seed.adapter }
@@ -1564,7 +1558,6 @@ describe("development seed identity preparation", ->
         "Seed credential is unavailable",
       )
       expect(state.profiles.size).toBe(0)
-    }
   )
 
   it("redacts a malformed credential hash failure", async ->

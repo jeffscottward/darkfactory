@@ -1,6 +1,6 @@
 import { Skeleton } from "@darkfactory/ui"
 
-export default function PublicLoading() {
+export default function PublicLoading()
   return (
     <section
       aria-labelledby="public-loading-title"
@@ -8,24 +8,17 @@ export default function PublicLoading() {
       className="df-container py-16 md:py-20 lg:py-24"
       role="status"
     >
-      <p className="text-sm font-semibold tracking-wide text-primary">DarkFactory</p>
+      <p className="text-sm font-semibold tracking-wide text-primary">DarkFactory
       <h1 className="mt-4 font-heading text-4xl font-semibold tracking-tight text-foreground" id="public-loading-title">
         Loading this page
-      </h1>
       <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
         Preparing the requested public content.
-      </p>
       <div aria-hidden="true" className="mt-12 grid gap-8 border-y border-border py-10 md:grid-cols-12">
         <div className="space-y-4 md:col-span-4">
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-10 w-full" />
-        </div>
         <div className="space-y-4 md:col-span-6 md:col-start-7">
           <Skeleton className="h-5 w-full" />
           <Skeleton className="h-5 w-full" />
           <Skeleton className="h-5 w-3/4" />
-        </div>
-      </div>
-    </section>
   )
-}

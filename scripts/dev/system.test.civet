@@ -59,29 +59,28 @@ const pidHandle = (content: string, kind: "file" | "other" = "file", size = cont
 
 const fakeSocket = (outcome: "connect" | "error" | "none") => ({
   destroy: vi.fn(),
-  once: vi.fn((event: string, listener: () => void) => {
+  once: vi.fn((event: string, listener: () => void) =>
     if (event === outcome) queueMicrotask(listener)
-  }),
+  ),
 })
 
-const fakeChild = () => {
+const fakeChild = () =>
   const listeners = new Map<string, (value?: number | null) => void>()
   return {
     kill: vi.fn(),
-    once: vi.fn((event: string, listener: (value?: number | null) => void) => {
+    once: vi.fn((event: string, listener: (value?: number | null) => void) =>
       listeners.set(event, listener)
-    }),
+    ),
     emit: (event: string, value?: number | null) => listeners.get(event)?.(value),
   }
-}
 
-beforeEach(() => {
+beforeEach(() =>
   vi.clearAllMocks()
-  mocks.realpath.mockImplementation(async (path: string) => {
+  mocks.realpath.mockImplementation(async (path: string) =>
     if (String(path) === process.cwd()) return "/repo"
     if (String(path) === ".certs") return "/repo/.certs"
     return String(path)
-  })
+  )
   mocks.lstat.mockImplementation(async (path: string) =>
     String(path) === ".certs" ? stats("directory") : stats("file")
   )
@@ -90,17 +89,17 @@ beforeEach(() => {
   mocks.mkdtemp.mockResolvedValue("/repo/.certs/.mkcert-fixed")
   mocks.rename.mockResolvedValue(undefined)
   mocks.rm.mockResolvedValue(undefined)
-})
+)
 
-afterEach(() => {
+afterEach(() =>
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.useRealTimers()
-})
+)
 
-describe("development Node process adapter", () => {
-  it("runs bounded commands with a minimal environment and maps exit outcomes", async () => {
+describe("development Node process adapter", () =>
+  it("runs bounded commands with a minimal environment and maps exit outcomes", async () =>
     vi.stubEnv("PATH", "/safe/bin")
     vi.stubEnv("DATABASE_URL", "postgres://must-not-leak")
     let capturedOptions: Record<string, unknown> | undefined
@@ -109,10 +108,10 @@ describe("development Node process adapter", () => {
       _arguments: readonly string[],
       options: Record<string, unknown>,
       callback: (error: Error | null, stdout?: string | null, stderr?: string | null) => void,
-    ) => {
+    ) =>
       capturedOptions = options
       callback(null, "command output", "warning")
-    })
+    )
 
     await expect(nodeProcessAdapter.run("tool", ["--check"], {
       timeoutMs: 25,
@@ -143,10 +142,10 @@ describe("development Node process adapter", () => {
       _arguments: readonly string[],
       options: Record<string, unknown>,
       callback: (error: NodeJS.ErrnoException, stdout?: null, stderr?: null) => void,
-    ) => {
+    ) =>
       capturedOptions = options
       callback(errno("ENOENT"), null, null)
-    })
+    )
     await expect(nodeProcessAdapter.run("missing", [])).resolves.toEqual({
       exitCode: 1,
       stdout: "",
@@ -165,9 +164,9 @@ describe("development Node process adapter", () => {
       stdout: "partial",
       stderr: "failure",
     })
-  })
+  )
 
-  it("maps interactive success, child errors, and timeout termination without a shell", async () => {
+  it("maps interactive success, child errors, and timeout termination without a shell", async () =>
     vi.stubEnv("HOME", "/home/safe")
     vi.stubEnv("BETTER_AUTH_SECRET", "must-not-leak")
     const successful = fakeChild()
@@ -211,9 +210,9 @@ describe("development Node process adapter", () => {
       stdout: "",
       stderr: "",
     })
-  })
+  )
 
-  it("maps trusted HTTPS status ranges and fetch rejection", async () => {
+  it("maps trusted HTTPS status ranges and fetch rejection", async () =>
     const fetchRequest = vi.fn()
       .mockResolvedValueOnce({ status: 204 })
       .mockResolvedValueOnce({ status: 399 })
@@ -232,9 +231,9 @@ describe("development Node process adapter", () => {
       redirect: "manual",
       signal: expect.any(AbortSignal),
     })
-  })
+  )
 
-  it("requires both a live bounded PID and a connected PM2 socket", async () => {
+  it("requires both a live bounded PID and a connected PM2 socket", async () =>
     vi.stubEnv("PM2_HOME", "/isolated/pm2")
     const handle = pidHandle("321\n")
     mocks.open.mockResolvedValue(handle)
@@ -252,27 +251,28 @@ describe("development Node process adapter", () => {
     mocks.open.mockResolvedValue(pidHandle("321"))
     mocks.createConnection.mockReturnValue(fakeSocket("error"))
     await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
-  })
+  )
 
-  it("rejects malformed, unsafe, dead, and unresponsive PM2 state", async () => {
+  it("rejects malformed, unsafe, dead, and unresponsive PM2 state", async () =>
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true)
     for (const handle of [
       pidHandle("0"),
       pidHandle("not-a-pid"),
       pidHandle("12", "other"),
       pidHandle("12", "file", 33),
-    ]) {
+    ])
       mocks.open.mockResolvedValueOnce(handle)
       await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
       expect(handle.close).toHaveBeenCalledOnce()
-    }
     expect(mocks.createConnection).not.toHaveBeenCalled()
 
     mocks.open.mockRejectedValueOnce(errno("ENOENT"))
     await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
 
     mocks.open.mockResolvedValueOnce(pidHandle("77"))
-    kill.mockImplementationOnce(() => { throw errno("ESRCH") })
+    kill.mockImplementationOnce(() =>
+      throw errno("ESRCH")
+    )
     await expect(nodeProcessAdapter.pm2DaemonAvailable()).resolves.toBe(false)
 
     vi.useFakeTimers()
@@ -281,11 +281,11 @@ describe("development Node process adapter", () => {
     const availability = nodeProcessAdapter.pm2DaemonAvailable()
     await vi.advanceTimersByTimeAsync(500)
     await expect(availability).resolves.toBe(false)
-  })
-})
+  )
+)
 
-describe("development certificate filesystem adapter", () => {
-  it("prepares, commits, and cleans isolated certificate outputs in order", async () => {
+describe("development certificate filesystem adapter", () =>
+  it("prepares, commits, and cleans isolated certificate outputs in order", async () =>
     const prepared = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
       ".certs/localhost.pem",
       ".certs/localhost-key.pem",
@@ -309,9 +309,9 @@ describe("development certificate filesystem adapter", () => {
 
     await prepared.cleanup()
     expect(mocks.rm).toHaveBeenCalledTimes(2)
-  })
+  )
 
-  it("creates a missing regular directory but rejects unsafe directory identities", async () => {
+  it("creates a missing regular directory but rejects unsafe directory identities", async () =>
     mocks.lstat.mockRejectedValueOnce(errno("ENOENT"))
     await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
       ".certs/localhost.pem",
@@ -357,18 +357,17 @@ describe("development certificate filesystem adapter", () => {
     const platform = Object.getOwnPropertyDescriptor(process, "platform")!
     Object.defineProperty(process, "platform", { ...platform, value: "win32" })
     mocks.realpath.mockResolvedValueOnce("/repo/..\\outside")
-    try {
+    try
       await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
         ".certs/localhost.pem",
         ".certs/localhost-key.pem",
       ])).rejects.toThrow(/escapes the repository/i)
-    } finally {
+    finally
       Object.defineProperty(process, "platform", platform)
-    }
 
-  })
+  )
 
-  it("rejects wrong counts, traversal, existing outputs, and unexpected access errors", async () => {
+  it("rejects wrong counts, traversal, existing outputs, and unexpected access errors", async () =>
     await expect(nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
       ".certs/only.pem",
     ])).rejects.toThrow(/certificate and key/i)
@@ -389,9 +388,9 @@ describe("development certificate filesystem adapter", () => {
       ".certs/localhost.pem",
       ".certs/localhost-key.pem",
     ])).rejects.toMatchObject({ code: "EACCES" })
-  })
+  )
 
-  it("refuses unsafe generated files and outputs that appear before commit", async () => {
+  it("refuses unsafe generated files and outputs that appear before commit", async () =>
     const unsafe = await nodeLifecycleFileSystem.prepareCertificateOutputs(".certs", [
       ".certs/localhost.pem",
       ".certs/localhost-key.pem",
@@ -418,5 +417,5 @@ describe("development certificate filesystem adapter", () => {
     mocks.access.mockResolvedValueOnce(undefined)
     await expect(raced.commit()).rejects.toThrow(/appeared during generation/i)
     expect(mocks.rename).not.toHaveBeenCalled()
-  })
-})
+  )
+)

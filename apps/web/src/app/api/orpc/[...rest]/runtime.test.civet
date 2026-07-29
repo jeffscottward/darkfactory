@@ -60,10 +60,10 @@ describe "Worker oRPC runtime composition", ->
   it "returns the completed response without replay when telemetry fails afterward", async ->
     const operation = vi.fn(async () => new Response("created", { status: 201 }))
     const forceFlush = vi.fn(async () => undefined)
-    const telemetry = runtime(async (_input, run) => {
+    const telemetry = runtime(async (_input, run) =>
       await run(span)
       throw new Error("telemetry completion failed")
-    }, forceFlush)
+    , forceFlush)
     const waitUntil = vi.fn((promise: Promise<unknown>) => void promise)
 
     const response = await runWithRequestTelemetry(
@@ -83,10 +83,10 @@ describe "Worker oRPC runtime composition", ->
   
   it "runs the request once when telemetry invokes its callback more than once", async ->
     const operation = vi.fn(async () => "created")
-    const telemetry = runtime(async (_input, run) => {
+    const telemetry = runtime(async (_input, run) =>
       const results = await Promise.all([run(span), run(span)])
       return results[1]!
-    })
+    )
 
     await expect(
       runWithRequestTelemetry(
@@ -99,16 +99,16 @@ describe "Worker oRPC runtime composition", ->
     expect(operation).toHaveBeenCalledOnce()
   
   it "runs once with a provider-neutral span when telemetry fails before callback", async ->
-    const operation = vi.fn(async (fallbackSpan: SpanHandle) => {
+    const operation = vi.fn(async (fallbackSpan: SpanHandle) =>
       expect(fallbackSpan.correlation).toEqual({
         requestId: "request-1",
         route: "/api/orpc",
       })
       return "handled"
-    })
-    const telemetry = runtime(async () => {
+    )
+    const telemetry = runtime(async () =>
       throw new Error("telemetry unavailable")
-    })
+    )
 
     await expect(
       runWithRequestTelemetry(
@@ -125,7 +125,9 @@ describe "Worker oRPC runtime composition", ->
   
   it "propagates an application failure without replaying it", async ->
     const failure = new Error("application failed")
-    const operation = vi.fn(async () => { throw failure })
+    const operation = vi.fn(async () =>
+      throw failure
+    )
     const telemetry = runtime(async (_input, run) => run(span))
 
     await expect(
@@ -153,17 +155,17 @@ describe "Worker oRPC runtime composition", ->
     expect(resolveAnalyticsConsent(request)).toBe("unknown")
 
   it "falls back when telemetry omits its callback and isolates rejected flushing", async ->
-    const forceFlush = vi.fn(async () => {
+    const forceFlush = vi.fn(async () =>
       throw new Error("provider flush unavailable")
-    })
+    )
     const telemetry = runtime(
       (async () => undefined) as TelemetryRuntime["withSpan"],
       forceFlush,
     )
-    const waitUntil = vi.fn(() => {
+    const waitUntil = vi.fn(() =>
       throw new Error("execution context closed")
-    })
-    const operation = vi.fn((fallbackSpan: SpanHandle) => {
+    )
+    const operation = vi.fn((fallbackSpan: SpanHandle) =>
       fallbackSpan.addEvent({
         eventId: "event-1",
         name: "fallback",
@@ -172,7 +174,7 @@ describe "Worker oRPC runtime composition", ->
       })
       fallbackSpan.recordMetric({ name: "fallback.metric", value: 1 })
       return "handled"
-    })
+    )
 
     await expect(runWithRequestTelemetry(
       telemetry,
@@ -190,9 +192,9 @@ describe "Worker oRPC runtime composition", ->
   it "rethrows primitive telemetry failures instead of treating them as provider outages", async ->
     const failure = "telemetry primitive failure"
     const forceFlush = vi.fn(async () => undefined)
-    const telemetry = runtime(async () => {
+    const telemetry = runtime(async () =>
       throw failure
-    }, forceFlush)
+    , forceFlush)
     const waitUntil = vi.fn((promise: Promise<unknown>) => void promise)
     const operation = vi.fn(async () => "not reached")
 
@@ -209,9 +211,9 @@ describe "Worker oRPC runtime composition", ->
   it "rethrows primitive execution-context failures during flush scheduling", async ->
     const failure = "execution context primitive failure"
     const telemetry = runtime(async (_input, run) => run(span))
-    const waitUntil = vi.fn(() => {
+    const waitUntil = vi.fn(() =>
       throw failure
-    })
+    )
     const operation = vi.fn(async () => "handled")
 
     await expect(runWithRequestTelemetry(

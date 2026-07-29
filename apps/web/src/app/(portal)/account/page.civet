@@ -8,7 +8,7 @@ const accountTasks = [
   { href: "/account/security", title: "Security", description: "Review active sessions or change your password." },
 ] as const
 
-export default function AccountPage() {
+export default function AccountPage()
   return (
     <div className="space-y-10">
       <PageHeader
@@ -24,15 +24,9 @@ export default function AccountPage() {
             key={task.href}
           >
             <span>
-              <span className="block font-heading text-lg font-semibold text-foreground">{task.title}</span>
-              <span className="mt-1 block max-w-reading text-sm leading-6 text-muted-foreground">{task.description}</span>
-            </span>
+              <span className="block font-heading text-lg font-semibold text-foreground">{task.title}
+              <span className="mt-1 block max-w-reading text-sm leading-6 text-muted-foreground">{task.description}
             <span className="inline-flex items-center gap-2 text-sm font-medium text-primary">
               Open <ArrowRight aria-hidden="true" className="size-4" />
-            </span>
-          </a>
         ))}
-      </div>
-    </div>
   )
-}

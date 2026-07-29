@@ -138,10 +138,9 @@ const UiStateProbe = () => createElement(
   useUiState((state) => `${state.themeMode}:${state.palette}`),
 )
 
-const MissingUiStateProviderProbe = () => {
+const MissingUiStateProviderProbe = () =>
   useUiStoreApi()
   return null
-}
 
 type PortalElement = ReactElement<{
   readonly availableRoutes?: readonly string[]
@@ -157,14 +156,12 @@ type PortalElement = ReactElement<{
 const collectPortalElements = (
   node: ReactNode,
   predicate: (element: PortalElement) => boolean,
-): PortalElement[] => {
+): PortalElement[] =>
   if (!isValidElement<PortalElement["props"]>(node)) return []
   const matches = predicate(node) ? [node] : []
-  for (const child of Children.toArray(node.props.children)) {
+  for (const child of Children.toArray(node.props.children))
     matches.push(...collectPortalElements(child, predicate))
-  }
   return matches
-}
 
 const findPortalElement = (
   node: ReactNode,
@@ -181,7 +178,7 @@ const runThemeBootstrap = ({
   palette?: string
   serializedTheme?: string
   themeMode?: string
-}) => {
+}) =>
   const documentElement = {
     dataset: {
       mode: themeMode,
@@ -201,7 +198,6 @@ const runThemeBootstrap = ({
     dataset: documentElement.dataset,
     snapshot: windowObject["__DARKFACTORY_THEME__"],
   }
-}
 describe "application navigation manifest", ->
   it "contains every public, portal, account, and admin destination exactly once per group", ->
     expect(PUBLIC_NAVIGATION.map((item) => item.href)).toEqual([
@@ -306,7 +302,7 @@ describe "root metadata and theme contract", ->
     })).preference).toEqual(DEFAULT_ANONYMOUS_THEME)
     for (const malformedTrustedPreference of [
       {
-        themeMode: { toString: () => { throw new Error("must not coerce") } },
+        themeMode: { toString: () -> throw new Error("must not coerce") },
         palette: "blue",
         updatedAt: null,
       },
@@ -320,7 +316,7 @@ describe "root metadata and theme contract", ->
         palette: { valueOf: null },
         updatedAt: null,
       },
-    ]) {
+    ])
       await expect(resolveRequestTheme({
         cookieHeader: "darkfactory-theme=dark%3Arose",
         loadTrustedPreference: async () => malformedTrustedPreference,
@@ -328,7 +324,6 @@ describe "root metadata and theme contract", ->
         authority: "trusted",
         preference: DEFAULT_ANONYMOUS_THEME,
       })
-    }
     expect(await resolveRequestTheme({
       cookieHeader: "darkfactory-theme=dark%3Arose",
       loadTrustedPreference: async () => INDETERMINATE_THEME,
@@ -530,7 +525,7 @@ describe "shared shell semantics", ->
       PortalSidebar({ availableRoutes, isAdmin: true }),
       PortalTopbar({ availableRoutes, isAdmin: true }),
     ]
-    const navigationGroups = portalTrees.flatMap((tree, index) => {
+    const navigationGroups = portalTrees.flatMap((tree, index) =>
       const navigation = findPortalElement(
         tree,
         (element) => (
@@ -540,9 +535,8 @@ describe "shared shell semantics", ->
         ),
       )
       expect(navigation).toBeDefined()
-      if (navigation === undefined || typeof navigation.type !== "function") {
+      if (navigation === undefined || typeof navigation.type !== "function")
         throw new Error("Expected portal navigation")
-      }
       const renderNavigation = navigation.type as (
         props: PortalElement["props"],
       ) => ReactNode
@@ -550,7 +544,7 @@ describe "shared shell semantics", ->
         renderNavigation(navigation.props),
         (element) => element.type === NavigationLinks,
       )
-    })
+    )
 
     expect(navigationGroups).toHaveLength(6)
     expect(navigationGroups.every((group) => group.props.prefetch === false)).toBe(true)
@@ -658,9 +652,8 @@ describe "shared shell semantics", ->
       (element) => element.props.mobile === true,
     )
     expect(mobileNavigation).toBeDefined()
-    if (mobileNavigation === undefined || typeof mobileNavigation.type !== "function") {
+    if (mobileNavigation === undefined || typeof mobileNavigation.type !== "function")
       throw new Error("Expected the mobile portal navigation component")
-    }
     const renderNavigation = mobileNavigation.type as (
       props: PortalElement["props"],
     ) => ReactNode
@@ -671,9 +664,8 @@ describe "shared shell semantics", ->
     )
     expect(links).toBeDefined()
     const onNavigate = links?.props.onNavigate
-    if (onNavigate === undefined) {
+    if (onNavigate === undefined)
       throw new Error("Expected mobile navigation links to close the popover")
-    }
 
     const hidePopover = vi.fn()
     const popover = { hidePopover }
@@ -685,7 +677,7 @@ describe "shared shell semantics", ->
     getElementById.mockReturnValueOnce({ hidePopover: "not callable" })
     vi.stubGlobal("document", { getElementById })
 
-    try {
+    try
       onNavigate()
       expect(() => onNavigate()).not.toThrow()
       expect(() => onNavigate()).not.toThrow()
@@ -695,9 +687,9 @@ describe "shared shell semantics", ->
       expect(getElementById).toHaveBeenNthCalledWith(3, "portal-navigation")
       expect(hidePopover).toHaveBeenCalledOnce()
       expect(hidePopover.mock.contexts[0]).toBe(popover)
-    } finally {
+    finally
       vi.unstubAllGlobals()
-    }
+    return undefined
 
 describe "root layout request composition", ->
   it "loads the trusted request theme with bounded request identity", async ->
@@ -752,9 +744,8 @@ describe "theme and UI runtime boundaries", ->
       "[]",
       '{"version":2,"themeMode":"dark","palette":"rose"}',
       '{"version":1,"themeMode":"dark","palette":"rose","extra":true}',
-    ]) {
+    ])
       expect(parseAnonymousThemeSnapshot(malformed)).toBeNull()
-    }
     expect(parseAnonymousThemeSnapshot(
       '{"version":1,"themeMode":"dark","palette":"rose"}',
     )).toEqual({
@@ -772,17 +763,15 @@ describe "theme and UI runtime boundaries", ->
     )
 
   it "covers missing, malformed, empty, and extra-field theme cookies", ->
-    for (const missing of [undefined, null, ""]) {
+    for (const missing of [undefined, null, ""])
       expect(parseThemeCookieHeader(missing)).toEqual({ status: "missing" })
-    }
     for (const malformed of [
       {},
       "darkfactory-theme",
       "darkfactory-theme=",
       "darkfactory-theme=dark%3Arose%3Aextra",
-    ]) {
+    ])
       expect(parseThemeCookieHeader(malformed)).toEqual({ status: "invalid" })
-    }
     expect(
       parseThemeCookieHeader(
         "other=value; darkfactory-theme=dark%3Arose; preference=ignored",
@@ -806,7 +795,7 @@ describe "theme and UI runtime boundaries", ->
         palette: "rose",
         updatedAt: "2026-07-25T00:00:00.000Z",
       },
-    ]) {
+    ])
       await expect(resolveRequestTheme({
         cookieHeader: null,
         loadTrustedPreference: async () => preference,
@@ -814,7 +803,6 @@ describe "theme and UI runtime boundaries", ->
         authority: "trusted",
         preference: DEFAULT_ANONYMOUS_THEME,
       })
-    }
 
   it "evaluates route exposure against an explicit runtime manifest", ->
     expect(isRouteExposed("/future", ["/future"])).toBe(true)

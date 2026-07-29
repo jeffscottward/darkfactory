@@ -16,27 +16,25 @@ const resetInput: PasswordResetEmailInput = {
 
 const temporaryDirectories: string[] = []
 
-const createTemporaryDirectory = async (): Promise<string> => {
+const createTemporaryDirectory = async (): Promise<string> =>
   const directory = await fileSystem.mkdtemp(
     join(tmpdir(), "darkfactory-preview-fault-"),
   )
   const canonicalDirectory = await fileSystem.realpath(directory)
   temporaryDirectories.push(canonicalDirectory)
   return canonicalDirectory
-}
 
 const injectedError = (code: string): NodeJS.ErrnoException =>
   Object.assign(new Error("injected filesystem failure"), { code })
 
 const loadPreview = async (
   overrides: Readonly<Record<string, unknown>>,
-) => {
+) =>
   vi.doMock("node:fs/promises", async (importOriginal) => ({
     ...(await importOriginal<typeof import("node:fs/promises")>()),
     ...overrides,
   }))
   return await import("./preview.civet")
-}
 
 afterEach async ->
   vi.doUnmock("node:fs/promises")
@@ -52,27 +50,21 @@ describe "preview filesystem fault handling", ->
     "rolls back when a temporary handle %s operation fails",
     async (operation) =>
       const directory = await createTemporaryDirectory()
-      const open = async (...args: Parameters<typeof fileSystem.open>) => {
+      const open = async (...args: Parameters<typeof fileSystem.open>) =>
         const handle = await fileSystem.open(...args)
         if (!String(args[0]).endsWith(".html.tmp")) return handle
         return new Proxy(handle, {
-          get(target, property) {
-            if (property === operation) {
-              if (operation === "close") {
-                return async () => {
+          get(target, property)
+            if (property === operation)
+              if (operation === "close")
+                return async () =>
                   await target.close()
                   throw injectedError("EIO")
-                }
-              }
-              return async () => {
+              return async () =>
                 throw injectedError("EIO")
-              }
-            }
             const value = Reflect.get(target, property, target)
             return typeof value === "function" ? value.bind(target) : value
-          },
         })
-      }
       const { createPreviewEmailPortForTest } = await loadPreview({ open })
       const email = createPreviewEmailPortForTest({
         environment: "test",
@@ -93,10 +85,9 @@ describe "preview filesystem fault handling", ->
 
   it "cleans partial handles and its reservation when a later open fails", async ->
     const directory = await createTemporaryDirectory()
-    const open = async (...args: Parameters<typeof fileSystem.open>) => {
+    const open = async (...args: Parameters<typeof fileSystem.open>) =>
       if (String(args[0]).endsWith(".html.tmp")) throw injectedError("EIO")
       return await fileSystem.open(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ open })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -119,23 +110,20 @@ describe "preview filesystem fault handling", ->
     let ancestorChecks = 0
     const realpath = async (
       path: Parameters<typeof fileSystem.realpath>[0],
-    ): Promise<string> => {
+    ): Promise<string> =>
       const canonicalPath = await fileSystem.realpath(path)
       if (String(path) === directory) canonicalDirectoryValidated = true
       return canonicalPath
-    }
-    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) => {
+    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) =>
       const stats = await realLstat(...args)
       if (String(args[0]) !== ancestor) return stats
       ancestorChecks += 1
       ancestorObservedAfterValidation = canonicalDirectoryValidated
       return new Proxy(stats, {
-        get(target, property, receiver) {
+        get(target, property, receiver)
           if (property === "isDirectory") return () => false
           return Reflect.get(target, property, receiver)
-        },
       })
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ lstat, realpath })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -155,10 +143,9 @@ describe "preview filesystem fault handling", ->
 
   it "maps canonical-directory permission failure without opening artifacts", async ->
     const directory = await createTemporaryDirectory()
-    const chmod = async (path: Parameters<typeof fileSystem.chmod>[0], mode: number) => {
+    const chmod = async (path: Parameters<typeof fileSystem.chmod>[0], mode: number) =>
       if (String(path) === directory) throw injectedError("EACCES")
       await fileSystem.chmod(path, mode)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ chmod })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -174,10 +161,9 @@ describe "preview filesystem fault handling", ->
 
   it "rolls back a published unit when retention inventory cannot be read", async ->
     const directory = await createTemporaryDirectory()
-    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) =>
       if (String(args[0]) === directory) throw injectedError("EIO")
       return await (fileSystem.readdir as any)(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ readdir })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -199,25 +185,20 @@ describe "preview filesystem fault handling", ->
     const realRename = fileSystem.rename
     let retentionReadAttempts = 0
     let metadataQuarantineAttempts = 0
-    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
-      if (String(args[0]) === directory) {
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) =>
+      if (String(args[0]) === directory)
         retentionReadAttempts += 1
         if (retentionReadAttempts === 1) throw injectedError("EIO")
-      }
       return await (realReaddir as any)(...args)
-    }
-    const rename = async (...args: Parameters<typeof fileSystem.rename>) => {
+    const rename = async (...args: Parameters<typeof fileSystem.rename>) =>
       if (
         String(args[0]) === metadataPath &&
         String(args[1]) === deletingPath
-      ) {
+      )
         metadataQuarantineAttempts += 1
-        if (metadataQuarantineAttempts === 1) {
+        if (metadataQuarantineAttempts === 1)
           throw injectedError("EACCES")
-        }
-      }
       await realRename(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ readdir, rename })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -244,22 +225,17 @@ describe "preview filesystem fault handling", ->
     const realRm = fileSystem.rm
     let retentionReadAttempts = 0
     let publishedHtmlCleanupAttempts = 0
-    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
-      if (String(args[0]) === directory) {
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) =>
+      if (String(args[0]) === directory)
         retentionReadAttempts += 1
         if (retentionReadAttempts === 1) throw injectedError("EIO")
-      }
       return await (realReaddir as any)(...args)
-    }
-    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
-      if (String(args[0]) === htmlPath) {
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) =>
+      if (String(args[0]) === htmlPath)
         publishedHtmlCleanupAttempts += 1
-        if (publishedHtmlCleanupAttempts === 1) {
+        if (publishedHtmlCleanupAttempts === 1)
           throw injectedError("EACCES")
-        }
-      }
       await (realRm as any)(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ readdir, rm })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -285,22 +261,17 @@ describe "preview filesystem fault handling", ->
     const realRm = fileSystem.rm
     let retentionReadAttempts = 0
     let quarantinedRemovalAttempts = 0
-    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
-      if (String(args[0]) === directory) {
+    const readdir = async (...args: Parameters<typeof fileSystem.readdir>) =>
+      if (String(args[0]) === directory)
         retentionReadAttempts += 1
         if (retentionReadAttempts === 1) throw injectedError("EIO")
-      }
       return await (realReaddir as any)(...args)
-    }
-    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
-      if (String(args[0]) === deletingPath) {
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) =>
+      if (String(args[0]) === deletingPath)
         quarantinedRemovalAttempts += 1
-        if (quarantinedRemovalAttempts === 1) {
+        if (quarantinedRemovalAttempts === 1)
           throw injectedError("EACCES")
-        }
-      }
       await (realRm as any)(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ readdir, rm })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -334,15 +305,13 @@ describe "preview filesystem fault handling", ->
     const realRm = fileSystem.rm
     const pendingPaths = new Set(vanishedPaths)
     let vanishedLstatAttempts = 0
-    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) => {
+    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) =>
       const path = String(args[0])
-      if (pendingPaths.delete(path)) {
+      if (pendingPaths.delete(path))
         vanishedLstatAttempts += 1
         await realRm(path)
         throw injectedError("ENOENT")
-      }
       return await realLstat(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ lstat })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -364,10 +333,9 @@ describe "preview filesystem fault handling", ->
     const directory = await createTemporaryDirectory()
     const faultPath = join(directory, ".fault.tmp")
     await fileSystem.writeFile(faultPath, "partial", "utf8")
-    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) => {
+    const lstat = async (...args: Parameters<typeof fileSystem.lstat>) =>
       if (String(args[0]) === faultPath) throw injectedError("EACCES")
       return await fileSystem.lstat(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ lstat })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -384,13 +352,11 @@ describe "preview filesystem fault handling", ->
   it "rolls back when temporary-file cleanup reports a failure", async ->
     const directory = await createTemporaryDirectory()
     let injected = false
-    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
-      if (!injected && String(args[0]).endsWith(".html.tmp")) {
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) =>
+      if (!injected && String(args[0]).endsWith(".html.tmp"))
         injected = true
         throw injectedError("EIO")
-      }
       await (fileSystem.rm as any)(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ rm })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -407,16 +373,14 @@ describe "preview filesystem fault handling", ->
   it "retries reservation cleanup after its first removal fault", async ->
     const directory = await createTemporaryDirectory()
     let injected = false
-    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) =>
       if (
         !injected &&
         String(args[0]).endsWith(".preview.lock")
-      ) {
+      )
         injected = true
         throw injectedError("EIO")
-      }
       await (fileSystem.rm as any)(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ rm })
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -433,13 +397,11 @@ describe "preview filesystem fault handling", ->
   it "ignores a repeated reservation cleanup fault after failing closed", async ->
     const directory = await createTemporaryDirectory()
     let reservationRemovalAttempts = 0
-    const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
-      if (String(args[0]).endsWith(".preview.lock")) {
+    const rm = async (...args: Parameters<typeof fileSystem.rm>) =>
+      if (String(args[0]).endsWith(".preview.lock"))
         reservationRemovalAttempts += 1
         throw injectedError("EIO")
-      }
       await (fileSystem.rm as any)(...args)
-    }
     const { createPreviewEmailPortForTest } = await loadPreview({ rm })
     const email = createPreviewEmailPortForTest({
       environment: "test",

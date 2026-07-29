@@ -20,10 +20,9 @@ const REQUIRED_BINDINGS = [
 const isFileSystemError = (error: unknown, code: string): boolean =>
   error instanceof Error && "code" in error && error.code === code
 
-const validateBindingOutput = (content: string): void => {
-  if (content.length === 0 || Buffer.byteLength(content, "utf8") > MAX_BINDING_BYTES) {
+const validateBindingOutput = (content: string): void =>
+  if (content.length === 0 || Buffer.byteLength(content, "utf8") > MAX_BINDING_BYTES)
     throw new Error("Resolved Worker bindings are empty or exceed the safe size limit")
-  }
   const assignments = content
     .split(/\r?\n/)
     .filter((line) => line.length > 0)
@@ -33,28 +32,24 @@ const validateBindingOutput = (content: string): void => {
     || REQUIRED_BINDINGS.some((name) => (
       !assignments.some((line) => line.startsWith(`${name}=`) && line.length > name.length + 1)
     ))
-  ) {
+  )
     throw new Error("Resolved Worker bindings are malformed or incomplete")
-  }
-}
 
 export const writeWorkerBindings = async (
   targetPath: string,
   content: string,
-): Promise<void> => {
+): Promise<void> =>
   validateBindingOutput(content)
-  try {
+  try
     const existing = await lstat(targetPath)
-    if (!existing.isFile() || existing.isSymbolicLink() || existing.nlink !== 1) {
+    if (!existing.isFile() || existing.isSymbolicLink() || existing.nlink !== 1)
       throw new Error("Existing Worker bindings path is unsafe")
-    }
-  } catch (error) {
+  catch (error)
     if (!isFileSystemError(error, "ENOENT")) throw error
-  }
 
   const temporaryPath = `${targetPath}.${randomUUID()}.tmp`
   let handle: FileHandle | undefined
-  try {
+  try
     handle = await open(temporaryPath, "wx", 0o600)
     await handle.writeFile(content, "utf8")
     await handle.chmod(0o600)
@@ -62,16 +57,14 @@ export const writeWorkerBindings = async (
     await handle.close()
     handle = undefined
     await rename(temporaryPath, targetPath)
-  } catch {
+  catch
     await handle?.close().catch(() => undefined)
     await rm(temporaryPath, { force: true }).catch(() => undefined)
     throw new Error("Unable to materialize Worker bindings safely")
-  }
-}
 
 export const materializeWorkerBindings = async (
   repositoryPath = process.cwd(),
-): Promise<void> => {
+): Promise<void> =>
   const result = spawnSync(
     "varlock",
     ["load", "--format", "env", "--compact"],
@@ -83,14 +76,12 @@ export const materializeWorkerBindings = async (
       windowsHide: true,
     },
   )
-  if (result.status !== 0 || result.error !== undefined) {
+  if (result.status !== 0 || result.error !== undefined)
     throw new Error("Unable to resolve validated Worker bindings")
-  }
   await writeWorkerBindings(
     join(repositoryPath, "apps/web/.dev.vars"),
     result.stdout,
   )
-}
 
 export const listTemporaryBindingFiles = async (
   directory: string,

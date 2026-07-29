@@ -135,7 +135,6 @@ export const isRouteExposed = (
 export const isNavigationItemActive = (
   pathname: string,
   item: Pick<NavigationItem, "href" | "exact">,
-): boolean => {
+): boolean =>
   if (item.exact || item.href === "/") return pathname === item.href
   return pathname === item.href || pathname.startsWith(`${item.href}/`)
-}

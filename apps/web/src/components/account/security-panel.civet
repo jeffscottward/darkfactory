@@ -47,46 +47,40 @@ export const SecurityPanel = ({
   onRetry,
   onRevokeOthers,
   state,
-}: SecurityPanelProps) => {
+}: SecurityPanelProps) =>
   const [isConfirmingRevoke, setIsConfirmingRevoke] = useState(false)
   const revokeOrigin = useRef<HTMLButtonElement | null>(null)
   const wasRevoking = useRef(false)
-  const closeRevokeConfirmation = (): void => {
+  const closeRevokeConfirmation = (): void =>
     setIsConfirmingRevoke(false)
     window.setTimeout(() => revokeOrigin.current?.focus(), 0)
-  }
-  useEffect(() => {
-    if (wasRevoking.current && !isRevoking && isConfirmingRevoke) {
+  useEffect(() =>
+    if (wasRevoking.current && !isRevoking && isConfirmingRevoke)
       closeRevokeConfirmation()
-    }
     wasRevoking.current = isRevoking
     return undefined
-  }, [isConfirmingRevoke, isRevoking])
-  if (state.type === "loading") {
+  , [isConfirmingRevoke, isRevoking])
+  if (state.type === "loading")
     return (
       <div aria-busy="true" aria-live="polite" className="space-y-3" role="status">
-        <span className="sr-only">Loading sessions</span>
+        <span className="sr-only">Loading sessions
         {["one", "two"].map((key) => <Skeleton className="h-24 w-full" key={key} />)}
-      </div>
     )
-  }
-  if (state.type === "error") {
+  if (state.type === "error")
     return (
       <div aria-live="assertive" role="alert">
         <EmptyState
           action={state.kind === "unauthorized"
-            ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fsecurity">Sign in</a>
+            ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fsecurity">Sign in
             : state.kind === "forbidden"
-              ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account</a>
-              : <Button onClick={onRetry} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again</Button>}
+              ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account
+              : <Button onClick={onRetry} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again}
           description={state.message}
           icon={<RotateCcw />}
           title="Sessions could not be loaded"
         />
-      </div>
     )
-  }
-  if (state.sessions.length === 0) {
+  if (state.sessions.length === 0)
     return (
       <div aria-live="polite" role="status">
         <EmptyState
@@ -94,9 +88,7 @@ export const SecurityPanel = ({
           icon={<MonitorSmartphone />}
           title="No active sessions were returned"
         />
-      </div>
     )
-  }
 
   const hasOtherSessions = state.sessions.some((session) => !session.isCurrent)
   return (
@@ -109,27 +101,24 @@ export const SecurityPanel = ({
               <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <h3 className="min-w-0 break-words font-heading text-base font-semibold text-foreground">
                   {session.userAgent ?? "Unidentified browser"}
-                </h3>
-                {session.isCurrent ? <StatusBadge status="success">Current session</StatusBadge> : null}
-              </div>
-              <p className="text-sm text-muted-foreground">Last active {formatDate(session.updatedAt)}</p>
-              <p className="text-xs text-muted-foreground">Expires {formatDate(session.expiresAt)}</p>
-            </div>
-          </article>
+                {session.isCurrent
+                  ? <StatusBadge status="success">Current session
+                  : null}
+              <p className="text-sm text-muted-foreground">Last active {formatDate(session.updatedAt)}
+              <p className="text-xs text-muted-foreground">Expires {formatDate(session.expiresAt)}
         ))}
-      </div>
       {isConfirmingRevoke ? (
         <div
           aria-busy={isRevoking}
           aria-label="Confirm signing out other sessions"
           className="space-y-3 border-l-2 border-destructive pl-4"
-          onKeyDown={(event) => {
+          onKeyDown={(event) =>
             if (event.key === "Escape" && !isRevoking) closeRevokeConfirmation()
-          }}
+          }
           role="alertdialog"
         >
-          <p className="text-sm font-medium text-foreground">Sign out every other active session?</p>
-          <p className="text-sm text-muted-foreground">Those browsers will need to sign in again. This current session stays active.</p>
+          <p className="text-sm font-medium text-foreground">Sign out every other active session?
+          <p className="text-sm text-muted-foreground">Those browsers will need to sign in again. This current session stays active.
           <div className="flex flex-wrap gap-2">
             <Button
               autoFocus
@@ -139,35 +128,29 @@ export const SecurityPanel = ({
               variant="destructive"
             >
               Confirm sign out
-            </Button>
-            <Button disabled={isRevoking} onClick={closeRevokeConfirmation} variant="secondary">Cancel</Button>
-          </div>
-        </div>
+            <Button disabled={isRevoking} onClick={closeRevokeConfirmation} variant="secondary">Cancel
       ) : (
         <Button
           disabled={!hasOtherSessions || isRevoking}
-          onClick={(event) => {
+          onClick={(event) =>
             revokeOrigin.current = event.currentTarget
             setIsConfirmingRevoke(true)
-          }}
+          }
           variant="secondary"
         >
           Sign out other sessions
-        </Button>
       )}
       {!hasOtherSessions ? (
-        <p className="text-sm text-muted-foreground">This is the only active session. It cannot be revoked from this page.</p>
+        <p className="text-sm text-muted-foreground">This is the only active session. It cannot be revoked from this page.
       ) : null}
-    </div>
   )
-}
 
 export interface PasswordFormProps {
   readonly feedback?: AccountFeedback | null | undefined
   readonly onSave: (input: ChangePasswordInput) => Promise<unknown> | unknown
 }
 
-export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
+export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) =>
   const form = useForm({
     defaultValues: {
       currentPassword: "",
@@ -175,13 +158,12 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
       confirmPassword: "",
       revokeOtherSessions: true,
     },
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }) =>
       await onSave({
         currentPassword: value.currentPassword,
         newPassword: value.newPassword,
         revokeOtherSessions: value.revokeOtherSessions,
       })
-    },
   })
 
   return (
@@ -189,13 +171,13 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
       className="space-y-5"
       id="password-form"
       noValidate
-      onSubmit={(event) => {
+      onSubmit={(event) =>
         event.preventDefault()
         event.stopPropagation()
-        void form.handleSubmit().then(() => {
+        void form.handleSubmit().then(() =>
           document.querySelector<HTMLElement>("#password-form [aria-invalid=\"true\"]")?.focus()
-        })
-      }}
+        )
+      }
     >
       <AccountFeedbackMessage feedback={feedback} />
       {[
@@ -207,7 +189,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
           key={definition.name}
           name={definition.name as "currentPassword" | "newPassword" | "confirmPassword"}
           validators={{
-            onBlur: ({ value, fieldApi }) => {
+            onBlur: ({ value, fieldApi }) =>
               if (value.length === 0) return `${definition.label} is required.`
               if (definition.name === "newPassword" && value.length < 12) return "New password must be at least 12 characters."
               if (
@@ -215,8 +197,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
                 && value !== fieldApi.form.getFieldValue("newPassword")
               ) return "Passwords do not match."
               return undefined
-            },
-            onSubmit: ({ value, fieldApi }) => {
+            onSubmit: ({ value, fieldApi }) =>
               if (value.length === 0) return `${definition.label} is required.`
               if (definition.name === "newPassword" && value.length < 12) return "New password must be at least 12 characters."
               if (
@@ -224,15 +205,14 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
                 && value !== fieldApi.form.getFieldValue("newPassword")
               ) return "Passwords do not match."
               return undefined
-            },
           }}
         >
-          {(field) => {
+          {(field) =>
             const error = field.state.meta.errors[0]
             const errorId = `${definition.name}-error`
             return (
               <div className="max-w-md space-y-2">
-                <Label htmlFor={definition.name}>{definition.label} (required)</Label>
+                <Label htmlFor={definition.name}>{definition.label} (required)
                 <Input
                   aria-describedby={error === undefined ? undefined : errorId}
                   aria-invalid={error !== undefined}
@@ -246,11 +226,9 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
                   type="password"
                   value={field.state.value}
                 />
-                {error === undefined ? null : <p aria-live="assertive" className="text-sm text-destructive" id={errorId} role="alert">{String(error)}</p>}
-              </div>
+                {error === undefined ? null : <p aria-live="assertive" className="text-sm text-destructive" id={errorId} role="alert">{String(error)}}
             )
-          }}
-        </form.Field>
+          }
       ))}
       <form.Field name="revokeOtherSessions">
         {(field) => (
@@ -265,24 +243,16 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
               type="checkbox"
             />
             <span>
-              <span className="block text-sm font-medium text-foreground">Sign out other sessions</span>
+              <span className="block text-sm font-medium text-foreground">Sign out other sessions
               <span className="block text-sm text-muted-foreground">
                 {field.state.value
                   ? "All other sessions will sign out after the password changes; this session stays active."
                   : "Other sessions will remain active after the password changes."}
-              </span>
-            </span>
-          </label>
         )}
-      </form.Field>
       <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
         {([canSubmit, isDirty, isSubmitting]) => (
           <Button disabled={!canSubmit || !isDirty || isSubmitting} loading={isSubmitting} loadingLabel="Changing password" type="submit">
             <KeyRound aria-hidden="true" className="size-4" />
             Change password
-          </Button>
         )}
-      </form.Subscribe>
-    </form>
   )
-}

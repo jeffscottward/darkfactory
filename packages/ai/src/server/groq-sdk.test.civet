@@ -8,7 +8,7 @@ describe "Groq SDK boundary", ->
     let requestBody: unknown
     let requestSignal: AbortSignal | null | undefined
     const injectedFetch = vi.fn(
-      async (input: string | URL | Request, init?: RequestInit) => {
+      async (input: string | URL | Request, init?: RequestInit) =>
         requestUrl = String(input)
         requestBody = JSON.parse(String(init?.body))
         requestSignal = init?.signal
@@ -22,7 +22,6 @@ describe "Groq SDK boundary", ->
             headers: { "content-type": "application/json" },
           },
         )
-      },
     )
     const port = createGroqAiPort({
       apiKey: "secret-api-key",
@@ -46,7 +45,7 @@ describe "Groq SDK boundary", ->
   it "does not send credentials or prompts to an ambient base URL", async ->
     vi.stubEnv("GROQ_BASE_URL", "https://attacker.invalid")
     let requestUrl = ""
-    const injectedFetch = vi.fn(async (input: string | URL | Request) => {
+    const injectedFetch = vi.fn(async (input: string | URL | Request) =>
       requestUrl = String(input)
       return new Response(
         JSON.stringify({
@@ -58,7 +57,7 @@ describe "Groq SDK boundary", ->
           headers: { "content-type": "application/json" },
         },
       )
-    })
+    )
 
     try
       const port = createGroqAiPort({
@@ -82,12 +81,12 @@ describe "Groq SDK boundary", ->
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    const injectedFetch = vi.fn(async () => {
+    const injectedFetch = vi.fn(async () =>
       return new Response("secret plaintext provider error", {
         status: 400,
         headers: { "content-type": "text/plain" },
       })
-    })
+    )
 
     try
       const port = createGroqAiPort({
@@ -114,7 +113,7 @@ describe "Groq SDK boundary", ->
       vi.restoreAllMocks()
 
   it "maps an actual SDK status error without retrying or exposing its body", async ->
-    const injectedFetch = vi.fn(async () => {
+    const injectedFetch = vi.fn(async () =>
       return new Response(
         JSON.stringify({
           error: {
@@ -129,7 +128,7 @@ describe "Groq SDK boundary", ->
           },
         },
       )
-    })
+    )
     const port = createGroqAiPort({
       apiKey: "secret-api-key",
       model: "test-model",
@@ -152,12 +151,12 @@ describe "Groq SDK boundary", ->
     const create = vi.fn(async () => ({
       choices: [{ message: { content: "named SDK generated text" } }],
     }))
-    const NamedGroq = vi.fn(function (options: unknown) {
+    const NamedGroq = vi.fn(function (options: unknown)
       constructorOptions = options
       return {
         chat: { completions: { create } },
       }
-    })
+    )
     const injectedFetch = vi.fn()
 
     vi.resetModules()

@@ -5,7 +5,7 @@ import { FeatureItemCreateWorkflow } from "../../../../components/portal/feature
 
 export const metadata = { title: "Create feature item" }
 
-export default function NewFeatureItemPage() {
+export default function NewFeatureItemPage()
   return (
     <div className="space-y-8">
       <PageHeader
@@ -13,13 +13,10 @@ export default function NewFeatureItemPage() {
           <a className={buttonVariants({ variant: "ghost" })} href="/feature-items">
             <ArrowLeft aria-hidden="true" className="size-4" />
             Back to feature items
-          </a>
         )}
         description="A guarded three-step setup flow creates an owner-scoped record through the typed API."
         eyebrow="Feature items"
         title="Create feature item"
       />
       <FeatureItemCreateWorkflow />
-    </div>
   )
-}

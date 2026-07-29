@@ -48,20 +48,18 @@ export const ThemeProvider = ({
   children,
   onPreferenceChange,
   preference,
-}: ThemeProviderProps) => {
+}: ThemeProviderProps) =>
   const value = useMemo<ThemeContextValue>(() => ({
     onPreferenceChange,
     preference,
   }), [onPreferenceChange, preference.palette, preference.themeMode])
 
   return createElement(ThemeContext.Provider, { value }, children)
-}
 
-export const useTheme = (): ThemeContextValue => {
+export const useTheme = (): ThemeContextValue =>
   const theme = useContext(ThemeContext)
   if (theme === null) throw new Error("ThemeProvider is required.")
   return theme
-}
 
 export const THEME_MODE_OPTIONS: ReadonlyArray<Readonly<{
   label: string
@@ -112,20 +110,18 @@ export const ThemePicker = ({
   onPreferenceChange,
   statusMessage,
   triggerLabel = "Theme settings",
-}: ThemePickerProps): ReactElement => {
+}: ThemePickerProps): ReactElement =>
   const theme = useTheme()
   const [open, setOpen] = useState(false)
   const selectPreference = onPreferenceChange ?? theme.onPreferenceChange
   const { palette, themeMode } = theme.preference
 
-  const selectThemeMode = (value: string): void => {
+  const selectThemeMode = (value: string): void =>
     if (disabled || !isThemeMode(value)) return
     selectPreference({ themeMode: value, palette })
-  }
-  const selectPalette = (value: string): void => {
+  const selectPalette = (value: string): void =>
     if (disabled || !isPaletteName(value)) return
     selectPreference({ themeMode, palette: value })
-  }
   return createElement(
     DropdownMenu,
     { onOpenChange: setOpen, open },
@@ -232,4 +228,3 @@ export const ThemePicker = ({
       ),
     ),
   )
-}

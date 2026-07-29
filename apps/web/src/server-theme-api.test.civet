@@ -12,10 +12,9 @@ describe "server theme API forwarding", ->
 
   it "forwards only explicit request identity with no-store semantics", async ->
     const requests: Request[] = []
-    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+    const fetchRequest: typeof globalThis.fetch = async (input, init) =>
       requests.push(input instanceof Request ? input : new Request(input, init))
       return new Response(null, { status: 204 })
-    }
     const request = new Request("https://darkfactory.example/api/orpc", {
       method: "POST",
       headers: {
@@ -65,10 +64,9 @@ describe "server theme API forwarding", ->
 
     await forwardThemeApiRequest({
       cookieHeader: "session=trusted",
-      fetchRequest: async (input) => {
+      fetchRequest: async (input) =>
         forwarded = input as Request
         return new Response(null, { status: 204 })
-      },
       request: workerRequest,
       requestId: null,
       trustedOrigin: "https://darkfactory.example",
@@ -81,15 +79,14 @@ describe "server theme API forwarding", ->
   it "aborts a stalled request and clears its timeout", async ->
     vi.useFakeTimers()
     let aborted = false
-    const fetchRequest: typeof globalThis.fetch = async (input, init) => {
+    const fetchRequest: typeof globalThis.fetch = async (input, init) =>
       const stalled = input instanceof Request ? input : new Request(input, init)
-      return new Promise<Response>((_resolve, reject) => {
-        stalled.signal.addEventListener("abort", () => {
+      return new Promise<Response>((_resolve, reject) =>
+        void stalled.signal.addEventListener("abort", () =>
           aborted = true
-          reject(stalled.signal.reason)
-        }, { once: true })
-      })
-    }
+          void reject(stalled.signal.reason)
+        , { once: true })
+      )
     const pending = forwardThemeApiRequest({
       cookieHeader: null,
       fetchRequest,
@@ -150,23 +147,19 @@ describe "server theme API forwarding", ->
       })
     )
 
-    await expect(load(async () => {
-      throw { status: 401, code: "UNAUTHORIZED" }
-    })).resolves.toBeUndefined()
+    await expect(load(async -> throw { status: 401, code: "UNAUTHORIZED" })).resolves.toBeUndefined()
     await expect(load(async () => ({
       themeMode: "dark",
       palette: "rose",
     }))).resolves.toEqual({ themeMode: "dark", palette: "rose" })
-    await expect(load(async () => {
-      throw new Error("upstream unavailable")
-    })).resolves.toBe(INDETERMINATE_THEME)
+    await expect(load(async -> throw new Error("upstream unavailable"))).resolves.toBe(INDETERMINATE_THEME)
 
   it "requires the forwarding origin to be one clean HTTPS origin", async ->
     const fetchRequest = vi.fn(async () => new Response(null, { status: 204 }))
     for (const trustedOrigin of [
       "http://darkfactory.example",
       "https://darkfactory.example/path",
-    ]) {
+    ])
       await expect(forwardThemeApiRequest({
         cookieHeader: "session=trusted",
         fetchRequest,
@@ -174,11 +167,10 @@ describe "server theme API forwarding", ->
         requestId: null,
         trustedOrigin,
       })).rejects.toThrow("Theme transport requires a clean HTTPS app origin")
-    }
     expect(fetchRequest).not.toHaveBeenCalled()
 
   it "executes the client transport through bounded same-origin forwarding", async ->
-    const fetchRequest = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const fetchRequest = vi.fn<typeof globalThis.fetch>(async (input, init) =>
       const request = input instanceof Request ? input : new Request(input, init)
       expect(request.headers.get("cookie")).toBe("session=trusted")
       expect(request.headers.get("x-request-id")).toBe("request-transport")
@@ -187,14 +179,14 @@ describe "server theme API forwarding", ->
         palette: "rose",
         updatedAt: null,
       })
-    })
+    )
     type ClientOptions = Parameters<
       NonNullable<ThemeApiRequestOptions["clientFactory"]>
     >[0]
     const clientFactory = ((options: ClientOptions) => ({
       preferences: {
         theme: {
-          get: async () => {
+          get: async () =>
             const response = await options.fetch!(new Request(
               new URL("/api/orpc", options.baseUrl),
               {
@@ -205,7 +197,6 @@ describe "server theme API forwarding", ->
               },
             ))
             return response.json()
-          },
         },
       },
     })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>
@@ -229,9 +220,7 @@ describe "server theme API forwarding", ->
       clientFactory: (() => ({
         preferences: {
           theme: {
-            get: async () => {
-              throw failure
-            },
+            get: async -> throw failure,
           },
         },
       })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>,
@@ -243,6 +232,5 @@ describe "server theme API forwarding", ->
       null,
       { status: 401, code: "OTHER" },
       { status: 403, code: "UNAUTHORIZED" },
-    ]) {
+    ])
       await expect(load(failure)).resolves.toBe(INDETERMINATE_THEME)
-    }

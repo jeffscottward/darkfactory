@@ -6,7 +6,8 @@ process.exitCode = await runCapabilityCli(
   process.argv.slice(2),
   {
     files: nodeCapabilityFileSystem,
-    validateManifest: (source) => { loadCapabilityManifest(source) },
+    validateManifest: (source) =>
+      loadCapabilityManifest(source)
   },
   {
     writeOutput: (value) => process.stdout.write(value),

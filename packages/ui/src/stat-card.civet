@@ -22,10 +22,9 @@ export const StatCard = ({
     )}
     {...props}
   >
-    <dt className="font-body text-sm font-medium text-muted-foreground">{label}</dt>
-    <dd className="font-heading text-2xl font-semibold tracking-tight text-foreground">{value}</dd>
+    <dt className="font-body text-sm font-medium text-muted-foreground">{label}
+    <dd className="font-heading text-2xl font-semibold tracking-tight text-foreground">{value}
     {description === undefined ? null : (
-      <dd className="font-body text-xs leading-4 text-muted-foreground">{description}</dd>
+      <dd className="font-body text-xs leading-4 text-muted-foreground">{description}
     )}
-  </dl>
 )

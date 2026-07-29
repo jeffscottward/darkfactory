@@ -2,14 +2,11 @@ import { PageHeader, SectionHeader } from "@darkfactory/ui"
 
 import { ProfilePageClient } from "../../../../components/account/profile-page-client.civet"
 
-export default function ProfilePage() {
+export default function ProfilePage()
   return (
     <div className="space-y-10">
       <PageHeader description="Keep your name, contact details, organization, and regional settings current." eyebrow="Account" title="Profile" />
       <section aria-labelledby="profile-fields" className="space-y-6">
         <SectionHeader description="Saved changes appear anywhere your profile summary is used." id="profile-fields" title="Profile details" />
         <ProfilePageClient />
-      </section>
-    </div>
   )
-}

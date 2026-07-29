@@ -197,7 +197,7 @@ describe "typed account gateway", ->
     vi.stubGlobal("window", {
       location: { origin: "https://owner.example.test" },
     })
-    try {
+    try
       const accountProfile = {
         identity: { email: "alice@domain.test", emailVerified: true },
         profile,
@@ -213,9 +213,8 @@ describe "typed account gateway", ->
         baseUrl: "https://owner.example.test",
       })
       expect(get).toHaveBeenCalledWith({})
-    } finally {
+    finally
       vi.unstubAllGlobals()
-    }
   it "uses the real profile and full-preference procedures", async ->
     const accountProfile = {
       identity: { email: "alice@domain.test", emailVerified: true },

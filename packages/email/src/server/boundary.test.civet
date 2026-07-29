@@ -58,7 +58,7 @@ describe "email package boundaries", ->
       "@darkfactory/email/server is unavailable in browser bundles",
     )
 
-    for (const workerCondition of ["workerd", "worker"]) {
+    for (const workerCondition of ["workerd", "worker"])
       const workerResolution = spawnSync(
         process.execPath,
         [
@@ -81,5 +81,4 @@ describe "email package boundaries", ->
           .endsWith("/packages/email/src/server.civet"),
       ).toBe(true)
       expect(workerResolution.stderr).toBe("")
-    }
     return undefined

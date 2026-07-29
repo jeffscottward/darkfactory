@@ -5,22 +5,21 @@ export const ADDRESS_TYPES = ["home", "work", "other"] as const
 export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const
 
 const nullableTrimmed = (maximum: number) =>
-  z.union([z.string().max(maximum), z.null()]).transform((value) => {
+  z.union([z.string().max(maximum), z.null()]).transform((value) =>
     if (value === null) return null
     const normalized = value.trim()
     return normalized.length === 0 ? null : normalized
-  })
+  )
 
 const requiredTrimmed = (maximum: number) => z.string().trim().min(1).max(maximum)
 
-const validIsoDate = (value: string): boolean => {
+const validIsoDate = (value: string): boolean =>
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const [year, month, day] = value.split("-").map(Number)
   const date = new Date(Date.UTC(year!, month! - 1, day!))
   return date.getUTCFullYear() === year &&
     date.getUTCMonth() + 1 === month &&
     date.getUTCDate() === day
-}
 
 export const IsoDateSchema = z.string().refine(validIsoDate, {
   message: "Expected an ISO calendar date",

@@ -68,12 +68,9 @@ const matchesProfile = (
 
 export const convergeDevelopmentProfiles = async (
   database: DatabaseExecutor,
-): Promise<void> => {
+): Promise<void> =>
   const repository = createProfileRepository(database)
-  for (const profile of DEVELOPMENT_PROFILES) {
+  for (const profile of DEVELOPMENT_PROFILES)
     const current = await repository.findByUserId(profile.userId)
-    if (!current || !matchesProfile(current, profile)) {
+    if (!current || !matchesProfile(current, profile))
       await repository.upsert(profile)
-    }
-  }
-}

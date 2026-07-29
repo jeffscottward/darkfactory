@@ -12,7 +12,7 @@ import {
 const temporaryDirectories = new Set<string>()
 const servers = new Set<PreviewCaptureServer>()
 
-const createFixture = async () => {
+const createFixture = async () =>
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "darkfactory-preview-capture-")),
   )
@@ -29,7 +29,6 @@ const createFixture = async () => {
   })
   servers.add(server)
   return { root, binding, server }
-}
 
 afterEach async ->
   await Promise.all([...servers].map((server) => server.close()))

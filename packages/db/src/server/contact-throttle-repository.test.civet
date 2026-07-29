@@ -22,38 +22,35 @@ const rows = (
   values: ReadonlyArray<Record<string, unknown>> = [],
 ): ExecuteRows => ({ rows: values })
 
-const createThrottleDatabase = (scenarios: ExecuteOutcome[][]) => {
+const createThrottleDatabase = (scenarios: ExecuteOutcome[][]) =>
   const pendingScenarios = scenarios.map((scenario) => [...scenario])
   const records: TransactionRecord[] = []
 
   const database = {
     transaction: vi.fn(
-      async (operation: (transaction: Database) => Promise<unknown>) => {
+      async (operation: (transaction: Database) => Promise<unknown>) =>
         const outcomes = pendingScenarios.shift() ?? []
         const record: TransactionRecord = { statements: [], lifecycle: ["begin"] }
         records.push(record)
         const transaction = {
-          execute: vi.fn(async (statement: unknown) => {
+          execute: vi.fn(async (statement: unknown) =>
             record.statements.push(statement)
             const outcome = outcomes.shift() ?? rows()
             if (outcome instanceof Error) throw outcome
             return outcome
-          }),
+          ),
         } as unknown as Database
-        try {
+        try
           const result = await operation(transaction)
           record.lifecycle.push("commit")
           return result
-        } catch (error) {
+        catch error
           record.lifecycle.push("rollback")
           throw error
-        }
-      },
     ),
   } as unknown as Database
 
   return { database, records }
-}
 
 const compiled = (statement: unknown) =>
   QUERY_DIALECT.sqlToQuery(statement as SQL)
@@ -296,10 +293,9 @@ describe "contact throttle repository", ->
       { allowed: false, remaining: 0, retryAfterSeconds: 900 },
     ])
     expect(double.records).toHaveLength(2)
-    for (const record of double.records) {
+    for (const record of double.records)
       expect(statementText(record.statements[0])).toContain(
         "pg_advisory_xact_lock",
       )
       expect(compiled(record.statements[0]).params).toEqual([KEY_HASH])
       expect(record.lifecycle).toEqual(["begin", "commit"])
-    }

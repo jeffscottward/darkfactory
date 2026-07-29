@@ -18,10 +18,9 @@ import {
   createDashboardContract,
 } from "./contracts/dashboard.civet"
 
-const route = (procedure: unknown) => {
+const route = (procedure: unknown) =>
   const value = (procedure as { ["~orpc"]: { route: { method: string; path: string } } })["~orpc"].route
   return { method: value.method, path: value.path }
-}
 
 describe "account, preferences, dashboard, and admin contracts", ->
   it "publishes every v0.1 procedure at a stable route", ->
@@ -247,11 +246,10 @@ describe "account, preferences, dashboard, and admin contracts", ->
       document.paths!["/account/profile"]!.get!.responses!["200"] as any
     ).content["application/json"].schema
     const profile = profileResponse.properties.profile
-    for (const field of ["firstName", "lastName", "displayName", "biography"]) {
+    for (const field of ["firstName", "lastName", "displayName", "biography"])
       expect(profile.required).toContain(field)
       expect(JSON.stringify(profile.properties[field])).toContain('"type":"string"')
       expect(JSON.stringify(profile.properties[field])).toContain('"type":"null"')
-    }
     const addressResponse = (
       document.paths!["/account/addresses/{id}"]!.patch!.responses!["200"] as any
     ).content["application/json"].schema

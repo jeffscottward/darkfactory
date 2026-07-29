@@ -54,22 +54,20 @@ const decodeNumericEntityForAssertion = (
   source: string,
   hexadecimal: string | undefined,
   decimal: string | undefined,
-): string => {
+): string =>
   const code = Number.parseInt(hexadecimal ?? decimal ?? "", hexadecimal ? 16 : 10)
   return Number.isSafeInteger(code) && code >= 0 && code <= 0x10ffff
     ? String.fromCodePoint(code)
     : source
-}
 
 const decodeUnicodeEscapeForAssertion = (
   source: string,
   hexadecimal: string,
-): string => {
+): string =>
   const code = Number.parseInt(hexadecimal, 16)
   return Number.isSafeInteger(code)
     ? String.fromCharCode(code)
     : source
-}
 
 const reconstructSensitiveText = (value: string): string =>
   value
@@ -80,23 +78,19 @@ const reconstructSensitiveText = (value: string): string =>
     .replace(/\\u00([0-9a-f]{2})/giu, decodeUnicodeEscapeForAssertion)
     .replace(/[\n\p{Z}]/gu, "")
 
-const collectJsonScalars = (root: unknown): readonly string[] => {
+const collectJsonScalars = (root: unknown): readonly string[] =>
   const pending: unknown[] = [root]
   const scalars: string[] = []
-  while (pending.length > 0) {
+  while (pending.length > 0)
     const value = pending.pop()
-    if (Array.isArray(value)) {
+    if (Array.isArray(value))
       pending.push(...value)
       continue
-    }
-    if (value !== null && typeof value === "object") {
+    if (value !== null && typeof value === "object")
       pending.push(...Object.values(value as Record<string, unknown>))
       continue
-    }
     scalars.push(String(value))
-  }
   return scalars
-}
 const fileStats = (dev = 1, ino = 2) => ({
   dev,
   ino,
@@ -125,21 +119,21 @@ const mockedFileHandle = (
 
 const temporaryDirectories = new Set<string>()
 
-afterEach(async () => {
+afterEach(async () =>
   await Promise.all(
     [...temporaryDirectories].map((directory) =>
       rm(directory, { force: true, recursive: true })
     ),
   )
   temporaryDirectories.clear()
-})
+)
 
-afterEach(() => {
+afterEach(() =>
   vi.doUnmock("node:fs/promises")
   vi.doUnmock("node:fs")
   vi.resetModules()
   vi.restoreAllMocks()
-})
+)
 
 describe "Playwright JSON report redaction", ->
   it "removes configuration secrets and redacts known values recursively", async ->
@@ -228,9 +222,8 @@ describe "Playwright JSON report redaction", ->
       variants.map((_, index) => `artifact-${index}`),
     )
     expect(content).not.toContain(secret)
-    for (const scalar of collectJsonScalars(sanitized)) {
+    for (const scalar of collectJsonScalars(sanitized))
       expect(reconstructSensitiveText(scalar)).not.toContain(secret)
-    }
 
   it "fails closed for short values and preserves overlapping literal redaction", async ->
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-ambiguous-"))
@@ -292,11 +285,9 @@ describe "Playwright JSON report redaction", ->
       "7319",
       "true",
       "null",
-    ]) {
-      for (const scalar of collectJsonScalars(sanitized)) {
+    ])
+      for (const scalar of collectJsonScalars(sanitized))
         expect(reconstructSensitiveText(scalar)).not.toContain(knownValue)
-      }
-    }
 
   it "renames sensitive member names deterministically without key collisions", async ->
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-keys-"))
@@ -352,11 +343,9 @@ describe "Playwright JSON report redaction", ->
       ),
       ["ordinary-last", "preserved-last"],
     ])
-    for (const key of Object.keys(sanitized.labels)) {
-      for (const knownValue of knownValues) {
+    for (const key of Object.keys(sanitized.labels))
+      for (const knownValue of knownValues)
         expect(reconstructSensitiveText(key)).not.toContain(knownValue)
-      }
-    }
 
     await sanitizePlaywrightJsonReport(path, knownValues)
     await expect(readFile(path, "utf8")).resolves.toBe(content)
@@ -501,12 +490,11 @@ describe "Playwright JSON report redaction", ->
         '{"config":{"webServer":[{},null]}}',
         "Playwright report web server configuration is invalid",
       ],
-    ] as const) {
+    ] as const)
       const path = join(directory, `${name}.json`)
       await writeFile(path, fixture)
       await expect(sanitizePlaywrightJsonReport(path, [])).rejects.toThrow(message)
       await rm(path)
-    }
 
   it "fails closed when redaction would expand the report beyond its bound", async ->
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-rendered-bound-"))
@@ -685,12 +673,12 @@ describe "Playwright JSON report redaction", ->
       },
     ]
     let lstatCalls = 0
-    const lstat = vi.fn(async () => {
+    const lstat = vi.fn(async () =>
       const isBefore = lstatCalls % 2 === 0
       const result = isBefore ? fileStats() : afterStats.shift()!
       lstatCalls += 1
       return result
-    })
+    )
     vi.doMock("node:fs/promises", () => ({
       lstat,
       open: vi.fn(async () => handle),
@@ -699,9 +687,8 @@ describe "Playwright JSON report redaction", ->
       "./playwright-report.civet"
     )
 
-    for (const path of ["/not-file.json", "/symbolic-link.json"]) {
+    for (const path of ["/not-file.json", "/symbolic-link.json"])
       await expect(sanitize(path, [])).rejects.toThrow(
         "Playwright report identity changed during redaction",
       )
-    }
     expect(handle.close).toHaveBeenCalledTimes(2)

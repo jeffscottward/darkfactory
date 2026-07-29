@@ -25,25 +25,23 @@ export type GenerateFeatureResult = Readonly<{
 export const generateFeature = async (
   arguments_: readonly string[],
   options: GenerateFeatureOptions,
-): Promise<GenerateFeatureResult> => {
+): Promise<GenerateFeatureResult> =>
   const parsed = parseGeneratorArguments(arguments_)
   const names = validateFeatureName(parsed.name)
   const plan = await createGenerationPlan(options.targetRoot, names)
 
-  if (parsed.dryRun) {
+  if (parsed.dryRun)
     return Object.freeze({
       arguments: parsed,
       plan,
       report: createGenerationReport(plan, "planned", true),
     })
-  }
 
   let verification: VerificationResult | undefined
   const application = await applyGenerationPlan(plan, {
-    afterPromotion: async () => {
+    afterPromotion: async () =>
       verification = await verifyGeneration(plan)
       return undefined
-    },
   })
   if (!verification) throw new Error("Generation verification did not complete")
 
@@ -53,4 +51,3 @@ export const generateFeature = async (
     verification,
     report: createGenerationReport(plan, "applied", false, application.cleanup),
   })
-}

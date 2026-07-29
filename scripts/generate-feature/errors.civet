@@ -10,12 +10,10 @@ export type GeneratorErrorCode =
   | "TARGET_INVALID"
   | "VERIFICATION_FAILED"
 
-export class GeneratorError extends Error {
+export class GeneratorError extends Error
   readonly code: GeneratorErrorCode
 
-  constructor(code: GeneratorErrorCode, message: string, options?: ErrorOptions) {
+  constructor(code: GeneratorErrorCode, message: string, options?: ErrorOptions)
     super(message, options)
     this.name = "GeneratorError"
     this.code = code
-  }
-}

@@ -301,7 +301,9 @@ describe "DF-063 feature service policy", ->
     },
   ] as const)("maps repository failures to the stable $code service contract", async ({ failure, code }) ->
     const service = createFeatureItemService(repository({
-      listByOwner: vi.fn(async () => { throw failure }),
+      listByOwner: vi.fn(async () =>
+        throw failure
+      ),
     }))
 
     await expect(service.list(principal(), {})).rejects.toMatchObject({
@@ -312,9 +314,9 @@ describe "DF-063 feature service policy", ->
 
   it "sanitizes persistence details but preserves unexpected adapter failures", async ->
     const persistenceService = createFeatureItemService(repository({
-      listByOwner: vi.fn(async () => {
+      listByOwner: vi.fn(async () =>
         throw new DatabasePersistenceError("private connection details")
-      }),
+      ),
     }))
     await expect(persistenceService.list(principal(), {})).rejects.toMatchObject({
       code: "STORAGE_ERROR",
@@ -323,14 +325,18 @@ describe "DF-063 feature service policy", ->
 
     const unexpected = new Error("unexpected adapter contract violation")
     const unexpectedService = createFeatureItemService(repository({
-      listByOwner: vi.fn(async () => { throw unexpected }),
+      listByOwner: vi.fn(async () =>
+        throw unexpected
+      ),
     }))
     await expect(unexpectedService.list(principal(), {})).rejects.toBe(unexpected)
 
   it "preserves an already classified feature failure", async ->
     const failure = new FeatureServiceError("NOT_FOUND", "Feature item not found")
     const service = createFeatureItemService(repository({
-      listByOwner: vi.fn(async () => { throw failure }),
+      listByOwner: vi.fn(async () =>
+        throw failure
+      ),
     }))
 
     await expect(service.list(principal(), {})).rejects.toBe(failure)

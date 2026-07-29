@@ -20,8 +20,8 @@ const tokenize = (command: string): string[] => command.trim().split(/\s+/u)
 const lifecycleStages = (command: string): string[][] =>
   command.split(/\s*&&\s*/u).map(tokenize)
 
-describe("root lifecycle orchestration", () => {
-  it("bounds the canonical unit stage without skip or timeout overrides", async () => {
+describe("root lifecycle orchestration", () =>
+  it("bounds the canonical unit stage without skip or timeout overrides", async () =>
     const { scripts } = await readRootManifest()
     const canonicalUnitInvocation = ["bun", "run", "test:unit"]
 
@@ -45,6 +45,6 @@ describe("root lifecycle orchestration", () => {
       "verify",
     ])
     return undefined
-  })
+  )
   return undefined
-})
+)

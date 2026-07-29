@@ -29,37 +29,32 @@ import {
   useUiStoreApi,
 } from "../lib/ui-store.civet"
 
-const applyTheme = (store: UiStore): void => {
+const applyTheme = (store: UiStore): void =>
   const { palette, themeMode } = store.getState()
   const attributes = themeDomAttributes({ palette, themeMode })
   const root = document.documentElement
   root.dataset["mode"] = attributes["data-mode"]
   root.dataset["palette"] = attributes["data-palette"]
-}
 
 const persistThemeState = (
   store: UiStore,
   authority: ThemeAuthority,
-): void => {
+): void =>
   if (authority === "indeterminate") return
   const { palette, themeMode } = store.getState()
   const preference = { palette, themeMode }
-  if (authority === "anonymous") {
-    try {
+  if (authority === "anonymous")
+    try
       localStorage.setItem(
         THEME_STORAGE_KEY,
         serializeAnonymousThemePreference(preference),
       )
-    } catch {
+    catch
       // Storage can be unavailable in privacy modes; the in-memory preference remains valid.
-    }
-  }
-  try {
+  try
     document.cookie = serializeThemeCookie(preference)
-  } catch {
+  catch
     // Cookie mirroring is best effort when the browser blocks persistence.
-  }
-}
 
 export interface ThemeBootstrapConsumption {
   consumed: boolean
@@ -69,11 +64,10 @@ export const consumeInitialThemeBootstrap = (
   authority: ThemeAuthority,
   consumption: ThemeBootstrapConsumption,
   bootstrapPreference: unknown,
-): unknown => {
+): unknown =>
   if (consumption.consumed) return undefined
   consumption.consumed = true
   return authority === "anonymous" ? bootstrapPreference : undefined
-}
 
 export const reconcileThemeAuthorityTransition = ({
   authority,
@@ -91,7 +85,7 @@ export const reconcileThemeAuthorityTransition = ({
   readonly previousAuthority?: ThemeAuthority | undefined
   readonly store: UiStore
   readonly unsubscribe?: (() => void) | undefined
-}): void => {
+}): void =>
   onAuthorityChange(authority)
   unsubscribe?.()
   const bootstrap = authority === "anonymous" ? bootstrapPreference : undefined
@@ -110,7 +104,6 @@ export const reconcileThemeAuthorityTransition = ({
   const state = store.getState()
   if (state.themeMode !== preference.themeMode) state.setThemeMode(preference.themeMode)
   if (state.palette !== preference.palette) state.setPalette(preference.palette)
-}
 
 const ThemeEffects = ({
   initialPreference,
@@ -118,7 +111,7 @@ const ThemeEffects = ({
 }: {
   readonly initialPreference: Readonly<AnonymousThemePreference>
   readonly themeAuthority: ThemeAuthority
-}) => {
+}) =>
   const store = useUiStoreApi()
   const themeMode = useUiState((state) => state.themeMode)
   const [reconciliationVersion, setReconciliationVersion] = useState(0)
@@ -127,7 +120,7 @@ const ThemeEffects = ({
   const unsubscribeRef = useRef<(() => void) | undefined>(undefined)
   const bootstrapConsumption = useRef<ThemeBootstrapConsumption>({ consumed: false })
 
-  useLayoutEffect(() => {
+  useLayoutEffect(() =>
     const bootstrapPreference = consumeInitialThemeBootstrap(
       themeAuthority,
       bootstrapConsumption.current,
@@ -139,10 +132,9 @@ const ThemeEffects = ({
       authority: themeAuthority,
       bootstrapPreference,
       initialPreference,
-      onAuthorityChange: (authority) => {
+      onAuthorityChange: (authority) =>
         authorityRef.current = authority
         reconciledAuthorityRef.current = authority
-      },
       previousAuthority,
       store,
       unsubscribe: unsubscribeRef.current,
@@ -151,26 +143,23 @@ const ThemeEffects = ({
     applyTheme(store)
     setReconciliationVersion((version) => version + 1)
     return undefined
-  }, [initialPreference, store, themeAuthority])
+  , [initialPreference, store, themeAuthority])
 
-  useEffect(() => {
+  useEffect(() =>
     if (reconciliationVersion === 0) return undefined
-    const synchronizeTheme = () => {
+    const synchronizeTheme = () =>
       const currentAuthority = authorityRef.current
       applyTheme(store)
       persistThemeState(store, currentAuthority)
-    }
     synchronizeTheme()
     const unsubscribe = store.subscribe(synchronizeTheme)
     unsubscribeRef.current = unsubscribe
-    return () => {
+    return () =>
       if (unsubscribeRef.current === unsubscribe) unsubscribeRef.current = undefined
       unsubscribe()
-    }
-  }, [reconciliationVersion, store])
+  , [reconciliationVersion, store])
 
   return <Toaster theme={themeMode} />
-}
 
 const SemanticThemeProvider = ({
   children,
@@ -178,14 +167,14 @@ const SemanticThemeProvider = ({
 }: {
   readonly children: ReactNode
   readonly themeAuthority: ThemeAuthority
-}) => {
+}) =>
   const store = useUiStoreApi()
   const palette = useUiState((state) => state.palette)
   const themeMode = useUiState((state) => state.themeMode)
-  const onPreferenceChange = useCallback((preference: AnonymousThemePreference) => {
+  const onPreferenceChange = useCallback((preference: AnonymousThemePreference) =>
     if (themeAuthority !== "anonymous") return
     store.setState(preference)
-  }, [store, themeAuthority])
+  , [store, themeAuthority])
 
   return (
     <ThemeProvider
@@ -193,9 +182,7 @@ const SemanticThemeProvider = ({
       preference={{ palette, themeMode }}
     >
       {children}
-    </ThemeProvider>
   )
-}
 
 const ThemeAuthorityContext = createContext<ThemeAuthority>("indeterminate")
 const ThemeAuthorityProvider = ThemeAuthorityContext.Provider
@@ -223,7 +210,4 @@ export const ThemeController = ({
           initialPreference={initialPreference}
           themeAuthority={themeAuthority}
         />
-      </SemanticThemeProvider>
-    </UiStateProvider>
-  </ThemeAuthorityProvider>
 )

@@ -20,25 +20,22 @@ export type PostHogAnalyticsOptions = Readonly<{
   fetch?: typeof globalThis.fetch
 }>
 
-const validateTimeout = (timeoutMs: number): void => {
+const validateTimeout = (timeoutMs: number): void =>
   if (
     !Number.isInteger(timeoutMs) ||
     timeoutMs < 1 ||
     timeoutMs > maximumTimeoutMs
-  ) {
+  )
     throw new TypeError(
       "Analytics timeout must be an integer from 1 to 10000 milliseconds",
     )
-  }
-}
 
-const captureEndpoint = (host: string): string => {
+const captureEndpoint = (host: string): string =>
   let origin: URL
-  try {
+  try
     origin = new URL(host)
-  } catch {
+  catch
     throw new TypeError("Analytics host must be a valid HTTPS origin")
-  }
 
   if (
     origin.protocol !== "https:" ||
@@ -47,13 +44,11 @@ const captureEndpoint = (host: string): string => {
     origin.search !== "" ||
     origin.hash !== "" ||
     (origin.pathname !== "" && origin.pathname !== "/")
-  ) {
+  )
     throw new TypeError("Analytics host must be a valid HTTPS origin")
-  }
 
   origin.pathname = "/i/v0/e/"
   return origin.toString()
-}
 
 const providerFailure = (status: number): FailedAnalyticsResult => ({
   status: "failed",
@@ -82,30 +77,28 @@ const requestPayload = (input: AnalyticsCapture) => ({
 
 export const createPostHogAnalyticsPort = (
   options: PostHogAnalyticsOptions,
-): AnalyticsPort => {
+): AnalyticsPort =>
   const timeoutMs = options.timeoutMs ?? defaultTimeoutMs
   validateTimeout(timeoutMs)
 
   const apiKey = options.apiKey?.trim()
   const host = options.host?.trim()
-  if (!apiKey || !host) {
+  if (!apiKey || !host)
     return {
-      capture: async (input): Promise<AnalyticsResult> => {
+      capture: async (input): Promise<AnalyticsResult> =>
         const snapshot = snapshotAnalyticsCapture(input)
         if (!snapshot) return invalidCaptureResult()
 
         const consentReason = consentSkipReason(snapshot)
         if (consentReason) return { status: "skipped", reason: consentReason }
         return { status: "skipped", reason: "unconfigured" }
-      },
     }
-  }
 
   const endpoint = captureEndpoint(host)
   const transport = options.fetch ?? globalThis.fetch
 
   return {
-    capture: async (input): Promise<AnalyticsResult> => {
+    capture: async (input): Promise<AnalyticsResult> =>
       const snapshot = snapshotAnalyticsCapture(input)
       if (!snapshot) return invalidCaptureResult()
 
@@ -114,12 +107,12 @@ export const createPostHogAnalyticsPort = (
 
       const controller = new AbortController()
       let reachedDeadline = false
-      const timer = setTimeout(() => {
+      const timer = setTimeout(() =>
         reachedDeadline = true
         controller.abort()
-      }, timeoutMs)
+      , timeoutMs)
 
-      try {
+      try
         const payload = requestPayload(snapshot)
         payload.api_key = apiKey
         const response = await transport(endpoint, {
@@ -132,19 +125,14 @@ export const createPostHogAnalyticsPort = (
           signal: controller.signal,
         })
 
-        if (response.status >= 200 && response.status < 300) {
+        if (response.status >= 200 && response.status < 300)
           return { status: "captured", eventId: snapshot.eventId }
-        }
         if (!Number.isInteger(response.status)) return invalidProviderResponse()
         return providerFailure(response.status)
-      } catch {
-        if (reachedDeadline) {
+      catch
+        if (reachedDeadline)
           return { status: "failed", category: "timeout", retryable: true }
-        }
         return { status: "failed", category: "network", retryable: true }
-      } finally {
+      finally
         clearTimeout(timer)
-      }
-    },
   }
-}

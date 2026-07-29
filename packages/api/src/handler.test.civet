@@ -77,8 +77,8 @@ const session = (role: "member" | "admin"): SafeAuthSession => ({
 const clientFor = (
   requestSession: SafeAuthSession | null,
   repository = featureItems(),
-) => {
-  const fetch = async (request: Request): Promise<Response> => {
+) =>
+  const fetch = async (request: Request): Promise<Response> =>
     const context = createApiContext(request, {
       repositories: repositories(repository),
       requestId: "request-1",
@@ -86,15 +86,14 @@ const clientFor = (
         ai: false, emailDelivery: false, analytics: false,
         telemetryExport: false, storage: false, errorTracking: false,
       },
-      requireSession: async () => {
+      requireSession: async () =>
         if (requestSession === null)
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
             401,
           )
         return requestSession
-      },
-      requireRole: async (_headers, role) => {
+      requireRole: async (_headers, role) =>
         if (requestSession === null)
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
@@ -106,24 +105,21 @@ const clientFor = (
             403,
           )
         return requestSession
-      },
     })
     return handleApiRequest(request, context)
-  }
 
   return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
-}
 
 const expectError = async (
   promise: Promise<unknown>,
   code: string,
   status: number,
   message?: string,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     await promise
     throw new Error("Expected the oRPC call to fail")
-  } catch (error) {
+  catch (error)
     expect(error).toBeInstanceOf(ORPCError)
     expect(error).toMatchObject({
       code,
@@ -131,8 +127,6 @@ const expectError = async (
       defined: true,
       ...(message === undefined ? {} : { message }),
     })
-  }
-}
 
 describe "DF-045/051 production context to middleware to Fetch handler", ->
   it "denies an anonymous feature request", async ->

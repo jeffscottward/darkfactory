@@ -36,20 +36,19 @@ export const runOwnedCommand = async (
   command: string,
   arguments_: readonly string[],
   options: OwnedCommandOptions,
-): Promise<OwnedCommandResult> => {
+): Promise<OwnedCommandResult> =>
   const maxOutputBytes = options.maxOutputBytes ?? 32 * 1024 * 1024
   const timeoutMillis = options.timeoutMillis ?? 15 * 60_000
   const signals = options.signals ?? defaultSignals
   const terminateTree = options.terminateTree ?? (async (
     ownedChild: ReturnType<typeof spawnOwnedProcess>,
-  ): Promise<boolean> => {
-    try {
+  ): Promise<boolean> =>
+    try
       await terminateOwnedProcessTree(ownedChild)
       return true
-    } catch {
+    catch
       return false
-    }
-  })
+  )
   const child = spawnOwnedProcess(command, arguments_, {
     cwd: options.cwd,
     env: options.env,
@@ -70,38 +69,32 @@ export const runOwnedCommand = async (
   let observedClose = false
   let observedExitCode: number | undefined
   let settleCompletion: ((exitCode: number) => void) | undefined
-  const onError = (): void => {
+  const onError = (): void =>
     reason = "spawn-error"
     settleCompletion?.(1)
-  }
-  const onExit = (code: number | null): void => {
+  const onExit = (code: number | null): void =>
     observedExitCode = code ?? 1
-  }
-  const onClose = (code: number | null): void => {
+  const onClose = (code: number | null): void =>
     observedClose = true
     settleCompletion?.(code ?? observedExitCode ?? 1)
-  }
-  const completionPromise = new Promise<number>((resolveCompletion) => {
+  const completionPromise = new Promise<number>((resolveCompletion) =>
     settleCompletion = resolveCompletion
     child.once("error", onError)
     child.once("exit", onExit)
     child.once("close", onClose)
-  })
-  const stop = (nextReason: OwnedCommandResult["reason"]): Promise<boolean> => {
+  )
+  const stop = (nextReason: OwnedCommandResult["reason"]): Promise<boolean> =>
     if (reason === "completed") reason = nextReason
     stopPromise ??= terminateSafely()
     void stopPromise.then(() => settleCompletion?.(1))
     return stopPromise
-  }
-  const collect = (target: Buffer[], value: Buffer | string): void => {
+  const collect = (target: Buffer[], value: Buffer | string): void =>
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
     outputBytes += chunk.byteLength
-    if (outputBytes > maxOutputBytes) {
+    if (outputBytes > maxOutputBytes)
       void stop("output-limit")
       return
-    }
     target.push(chunk)
-  }
   const collectStdout = (value: Buffer | string): void => collect(stdout, value)
   const collectStderr = (value: Buffer | string): void => collect(stderr, value)
   child.stdout.on("data", collectStdout)
@@ -116,9 +109,9 @@ export const runOwnedCommand = async (
   )
 
   let exitCode = 1
-  try {
+  try
     exitCode = await completionPromise
-  } finally {
+  finally
     settleCompletion = undefined
     clearTimeout(timer)
     signals.off("SIGINT", interrupt)
@@ -130,7 +123,6 @@ export const runOwnedCommand = async (
     child.stderr.off("data", collectStderr)
     child.stdout.destroy()
     child.stderr.destroy()
-  }
 
   const terminated =
     process.platform === "win32" && reason === "completed"
@@ -151,4 +143,3 @@ export const runOwnedCommand = async (
     treeTerminated,
     reason,
   })
-}

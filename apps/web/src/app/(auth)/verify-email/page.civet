@@ -16,7 +16,7 @@ export const metadata = {
 
 export default async function VerifyEmailPage({
   searchParams,
-}: Readonly<{ searchParams: AuthSearchParams }>) {
+}: Readonly<{ searchParams: AuthSearchParams }>)
   const params = await searchParams
   const verificationError = firstSearchParam(params["error"])
   const wasProcessed =
@@ -47,14 +47,11 @@ export default async function VerifyEmailPage({
             <p className="grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-foreground">
               <CircleCheck aria-hidden="true" className="mt-1 text-primary" size={16} />
               The link was processed. Sign in to confirm the account status.
-            </p>
             <Link
               className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               href="/sign-in"
             >
               Continue to sign in
-            </Link>
-          </div>
         ) : (
           <div className="grid gap-6">
             {verificationError ? (
@@ -63,12 +60,7 @@ export default async function VerifyEmailPage({
                 {isExpired
                   ? "This verification link has expired. Request another below."
                   : "This verification link is invalid or has already been used. Request another below."}
-              </p>
             ) : null}
             <EmailActionForm operation="email-verification" />
-          </div>
         )}
-      </SessionRedirect>
-    </AuthPanel>
   )
-}

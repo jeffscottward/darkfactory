@@ -20,7 +20,7 @@ export type ThemeUpdateResult =
 
 const validatedThemePreference = (
   value: unknown,
-): ThemePreferenceOutput | null => {
+): ThemePreferenceOutput | null =>
   if (typeof value !== "object" || value === null) return null
   const themeMode = Reflect.get(value, "themeMode")
   const palette = Reflect.get(value, "palette")
@@ -37,7 +37,6 @@ const validatedThemePreference = (
     )
   ) return null
   return { themeMode, palette, updatedAt }
-}
 
 const isCurrentTrustedRequest = ({
   authority,
@@ -59,18 +58,16 @@ const isCurrentTrustedRequest = ({
 const applyThemePreference = (
   store: UiStore,
   preference: ThemePreferenceOutput,
-): void => {
+): void =>
   const state = store.getState()
   if (
     state.themeMode !== preference.themeMode
     || state.palette !== preference.palette
-  ) {
+  )
     store.setState({
       themeMode: preference.themeMode,
       palette: preference.palette,
     })
-  }
-}
 
 export const updateTrustedThemePreference = async ({
   authority,
@@ -90,7 +87,7 @@ export const updateTrustedThemePreference = async ({
   readonly update: (
     preference: UpdateThemePreferenceInput,
   ) => Promise<ThemePreferenceOutput>
-}): Promise<ThemeUpdateResult> => {
+}): Promise<ThemeUpdateResult> =>
   const requestAuthorityEpoch = authorityEpoch()
   const requestSequence = sequence.current + 1
   sequence.current = requestSequence
@@ -104,36 +101,33 @@ export const updateTrustedThemePreference = async ({
   if (!currentRequest()) return "superseded"
 
   let current: ThemePreferenceOutput | null
-  try {
+  try
     current = validatedThemePreference(await get())
-  } catch {
+  catch
     return currentRequest() ? "failed" : "superseded"
-  }
   if (!currentRequest()) return "superseded"
   if (current === null) return "failed"
 
   let saved: ThemePreferenceOutput | null = null
-  try {
+  try
     saved = validatedThemePreference(await update({
       themeMode: preference.themeMode,
       palette: preference.palette,
       expectedUpdatedAt: current.updatedAt,
     }))
-  } catch {}
+  catch
+    undefined
   if (!currentRequest()) return "superseded"
-  if (saved !== null) {
+  if (saved !== null)
     applyThemePreference(store, saved)
     return "applied"
-  }
 
   let reconciled: ThemePreferenceOutput | null
-  try {
+  try
     reconciled = validatedThemePreference(await get())
-  } catch {
+  catch
     return currentRequest() ? "unconfirmed" : "superseded"
-  }
   if (!currentRequest()) return "superseded"
   if (reconciled === null) return "unconfirmed"
   applyThemePreference(store, reconciled)
   return "reconciled"
-}

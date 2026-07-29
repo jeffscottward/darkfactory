@@ -25,21 +25,21 @@ import {
 
 const repositoryRoot = await realpath(process.cwd())
 const ALLOWED_ENV = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "PM2_HOME", "COREPACK_HOME"] as const
-const minimalEnvironment = (additions: Readonly<Record<string, string>> = {}): NodeJS.ProcessEnv => {
+const minimalEnvironment = (additions: Readonly<Record<string, string>> = {}): NodeJS.ProcessEnv =>
   const environment: NodeJS.ProcessEnv = {}
   for (const name of ALLOWED_ENV) if (process.env[name]) environment[name] = process.env[name]
   return { ...environment, ...additions }
-}
+
 const environmentFor = (
   _command: string,
   _arguments: readonly string[],
   options: CommandOptions,
 ): NodeJS.ProcessEnv => minimalEnvironment(options.environment)
 
-const readLivePid = async (pm2Home: string): Promise<number | null> => {
-  try {
+const readLivePid = async (pm2Home: string): Promise<number | null> =>
+  try
     const handle = await open(join(pm2Home, "pm2.pid"), constants.O_RDONLY | constants.O_NOFOLLOW)
-    try {
+    try
       const stats = await handle.stat()
       if (!stats.isFile() || stats.size > 32) return null
       const content = await handle.readFile({ encoding: "utf8" })
@@ -47,37 +47,38 @@ const readLivePid = async (pm2Home: string): Promise<number | null> => {
       if (!Number.isSafeInteger(pid) || pid <= 0) return null
       process.kill(pid, 0)
       return pid
-    } finally {
+    finally
       await handle.close()
-    }
-  } catch {
+  catch
     return null
-  }
-}
-const socketIsLive = (path: string): Promise<boolean> => new Promise((resolveSocket) => {
+
+const socketIsLive = (path: string): Promise<boolean> => new Promise((resolveSocket) =>
   const socket = createConnection(path)
-  const timer = setTimeout(() => { socket.destroy(); resolveSocket(false) }, 500)
-  socket.once("connect", () => { clearTimeout(timer); socket.destroy(); resolveSocket(true) })
-  socket.once("error", () => { clearTimeout(timer); resolveSocket(false) })
-})
-const pm2DaemonIsLive = async (): Promise<boolean> => {
+  const timer = setTimeout(() =>
+    socket.destroy(); resolveSocket(false)
+  , 500)
+  socket.once("connect", () =>
+    clearTimeout(timer); socket.destroy(); resolveSocket(true)
+  )
+  socket.once("error", () =>
+    clearTimeout(timer); resolveSocket(false)
+  )
+)
+const pm2DaemonIsLive = async (): Promise<boolean> =>
   const pm2Home = process.env["PM2_HOME"] ?? join(homedir(), ".pm2")
   if (await readLivePid(pm2Home) === null) return false
   return socketIsLive(join(pm2Home, "rpc.sock"))
-}
 
 export const nodeProcessAdapter: ProcessAdapter = Object.freeze({
   workingDirectory: process.cwd(),
   pm2DaemonAvailable: pm2DaemonIsLive,
-  probeHttps: async (url) => {
-    try {
+  probeHttps: async (url) =>
+    try
       const response = await fetch(url, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(5_000) })
       return response.status >= 200 && response.status < 400
-    } catch {
+    catch
       return false
-    }
-  },
-  run: (command, arguments_, options = {}) => new Promise<CommandResult>((resolveCommand) => {
+  run: (command, arguments_, options = {}) => new Promise<CommandResult>((resolveCommand) =>
     execFile(command, [...arguments_], {
       encoding: "utf8",
       env: environmentFor(command, arguments_, options),
@@ -89,8 +90,8 @@ export const nodeProcessAdapter: ProcessAdapter = Object.freeze({
       stdout: String(stdout ?? ""),
       stderr: String(stderr ?? ""),
     })))
-  }),
-  runInteractive: (command, arguments_, options = {}) => new Promise<CommandResult>((resolveCommand) => {
+  ),
+  runInteractive: (command, arguments_, options = {}) => new Promise<CommandResult>((resolveCommand) =>
     const child = spawn(command, [...arguments_], {
       env: minimalEnvironment(options.environment),
       shell: false,
@@ -98,70 +99,68 @@ export const nodeProcessAdapter: ProcessAdapter = Object.freeze({
       windowsHide: true,
     })
     let settled = false
-    const finish = (exitCode: number) => {
+    const finish = (exitCode: number) =>
       if (settled) return
       settled = true
       clearTimeout(timer)
       resolveCommand(Object.freeze({ exitCode, stdout: "", stderr: "" }))
-    }
-    const timer = setTimeout(() => { child.kill("SIGTERM"); finish(1) }, options.timeoutMs ?? 120_000)
+    const timer = setTimeout(() =>
+      child.kill("SIGTERM"); finish(1)
+    , options.timeoutMs ?? 120_000)
     child.once("error", () => finish(1))
     child.once("exit", (code) => finish(code ?? 1))
-  }),
+  ),
 })
 
-const containedCertificateDirectory = async (directory: string): Promise<string> => {
-  try {
+const containedCertificateDirectory = async (directory: string): Promise<string> =>
+  try
     const stats = await lstat(directory)
     if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("Certificate directory must be regular")
-  } catch (error) {
+  catch (error)
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     await mkdir(directory, { recursive: false, mode: 0o700 })
-  }
   const realDirectory = await realpath(directory)
   const repositoryRelative = relative(repositoryRoot, realDirectory)
-  if (repositoryRelative === ".." || repositoryRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+  if (repositoryRelative === ".." || repositoryRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`))
     throw new Error("Certificate directory escapes the repository")
-  }
   return realDirectory
-}
 
 export const nodeLifecycleFileSystem: LifecycleFileSystem = Object.freeze({
-  prepareCertificateOutputs: async (directory, paths) => {
+  prepareCertificateOutputs: async (directory, paths) =>
     if (paths.length !== 2) throw new Error("Expected certificate and key outputs")
     const realDirectory = await containedCertificateDirectory(directory)
     const finals = paths.map((path) => resolve(repositoryRoot, path))
     if (finals.some((path) => dirname(path) !== realDirectory)) throw new Error("Unsafe certificate output path")
-    for (const path of finals) {
-      try { await access(path); throw new Error("Certificate output already exists") }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
-    }
+    for (const path of finals)
+      try
+        await access(path)
+        throw new Error("Certificate output already exists")
+      catch (error)
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     const temporaryDirectory = await mkdtemp(join(realDirectory, `.mkcert-${process.pid}-${randomUUID()}-`))
     const certificatePath = join(temporaryDirectory, "certificate.pem")
     const keyPath = join(temporaryDirectory, "key.pem")
-    async function cleanup(): Promise<void> {
+    async function cleanup(): Promise<void>
       await rm(temporaryDirectory, { force: true, recursive: true })
       return undefined
-    }
-    async function commit(): Promise<void> {
-      for (const temporary of [certificatePath, keyPath]) {
+    async function commit(): Promise<void>
+      for (const temporary of [certificatePath, keyPath])
         const stats = await lstat(temporary)
         if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("mkcert produced an unsafe output")
-      }
-      for (const path of finals) {
-        try { await access(path); throw new Error("Certificate output appeared during generation") }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
-      }
+      for (const path of finals)
+        try
+          await access(path)
+          throw new Error("Certificate output appeared during generation")
+        catch (error)
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       await rename(certificatePath, finals[0]!)
       await rename(keyPath, finals[1]!)
       await cleanup()
       return undefined
-    }
     return Object.freeze({
       certificatePath,
       keyPath,
       cleanup,
       commit,
     })
-  },
 })

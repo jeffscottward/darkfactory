@@ -33,19 +33,15 @@ export type SeedDevelopmentResult = Readonly<{
   featureItemsConverged: number
 }>
 
-export class DevelopmentSeedError extends Error {
-  constructor(message: string) {
+export class DevelopmentSeedError extends Error
+  constructor(message: string)
     super(message)
     this.name = "DevelopmentSeedError"
-  }
-}
 
-export class SeedIdentityCollisionError extends DevelopmentSeedError {
-  constructor(message: string) {
+export class SeedIdentityCollisionError extends DevelopmentSeedError
+  constructor(message: string)
     super(message)
     this.name = "SeedIdentityCollisionError"
-  }
-}
 
 type IdentityState = Readonly<{
   persona: DevelopmentPersona
@@ -67,7 +63,7 @@ const isCredentialFor = (
 const inspectIdentity = async (
   database: DatabaseExecutor,
   persona: DevelopmentPersona,
-): Promise<IdentityState> => {
+): Promise<IdentityState> =>
   const email = normalizedEmail(persona.email)
   const matchedUsers = await database
     .select()
@@ -93,104 +89,91 @@ const inspectIdentity = async (
       ),
     )
 
-  if (matchedUsers.length === 0) {
-    if (matchedAccounts.length > 0) {
+  if (matchedUsers.length === 0)
+    if (matchedAccounts.length > 0)
       throw new SeedIdentityCollisionError(
         `Seed identity collision for ${persona.name}: deterministic account ID is already in use`,
       )
-    }
     return { persona, exists: false }
-  }
 
   if (
     matchedUsers.length !== 1 ||
     matchedUsers[0]!.id !== persona.userId ||
     normalizedEmail(matchedUsers[0]!.email) !== email
-  ) {
+  )
     throw new SeedIdentityCollisionError(
       `Seed identity collision for ${persona.name}: deterministic user ID and normalized email do not identify the same user`,
     )
-  }
 
   const credential = matchedAccounts.find((account) => isCredentialFor(account, persona))
-  if (!credential) {
+  if (!credential)
     throw new SeedIdentityCollisionError(
       `Seed identity collision for ${persona.name}: required credential account is missing or mismatched`,
     )
-  }
   if (
     typeof credential.password !== "string" ||
     !CREDENTIAL_HASH.test(credential.password)
-  ) {
+  )
     throw new SeedIdentityCollisionError(
       `Seed identity collision for ${persona.name}: credential password hash is malformed`,
     )
-  }
 
   return { persona, exists: true }
-}
 
 
 const convergeApplicationRows = async (
   database: DatabaseExecutor,
-): Promise<void> => {
+): Promise<void> =>
   await convergeDevelopmentProfiles(database)
   await convergeDevelopmentPreferences(database)
   await convergeDevelopmentContent(database)
-}
 
 const lockDevelopmentIdentities = async (
   database: DatabaseExecutor,
-): Promise<void> => {
+): Promise<void> =>
   const personas = [...DEVELOPMENT_PERSONAS].sort((left, right) =>
     left.userId.localeCompare(right.userId)
   )
-  for (const persona of personas) {
+  for (const persona of personas)
     await database.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${persona.userId}, 0))`,
     )
-  }
-}
 
 export const seedDevelopment = async (
   database: Database,
   options: SeedDevelopmentOptions,
-): Promise<SeedDevelopmentResult> => {
+): Promise<SeedDevelopmentResult> =>
   if (
     options.environment !== "development" &&
     options.environment !== "test"
-  ) {
+  )
     throw new DevelopmentSeedError(
       "Development seed requires an explicit development or test environment",
     )
-  }
 
   const identities = DEVELOPMENT_PERSONAS.map(seedIdentityInput)
   const ensureIdentity = await options.prepareIdentity(identities)
 
-  return await withTransaction(database, async (transaction) => {
+  return await withTransaction(database, async (transaction) =>
     await lockDevelopmentIdentities(transaction)
 
     const initialStates: IdentityState[] = []
-    for (const persona of DEVELOPMENT_PERSONAS) {
+    for (const persona of DEVELOPMENT_PERSONAS)
       initialStates.push(await inspectIdentity(transaction, persona))
-    }
 
     let identitiesCreated = 0
-    for (const state of initialStates) {
+    for (const state of initialStates)
       await ensureIdentity(
         seedIdentityInput(state.persona),
         state.exists,
         transaction,
       )
       const ensured = await inspectIdentity(transaction, state.persona)
-      if (!ensured.exists) {
+      if (!ensured.exists)
         throw new DevelopmentSeedError(
           `Identity assurer did not persist ${state.persona.name}`,
         )
-      }
       if (!state.exists) identitiesCreated += 1
-    }
 
     await convergeApplicationRows(transaction)
 
@@ -203,8 +186,7 @@ export const seedDevelopment = async (
       addressesConverged: DEVELOPMENT_PERSONAS.length,
       featureItemsConverged: DEVELOPMENT_PERSONAS.length,
     })
-  })
-}
+  )
 
 export type {
   EnsureSeedIdentity,

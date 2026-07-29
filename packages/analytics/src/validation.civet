@@ -47,21 +47,19 @@ const sources: ReadonlySet<AnalyticsSource> = new Set([
 const snapshotDataRecord = (
   value: unknown,
   allowed: ReadonlySet<string>,
-): Readonly<Record<string, unknown>> | undefined => {
-  try {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+): Readonly<Record<string, unknown>> | undefined =>
+  try
+    if (typeof value !== "object" || value === null || Array.isArray(value))
       return undefined
-    }
     if (Object.getPrototypeOf(value) !== Object.prototype) return undefined
 
     const keys = Reflect.ownKeys(value)
     if (keys.length > allowed.size) return undefined
-    for (const key of keys) {
+    for (const key of keys)
       if (typeof key !== "string" || !allowed.has(key)) return undefined
-    }
 
     const snapshot: Record<string, unknown> = {}
-    for (const key of keys as string[]) {
+    for (const key of keys as string[])
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (
         descriptor === undefined ||
@@ -75,12 +73,9 @@ const snapshotDataRecord = (
         value: descriptor.value,
         writable: false,
       })
-    }
     return Object.freeze(snapshot)
-  } catch {
+  catch
     return undefined
-  }
-}
 
 const isSafeToken = (value: unknown): value is string =>
   typeof value === "string" && safeToken.test(value)
@@ -89,27 +84,25 @@ const isOptionalSafeToken = (
   value: unknown,
 ): value is string | undefined => value === undefined || isSafeToken(value)
 
-const isIsoTimestamp = (value: unknown): value is string => {
+const isIsoTimestamp = (value: unknown): value is string =>
   if (typeof value !== "string" || value.length > 32) return false
 
   const parsed = new Date(value)
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value
-}
 
 const isAnalyticsSource = (value: unknown): value is AnalyticsSource =>
   typeof value === "string" && sources.has(value as AnalyticsSource)
 
 export const consentSkipReason = (
   input: CanonicalAnalyticsCapture,
-): "consent-denied" | "consent-unknown" | undefined => {
+): "consent-denied" | "consent-unknown" | undefined =>
   if (input.consent === "denied") return "consent-denied"
   if (input.consent === "unknown") return "consent-unknown"
   return undefined
-}
 
 export const snapshotAnalyticsCapture = (
   input: unknown,
-): CanonicalAnalyticsCapture | undefined => {
+): CanonicalAnalyticsCapture | undefined =>
   const capture = snapshotDataRecord(input, captureKeys)
   if (!capture) return undefined
 
@@ -171,7 +164,6 @@ export const snapshotAnalyticsCapture = (
     properties,
     ...(timestamp === undefined ? {} : { timestamp }),
   })
-}
 
 export const invalidCaptureResult = () => ({
   status: "failed",

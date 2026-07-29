@@ -5,7 +5,7 @@ type SessionLoader = (
   cfConnectingIp: string | null,
 ) => unknown
 
-const mocks = vi.hoisted(() -> {
+const mocks = vi.hoisted(() ->
   const cacheEntries = new Map<string, unknown>()
   return {
     cacheEntries,
@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() -> {
     dispatchInternalAuthRequest: vi.fn(),
     getPortalSession: vi.fn(),
   }
-})
+)
 
 vi.mock("react", () -> ({ cache: mocks.cache }))
 vi.mock("./server-internal-dispatch.civet", () -> ({

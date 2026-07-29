@@ -14,8 +14,7 @@ const defaultMigrationsFolder = fileURLToPath(
 export const migrate = async (
   database: Database,
   options: MigrationOptions = {},
-): Promise<void> => {
+): Promise<void> =>
   await runMigrations(database, {
     migrationsFolder: options.migrationsFolder ?? defaultMigrationsFolder,
   })
-}

@@ -16,7 +16,6 @@ export const PublicLink = ({
     {...props}
   >
     {children}
-  </a>
 )
 
 export interface PublicPageProps {
@@ -43,6 +42,5 @@ export const PublicPage = ({
       variant="public"
     />
     {children}
-  </div>
 )
 

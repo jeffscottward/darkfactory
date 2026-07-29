@@ -26,10 +26,10 @@ export type CapabilityManifestIssue = Readonly<{
   message: string
 }>
 
-export class CapabilityManifestValidationError extends Error {
+export class CapabilityManifestValidationError extends Error
   readonly issues: readonly CapabilityManifestIssue[]
 
-  constructor(issues: readonly CapabilityManifestIssue[]) {
+  constructor(issues: readonly CapabilityManifestIssue[])
     super(
       [
         "Invalid capability manifest:",
@@ -38,8 +38,6 @@ export class CapabilityManifestValidationError extends Error {
     )
     this.name = "CapabilityManifestValidationError"
     this.issues = issues
-  }
-}
 
 const MAX_MANIFEST_BYTES = 32_768
 const MAX_MANIFEST_NODES = 512
@@ -75,30 +73,28 @@ type PendingYamlNode = Readonly<{
   key: boolean
 }>
 
-const validateYamlStructure = (root: unknown): void => {
+const validateYamlStructure = (root: unknown): void =>
   const pending: PendingYamlNode[] = [{ node: root, depth: 0, key: false }]
   let nodeCount = 0
 
-  while (pending.length > 0) {
+  while (pending.length > 0)
     const current = pending.pop()
     if (!current || current.node === null || current.node === undefined) continue
 
     nodeCount += 1
-    if (nodeCount > MAX_MANIFEST_NODES || current.depth > MAX_MANIFEST_DEPTH) {
+    if (nodeCount > MAX_MANIFEST_NODES || current.depth > MAX_MANIFEST_DEPTH)
       throw resourceLimitExceeded()
-    }
     if (isAlias(current.node)) throw invalidYaml()
     if (current.key && !isScalar(current.node)) throw invalidYaml()
 
-    if (isPair(current.node)) {
+    if (isPair(current.node))
       pending.push(
         { node: current.node.value, depth: current.depth + 1, key: false },
         { node: current.node.key, depth: current.depth + 1, key: true },
       )
       continue
-    }
 
-    if (isCollection(current.node)) {
+    if (isCollection(current.node))
       pending.push(
         ...current.node.items.map((item) => ({
           node: item,
@@ -107,42 +103,33 @@ const validateYamlStructure = (root: unknown): void => {
         })),
       )
       continue
-    }
 
-    if (!isScalar(current.node)) {
+    if (!isScalar(current.node))
       throw invalidYaml()
-    }
     const value = current.node.value
-    if (current.key) {
+    if (current.key)
       if (typeof value !== "string") throw invalidYaml()
-      if (exceedsUtf8Bytes(value, MAX_MANIFEST_KEY_BYTES)) {
+      if (exceedsUtf8Bytes(value, MAX_MANIFEST_KEY_BYTES))
         throw resourceLimitExceeded()
-      }
       continue
-    }
 
-    if (typeof value === "string") {
-      if (exceedsUtf8Bytes(value, MAX_MANIFEST_STRING_BYTES)) {
+    if (typeof value === "string")
+      if (exceedsUtf8Bytes(value, MAX_MANIFEST_STRING_BYTES))
         throw resourceLimitExceeded()
-      }
       continue
-    }
     if (
       value !== null &&
       typeof value !== "boolean" &&
       (typeof value !== "number" || !Number.isFinite(value))
-    ) {
+    )
       throw invalidYaml()
-    }
-  }
-}
 
-const parseYaml = (source: string): unknown => {
+const parseYaml = (source: string): unknown =>
   if (typeof source !== "string") throw invalidYaml()
   if (exceedsUtf8Bytes(source, MAX_MANIFEST_BYTES)) throw resourceLimitExceeded()
   if (source.trim().length === 0) throw invalidYaml()
 
-  try {
+  try
     const document = parseDocument(source, {
       prettyErrors: false,
       strict: true,
@@ -151,11 +138,9 @@ const parseYaml = (source: string): unknown => {
     if (document.errors.length > 0 || document.warnings.length > 0) throw invalidYaml()
     validateYamlStructure(document.contents)
     return document.toJS({ maxAliasCount: 0 })
-  } catch (error) {
+  catch (error)
     if (error instanceof CapabilityManifestValidationError) throw error
     throw invalidYaml()
-  }
-}
 
 const MANIFEST_PATH_SEGMENTS = new Set([
   "project",
@@ -247,47 +232,41 @@ const MANIFEST_PATH_SEGMENTS = new Set([
   "pg_cron",
 ])
 
-const sanitizedPath = (path: readonly PropertyKey[]): string => {
+const sanitizedPath = (path: readonly PropertyKey[]): string =>
   if (path.length === 0) return "manifest"
   const segments = path.map(String)
   if (
-    segments.some((segment) => {
+    segments.some((segment) =>
       return (
         !MANIFEST_PATH_SEGMENTS.has(segment) &&
         !["0", "1", "2", "3"].includes(segment)
       )
-    })
-  ) {
+    )
+  )
     return "manifest"
-  }
   return segments.join(".")
-}
 
 const MISSING_PATH_VALUE = Symbol("missing path value")
 
 const valueAtPath = (
   input: unknown,
   path: readonly PropertyKey[],
-): unknown => {
+): unknown =>
   let current = input
-  for (const segment of path) {
+  for (const segment of path)
     if (
       current === null ||
       typeof current !== "object" ||
       !Object.hasOwn(current, segment)
-    ) {
+    )
       return MISSING_PATH_VALUE
-    }
     current = (current as Record<PropertyKey, unknown>)[segment]
-  }
   return current
-}
 
-const runtimeType = (value: unknown): string => {
+const runtimeType = (value: unknown): string =>
   if (value === null) return "null"
   if (Array.isArray(value)) return "array"
   return typeof value
-}
 
 type SchemaIssue = Readonly<{
   code: string
@@ -298,31 +277,28 @@ type SchemaIssue = Readonly<{
 const sanitizedSchemaIssue = (
   issue: SchemaIssue,
   input: unknown,
-): CapabilityManifestIssue => {
+): CapabilityManifestIssue =>
   const path = sanitizedPath(issue.path)
   const pathValue = valueAtPath(input, issue.path)
-  if (issue.code === "unrecognized_keys") {
+  if (issue.code === "unrecognized_keys")
     return {
       code: "unknown_key",
       path,
       message: "Manifest contains an unknown key",
     }
-  }
-  if (pathValue === MISSING_PATH_VALUE) {
+  if (pathValue === MISSING_PATH_VALUE)
     return {
       code: "missing_requirement",
       path,
       message: "Required manifest value is missing",
     }
-  }
-  if (issue.code === "invalid_type") {
+  if (issue.code === "invalid_type")
     return {
       code: "invalid_type",
       path,
       message: "Manifest value has an invalid type",
     }
-  }
-  if (issue.code === "invalid_value") {
+  if (issue.code === "invalid_value")
     const inputType = runtimeType(pathValue)
     const hasSupportedType = issue.values?.some(
       (allowedValue) => runtimeType(allowedValue) === inputType,
@@ -338,22 +314,19 @@ const sanitizedSchemaIssue = (
           path,
           message: "Manifest value has an invalid type",
         }
-  }
-  if (issue.code === "custom") {
+  if (issue.code === "custom")
     return {
       code: "invalid_combination",
       path,
       message: "Manifest capability combination is invalid",
     }
-  }
   return {
     code: "invalid_manifest",
     path,
     message: "Manifest value is invalid",
   }
-}
 
-export const loadCapabilityManifest = (source: string): CapabilityManifest => {
+export const loadCapabilityManifest = (source: string): CapabilityManifest =>
   const input = parseYaml(source)
   const result = capabilityManifestSchema.safeParse(input)
   if (result.success) return result.data
@@ -361,4 +334,3 @@ export const loadCapabilityManifest = (source: string): CapabilityManifest => {
   throw new CapabilityManifestValidationError(
     result.error.issues.map((issue) => sanitizedSchemaIssue(issue, input)),
   )
-}

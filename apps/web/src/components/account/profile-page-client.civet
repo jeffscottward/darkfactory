@@ -19,43 +19,40 @@ type ProfileState =
   | Readonly<{ type: "error"; kind: AccountFailureKind }>
   | Readonly<{ type: "ready"; account: AccountProfileOutput; version: number }>
 
-export const ProfilePageClient = () => {
+export const ProfilePageClient = () =>
   const [gateway] = useState(createBrowserAccountGateway)
   const [state, setState] = useState<ProfileState>({ type: "loading" })
   const [feedback, setFeedback] = useState<AccountFeedback | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async () =>
     setFeedback(null)
     setState({ type: "loading" })
-    try {
+    try
       const account = await gateway.getProfile()
       setState({ type: "ready", account, version: 0 })
-    } catch (error) {
+    catch error
       setState({ type: "error", kind: accountFailureKind(error) })
-    }
-  }, [gateway])
+  , [gateway])
 
-  useEffect(() => {
+  useEffect(() =>
     void load()
     return undefined
-  }, [load])
+  , [load])
 
-  if (state.type === "loading") {
+  if (state.type === "loading")
     return (
       <div aria-busy="true" aria-live="polite" className="grid gap-5 sm:grid-cols-2" role="status">
-        <span className="sr-only">Loading profile</span>
+        <span className="sr-only">Loading profile
         {["one", "two", "three", "four", "five", "six"].map((key) => <Skeleton className="h-11 w-full" key={key} />)}
-      </div>
     )
-  }
-  if (state.type === "error") {
+  if (state.type === "error")
     const action = state.kind === "unauthorized"
-      ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fprofile">Sign in</a>
+      ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Faccount%2Fprofile">Sign in
       : state.kind === "forbidden"
-        ? <a className={buttonVariants({ variant: "secondary" })} href="/dashboard">Back to dashboard</a>
+        ? <a className={buttonVariants({ variant: "secondary" })} href="/dashboard">Back to dashboard
         : state.kind === "not-found"
-          ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account</a>
-          : <Button onClick={() => void load()} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again</Button>
+          ? <a className={buttonVariants({ variant: "secondary" })} href="/account">Back to account
+          : <Button onClick={() => void load()} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again
     return (
       <div aria-live="assertive" role="alert">
         <EmptyState
@@ -64,32 +61,26 @@ export const ProfilePageClient = () => {
           icon={<RotateCcw />}
           title="Profile unavailable"
         />
-      </div>
     )
-  }
 
-  const save = async (input: ProfileUpdateInput): Promise<void> => {
+  const save = async (input: ProfileUpdateInput): Promise<void> =>
     setFeedback(null)
-    try {
+    try
       const account = await gateway.updateProfile(input)
       setState((current) => current.type === "ready"
         ? { type: "ready", account, version: current.version + 1 }
         : current)
       setFeedback({ tone: "success", message: "Profile saved." })
-    } catch (error) {
-      if (accountFailureKind(error) === "conflict") {
-        try {
+    catch error
+      if (accountFailureKind(error) === "conflict")
+        try
           const account = await gateway.getProfile()
           setState((current) => current.type === "ready" ? { ...current, account } : current)
-        } catch (_error) {
+        catch _error
           // The current form stays mounted with its unsaved values.
-        }
         setFeedback({ tone: "error", message: "This profile changed elsewhere. Your entries are preserved; review them and save again." })
-      } else {
+      else
         setFeedback({ tone: "error", message: safeAccountFeedback(error) })
-      }
-    }
-  }
 
   return (
     <ProfileForm
@@ -99,4 +90,3 @@ export const ProfilePageClient = () => {
       onSave={save}
     />
   )
-}

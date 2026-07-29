@@ -67,14 +67,13 @@ const metadataPathFor = (htmlPath: string): string =>
 const readMetadata = async (htmlPath: string): Promise<PreviewMetadata> =>
   JSON.parse(await readFile(metadataPathFor(htmlPath), "utf8")) as PreviewMetadata
 
-const normalizeRecipient = (recipient: string): string => {
+const normalizeRecipient = (recipient: string): string =>
   const trimmedRecipient = recipient.trim()
   const separatorIndex = trimmedRecipient.lastIndexOf("@")
   return (
     `${trimmedRecipient.slice(0, separatorIndex)}@` +
     trimmedRecipient.slice(separatorIndex + 1).toLowerCase()
   )
-}
 
 const metadataHmac = (
   metadata: PreviewMetadata,
@@ -94,12 +93,11 @@ const metadataHmac = (
 
 const temporaryDirectories: string[] = []
 
-const createTemporaryDirectory = async (): Promise<string> => {
+const createTemporaryDirectory = async (): Promise<string> =>
   const directory = await mkdtemp(join(tmpdir(), "darkfactory-email-"))
   const canonicalDirectory = await realpath(directory)
   temporaryDirectories.push(canonicalDirectory)
   return canonicalDirectory
-}
 
 afterEach async ->
   vi.restoreAllMocks()
@@ -261,9 +259,8 @@ describe "createPreviewEmailPort", ->
       "previewed",
     ])
     const previewed = successful[0]
-    if (!previewed || previewed.result.status !== "previewed") {
+    if (!previewed || previewed.result.status !== "previewed")
       throw new Error("Expected exactly one preview")
-    }
     const metadata = await readMetadata(previewed.result.artifactPath)
     expect(metadata.binding.hmac).toBe(
       metadataHmac(metadata, previewed.input.to),
@@ -284,9 +281,9 @@ describe "createPreviewEmailPort", ->
       const result = await email.sendPasswordReset(resetInput)
       expect(result.status).toBe("previewed")
 
-    const retainedFiles = (await readdir(directory)).filter((fileName) => {
+    const retainedFiles = (await readdir(directory)).filter((fileName) =>
       return !fileName.startsWith(".")
-    })
+    )
     expect(retainedFiles).toHaveLength(6)
     expect(retainedFiles.filter((fileName) => fileName.endsWith(".html"))).toHaveLength(2)
     expect(retainedFiles.filter((fileName) => fileName.endsWith(".txt"))).toHaveLength(2)
@@ -364,13 +361,12 @@ describe "createPreviewEmailPort", ->
       writeFile(join(directory, "partial.metadata.json"), "{}", "utf8"),
     ])
     let failCleanup = true
-    const removeFile = vi.fn(async (path: string): Promise<void> => {
-      if (failCleanup && path.endsWith("partial.html")) {
+    const removeFile = vi.fn(async (path: string): Promise<void> =>
+      if (failCleanup && path.endsWith("partial.html"))
         failCleanup = false
         throw new Error("simulated cleanup failure")
-      }
       await rm(path, { force: true })
-    })
+    )
     const artifactNames = ["first", "second"]
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -478,9 +474,8 @@ describe "createPreviewEmailPort", ->
     const email = createPreviewEmailPortForTest({
       environment: "test",
       directory,
-      artifactName: () => {
+      artifactName: () =>
         throw new Error("identifier failed")
-      },
     })
 
     expect(await email.sendPasswordReset(resetInput)).toEqual({
@@ -491,11 +486,11 @@ describe "createPreviewEmailPort", ->
     })
 
   it "rejects direct preview construction for production", ->
-    expect(() => {
+    expect(() =>
       createPreviewEmailPort({
         environment: "production",
       })
-    }).toThrowError("Preview email transport is unavailable in production")
+    ).toThrowError("Preview email transport is unavailable in production")
 
   it "rejects a symlink preview directory without writing into its target", async ->
     const parent = await createTemporaryDirectory()

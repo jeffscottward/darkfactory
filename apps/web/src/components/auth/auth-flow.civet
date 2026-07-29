@@ -73,21 +73,18 @@ export const browserAuthClient: AuthFlowClient = Object.freeze({
   getSession: () => authClient.getSession(),
 })
 
-const decodedDestination = (candidate: string): string | null => {
+const decodedDestination = (candidate: string): string | null =>
   let decoded = candidate
-  try {
-    for (let index = 0; index < 3; index += 1) {
+  try
+    for (let index = 0; index < 3; index += 1)
       const next = decodeURIComponent(decoded)
       if (next === decoded) break
       decoded = next
-    }
-  } catch {
+  catch
     return null
-  }
   return decoded
-}
 
-export const normalizeAuthDestination = (value: unknown): string => {
+export const normalizeAuthDestination = (value: unknown): string =>
   if (typeof value !== "string") return DEFAULT_AUTH_DESTINATION
   const candidate = value.trim()
   const decoded = decodedDestination(candidate)
@@ -100,102 +97,89 @@ export const normalizeAuthDestination = (value: unknown): string => {
     decoded.includes("\\") ||
     CONTROL_CHARACTER_PATTERN.test(candidate) ||
     CONTROL_CHARACTER_PATTERN.test(decoded)
-  ) {
+  )
     return DEFAULT_AUTH_DESTINATION
-  }
 
   const decodedPathname = decoded.split(/[?#]/u, 1)[0]!
   if (
     decodedPathname.split("/").some((segment) => segment === "." || segment === "..")
-  ) {
+  )
     return DEFAULT_AUTH_DESTINATION
-  }
 
   let parsed: URL
-  try {
+  try
     parsed = new URL(candidate, AUTH_DESTINATION_ORIGIN)
-  } catch {
+  catch
     return DEFAULT_AUTH_DESTINATION
-  }
   if (
     parsed.origin !== AUTH_DESTINATION_ORIGIN ||
     parsed.username !== "" ||
     parsed.password !== "" ||
     parsed.pathname.startsWith("/api/") ||
     BLOCKED_DESTINATION_PATHS.has(parsed.pathname)
-  ) {
+  )
     return DEFAULT_AUTH_DESTINATION
-  }
 
   return `${parsed.pathname}${parsed.search}${parsed.hash}`
-}
 
-export const validateEmail = (value: string): string | undefined => {
+export const validateEmail = (value: string): string | undefined =>
   const email = value.trim()
   if (!email) return "Enter your email address."
-  if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
+  if (email.length > 254 || !EMAIL_PATTERN.test(email))
     return "Enter a valid email address."
-  }
   return undefined
-}
 
-export const validateName = (value: string): string | undefined => {
+export const validateName = (value: string): string | undefined =>
   const name = value.trim()
   if (!name) return "Enter your name."
   if (name.length < 2) return "Use at least 2 characters."
   if (name.length > 80) return "Use no more than 80 characters."
   return undefined
-}
 
 export const validatePasswordPresent = (value: string): string | undefined =>
   value ? undefined : "Enter your password."
 
-export const validatePassword = (value: string): string | undefined => {
+export const validatePassword = (value: string): string | undefined =>
   if (!value) return "Enter your password."
   if (value.length < 12) return "Use at least 12 characters."
   if (value.length > 128) return "Use no more than 128 characters."
   return undefined
-}
 
 export const validatePasswordConfirmation = (
   value: string,
   password: string,
-): string | undefined => {
+): string | undefined =>
   if (!value) return "Confirm your password."
   if (value !== password) return "Passwords do not match."
   return undefined
-}
 
 const connectionError = (): AuthFlowResult => ({
   status: "error",
   message: "We could not complete the request. Check your connection and try again.",
 })
 
-const signInError = (error: AuthError): AuthFlowResult => {
-  if (error?.code === "EMAIL_NOT_VERIFIED") {
+const signInError = (error: AuthError): AuthFlowResult =>
+  if (error?.code === "EMAIL_NOT_VERIFIED")
     return {
       status: "error",
       message: "Verify your email before signing in.",
       actionHref: "/verify-email",
       actionLabel: "Send another verification email",
     }
-  }
   if (
     error?.code === "ACCOUNT_SUSPENDED" ||
     error?.code === "ACCOUNT_DEACTIVATED"
-  ) {
+  )
     return {
       status: "error",
       message: "This account is unavailable. Contact the project administrator.",
     }
-  }
   return {
     status: "error",
     message: "The email or password was not accepted. Check both fields and try again.",
     actionHref: "/forgot-password",
     actionLabel: "Reset your password",
   }
-}
 
 const resetTokenError = (): AuthFlowResult => ({
   status: "error",
@@ -211,9 +195,9 @@ export const submitSignIn = async (
     password: string
     callbackURL: unknown
   }>,
-): Promise<AuthFlowResult> => {
+): Promise<AuthFlowResult> =>
   const destination = normalizeAuthDestination(input.callbackURL)
-  try {
+  try
     const result = await client.signInEmail({
       email: input.email.trim().toLowerCase(),
       password: input.password,
@@ -221,16 +205,14 @@ export const submitSignIn = async (
     })
     if (result.error) return signInError(result.error)
     return { status: "success", destination }
-  } catch {
+  catch
     return connectionError()
-  }
-}
 
 export const submitSignUp = async (
   client: AuthFlowClient,
   input: Readonly<{ name: string; email: string; password: string }>,
-): Promise<AuthFlowResult> => {
-  try {
+): Promise<AuthFlowResult> =>
+  try
     const result = await client.signUpEmail({
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
@@ -239,58 +221,49 @@ export const submitSignUp = async (
     })
     if (result.error) return connectionError()
     return { status: "success", message: SAFE_ACCOUNT_EMAIL_MESSAGE }
-  } catch {
+  catch
     return connectionError()
-  }
-}
 
 export const submitForgotPassword = async (
   client: AuthFlowClient,
   email: string,
-): Promise<AuthFlowResult> => {
-  try {
+): Promise<AuthFlowResult> =>
+  try
     const result = await client.requestPasswordReset({
       email: email.trim().toLowerCase(),
       redirectTo: "/reset-password",
     })
     if (result.error) return connectionError()
     return { status: "success", message: SAFE_ACCOUNT_EMAIL_MESSAGE }
-  } catch {
+  catch
     return connectionError()
-  }
-}
 
 export const submitVerificationEmail = async (
   client: AuthFlowClient,
   email: string,
-): Promise<AuthFlowResult> => {
-  try {
+): Promise<AuthFlowResult> =>
+  try
     const result = await client.sendVerificationEmail({
       email: email.trim().toLowerCase(),
       callbackURL: "/verify-email?verified=1",
     })
     if (result.error) return connectionError()
     return { status: "success", message: SAFE_ACCOUNT_EMAIL_MESSAGE }
-  } catch {
+  catch
     return connectionError()
-  }
-}
 
 export const submitResetPassword = async (
   client: AuthFlowClient,
   input: Readonly<{ token: string | undefined; newPassword: string }>,
-): Promise<AuthFlowResult> => {
-  if (!input.token || !RESET_TOKEN_PATTERN.test(input.token)) {
+): Promise<AuthFlowResult> =>
+  if (!input.token || !RESET_TOKEN_PATTERN.test(input.token))
     return resetTokenError()
-  }
-  try {
+  try
     const result = await client.resetPassword({
       token: input.token,
       newPassword: input.newPassword,
     })
     if (result.error) return resetTokenError()
     return { status: "success", destination: "/sign-in?reset=1" }
-  } catch {
+  catch
     return connectionError()
-  }
-}

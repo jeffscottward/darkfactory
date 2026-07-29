@@ -93,12 +93,11 @@ describe "E2E-only route fixtures", ->
         "/repo/test-results/e2e-runs/run_123/previews/auth",
     }
 
-    for (const runId of [undefined, "", "../run", "run.with.dot", "x".repeat(129)]) {
+    for (const runId of [undefined, "", "../run", "run.with.dot", "x".repeat(129)])
       expect(() => resolveE2eEmailPreviewOptions({
         ...base,
         ...(runId === undefined ? {} : { E2E_RUN_ID: runId }),
       })).toThrowError("E2E_RUN_ID is required for E2E email previews")
-    }
 
   it "rejects an absent or unparsable preview capture endpoint", ->
     const base = {
@@ -110,7 +109,7 @@ describe "E2E-only route fixtures", ->
         "/repo/test-results/e2e-runs/run_123/previews/auth",
     }
 
-    for (const endpoint of [undefined, "not a URL"]) {
+    for (const endpoint of [undefined, "not a URL"])
       expect(() => resolveE2eEmailPreviewOptions({
         ...base,
         ...(endpoint === undefined
@@ -119,4 +118,3 @@ describe "E2E-only route fixtures", ->
       })).toThrowError(
         "E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL",
       )
-    }

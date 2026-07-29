@@ -46,11 +46,10 @@ const email: EmailPort = {
   }),
 }
 
-const resetDatabase = async (): Promise<void> => {
+const resetDatabase = async (): Promise<void> =>
   await testDatabase.query(
     'TRUNCATE TABLE "audit_records", "outbox_events", "feature_items", "addresses", "verification", "session", "account", "profiles", "user_preferences", "user" CASCADE',
   )
-}
 
 const authRequest = (
   path: string,
@@ -62,16 +61,15 @@ const authRequest = (
     body: JSON.stringify(body),
   })
 
-const cookieFrom = (response: Response): string => {
+const cookieFrom = (response: Response): string =>
   const setCookie = response.headers.get("set-cookie")
   if (setCookie === null) throw new Error("Expected a session cookie")
   return setCookie.split(";", 1)[0]!
-}
 
 const createIdentity = async (
   emailAddress: string,
   role: "member" | "admin" = "member",
-): Promise<string> => {
+): Promise<string> =>
   const signUpRequest = authRequest("/sign-up/email", {
     name: `API ${role}`,
     email: emailAddress,
@@ -100,7 +98,6 @@ const createIdentity = async (
   await Promise.all(backgroundTasks)
   backgroundTasks = []
   return cookieFrom(signIn)
-}
 
 const apiClient = (
   cookie?: string,
@@ -111,7 +108,7 @@ const apiClient = (
 ): ApiClient =>
   createApiClient({
     baseUrl: BASE_URL,
-    fetch: async (request) => {
+    fetch: async (request) =>
       const headers = new Headers(request.headers)
       headers.set("origin", BASE_URL)
       if (cookie !== undefined) headers.set("cookie", cookie)
@@ -134,22 +131,19 @@ const apiClient = (
         ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
       })
       return handleApiRequest(authenticatedRequest, context)
-    },
   })
 
 const expectedError = async (
   operation: Promise<unknown>,
   code: string,
   status: number,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     await operation
-  } catch (error) {
+  catch (error)
     expect(error).toMatchObject({ code, status, defined: true })
     return
-  }
   throw new Error("Expected the API operation to fail")
-}
 
 describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
   beforeAll(async ->
@@ -170,9 +164,8 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
       baseURL: BASE_URL,
       trustedOrigins: [BASE_URL],
       email,
-      scheduleBackgroundTask: (task) => {
+      scheduleBackgroundTask: (task) =>
         backgroundTasks.push(task)
-      },
       rateLimitEnabled: false,
     })
     authHandler = createAuthHandler(auth)
@@ -181,11 +174,10 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
   )
 
   afterAll(async ->
-    try {
+    try
       if (databaseResource !== undefined) await databaseResource.close()
-    } finally {
+    finally
       if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
-    }
   , 60_000)
 
   it "runs owner-scoped lifecycle mutations through atomic audit and outbox writes", async ->
@@ -297,14 +289,13 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
 
     const events: SemanticEvent[] = []
     const semanticEvents: SemanticEventPort = {
-      emit: async (event) => {
+      emit: async (event) =>
         events.push(event)
         return {
           structuredEvent: "emitted",
           span: "skipped",
           analytics: "skipped",
         }
-      },
     }
     await expect(
       apiClient(memberCookie, {
@@ -413,14 +404,13 @@ describe.sequential "DF-045/051/061-064 real PostgreSQL API integration", ->
     const otherCookie = await createIdentity("account-other@domain.test")
     const events: SemanticEvent[] = []
     const semanticEvents: SemanticEventPort = {
-      emit: async (event) => {
+      emit: async (event) =>
         events.push(event)
         return {
           structuredEvent: "emitted",
           span: "skipped",
           analytics: "skipped",
         }
-      },
     }
     const member = apiClient(memberCookie, {
       semanticEvents,

@@ -29,13 +29,12 @@ export type DatabaseResource = Readonly<{
 const PLANETSCALE_HOST_PATTERN =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+psdb\.cloud$/u
 
-const normalizePlanetScaleSystemRoot = (connectionString: string): string => {
+const normalizePlanetScaleSystemRoot = (connectionString: string): string =>
   let connectionUrl: URL
-  try {
+  try
     connectionUrl = new URL(connectionString)
-  } catch {
+  catch
     return connectionString
-  }
 
   const protocolPrefix = `${connectionUrl.protocol}//`
   const queryIndex = connectionString.indexOf("?")
@@ -48,9 +47,8 @@ const normalizePlanetScaleSystemRoot = (connectionString: string): string => {
     queryIndex === -1 ||
     connectionString.includes("#") ||
     authorityEndOffset === -1
-  ) {
+  )
     return connectionString
-  }
 
   const authority = connectionString.slice(
     authorityStart,
@@ -79,20 +77,18 @@ const normalizePlanetScaleSystemRoot = (connectionString: string): string => {
     rawQueryParameters.lastIndexOf("sslrootcert=system") !== systemRootIndex ||
     rawQueryParameters.filter((parameter) => parameter === "sslmode=verify-full")
       .length !== 1
-  ) {
+  )
     return connectionString
-  }
 
   rawQueryParameters.splice(systemRootIndex, 1)
   return `${connectionString.slice(0, queryIndex + 1)}${rawQueryParameters.join("&")}`
-}
 
 const drizzleDatabase = (client: Pool | Client): Database =>
   drizzle({ client, schema })
 
 export const createNodeDatabase = (
   options: DatabaseOptions,
-): DatabaseResource => {
+): DatabaseResource =>
   const pool = new Pool({
     connectionString: normalizePlanetScaleSystemRoot(options.connectionString),
     ...(options.maxConnections === undefined
@@ -108,11 +104,9 @@ export const createNodeDatabase = (
 
   return {
     db: drizzleDatabase(pool),
-    close: async () => {
+    close: async () =>
       await pool.end();
-    },
   }
-}
 
 const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000
 const REQUEST_QUERY_TIMEOUT_MILLISECONDS = 10_000
@@ -120,12 +114,11 @@ const UNSAFE_REQUEST_CONNECTION_STRING_PATTERN = /[\u0000-\u001f]|\u0020$/u
 
 const assertSafeRequestConnectionString = (
   connectionString: string,
-): void => {
-  if (UNSAFE_REQUEST_CONNECTION_STRING_PATTERN.test(connectionString)) {
+): void =>
+  if (UNSAFE_REQUEST_CONNECTION_STRING_PATTERN.test(connectionString))
     throw new TypeError(
       "Request database connection strings cannot contain raw URL controls",
     )
-  }
 
   const queryStart = connectionString.indexOf("?")
   if (queryStart === -1) return
@@ -136,16 +129,14 @@ const assertSafeRequestConnectionString = (
   const queryParameters = new URLSearchParams(
     connectionString.slice(queryStart + 1, queryEnd),
   )
-  if (queryParameters.has("query_timeout")) {
+  if (queryParameters.has("query_timeout"))
     throw new TypeError(
       "Request database connection strings cannot set query_timeout",
     )
-  }
-}
 
 export const createRequestDatabase = async (
   options: RequestDatabaseOptions,
-): Promise<DatabaseResource> => {
+): Promise<DatabaseResource> =>
   assertSafeRequestConnectionString(options.connectionString)
   const client = new Client({
     connectionString: normalizePlanetScaleSystemRoot(options.connectionString),
@@ -155,20 +146,17 @@ export const createRequestDatabase = async (
     query_timeout: REQUEST_QUERY_TIMEOUT_MILLISECONDS,
   })
 
-  try {
+  try
     await client.connect()
-  } catch (error) {
+  catch error
     await client.end().catch(() => undefined)
     throw error
-  }
 
   return {
     db: drizzleDatabase(client),
-    close: async () => {
+    close: async () =>
       await client.end();
-    },
   }
-}
 
 
 export const withTransaction = async <Result>(

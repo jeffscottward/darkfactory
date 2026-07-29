@@ -11,20 +11,19 @@ describe "UI package boundaries", ->
       exports: Record<string, string | { types?: string }>
     }
 
-    const typedTargets = Object.values(manifest.exports).flatMap((exported) => {
-      if (typeof exported === "object" && typeof exported.types === "string") {
+    const typedTargets = Object.values(manifest.exports).flatMap((exported) =>
+      if (typeof exported === "object" && typeof exported.types === "string")
         return [exported.types]
-      }
       return []
-    })
+    )
 
     expect(typedTargets).toHaveLength(22)
     await Promise.all(
-      typedTargets.map(async (typesTarget) => {
+      typedTargets.map(async (typesTarget) =>
         await expect(
           access(new URL(`..${typesTarget.slice(1)}`, import.meta.url)),
         ).resolves.toBeUndefined()
-      }),
+      ),
     )
 
   it "publishes the semantic theme client boundary", async ->

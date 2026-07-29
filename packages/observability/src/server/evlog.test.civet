@@ -148,11 +148,10 @@ describe "evlog Worker runtime", ->
 
   it "trims service configuration, defaults to non-silent, and rejects blank names", async ->
     const { initializeEvlog } = await import("./evlog.civet")
-    for (const serviceName of ["", "   "]) {
+    for (const serviceName of ["", "   "])
       expect(() => initializeEvlog({ serviceName })).toThrow(
         "evlog Worker runtime configuration is invalid"
       )
-    }
     expect(workers.initWorkersLogger).not.toHaveBeenCalled()
 
     const runtime = initializeEvlog({

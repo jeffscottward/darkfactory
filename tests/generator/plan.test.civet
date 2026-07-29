@@ -15,11 +15,10 @@ import { createGeneratorFixture } from "./fixture.civet"
 
 const cleanups: Array<() => Promise<void>> = []
 
-const fixture = async () => {
+const fixture = async () =>
   const created = await createGeneratorFixture()
   cleanups.push(created.cleanup)
   return created
-}
 
 afterEach async ->
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
@@ -27,7 +26,7 @@ afterEach async ->
 const descriptor = (
   name = "order-item",
   migration = "0000_order_items",
-) => {
+) =>
   const names = validateFeatureName(name)
   return {
     name,
@@ -38,7 +37,6 @@ const descriptor = (
     docs: `docs/features/${names.kebab}.md`,
     graph: `apps/web/src/features/${names.kebab}/graphify.json`,
   }
-}
 
 const registry = (generated: unknown[] = []) => ({
   version: 1,
@@ -76,9 +74,8 @@ const parseRegistryValue = (value: unknown): unknown =>
 const parseJournalValue = (value: unknown): unknown =>
   generationPlanValidatorsForTest.parseJournal(JSON.stringify(value))
 
-const writeJson = async (path: string, value: unknown): Promise<void> => {
+const writeJson = async (path: string, value: unknown): Promise<void> =>
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8")
-}
 
 type Mutation = (value: any) => void
 
@@ -115,16 +112,36 @@ describe "generate-feature plan validators", ->
 
   it "rejects every malformed built-in registry field", ->
     const cases: Array<readonly [string, Mutation]> = [
-      ["version", (value) => { value.version = 2 }],
-      ["missing built-in", (value) => { value.builtIn = null }],
-      ["primitive built-in", (value) => { value.builtIn = "feature-item" }],
-      ["built-in keys", (value) => { value.builtIn.extra = true }],
-      ["name", (value) => { value.builtIn.name = "other" }],
-      ["route", (value) => { value.builtIn.route = "/other" }],
-      ["namespace", (value) => { value.builtIn.apiNamespace = "other" }],
-      ["table", (value) => { value.builtIn.table = "other" }],
-      ["status", (value) => { value.builtIn.status = "other" }],
-      ["generated collection", (value) => { value.generated = {} }],
+      ["version", (value) =>
+        value.version = 2
+      ],
+      ["missing built-in", (value) =>
+        value.builtIn = null
+      ],
+      ["primitive built-in", (value) =>
+        value.builtIn = "feature-item"
+      ],
+      ["built-in keys", (value) =>
+        value.builtIn.extra = true
+      ],
+      ["name", (value) =>
+        value.builtIn.name = "other"
+      ],
+      ["route", (value) =>
+        value.builtIn.route = "/other"
+      ],
+      ["namespace", (value) =>
+        value.builtIn.apiNamespace = "other"
+      ],
+      ["table", (value) =>
+        value.builtIn.table = "other"
+      ],
+      ["status", (value) =>
+        value.builtIn.status = "other"
+      ],
+      ["generated collection", (value) =>
+        value.generated = {}
+      ],
     ]
 
     for [label, mutate] of cases
@@ -136,33 +153,69 @@ describe "generate-feature plan validators", ->
 
   it "rejects every malformed generated feature descriptor field", ->
     const cases: Array<readonly [string, Mutation]> = [
-      ["missing descriptor", (value) => { value.generated[0] = null }],
-      ["primitive descriptor", (value) => { value.generated[0] = "order-item" }],
-      ["descriptor keys", (value) => { value.generated[0].extra = true }],
-      ["name type", (value) => { value.generated[0].name = 1 }],
-      ["route type", (value) => { value.generated[0].route = 1 }],
-      ["namespace type", (value) => { value.generated[0].apiNamespace = 1 }],
-      ["table type", (value) => { value.generated[0].table = 1 }],
-      ["migration type", (value) => { value.generated[0].migration = 1 }],
-      ["docs type", (value) => { value.generated[0].docs = 1 }],
-      ["graph type", (value) => { value.generated[0].graph = 1 }],
-      ["canonical name", (value) => { value.generated[0].name = "OrderItem" }],
-      ["route value", (value) => { value.generated[0].route = "/wrong" }],
-      ["namespace value", (value) => { value.generated[0].apiNamespace = "wrong" }],
-      ["table value", (value) => { value.generated[0].table = "wrong" }],
-      ["migration prefix", (value) => { value.generated[0].migration = "bad_order_items" }],
-      ["migration suffix", (value) => { value.generated[0].migration = "0000_wrong" }],
-      ["docs value", (value) => { value.generated[0].docs = "docs/features/wrong.md" }],
-      ["graph value", (value) => { value.generated[0].graph = "apps/web/src/features/wrong/graphify.json" }],
-      ["strict ordering", (value) => {
+      ["missing descriptor", (value) =>
+        value.generated[0] = null
+      ],
+      ["primitive descriptor", (value) =>
+        value.generated[0] = "order-item"
+      ],
+      ["descriptor keys", (value) =>
+        value.generated[0].extra = true
+      ],
+      ["name type", (value) =>
+        value.generated[0].name = 1
+      ],
+      ["route type", (value) =>
+        value.generated[0].route = 1
+      ],
+      ["namespace type", (value) =>
+        value.generated[0].apiNamespace = 1
+      ],
+      ["table type", (value) =>
+        value.generated[0].table = 1
+      ],
+      ["migration type", (value) =>
+        value.generated[0].migration = 1
+      ],
+      ["docs type", (value) =>
+        value.generated[0].docs = 1
+      ],
+      ["graph type", (value) =>
+        value.generated[0].graph = 1
+      ],
+      ["canonical name", (value) =>
+        value.generated[0].name = "OrderItem"
+      ],
+      ["route value", (value) =>
+        value.generated[0].route = "/wrong"
+      ],
+      ["namespace value", (value) =>
+        value.generated[0].apiNamespace = "wrong"
+      ],
+      ["table value", (value) =>
+        value.generated[0].table = "wrong"
+      ],
+      ["migration prefix", (value) =>
+        value.generated[0].migration = "bad_order_items"
+      ],
+      ["migration suffix", (value) =>
+        value.generated[0].migration = "0000_wrong"
+      ],
+      ["docs value", (value) =>
+        value.generated[0].docs = "docs/features/wrong.md"
+      ],
+      ["graph value", (value) =>
+        value.generated[0].graph = "apps/web/src/features/wrong/graphify.json"
+      ],
+      ["strict ordering", (value) =>
         value.generated = [
           descriptor("order-item", "0001_order_items"),
           descriptor("invoice-item", "0000_invoice_items"),
         ]
-      }],
-      ["duplicate name", (value) => {
+      ],
+      ["duplicate name", (value) =>
         value.generated = [descriptor(), descriptor()]
-      }],
+      ],
     ]
 
     for [label, mutate] of cases
@@ -193,9 +246,15 @@ describe "generate-feature plan validators", ->
       ).toThrowError("Migration journal is invalid")
 
     const cases: Array<readonly [string, Mutation]> = [
-      ["version", (value) => { value.version = "6" }],
-      ["dialect", (value) => { value.dialect = "sqlite" }],
-      ["entries", (value) => { value.entries = {} }],
+      ["version", (value) =>
+        value.version = "6"
+      ],
+      ["dialect", (value) =>
+        value.dialect = "sqlite"
+      ],
+      ["entries", (value) =>
+        value.entries = {}
+      ],
     ]
     for [label, mutate] of cases
       const value: any = journal()
@@ -206,21 +265,39 @@ describe "generate-feature plan validators", ->
 
   it "rejects every malformed migration journal entry field", ->
     const cases: Array<readonly [string, Mutation]> = [
-      ["missing entry", (value) => { value.entries[0] = null }],
-      ["primitive entry", (value) => { value.entries[0] = "entry" }],
-      ["entry keys", (value) => { value.entries[0].extra = true }],
-      ["index", (value) => { value.entries[0].idx = 1 }],
-      ["entry version", (value) => { value.entries[0].version = "6" }],
-      ["timestamp type", (value) => { value.entries[0].when = 1.5 }],
-      ["timestamp order", (value) => {
+      ["missing entry", (value) =>
+        value.entries[0] = null
+      ],
+      ["primitive entry", (value) =>
+        value.entries[0] = "entry"
+      ],
+      ["entry keys", (value) =>
+        value.entries[0].extra = true
+      ],
+      ["index", (value) =>
+        value.entries[0].idx = 1
+      ],
+      ["entry version", (value) =>
+        value.entries[0].version = "6"
+      ],
+      ["timestamp type", (value) =>
+        value.entries[0].when = 1.5
+      ],
+      ["timestamp order", (value) =>
         value.entries = [journalEntry(0, 10, "0000_first"), journalEntry(1, 10, "0001_second")]
-      }],
-      ["tag type", (value) => { value.entries[0].tag = 1 }],
-      ["tag shape", (value) => { value.entries[0].tag = "../escape" }],
-      ["duplicate tag", (value) => {
+      ],
+      ["tag type", (value) =>
+        value.entries[0].tag = 1
+      ],
+      ["tag shape", (value) =>
+        value.entries[0].tag = "../escape"
+      ],
+      ["duplicate tag", (value) =>
         value.entries = [journalEntry(0, 10, "same_tag"), journalEntry(1, 11, "same_tag")]
-      }],
-      ["breakpoints", (value) => { value.entries[0].breakpoints = "true" }],
+      ],
+      ["breakpoints", (value) =>
+        value.entries[0].breakpoints = "true"
+      ],
     ]
 
     for [label, mutate] of cases
@@ -336,9 +413,8 @@ describe "createGenerationPlan", ->
         generationPlanValidatorsForTest.compareCodeUnits,
       ),
     )
-    if (!descriptorFile || !journalFile) {
+    if (!descriptorFile || !journalFile)
       throw new Error("Expected generated registry replacements")
-    }
     expect(descriptorFile.content.indexOf('"invoice-item"')).toBeLessThan(
       descriptorFile.content.indexOf('"order-item"'),
     )

@@ -52,62 +52,58 @@ type QueryBuilder = {
   ) => Promise<unknown>
 }
 
-const createSeedDatabase = (configuredOutcomes: QueryOutcome[]) => {
+const createSeedDatabase = (configuredOutcomes: QueryOutcome[]) =>
   const outcomes = [...configuredOutcomes]
   const selects: QueryOperation[] = []
   const statements: unknown[] = []
   const lifecycle: string[] = []
 
   const transactionExecutor = {
-    select: vi.fn(() => {
+    select: vi.fn(() =>
       const operation: QueryOperation = {}
       selects.push(operation)
       let builder = {} as QueryBuilder
-      builder.from = vi.fn((table: unknown) => {
+      builder.from = vi.fn((table: unknown) =>
         operation.table = table === users
           ? "users"
           : table === accounts
             ? "accounts"
             : "unknown"
         return builder
-      })
-      builder.where = vi.fn((condition: unknown) => {
+      )
+      builder.where = vi.fn((condition: unknown) =>
         operation.where = condition
         return builder
-      })
-      builder.then = (onFulfilled, onRejected) => {
+      )
+      builder.then = (onFulfilled, onRejected) =>
         const outcome = outcomes.shift() ?? []
         const promise = outcome instanceof Error
           ? Promise.reject(outcome)
           : Promise.resolve(outcome)
         return promise.then(onFulfilled, onRejected)
-      }
       return builder
-    }),
-    execute: vi.fn(async (statement: unknown) => {
+    ),
+    execute: vi.fn(async (statement: unknown) =>
       statements.push(statement)
       return []
-    }),
+    ),
   } as unknown as Database
 
   const database = {
     transaction: vi.fn(
-      async (operation: (transaction: Database) => Promise<unknown>) => {
+      async (operation: (transaction: Database) => Promise<unknown>) =>
         lifecycle.push("begin")
-        try {
+        try
           const result = await operation(transactionExecutor)
           lifecycle.push("commit")
           return result
-        } catch (error) {
+        catch error
           lifecycle.push("rollback")
           throw error
-        }
-      },
     ),
   } as unknown as Database
 
   return { database, lifecycle, selects, statements, transactionExecutor }
-}
 
 const userRow = (
   persona: DevelopmentPersona,
@@ -140,12 +136,11 @@ const validInspection = (
   [credentialRow(persona)],
 ]
 
-const allExistingOutcomes = (): QueryRows[] => {
+const allExistingOutcomes = (): QueryRows[] =>
   const inspection = DEVELOPMENT_PERSONAS.flatMap((persona, index) =>
     validInspection(persona, index === 0)
   )
   return [...inspection, ...inspection]
-}
 
 const allCreatedOutcomes = (): QueryRows[] => [
   ...DEVELOPMENT_PERSONAS.flatMap(() => [[], []] as QueryRows[]),
@@ -155,11 +150,10 @@ const allCreatedOutcomes = (): QueryRows[] => [
 const queryParameters = (statement: unknown): unknown[] =>
   QUERY_DIALECT.sqlToQuery(statement as SQL).params
 
-const preparedIdentity = () => {
+const preparedIdentity = () =>
   const ensureIdentity = vi.fn<EnsureSeedIdentity>(async () => undefined)
   const prepareIdentity = vi.fn<PrepareSeedIdentities>(async () => ensureIdentity)
   return { ensureIdentity, prepareIdentity }
-}
 
 beforeEach ->
   convergence.profiles.mockReset()

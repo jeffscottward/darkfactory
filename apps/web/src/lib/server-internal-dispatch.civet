@@ -30,82 +30,74 @@ const abortReason = (signal: AbortSignal): unknown =>
 const dispatchWithAbort = (
   request: Request,
   handle: () => Promise<Response>,
-): Promise<Response> => {
+): Promise<Response> =>
   const signal = request.signal
   if (signal.aborted) return Promise.reject(abortReason(signal))
   const operation = handle()
 
-  return new Promise<Response>((resolve, reject) => {
+  return new Promise<Response>((resolve, reject) =>
     let settled = false
     let completion!: Promise<void>
-    const removeAbortListener = () => {
+    const removeAbortListener = () =>
       signal.removeEventListener("abort", abort)
-    }
-    const abort = () => {
+    const abort = () =>
       if (settled) return
       settled = true
       removeAbortListener()
-      try {
+      try
         waitUntil(completion)
-      } catch (_error) {
+      catch _error
         // The operation still has a rejection handler when scheduling is unavailable.
-      }
       reject(abortReason(signal))
-    }
     completion = operation.then(
-      (response) => {
+      (response) =>
         if (settled) return
         settled = true
         removeAbortListener()
         resolve(response)
-      },
-      (error: unknown) => {
+      ,
+      (error: unknown) =>
         if (settled) return
         settled = true
         removeAbortListener()
         reject(error)
-      },
+      ,
     )
     signal.addEventListener("abort", abort, { once: true })
     if (signal.aborted) abort()
-  })
-}
+  )
 
 export const dispatchInternalAuthRequest: typeof globalThis.fetch = async (
   input,
   init,
-) => {
+) =>
   const request = requestFrom(input, init)
   const url = new URL(request.url)
   if (request.method !== "GET"
     || url.pathname !== "/api/auth/get-session"
-    || !isConfiguredOrigin(url)) {
+    || !isConfiguredOrigin(url))
     throw new TypeError(
       "Internal auth dispatch requires GET /api/auth/get-session on the configured app origin",
     )
-  }
   return await dispatchWithAbort(
     request,
     () => handleAuthRequest(request, waitUntil),
   )
-}
 
 export const dispatchInternalOrpcRequest: typeof globalThis.fetch = async (
   input,
   init,
-) => {
+) =>
   const request = requestFrom(input, init)
   const url = new URL(request.url)
   if (!ORPC_METHODS.has(request.method)
     || !url.pathname.startsWith(ORPC_ROUTE_PREFIX)
     || url.pathname.length === ORPC_ROUTE_PREFIX.length
-    || !isConfiguredOrigin(url)) {
+    || !isConfiguredOrigin(url))
     throw new TypeError(
       "Internal oRPC dispatch requires a routed API request on the configured app origin",
     )
-  }
   return await dispatchWithAbort(
     request,
     () => handleOrpcRuntimeRequest(request, waitUntil),
   )
-}

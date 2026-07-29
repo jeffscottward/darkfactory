@@ -60,7 +60,7 @@ export interface AnalyticsPort {
 }
 
 export const createDisabledAnalyticsPort = (): AnalyticsPort => ({
-  capture: async (input) => {
+  capture: async (input) =>
     const snapshot = snapshotAnalyticsCapture(input)
     if (!snapshot) return invalidCaptureResult()
 
@@ -68,5 +68,4 @@ export const createDisabledAnalyticsPort = (): AnalyticsPort => ({
     if (consentReason) return { status: "skipped", reason: consentReason }
 
     return { status: "skipped", reason: "disabled" }
-  },
 })

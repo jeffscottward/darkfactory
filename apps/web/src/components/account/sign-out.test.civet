@@ -17,13 +17,12 @@ import {
   restoreSignOutFocusAfterCommit,
 } from "./sign-out-action.civet"
 
-const deferred = <Value>() => {
+const deferred = <Value>() =>
   let resolve: (value: Value) => void = () => undefined
-  const promise = new Promise<Value>((complete) => {
+  const promise = new Promise<Value>((complete) =>
     resolve = complete
-  })
+  )
   return { promise, resolve }
-}
 
 describe "current-session sign-out client boundary", ->
   it "uses the same-origin strict POST boundary and accepts only confirmed revocation", async ->
@@ -45,16 +44,15 @@ describe "current-session sign-out client boundary", ->
   it "delegates the browser singleton through global fetch", async ->
     const fetch = vi.fn().mockResolvedValue(Response.json({ success: true }))
     vi.stubGlobal("fetch", fetch)
-    try {
+    try
       await expect(browserCurrentSessionGateway.signOut()).resolves.toEqual({ ok: true })
       expect(fetch).toHaveBeenCalledWith(STRICT_SIGN_OUT_ENDPOINT, {
         credentials: "same-origin",
         headers: { accept: "application/json" },
         method: "POST",
       })
-    } finally {
+    finally
       vi.unstubAllGlobals()
-    }
 
   it.each([
     [Response.json({ success: false }, { status: 503 })],

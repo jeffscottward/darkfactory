@@ -15,14 +15,13 @@ import type {
 
 const MAX_OUTPUT_BYTES = 1_048_576
 const ALLOWED_ENV = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "PM2_HOME", "COREPACK_HOME", "DOCKER_HOST", "DOCKER_CONTEXT"] as const
-const minimalEnvironment = (additions: Readonly<Record<string, string>> = {}): NodeJS.ProcessEnv => {
+const minimalEnvironment = (additions: Readonly<Record<string, string>> = {}): NodeJS.ProcessEnv =>
   const environment: NodeJS.ProcessEnv = {}
   for (const name of ALLOWED_ENV) if (process.env[name]) environment[name] = process.env[name]
   return { ...environment, ...additions }
-}
 
 export const nodeDoctorProcess: DoctorProcess = Object.freeze({
-  run: (command, arguments_, options = {}) => new Promise((resolveCommand) => {
+  run: (command, arguments_, options = {}) => new Promise((resolveCommand) =>
     execFile(command, [...arguments_], {
       encoding: "utf8",
       env: minimalEnvironment(options.environment),
@@ -34,66 +33,68 @@ export const nodeDoctorProcess: DoctorProcess = Object.freeze({
       stdout: String(stdout ?? ""),
       stderr: String(stderr ?? ""),
     })))
-  }),
+  ),
 })
 
-const readBounded = async (path: string, maximumBytes = 262_144): Promise<string> => {
+const readBounded = async (path: string, maximumBytes = 262_144): Promise<string> =>
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-  try {
+  try
     const stats = await handle.stat()
     if (!stats.isFile() || stats.size > maximumBytes) throw new Error("Doctor file exceeds its bound")
     const chunks: Buffer[] = []
     let total = 0
-    while (true) {
+    while (true)
       const buffer = Buffer.allocUnsafe(Math.min(65_536, maximumBytes - total + 1))
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
       if (bytesRead === 0) break
       total += bytesRead
       if (total > maximumBytes) throw new Error("Doctor file exceeds its bound")
       chunks.push(buffer.subarray(0, bytesRead))
-    }
     return Buffer.concat(chunks, total).toString("utf8")
-  } finally {
+  finally
     await handle.close()
-  }
-}
 
 export const nodeDoctorFileSystem: DoctorFileSystem = Object.freeze({
-  exists: async (path) => {
-    try { await access(path); return true } catch { return false }
-  },
+  exists: async (path) =>
+    try
+      await access(path); return true
+    catch
+      return false
   readText: readBounded,
 })
 
-const readLivePid = async (pm2Home: string): Promise<number | null> => {
-  try {
+const readLivePid = async (pm2Home: string): Promise<number | null> =>
+  try
     const content = await readBounded(join(pm2Home, "pm2.pid"), 32)
     const pid = Number(content.trim())
     if (!Number.isSafeInteger(pid) || pid <= 0) return null
     process.kill(pid, 0)
     return pid
-  } catch { return null }
-}
-const socketIsLive = (path: string): Promise<boolean> => new Promise((resolveSocket) => {
+  catch
+    return null
+const socketIsLive = (path: string): Promise<boolean> => new Promise((resolveSocket) =>
   const socket = createConnection(path)
-  const timer = setTimeout(() => { socket.destroy(); resolveSocket(false) }, 500)
-  socket.once("connect", () => { clearTimeout(timer); socket.destroy(); resolveSocket(true) })
-  socket.once("error", () => { clearTimeout(timer); resolveSocket(false) })
-})
-const pm2DaemonIsLive = async (): Promise<boolean> => {
+  const timer = setTimeout(() =>
+    socket.destroy(); resolveSocket(false)
+  , 500)
+  socket.once("connect", () =>
+    clearTimeout(timer); socket.destroy(); resolveSocket(true)
+  )
+  socket.once("error", () =>
+    clearTimeout(timer); resolveSocket(false)
+  )
+)
+const pm2DaemonIsLive = async (): Promise<boolean> =>
   const pm2Home = process.env["PM2_HOME"] ?? join(homedir(), ".pm2")
   if (await readLivePid(pm2Home) === null) return false
   return socketIsLive(join(pm2Home, "rpc.sock"))
-}
 
-export const probeTrustedHttps = async (url: string): Promise<HttpsProbeResult> => {
-  try {
+export const probeTrustedHttps = async (url: string): Promise<HttpsProbeResult> =>
+  try
     const response = await fetch(url, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(5_000) })
     return Object.freeze({ ok: response.status >= 200 && response.status < 400, status: response.status })
-  } catch {
+  catch
     return Object.freeze({ ok: false, error: "unavailable" })
-  }
-}
 
 type DoctorRuntime = Readonly<{
   cwd: () => string
@@ -109,10 +110,9 @@ export const nodeDoctorDependencies = (
   nodeVersion: runtime.versions.node,
   workingDirectory: runtime.cwd(),
   pm2DaemonAvailable: pm2DaemonIsLive,
-  environmentHas: (name: string) => {
+  environmentHas: (name: string) =>
     const value = process.env[name]
     return typeof value === "string" && value.length > 0
-  },
   process: nodeDoctorProcess,
   files: nodeDoctorFileSystem,
   probeHttps: probeTrustedHttps,

@@ -7,18 +7,17 @@ import PublicLoading from "../loading.civet"
 
 const recoveryMarker = "darkfactory:e2e:public-error-recovered"
 
-export const RecoverableErrorFixture = () => {
+export const RecoverableErrorFixture = () =>
   const [phase, setPhase] = useState<"checking" | "recovered" | "throw">("checking")
 
-  useEffect(() => {
-    if (window.sessionStorage.getItem(recoveryMarker) === "1") {
+  useEffect(() =>
+    if (window.sessionStorage.getItem(recoveryMarker) === "1")
       setPhase("recovered")
       return undefined
-    }
     window.sessionStorage.setItem(recoveryMarker, "1")
     setPhase("throw")
     return undefined
-  }, [])
+  , [])
 
   if (phase === "checking") return <PublicLoading />
   if (phase === "throw") throw new Error("E2E recoverable public error fixture")
@@ -31,7 +30,4 @@ export const RecoverableErrorFixture = () => {
     >
       <p className="py-16 text-base leading-7 text-muted-foreground">
         Recovery completed without submitting data or changing an account.
-      </p>
-    </PublicPage>
   )
-}

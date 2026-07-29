@@ -26,8 +26,8 @@ const manifests = [{
   }),
 }]
 
-describe("Civet-aware Graphify corpus", () => {
-  it("derives exact longest-first workspace aliases and rejects traversal", () => {
+describe("Civet-aware Graphify corpus", () =>
+  it("derives exact longest-first workspace aliases and rejects traversal", () =>
     const aliases = deriveWorkspaceAliases(manifests)
     expect([...aliases]).toEqual([
       ["@darkfactory/api", "packages/api/src/index.civet"],
@@ -39,9 +39,9 @@ describe("Civet-aware Graphify corpus", () => {
       directory: "packages/api",
       source: JSON.stringify({ name: "@darkfactory/api", exports: { ".": "./../outside.civet" } }),
     }])).toThrow(/escapes/i)
-  })
+  )
 
-  it("rewrites only exact quoted aliases and rejects unknown workspace aliases", () => {
+  it("rewrites only exact quoted aliases and rejects unknown workspace aliases", () =>
     const aliases = deriveWorkspaceAliases(manifests)
     const rewritten = rewriteWorkspaceAliases(
       "apps/web/src/route.tsx",
@@ -55,9 +55,9 @@ describe("Civet-aware Graphify corpus", () => {
       'import x from "@darkfactory/unknown"',
       aliases,
     )).toThrow(/unknown workspace alias/i)
-  })
+  )
 
-  it("compiles UTF-8 Civet without executing it and rewrites Civet imports", async () => {
+  it("compiles UTF-8 Civet without executing it and rewrites Civet imports", async () =>
     const compiled = await compileCivetSnapshot(
       "packages/api/src/example.civet",
       'import { db } from "@darkfactory/db/server"\nexport const label = "café"',
@@ -66,9 +66,9 @@ describe("Civet-aware Graphify corpus", () => {
     expect(compiled.path).toBe("packages/api/src/example.tsx")
     expect(compiled.content).toContain("café")
     expect(compiled.content).toContain("../../db/src/server/index.tsx")
-  })
+  )
 
-  it("rejects generated declarations and compiler errors", async () => {
+  it("rejects generated declarations and compiler errors", async () =>
     await expect(compileCivetSnapshot(
       "packages/api/src/index.civet.d.ts",
       "export {}",
@@ -79,9 +79,9 @@ describe("Civet-aware Graphify corpus", () => {
       "const =",
       new Map(),
     )).rejects.toThrow()
-  })
+  )
 
-  it("selects supported conditional Civet exports and ignores unrelated manifests", () => {
+  it("selects supported conditional Civet exports and ignores unrelated manifests", () =>
     const aliases = deriveWorkspaceAliases([
       { directory: "packages/null", source: "null" },
       {
@@ -120,9 +120,9 @@ describe("Civet-aware Graphify corpus", () => {
       ["@darkfactory/worker", "packages/worker/src/worker.civet"],
       ["@darkfactory/worker/fallback", "packages/worker/src/fallback.civet"],
     ])
-  })
+  )
 
-  it("rejects malformed manifests, unsafe export declarations, and duplicate aliases", () => {
+  it("rejects malformed manifests, unsafe export declarations, and duplicate aliases", () =>
     expect(() => deriveWorkspaceAliases([{
       directory: "packages/api",
       source: "{",
@@ -135,7 +135,7 @@ describe("Civet-aware Graphify corpus", () => {
       }),
     }])).toThrow(/unsafe workspace export subpath/i)
 
-    for (const target of ["./src\\index.civet", "./../outside.civet"]) {
+    for (const target of ["./src\\index.civet", "./../outside.civet"])
       expect(() => deriveWorkspaceAliases([{
         directory: "packages/api",
         source: JSON.stringify({
@@ -143,7 +143,6 @@ describe("Civet-aware Graphify corpus", () => {
           exports: { ".": target },
         }),
       }])).toThrow(/unsafe|escapes/i)
-    }
 
     expect(() => deriveWorkspaceAliases([
       {
@@ -161,9 +160,9 @@ describe("Civet-aware Graphify corpus", () => {
         }),
       },
     ])).toThrow(/duplicate workspace alias/i)
-  })
+  )
 
-  it("rewrites export, dynamic import, and require specifiers without touching ordinary strings", () => {
+  it("rewrites export, dynamic import, and require specifiers without touching ordinary strings", () =>
     const aliases = deriveWorkspaceAliases(manifests)
     const rewritten = rewriteWorkspaceAliases(
       "apps/web/src/route.tsx",
@@ -190,5 +189,5 @@ describe("Civet-aware Graphify corpus", () => {
       'import value from "@darkfactory/local"',
       new Map([["@darkfactory/local", "packages/api/src/index.civet"]]),
     )).toContain('from "./index.tsx"')
-  })
-})
+  )
+)

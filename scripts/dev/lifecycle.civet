@@ -98,17 +98,15 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 export const parsePm2ProcessList = (
   source: string,
   expectedWorkingDirectory: string,
-): Readonly<{ status: ProcessStatus; processId?: number }> => {
-  if (Buffer.byteLength(source, "utf8") > MAX_COMMAND_OUTPUT_BYTES) {
+): Readonly<{ status: ProcessStatus; processId?: number }> =>
+  if (Buffer.byteLength(source, "utf8") > MAX_COMMAND_OUTPUT_BYTES)
     throw new Error("PM2 status output is too large")
-  }
 
   let parsed: unknown
-  try {
+  try
     parsed = JSON.parse(source)
-  } catch {
+  catch
     throw new Error("PM2 status output is malformed")
-  }
   if (!Array.isArray(parsed)) throw new Error("PM2 status output must be a process list")
 
   const matches = parsed.filter((entry) => asRecord(entry)?.["name"] === PROCESS_NAME)
@@ -141,19 +139,16 @@ export const parsePm2ProcessList = (
   if (
     environment?.[PM2_ENVIRONMENT_VERSION_KEY] !== PM2_ENVIRONMENT_VERSION ||
     SENSITIVE_PROCESS_ENVIRONMENT_KEYS.some((key) => Object.hasOwn(environment, key))
-  ) {
+  )
     return Object.freeze({ status: "stale", processId: processId as number })
-  }
   const status = environment?.["status"]
-  if (status === "online" || status === "stopped" || status === "errored") {
+  if (status === "online" || status === "stopped" || status === "errored")
     return Object.freeze({ status, processId: processId as number })
-  }
   return Object.freeze({ status: "unknown", processId: processId as number })
-}
 
 const containsExactCanonicalUrl = (source: string): boolean =>
-  source.split(/\s+/).some((value) => {
-    try {
+  source.split(/\s+/).some((value) =>
+    try
       const route = new URL(value)
       return route.protocol === "https:" &&
         route.hostname === `${ROUTE_NAME}.localhost` &&
@@ -163,18 +158,17 @@ const containsExactCanonicalUrl = (source: string): boolean =>
         route.hash === "" &&
         route.username === "" &&
         route.password === ""
-    } catch {
+    catch
       return false
-    }
-  })
+  )
 
 export const isCanonicalRouteOutput = (result: CommandResult): boolean =>
   result.exitCode === 0 && containsExactCanonicalUrl(result.stdout)
 
 export const inspectDevelopmentState = async (
   process: ProcessAdapter,
-): Promise<DevelopmentReport> => {
-  if (!await process.pm2DaemonAvailable()) {
+): Promise<DevelopmentReport> =>
+  if (!await process.pm2DaemonAvailable())
     return Object.freeze({
       action: "status",
       ok: false,
@@ -184,34 +178,31 @@ export const inspectDevelopmentState = async (
       canonicalUrl: CANONICAL_URL,
       reason: `${PROCESS_NAME} is absent`,
     })
-  }
 
   const pm2 = await process.run("pm2", ["jlist"], {
     ...commandOptions,
     environment: { PM2_SILENT: "true" },
   })
-  if (pm2.exitCode !== 0) {
+  if (pm2.exitCode !== 0)
     return Object.freeze({
       action: "status",
       ok: false,
       changed: false,
       reason: "PM2 status inspection failed",
     })
-  }
 
   let parsed: Readonly<{ status: ProcessStatus; processId?: number }>
-  try {
+  try
     parsed = parsePm2ProcessList(pm2.stdout, process.workingDirectory)
-  } catch (error) {
+  catch (error)
     return Object.freeze({
       action: "status",
       ok: false,
       changed: false,
       reason: error instanceof Error ? error.message : "PM2 status inspection failed",
     })
-  }
 
-  if (parsed.status !== "online") {
+  if (parsed.status !== "online")
     return Object.freeze({
       action: "status",
       ok: false,
@@ -224,7 +215,6 @@ export const inspectDevelopmentState = async (
         ? `${PROCESS_NAME} is absent`
         : `${PROCESS_NAME} is ${parsed.status}`,
     })
-  }
 
   const routes = await process.run("portless", ["list"], commandOptions)
   const route = await process.run("portless", ["get", ROUTE_NAME], commandOptions)
@@ -243,7 +233,6 @@ export const inspectDevelopmentState = async (
       ? `${PROCESS_NAME} is online at ${CANONICAL_URL}`
       : `${PROCESS_NAME} is online but its portless route is unhealthy`,
   })
-}
 
 const runSimpleAction = async (
   action: DevelopmentAction,
@@ -252,7 +241,7 @@ const runSimpleAction = async (
   arguments_: readonly string[],
   success: string,
   options: CommandOptions = commandOptions,
-): Promise<DevelopmentReport> => {
+): Promise<DevelopmentReport> =>
   const result = await process.runInteractive(command, arguments_, options)
   return Object.freeze({
     action,
@@ -260,13 +249,11 @@ const runSimpleAction = async (
     changed: result.exitCode === 0,
     reason: result.exitCode === 0 ? success : `${action} failed`,
   })
-}
 
-const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | null> => {
+const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | null> =>
   const routes = await process.run("portless", ["list"], commandOptions)
-  if (/https:\/\/[^\s]+\.localhost:\d+/i.test(routes.stdout)) {
+  if (/https:\/\/[^\s]+\.localhost:\d+/i.test(routes.stdout))
     return "A noncanonical portless proxy is active; stop it and run dev:trust before retrying"
-  }
   const proxy = await process.runInteractive("portless", ["proxy", "start", "-p", "443"], {
     ...commandOptions,
     timeoutMs: 120_000,
@@ -275,33 +262,30 @@ const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | n
   return proxy.exitCode === 0
     ? null
     : "Canonical HTTPS proxy failed; run bun run dev:trust and retry"
-}
 
-const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
+const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> =>
   let initial = await inspectDevelopmentState(process)
   let replacedStaleProcess = false
-  if (initial.processStatus === "stale" && initial.processId !== undefined) {
+  if (initial.processStatus === "stale" && initial.processId !== undefined)
     const deleted = await process.run(
       "pm2",
       ["delete", String(initial.processId)],
       commandOptions,
     )
-    if (deleted.exitCode !== 0) {
+    if (deleted.exitCode !== 0)
       return Object.freeze({
         ...initial,
         action: "start",
         reason: `PM2 could not remove stale ${PROCESS_NAME}`,
       })
-    }
     const cleaned = await process.run("pm2", ["save"], commandOptions)
-    if (cleaned.exitCode !== 0) {
+    if (cleaned.exitCode !== 0)
       return Object.freeze({
         ...initial,
         action: "start",
         changed: true,
         reason: `PM2 removed stale ${PROCESS_NAME} but could not save its process list`,
       })
-    }
     replacedStaleProcess = true
     initial = Object.freeze({
       action: "status",
@@ -312,16 +296,13 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       canonicalUrl: CANONICAL_URL,
       reason: `${PROCESS_NAME} stale process environment was removed`,
     })
-  }
-  if (initial.processStatus === "online") {
+  if (initial.processStatus === "online")
     return Object.freeze({ ...initial, action: "start" })
-  }
-  if (initial.processStatus !== "absent" && initial.processStatus !== "stopped") {
+  if (initial.processStatus !== "absent" && initial.processStatus !== "stopped")
     return Object.freeze({ ...initial, action: "start" })
-  }
 
   const proxyFailure = await ensureCanonicalProxy(process)
-  if (proxyFailure) {
+  if (proxyFailure)
     return Object.freeze({
       action: "start",
       ok: false,
@@ -331,7 +312,6 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       canonicalUrl: CANONICAL_URL,
       reason: proxyFailure,
     })
-  }
 
   const startArguments = initial.processStatus === "absent"
     ? ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"]
@@ -344,7 +324,7 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
     },
   })
-  if (started.exitCode !== 0) {
+  if (started.exitCode !== 0)
     return Object.freeze({
       action: "start",
       ok: false,
@@ -354,37 +334,33 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       canonicalUrl: CANONICAL_URL,
       reason: `PM2 could not start ${PROCESS_NAME}`,
     })
-  }
 
   const saved = await process.run("pm2", ["save"], commandOptions)
-  if (saved.exitCode !== 0) {
+  if (saved.exitCode !== 0)
     return Object.freeze({
       action: "start",
       ok: false,
       changed: true,
       reason: "PM2 started the process but could not save its process list",
     })
-  }
 
   const current = await inspectDevelopmentState(process)
   return Object.freeze({ ...current, action: "start", changed: true })
-}
 
-const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
+const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> =>
   const current = await inspectDevelopmentState(process)
-  if (current.processStatus === "stale" && current.processId !== undefined) {
+  if (current.processStatus === "stale" && current.processId !== undefined)
     const deleted = await process.run(
       "pm2",
       ["delete", String(current.processId)],
       commandOptions,
     )
-    if (deleted.exitCode !== 0) {
+    if (deleted.exitCode !== 0)
       return Object.freeze({
         ...current,
         action: "stop",
         reason: `PM2 could not remove stale ${PROCESS_NAME}`,
       })
-    }
     const saved = await process.run("pm2", ["save"], commandOptions)
     return Object.freeze({
       action: "stop",
@@ -395,8 +371,7 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
         ? `${PROCESS_NAME} stale process environment removed and PM2 state saved`
         : `${PROCESS_NAME} stale process environment removed but PM2 state could not be saved`,
     })
-  }
-  if (current.processStatus === "absent" || current.processStatus === "stopped") {
+  if (current.processStatus === "absent" || current.processStatus === "stopped")
     return Object.freeze({
       action: "stop",
       ok: true,
@@ -404,19 +379,16 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
       processStatus: current.processStatus,
       reason: `${PROCESS_NAME} is already stopped`,
     })
-  }
-  if (current.processStatus !== "online" || current.processId === undefined) {
+  if (current.processStatus !== "online" || current.processId === undefined)
     return Object.freeze({ ...current, action: "stop" })
-  }
   const stopped = await process.run("pm2", ["stop", String(current.processId)], commandOptions)
-  if (stopped.exitCode !== 0) {
+  if (stopped.exitCode !== 0)
     return Object.freeze({
       action: "stop",
       ok: false,
       changed: false,
       reason: `${PROCESS_NAME} could not be stopped`,
     })
-  }
   const saved = await process.run("pm2", ["save"], commandOptions)
   return Object.freeze({
     action: "stop",
@@ -426,13 +398,11 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
       ? `${PROCESS_NAME} stopped and PM2 state saved`
       : `${PROCESS_NAME} stopped but PM2 state could not be saved`,
   })
-}
 
-const readDevelopmentLogs = async (process: ProcessAdapter): Promise<DevelopmentReport> => {
+const readDevelopmentLogs = async (process: ProcessAdapter): Promise<DevelopmentReport> =>
   const current = await inspectDevelopmentState(process)
-  if (current.processStatus !== "online" || current.processId === undefined) {
+  if (current.processStatus !== "online" || current.processId === undefined)
     return Object.freeze({ ...current, action: "logs" })
-  }
   const logs = await process.run(
     "pm2",
     ["logs", String(current.processId), "--lines", "200", "--nostream"],
@@ -447,18 +417,17 @@ const readDevelopmentLogs = async (process: ProcessAdapter): Promise<Development
     ...(logs.exitCode === 0 ? { output: logs.stdout } : {}),
     reason: logs.exitCode === 0 ? `Read logs for ${PROCESS_NAME}` : "logs failed",
   })
-}
 
 export const runDevelopmentAction = async (
   action: DevelopmentAction,
   process: ProcessAdapter,
   files?: LifecycleFileSystem,
-): Promise<DevelopmentReport> => {
+): Promise<DevelopmentReport> =>
   if (action === "start") return startDevelopment(process)
   if (action === "status") return inspectDevelopmentState(process)
   if (action === "stop") return stopDevelopment(process)
   if (action === "logs") return readDevelopmentLogs(process)
-  if (action === "trust") {
+  if (action === "trust")
     return runSimpleAction(
       action,
       process,
@@ -467,19 +436,16 @@ export const runDevelopmentAction = async (
       "portless trust configured",
       { ...commandOptions, environment: { PORTLESS_PORT: "443" } },
     )
-  }
-  if (action === "certs-install") {
+  if (action === "certs-install")
     return runSimpleAction(action, process, "mkcert", ["-install"], "mkcert fallback trust configured")
-  }
 
-  if (!files) {
+  if (!files)
     return Object.freeze({
       action,
       ok: false,
       changed: false,
       reason: "Certificate filesystem adapter is unavailable",
     })
-  }
   const prepared = await files.prepareCertificateOutputs(".certs", [
     ".certs/localhost.pem",
     ".certs/localhost-key.pem",
@@ -498,10 +464,9 @@ export const runDevelopmentAction = async (
     ],
     commandOptions,
   )
-  if (generated.exitCode !== 0) {
+  if (generated.exitCode !== 0)
     await prepared.cleanup()
     return Object.freeze({ action, ok: false, changed: false, reason: "certs-generate failed" })
-  }
   await prepared.commit()
   return Object.freeze({
     action,
@@ -509,4 +474,3 @@ export const runDevelopmentAction = async (
     changed: true,
     reason: "mkcert fallback certificates generated",
   })
-}

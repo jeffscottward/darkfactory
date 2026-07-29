@@ -24,12 +24,11 @@ const execFileAsync = promisify(execFile)
 const CIVET_REGISTER_DEPRECATION =
   /\(node:\d+\) \[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated\. Use `module\.registerHooks\(\)` instead\.\n(?:\(Use `node --trace-deprecation \.\.\.` to show where the warning was created\)\n)?/g
 
-const expectNoUnexpectedStderr = (stderr: string): void => {
+const expectNoUnexpectedStderr = (stderr: string): void =>
   const unexpected = stderr
     .replace(CIVET_REGISTER_DEPRECATION, "")
     .replace(/\s/gu, "")
   expect(JSON.stringify(unexpected)).toBe('""')
-}
 const TABLES = [
   "session",
   "account",
@@ -55,38 +54,33 @@ const prepareIdentity: PrepareSeedIdentities = async (identities) =>
     trustedOrigins: [BASE_URL],
   }, identities)
 
-const countFrom = (rows: readonly { count: string }[]): number => {
+const countFrom = (rows: readonly { count: string }[]): number =>
   const row = rows[0]
   if (!row) throw new Error("Count query returned no rows")
   return Number(row.count)
-}
 
-const tableCounts = async (): Promise<Record<string, number>> => {
+const tableCounts = async (): Promise<Record<string, number>> =>
   const entries: [string, number][] = []
-  for (const table of TABLES) {
+  for (const table of TABLES)
     const rows = await testDatabase.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM "${table}"`,
     )
     entries.push([table, countFrom(rows)])
-  }
   return Object.fromEntries(entries)
-}
 
-const migrationCount = async (): Promise<number> => {
+const migrationCount = async (): Promise<number> =>
   const rows = await testDatabase.query<{ count: string }>(
     "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
   )
   return countFrom(rows)
-}
 
-const seed = async (): Promise<void> => {
+const seed = async (): Promise<void> =>
   await seedDevelopment(databaseResource.db, {
     environment: "test",
     prepareIdentity,
   })
-}
 
-const populateSessionAndVerification = async (): Promise<void> => {
+const populateSessionAndVerification = async (): Promise<void> =>
   await testDatabase.query(
     `INSERT INTO "session" (id, expires_at, token, created_at, updated_at, user_id)
      VALUES ($1, now() + interval '1 hour', $2, now(), now(), $3)`,
@@ -105,13 +99,12 @@ const populateSessionAndVerification = async (): Promise<void> => {
       "opaque-test-value",
     ],
   )
-}
 
 const runCli = async (
   command: "seed" | "reset",
   appEnvironment: string | null = "test",
   confirmationEnvironment: "development" | "test" | null = null,
-) => {
+) =>
   const { APP_ENV: _inheritedAppEnvironment, ...parentEnvironment } = process.env
   return execFileAsync(
     "corepack",
@@ -140,31 +133,29 @@ const runCli = async (
       timeout: 30_000,
     },
   )
-}
 
 describe.sequential "DF-040 development database lifecycle", ->
-  beforeAll(async () => {
+  beforeAll(async () =>
     testDatabase = await createPostgresTestDatabase()
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
       maxConnections: 4,
     })
     await migrate(databaseResource.db)
-  }, 60_000)
+  , 60_000)
 
-  beforeEach(async () => {
+  beforeEach(async () =>
     await resetDevelopment(databaseResource.db, { environment: "test" })
-  })
+  )
 
-  afterAll(async () => {
-    try {
+  afterAll(async () =>
+    try
       if (databaseResource !== undefined) await databaseResource.close()
-    } finally {
+    finally
       if (testDatabase !== undefined) await dropPostgresTestDatabase(testDatabase)
-    }
-  }, 60_000)
+  , 60_000)
 
-  it("rejects unsafe reset environments before mutation, explicitly clears all ten tables, preserves the journal, and reseeds", async () => {
+  it("rejects unsafe reset environments before mutation, explicitly clears all ten tables, preserves the journal, and reseeds", async () =>
     await seed()
     await populateSessionAndVerification()
 
@@ -173,13 +164,12 @@ describe.sequential "DF-040 development database lifecycle", ->
     const journalBefore = await migrationCount()
     expect(journalBefore).toBeGreaterThan(0)
 
-    for (const environment of ["production", "staging", "", undefined]) {
+    for (const environment of ["production", "staging", "", undefined])
       await expect(resetDevelopment(databaseResource.db, {
         environment: environment as never,
       })).rejects.toThrow(/development or test/i)
       expect(await tableCounts()).toEqual(populated)
       expect(await migrationCount()).toBe(journalBefore)
-    }
 
     await expect(resetDevelopment(databaseResource.db, {
       environment: "test",
@@ -204,9 +194,9 @@ describe.sequential "DF-040 development database lifecycle", ->
       verification: 0,
     })
     expect(await migrationCount()).toBe(journalBefore)
-  }, 60_000)
+  , 60_000)
 
-  it("requires out-of-band confirmation and runs seed and reset as rerunnable secret-safe CLI commands", async () => {
+  it("requires out-of-band confirmation and runs seed and reset as rerunnable secret-safe CLI commands", async () =>
     const firstSeed = await runCli("seed", "test", "test")
     expect(JSON.parse(firstSeed.stdout)).toEqual({
       identitiesCreated: 3,
@@ -229,12 +219,11 @@ describe.sequential "DF-040 development database lifecycle", ->
       ["reset", ""],
       ["seed", "staging"],
       ["reset", "production"],
-    ] as const) {
+    ] as const)
       await expect(runCli(command, environment)).rejects.toMatchObject({
         stderr: expect.stringContaining("APP_ENV must be explicitly set"),
       })
       expect(await tableCounts()).toEqual(populated)
-    }
     expectNoUnexpectedStderr(firstSeed.stderr)
 
     const secondSeed = await runCli("seed", "test", "test")
@@ -251,4 +240,4 @@ describe.sequential "DF-040 development database lifecycle", ->
     expect(await tableCounts()).toEqual(Object.fromEntries(
       TABLES.map((table) => [table, 0]),
     ))
-  }, 60_000)
+  , 60_000)

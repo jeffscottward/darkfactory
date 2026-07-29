@@ -11,7 +11,7 @@ export const INDETERMINATE_THEME = Symbol("indeterminate-theme")
 
 const parseTrustedPreference = (
   value: unknown,
-): Readonly<AnonymousThemePreference> | null => {
+): Readonly<AnonymousThemePreference> | null =>
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   const keys = Object.keys(record)
@@ -36,7 +36,6 @@ const parseTrustedPreference = (
     themeMode: themeMode as AnonymousThemePreference["themeMode"],
     palette: palette as AnonymousThemePreference["palette"],
   }
-}
 
 export interface ResolvedRequestTheme {
   readonly authority: "indeterminate" | "anonymous" | "trusted"
@@ -50,27 +49,24 @@ export const resolveRequestTheme = async ({
 }: {
   readonly cookieHeader: unknown
   readonly loadTrustedPreference?: TrustedThemePreferenceLoader
-}): Promise<ResolvedRequestTheme> => {
+}): Promise<ResolvedRequestTheme> =>
   const trustedPreference = await loadTrustedPreference()
   const cookie = parseThemeCookieHeader(cookieHeader)
-  if (trustedPreference === INDETERMINATE_THEME) {
+  if (trustedPreference === INDETERMINATE_THEME)
     return {
       authority: "indeterminate",
       cookie,
       preference: DEFAULT_ANONYMOUS_THEME,
     }
-  }
-  if (trustedPreference !== undefined) {
+  if (trustedPreference !== undefined)
     return {
       authority: "trusted",
       cookie,
       preference: parseTrustedPreference(trustedPreference)
         ?? DEFAULT_ANONYMOUS_THEME,
     }
-  }
   return {
     authority: "anonymous",
     cookie,
     preference: cookie.status === "valid" ? cookie.preference : DEFAULT_ANONYMOUS_THEME,
   }
-}

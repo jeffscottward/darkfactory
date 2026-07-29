@@ -19,7 +19,7 @@ import {
 
 export const metadata = { title: "Dashboard" }
 
-const isDefinedUnauthorized = (error: unknown): boolean => {
+const isDefinedUnauthorized = (error: unknown): boolean =>
   if (typeof error !== "object" || error === null) return false
   const failure = error as Record<string, unknown>
   return (
@@ -27,37 +27,33 @@ const isDefinedUnauthorized = (error: unknown): boolean => {
     && failure["code"] === "UNAUTHORIZED"
     && failure["status"] === 401
   )
-}
 
 
 export const loadDashboardSummaryState = async (
   cookieHeader: string | null,
   fetcher: DashboardTransportFetch = globalThis.fetch,
   timeoutMs?: number,
-): Promise<DashboardSummaryState> => {
-  try {
+): Promise<DashboardSummaryState> =>
+  try
     const appUrl = resolvePortalAppUrl()
     const client = createApiClient({
       baseUrl: appUrl,
       fetch: createAuthenticatedDashboardFetch(cookieHeader, appUrl.origin, fetcher, timeoutMs),
     })
     return { type: "ready", summary: await client.dashboard.summary({}) }
-  } catch (error) {
+  catch error
     return isDefinedUnauthorized(error)
       ? { type: "unauthorized" }
       : { type: "error" }
-  }
-}
 
-export default async function DashboardPage() {
+export default async function DashboardPage()
   const requestHeaders = await headers()
   const summaryState = await loadDashboardSummaryState(
     requestHeaders.get("cookie"),
     dispatchInternalOrpcRequest,
   )
-  if (summaryState.type === "unauthorized") {
+  if (summaryState.type === "unauthorized")
     redirect(portalSignInHref(requestHeaders))
-  }
 
   return (
     <div className="space-y-10">
@@ -67,6 +63,4 @@ export default async function DashboardPage() {
         title="Dashboard"
       />
       <DashboardContent summaryState={summaryState} />
-    </div>
   )
-}

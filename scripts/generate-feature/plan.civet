@@ -47,8 +47,8 @@ const REGISTRY_PATHS = Object.freeze({
 const hasExactKeys = (value: object, keys: readonly string[]): boolean =>
   JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort())
 
-const parseRegistry = (content: string): FeatureRegistry => {
-  try {
+const parseRegistry = (content: string): FeatureRegistry =>
+  try
     const value = JSON.parse(content) as unknown
     if (!value || typeof value !== "object" || !hasExactKeys(value, ["version", "builtIn", "generated"]))
       throw new Error("invalid registry")
@@ -66,7 +66,7 @@ const parseRegistry = (content: string): FeatureRegistry => {
     ) throw new Error("invalid registry")
 
     let previous = ""
-    for (const feature of candidate.generated) {
+    for (const feature of candidate.generated)
       if (
         !feature || typeof feature !== "object" ||
         !hasExactKeys(feature, ["name", "route", "apiNamespace", "table", "migration", "docs", "graph"]) ||
@@ -90,12 +90,9 @@ const parseRegistry = (content: string): FeatureRegistry => {
         feature.graph !== `apps/web/src/features/${names.kebab}/graphify.json`
       ) throw new Error("invalid feature descriptor")
       previous = feature.name
-    }
     return candidate
-  } catch (error) {
+  catch (error)
     throw new GeneratorError("PLAN_INVALID", "Feature registry is invalid", { cause: error })
-  }
-}
 
 type MigrationJournal = Readonly<{
   version: "7"
@@ -109,8 +106,8 @@ type MigrationJournal = Readonly<{
   }>>
 }>
 
-const parseJournal = (content: string): MigrationJournal => {
-  try {
+const parseJournal = (content: string): MigrationJournal =>
+  try
     const value = JSON.parse(content) as unknown
     if (!value || typeof value !== "object" || !hasExactKeys(value, ["version", "dialect", "entries"]))
       throw new Error("invalid journal")
@@ -119,7 +116,7 @@ const parseJournal = (content: string): MigrationJournal => {
       throw new Error("invalid journal")
     let previousWhen = -1
     const tags = new Set<string>()
-    for (const [index, entry] of journal.entries.entries()) {
+    for (const [index, entry] of journal.entries.entries())
       if (
         !entry || typeof entry !== "object" ||
         !hasExactKeys(entry, ["idx", "version", "when", "tag", "breakpoints"]) ||
@@ -132,12 +129,9 @@ const parseJournal = (content: string): MigrationJournal => {
       ) throw new Error("invalid journal entry")
       previousWhen = entry.when
       tags.add(entry.tag)
-    }
     return journal
-  } catch (error) {
+  catch (error)
     throw new GeneratorError("PLAN_INVALID", "Migration journal is invalid", { cause: error })
-  }
-}
 
 const compareCodeUnits = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
@@ -171,15 +165,14 @@ const planIdentity = (
   files: readonly PlannedFile[],
 ): string => sha256(JSON.stringify({ version: 1, featureRoot, names, files }))
 
-export const assertGenerationPlanIntegrity = (plan: GenerationPlan): void => {
+export const assertGenerationPlanIntegrity = (plan: GenerationPlan): void =>
   if (!issuedPlans.has(plan))
     throw new GeneratorError("PLAN_INVALID", "Generation plan capability was not issued")
-}
 
 export const createGenerationPlan = async (
   targetRoot: string,
   names: FeatureNames,
-): Promise<GenerationPlan> => {
+): Promise<GenerationPlan> =>
   const canonicalNames = validateFeatureName(names.kebab)
   if (JSON.stringify(names) !== JSON.stringify(canonicalNames))
     throw new GeneratorError("PLAN_INVALID", "Feature name forms are inconsistent")
@@ -193,14 +186,13 @@ export const createGenerationPlan = async (
     `packages/api/src/generated/${canonicalNames.kebab}`,
     `packages/db/src/generated/${canonicalNames.kebab}`,
   ]
-  for (const directory of ownedDirectories) {
+  for (const directory of ownedDirectories)
     await assertNoSymlinkPath(root, directory)
     if (await pathExists(join(root, ...directory.split("/"))))
       throw new GeneratorError("TARGET_COLLISION", "Feature-owned directory collision")
-  }
 
-  const readRegistry = async (path: string): Promise<string> => {
-    try {
+  const readRegistry = async (path: string): Promise<string> =>
+    try
       await assertNoSymlinkPath(root, path)
       const parentIdentities = await captureDirectoryChain(root, dirname(path))
       const absolutePath = join(root, ...path.split("/"))
@@ -211,11 +203,9 @@ export const createGenerationPlan = async (
       const content = await readFile(absolutePath, "utf8")
       await assertDirectoryChain([...parentIdentities, fileIdentity])
       return content
-    } catch (error) {
+    catch (error)
       if (error instanceof GeneratorError) throw error
       throw new GeneratorError("PLAN_INVALID", "Required generated registry is unavailable", { cause: error })
-    }
-  }
   const current = Object.fromEntries(
     await Promise.all(Object.entries(REGISTRY_PATHS).map(async ([key, path]) => [key, await readRegistry(path)])),
   ) as Record<keyof typeof REGISTRY_PATHS, string>
@@ -251,10 +241,9 @@ export const createGenerationPlan = async (
   }
 
   const createFiles = createLiveLeafFiles(canonicalNames, migrationTag)
-  for (const file of createFiles) {
+  for (const file of createFiles)
     if (await pathExists(join(root, ...file.path.split("/"))))
       throw new GeneratorError("TARGET_COLLISION", "Feature target collision")
-  }
   const replacements: PlannedFile[] = [
     plannedReplace(REGISTRY_PATHS.descriptor, current.descriptor, renderFeatureRegistry(nextRegistry)),
     plannedReplace(REGISTRY_PATHS.navigation, current.navigation, renderNavigationRegistry(generated)),
@@ -281,4 +270,3 @@ export const createGenerationPlan = async (
   }) as GenerationPlan
   issuedPlans.add(plan)
   return plan
-}

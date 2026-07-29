@@ -20,28 +20,26 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
 const writeWorkspacePatterns = async (
   root: string,
   patterns: readonly string[],
-): Promise<void> => {
+): Promise<void> =>
   await writeFile(
     join(root, "pnpm-workspace.yaml"),
     `packages:\n${patterns.map((pattern) => `  - ${JSON.stringify(pattern)}`).join("\n")}\n`,
   )
-}
 
 const createRoot = async (
   patterns: readonly string[] = ["apps/*", "packages/*"],
-): Promise<string> => {
+): Promise<string> =>
   const root = await mkdtemp(join(tmpdir(), "darkfactory-type-exports-"))
   temporaryRoots.push(root)
   await writeWorkspacePatterns(root, patterns)
   return root
-}
 
 const createPackage = async (
   root: string,
   workspace: string,
   directory: string,
   manifest: Readonly<Record<string, unknown>>,
-): Promise<string> => {
+): Promise<string> =>
   const packageDirectory = join(root, workspace, directory)
   await mkdir(packageDirectory, { recursive: true })
   await writeFile(
@@ -49,35 +47,31 @@ const createPackage = async (
     `${JSON.stringify(manifest, null, 2)}\n`,
   )
   return packageDirectory
-}
 
 const createDeclaration = async (
   packageDirectory: string,
   target: string,
-): Promise<void> => {
+): Promise<void> =>
   const declarationPath = resolve(packageDirectory, target)
   await mkdir(resolve(declarationPath, ".."), { recursive: true })
   await writeFile(declarationPath, "export {}\n")
-}
 
 const copyLifecyclePackage = async (
   packageName: "auth" | "db",
   root: string,
-): Promise<string> => {
+): Promise<string> =>
   const destination = join(root, "packages", packageName)
   await cp(join(projectRoot, "packages", packageName), destination, {
     recursive: true,
-    filter: (source) => {
+    filter: (source) =>
       const name = basename(source)
       return name !== ".turbo" &&
         name !== "node_modules" &&
         !source.endsWith(".civet.d.ts")
-    },
   })
   return destination
-}
 
-const runTypesScript = async (packageDirectory: string): Promise<void> => {
+const runTypesScript = async (packageDirectory: string): Promise<void> =>
   const manifest = JSON.parse(
     await readFile(join(packageDirectory, "package.json"), "utf8"),
   ) as Readonly<{ scripts?: Readonly<Record<string, unknown>> }>
@@ -100,7 +94,6 @@ const runTypesScript = async (packageDirectory: string): Promise<void> => {
     ],
     { cwd: packageDirectory, timeout: 60_000 },
   )
-}
 
 afterEach async ->
   await Promise.all(
@@ -432,9 +425,8 @@ describe "type export audit", ->
 
     const deepRoot = await createRoot()
     let deepExports: unknown = { types: "./types/index.d.ts" }
-    for (let index = 0; index < 110; index += 1) {
+    for (let index = 0; index < 110; index += 1)
       deepExports = { node: deepExports }
-    }
     await createPackage(deepRoot, "packages", "deep", {
       name: "@fixture/deep",
       exports: deepExports,
@@ -492,7 +484,7 @@ describe "type export audit", ->
       "Type export audit failed:\n- @fixture/spoof\\u000a\\u009b\\u202eforged . -> ./types/missing\\u000aforged.d.ts: missing or not a regular file",
     )
 
-  it("generates DB and auth declarations from isolated clean package copies", async () => {
+  it("generates DB and auth declarations from isolated clean package copies", async () =>
     const root = await createRoot(["packages/*"])
     await cp(
       join(projectRoot, "tsconfig.base.json"),
@@ -530,9 +522,8 @@ describe "type export audit", ->
       symlink(databaseDirectory, join(packageScope, "db"), symlinkType),
     ])
 
-    for (const packageDirectory of [databaseDirectory, authDirectory]) {
+    for (const packageDirectory of [databaseDirectory, authDirectory])
       await runTypesScript(packageDirectory)
-    }
 
     await expect(auditTypeExports(root)).resolves.toEqual([
       {
@@ -605,7 +596,7 @@ describe "type export audit", ->
       ],
       { cwd: root, timeout: 60_000 },
     )
-  }, 120_000)
+  , 120_000)
 
   it "rejects declaration targets reached through symbolic links", async ->
     const root = await createRoot()

@@ -53,7 +53,7 @@ const result = (
 
 const report = (
   overrides: Partial<JourneySuiteReport> = {},
-): JourneySuiteReport => {
+): JourneySuiteReport =>
   const results = overrides.results ?? [result()]
   return Object.freeze({
     ok: true,
@@ -63,7 +63,6 @@ const report = (
     reason: "private suite reason",
     ...overrides,
   })
-}
 
 const fixture = async (): Promise<string> =>
   await mkdtemp(join(tmpdir(), "darkfactory-state-validation-"))
@@ -76,7 +75,7 @@ const baseProgress = Object.freeze({
   runId: "safe_state_run",
 })
 
-describe("E2E runner progress lifecycle states", () => {
+describe("E2E runner progress lifecycle states", () =>
   it.each([
     [
       "created",
@@ -141,9 +140,9 @@ describe("E2E runner progress lifecycle states", () => {
     _case,
     progress,
     expected,
-  ) => {
+  ) =>
     const root = await fixture()
-    try {
+    try
       persistE2ERunnerState(root, {
         version: 1,
         phase: "progress",
@@ -155,12 +154,11 @@ describe("E2E runner progress lifecycle states", () => {
         phase: "progress",
         progress: expected,
       })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects malformed identities, stage payloads, and lifecycle tuples", async () => {
+  it("rejects malformed identities, stage payloads, and lifecycle tuples", async () =>
     const root = await fixture()
     const invalidProgress: readonly unknown[] = [
       { ...baseProgress, spec: "../escape.spec.ts", stage: "created" },
@@ -214,14 +212,13 @@ describe("E2E runner progress lifecycle states", () => {
         lifecycleObservationReason: "unknown",
       },
     ]
-    try {
-      for (const progress of invalidProgress) {
+    try
+      for (const progress of invalidProgress)
         expect(() => persistE2ERunnerState(root, {
           version: 1,
           phase: "progress",
           progress,
         } as never)).toThrow(/invalid/i)
-      }
       expect(() => persistE2ERunnerState(root, {
         version: 2,
         phase: "progress",
@@ -231,14 +228,13 @@ describe("E2E runner progress lifecycle states", () => {
         version: 1,
         phase: "unknown",
       } as never)).toThrow(/phase is invalid/i)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
-})
+  )
+)
 
-describe("E2E suite report sanitization", () => {
-  it("normalizes a successful report to its bounded public contract", () => {
+describe("E2E suite report sanitization", () =>
+  it("normalizes a successful report to its bounded public contract", () =>
     const sanitized = sanitizeE2ERunnerReport(report({
       mode: "a11y",
       results: [result({
@@ -285,9 +281,9 @@ describe("E2E suite report sanitization", () => {
     })
     expect(Object.isFrozen(sanitized)).toBe(true)
     expect(Object.isFrozen(sanitized.results)).toBe(true)
-  })
+  )
 
-  it("normalizes failed scan reasons and the suite failure reason", () => {
+  it("normalizes failed scan reasons and the suite failure reason", () =>
     const sanitized = sanitizeE2ERunnerReport(report({
       ok: false,
       results: [result({
@@ -307,9 +303,9 @@ describe("E2E suite report sanitization", () => {
       purged: true,
       reason: "scan-failed",
     })
-  })
+  )
 
-  it("accepts the result-count and scanned-entry upper boundaries", () => {
+  it("accepts the result-count and scanned-entry upper boundaries", () =>
     const maximumResults = Array.from({ length: 256 }, () => result({
       scan: Object.freeze({ ...scan, scannedEntries: 1_000_000 }),
     }))
@@ -317,7 +313,7 @@ describe("E2E suite report sanitization", () => {
     expect(sanitizeE2ERunnerReport(report({
       results: maximumResults,
     })).results).toHaveLength(256)
-  })
+  )
 
   it.each([
     ["a non-boolean status", { ok: "yes" }],
@@ -327,11 +323,11 @@ describe("E2E suite report sanitization", () => {
       "too many results",
       { results: Array.from({ length: 257 }, () => result()) },
     ],
-  ] as const)("rejects a report with %s", (_case, overrides) => {
+  ] as const)("rejects a report with %s", (_case, overrides) =>
     expect(() => sanitizeE2ERunnerReport(report(overrides as never))).toThrow(
       /report is invalid/i,
     )
-  })
+  )
 
   it.each([
     ["an unsafe spec", { spec: "../escape.spec.ts" }],
@@ -352,17 +348,17 @@ describe("E2E suite report sanitization", () => {
     ["a fractional scanned count", { scan: { ...scan, scannedEntries: 1.5 } }],
     ["a negative scanned count", { scan: { ...scan, scannedEntries: -1 } }],
     ["an excessive scanned count", { scan: { ...scan, scannedEntries: 1_000_001 } }],
-  ] as const)("rejects a result with %s", (_case, overrides) => {
+  ] as const)("rejects a result with %s", (_case, overrides) =>
     expect(() => sanitizeE2ERunnerReport(report({
       results: [result(overrides as never)],
     }))).toThrow(/result is invalid|identity is invalid/i)
-  })
-})
+  )
+)
 
-describe("E2E state filesystem safety", () => {
-  it("rejects a symlinked state parent", async () => {
+describe("E2E state filesystem safety", () =>
+  it("rejects a symlinked state parent", async () =>
     const root = await fixture()
-    try {
+    try
       const outside = join(root, "outside")
       await mkdir(outside)
       await symlink(outside, join(root, "test-results"))
@@ -372,14 +368,13 @@ describe("E2E state filesystem safety", () => {
         phase: "result",
         report: report(),
       })).toThrow(/state parent is unsafe/i)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects a non-directory state parent", async () => {
+  it("rejects a non-directory state parent", async () =>
     const root = await fixture()
-    try {
+    try
       await writeFile(join(root, "test-results"), "not a directory")
 
       expect(() => persistE2ERunnerState(root, {
@@ -387,14 +382,13 @@ describe("E2E state filesystem safety", () => {
         phase: "result",
         report: report(),
       })).toThrow(/state parent is unsafe/i)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects a fixed target that is not a regular file", async () => {
+  it("rejects a fixed target that is not a regular file", async () =>
     const root = await fixture()
-    try {
+    try
       await mkdir(join(root, "test-results"))
       await mkdir(statePath(root))
 
@@ -403,12 +397,11 @@ describe("E2E state filesystem safety", () => {
         phase: "result",
         report: report(),
       })).toThrow(/state target is unsafe/i)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("propagates a missing repository without creating output elsewhere", async () => {
+  it("propagates a missing repository without creating output elsewhere", async () =>
     const root = await fixture()
     await rm(root, { recursive: true })
 
@@ -417,5 +410,5 @@ describe("E2E state filesystem safety", () => {
       phase: "result",
       report: report(),
     })).toThrow()
-  })
-})
+  )
+)

@@ -7,19 +7,18 @@ const browserApiRuntime = vi.hoisted(() => ({
   options: [] as Array<Readonly<{ baseUrl: string }>>,
 }))
 
-vi.mock("@darkfactory/api", async (importOriginal) => {
+vi.mock("@darkfactory/api", async (importOriginal) =>
   const actual = await importOriginal<typeof import("@darkfactory/api")>()
   return {
     ...actual,
-    createApiClient: vi.fn((options: Readonly<{ baseUrl: string }>) => {
+    createApiClient: vi.fn((options: Readonly<{ baseUrl: string }>) =>
       browserApiRuntime.options.push(options)
-      if (browserApiRuntime.client === null) {
+      if (browserApiRuntime.client === null)
         throw new Error("Configure the browser API client before invoking the lazy gateway.")
-      }
       return browserApiRuntime.client
-    }),
+    ),
   }
-})
+)
 
 import { createSetupFlowActor } from "@darkfactory/state/flow"
 import {
@@ -47,11 +46,11 @@ const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => 
   ...overrides,
 })
 
-afterEach(() => {
+afterEach(() =>
   browserApiRuntime.client = null
   browserApiRuntime.options.length = 0
   vi.unstubAllGlobals()
-})
+)
 
 describe "typed feature item gateway", ->
   it "drives list, get, create, update, status, and archive through oRPC", async ->

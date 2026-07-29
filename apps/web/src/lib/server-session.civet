@@ -27,8 +27,8 @@ const REQUEST_PATH_HEADERS = ["x-pathname", "x-invoke-path", "next-url"] as cons
 
 export const resolvePortalAppUrl = (
   configured = process.env["APP_URL"]?.trim(),
-): URL => {
-  try {
+): URL =>
+  try
     const url = new URL(configured || CANONICAL_APP_URL)
     if (url.protocol !== "https:"
       || url.username.length > 0
@@ -37,10 +37,8 @@ export const resolvePortalAppUrl = (
       || url.search.length > 0
       || url.hash.length > 0) throw new TypeError()
     return url
-  } catch {
+  catch
     throw new TypeError("Portal application URL must be a clean HTTPS origin")
-  }
-}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -54,10 +52,9 @@ const isPortalRole = (value: unknown): value is PortalRole =>
 export const parsePortalSession = (
   value: unknown,
   now = new Date(),
-): PortalSession | null => {
-  if (!isRecord(value) || !isRecord(value["user"]) || !isRecord(value["session"])) {
+): PortalSession | null =>
+  if (!isRecord(value) || !isRecord(value["user"]) || !isRecord(value["session"]))
     return null
-  }
 
   const user = value["user"]
   const session = value["session"]
@@ -71,16 +68,14 @@ export const parsePortalSession = (
     || !boundedString(name, 200)
     || !isPortalRole(role)
     || status !== "active"
-    || !(typeof expiresAtValue === "string" || expiresAtValue instanceof Date)) {
+    || !(typeof expiresAtValue === "string" || expiresAtValue instanceof Date))
     return null
-  }
 
   const expiresAt = expiresAtValue instanceof Date
     ? expiresAtValue
     : new Date(expiresAtValue)
-  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime())
     return null
-  }
 
   return {
     userId,
@@ -89,69 +84,59 @@ export const parsePortalSession = (
     status,
     expiresAt,
   }
-}
 
 const readBoundedResponseBody = async (
   response: Response,
   signal: AbortSignal,
-): Promise<string | null> => {
+): Promise<string | null> =>
   if (response.body === null) return null
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let byteLength = 0
-  const cancelAtDeadline = () => {
+  const cancelAtDeadline = () =>
     void reader.cancel()
-  }
   signal.addEventListener("abort", cancelAtDeadline, { once: true })
   if (signal.aborted) cancelAtDeadline()
-  try {
-    while (true) {
+  try
+    while (true)
       const result = await reader.read()
       if (result.done) break
       byteLength += result.value.byteLength
-      if (byteLength > MAX_SESSION_RESPONSE_BYTES) {
+      if (byteLength > MAX_SESSION_RESPONSE_BYTES)
         await reader.cancel()
         return null
-      }
       chunks.push(result.value)
-    }
-  } finally {
+  finally
     signal.removeEventListener("abort", cancelAtDeadline)
     reader.releaseLock()
-  }
 
   if (byteLength === 0) return null
   const body = new Uint8Array(byteLength)
   let offset = 0
-  for (const chunk of chunks) {
+  for (const chunk of chunks)
     body.set(chunk, offset)
     offset += chunk.byteLength
-  }
   return new TextDecoder().decode(body)
-}
 
 const parseSessionResponse = async (
   response: Response,
   now: Date,
   signal: AbortSignal,
-): Promise<PortalSession | null> => {
+): Promise<PortalSession | null> =>
   if (!response.ok) return null
 
   const declaredLength = Number(response.headers.get("content-length"))
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_SESSION_RESPONSE_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SESSION_RESPONSE_BYTES)
     await response.body?.cancel()
     return null
-  }
 
   const body = await readBoundedResponseBody(response, signal)
   if (body === null) return null
 
-  try {
+  try
     return parsePortalSession(JSON.parse(body) as unknown, now)
-  } catch {
+  catch
     return null
-  }
-}
 
 export const getPortalSession = async ({
   cookieHeader,
@@ -159,7 +144,7 @@ export const getPortalSession = async ({
   fetch: fetchSession = globalThis.fetch,
   now = new Date(),
   timeoutMs = DEFAULT_SESSION_TIMEOUT_MS,
-}: GetPortalSessionOptions): Promise<PortalSession | null> => {
+}: GetPortalSessionOptions): Promise<PortalSession | null> =>
   if (cookieHeader === null || cookieHeader.trim().length === 0) return null
   const deadline = Number.isFinite(timeoutMs)
     ? Math.min(Math.max(timeoutMs, 1), 10_000)
@@ -167,14 +152,13 @@ export const getPortalSession = async ({
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), deadline)
 
-  try {
+  try
     const sessionHeaders = new Headers({
       accept: "application/json",
       cookie: cookieHeader,
     })
-    if (cfConnectingIp !== null) {
+    if (cfConnectingIp !== null)
       sessionHeaders.set("cf-connecting-ip", cfConnectingIp)
-    }
     const request = new Request(
       new URL("/api/auth/get-session", resolvePortalAppUrl()),
       {
@@ -186,17 +170,15 @@ export const getPortalSession = async ({
       },
     )
     return await parseSessionResponse(await fetchSession(request), now, controller.signal)
-  } catch {
+  catch
     return null
-  } finally {
+  finally
     clearTimeout(timeout)
-  }
-}
 
 const isAllowedPortalPath = (pathname: string): boolean =>
   PORTAL_PATH_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`))
 
-export const safePortalCallbackPath = (value: string | null): string | null => {
+export const safePortalCallbackPath = (value: string | null): string | null =>
   if (value === null
     || value.length === 0
     || value.length > 2_048
@@ -206,24 +188,19 @@ export const safePortalCallbackPath = (value: string | null): string | null => {
     || value.includes("#")
     || /[\u0000-\u001f\u007f]/.test(value)) return null
 
-  try {
+  try
     const parsed = new URL(value, CANONICAL_APP_URL)
-    if (parsed.origin !== CANONICAL_APP_URL || !isAllowedPortalPath(parsed.pathname)) {
+    if (parsed.origin !== CANONICAL_APP_URL || !isAllowedPortalPath(parsed.pathname))
       return null
-    }
     return `${parsed.pathname}${parsed.search}`
-  } catch {
+  catch
     return null
-  }
-}
 
-export const resolvePortalCallbackPath = (requestHeaders: Headers): string => {
-  for (const headerName of REQUEST_PATH_HEADERS) {
+export const resolvePortalCallbackPath = (requestHeaders: Headers): string =>
+  for (const headerName of REQUEST_PATH_HEADERS)
     const safePath = safePortalCallbackPath(requestHeaders.get(headerName))
     if (safePath !== null) return safePath
-  }
   return "/dashboard"
-}
 
 export const portalSignInHref = (requestHeaders: Headers): string =>
   `/sign-in?callbackURL=${encodeURIComponent(resolvePortalCallbackPath(requestHeaders))}`

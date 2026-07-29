@@ -85,29 +85,25 @@ const fixture = (
   summary = rawSummary,
   committed?: Readonly<Record<string, string>>,
   failures: FixtureFailures = {},
-) => {
+) =>
   const writes: Array<readonly [string, string]> = []
   const dependencies: CoverageDependencies = {
     files: {
-      readRawSummary: async () => {
+      readRawSummary: async () =>
         if ("readRawSummary" in failures) throw failures.readRawSummary
         return summary
-      },
-      readCommitted: async (path) => {
+      readCommitted: async (path) =>
         if ("readCommitted" in failures) throw failures.readCommitted
         return committed?.[path]
-      },
-      writeCommitted: async (path, content) => {
+      writeCommitted: async (path, content) =>
         if ("writeCommitted" in failures) throw failures.writeCommitted
         writes.push([path, content])
-      },
     },
   }
   return { dependencies, writes }
-}
 
-describe("coverage assessment artifacts", () => {
-  it("normalizes only aggregate metrics without paths or timestamps", () => {
+describe("coverage assessment artifacts", () =>
+  it("normalizes only aggregate metrics without paths or timestamps", () =>
     const artifacts = buildCoverageArtifacts(JSON.parse(rawSummary))
 
     expect(artifacts.summary).toEqual({
@@ -124,9 +120,9 @@ describe("coverage assessment artifacts", () => {
     expect(serializeCoverageArtifact(artifacts.summary)).toBe(expectedSummaryBytes)
     expect(serializeCoverageArtifact(artifacts.summary)).not.toContain("/private/worktree")
     expect(serializeCoverageArtifact(artifacts.summary)).not.toMatch(/timestamp|generatedAt/i)
-  })
+  )
 
-  it("builds a deterministic Shields endpoint from line and branch coverage", () => {
+  it("builds a deterministic Shields endpoint from line and branch coverage", () =>
     const artifacts = buildCoverageArtifacts(JSON.parse(rawSummary))
 
     expect(artifacts.badge).toEqual({
@@ -136,9 +132,9 @@ describe("coverage assessment artifacts", () => {
       color: "yellowgreen",
     })
     expect(serializeCoverageBadge(artifacts.badge)).toBe(expectedBadgeBytes)
-  })
+  )
 
-  it("matches Istanbul percentage truncation at floating-point boundaries", () => {
+  it("matches Istanbul percentage truncation at floating-point boundaries", () =>
     const artifacts = buildCoverageArtifacts({
       total: {
         lines: { total: 12_600, covered: 4_347, skipped: 0, pct: 34.5 },
@@ -150,7 +146,7 @@ describe("coverage assessment artifacts", () => {
 
     expect(artifacts.summary.metrics.lines.pct).toBe(34.5)
     expect(artifacts.summary.metrics.branches.pct).toBe(100)
-  })
+  )
 
   it.each([
     [90, "brightgreen"],
@@ -159,7 +155,7 @@ describe("coverage assessment artifacts", () => {
     [60, "yellow"],
     [50, "orange"],
     [49, "red"],
-  ] as const)("maps the lower line-or-branch boundary %s to %s", (pct, color) => {
+  ] as const)("maps the lower line-or-branch boundary %s to %s", (pct, color) =>
     const metric = { total: 100, covered: pct, skipped: 0, pct }
     const artifacts = buildCoverageArtifacts({
       total: {
@@ -171,7 +167,7 @@ describe("coverage assessment artifacts", () => {
     })
 
     expect(artifacts.badge.color).toBe(color)
-  })
+  )
 
   it.each([
     ["missing total", {}],
@@ -206,9 +202,9 @@ describe("coverage assessment artifacts", () => {
       functions: { total: 1, covered: 1, skipped: 0, pct: 100 },
       statements: { total: 1, covered: 1, skipped: 0, pct: 100 },
     } }],
-  ])("rejects %s", (_name, value) => {
+  ])("rejects %s", (_name, value) =>
     expect(() => buildCoverageArtifacts(value)).toThrow(/coverage/i)
-  })
+  )
 
   it.each([
     ["negative total", { total: -1, covered: 0, skipped: 0, pct: 100 }],
@@ -221,7 +217,7 @@ describe("coverage assessment artifacts", () => {
     ["negative percentage", { total: 1, covered: 0, skipped: 0, pct: -1 }],
     ["percentage above 100", { total: 1, covered: 1, skipped: 0, pct: 101 }],
     ["zero-total percentage other than 100", { total: 0, covered: 0, skipped: 0, pct: 0 }],
-  ])("rejects the %s metric boundary", (_name, lines) => {
+  ])("rejects the %s metric boundary", (_name, lines) =>
     const valid = { total: 1, covered: 1, skipped: 0, pct: 100 }
     expect(() => buildCoverageArtifacts({
       total: {
@@ -231,9 +227,9 @@ describe("coverage assessment artifacts", () => {
         statements: valid,
       },
     })).toThrow(/coverage/i)
-  })
+  )
 
-  it("byte-checks both committed artifacts without writing", async () => {
+  it("byte-checks both committed artifacts without writing", async () =>
     const expected = buildCoverageArtifacts(JSON.parse(rawSummary))
     const committed = {
       "docs/assessments/coverage-summary.json": serializeCoverageArtifact(expected.summary),
@@ -246,9 +242,9 @@ describe("coverage assessment artifacts", () => {
       changed: false,
     })
     expect(state.writes).toHaveLength(0)
-  })
+  )
 
-  it("rejects stale or missing committed artifacts", async () => {
+  it("rejects stale or missing committed artifacts", async () =>
     const stale = fixture(rawSummary, {
       "docs/assessments/coverage-summary.json": "{}\n",
     })
@@ -259,9 +255,9 @@ describe("coverage assessment artifacts", () => {
       reason: expect.stringMatching(/stale|missing/i),
     })
     expect(stale.writes).toHaveLength(0)
-  })
+  )
 
-  it("writes both artifacts only when generation changes them", async () => {
+  it("writes both artifacts only when generation changes them", async () =>
     const state = fixture()
 
     await expect(runCoverageAction("generate", state.dependencies)).resolves.toMatchObject({
@@ -272,9 +268,9 @@ describe("coverage assessment artifacts", () => {
       "docs/assessments/coverage-summary.json",
       "docs/assessments/coverage-badge.json",
     ])
-  })
+  )
 
-  it("leaves current generated artifacts untouched and updates only stale bytes", async () => {
+  it("leaves current generated artifacts untouched and updates only stale bytes", async () =>
     const expected = buildCoverageArtifacts(JSON.parse(rawSummary))
     const summary = serializeCoverageArtifact(expected.summary)
     const badge = serializeCoverageBadge(expected.badge)
@@ -302,9 +298,9 @@ describe("coverage assessment artifacts", () => {
     expect(staleBadge.writes).toEqual([
       ["docs/assessments/coverage-badge.json", badge],
     ])
-  })
+  )
 
-  it("reports malformed raw JSON separately from raw-summary read failures", async () => {
+  it("reports malformed raw JSON separately from raw-summary read failures", async () =>
     const malformed = fixture("{not-json")
     const unreadable = fixture(rawSummary, undefined, {
       readRawSummary: new Error(`cannot read ${sentinelPath}`),
@@ -318,9 +314,9 @@ describe("coverage assessment artifacts", () => {
       ok: false,
       reason: "Unable to read coverage summary",
     })
-  })
+  )
 
-  it("returns the exact validation reason for valid JSON with invalid metrics", async () => {
+  it("returns the exact validation reason for valid JSON with invalid metrics", async () =>
     const invalid = fixture(JSON.stringify({ total: {} }))
 
     await expect(runCoverageAction("check", invalid.dependencies)).resolves.toEqual({
@@ -329,9 +325,9 @@ describe("coverage assessment artifacts", () => {
       changed: false,
       reason: "Invalid coverage metric: lines",
     })
-  })
+  )
 
-  it("returns path-free committed-read, write, and unknown failure reports", async () => {
+  it("returns path-free committed-read, write, and unknown failure reports", async () =>
     const committedRead = await runCoverageAction(
       "check",
       fixture(rawSummary, undefined, {
@@ -369,20 +365,19 @@ describe("coverage assessment artifacts", () => {
     expect(unknownCommittedRead.reason).toBe("Coverage artifact generation failed")
     expect(unknownCommittedWrite.reason).toBe("Coverage artifact generation failed")
     expect(JSON.stringify([committedRead, committedWrite, unknown])).not.toContain(sentinelPath)
-  })
+  )
 
-  it("reports a partial change when a later artifact write fails", async () => {
+  it("reports a partial change when a later artifact write fails", async () =>
     const firstWrite: Array<readonly [string, string]> = []
     let writeAttempts = 0
     const state = fixture()
     const dependencies: CoverageDependencies = {
       files: {
         ...state.dependencies.files,
-        writeCommitted: async (path, content) => {
+        writeCommitted: async (path, content) =>
           writeAttempts += 1
           if (writeAttempts === 2) throw new Error(`cannot write ${sentinelPath}`)
           firstWrite.push([path, content])
-        },
       },
     }
 
@@ -394,9 +389,9 @@ describe("coverage assessment artifacts", () => {
     expect(firstWrite.map(([path]) => path)).toEqual([
       "docs/assessments/coverage-summary.json",
     ])
-  })
+  )
 
-  it("never emits raw failure messages through the CLI", async () => {
+  it("never emits raw failure messages through the CLI", async () =>
     const output: string[] = []
     const streams = {
       writeOutput: (value: string) => output.push(value),
@@ -412,9 +407,9 @@ describe("coverage assessment artifacts", () => {
     )).resolves.toBe(1)
     expect(output.join("")).toContain("Unable to write committed coverage artifacts")
     expect(output.join("")).not.toContain(sentinelPath)
-  })
+  )
 
-  it("maps current, stale, and invalid CLI requests to stable exit codes", async () => {
+  it("maps current, stale, and invalid CLI requests to stable exit codes", async () =>
     const expected = buildCoverageArtifacts(JSON.parse(rawSummary))
     const committed = {
       "docs/assessments/coverage-summary.json": serializeCoverageArtifact(expected.summary),
@@ -432,11 +427,11 @@ describe("coverage assessment artifacts", () => {
     await expect(runCoverageCli([], fixture().dependencies, streams)).resolves.toBe(2)
     await expect(runCoverageCli(["check", "extra"], fixture().dependencies, streams)).resolves.toBe(2)
     expect(output.join("")).toMatch(/current|stale|Usage/)
-  })
+  )
 
-  it("reads raw coverage and writes committed artifacts under an explicit root", async () => {
+  it("reads raw coverage and writes committed artifacts under an explicit root", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-"))
-    try {
+    try
       await mkdir(join(root, "coverage"), { recursive: true })
       await writeFile(join(root, "coverage/coverage-summary.json"), rawSummary, "utf8")
       const files = createCoverageFileSystem(root)
@@ -452,14 +447,13 @@ describe("coverage assessment artifacts", () => {
         "Coverage summary is missing; run pnpm test:coverage first",
       )
       expect(JSON.stringify(missingReport)).not.toContain(root)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects missing and non-directory roots before exposing an adapter", async () => {
+  it("rejects missing and non-directory roots before exposing an adapter", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
-    try {
+    try
       const fileRoot = join(root, "artifact.json")
       await writeFile(fileRoot, "{}\n", "utf8")
 
@@ -477,12 +471,11 @@ describe("coverage assessment artifacts", () => {
       await expect(files.writeCommitted("docs/\0artifact.json", "content\n")).rejects.toThrow(
         "Coverage artifact path must be relative and remain inside the coverage root",
       )
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects coverage-root write targets before creating temporary siblings", async () => {
+  it("rejects coverage-root write targets before creating temporary siblings", async () =>
     const parent = await mkdtemp(join(tmpdir(), "darkfactory-coverage-parent-"))
     const root = join(parent, "root")
     const outside = join(parent, "outside.json")
@@ -490,20 +483,19 @@ describe("coverage assessment artifacts", () => {
     await writeFile(outside, "outside\n", "utf8")
     const openFile = vi.fn(nodeCoverageSystemDependencies.openFile)
     const removeFile = vi.fn(nodeCoverageSystemDependencies.removeFile)
-    const inspectRootAncestor = vi.fn(async () => {
+    const inspectRootAncestor = vi.fn(async () =>
       throw new Error("unexpected root-ancestor inspection")
-    })
+    )
     const files = createCoverageFileSystem(root, {
       openFile,
       removeFile,
       inspectRootAncestor,
     })
-    try {
-      for (const path of [".", "./"]) {
+    try
+      for (const path of [".", "./"])
         await expect(files.writeCommitted(path, "escaped\n")).rejects.toThrow(
           "Coverage artifact path must be relative and remain inside the coverage root",
         )
-      }
 
       expect(openFile).not.toHaveBeenCalled()
       expect(removeFile).not.toHaveBeenCalled()
@@ -511,16 +503,15 @@ describe("coverage assessment artifacts", () => {
       await expect(readdir(root)).resolves.toEqual([])
       expect((await readdir(parent)).sort()).toEqual(["outside.json", "root"])
       await expect(readFile(outside, "utf8")).resolves.toBe("outside\n")
-    } finally {
+    finally
       await rm(parent, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects absolute and parent-traversal writes without escaping the root", async () => {
+  it("rejects absolute and parent-traversal writes without escaping the root", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const outside = join(dirname(root), `${basename(root)}-escape.json`)
     const files = createCoverageFileSystem(root)
-    try {
+    try
       for (const path of [
         `../${basename(outside)}`,
         outside,
@@ -532,23 +523,21 @@ describe("coverage assessment artifacts", () => {
         "\\\\?\\C:\\escape.json",
         "docs\\.. \\.. \\escape.json",
         "docs\\...\\escape.json",
-      ]) {
+      ])
         await expect(files.writeCommitted(path, "escaped\n")).rejects.toThrow(
           "Coverage artifact path must be relative and remain inside the coverage root",
         )
-      }
       await expect(readFile(outside, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true })
-    }
-  })
+  )
 
-  it("rejects symlinked parents and targets for reads and writes", async () => {
+  it("rejects symlinked parents and targets for reads and writes", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const outside = await mkdtemp(join(tmpdir(), "darkfactory-coverage-outside-"))
     const files = createCoverageFileSystem(root)
-    try {
+    try
       await mkdir(join(root, "docs"), { recursive: true })
       await writeFile(join(outside, "sentinel.json"), "sentinel\n", "utf8")
       await symlink(outside, join(root, "docs/linked"), "dir")
@@ -558,49 +547,44 @@ describe("coverage assessment artifacts", () => {
         "file",
       )
 
-      for (const path of ["docs/linked/escape.json", "docs/target.json"]) {
+      for (const path of ["docs/linked/escape.json", "docs/target.json"])
         await expect(files.readCommitted(path)).rejects.toThrow(
           "Coverage artifact paths must not contain symbolic links",
         )
         await expect(files.writeCommitted(path, "escaped\n")).rejects.toThrow(
           "Coverage artifact paths must not contain symbolic links",
         )
-      }
       await expect(readFile(join(outside, "sentinel.json"), "utf8")).resolves.toBe("sentinel\n")
       await expect(readFile(join(outside, "escape.json"), "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("contains parent swaps at temporary-open and rename boundaries", async () => {
-    for (const boundary of ["temporary-open", "rename"] as const) {
+  it("contains parent swaps at temporary-open and rename boundaries", async () =>
+    for (const boundary of ["temporary-open", "rename"] as const)
       const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
       const outside = await mkdtemp(join(tmpdir(), "darkfactory-coverage-outside-"))
       const artifactParent = join(root, "docs")
       const relocatedParent = join(root, "docs-original")
       await mkdir(artifactParent)
       let swapped = false
-      const swapParent = async () => {
+      const swapParent = async () =>
         if (swapped) return
         swapped = true
         await rename(artifactParent, relocatedParent)
         await symlink(outside, artifactParent, "dir")
-      }
       const files = createCoverageFileSystem(root, {
         ...nodeCoverageSystemDependencies,
-        openFile: async (path, flags, mode) => {
+        openFile: async (path, flags, mode) =>
           if (boundary === "temporary-open" && flags === "wx") await swapParent()
           return nodeCoverageSystemDependencies.openFile(path, flags, mode)
-        },
-        beforeRename: async () => {
+        beforeRename: async () =>
           if (boundary === "rename") await swapParent()
-        },
       })
-      try {
+      try
         await expect(files.writeCommitted("docs/artifact.json", "escaped\n")).rejects.toThrow(
           "Coverage artifact paths must not contain symbolic links",
         )
@@ -608,14 +592,12 @@ describe("coverage assessment artifacts", () => {
           code: "ENOENT",
         })
         expect((await readdir(root)).sort()).toEqual(["docs", "docs-original"])
-      } finally {
+      finally
         await rm(root, { force: true, recursive: true })
         await rm(outside, { force: true, recursive: true })
-      }
-    }
-  })
+  )
 
-  it("contains a coverage-root swap immediately before temporary creation", async () => {
+  it("contains a coverage-root swap immediately before temporary creation", async () =>
     const parent = await mkdtemp(join(tmpdir(), "darkfactory-coverage-parent-"))
     const root = join(parent, "root")
     const relocatedRoot = join(parent, "root-original")
@@ -625,12 +607,11 @@ describe("coverage assessment artifacts", () => {
     const files = createCoverageFileSystem(root, {
       ...nodeCoverageSystemDependencies,
       openFile,
-      beforeTemporaryOpen: async () => {
+      beforeTemporaryOpen: async () =>
         await rename(root, relocatedRoot)
         await symlink(outside, root, "dir")
-      },
     })
-    try {
+    try
       await expect(files.writeCommitted("docs/artifact.json", "escaped\n")).rejects.toThrow(
         "Coverage root changed during artifact operation",
       )
@@ -638,17 +619,16 @@ describe("coverage assessment artifacts", () => {
       await expect(readFile(join(outside, "artifact.json"), "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })
-    } finally {
+    finally
       await rm(parent, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects a non-sticky attacker-writable coverage-root parent", async () => {
+  it("rejects a non-sticky attacker-writable coverage-root parent", async () =>
     const parent = await mkdtemp(join(tmpdir(), "darkfactory-coverage-parent-"))
     const root = join(parent, "root")
     const openFile = vi.fn(nodeCoverageSystemDependencies.openFile)
-    try {
+    try
       await mkdir(root)
       await chmod(parent, 0o777)
       const files = createCoverageFileSystem(root, {
@@ -661,18 +641,17 @@ describe("coverage assessment artifacts", () => {
       )
       expect(openFile).not.toHaveBeenCalled()
       await expect(readdir(root)).resolves.toEqual([])
-    } finally {
+    finally
       await rm(parent, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects foreign-owned normal and sticky coverage-root parents", async () => {
-    for (const mode of [0o755, 0o1777]) {
+  it("rejects foreign-owned normal and sticky coverage-root parents", async () =>
+    for (const mode of [0o755, 0o1777])
       const parent = await mkdtemp(join(tmpdir(), "darkfactory-coverage-parent-"))
       const root = join(parent, "root")
       const canonicalParent = await realpath(parent)
       const openFile = vi.fn(nodeCoverageSystemDependencies.openFile)
-      try {
+      try
         await mkdir(root)
         const files = createCoverageFileSystem(root, {
           ...nodeCoverageSystemDependencies,
@@ -693,17 +672,15 @@ describe("coverage assessment artifacts", () => {
         )
         expect(openFile).not.toHaveBeenCalled()
         await expect(readdir(root)).resolves.toEqual([])
-      } finally {
+      finally
         await rm(parent, { force: true, recursive: true })
-      }
-    }
-  })
+  )
 
-  it("rejects attacker-writable artifact parents before opening a temporary file", async () => {
+  it("rejects attacker-writable artifact parents before opening a temporary file", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const outside = await mkdtemp(join(tmpdir(), "darkfactory-coverage-outside-"))
     const openFile = vi.fn(nodeCoverageSystemDependencies.openFile)
-    try {
+    try
       await mkdir(join(root, "docs"))
       await chmod(join(root, "docs"), 0o777)
       const files = createCoverageFileSystem(root, {
@@ -718,18 +695,17 @@ describe("coverage assessment artifacts", () => {
       await expect(readFile(join(outside, "artifact.json"), "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("pins the canonical root at construction and rejects its replacement", async () => {
+  it("pins the canonical root at construction and rejects its replacement", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const relocatedRoot = `${root}-relocated`
     const outside = await mkdtemp(join(tmpdir(), "darkfactory-coverage-outside-"))
     const files = createCoverageFileSystem(root)
-    try {
+    try
       await writeFile(join(outside, "sentinel.json"), "sentinel\n", "utf8")
       await rename(root, relocatedRoot)
       await symlink(outside, root, "dir")
@@ -744,23 +720,22 @@ describe("coverage assessment artifacts", () => {
       await expect(readFile(join(outside, "escape.json"), "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
       await rm(relocatedRoot, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects coverage artifacts writable by untrusted principals without reading them", async () => {
+  it("rejects coverage artifacts writable by untrusted principals without reading them", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const artifact = join(root, "artifact.json")
     const readFileFromHandle = vi.fn(async () => "attacker-controlled\n")
-    try {
+    try
       await writeFile(artifact, "attacker-controlled\n", "utf8")
       await chmod(artifact, 0o666)
       const files = createCoverageFileSystem(root, {
         ...nodeCoverageSystemDependencies,
-        openFile: async (path, flags, mode) => {
+        openFile: async (path, flags, mode) =>
           const handle = await nodeCoverageSystemDependencies.openFile(path, flags, mode)
           return {
             stat: () => handle.stat(),
@@ -769,19 +744,17 @@ describe("coverage assessment artifacts", () => {
             sync: () => handle.sync(),
             close: () => handle.close(),
           }
-        },
       })
 
       await expect(files.readCommitted("artifact.json")).rejects.toThrow(
         "Coverage artifact must be a bounded regular file",
       )
       expect(readFileFromHandle).not.toHaveBeenCalled()
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects foreign-owned artifact metadata without consuming its content", async () => {
+  it("rejects foreign-owned artifact metadata without consuming its content", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const readFileFromHandle = vi.fn(async () => "attacker-controlled\n")
     const close = vi.fn(async () => undefined)
@@ -800,61 +773,58 @@ describe("coverage assessment artifacts", () => {
         close,
       })),
     })
-    try {
+    try
       await expect(files.readCommitted("artifact.json")).rejects.toThrow(
         "Coverage artifact must be a bounded regular file",
       )
       expect(readFileFromHandle).not.toHaveBeenCalled()
       expect(close).toHaveBeenCalledOnce()
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects non-regular and oversized artifact reads", async () => {
+  it("rejects non-regular and oversized artifact reads", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const files = createCoverageFileSystem(root)
-    try {
+    try
       await mkdir(join(root, "docs/non-regular.json"), { recursive: true })
       await mkdir(join(root, "docs"), { recursive: true })
       await writeFile(join(root, "docs/oversized.json"), "", "utf8")
       await truncate(join(root, "docs/oversized.json"), 8_388_609)
 
-      for (const path of ["docs/non-regular.json", "docs/oversized.json"]) {
+      for (const path of ["docs/non-regular.json", "docs/oversized.json"])
         await expect(files.readCommitted(path)).rejects.toThrow(
           "Coverage artifact must be a bounded regular file",
         )
-      }
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("removes temporary files after an atomic replacement failure", async () => {
+  it("removes temporary files after an atomic replacement failure", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-root-"))
     const artifactDirectory = join(root, "docs/assessments/blocked.json")
     const files = createCoverageFileSystem(root)
-    try {
+    try
       await mkdir(artifactDirectory, { recursive: true })
 
       await expect(
         files.writeCommitted("docs/assessments/blocked.json", "content\n"),
       ).rejects.toThrow()
       await expect(readdir(join(root, "docs/assessments"))).resolves.toEqual(["blocked.json"])
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("maps no-follow and opaque open failures at the filesystem boundary", async () => {
+  it("maps no-follow and opaque open failures at the filesystem boundary", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-open-"))
-    try {
+    try
       const symlinkRace = Object.assign(new Error("private symlink race"), {
         code: "ELOOP",
       })
       const racedFiles = createCoverageFileSystem(root, {
         ...nodeCoverageSystemDependencies,
-        openFile: async () => { throw symlinkRace },
+        openFile: async () =>
+          throw symlinkRace
       })
       await expect(racedFiles.readCommitted("missing.json")).rejects.toThrow(
         "Coverage artifact paths must not contain symbolic links",
@@ -865,27 +835,33 @@ describe("coverage assessment artifacts", () => {
       })
       const deniedFiles = createCoverageFileSystem(root, {
         ...nodeCoverageSystemDependencies,
-        openFile: async () => { throw denied },
+        openFile: async () =>
+          throw denied
       })
       await expect(deniedFiles.readCommitted("missing.json")).rejects.toBe(denied)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("preserves the write failure when descriptor close and temporary cleanup also fail", async () => {
+  it("preserves the write failure when descriptor close and temporary cleanup also fail", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-coverage-cleanup-"))
     const writeFailure = new Error("write failed")
-    const close = vi.fn(async () => { throw new Error("close failed") })
-    const removeFile = vi.fn(async () => { throw new Error("remove failed") })
+    const close = vi.fn(async () =>
+      throw new Error("close failed")
+    )
+    const removeFile = vi.fn(async () =>
+      throw new Error("remove failed")
+    )
     const openFile = vi.fn(async () => ({
-      stat: vi.fn(async () => {
+      stat: vi.fn(async () =>
         throw new Error("unexpected stat")
-      }),
-      readFile: vi.fn(async () => {
+      ),
+      readFile: vi.fn(async () =>
         throw new Error("unexpected read")
-      }),
-      writeFile: vi.fn(async () => { throw writeFailure }),
+      ),
+      writeFile: vi.fn(async () =>
+        throw writeFailure
+      ),
       sync: vi.fn(async () => undefined),
       close,
     }))
@@ -893,15 +869,14 @@ describe("coverage assessment artifacts", () => {
       openFile,
       removeFile,
     })
-    try {
+    try
       await expect(
         files.writeCommitted("docs/assessments/coverage-summary.json", "content\n"),
       ).rejects.toBe(writeFailure)
       expect(openFile).toHaveBeenCalledOnce()
       expect(close).toHaveBeenCalledOnce()
       expect(removeFile).toHaveBeenCalledOnce()
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
-})
+  )
+)

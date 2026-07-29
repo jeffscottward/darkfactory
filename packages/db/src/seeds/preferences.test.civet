@@ -27,56 +27,53 @@ type QueryBuilder = {
   ) => Promise<unknown>
 }
 
-const createPreferenceSeedDatabase = (selectOutcomes: QueryRows[]) => {
+const createPreferenceSeedDatabase = (selectOutcomes: QueryRows[]) =>
   const operations: QueryOperation[] = []
   const pendingSelects = [...selectOutcomes]
 
-  const builderFor = (operation: QueryOperation): QueryBuilder => {
+  const builderFor = (operation: QueryOperation): QueryBuilder =>
     let builder = {} as QueryBuilder
-    builder.from = vi.fn((table: unknown) => {
+    builder.from = vi.fn((table: unknown) =>
       operation.table = table === userPreferences ? "user_preferences" : "unknown"
       return builder
-    })
+    )
     builder.where = vi.fn(() => builder)
     builder.limit = vi.fn(() => builder)
-    builder.values = vi.fn((value: Record<string, unknown>) => {
+    builder.values = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.onConflictDoUpdate = vi.fn((config: unknown) => {
+    )
+    builder.onConflictDoUpdate = vi.fn((config: unknown) =>
       operation.conflict = config
       return builder
-    })
+    )
     builder.returning = vi.fn(() => builder)
-    builder.then = (onFulfilled, onRejected) => {
+    builder.then = (onFulfilled, onRejected) =>
       const rows = operation.kind === "select"
         ? pendingSelects.shift() ?? []
         : operation.value === undefined
           ? []
           : [operation.value]
       return Promise.resolve(rows).then(onFulfilled, onRejected)
-    }
     return builder
-  }
 
   const database = {
-    select: vi.fn(() => {
+    select: vi.fn(() =>
       const operation: QueryOperation = { kind: "select" }
       operations.push(operation)
       return builderFor(operation)
-    }),
-    insert: vi.fn((table: unknown) => {
+    ),
+    insert: vi.fn((table: unknown) =>
       const operation: QueryOperation = {
         kind: "insert",
         table: table === userPreferences ? "user_preferences" : "unknown",
       }
       operations.push(operation)
       return builderFor(operation)
-    }),
+    ),
   } as unknown as Database
 
   return { database, operations }
-}
 
 const preferenceRows = () =>
   DEVELOPMENT_PREFERENCES.map((preference) => [{ ...preference }])

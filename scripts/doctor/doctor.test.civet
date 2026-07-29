@@ -58,7 +58,7 @@ const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
 
 const files = (overrides: Readonly<Record<string, string | false>> = {}): DoctorFileSystem => ({
   exists: async (path) => overrides[path] !== false,
-  readText: async (path) => {
+  readText: async (path) =>
     const value = overrides[path]
     if (value === false) throw new Error(`missing ${path}`)
     if (typeof value === "string") return value
@@ -66,7 +66,6 @@ const files = (overrides: Readonly<Record<string, string | false>> = {}): Doctor
     if (path === "apps/web/wrangler.jsonc") return `{ "name": "darkfactory-web", "main": "vinext/server/fetch-handler" }`
     if (path in PINNED_MANIFESTS) return JSON.stringify({ version: PINNED_MANIFESTS[path] })
     return "{}"
-  },
 })
 
 const healthyDependencies = (
@@ -83,38 +82,28 @@ const healthyDependencies = (
   files: files(),
   probeHttps: async () => ({ ok: true, status: 200 }),
   process: {
-    run: async (command, arguments_) => {
-      if (command === "node" && arguments_.join(" ") === "--version") {
+    run: async (command, arguments_) =>
+      if (command === "node" && arguments_.join(" ") === "--version")
         return { exitCode: 0, stdout: "v22.13.1\n", stderr: "" }
-      }
-      if (command === "bun" && arguments_.join(" ") === "--version") {
+      if (command === "bun" && arguments_.join(" ") === "--version")
         return { exitCode: 0, stdout: "1.3.14\n", stderr: "" }
-      }
-      if (command === "corepack" && arguments_.join(" ") === "pnpm --version") {
+      if (command === "corepack" && arguments_.join(" ") === "pnpm --version")
         return { exitCode: 0, stdout: "11.16.0\n", stderr: "" }
-      }
-      if (command === "corepack" && arguments_.join(" ") === "--version") {
+      if (command === "corepack" && arguments_.join(" ") === "--version")
         return { exitCode: 0, stdout: "0.34.7\n", stderr: "" }
-      }
-      if (command === "pm2" && arguments_.join(" ") === "--version") {
+      if (command === "pm2" && arguments_.join(" ") === "--version")
         return { exitCode: 0, stdout: "7.0.3\n", stderr: "" }
-      }
-      if (command === "varlock") {
+      if (command === "varlock")
         return { exitCode: 0, stdout: "varlock 1.13.0\n", stderr: "" }
-      }
-      if (command === "uv") {
+      if (command === "uv")
         return { exitCode: 0, stdout: "uv 0.11.32\n", stderr: "" }
-      }
-      if (command === "graphify") {
+      if (command === "graphify")
         return { exitCode: 0, stdout: "graphify 0.9.2\n", stderr: "" }
-      }
-      if (command === "bunx" && arguments_.includes("portless")) {
+      if (command === "bunx" && arguments_.includes("portless"))
         return { exitCode: 0, stdout: "0.13.0\n", stderr: "" }
-      }
-      if (command === "docker" && arguments_[0] === "compose" && arguments_.includes("ps")) {
+      if (command === "docker" && arguments_[0] === "compose" && arguments_.includes("ps"))
         return { exitCode: 0, stdout: '[{"Service":"postgres","State":"running"}]', stderr: "" }
-      }
-      if (command === "pm2" && arguments_[0] === "jlist") {
+      if (command === "pm2" && arguments_[0] === "jlist")
         return {
           exitCode: 0,
           stdout: JSON.stringify([{
@@ -130,35 +119,31 @@ const healthyDependencies = (
           }]),
           stderr: "",
         }
-      }
-      if (command === "portless" && arguments_[0] === "list") {
+      if (command === "portless" && arguments_[0] === "list")
         return { exitCode: 0, stdout: "https://darkfactory.localhost -> localhost:4775\n", stderr: "" }
-      }
-      if (command === "portless" && arguments_[0] === "get") {
+      if (command === "portless" && arguments_[0] === "get")
         return { exitCode: 0, stdout: "https://darkfactory.localhost\n", stderr: "" }
-      }
       return { exitCode: 0, stdout: "1.0.0\n", stderr: "" }
-    },
   },
   ...overrides,
 })
 
-describe("capability manifest", () => {
-  it("classifies core, enabled, environment-scoped, and disabled declarations", () => {
+describe("capability manifest", () =>
+  it("classifies core, enabled, environment-scoped, and disabled declarations", () =>
     const parsed = parseCapabilityManifest(MANIFEST)
 
     expect(parsed.required).toEqual(expect.arrayContaining(["postgres", "graphify", "portless", "pm2"]))
     expect(parsed.optional).toContain("tanstack_devtools")
     expect(parsed.disabled).toEqual(expect.arrayContaining(["docs", "storage"]))
-  })
+  )
 
-  it("rejects malformed indentation, unknown booleans, and missing core declarations", () => {
+  it("rejects malformed indentation, unknown booleans, and missing core declarations", () =>
     expect(() => parseCapabilityManifest("capabilities:\n   docs:\n    enabled: false")).toThrow(/manifest/i)
     expect(() => parseCapabilityManifest(MANIFEST.replace("enabled: true", "enabled: perhaps"))).toThrow(/boolean/i)
     expect(() => parseCapabilityManifest(MANIFEST.replace("database:\n  engine: postgres\n", ""))).toThrow(/database/i)
-  })
+  )
 
-  it("parses quoted scalars, CRLF input, comments, and inline enabled declarations", () => {
+  it("parses quoted scalars, CRLF input, comments, and inline enabled declarations", () =>
     const inline = `# capability contract\r\n${MANIFEST
       .replace("engine: postgres", 'engine: "postgres"')
       .replace("provider: cloudflare", "provider: 'cloudflare'")
@@ -172,21 +157,21 @@ describe("capability manifest", () => {
     expect(parsed.values["database.engine"]).toBe("postgres")
     expect(parsed.values["deployment.web.provider"]).toBe("cloudflare")
     expect(parsed.optional).toEqual(["tanstack_devtools"])
-  })
+  )
 
   it.each([
     ["tabs", MANIFEST.replace("  name: DarkFactory", "\tname: DarkFactory"), /tab/i],
     ["indentation jumps", `jump:\n    too_deep: value\n${MANIFEST}`, /jumps indentation/i],
     ["invalid syntax", MANIFEST.replace("  name: DarkFactory", "  invalid-name: value"), /invalid syntax/i],
     ["oversized bytes", "x".repeat(262_145), /too large/i],
-  ])("rejects manifest parsing boundary: %s", (_name, source, expected) => {
+  ])("rejects manifest parsing boundary: %s", (_name, source, expected) =>
     expect(() => parseCapabilityManifest(source)).toThrow(expected)
-  })
+  )
 
-})
+)
 
-describe("doctor", () => {
-  it("passes a healthy fixture and reports names and status without secret values", async () => {
+describe("doctor", () =>
+  it("passes a healthy fixture and reports names and status without secret values", async () =>
     const secret = "never-print-this-secret"
     const report = await runDoctor(healthyDependencies({
       environmentHas: (name) => name === "DATABASE_URL" || name === "BETTER_AUTH_SECRET" || name === secret,
@@ -210,9 +195,9 @@ describe("doctor", () => {
     ]))
     expect(rendered).not.toContain(secret)
     expect(rendered).not.toContain("postgresql://")
-  })
+  )
 
-  it("aggregates checks and capability classifications in deterministic order", async () => {
+  it("aggregates checks and capability classifications in deterministic order", async () =>
     const report = await runDoctor(healthyDependencies())
 
     expect(report.checks.map(({ name }) => name)).toEqual([
@@ -271,65 +256,58 @@ describe("doctor", () => {
       optional: ["tanstack_devtools"],
       disabled: ["docs", "storage"],
     })
-  })
+  )
 
   it.each([
     ["22.12.99", "fail"],
     ["22.13.0-beta.1", "pass"],
     ["23.0.0", "pass"],
     ["not-semver", "fail"],
-  ] as const)("maps Node boundary version %s to %s", async (nodeVersion, status) => {
+  ] as const)("maps Node boundary version %s to %s", async (nodeVersion, status) =>
     const base = healthyDependencies()
     const report = await runDoctor(healthyDependencies({
       process: {
-        run: (command, arguments_, options) => {
+        run: (command, arguments_, options) =>
           return command === "node"
             ? Promise.resolve({ exitCode: 0, stdout: `v${nodeVersion}\n`, stderr: "" })
             : base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(report.checks.find(({ name }) => name === "Node")).toMatchObject({ status })
-  })
+  )
 
   it.each([
     ["1.3.13", "fail"],
     ["1.3.14", "pass"],
     ["1.3.15", "fail"],
     ["not-semver", "fail"],
-  ] as const)("maps Bun exact version %s to %s", async (bunVersion, status) => {
+  ] as const)("maps Bun exact version %s to %s", async (bunVersion, status) =>
     const base = healthyDependencies()
     const report = await runDoctor(healthyDependencies({
       process: {
-        run: (command, arguments_, options) => {
+        run: (command, arguments_, options) =>
           return command === "bun"
             ? Promise.resolve({ exitCode: 0, stdout: `${bunVersion}\n`, stderr: "" })
             : base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(report.checks.find(({ name }) => name === "Bun")).toMatchObject({ status })
-  })
+  )
 
-  it("distinguishes custom tool compatibility, invalid Node grammar, and default nonempty output", async () => {
+  it("distinguishes custom tool compatibility, invalid Node grammar, and default nonempty output", async () =>
     const base = healthyDependencies()
     const report = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
-          if (command === "node") {
+        run: async (command, arguments_, options) =>
+          if (command === "node")
             return { exitCode: 0, stdout: "not-a-semver\n", stderr: "" }
-          }
-          if (command === "corepack" && arguments_.join(" ") === "pnpm --version") {
+          if (command === "corepack" && arguments_.join(" ") === "pnpm --version")
             return { exitCode: 0, stdout: "11.15.0\n", stderr: "" }
-          }
-          if (command === "corepack" && arguments_.includes("vinext")) {
+          if (command === "corepack" && arguments_.includes("vinext"))
             return { exitCode: 0, stdout: "", stderr: "" }
-          }
-          if (command === "graphify") {
+          if (command === "graphify")
             return { exitCode: 0, stdout: "   \n", stderr: "" }
-          }
           return base.process.run(command, arguments_, options)
-        },
       },
     }))
 
@@ -345,9 +323,9 @@ describe("doctor", () => {
     expect(report.checks.find(({ name }) => name === "Graphify")).toMatchObject({
       status: "fail",
     })
-  })
+  )
 
-  it("fails pinned compatibility drift and inspects no PM2 CLI when its daemon is absent", async () => {
+  it("fails pinned compatibility drift and inspects no PM2 CLI when its daemon is absent", async () =>
     const drift = await runDoctor(healthyDependencies({
       files: files({ "node_modules/vitest/package.json": JSON.stringify({ version: "4.0.0" }) }),
     }))
@@ -361,10 +339,9 @@ describe("doctor", () => {
     const absent = await runDoctor(healthyDependencies({
       pm2DaemonAvailable: async () => false,
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           if (command === "pm2") pm2Calls.push([command, ...arguments_])
           return base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(absent.checks).toContainEqual(expect.objectContaining({
@@ -372,9 +349,9 @@ describe("doctor", () => {
       status: "fail",
     }))
     expect(pm2Calls).toHaveLength(0)
-  })
+  )
 
-  it("fails truthfully when required prerequisites are missing", async () => {
+  it("fails truthfully when required prerequisites are missing", async () =>
     const dependencies = healthyDependencies({
       process: {
         run: async () => ({ exitCode: 127, stdout: "", stderr: "missing" }),
@@ -386,9 +363,9 @@ describe("doctor", () => {
 
     expect(report.ok).toBe(false)
     expect(report.checks.filter(({ status }) => status === "fail").length).toBeGreaterThan(4)
-  })
+  )
 
-  it("turns malformed config and tool failures into bounded failed checks", async () => {
+  it("turns malformed config and tool failures into bounded failed checks", async () =>
     const malformed = await runDoctor(healthyDependencies({
       files: files({ "capabilities.yaml": "capabilities: [" }),
     }))
@@ -397,19 +374,18 @@ describe("doctor", () => {
 
     const failedTool = await runDoctor(healthyDependencies({
       process: {
-        run: async (command) => {
+        run: async (command) =>
           return command === "graphify"
             ? { exitCode: 1, stdout: "", stderr: "tool exploded with token=secret" }
             : { exitCode: 0, stdout: "11.16.0", stderr: "" }
-        },
       },
     }))
     const graphify = failedTool.checks.find(({ name }) => name === "Graphify")
     expect(graphify).toMatchObject({ status: "fail" })
     expect(JSON.stringify(failedTool)).not.toContain("token=secret")
-  })
+  )
 
-  it("bounds or catches command failures while preserving safe command options", async () => {
+  it("bounds or catches command failures while preserving safe command options", async () =>
     const base = healthyDependencies()
     const calls: Array<Readonly<{
       command: string
@@ -419,25 +395,21 @@ describe("doctor", () => {
     const oversized = "x".repeat(1_048_577)
     const report = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           calls.push({ command, arguments_: [...arguments_], options })
           if (command === "graphify") throw new Error("private command failure")
-          if (command === "bunx" && arguments_.includes("portless")) {
+          if (command === "bunx" && arguments_.includes("portless"))
             return { exitCode: 0, stdout: oversized, stderr: "" }
-          }
-          if (command === "bunx" && arguments_.includes("playwright")) {
+          if (command === "bunx" && arguments_.includes("playwright"))
             return { exitCode: 0, stdout: "version", stderr: oversized }
-          }
           return base.process.run(command, arguments_, options)
-        },
       },
     }))
 
-    for (const name of ["portless", "Graphify", "Playwright"]) {
+    for (const name of ["portless", "Graphify", "Playwright"])
       expect(report.checks.find((candidate) => candidate.name === name)).toMatchObject({
         status: "fail",
       })
-    }
     expect(JSON.stringify(report)).not.toContain("private command failure")
     expect(calls.find(({ command, arguments_ }) =>
       command === "pm2" && arguments_[0] === "jlist"
@@ -446,20 +418,18 @@ describe("doctor", () => {
       maxOutputBytes: 1_048_576,
       environment: { PM2_SILENT: "true" },
     })
-  })
+  )
 
-  it("short-circuits Docker daemon inspection and rejects empty daemon versions", async () => {
+  it("short-circuits Docker daemon inspection and rejects empty daemon versions", async () =>
     const base = healthyDependencies()
     const commands: string[] = []
     const unavailableCli = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           if (command === "docker") commands.push(arguments_.join(" "))
-          if (command === "docker" && arguments_[0] === "--version") {
+          if (command === "docker" && arguments_[0] === "--version")
             return { exitCode: 1, stdout: "", stderr: "missing" }
-          }
           return base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(unavailableCli.checks.find(({ name }) => name === "Docker")).toMatchObject({
@@ -469,31 +439,27 @@ describe("doctor", () => {
 
     const emptyDaemon = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
-          if (command === "docker" && arguments_[0] === "info") {
+        run: async (command, arguments_, options) =>
+          if (command === "docker" && arguments_[0] === "info")
             return { exitCode: 0, stdout: " \n", stderr: "" }
-          }
           return base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(emptyDaemon.checks.find(({ name }) => name === "Docker")).toMatchObject({
       status: "fail",
     })
-  })
+  )
 
-  it("maps Compose configuration, status, singleton, and malformed process output", async () => {
+  it("maps Compose configuration, status, singleton, and malformed process output", async () =>
     const base = healthyDependencies()
     let inspectedProcesses = false
     const invalidConfig = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
-          if (command === "docker" && arguments_.includes("config")) {
+        run: async (command, arguments_, options) =>
+          if (command === "docker" && arguments_.includes("config"))
             return { exitCode: 1, stdout: "", stderr: "invalid" }
-          }
           if (command === "docker" && arguments_.includes("ps")) inspectedProcesses = true
           return base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(invalidConfig.checks.find(({ name }) => name === "Postgres")).toMatchObject({
@@ -504,11 +470,10 @@ describe("doctor", () => {
 
     const failedStatus = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           return command === "docker" && arguments_.includes("ps")
             ? { exitCode: 1, stdout: "", stderr: "unavailable" }
             : base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(failedStatus.checks.find(({ name }) => name === "Postgres")).toMatchObject({
@@ -518,11 +483,10 @@ describe("doctor", () => {
 
     const singleton = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           return command === "docker" && arguments_.includes("ps")
             ? { exitCode: 0, stdout: '{"Name":"postgres","State":"healthy"}', stderr: "" }
             : base.process.run(command, arguments_, options)
-        },
       },
     }))
     expect(singleton.checks.find(({ name }) => name === "Postgres")).toMatchObject({
@@ -534,28 +498,26 @@ describe("doctor", () => {
       ["42", /malformed/i],
       ["{", /malformed/i],
       ["x".repeat(1_048_577), /inspection failed/i],
-    ] as const) {
+    ] as const)
       const report = await runDoctor(healthyDependencies({
         process: {
-          run: async (command, arguments_, options) => {
+          run: async (command, arguments_, options) =>
             return command === "docker" && arguments_.includes("ps")
               ? { exitCode: 0, stdout, stderr: "" }
               : base.process.run(command, arguments_, options)
-          },
         },
       }))
       expect(report.checks.find(({ name }) => name === "Postgres")).toMatchObject({
         status: "fail",
         detail: expect.stringMatching(detail),
       })
-    }
-  })
+  )
 
-  it("filters non-object Compose entries before selecting a healthy Postgres service", async () => {
+  it("filters non-object Compose entries before selecting a healthy Postgres service", async () =>
     const base = healthyDependencies()
     const report = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           return command === "docker" && arguments_.includes("ps")
             ? {
                 exitCode: 0,
@@ -566,20 +528,20 @@ describe("doctor", () => {
                 stderr: "",
               }
             : base.process.run(command, arguments_, options)
-        },
       },
     }))
 
     expect(report.checks.find(({ name }) => name === "Postgres")).toMatchObject({
       status: "pass",
     })
-  })
+  )
 
-  it("maps missing configuration, partial environment groups, and rejected trust probes", async () => {
+  it("maps missing configuration, partial environment groups, and rejected trust probes", async () =>
     const report = await runDoctor(healthyDependencies({
       environmentHas: (name) => name === "DATABASE_URL" || name === "GROQ_API_KEY",
       files: files({ "apps/web/wrangler.jsonc": false }),
-      probeHttps: async () => { throw new Error("certificate rejected") },
+      probeHttps: async () =>
+        throw new Error("certificate rejected")
     }))
 
     expect(report.checks.find(({ name }) => name === "Cloudflare config")).toMatchObject({
@@ -599,9 +561,9 @@ describe("doctor", () => {
     expect(report.checks.find(({ name }) => name === "portless trust")).toMatchObject({
       status: "fail",
     })
-  })
+  )
 
-  it("rejects malformed and oversized configuration artifacts and passes complete provider groups", async () => {
+  it("rejects malformed and oversized configuration artifacts and passes complete provider groups", async () =>
     const malformed = await runDoctor(healthyDependencies({
       files: files({
         "apps/web/wrangler.jsonc": JSON.stringify({
@@ -634,11 +596,10 @@ describe("doctor", () => {
       "Email provider",
       "Analytics provider",
       "Telemetry exporter",
-    ]) {
+    ])
       expect(malformed.checks.find((candidate) => candidate.name === name)).toMatchObject({
         status: "pass",
       })
-    }
 
     const oversizedCloudflare = await runDoctor(healthyDependencies({
       files: files({ "apps/web/wrangler.jsonc": "x".repeat(262_145) }),
@@ -646,9 +607,9 @@ describe("doctor", () => {
     expect(oversizedCloudflare.checks.find(({ name }) =>
       name === "Cloudflare config"
     )).toMatchObject({ status: "fail" })
-  })
+  )
 
-  it("maps nonzero, malformed, and stale PM2 process inspection", async () => {
+  it("maps nonzero, malformed, and stale PM2 process inspection", async () =>
     const base = healthyDependencies()
     for (const [stdout, exitCode, detail] of [
       ["", 1, /unknown/i],
@@ -663,41 +624,38 @@ describe("doctor", () => {
           args: ["darkfactory", "bun", "run", "dev"],
         },
       }]), 0, /stale/i],
-    ] as const) {
+    ] as const)
       const report = await runDoctor(healthyDependencies({
         process: {
-          run: async (command, arguments_, options) => {
+          run: async (command, arguments_, options) =>
             return command === "pm2" && arguments_[0] === "jlist"
               ? { exitCode, stdout, stderr: "" }
               : base.process.run(command, arguments_, options)
-          },
         },
       }))
       expect(report.checks.find(({ name }) => name === "PM2 process")).toMatchObject({
         status: "fail",
         detail: expect.stringMatching(detail),
       })
-    }
-  })
+  )
 
-  it("uses empty capability classifications after a manifest failure", async () => {
+  it("uses empty capability classifications after a manifest failure", async () =>
     const report = await runDoctor(healthyDependencies({
       files: files({ "capabilities.yaml": "capabilities: [" }),
     }))
 
     expect(report.capabilities).toEqual({ required: [], optional: [], disabled: [] })
     expect(report.checks.some(({ name }) => name.startsWith("Capability "))).toBe(false)
-  })
+  )
 
-  it("checks mkcert only when the fallback is explicitly selected", async () => {
+  it("checks mkcert only when the fallback is explicitly selected", async () =>
     const calls: Array<readonly [string, readonly string[]]> = []
     const base = healthyDependencies()
     const dependencies = healthyDependencies({
       process: {
-        run: async (command, arguments_) => {
+        run: async (command, arguments_) =>
           calls.push([command, [...arguments_]])
           return base.process.run(command, arguments_)
-        },
       },
     })
 
@@ -706,17 +664,16 @@ describe("doctor", () => {
 
     await runDoctor(dependencies, { certificateFallback: true })
     expect(calls).toContainEqual(["mkcert", ["-version"]])
-  })
+  )
 
-  it("reports a failed explicitly selected certificate fallback", async () => {
+  it("reports a failed explicitly selected certificate fallback", async () =>
     const base = healthyDependencies()
     const report = await runDoctor(healthyDependencies({
       process: {
-        run: async (command, arguments_, options) => {
+        run: async (command, arguments_, options) =>
           return command === "mkcert"
             ? { exitCode: 1, stdout: "", stderr: "not installed" }
             : base.process.run(command, arguments_, options)
-        },
       },
     }), { certificateFallback: true })
 
@@ -725,9 +682,9 @@ describe("doctor", () => {
       status: "fail",
       detail: "mkcert fallback is unavailable or incompatible",
     })
-  })
+  )
 
-  it("returns CLI exit codes for healthy, missing, and malformed fixtures", async () => {
+  it("returns CLI exit codes for healthy, missing, and malformed fixtures", async () =>
     const output: string[] = []
     await expect(runDoctorCli([], {
       doctor: healthyDependencies(),
@@ -738,11 +695,10 @@ describe("doctor", () => {
     await expect(runDoctorCli([], {
       doctor: healthyDependencies({
         process: {
-          run: (command, arguments_, options) => {
+          run: (command, arguments_, options) =>
             return command === "node"
               ? Promise.resolve({ exitCode: 0, stdout: "v18.0.0\n", stderr: "" })
               : base.process.run(command, arguments_, options)
-          },
         },
       }),
       writeOutput: (value) => output.push(value),
@@ -753,9 +709,9 @@ describe("doctor", () => {
       writeOutput: (value) => output.push(value),
       writeError: () => undefined,
     })).resolves.toBe(2)
-  })
+  )
 
-  it("renders JSON and certificate-fallback CLI modes and catches dispatch failures", async () => {
+  it("renders JSON and certificate-fallback CLI modes and catches dispatch failures", async () =>
     const stdout: string[] = []
     const stderr: string[] = []
     const dependencies = {
@@ -774,10 +730,11 @@ describe("doctor", () => {
     await expect(runDoctorCli([], {
       ...dependencies,
       doctor: healthyDependencies({
-        environmentHas: () => { throw new Error("private environment failure") },
+        environmentHas: () =>
+          throw new Error("private environment failure")
       }),
     })).resolves.toBe(1)
     expect(stderr.join("")).toContain("Doctor failed unexpectedly")
     expect(stderr.join("")).not.toContain("private environment failure")
-  })
-})
+  )
+)

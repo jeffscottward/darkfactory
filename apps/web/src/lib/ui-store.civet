@@ -36,14 +36,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export const parseAnonymousThemeSnapshot = (
   serializedSnapshot: unknown,
-): Readonly<AnonymousThemeSnapshot> | null => {
+): Readonly<AnonymousThemeSnapshot> | null =>
   if (
     typeof serializedSnapshot !== "string"
     || serializedSnapshot.length === 0
     || serializedSnapshot.length > MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH
   ) return null
 
-  try {
+  try
     const snapshot = JSON.parse(serializedSnapshot) as unknown
     if (!isRecord(snapshot)) return null
     const keys = Object.keys(snapshot)
@@ -63,10 +63,8 @@ export const parseAnonymousThemeSnapshot = (
       themeMode: snapshot["themeMode"],
       palette: snapshot["palette"],
     }
-  } catch {
+  catch
     return null
-  }
-}
 
 export const serializeAnonymousThemePreference = (
   preference: Readonly<AnonymousThemePreference>,
@@ -96,42 +94,38 @@ export const UiStateProvider = ({
 }: {
   readonly children: ReactNode
   readonly initialPreference: Readonly<AnonymousThemePreference>
-}) => {
-  const [store] = useState(() => {
+}) =>
+  const [store] = useState(() =>
     const createdStore = createUiStore()
     createdStore.getState().hydrate(
       JSON.stringify(createAnonymousUiStateSnapshot(initialPreference)),
     )
     return createdStore
-  })
-  return <UiStoreProvider value={store}>{children}</UiStoreProvider>
-}
+  )
+  return <UiStoreProvider value={store}>{children}
 
-export const useUiStoreApi = (): UiStore => {
+export const useUiStoreApi = (): UiStore =>
   const store = useContext(UiStoreContext)
   if (store === null) throw new Error("UiStateProvider is required.")
   return store
-}
 
 export const useUiState = <Selection>(
   selector: (state: UiState) => Selection,
-): Selection => {
+): Selection =>
   const store = useUiStoreApi()
   return useSyncExternalStore(
     store.subscribe,
     () => selector(store.getState()),
     () => selector(store.getState()),
   )
-}
 
 
 export const parseAnonymousThemePreference = (
   serializedSnapshot: unknown,
-): Readonly<AnonymousThemePreference> => {
+): Readonly<AnonymousThemePreference> =>
   const snapshot = parseAnonymousThemeSnapshot(serializedSnapshot)
   if (snapshot === null) return DEFAULT_ANONYMOUS_THEME
   return {
     themeMode: snapshot.themeMode,
     palette: snapshot.palette,
   }
-}

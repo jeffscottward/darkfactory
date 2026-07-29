@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const formRuntime = vi.hoisted(() => {
+const formRuntime = vi.hoisted(() =>
   type ElementRecord = Readonly<{ props: Record<string, unknown> }>
   type ValidatorContext = Readonly<{
     value: unknown
@@ -28,34 +28,29 @@ const formRuntime = vi.hoisted(() => {
   let buttons = new Map<string, ElementRecord>()
   let isSubmitting = false
 
-  const textOf = (node: unknown): string => {
+  const textOf = (node: unknown): string =>
     if (typeof node === "string" || typeof node === "number") return String(node)
     if (Array.isArray(node)) return node.map(textOf).join("")
     if (typeof node !== "object" || node === null) return ""
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return ""
     return textOf(Reflect.get(props, "children"))
-  }
 
-  const capture = (node: unknown, seen = new WeakSet<object>()): void => {
-    if (Array.isArray(node)) {
-      for (const child of node) {
+  const capture = (node: unknown, seen = new WeakSet<object>()): void =>
+    if (Array.isArray(node))
+      for (const child of node)
         capture(child, seen)
-      }
       return undefined
-    }
     if (typeof node !== "object" || node === null || seen.has(node)) return
     seen.add(node)
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return
     const element = node as ElementRecord
     if (typeof element.props["id"] === "string") controls.set(element.props["id"], element)
-    if (element.props["type"] === "submit" || typeof element.props["onClick"] === "function") {
+    if (element.props["type"] === "submit" || typeof element.props["onClick"] === "function")
       const label = textOf(element).replace(/\s+/gu, " ").trim()
       if (label.length > 0) buttons.set(label, element)
-    }
     for (const value of Object.values(element.props)) capture(value, seen)
-  }
 
   const validatorContext = (name: string): ValidatorContext => ({
     value: values[name],
@@ -64,12 +59,11 @@ const formRuntime = vi.hoisted(() => {
     },
   })
 
-  const validate = (name: string, trigger: "onBlur" | "onSubmit"): void => {
+  const validate = (name: string, trigger: "onBlur" | "onSubmit"): void =>
     const validator = validators[name]?.[trigger]
     const error = validator?.(validatorContext(name))
     if (error === undefined) delete errors[name]
     else errors[name] = error
-  }
 
   const Field = (props: Readonly<{
     children: (field: Readonly<{
@@ -83,14 +77,13 @@ const formRuntime = vi.hoisted(() => {
     }>) => unknown
     name: string
     validators?: Validators
-  }>) => {
+  }>) =>
     validators[props.name] = props.validators
     const tree = props.children({
       handleBlur: () => validate(props.name, "onBlur"),
-      handleChange: (value) => {
+      handleChange: (value) =>
         values[props.name] = value
         delete errors[props.name]
-      },
       name: props.name,
       state: {
         meta: { errors: errors[props.name] === undefined ? [] : [errors[props.name]] },
@@ -99,7 +92,6 @@ const formRuntime = vi.hoisted(() => {
     })
     capture(tree)
     return tree
-  }
 
   const Subscribe = (props: Readonly<{
     children: (selection: unknown) => unknown
@@ -108,58 +100,49 @@ const formRuntime = vi.hoisted(() => {
       isDirty: boolean
       isSubmitting: boolean
     }>) => unknown
-  }>) => {
+  }>) =>
     const isDirty = Object.keys(values).some((name) => !Object.is(values[name], initialValues[name]))
     const canSubmit = Object.values(errors).every((error) => error === undefined)
     const tree = props.children(props.selector({ canSubmit, isDirty, isSubmitting }))
     capture(tree)
     return tree
-  }
 
-  const submit = async (): Promise<void> => {
+  const submit = async (): Promise<void> =>
     if (config === undefined) throw new Error("Render a form before submitting it.")
     for (const name of Object.keys(validators)) validate(name, "onSubmit")
     if (Object.values(errors).some((error) => error !== undefined)) return
     isSubmitting = true
-    try {
+    try
       await config.onSubmit({ value: { ...values } })
-    } finally {
+    finally
       isSubmitting = false
-    }
-  }
 
   return {
-    blur: (id: string): void => {
+    blur: (id: string): void =>
       const onBlur = controls.get(id)?.props["onBlur"]
       if (typeof onBlur !== "function") throw new Error(`Expected #${id} to support blur.`)
       ;(onBlur as () => void)()
-    },
-    button: (label: string): ElementRecord => {
+    button: (label: string): ElementRecord =>
       const button = buttons.get(label)
       if (button === undefined) throw new Error(`Expected button named ${label}.`)
       return button
-    },
-    changeChecked: (id: string, checked: boolean): void => {
+    changeChecked: (id: string, checked: boolean): void =>
       const onChange = controls.get(id)?.props["onChange"]
       if (typeof onChange !== "function") throw new Error(`Expected #${id} to accept checked state.`)
       ;(onChange as (event: Readonly<{ target: Readonly<{ checked: boolean }> }>) => void)({ target: { checked } })
-    },
-    changeText: (id: string, value: string): void => {
+    changeText: (id: string, value: string): void =>
       const onChange = controls.get(id)?.props["onChange"]
       if (typeof onChange !== "function") throw new Error(`Expected #${id} to accept text.`)
       ;(onChange as (event: Readonly<{ target: Readonly<{ value: string }> }>) => void)({ target: { value } })
-    },
-    click: (label: string): void => {
+    click: (label: string): void =>
       const onClick = buttons.get(label)?.props["onClick"]
       if (typeof onClick !== "function") throw new Error(`Expected button named ${label}.`)
       ;(onClick as () => void)()
-    },
-    control: (id: string): ElementRecord => {
+    control: (id: string): ElementRecord =>
       const control = controls.get(id)
       if (control === undefined) throw new Error(`Expected control #${id}.`)
       return control
-    },
-    reset: (): void => {
+    reset: (): void =>
       config = undefined
       initialValues = {}
       values = {}
@@ -168,20 +151,17 @@ const formRuntime = vi.hoisted(() => {
       controls = new Map()
       buttons = new Map()
       isSubmitting = false
-    },
     submit,
-    useForm: (nextConfig: FormConfig) => {
-      if (config === undefined) {
+    useForm: (nextConfig: FormConfig) =>
+      if (config === undefined)
         initialValues = { ...nextConfig.defaultValues }
         values = { ...nextConfig.defaultValues }
-      }
       config = nextConfig
       controls.clear()
       buttons.clear()
       return { Field, Subscribe, handleSubmit: submit }
-    },
   }
-})
+)
 
 vi.mock("@tanstack/react-form", () => ({ useForm: formRuntime.useForm }))
 
@@ -229,22 +209,20 @@ const preferences = {
   updatedAt,
 }
 
-const deferred = <Value>() => {
-  let resolvePromise = (_value: Value): void => {
+const deferred = <Value>() =>
+  let resolvePromise = (_value: Value): void =>
     throw new Error("Deferred promise was not initialized.")
-  }
-  const promise = new Promise<Value>((resolve) => {
+  const promise = new Promise<Value>((resolve) =>
     resolvePromise = resolve
-  })
+  )
   return { promise, resolve: resolvePromise }
-}
 
 type NativeSubmitEvent = Readonly<{
   preventDefault: () => void
   stopPropagation: () => void
 }>
 
-const invokeNativeSubmit = (tree: unknown) => {
+const invokeNativeSubmit = (tree: unknown) =>
   const props = Reflect.get(tree as object, "props")
   if (typeof props !== "object" || props === null) throw new Error("Expected a form element.")
   const onSubmit = Reflect.get(props, "onSubmit")
@@ -255,17 +233,16 @@ const invokeNativeSubmit = (tree: unknown) => {
   }
   ;(onSubmit as (event: NativeSubmitEvent) => void)(event)
   return event
-}
 
 const flushMicrotasks = async (): Promise<void> ->
   await Promise.resolve()
   await Promise.resolve()
   await Promise.resolve()
 
-afterEach(() => {
+afterEach(() =>
   formRuntime.reset()
   vi.unstubAllGlobals()
-})
+)
 
 describe "address form behavior", ->
   it "announces required and maximum-boundary errors, while accepting an empty optional line", async ->

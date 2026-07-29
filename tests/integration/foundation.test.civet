@@ -32,9 +32,8 @@ describe "foundation package integration", ->
     const contextResult: Result<typeof contextValue, never> = success(contextValue)
     const context = matchResult(contextResult, {
       success: (value: typeof contextValue) => value,
-      failure: (error: never) => {
+      failure: (error: never) =>
         throw error
-      },
     })
 
     expect(context).toEqual({

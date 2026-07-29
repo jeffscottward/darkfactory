@@ -8,14 +8,13 @@ export const OPENAPI_INFO = {
   version: "0.2.1",
 } as const
 
-export const buildOpenApiDocument = async (): Promise<OpenAPI.Document> => {
+export const buildOpenApiDocument = async (): Promise<OpenAPI.Document> =>
   const generator = new OpenAPIGenerator({
     schemaConverters: [new ZodToJsonSchemaConverter()],
   })
   return generator.generate(appContract, { info: OPENAPI_INFO })
-}
 
-const sortJson = (value: unknown): unknown => {
+const sortJson = (value: unknown): unknown =>
   if (Array.isArray(value)) return value.map(sortJson)
   if (value !== null && typeof value === "object")
     return Object.fromEntries(
@@ -24,7 +23,6 @@ const sortJson = (value: unknown): unknown => {
         .map(([key, child]) => [key, sortJson(child)]),
     )
   return value
-}
 
 export const serializeOpenApiDocument = (document: OpenAPI.Document): string =>
   `${JSON.stringify(sortJson(document), null, 2)}\n`

@@ -34,26 +34,25 @@ export interface AdminUsersDirectoryProps {
 const titleFor = (user: AdminUserSummaryOutput): string =>
   user.profile?.displayName ?? user.name
 
-const statusTone = (status: AdminUserSummaryOutput["status"]): "success" | "warning" | "neutral" => {
+const statusTone = (status: AdminUserSummaryOutput["status"]): "success" | "warning" | "neutral" =>
   if (status === "active") return "success"
   if (status === "suspended") return "warning"
   return "neutral"
-}
 
 const labelFor = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1)
 
 const SearchForm = ({ onClearSearch, onSearch, query }: Pick<AdminUsersDirectoryProps, "onClearSearch" | "onSearch" | "query">) => (
   <form
     className="flex flex-col gap-3 sm:flex-row sm:items-end"
-    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+    onSubmit={(event: FormEvent<HTMLFormElement>) =>
       event.preventDefault()
       const formData = new FormData(event.currentTarget)
       onSearch?.(String(formData.get("query") ?? ""))
-    }}
+    }
     role="search"
   >
     <div className="min-w-0 flex-1 space-y-2">
-      <Label htmlFor="admin-user-query">Search users</Label>
+      <Label htmlFor="admin-user-query">Search users
       <Input
         defaultValue={query}
         key={query}
@@ -63,22 +62,21 @@ const SearchForm = ({ onClearSearch, onSearch, query }: Pick<AdminUsersDirectory
         placeholder="Search by profile or account fields"
         type="search"
       />
-    </div>
-    <Button type="submit" variant="secondary"><Search aria-hidden="true" className="size-4" />Search</Button>
-    {query.length > 0 ? <Button onClick={onClearSearch} type="button" variant="ghost">Clear search</Button> : null}
-  </form>
+    <Button type="submit" variant="secondary"><Search aria-hidden="true" className="size-4" />Search
+    {query.length > 0
+      ? <Button onClick={onClearSearch} type="button" variant="ghost">Clear search
+      : null
+    }
 )
 
 const LoadingDirectory = () => (
   <div aria-busy="true" aria-live="polite" className="space-y-3" role="status">
-    <span className="sr-only">Loading users</span>
+    <span className="sr-only">Loading users
     {["one", "two", "three"].map((key) => (
       <div className="grid gap-3 border-b border-border py-5 sm:grid-cols-[minmax(0,1fr)_auto]" key={key}>
-        <div className="space-y-2"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-64 max-w-full" /></div>
+        <div className="space-y-2"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-64 max-w-full" />
         <Skeleton className="h-6 w-24" />
-      </div>
     ))}
-  </div>
 )
 
 export const AdminUsersDirectory = ({
@@ -94,58 +92,51 @@ export const AdminUsersDirectory = ({
     <SearchForm onClearSearch={onClearSearch} onSearch={onSearch} query={query} />
     {state.type === "loading" ? <LoadingDirectory /> : state.type === "error" ? (
       <div aria-live="assertive" role="alert">
-      <EmptyState
-        action={state.kind === "unauthorized"
-          ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Fadmin%2Fusers">Sign in</a>
-          : state.kind === "forbidden"
-            ? <a className={buttonVariants({ variant: "secondary" })} href="/dashboard">Back to dashboard</a>
-            : state.kind === "not-found"
-              ? <a className={buttonVariants({ variant: "secondary" })} href="/dashboard">Back to dashboard</a>
-              : <Button onClick={onRetry} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again</Button>}
-        description={state.message}
-        icon={<RotateCcw />}
-        title="User directory could not be loaded"
-      />
-      </div>
+        <EmptyState
+          action={state.kind === "unauthorized"
+            ? <a className={buttonVariants()} href="/sign-in?callbackURL=%2Fadmin%2Fusers">Sign in
+            : state.kind === "forbidden"
+              ? <a className={buttonVariants({ variant: "secondary" })} href="/dashboard">Back to dashboard
+              : state.kind === "not-found"
+                ? <a className={buttonVariants({ variant: "secondary" })} href="/dashboard">Back to dashboard
+                : <Button onClick={onRetry} variant="secondary"><RotateCcw aria-hidden="true" className="size-4" />Try again
+          }
+          description={state.message}
+          icon={<RotateCcw />}
+          title="User directory could not be loaded"
+        />
     ) : state.items.length === 0 ? (
       <div aria-live="polite" role="status">
-      <EmptyState
-        action={query.length > 0 ? <Button onClick={onClearSearch} variant="secondary">Clear search</Button> : undefined}
-        description={query.length > 0
-          ? "No users match this search. Clear it to view the full directory."
-          : "No account summaries have been returned by the directory."}
-        icon={<Users />}
-        title={query.length > 0 ? "No users match this search" : "No users are available"}
-      />
-      </div>
+        <EmptyState
+          action={query.length > 0
+            ? <Button onClick={onClearSearch} variant="secondary">Clear search
+            : undefined
+          }
+          description={query.length > 0
+            ? "No users match this search. Clear it to view the full directory."
+            : "No account summaries have been returned by the directory."}
+          icon={<Users />}
+          title={query.length > 0 ? "No users match this search" : "No users are available"}
+        />
     ) : (
       <div className="space-y-4">
         <div className="divide-y divide-border border-y border-border" role="list">
           {state.items.map((user) => (
             <article className="grid min-w-0 gap-4 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center" key={user.id} role="listitem">
               <div className="min-w-0 space-y-1 break-words">
-                <h2 className="break-words font-heading text-base font-semibold text-foreground">{titleFor(user)}</h2>
+                <h2 className="break-words font-heading text-base font-semibold text-foreground">{titleFor(user)}
                 <p className="break-words text-sm text-muted-foreground">
                   {[user.profile?.jobTitle, user.profile?.businessName].filter((value) => value !== null && value !== undefined && value.length > 0).join(" · ") || "No profile summary provided"}
-                </p>
                 <p className="text-xs text-muted-foreground">
                   {user.emailVerified ? "Email verified" : "Email not verified"} · Account created {user.createdAt.toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "UTC" })}
-                </p>
-              </div>
               <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                <StatusBadge status={user.role === "admin" ? "neutral" : "info"}>{labelFor(user.role)}</StatusBadge>
-                <StatusBadge status={statusTone(user.status)}>{labelFor(user.status)}</StatusBadge>
-              </div>
-            </article>
+                <StatusBadge status={user.role === "admin" ? "neutral" : "info"}>{labelFor(user.role)}
+                <StatusBadge status={statusTone(user.status)}>{labelFor(user.status)}
           ))}
-        </div>
         <p aria-live="polite" className="text-sm text-muted-foreground" role="status">
           {state.items.length} {state.items.length === 1 ? "user" : "users"} loaded. {state.nextCursor === null ? "End of directory." : "More users are available."}
-        </p>
         {state.nextCursor === null ? null : (
-          <Button loading={isLoadingMore} loadingLabel="Loading more users" onClick={onLoadMore} variant="secondary">Load more</Button>
+          <Button loading={isLoadingMore} loadingLabel="Loading more users" onClick={onLoadMore} variant="secondary">Load more
         )}
-      </div>
     )}
-  </div>
 )

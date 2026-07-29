@@ -47,14 +47,13 @@ export const createFeatureItemGateway = (client: ApiClient): FeatureItemGateway 
   archive: (id) => client.featureItems.archive({ id }),
 })
 
-export const createBrowserFeatureItemGateway = (): FeatureItemGateway => {
+export const createBrowserFeatureItemGateway = (): FeatureItemGateway =>
   let gateway: FeatureItemGateway | undefined
-  const current = (): FeatureItemGateway => {
+  const current = (): FeatureItemGateway =>
     gateway ??= createFeatureItemGateway(
       createApiClient({ baseUrl: window.location.origin }),
     )
     return gateway
-  }
 
   const lazyGateway: FeatureItemGateway = {
     list: (input = {}) => current().list(input),
@@ -66,9 +65,8 @@ export const createBrowserFeatureItemGateway = (): FeatureItemGateway => {
   }
 
   return Object.freeze(lazyGateway)
-}
 
-const errorCode = (error: unknown): string | null => {
+const errorCode = (error: unknown): string | null =>
   if (typeof error !== "object" || error === null) return null
   const code = Reflect.get(error, "code")
   if (typeof code === "string") return code
@@ -76,7 +74,6 @@ const errorCode = (error: unknown): string | null => {
   if (typeof data !== "object" || data === null) return null
   const nestedCode = Reflect.get(data, "code")
   return typeof nestedCode === "string" ? nestedCode : null
-}
 
 export type FeatureFailureKind =
   | "validation"
@@ -92,8 +89,8 @@ export interface FeatureFailure {
   readonly message: string
 }
 
-export const classifyFeatureFailure = (error: unknown): FeatureFailure => {
-  switch (errorCode(error)) {
+export const classifyFeatureFailure = (error: unknown): FeatureFailure =>
+  switch (errorCode(error))
     case "VALIDATION_ERROR":
     case "BAD_REQUEST":
       return { kind: "validation", message: "Check the highlighted fields and try again." }
@@ -109,8 +106,6 @@ export const classifyFeatureFailure = (error: unknown): FeatureFailure => {
       return { kind: "transient", message: "Feature item storage is temporarily unavailable. Try again." }
     default:
       return { kind: "unknown", message: "The request could not be completed. Try again." }
-  }
-}
 
 export const safeFeatureFeedback = (error: unknown): string =>
   classifyFeatureFailure(error).message
@@ -119,34 +114,30 @@ export const synchronizeRetainedFeatureItem = async (
   gateway: FeatureItemGateway,
   retainedItem: FeatureItemOutput,
   input: CreateFeatureItemInput,
-): Promise<FeatureItemOutput> => {
+): Promise<FeatureItemOutput> =>
   const name = input.name.trim()
-  if (retainedItem.name === name && retainedItem.description === input.description) {
+  if (retainedItem.name === name && retainedItem.description === input.description)
     return retainedItem
-  }
   return gateway.update(retainedItem.id, {
     name,
     description: input.description,
   })
-}
 
 export const restorePortalFocus = (
   target: Readonly<{ focus: () => void }> | null,
-): void => {
+): void =>
   if (target === null) return
   queueMicrotask(() => target.focus())
-}
 
 export const upsertFeatureItem = (
   items: readonly FeatureItemOutput[],
   nextItem: FeatureItemOutput,
-): FeatureItemOutput[] => {
+): FeatureItemOutput[] =>
   const index = items.findIndex((item) => item.id === nextItem.id)
   if (index === -1) return [nextItem, ...items]
   const nextItems = items.slice()
   nextItems[index] = nextItem
   return nextItems
-}
 
 export const withoutFeatureItem = (
   items: readonly FeatureItemOutput[],

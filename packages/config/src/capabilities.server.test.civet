@@ -31,18 +31,17 @@ type PackageManifest = Readonly<
 
 const readChildPackageManifests = async (
   directory: URL,
-): Promise<PackageManifest[]> => {
+): Promise<PackageManifest[]> =>
   const entries = await readdir(directory, { withFileTypes: true })
   return await Promise.all(
-    entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
+    entries.filter((entry) => entry.isDirectory()).map(async (entry) =>
       return JSON.parse(
         await readFile(new URL(`${entry.name}/package.json`, directory), "utf8"),
       ) as PackageManifest
-    }),
+    ),
   )
-}
 
-const installedWorkspaceDependencies = async (): Promise<string[]> => {
+const installedWorkspaceDependencies = async (): Promise<string[]> =>
   const rootManifest = JSON.parse(
     await readFile(new URL("../../../package.json", import.meta.url), "utf8"),
   ) as PackageManifest
@@ -62,10 +61,9 @@ const installedWorkspaceDependencies = async (): Promise<string[]> => {
     "peerDependencies",
   ] as const
 
-  return manifests.flatMap((manifest) => {
+  return manifests.flatMap((manifest) =>
     return dependencySections.flatMap((section) => Object.keys(manifest[section] ?? {}))
-  })
-}
+  )
 
 const configuredStorageEnvironment = {
   STORAGE_ENABLED: true,
@@ -75,8 +73,8 @@ const configuredStorageEnvironment = {
   R2_BUCKET: "private-bucket-name",
 } as const
 
-describe("capability inventory", () => {
-  it("marks inline jobs as core and every external v0.1 capability uninstalled", async () => {
+describe("capability inventory", () =>
+  it("marks inline jobs as core and every external v0.1 capability uninstalled", async () =>
     expect(V01_INSTALLED_CAPABILITIES).toEqual({
       inlineJobs: true,
       mintlify: false,
@@ -110,18 +108,17 @@ describe("capability inventory", () => {
     const forbiddenDisabledDependencies =
       /mintlify|celery|flower|uptime.?kuma|glitchtip|memori|pgvector|postgis|timescale|pg.?cron|@aws-sdk\/client-s3/i
     const disabledDependencies = (await installedWorkspaceDependencies()).filter(
-      (dependency) => {
+      (dependency) =>
         return forbiddenDisabledDependencies.test(dependency)
-      },
     )
     expect(disabledDependencies).toEqual([])
     return undefined
-  })
+  )
   return undefined
-})
+)
 
-describe("capability readiness", () => {
-  it("reports all optional capabilities disabled for the exact v0.1 manifest", async () => {
+describe("capability readiness", () =>
+  it("reports all optional capabilities disabled for the exact v0.1 manifest", async () =>
     const readiness = evaluateCapabilityReadiness(await readManifest(), {})
 
     expect(Object.values(readiness).every(({ status }) => status === "disabled")).toBe(true)
@@ -133,9 +130,9 @@ describe("capability readiness", () => {
     expect(readiness.jobs.provider).toBe("celery")
     expect(readiness.jobsDashboard.provider).toBe("flower")
     expect(JSON.stringify(readiness)).not.toContain("inlineJobs")
-  })
+  )
 
-  it("distinguishes disabled, unconfigured, unavailable, and ready", async () => {
+  it("distinguishes disabled, unconfigured, unavailable, and ready", async () =>
     const manifest = await readManifest()
     const enabledManifest = enableStorage(manifest)
     const available = {
@@ -187,9 +184,9 @@ describe("capability readiness", () => {
       status: "ready",
       missingRequirements: [],
     })
-  })
+  )
 
-  it("accepts normalized server environment values without reparsing booleans", async () => {
+  it("accepts normalized server environment values without reparsing booleans", async () =>
     const parsedEnvironment = parseServerEnv({
       DATABASE_URL: "postgresql://localhost/darkfactory_test",
       BETTER_AUTH_SECRET: "a".repeat(32),
@@ -215,9 +212,9 @@ describe("capability readiness", () => {
       available: true,
       status: "ready",
     })
-  })
+  )
 
-  it("reports an unavailable binding separately from an uninstalled dependency", async () => {
+  it("reports an unavailable binding separately from an uninstalled dependency", async () =>
     const result = evaluateCapabilityReadiness(
       enableStorage(await readManifest()),
       configuredStorageEnvironment,
@@ -231,9 +228,9 @@ describe("capability readiness", () => {
       status: "unavailable",
       reason: "binding_unavailable",
     })
-  })
+  )
 
-  it("serializes only requirement names and sanitized reason codes", async () => {
+  it("serializes only requirement names and sanitized reason codes", async () =>
     const serialized = JSON.stringify(
       evaluateCapabilityReadiness(
         enableStorage(await readManifest()),
@@ -241,14 +238,13 @@ describe("capability readiness", () => {
       ),
     )
 
-    for (const [key, secret] of Object.entries(configuredStorageEnvironment)) {
+    for (const [key, secret] of Object.entries(configuredStorageEnvironment))
       if (key === "STORAGE_ENABLED") continue
       expect(serialized).not.toContain(secret)
-    }
     expect(serialized).not.toMatch(/secret-value|private-bucket-name/)
-  })
+  )
 
-  it("evaluates every manifest and environment enablement branch as ready", async () => {
+  it("evaluates every manifest and environment enablement branch as ready", async () =>
     const manifest = await readManifest()
     const enabledManifest: CapabilityManifest = {
       ...manifest,
@@ -334,6 +330,6 @@ describe("capability readiness", () => {
     expect(Object.values(result).every(({ reason }) => reason === undefined)).toBe(
       true,
     )
-  })
+  )
   return undefined
-})
+)

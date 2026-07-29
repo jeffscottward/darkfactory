@@ -15,20 +15,17 @@ export const runCapabilityCli = async (
   arguments_: readonly string[],
   dependencies: CapabilityDependencies,
   output: CapabilityCliOutput,
-): Promise<number> => {
-  if (arguments_.length === 1 && (arguments_[0] === "--help" || arguments_[0] === "-h")) {
+): Promise<number> =>
+  if (arguments_.length === 1 && (arguments_[0] === "--help" || arguments_[0] === "-h"))
     output.writeOutput(HELP)
     return 0
-  }
-  try {
+  try
     const parsed = parseCapabilityArguments(arguments_)
     const report = await runCapabilityAddition(parsed, dependencies)
     const rendered = `${JSON.stringify(report, null, 2)}\n`
     if (report.ok) output.writeOutput(rendered)
     else output.writeError(rendered)
     return report.ok ? 0 : 1
-  } catch (error) {
+  catch (error)
     output.writeError(`${error instanceof Error ? error.message : "Invalid capability arguments"}\n${HELP}`)
     return 2
-  }
-}

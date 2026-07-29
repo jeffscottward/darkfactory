@@ -14,26 +14,24 @@ const createResetDatabaseDouble = ({
 }: {
   executeError?: unknown
   transactionError?: unknown
-} = {}) => {
+} = {}) =>
   const lifecycle: string[] = []
-  const execute = vi.fn(async (_statement: unknown) => {
+  const execute = vi.fn(async (_statement: unknown) =>
     if (executeError !== undefined) throw executeError
     return []
-  })
+  )
   const transactionExecutor = { execute } as unknown as Database
   const transaction = vi.fn(
-    async (operation: (transaction: Database) => Promise<unknown>) => {
+    async (operation: (transaction: Database) => Promise<unknown>) =>
       lifecycle.push("begin")
-      try {
+      try
         if (transactionError !== undefined) throw transactionError
         const result = await operation(transactionExecutor)
         lifecycle.push("commit")
         return result
-      } catch (error) {
+      catch error
         lifecycle.push("rollback")
         throw error
-      }
-    },
   )
   return {
     database: { transaction } as unknown as Database,
@@ -41,12 +39,11 @@ const createResetDatabaseDouble = ({
     lifecycle,
     transaction,
   }
-}
 
 describe "development database reset", ->
   it.each(["development", "test"] as const)(
     "truncates all development-owned tables transactionally in %s",
-    async (environment) => {
+    async (environment) =>
       const double = createResetDatabaseDouble()
 
       const result = await resetDevelopment(double.database, { environment })
@@ -73,20 +70,18 @@ describe "development database reset", ->
       ])
         expect(query).toContain(`"${table}"`)
       expect(query).toContain("RESTART IDENTITY")
-    },
   )
 
   it "rejects every non-development environment before opening a transaction", async ->
-    for (const environment of ["production", "staging", "", undefined, null]) {
+    for (const environment of ["production", "staging", "", undefined, null])
       const double = createResetDatabaseDouble()
       let thrown: unknown
-      try {
+      try
         await resetDevelopment(double.database, {
           environment: environment as never,
         })
-      } catch (error) {
+      catch error
         thrown = error
-      }
       expect(thrown).toBeInstanceOf(DevelopmentResetError)
       expect(thrown).toMatchObject({
         name: "DevelopmentResetError",
@@ -94,7 +89,6 @@ describe "development database reset", ->
       })
       expect(double.transaction).not.toHaveBeenCalled()
       expect(double.execute).not.toHaveBeenCalled()
-    }
 
   it "preserves transaction-provider failures and records rollback", async ->
     const providerError = new Error("transaction provider unavailable")

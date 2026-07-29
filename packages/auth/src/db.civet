@@ -163,74 +163,63 @@ const isConfirmedCookieExpiry = async (response: Response): Promise<boolean> =>
 const isSameOriginPost = (
   request: Request,
   trustedOrigin: string,
-): "allowed" | "method" | "origin" => {
+): "allowed" | "method" | "origin" =>
   if (request.method !== "POST") return "method"
   return request.headers.get("origin") === trustedOrigin
     ? "allowed"
     : "origin"
-}
 
 export const createConfirmedSignOutHandler = (
   dependencies: ConfirmedSignOutDependencies,
-): ((request: Request) => Promise<Response>) => {
+): ((request: Request) => Promise<Response>) =>
   const trustedOrigin = new URL(dependencies.trustedOrigin).origin
 
-  return async (request) => {
+  return async (request) =>
     const requestKind = isSameOriginPost(request, trustedOrigin)
-    if (requestKind === "method") {
+    if (requestKind === "method")
       return Response.json(
         { success: false, message: "Method not allowed." },
         { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
       )
-    }
-    if (requestKind === "origin") {
+    if (requestKind === "origin")
       return Response.json(
         { success: false, message: "Request origin is not allowed." },
         { status: 403, headers: { "cache-control": "no-store" } },
       )
-    }
 
-    const expireCookie = async (): Promise<Response> => {
-      try {
+    const expireCookie = async (): Promise<Response> =>
+      try
         const response = await dependencies.expireSessionCookie(request)
         if (await isConfirmedCookieExpiry(response)) return response
         return genericFailure()
-      } catch {
+      catch
         return genericFailure()
-      }
-    }
 
     let session: CurrentSessionIdentity | null
-    try {
+    try
       session = await dependencies.currentSession(request.headers)
-    } catch {
+    catch
       return genericFailure()
-    }
 
-    if (session === null) {
-      try {
+    if (session === null)
+      try
         const hasValidCookie = await dependencies.hasValidSessionCookie(request.headers)
         if (!hasValidCookie) return unauthenticated()
         return expireCookie()
-      } catch {
+      catch
         return genericFailure()
-      }
-    }
 
-    try {
+    try
       const revocation = await dependencies.revokeCurrentSession(session)
       if (revocation === "mismatch") return genericFailure()
-    } catch {
+    catch
       return genericFailure()
-    }
     return expireCookie()
-  }
-}
 
 export const createRawSessionIdentityReader = (
   auth: DarkFactoryAuth,
 ): ((headers: Headers) => Promise<CurrentSessionIdentity | null>) =>
-  async (headers) => {
+  async (headers) =>
     const value: unknown = await auth.api.getSession({ headers })
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null
     const record = value as Record<string, unknown>
@@ -242,12 +231,11 @@ export const createRawSessionIdentityReader = (
     const userId = (user as Record<string, unknown>)["id"]
     if (typeof sessionId !== "string" || typeof userId !== "string") return null
     return { sessionId, userId }
-  }
 
 export const createCurrentSessionRevoker = (
   database: DatabaseExecutor,
 ): ((session: CurrentSessionIdentity) => Promise<CurrentSessionRevocation>) =>
-  async ({ sessionId, userId }) => {
+  async ({ sessionId, userId }) =>
     const deleted = await database
       .delete(sessions)
       .where(andWhere(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
@@ -260,7 +248,6 @@ export const createCurrentSessionRevoker = (
       .where(eq(sessions.id, sessionId))
       .limit(1)
     return existing.length === 0 ? "missing" : "mismatch"
-  }
 
 export const createDatabaseConfirmedSignOutHandler = ({
   auth,
@@ -272,7 +259,7 @@ export const createDatabaseConfirmedSignOutHandler = ({
   database: DatabaseExecutor
   secret: string
   trustedOrigin: string
-}>): ((request: Request) => Promise<Response>) => {
+}>): ((request: Request) => Promise<Response>) =>
   const authSignOutUrl = new URL("/api/auth/sign-out", trustedOrigin)
   return createConfirmedSignOutHandler({
     trustedOrigin,
@@ -284,4 +271,3 @@ export const createDatabaseConfirmedSignOutHandler = ({
       headers: request.headers,
     })),
   })
-}

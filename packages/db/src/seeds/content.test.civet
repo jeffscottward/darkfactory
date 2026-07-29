@@ -49,15 +49,14 @@ type QueryBuilder = {
 }
 type QueryOutcomes = Partial<Record<QueryKind, QueryRows[]>>
 
-const tableName = (table: unknown): string => {
+const tableName = (table: unknown): string =>
   if (table === addresses) return "addresses"
   if (table === featureItems) return "feature_items"
   if (table === auditRecords) return "audit_records"
   if (table === outboxEvents) return "outbox_events"
   return "unknown"
-}
 
-const createContentSeedDatabase = (configured: QueryOutcomes) => {
+const createContentSeedDatabase = (configured: QueryOutcomes) =>
   const operations: QueryOperation[] = []
   const outcomes: Record<QueryKind, QueryRows[]> = {
     select: [...(configured.select ?? [])],
@@ -65,78 +64,73 @@ const createContentSeedDatabase = (configured: QueryOutcomes) => {
     update: [...(configured.update ?? [])],
   }
 
-  const builderFor = (operation: QueryOperation): QueryBuilder => {
+  const builderFor = (operation: QueryOperation): QueryBuilder =>
     let builder = {} as QueryBuilder
-    builder.from = vi.fn((table: unknown) => {
+    builder.from = vi.fn((table: unknown) =>
       operation.table = tableName(table)
       return builder
-    })
-    builder.where = vi.fn((condition: unknown) => {
+    )
+    builder.where = vi.fn((condition: unknown) =>
       operation.where = condition
       return builder
-    })
+    )
     builder.limit = vi.fn(() => builder)
-    builder.values = vi.fn((value: Record<string, unknown>) => {
+    builder.values = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.set = vi.fn((value: Record<string, unknown>) => {
+    )
+    builder.set = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.returning = vi.fn(() => {
+    )
+    builder.returning = vi.fn(() =>
       operation.returning = true
       return builder
-    })
-    builder.then = (onFulfilled, onRejected) => {
-      if (operation.kind === "execute") {
+    )
+    builder.then = (onFulfilled, onRejected) =>
+      if (operation.kind === "execute")
         return Promise.resolve([]).then(onFulfilled, onRejected)
-      }
       const rows = outcomes[operation.kind].shift() ?? []
       return Promise.resolve(rows).then(onFulfilled, onRejected)
-    }
     return builder
-  }
 
   let executor: Database
   const transaction = vi.fn(
-    async (callback: (transaction: Database) => Promise<unknown>) => {
+    async (callback: (transaction: Database) => Promise<unknown>) =>
       return callback(executor)
-    },
   )
   executor = {
-    select: vi.fn(() => {
+    select: vi.fn(() =>
       const operation: QueryOperation = { kind: "select" }
       operations.push(operation)
       return builderFor(operation)
-    }),
-    insert: vi.fn((table: unknown) => {
+    ),
+    insert: vi.fn((table: unknown) =>
       const operation: QueryOperation = {
         kind: "insert",
         table: tableName(table),
       }
       operations.push(operation)
       return builderFor(operation)
-    }),
-    update: vi.fn((table: unknown) => {
+    ),
+    update: vi.fn((table: unknown) =>
       const operation: QueryOperation = {
         kind: "update",
         table: tableName(table),
       }
       operations.push(operation)
       return builderFor(operation)
-    }),
-    execute: vi.fn(async (statement: unknown) => {
+    ),
+    execute: vi.fn(async (statement: unknown) =>
       operations.push({ kind: "execute", statement })
       return []
-    }),
+    ),
     transaction,
   } as unknown as Database
 
   return { database: executor, operations, transaction }
-}
 
-const addressRow = (index: number) => {
+const addressRow = (index: number) =>
   const expected = DEVELOPMENT_ADDRESSES[index]!
   return {
     ...expected,
@@ -147,9 +141,8 @@ const addressRow = (index: number) => {
     createdAt: FIXED_ROW_TIME,
     updatedAt: FIXED_ROW_TIME,
   }
-}
 
-const featureRow = (index: number) => {
+const featureRow = (index: number) =>
   const expected = DEVELOPMENT_FEATURE_ITEMS[index]!
   return {
     ...expected,
@@ -159,29 +152,25 @@ const featureRow = (index: number) => {
     createdAt: FIXED_ROW_TIME,
     updatedAt: FIXED_ROW_TIME,
   }
-}
 
 const matchingSelectOutcomes = (): QueryRows[] => [
   ...DEVELOPMENT_ADDRESSES.map((_, index) => [addressRow(index)]),
   ...DEVELOPMENT_FEATURE_ITEMS.map((_, index) => [featureRow(index)]),
 ]
 
-const missingContentOutcomes = (): QueryOutcomes => {
+const missingContentOutcomes = (): QueryOutcomes =>
   const select: QueryRows[] = []
   const insert: QueryRows[] = []
   const update: QueryRows[] = []
 
-  for (const [index] of DEVELOPMENT_ADDRESSES.entries()) {
+  for (const [index] of DEVELOPMENT_ADDRESSES.entries())
     select.push([], [{ value: 0 }], [])
     insert.push([addressRow(index)])
     update.push([])
-  }
-  for (const [index] of DEVELOPMENT_FEATURE_ITEMS.entries()) {
+  for (const [index] of DEVELOPMENT_FEATURE_ITEMS.entries())
     select.push([])
     insert.push([featureRow(index)], [], [])
-  }
   return { select, insert, update }
-}
 
 describe "development content seeds", ->
   it "publishes aligned frozen addresses and feature items for every persona", ->
@@ -217,7 +206,7 @@ describe "development content seeds", ->
       (operation) => operation.kind === "insert" && operation.table === "addresses",
     )
     expect(addressInserts).toHaveLength(DEVELOPMENT_ADDRESSES.length)
-    for (const [index, operation] of addressInserts.entries()) {
+    for (const [index, operation] of addressInserts.entries())
       const expected = DEVELOPMENT_ADDRESSES[index]!
       expect(operation.value).toMatchObject({
         ...expected,
@@ -227,19 +216,17 @@ describe "development content seeds", ->
         createdAt: FIXED_ROW_TIME,
         updatedAt: FIXED_ROW_TIME,
       })
-    }
 
     const featureInserts = double.operations.filter(
       (operation) => operation.kind === "insert" && operation.table === "feature_items",
     )
     expect(featureInserts).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
-    for (const [index, operation] of featureInserts.entries()) {
+    for (const [index, operation] of featureInserts.entries())
       expect(operation.value).toMatchObject({
         ...DEVELOPMENT_FEATURE_ITEMS[index]!,
         createdAt: FIXED_ROW_TIME,
         updatedAt: FIXED_ROW_TIME,
       })
-    }
 
     const audits = double.operations.filter(
       (operation) => operation.kind === "insert" && operation.table === "audit_records",
@@ -249,7 +236,7 @@ describe "development content seeds", ->
     )
     expect(audits).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
     expect(outbox).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
-    for (const [index, operation] of audits.entries()) {
+    for (const [index, operation] of audits.entries())
       const ownerId = DEVELOPMENT_FEATURE_ITEMS[index]!.ownerId
       expect(operation.value).toMatchObject({
         actorUserId: ownerId,
@@ -258,8 +245,7 @@ describe "development content seeds", ->
         id: FIXED_GENERATED_ID,
         createdAt: FIXED_ROW_TIME,
       })
-    }
-    for (const [index, operation] of outbox.entries()) {
+    for (const [index, operation] of outbox.entries())
       const feature = DEVELOPMENT_FEATURE_ITEMS[index]!
       expect(operation.value).toMatchObject({
         id: FIXED_GENERATED_ID,
@@ -267,7 +253,6 @@ describe "development content seeds", ->
         aggregateId: feature.id,
         occurredAt: FIXED_ROW_TIME,
       })
-    }
     expect(double.transaction).toHaveBeenCalledTimes(6)
 
   it "performs no mutations when all authored content already matches", async ->
@@ -475,9 +460,9 @@ describe "development content seeds", ->
 
   it "stops convergence and preserves provider lookup failures", async ->
     const providerError = new Error("seed provider unavailable")
-    const limit = vi.fn(async () => {
+    const limit = vi.fn(async () =>
       throw providerError
-    })
+    )
     const where = vi.fn(() => ({ limit }))
     const from = vi.fn(() => ({ where }))
     const select = vi.fn(() => ({ from }))

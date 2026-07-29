@@ -25,67 +25,59 @@ const STAGED_PATH_ARGUMENTS = [
   "-z",
 ]
 
-function formatCommand(executable, arguments_) {
+function formatCommand(executable, arguments_)
   return [executable, ...arguments_]
     .map((argument) => JSON.stringify(argument))
     .join(" ")
-}
 
-function failureExitCode(executable, arguments_, result) {
+function failureExitCode(executable, arguments_, result)
   const exitCode = result.status ?? 1
   console.error(
     `[hook] failed (${exitCode}): ${formatCommand(executable, arguments_)}`,
   )
 
-  if (result.error) {
+  if (result.error)
     console.error(result.error.message)
-  }
 
   return exitCode
-}
 
-function readStagedPaths() {
+function readStagedPaths()
   const result = spawnSync("git", STAGED_PATH_ARGUMENTS, {
     encoding: "utf8",
     shell: false,
     stdio: ["ignore", "pipe", "inherit"],
   })
 
-  if (result.status !== 0) {
+  if (result.status !== 0)
     return {
       exitCode: failureExitCode("git", STAGED_PATH_ARGUMENTS, result),
       paths: [],
     }
-  }
 
   return {
     exitCode: 0,
     paths: result.stdout.split("\0").filter(Boolean),
   }
-}
 
-function isCivetPath(path) {
+function isCivetPath(path)
   return extname(path).toLowerCase() === ".civet"
-}
 
-function selectBiomePaths(paths) {
+function selectBiomePaths(paths)
   return paths.filter((path) =>
     BIOME_EXTENSIONS.has(extname(path).toLowerCase())
   )
-}
 
-function selectMarkdownPaths(paths) {
+function selectMarkdownPaths(paths)
   return paths.filter((path) =>
     MARKDOWN_EXTENSIONS.has(extname(path).toLowerCase())
   )
-}
 
 type BunScriptRunner = (scripts: readonly string[], paths?: readonly string[]) => number
 
-function runBunScripts(scripts: readonly string[], paths: readonly string[] = []) {
+function runBunScripts(scripts: readonly string[], paths: readonly string[] = [])
   const safePaths = paths.map((path) => `./${path}`)
 
-  for (const script of scripts) {
+  for (const script of scripts)
     const arguments_ =
       safePaths.length === 0
         ? ["run", script]
@@ -95,54 +87,43 @@ function runBunScripts(scripts: readonly string[], paths: readonly string[] = []
       stdio: "inherit",
     })
 
-    if (result.status !== 0) {
+    if (result.status !== 0)
       return failureExitCode("bun", arguments_, result)
-    }
-  }
 
   return 0
-}
 
-export function runPreCommit() {
+export function runPreCommit()
   const staged = readStagedPaths()
 
-  if (staged.exitCode !== 0) {
+  if (staged.exitCode !== 0)
     return staged.exitCode
-  }
 
   const biomePaths = selectBiomePaths(staged.paths)
   const markdownPaths = selectMarkdownPaths(staged.paths)
 
-  if (biomePaths.length === 0 && markdownPaths.length === 0) {
-    if (staged.paths.some(isCivetPath)) {
+  if (biomePaths.length === 0 && markdownPaths.length === 0)
+    if (staged.paths.some(isCivetPath))
       console.error(
         "[hook] staged Civet validation is deferred to mandatory bun run verify:core before push.",
       )
-    }
 
     return 0
-  }
 
-  if (biomePaths.length > 0) {
+  if (biomePaths.length > 0)
     const biomeExitCode = runBunScripts(
       ["format:staged", "lint:staged"],
       biomePaths,
     )
 
-    if (biomeExitCode !== 0) {
+    if (biomeExitCode !== 0)
       return biomeExitCode
-    }
-  }
 
-  if (markdownPaths.length > 0) {
+  if (markdownPaths.length > 0)
     return runBunScripts(["lint:markdown:staged"], markdownPaths)
-  }
 
   return 0
-}
 
 export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
 
-export function runPrePush(runScripts: BunScriptRunner = runBunScripts) {
+export function runPrePush(runScripts: BunScriptRunner = runBunScripts)
   return runScripts(PRE_PUSH_SCRIPTS)
-}

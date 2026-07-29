@@ -23,20 +23,20 @@ const manifests = new Map([
   ["packages/db/package.json", JSON.stringify({ name: "@darkfactory/db", version: "0.1.0" })],
 ])
 
-const fixture = (generated?: string) => {
+const fixture = (generated?: string) =>
   const writes: Array<readonly [string, string]> = []
   const dependencies: DocsDependencies = {
     files: {
       discoverPackageManifests: async () => [...manifests.entries()].reverse().map(([path, source]) => ({ path, source })),
       readGenerated: async () => generated,
-      writeGenerated: async (path, content) => { writes.push([path, content]) },
+      writeGenerated: async (path, content) =>
+        writes.push([path, content])
     },
   }
   return { dependencies, writes }
-}
 
-describe("architecture inventory docs", () => {
-  it("sorts packages and records public exports and workspace edges deterministically", () => {
+describe("architecture inventory docs", () =>
+  it("sorts packages and records public exports and workspace edges deterministically", () =>
     const inventory = buildArchitectureInventory([...manifests.entries()].map(([path, source]) => ({ path, source })))
     expect(inventory.packages.map((entry) => entry.name)).toEqual([
       "@darkfactory/api",
@@ -52,17 +52,17 @@ describe("architecture inventory docs", () => {
     expect(serializeArchitectureInventory(inventory)).toBe(
       serializeArchitectureInventory(buildArchitectureInventory([...manifests.entries()].reverse().map(([path, source]) => ({ path, source })))),
     )
-  })
+  )
 
-  it("generates the real deterministic artifact", async () => {
+  it("generates the real deterministic artifact", async () =>
     const state = fixture()
     await expect(runDocsAction("generate", state.dependencies)).resolves.toMatchObject({ ok: true, changed: true })
     expect(state.writes).toHaveLength(1)
     expect(state.writes[0]?.[0]).toBe("docs/generated/architecture-inventory.json")
     expect(JSON.parse(state.writes[0]![1])).toMatchObject({ version: 1 })
-  })
+  )
 
-  it("checks freshness without mutating", async () => {
+  it("checks freshness without mutating", async () =>
     const expected = serializeArchitectureInventory(buildArchitectureInventory(
       [...manifests.entries()].map(([path, source]) => ({ path, source })),
     ))
@@ -76,9 +76,9 @@ describe("architecture inventory docs", () => {
       reason: expect.stringMatching(/stale/i),
     })
     expect(stale.writes).toHaveLength(0)
-  })
+  )
 
-  it("does not rewrite current generated metadata", async () => {
+  it("does not rewrite current generated metadata", async () =>
     const expected = serializeArchitectureInventory(buildArchitectureInventory(
       [...manifests.entries()].map(([path, source]) => ({ path, source })),
     ))
@@ -92,9 +92,9 @@ describe("architecture inventory docs", () => {
       packageCount: 3,
     })
     expect(current.writes).toHaveLength(0)
-  })
+  )
 
-  it("reports discovery, read, write, and non-Error operation failures deterministically", async () => {
+  it("reports discovery, read, write, and non-Error operation failures deterministically", async () =>
     const validSources = [...manifests.entries()].map(([path, source]) => ({ path, source }))
     const failing = (
       overrides: Partial<DocsDependencies["files"]>,
@@ -108,13 +108,16 @@ describe("architecture inventory docs", () => {
     })
 
     await expect(runDocsAction("check", failing({
-      discoverPackageManifests: async () => { throw new Error("manifest discovery failed") },
+      discoverPackageManifests: async () =>
+        throw new Error("manifest discovery failed")
     }))).resolves.toMatchObject({ ok: false, reason: "manifest discovery failed" })
     await expect(runDocsAction("check", failing({
-      readGenerated: async () => { throw new Error("generated read failed") },
+      readGenerated: async () =>
+        throw new Error("generated read failed")
     }))).resolves.toMatchObject({ ok: false, reason: "generated read failed" })
     await expect(runDocsAction("generate", failing({
-      writeGenerated: async () => { throw new Error("generated write failed") },
+      writeGenerated: async () =>
+        throw new Error("generated write failed")
     }))).resolves.toMatchObject({ ok: false, reason: "generated write failed" })
     await expect(runDocsAction("check", failing({
       discoverPackageManifests: () => Promise.reject("non-error failure"),
@@ -123,15 +126,15 @@ describe("architecture inventory docs", () => {
       reason: "Documentation generation failed",
       packageCount: undefined,
     })
-  })
+  )
 
-  it("rejects malformed and duplicate package manifests", () => {
+  it("rejects malformed and duplicate package manifests", () =>
     expect(() => buildArchitectureInventory([{ path: "package.json", source: "{" }])).toThrow(/package manifest/i)
     expect(() => buildArchitectureInventory([
       { path: "a/package.json", source: JSON.stringify({ name: "same", version: "1" }) },
       { path: "b/package.json", source: JSON.stringify({ name: "same", version: "1" }) },
     ])).toThrow(/duplicate/i)
-  })
+  )
 
   it.each([
     ["an array root", "[]"],
@@ -140,13 +143,13 @@ describe("architecture inventory docs", () => {
     ["an empty name", JSON.stringify({ name: "", version: "1.0.0" })],
     ["a missing version", JSON.stringify({ name: "package" })],
     ["an empty version", JSON.stringify({ name: "package", version: "" })],
-  ])("rejects %s package manifest", (_name, source) => {
+  ])("rejects %s package manifest", (_name, source) =>
     expect(() => buildArchitectureInventory([
       { path: "package.json", source },
     ])).toThrow(/invalid package manifest/i)
-  })
+  )
 
-  it("merges only string-valued workspace dependencies across dependency sections", () => {
+  it("merges only string-valued workspace dependencies across dependency sections", () =>
     const inventory = buildArchitectureInventory([
       {
         path: "package.json",
@@ -181,9 +184,9 @@ describe("architecture inventory docs", () => {
         "@darkfactory/storage",
       ],
     })
-  })
+  )
 
-  it("maps fresh, stale, and invalid CLI invocations to deterministic exit codes", async () => {
+  it("maps fresh, stale, and invalid CLI invocations to deterministic exit codes", async () =>
     const expected = serializeArchitectureInventory(buildArchitectureInventory(
       [...manifests.entries()].map(([path, source]) => ({ path, source })),
     ))
@@ -199,56 +202,52 @@ describe("architecture inventory docs", () => {
     await expect(runDocsCli(["check", "extra"], fixture().dependencies, streams)).resolves.toBe(2)
     await expect(runDocsCli(["generate"], fixture().dependencies, streams)).resolves.toBe(0)
     expect(output.join("")).toMatch(/current|stale|updated|Usage/)
-  })
+  )
 
-  it("rejects an ancestor symlink swap without publishing outside the repository", async () => {
+  it("rejects an ancestor symlink swap without publishing outside the repository", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-root-"))
     const outside = await mkdtemp(join(tmpdir(), "darkfactory-docs-outside-"))
-    try {
+    try
       await mkdir(join(root, "docs"))
       const files = await createDocsFileSystem(root, {
-        beforePublish: async () => {
+        beforePublish: async () =>
           await rename(join(root, "docs"), join(root, "docs-original"))
           await symlink(outside, join(root, "docs"))
-        },
       })
       await expect(files.writeGenerated(
         "docs/generated/architecture-inventory.json",
         "{}\n",
       )).rejects.toThrow(/identity|symbolic/i)
       await expect(access(join(outside, "generated/architecture-inventory.json"))).rejects.toMatchObject({ code: "ENOENT" })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects same-byte target replacement and preserves the replacement", async () => {
+  it("rejects same-byte target replacement and preserves the replacement", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-target-"))
-    try {
+    try
       const target = join(root, "docs/generated/architecture-inventory.json")
       await mkdir(join(root, "docs/generated"), { recursive: true })
       await writeFile(target, "{}\n", "utf8")
       const files = await createDocsFileSystem(root, {
-        beforePublish: async () => {
+        beforePublish: async () =>
           const replacement = join(root, "replacement.json")
           await writeFile(replacement, "{}\n", "utf8")
           await rename(replacement, target)
-        },
       })
       await expect(files.writeGenerated(
         "docs/generated/architecture-inventory.json",
         "{\"changed\":true}\n",
       )).rejects.toThrow(/target changed/i)
       expect(await readFile(target, "utf8")).toBe("{}\n")
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("refuses an occupied global operations lock without deleting it", async () => {
+  it("refuses an occupied global operations lock without deleting it", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-lock-"))
-    try {
+    try
       const lock = join(root, ".darkfactory-operations.lock")
       await writeFile(lock, "owned elsewhere", "utf8")
       const files = await createDocsFileSystem(root)
@@ -257,15 +256,14 @@ describe("architecture inventory docs", () => {
         "{}\n",
       )).rejects.toMatchObject({ code: "EEXIST" })
       expect(await readFile(lock, "utf8")).toBe("owned elsewhere")
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects a symlinked workspace root without reading external manifests", async () => {
+  it("rejects a symlinked workspace root without reading external manifests", async () =>
     const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-read-root-"))
     const outside = await mkdtemp(join(tmpdir(), "darkfactory-docs-read-outside-"))
-    try {
+    try
       await writeFile(join(root, "package.json"), JSON.stringify({
         name: "@darkfactory/root",
         version: "0.1.0",
@@ -279,9 +277,8 @@ describe("architecture inventory docs", () => {
       await symlink(outside, join(root, "apps"))
       const files = await createDocsFileSystem(root)
       await expect(files.discoverPackageManifests()).rejects.toThrow(/ancestor|unsafe|symbolic/i)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
       await rm(outside, { force: true, recursive: true })
-    }
-  })
-})
+  )
+)

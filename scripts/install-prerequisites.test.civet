@@ -11,11 +11,10 @@ const makeExecutable = async (
   directory: string,
   name: string,
   body: string,
-): Promise<void> => {
+): Promise<void> =>
   const path = join(directory, name)
   await writeFile(path, `#!/bin/sh\n${body}\n`, "utf8")
   await chmod(path, 0o755)
-}
 
 const pins = Object.freeze({
   bun: "1.3.14",
@@ -54,7 +53,7 @@ const createFixture = async ({
 }: Readonly<{
   fresh?: boolean
   overrides?: Readonly<Record<string, string>>
-}> = {}): Promise<Fixture> => {
+}> = {}): Promise<Fixture> =>
   const root = await mkdtemp(join(tmpdir(), "darkfactory-prerequisites-"))
   temporaryDirectories.push(root)
   const adapter = join(root, "adapter.sh")
@@ -76,7 +75,7 @@ const createFixture = async ({
     mkdir(managedUvBin, { recursive: true }),
   ])
 
-  if (!fresh) {
+  if !fresh
     const healthyState: Readonly<Record<string, string>> = {
       bun: pins.bun,
       corepack: pins.corepack,
@@ -105,7 +104,6 @@ const createFixture = async ({
       "installed",
       "utf8",
     )
-  }
 
   const npmBody = `
 test -f "$DARKFACTORY_TEST_STATE/npm" || exit 127
@@ -335,7 +333,6 @@ esac
   ])
 
   return Object.freeze({ adapter, root, bin, home, log, state, toolHome })
-}
 
 const runInstaller = (
   fixture: Fixture,
@@ -363,14 +360,14 @@ const runInstaller = (
   },
 })
 
-afterEach(async () => {
+afterEach(async () =>
   await Promise.all(temporaryDirectories.splice(0).map((path) =>
     rm(path, { recursive: true, force: true })
   ))
-})
+)
 
-describe("prerequisite installer", () => {
-  it("contains only exact reviewed pins and package-manager installation paths", async () => {
+describe("prerequisite installer", () =>
+  it("contains only exact reviewed pins and package-manager installation paths", async () =>
     const source = await readFile(installer, "utf8")
 
     for (const pin of [
@@ -398,9 +395,9 @@ describe("prerequisite installer", () => {
     expect(source).not.toMatch(/(?:^|[ /])\.env(?:[ ./'"$]|$)/mu)
     expect(source).not.toMatch(/(?:login|authenticate|deploy|db:seed|db:reset)/u)
     expect(source).not.toMatch(/^\s*(?:run_command\s+)?portless\s+trust\b/mu)
-  })
+  )
 
-  it("is a no-op on repeated apply runs when every exact pin is healthy", async () => {
+  it("is a no-op on repeated apply runs when every exact pin is healthy", async () =>
     const fixture = await createFixture()
     const first = runInstaller(fixture, [])
     const second = runInstaller(fixture, [])
@@ -411,9 +408,9 @@ describe("prerequisite installer", () => {
     expect(first.stdout).toContain(`[ok] Node ${pins.node}`)
     expect(second.stdout).not.toContain("[run]")
     expect(commandLog).toBe("")
-  })
+  )
 
-  it("applies every installable prerequisite on a fresh supported macOS host", async () => {
+  it("applies every installable prerequisite on a fresh supported macOS host", async () =>
     const fixture = await createFixture({ fresh: true })
     const result = runInstaller(fixture, [], "macos")
     const commandLog = await readFile(fixture.log, "utf8")
@@ -447,11 +444,11 @@ describe("prerequisite installer", () => {
     expect(`${result.stdout}\n${result.stderr}`).toMatch(
       /post-install.*credentials/iu,
     )
-  })
+  )
 
   it.each(["debian", "ubuntu"])(
     "applies every installable prerequisite on a fresh supported %s host",
-    async (platform) => {
+    async (platform) =>
       const fixture = await createFixture({ fresh: true })
       const result = runInstaller(fixture, [], platform)
       const commandLog = await readFile(fixture.log, "utf8")
@@ -480,10 +477,9 @@ describe("prerequisite installer", () => {
       expect(`${result.stdout}\n${result.stderr}`).not.toMatch(
         /(?:Node|Python|Docker CLI).*remains unavailable/iu,
       )
-    },
   )
 
-  it("dry-runs an exact replacement without executing it", async () => {
+  it("dry-runs an exact replacement without executing it", async () =>
     const fixture = await createFixture()
     await writeFile(join(fixture.state, "pm2"), "7.0.2", "utf8")
     const result = runInstaller(fixture, ["--dry-run"])
@@ -493,9 +489,9 @@ describe("prerequisite installer", () => {
     expect(result.stdout).toContain(`[plan] npm install --global pm2@${pins.pm2}`)
     expect(result.stdout).not.toContain("pm2@latest")
     expect(commandLog).toBe("")
-  })
+  )
 
-  it("check mode reports missing prerequisites without mutating the machine", async () => {
+  it("check mode reports missing prerequisites without mutating the machine", async () =>
     const fixture = await createFixture({ fresh: true })
     const result = runInstaller(fixture, ["--check"])
     const commandLog = await readFile(fixture.log, "utf8").catch(() => "")
@@ -507,17 +503,17 @@ describe("prerequisite installer", () => {
       /post-install blocker.*portless trust/iu,
     )
     expect(commandLog).toBe("")
-  })
+  )
 
-  it("rejects unsupported platforms before planning changes", async () => {
+  it("rejects unsupported platforms before planning changes", async () =>
     const fixture = await createFixture()
     const result = runInstaller(fixture, ["--check"], "solaris")
 
     expect(result.status).toBe(2)
     expect(`${result.stdout}\n${result.stderr}`).toMatch(/unsupported platform/iu)
-  })
+  )
 
-  it("uses the checked-in installer path from any test fixture", () => {
+  it("uses the checked-in installer path from any test fixture", () =>
     expect(basename(installer.pathname)).toBe("install-prerequisites.sh")
-  })
-})
+  )
+)

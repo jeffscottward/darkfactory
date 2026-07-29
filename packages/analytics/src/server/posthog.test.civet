@@ -33,38 +33,35 @@ const malformedCaptureCases: ReadonlyArray<
 > = [
   ["getter", () => ({
     ...plainCapture(),
-    get event() {
+    get event()
       return "member@domain.test"
-    },
   })],
   ["proxy", () => new Proxy(plainCapture(), {
-    getOwnPropertyDescriptor: () => {
+    getOwnPropertyDescriptor: () =>
       throw new Error("private proxy failure")
-    },
   })],
   ["throwing accessor", () => ({
     ...plainCapture(),
-    get consent(): "granted" {
+    get consent(): "granted"
       throw new Error("private accessor failure")
-    },
   })],
-  ["non-enumerable field", () => {
+  ["non-enumerable field", () =>
     const capture = plainCapture()
     Object.defineProperty(capture, "email", {
       enumerable: false,
       value: "member@domain.test",
     })
     return capture
-  }],
+  ],
   ["symbol field", () => ({
     ...plainCapture(),
     [Symbol("email")]: "member@domain.test",
   })],
-  ["inherited field", () => {
+  ["inherited field", () =>
     const capture = plainCapture() as Record<string, unknown>
     const { consent, ...ownFields } = capture
     return Object.assign(Object.create({ consent }), ownFields) as AnalyticsCapture
-  }],
+  ],
   ["array properties", () => ({
     ...plainCapture(),
     properties: [],
@@ -75,22 +72,21 @@ const malformedCaptureCases: ReadonlyArray<
     ...plainCapture(),
     properties: { action: { email: "member@domain.test" } },
   }) as never],
-  ["cyclic property", () => {
+  ["cyclic property", () =>
     const value: Record<string, unknown> = {}
     value["action"] = value
     return { ...plainCapture(), properties: value } as never
-  }],
+  ],
   ["BigInt property", () => ({
     ...plainCapture(),
     properties: { action: 1n },
   }) as never],
-  ["excess fields", () => {
+  ["excess fields", () =>
     const capture = plainCapture() as Record<string, unknown>
-    for (let index = 0; index < 1_000; index += 1) {
+    for (let index = 0; index < 1_000; index += 1)
       capture[`extra-${index}`] = index
-    }
     return capture as AnalyticsCapture
-  }],
+  ],
   ["oversized timestamp", () => ({
     ...plainCapture(),
     timestamp: "0".repeat(100_000),
@@ -101,13 +97,13 @@ const malformedCaptureCases: ReadonlyArray<
   })],
 ]
 
-afterEach(() => {
+afterEach(() =>
   vi.useRealTimers()
   vi.restoreAllMocks()
-})
+)
 
-describe("createPostHogAnalyticsPort", () => {
-  it("maps one allowlisted capture to the official direct capture endpoint", async () => {
+describe("createPostHogAnalyticsPort", () =>
+  it("maps one allowlisted capture to the official direct capture endpoint", async () =>
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(null, { status: 202 }),
     )
@@ -160,14 +156,14 @@ describe("createPostHogAnalyticsPort", () => {
       },
       timestamp: "2026-07-23T12:34:56.000Z",
     })
-  })
+  )
 
-  it("returns the event correlation from the submitted snapshot", async () => {
+  it("returns the event correlation from the submitted snapshot", async () =>
     let resolveFetch!: (response: Response) => void
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
-      new Promise((resolve) => {
+      new Promise((resolve) =>
         resolveFetch = resolve
-      })
+      )
     )
     const analytics = configured(fetch)
     const input = {
@@ -192,9 +188,9 @@ describe("createPostHogAnalyticsPort", () => {
       eventId: "event-001",
     })
     expect(requestBody(fetch).properties.$insert_id).toBe("event-001")
-  })
+  )
 
-  it("fails closed instead of forwarding a redirect response", async () => {
+  it("fails closed instead of forwarding a redirect response", async () =>
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(null, {
         status: 307,
@@ -215,11 +211,11 @@ describe("createPostHogAnalyticsPort", () => {
       "https://eu.posthog.com/i/v0/e/",
     )
     expect(fetch.mock.calls[0]?.[1]?.redirect).toBe("error")
-  })
+  )
 
   it.each([200, 201, 204, 299])(
     "accepts HTTP %s without parsing the provider body",
-    async (status) => {
+    async (status) =>
       const response = new Response(
         status === 204 ? null : "provider-secret-body",
         { status },
@@ -233,13 +229,12 @@ describe("createPostHogAnalyticsPort", () => {
       expect(result.status).toBe("captured")
       expect(text).not.toHaveBeenCalled()
       expect(json).not.toHaveBeenCalled()
-    },
   )
 
   it.each([
     ["denied", "consent-denied"],
     ["unknown", "consent-unknown"],
-  ] as const)("performs zero fetches for %s consent", async (consent, reason) => {
+  ] as const)("performs zero fetches for %s consent", async (consent, reason) =>
     const fetch = vi.fn<typeof globalThis.fetch>()
     const result = await configured(fetch).capture(
       createAnalyticsCapture({ consent }),
@@ -247,9 +242,9 @@ describe("createPostHogAnalyticsPort", () => {
 
     expect(result).toEqual({ status: "skipped", reason })
     expect(fetch).not.toHaveBeenCalled()
-  })
+  )
 
-  it("uses the ambient transport by default without contacting it for refused consent", async () => {
+  it("uses the ambient transport by default without contacting it for refused consent", async () =>
     const fetch = vi.spyOn(globalThis, "fetch")
     const analytics = createPostHogAnalyticsPort({
       apiKey: "phc_test_secret_key",
@@ -263,13 +258,13 @@ describe("createPostHogAnalyticsPort", () => {
       reason: "consent-denied",
     })
     expect(fetch).not.toHaveBeenCalled()
-  })
+  )
 
   it.each([
     {},
     { apiKey: "phc_test_secret_key" },
     { host: "https://eu.posthog.com" },
-  ])("returns unconfigured and performs zero fetches for missing config %#", async (options) => {
+  ])("returns unconfigured and performs zero fetches for missing config %#", async (options) =>
     const fetch = vi.fn<typeof globalThis.fetch>()
     const analytics = createPostHogAnalyticsPort({ ...options, fetch })
 
@@ -278,7 +273,7 @@ describe("createPostHogAnalyticsPort", () => {
       reason: "unconfigured",
     })
     expect(fetch).not.toHaveBeenCalled()
-  })
+  )
 
   it "gives refused consent precedence over missing provider configuration", async ->
     const fetch = vi.fn<typeof globalThis.fetch>()
@@ -300,31 +295,30 @@ describe("createPostHogAnalyticsPort", () => {
     "https://eu.posthog.com/?api_key=secret",
     "not-a-url",
     "https://eu.posthog.com/#fragment",
-  ])("rejects an unsafe or non-HTTPS host without exposing it: %s", (host) => {
-    expect(() => {
+  ])("rejects an unsafe or non-HTTPS host without exposing it: %s", (host) =>
+    expect(() =>
       createPostHogAnalyticsPort({
         apiKey: "phc_test_secret_key",
         host,
         fetch: vi.fn<typeof globalThis.fetch>(),
       })
-    }).toThrow("Analytics host must be a valid HTTPS origin")
-  })
+    ).toThrow("Analytics host must be a valid HTTPS origin")
+  )
 
   it.each([0, -1, 10_001, 1.5])(
     "rejects an out-of-bounds timeout of %s milliseconds",
-    (timeoutMs) => {
-      expect(() => {
+    (timeoutMs) =>
+      expect(() =>
         createPostHogAnalyticsPort({
           apiKey: "phc_test_secret_key",
           host: "https://eu.posthog.com",
           timeoutMs,
           fetch: vi.fn<typeof globalThis.fetch>(),
         })
-      }).toThrow("Analytics timeout must be an integer from 1 to 10000 milliseconds")
-    },
+      ).toThrow("Analytics timeout must be an integer from 1 to 10000 milliseconds")
   )
 
-  it("rejects forbidden or unknown PII keys before transport", async () => {
+  it("rejects forbidden or unknown PII keys before transport", async () =>
     const fetch = vi.fn<typeof globalThis.fetch>()
     const analytics = configured(fetch)
     const capture = createAnalyticsCapture({
@@ -340,36 +334,34 @@ describe("createPostHogAnalyticsPort", () => {
       retryable: false,
     })
     expect(fetch).not.toHaveBeenCalled()
-  })
+  )
 
   it.each(malformedCaptureCases)(
     "rejects malformed %s captures across PostHog modes",
-    async (_name, buildCapture) => {
+    async (_name, buildCapture) =>
       const fetch = vi.fn<typeof globalThis.fetch>()
       const ports = [
         createPostHogAnalyticsPort({ fetch }),
         configured(fetch),
       ]
 
-      for (const analytics of ports) {
+      for (const analytics of ports)
         await expect(analytics.capture(buildCapture())).resolves.toEqual({
           status: "failed",
           category: "invalid-capture",
           retryable: false,
         })
-      }
       expect(fetch).not.toHaveBeenCalled()
-    },
   )
 
-  it("maps an abort at the adapter deadline to a deterministic timeout", async () => {
+  it("maps an abort at the adapter deadline to a deterministic timeout", async () =>
     vi.useFakeTimers()
     const fetch = vi.fn<typeof globalThis.fetch>((_input, init) =>
-      new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => {
+      new Promise((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () =>
           reject(new DOMException("provider payload must stay private", "AbortError"))
-        })
-      })
+        )
+      )
     )
     const resultPromise = configured(fetch).capture(createAnalyticsCapture())
 
@@ -380,9 +372,9 @@ describe("createPostHogAnalyticsPort", () => {
       category: "timeout",
       retryable: true,
     })
-  })
+  )
 
-  it("maps network errors without leaking provider details, secrets, or payloads", async () => {
+  it("maps network errors without leaking provider details, secrets, or payloads", async () =>
     const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(
       new Error("phc_test_secret_key provider-body member@domain.test"),
     )
@@ -397,7 +389,7 @@ describe("createPostHogAnalyticsPort", () => {
     expect(JSON.stringify(result)).not.toMatch(
       /phc_test_secret_key|provider-body|member@domain\.test/,
     )
-  })
+  )
 
   it.each([
     [400, false],
@@ -407,7 +399,7 @@ describe("createPostHogAnalyticsPort", () => {
     [425, true],
     [500, true],
     [503, true],
-  ] as const)("maps HTTP %s without parsing or exposing the body", async (status, retryable) => {
+  ] as const)("maps HTTP %s without parsing or exposing the body", async (status, retryable) =>
     const response = new Response("secret provider rejection", { status })
     const text = vi.spyOn(response, "text")
     const json = vi.spyOn(response, "json")
@@ -424,9 +416,9 @@ describe("createPostHogAnalyticsPort", () => {
     expect(text).not.toHaveBeenCalled()
     expect(json).not.toHaveBeenCalled()
     expect(JSON.stringify(result)).not.toContain("secret provider rejection")
-  })
+  )
 
-  it("fails closed for a transport response without an integer status", async () => {
+  it("fails closed for a transport response without an integer status", async () =>
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       { status: Number.NaN } as Response,
     )
@@ -438,9 +430,9 @@ describe("createPostHogAnalyticsPort", () => {
       category: "provider-rejected",
       retryable: false,
     })
-  })
+  )
 
-  it("does not misclassify a caller-thrown AbortError as its own timeout", async () => {
+  it("does not misclassify a caller-thrown AbortError as its own timeout", async () =>
     const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(
       new DOMException("external abort", "AbortError"),
     )
@@ -450,5 +442,5 @@ describe("createPostHogAnalyticsPort", () => {
       category: "network",
       retryable: true,
     })
-  })
-})
+  )
+)

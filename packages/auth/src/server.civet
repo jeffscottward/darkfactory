@@ -82,19 +82,17 @@ export type ProvisionableUser = Readonly<{
 const supportsTransactions = (database: Database): boolean =>
   typeof (database as unknown as { transaction?: unknown }).transaction === "function"
 
-const resetExpiry = (options: AuthFactoryOptions): number => {
+const resetExpiry = (options: AuthFactoryOptions): number =>
   const seconds =
     options.resetPasswordTokenExpiresInSeconds ??
     DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS
-  if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds % 60 !== 0) {
+  if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds % 60 !== 0)
     throw new RangeError(
       "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
     )
-  }
   return seconds
-}
 
-const verificationExpiry = (options: AuthFactoryOptions): number => {
+const verificationExpiry = (options: AuthFactoryOptions): number =>
   const seconds =
     options.verificationEmailTokenExpiresInSeconds ??
     DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS
@@ -103,30 +101,24 @@ const verificationExpiry = (options: AuthFactoryOptions): number => {
     seconds < MIN_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS ||
     seconds > MAX_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS ||
     seconds % 60 !== 0
-  ) {
+  )
     throw new RangeError(
       "verificationEmailTokenExpiresInSeconds must be a whole-minute integer from 60 to 86400",
     )
-  }
   return seconds
-}
 
-const verificationRateLimitMax = (options: AuthFactoryOptions): number => {
+const verificationRateLimitMax = (options: AuthFactoryOptions): number =>
   const max = options.verificationRateLimitMax ?? DEFAULT_VERIFICATION_RATE_LIMIT_MAX
-  if (!Number.isSafeInteger(max) || max <= 0) {
+  if (!Number.isSafeInteger(max) || max <= 0)
     throw new RangeError("verificationRateLimitMax must be a positive integer")
-  }
   return max
-}
 
 
-const signInRateLimitMax = (options: AuthFactoryOptions): number => {
+const signInRateLimitMax = (options: AuthFactoryOptions): number =>
   const max = options.signInRateLimitMax ?? DEFAULT_SIGN_IN_RATE_LIMIT_MAX
-  if (!Number.isSafeInteger(max) || max <= 0) {
+  if (!Number.isSafeInteger(max) || max <= 0)
     throw new RangeError("signInRateLimitMax must be a positive integer")
-  }
   return max
-}
 const trustedOrigins = (baseURL: string, configured?: readonly string[]): string[] =>
   [...new Set([baseURL, ...(configured ?? [])])]
 
@@ -147,7 +139,7 @@ const NORMALIZED_EMAIL_PATHS = new Set([
 const ensureUserResourcesWithExecutor = async (
   database: DatabaseExecutor,
   user: ProvisionableUser,
-): Promise<void> => {
+): Promise<void> =>
   await database
     .insert(profiles)
     .values({
@@ -160,18 +152,16 @@ const ensureUserResourcesWithExecutor = async (
     .insert(userPreferences)
     .values({ userId: user.id })
     .onConflictDoNothing({ target: userPreferences.userId });
-}
 
 export const ensureUserResources = async (
   database: Database,
   user: ProvisionableUser,
-): Promise<void> => {
-  await withTransaction(database, async (transaction) => {
+): Promise<void> =>
+  await withTransaction(database, async (transaction) =>
     await ensureUserResourcesWithExecutor(transaction, user)
-  })
-}
+  )
 
-const inactiveStatusError = (status: unknown): APIError | undefined => {
+const inactiveStatusError = (status: unknown): APIError | undefined =>
   if (status === "active") return undefined
   const code =
     status === "suspended"
@@ -183,7 +173,6 @@ const inactiveStatusError = (status: unknown): APIError | undefined => {
     code,
     message: "Account is unavailable",
   })
-}
 
 const MISSING_PLAIN_DATA_PROPERTY = Symbol("missing plain-data property")
 const INVALID_PLAIN_DATA = Symbol("invalid plain data")
@@ -223,7 +212,7 @@ const sessionUserStatus = (session: unknown): unknown ->
 const requireActiveUserId = async (
   database: Database,
   userId: string,
-): Promise<void> => {
+): Promise<void> =>
   const [user] = await database
     .select({ status: users.status })
     .from(users)
@@ -231,9 +220,8 @@ const requireActiveUserId = async (
     .limit(1)
   const error = inactiveStatusError(user?.status)
   if (error) throw error
-}
 
-export const createAuth = (options: AuthFactoryOptions) => {
+export const createAuth = (options: AuthFactoryOptions) =>
   const baseURL = options.baseURL ?? AUTH_BASE_URL
   const resetPasswordTokenExpiresInSeconds = resetExpiry(options)
   const verificationEmailTokenExpiresInSeconds = verificationExpiry(options)
@@ -294,18 +282,17 @@ export const createAuth = (options: AuthFactoryOptions) => {
           },
         }
       ),
-      after: createAuthMiddleware(async (context) => {
+      after: createAuthMiddleware(async (context) =>
         if (context.path !== "/sign-in/email") return undefined
         const signedInUser = (
           context.context as {
             newSession?: { user?: ProvisionableUser } | null
           }
         ).newSession?.user
-        if (signedInUser) {
+        if (signedInUser)
           await ensureUserResources(options.database, signedInUser)
-        }
         return undefined
-      }),
+      ),
     },
     rateLimit: {
       enabled: options.rateLimitEnabled ?? true,
@@ -333,21 +320,18 @@ export const createAuth = (options: AuthFactoryOptions) => {
       sendOnSignUp: true,
       sendOnSignIn: false,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: async ({ user, url }) => {
-        try {
+      sendVerificationEmail: async ({ user, url }) =>
+        try
           const result = await options.email.sendEmailVerification({
             to: user.email,
             recipientName: user.name,
             verificationUrl: url,
             expiresInMinutes: verificationEmailTokenExpiresInSeconds / 60,
           })
-          if (result.status === "failed") {
+          if (result.status === "failed")
             throw emailVerificationDeliveryError()
-          }
-        } catch {
+        catch
           throw emailVerificationDeliveryError()
-        }
-      },
     },
     emailAndPassword: {
       enabled: true,
@@ -355,20 +339,18 @@ export const createAuth = (options: AuthFactoryOptions) => {
       requireEmailVerification: true,
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: resetPasswordTokenExpiresInSeconds,
-      sendResetPassword: async ({ user, url }) => {
+      sendResetPassword: async ({ user, url }) =>
         const result = await options.email.sendPasswordReset({
           to: user.email,
           recipientName: user.name,
           resetUrl: url,
           expiresInMinutes: resetPasswordTokenExpiresInSeconds / 60,
         })
-        if (result.status === "failed") {
+        if (result.status === "failed")
           throw new APIError("SERVICE_UNAVAILABLE", {
             code: PASSWORD_RESET_DELIVERY_ERROR_CODE,
             message: "Password reset delivery is unavailable",
           })
-        }
-      },
     },
     user: {
       modelName: "users",
@@ -402,23 +384,20 @@ export const createAuth = (options: AuthFactoryOptions) => {
     databaseHooks: {
       user: {
         create: {
-          after: async (user) => {
+          after: async (user) =>
             await ensureUserResources(options.database, user)
             return undefined
-          },
         },
       },
       session: {
         create: {
-          before: async (session) => {
+          before: async (session) =>
             await requireActiveUserId(options.database, session.userId)
             return undefined
-          },
         },
       },
     },
   })
-}
 
 export type DarkFactoryAuth = ReturnType<typeof createAuth>
 
@@ -496,36 +475,33 @@ export const developmentSeedCrypto: Readonly<{
 export const ensureDevelopmentSeedIdentity = async (
   options: DevelopmentSeedIdentityPreparationOptions,
   identities: readonly DevelopmentSeedIdentity[],
-): Promise<PreparedDevelopmentSeedIdentity> => {
+): Promise<PreparedDevelopmentSeedIdentity> =>
   if (
     options.environment !== "development" &&
     options.environment !== "test"
-  ) {
+  )
     throw new Error(
       "Development seed identity setup requires an explicit development or test environment",
     )
-  }
 
   const prepared = new Map<string, Readonly<{
     identity: DevelopmentSeedIdentity
     passwordHash: string
   }>>()
-  for (const identity of identities) {
-    if (prepared.has(identity.userId)) {
+  for (const identity of identities)
+    if (prepared.has(identity.userId))
       throw new Error("Development seed identities require unique user IDs")
-    }
     prepared.set(identity.userId, {
       identity,
       passwordHash: await developmentSeedCrypto.hashPassword(identity.password),
     })
-  }
 
   let boundDatabase: Transaction | undefined
   let context: Awaited<
     ReturnType<typeof createDevelopmentSeedAuth>["$context"]
   > | undefined
 
-  return async (identity, exists, database): Promise<void> => {
+  return async (identity, exists, database): Promise<void> =>
     const entry = prepared.get(identity.userId)
     if (
       !entry ||
@@ -535,18 +511,15 @@ export const ensureDevelopmentSeedIdentity = async (
       entry.identity.image !== identity.image ||
       entry.identity.role !== identity.role ||
       entry.identity.password !== identity.password
-    ) {
+    )
       throw new Error("Seed identity was not prepared")
-    }
-    if (boundDatabase !== undefined && boundDatabase !== database) {
+    if (boundDatabase !== undefined && boundDatabase !== database)
       throw new Error("Prepared seed identities require one transaction")
-    }
-    if (context === undefined) {
+    if (context === undefined)
       boundDatabase = database
       context = await createDevelopmentSeedAuth(database, options).$context
-    }
 
-    if (!exists) {
+    if (!exists)
       const created = await context.internalAdapter.createUser({
         id: identity.userId,
         name: identity.name,
@@ -556,9 +529,8 @@ export const ensureDevelopmentSeedIdentity = async (
         role: identity.role,
         status: "active",
       })
-      if (created.id !== identity.userId) {
+      if (created.id !== identity.userId)
         throw new Error("Seed user received an unexpected identifier")
-      }
       const account = await context.internalAdapter.linkAccount({
         id: identity.accountId,
         userId: identity.userId,
@@ -571,10 +543,9 @@ export const ensureDevelopmentSeedIdentity = async (
         account.userId !== identity.userId ||
         account.providerId !== "credential" ||
         account.accountId !== identity.userId
-      ) {
+      )
         throw new Error("Seed credential received an unexpected identifier")
-      }
-    } else {
+    else
       const current = await context.internalAdapter.findUserById(identity.userId)
       if (!current) throw new Error("Seed user is unavailable")
       const currentState = current as typeof current & {
@@ -588,7 +559,7 @@ export const ensureDevelopmentSeedIdentity = async (
         current.image !== identity.image ||
         currentState.role !== identity.role ||
         currentState.status !== "active"
-      ) {
+      )
         await context.internalAdapter.updateUser(identity.userId, {
           name: identity.name,
           email: identity.email,
@@ -597,7 +568,6 @@ export const ensureDevelopmentSeedIdentity = async (
           role: identity.role,
           status: "active",
         })
-      }
 
       const credential = (
         await context.internalAdapter.findAccounts(identity.userId)
@@ -606,42 +576,35 @@ export const ensureDevelopmentSeedIdentity = async (
         account.providerId === "credential" &&
         account.accountId === identity.userId
       )
-      if (!credential?.password) {
+      if (!credential?.password)
         throw new Error("Seed credential is unavailable")
-      }
       let passwordMatches: boolean
-      try {
+      try
         passwordMatches = await verifyPassword({
           hash: credential.password,
           password: identity.password,
         })
-      } catch {
+      catch
         throw new Error("Seed credential is malformed")
-      }
-      if (!passwordMatches) {
+      if (!passwordMatches)
         await context.internalAdapter.updateAccount(credential.id, {
           password: entry.passwordHash,
         })
-      }
-    }
 
     await ensureUserResourcesWithExecutor(database, {
       id: identity.userId,
       name: identity.name,
     })
-  }
-}
 
 type AuthSession = NonNullable<
   Awaited<ReturnType<DarkFactoryAuth["api"]["getSession"]>>
 >
 
-const userRole = (value: unknown): UserRole => {
+const userRole = (value: unknown): UserRole =>
   if (value === "member" || value === "admin") return value
   throw new TypeError("Auth user has an invalid role")
-}
 
-const userStatus = (value: unknown): UserStatus => {
+const userStatus = (value: unknown): UserStatus =>
   if (
     value === "active" ||
     value === "suspended" ||
@@ -649,9 +612,8 @@ const userStatus = (value: unknown): UserStatus => {
   )
     return value
   throw new TypeError("Auth user has an invalid status")
-}
 
-const safeSession = (value: AuthSession): SafeAuthSession => {
+const safeSession = (value: AuthSession): SafeAuthSession =>
   const extendedUser = value.user as typeof value.user & {
     role?: unknown
     status?: unknown
@@ -686,52 +648,43 @@ const safeSession = (value: AuthSession): SafeAuthSession => {
       status,
     },
   }
-}
 
-const activeSession = (value: AuthSession): SafeAuthSession => {
+const activeSession = (value: AuthSession): SafeAuthSession =>
   const session = safeSession(value)
-  if (session.user.status === "suspended") {
+  if (session.user.status === "suspended")
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
       403,
     )
-  }
-  if (session.user.status === "deactivated") {
+  if (session.user.status === "deactivated")
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED,
       403,
     )
-  }
   return session
-}
 
 type SanitizedJson = Readonly<{ value: unknown; changed: boolean }>
 
-const sanitizeJsonTokens = (value: unknown): SanitizedJson => {
-  if (Array.isArray(value)) {
+const sanitizeJsonTokens = (value: unknown): SanitizedJson =>
+  if (Array.isArray(value))
     const entries = value.map(sanitizeJsonTokens)
     return {
       value: entries.map((entry) => entry.value),
       changed: entries.some((entry) => entry.changed),
     }
-  }
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object" || value === null)
     return { value, changed: false }
-  }
 
   const sanitized: Record<string, unknown> = {}
   let changed = false
-  for (const [key, child] of Object.entries(value)) {
-    if (key === "token") {
+  for (const [key, child] of Object.entries(value))
+    if (key === "token")
       changed = true
       continue
-    }
     const entry = sanitizeJsonTokens(child)
     sanitized[key] = entry.value
     changed ||= entry.changed
-  }
   return { value: sanitized, changed }
-}
 
 const isJsonResponse = (response: Response): boolean =>
   (response.headers.get("content-type") ?? "")
@@ -740,18 +693,16 @@ const isJsonResponse = (response: Response): boolean =>
     .trim()
     .toLowerCase() === "application/json"
 
-const parseAuthenticationJson = (body: string): unknown => {
-  try {
+const parseAuthenticationJson = (body: string): unknown =>
+  try
     return JSON.parse(body) as unknown
-  } catch {
+  catch
     throw new Error("Authentication JSON response is malformed")
-  }
-}
 
 const sanitizeParsedTokenResponse = (
   response: Response,
   parsed: unknown,
-): Response => {
+): Response =>
   const result = sanitizeJsonTokens(parsed)
   if (!result.changed) return response
 
@@ -763,43 +714,37 @@ const sanitizeParsedTokenResponse = (
     statusText: response.statusText,
     headers,
   })
-}
 
-const sanitizeTokenResponse = async (response: Response): Promise<Response> => {
+const sanitizeTokenResponse = async (response: Response): Promise<Response> =>
   if (!isJsonResponse(response)) return response
   const body = await response.clone().text()
   if (body.trim().length === 0) return response
   return sanitizeParsedTokenResponse(response, parseAuthenticationJson(body))
-}
 
 export const requireSession = async (
   auth: DarkFactoryAuth,
   headers: Headers,
-): Promise<SafeAuthSession> => {
+): Promise<SafeAuthSession> =>
   const session = await auth.api.getSession({ headers })
-  if (!session) {
+  if (!session)
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
       401,
     )
-  }
   return activeSession(session)
-}
 
 export const requireRole = async (
   auth: DarkFactoryAuth,
   headers: Headers,
   role: UserRole,
-): Promise<SafeAuthSession> => {
+): Promise<SafeAuthSession> =>
   const session = await requireSession(auth, headers)
-  if (session.principal.role !== role) {
+  if (session.principal.role !== role)
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.FORBIDDEN,
       403,
     )
-  }
   return session
-}
 
 const isResetRequest = (request: Request): boolean =>
   request.method === "POST" &&
@@ -816,21 +761,19 @@ const isGetSessionRequest = (request: Request): boolean =>
 const hasJsonErrorCode = async (
   response: Response,
   code: string,
-): Promise<boolean> => {
+): Promise<boolean> =>
   const contentType = response.headers.get("content-type") ?? ""
   if (!contentType.includes("application/json")) return false
-  try {
+  try
     const body = (await response.clone().json()) as { code?: unknown }
     return body.code === code
-  } catch {
+  catch
     return false
-  }
-}
 
 const normalizeSignUpResponse = async (
   response: Response,
   startedAt: number,
-): Promise<Response> => {
+): Promise<Response> =>
   const accepted = response.status === 200 ||
     (
       response.status === 422 &&
@@ -839,27 +782,24 @@ const normalizeSignUpResponse = async (
   if (!accepted) return response
 
   const remaining = SIGN_UP_RESPONSE_FLOOR_MILLISECONDS - (Date.now() - startedAt)
-  if (remaining > 0) {
+  if (remaining > 0)
     await new Promise<void>((resolve) => setTimeout(resolve, remaining))
-  }
   return Response.json(SAFE_SIGN_UP_RESPONSE, {
     status: 200,
     headers: { "cache-control": "no-store" },
   })
-}
 
 const isDeliveryFailure = async (
   response: Response,
   code: string,
-): Promise<boolean> => {
+): Promise<boolean> =>
   if (response.status !== 503) return false
   const contentType = response.headers.get("content-type") ?? ""
   if (!contentType.includes("application/json")) return false
   const body = (await response.clone().json()) as { code?: unknown }
   return body.code === code
-}
 
-const isStatusGateExempt = (request: Request): boolean => {
+const isStatusGateExempt = (request: Request): boolean =>
   const path = new URL(request.url).pathname
   return (
     path.endsWith("/api/auth/ok") ||
@@ -872,9 +812,8 @@ const isStatusGateExempt = (request: Request): boolean => {
     path.endsWith("/api/auth/reset-password") ||
     path.includes("/api/auth/reset-password/")
   )
-}
 
-const inactiveStatusResponse = (status: unknown): Response | undefined => {
+const inactiveStatusResponse = (status: unknown): Response | undefined =>
   if (status === "active") return undefined
   const code =
     status === "suspended"
@@ -886,35 +825,30 @@ const inactiveStatusResponse = (status: unknown): Response | undefined => {
     { code, message: "Account is unavailable" },
     { status: 403 },
   )
-}
 
 const inactiveSessionResponse = async (
   auth: DarkFactoryAuth,
   request: Request,
-): Promise<Response | undefined> => {
+): Promise<Response | undefined> =>
   if (isStatusGateExempt(request)) return undefined
   const session = await auth.api.getSession({ headers: request.headers })
   if (session === null) return undefined
   return inactiveStatusResponse(sessionUserStatus(session))
-}
 
 const sanitizeGetSessionResponse = async (
   response: Response,
-): Promise<Response> => {
+): Promise<Response> =>
   if (!response.ok) return await sanitizeTokenResponse(response)
   const body = await response.clone().text()
   if (body.trim().length === 0) return response
-  if (!isJsonResponse(response)) {
+  if (!isJsonResponse(response))
     throw new Error("Authentication JSON response is malformed")
-  }
 
   const session = parseAuthenticationJson(body)
-  if (session !== null) {
+  if (session !== null)
     const inactiveResponse = inactiveStatusResponse(sessionUserStatus(session))
     if (inactiveResponse) return inactiveResponse
-  }
   return sanitizeParsedTokenResponse(response, session)
-}
 
 /** Fetch-native route bridge. It normalizes signup and reset responses so
  * public requests do not become account-existence or provider-availability
@@ -922,31 +856,27 @@ const sanitizeGetSessionResponse = async (
 export const createAuthHandler = (
   auth: DarkFactoryAuth,
 ): ((request: Request) => Promise<Response>) =>
-  async (request) => {
+  async (request) =>
     const signUpStartedAt = isSignUpRequest(request) ? Date.now() : undefined
-    if (isGetSessionRequest(request)) {
+    if (isGetSessionRequest(request))
       return await sanitizeGetSessionResponse(await auth.handler(request))
-    }
     const inactiveResponse = await inactiveSessionResponse(auth, request)
     if (inactiveResponse) return inactiveResponse
     let response = await auth.handler(request)
-    if (signUpStartedAt !== undefined) {
+    if (signUpStartedAt !== undefined)
       response = await normalizeSignUpResponse(response, signUpStartedAt)
-    }
     if (
       isResetRequest(request) &&
       (
         response.ok ||
         await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE)
       )
-    ) {
+    )
       response = Response.json(SAFE_RESET_RESPONSE, {
         status: 200,
         headers: { "cache-control": "no-store" },
       })
-    }
     return await sanitizeTokenResponse(response)
-  }
 
 export { AUTHORIZATION_ERROR_CODES, AuthAuthorizationError }
 export type {

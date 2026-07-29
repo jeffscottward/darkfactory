@@ -16,7 +16,7 @@ const formatSequence = (sequence: number): string =>
 
 export const createInlineJobPort = (
   options: InlineJobPortOptions = {},
-): JobPort => {
+): JobPort =>
   const now = options.now ?? (() => new Date().toISOString())
   let sequence = 0
   let tail: Promise<void> = Promise.resolve()
@@ -24,7 +24,7 @@ export const createInlineJobPort = (
   const enqueue = <Name extends string, Payload extends object, Result>(
     definition: JobDefinition<Name, Payload, Result>,
     payload: JobPayload<Payload>,
-  ): Promise<JobReceipt<Name, Result>> => {
+  ): Promise<JobReceipt<Name, Result>> =>
     const execute = definition.execute
     const jobName = definition.name
     const enqueuedAt = now()
@@ -49,8 +49,8 @@ export const createInlineJobPort = (
       }))
 
     const payloadSnapshot = snapshot.payload as JobPayload<Payload>
-    const execution = tail.then(async (): Promise<JobReceipt<Name, Result>> => {
-      try {
+    const execution = tail.then(async (): Promise<JobReceipt<Name, Result>> =>
+      try
         const result = await execute(payloadSnapshot, context)
         return Object.freeze({
           status: "completed",
@@ -60,7 +60,7 @@ export const createInlineJobPort = (
           enqueuedAt: context.enqueuedAt,
           result,
         })
-      } catch {
+      catch
         return Object.freeze({
           status: "failed",
           execution: "inline",
@@ -72,15 +72,12 @@ export const createInlineJobPort = (
             retryable: false,
           }),
         })
-      }
-    })
+    )
     tail = execution.then(() => undefined)
 
     return execution
-  }
 
   return Object.freeze({
     enqueue,
     flush: async (): Promise<void> => tail,
   })
-}

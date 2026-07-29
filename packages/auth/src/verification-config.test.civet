@@ -29,14 +29,13 @@ const createEmail = (
     provider: "preview",
     artifactPath: "/tmp/verification.html",
   },
-) => {
+) =>
   const sendEmailVerification = vi.fn().mockResolvedValue(result)
   const email: EmailPort = {
     sendPasswordReset: vi.fn(),
     sendEmailVerification,
   }
   return { email, sendEmailVerification }
-}
 
 type VerificationEmailCallback = (input: Readonly<{
   user: Readonly<{ id: string; email: string; name: string }>
@@ -199,18 +198,17 @@ describe "Better Auth email verification configuration", ->
       max: 9,
     })
 
-    for (const invalidMax of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(() => {
+    for (const invalidMax of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+      expect(() =>
         createConfiguredAuth(email, 60 * 60, invalidMax)
-      }).toThrowError("verificationRateLimitMax must be a positive integer")
-    }
+      ).toThrowError("verificationRateLimitMax must be a positive integer")
 
     for (const invalidSignInMax of [
       0,
       -1,
       1.5,
       Number.MAX_SAFE_INTEGER + 1,
-    ]) {
+    ])
       expect(() => createAuth({
         database: {} as never,
         secret: "auth-test-secret-with-at-least-32-characters",
@@ -220,7 +218,6 @@ describe "Better Auth email verification configuration", ->
         rateLimitEnabled: false,
         signInRateLimitMax: invalidSignInMax,
       })).toThrowError("signInRateLimitMax must be a positive integer")
-    }
 
   it "delegates the exact trusted Better Auth URL to the operation-specific port", async ->
     const { email, sendEmailVerification } = createEmail()
@@ -294,9 +291,9 @@ describe "Better Auth email verification configuration", ->
 
   it "awaits delivery and reports a redacted failure to Better Auth's scheduler", async ->
     let resolveDelivery!: (result: EmailDeliveryResult) => void
-    const pendingDelivery = new Promise<EmailDeliveryResult>((resolve) => {
+    const pendingDelivery = new Promise<EmailDeliveryResult>((resolve) =>
       resolveDelivery = resolve
-    })
+    )
     const email: EmailPort = {
       sendPasswordReset: vi.fn(),
       sendEmailVerification: vi.fn().mockReturnValue(pendingDelivery),
@@ -380,11 +377,10 @@ describe "Better Auth email verification configuration", ->
   it "rejects verification expiry below one minute, above one day, or fractional", ->
     const { email } = createEmail()
 
-    for (const expiresIn of [0, 59, 61, 86_401, 60.5]) {
+    for (const expiresIn of [0, 59, 61, 86_401, 60.5])
       expect(() => createConfiguredAuth(email, expiresIn)).toThrowError(
         "verificationEmailTokenExpiresInSeconds must be a whole-minute integer from 60 to 86400",
       )
-    }
 
     for (const expiresIn of [
       0,
@@ -392,13 +388,12 @@ describe "Better Auth email verification configuration", ->
       60.5,
       61,
       Number.MAX_SAFE_INTEGER + 1,
-    ]) {
+    ])
       expect(() =>
         createConfiguredAuth(email, 60 * 60, undefined, expiresIn)
       ).toThrowError(
         "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
       )
-    }
 
   it "installs the email normalization hook used by manual verification requests", ->
     const { email } = createEmail()

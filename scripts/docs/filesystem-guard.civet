@@ -10,87 +10,74 @@ export type GuardHooks = Readonly<{
 export type GuardedWriteMode = "create" | "upsert"
 type Identity = Readonly<{ path: string; dev: number; ino: number }>
 
-const identity = async (path: string): Promise<Identity> => {
+const identity = async (path: string): Promise<Identity> =>
   const stats = await lstat(path)
   if (stats.isSymbolicLink()) throw new Error("Filesystem guard rejects symbolic links")
   return Object.freeze({ path, dev: stats.dev, ino: stats.ino })
-}
 const sameIdentity = (left: Identity, right: Identity): boolean =>
   left.dev === right.dev && left.ino === right.ino
 
-const assertIdentity = async (expected: Identity): Promise<void> => {
+const assertIdentity = async (expected: Identity): Promise<void> =>
   const current = await identity(expected.path)
   if (!sameIdentity(expected, current)) throw new Error("Filesystem identity changed during operation")
-}
 
-const containedTarget = (root: string, path: string): string => {
+const containedTarget = (root: string, path: string): string =>
   const target = resolve(root, path)
   const relation = relative(root, target)
   if (relation === ".." || relation.startsWith(`..${sep}`)) throw new Error("Filesystem target escapes repository")
   return target
-}
 
-const ancestorPaths = (root: string, parent: string): readonly string[] => {
+const ancestorPaths = (root: string, parent: string): readonly string[] =>
   const relation = relative(root, parent)
   if (relation === ".." || relation.startsWith(`..${sep}`)) throw new Error("Filesystem parent escapes repository")
   const paths = [root]
   if (relation.length === 0) return paths
   let current = root
-  for (const segment of relation.split(sep)) {
+  for (const segment of relation.split(sep))
     current = join(current, segment)
     paths.push(current)
-  }
   return paths
-}
 
-const prepareAncestors = async (root: string, parent: string): Promise<readonly Identity[]> => {
+const prepareAncestors = async (root: string, parent: string): Promise<readonly Identity[]> =>
   const paths = ancestorPaths(root, parent)
   const snapshots: Identity[] = []
   let firstMissing = paths.length
-  for (let index = 0; index < paths.length; index += 1) {
-    try {
+  for (let index = 0; index < paths.length; index += 1)
+    try
       const snapshot = await identity(paths[index]!)
       const stats = await lstat(paths[index]!)
       if (!stats.isDirectory()) throw new Error("Filesystem ancestor is not a directory")
       snapshots.push(snapshot)
-    } catch (error) {
+    catch (error)
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       firstMissing = index
       break
-    }
-  }
   for (const snapshot of snapshots) await assertIdentity(snapshot)
-  for (let index = firstMissing; index < paths.length; index += 1) {
+  for (let index = firstMissing; index < paths.length; index += 1)
     for (const snapshot of snapshots) await assertIdentity(snapshot)
     await mkdir(paths[index]!, { mode: 0o700 })
     const created = await identity(paths[index]!)
     const stats = await lstat(paths[index]!)
     if (!stats.isDirectory()) throw new Error("Filesystem ancestor creation failed")
     snapshots.push(created)
-  }
   for (const snapshot of snapshots) await assertIdentity(snapshot)
   return Object.freeze(snapshots)
-}
 
-const optionalIdentity = async (path: string): Promise<Identity | undefined> => {
-  try {
+const optionalIdentity = async (path: string): Promise<Identity | undefined> =>
+  try
     return await identity(path)
-  } catch (error) {
+  catch (error)
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
     throw error
-  }
-}
 
-const removeOwned = async (owned: Identity | undefined): Promise<void> => {
+const removeOwned = async (owned: Identity | undefined): Promise<void> =>
   if (!owned) return
-  try {
+  try
     if (sameIdentity(owned, await identity(owned.path))) await rm(owned.path, { force: true })
-  } catch (error) {
+  catch (error)
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-  }
-}
 
-const withGlobalLock = async <T>(root: string, task: (assertOwned: () => Promise<void>) => Promise<T>): Promise<T> => {
+const withGlobalLock = async <T>(root: string, task: (assertOwned: () => Promise<void>) => Promise<T>): Promise<T> =>
   const lockPath = join(root, ".darkfactory-operations.lock")
   const handle = await open(
     lockPath,
@@ -99,18 +86,15 @@ const withGlobalLock = async <T>(root: string, task: (assertOwned: () => Promise
   )
   const stats = await handle.stat()
   const owned = Object.freeze({ path: lockPath, dev: stats.dev, ino: stats.ino })
-  const assertOwned = async (): Promise<void> => {
+  const assertOwned = async (): Promise<void> =>
     const current = await identity(lockPath)
     if (!sameIdentity(owned, current)) throw new Error("Operations lock ownership changed")
-  }
-  try {
+  try
     await assertOwned()
     return await task(assertOwned)
-  } finally {
+  finally
     await handle.close()
     await removeOwned(owned).catch(() => undefined)
-  }
-}
 
 export const guardedWrite = async (
   repositoryPath: string,
@@ -118,17 +102,16 @@ export const guardedWrite = async (
   content: string,
   mode: GuardedWriteMode,
   hooks: GuardHooks = {},
-): Promise<void> => {
+): Promise<void> =>
   const root = await realpath(repositoryPath)
-  await withGlobalLock(root, async (assertLock) => {
+  await withGlobalLock(root, async (assertLock) =>
     const target = containedTarget(root, relativePath)
     const parent = dirname(target)
     const ancestors = await prepareAncestors(root, parent)
     const original = await optionalIdentity(target)
-    if (original) {
+    if (original)
       const stats = await lstat(target)
       if (!stats.isFile() || mode === "create") throw new Error("Filesystem target is occupied")
-    }
     const temporary = `${target}.${process.pid}-${randomUUID()}.tmp`
     const backup = `${target}.${process.pid}-${randomUUID()}.bak`
     const handle = await open(
@@ -140,7 +123,7 @@ export const guardedWrite = async (
     const temporaryIdentity = Object.freeze({ path: temporary, dev: temporaryStats.dev, ino: temporaryStats.ino })
     let published: Identity | undefined
     let backupIdentity: Identity | undefined
-    try {
+    try
       await handle.writeFile(content, "utf8")
       await handle.sync()
       // Keep the descriptor open so an unlinked inode cannot be reused before identity checks.
@@ -148,18 +131,16 @@ export const guardedWrite = async (
       await assertLock()
       for (const snapshot of ancestors) await assertIdentity(snapshot)
       const current = await optionalIdentity(target)
-      if ((original === undefined) !== (current === undefined) || (original && current && !sameIdentity(original, current))) {
+      if ((original === undefined) !== (current === undefined) || (original && current && !sameIdentity(original, current)))
         throw new Error("Filesystem target changed during operation")
-      }
       await assertIdentity(temporaryIdentity)
-      if (original) {
+      if (original)
         await link(target, backup)
         backupIdentity = await identity(backup)
         if (!sameIdentity(original, backupIdentity)) throw new Error("Filesystem backup identity mismatch")
         await rename(temporary, target)
-      } else {
+      else
         await link(temporary, target)
-      }
       published = await identity(target)
       if (!sameIdentity(temporaryIdentity, published)) throw new Error("Filesystem publication identity mismatch")
       for (const snapshot of ancestors) await assertIdentity(snapshot)
@@ -168,26 +149,21 @@ export const guardedWrite = async (
       await assertLock()
       await removeOwned(backupIdentity)
       backupIdentity = undefined
-    } catch (error) {
-      try {
+    catch (error)
+      try
         for (const snapshot of ancestors) await assertIdentity(snapshot)
-        if (published && sameIdentity(published, await identity(target))) {
-          if (backupIdentity) {
+        if (published && sameIdentity(published, await identity(target)))
+          if (backupIdentity)
             await rename(backup, target)
             backupIdentity = undefined
-          } else {
+          else
             await rm(target, { force: true })
-          }
-        }
-      } catch {
+      catch
         // Preserve the triggering failure when safe rollback is no longer possible.
         throw error
-      }
       throw error
-    } finally {
+    finally
       await removeOwned(temporaryIdentity).catch(() => undefined)
       await handle.close().catch(() => undefined)
       await removeOwned(backupIdentity).catch(() => undefined)
-    }
-  })
-}
+  )

@@ -69,7 +69,7 @@ const markerHandle = ({
   after?: ReturnType<typeof safeSnapshot>
   content?: string
   close?: ReturnType<typeof vi.fn>
-} = {}) => {
+} = {}) =>
   const stat = vi.fn()
     .mockResolvedValueOnce(before)
     .mockResolvedValueOnce(after)
@@ -81,7 +81,6 @@ const markerHandle = ({
       stat,
     } as Parameters<typeof inspectAndCloseOwnedMarker>[0],
   }
-}
 
 describe "requireFileFlag", ->
   it "retains an available platform flag and rejects a missing capability", ->
@@ -168,12 +167,12 @@ describe "assertStableOwnedRoot", ->
     ["link count", { nlink: 3 }],
     ["change time", { ctimeMs: 101 }],
     ["modification time", { mtimeMs: 101 }],
-  ] as const)("rejects changed root %s", (_case, changed) => {
+  ] as const)("rejects changed root %s", (_case, changed) =>
     expect(() => assertStableOwnedRoot(root(), {
       ...root(),
       ...changed,
     })).toThrow("Owned lifecycle root identity or capability changed")
-  })
+  )
 
 describe "assertStableOwnedMarkerRead", ->
   it "accepts an unchanged marker read", ->
@@ -189,13 +188,13 @@ describe "assertStableOwnedMarkerRead", ->
     ["link count", { nlink: 2 }],
     ["change time", { ctimeMs: 101 }],
     ["modification time", { mtimeMs: 101 }],
-  ] as const)("rejects changed %s", (_case, changed) => {
+  ] as const)("rejects changed %s", (_case, changed) =>
     const current = stableRead()
     expect(() => validateRead({
       ...current,
       after: { ...current.after, ...changed },
     })).toThrow("Owned lifecycle marker identity or capability changed")
-  })
+  )
 
   it "rejects changed content", ->
     expect(() => validateRead({
@@ -226,7 +225,7 @@ describe "inspectAndCloseOwnedMarker", ->
     ["owner uid", safeSnapshot({ uid: 502 })],
     ["owner gid", safeSnapshot({ gid: 21 })],
     ["link count", safeSnapshot({ nlink: 2 })],
-  ] as const)("rejects an unsafe initial %s and still closes", async (_case, before) => {
+  ] as const)("rejects an unsafe initial %s and still closes", async (_case, before) =>
     const { close, handle } = markerHandle({ before })
 
     await expect(
@@ -238,7 +237,7 @@ describe "inspectAndCloseOwnedMarker", ->
       ),
     ).rejects.toThrow("Owned lifecycle marker identity or capability changed")
     expect(close).toHaveBeenCalledTimes(1)
-  })
+  )
 
   it "closes after a post-read validation failure", async ->
     const { close, handle } = markerHandle({ content: "replaced-marker" })
@@ -255,7 +254,9 @@ describe "inspectAndCloseOwnedMarker", ->
 
   it "preserves a close failure", async ->
     const closeFailure = new Error("private close failure")
-    const close = vi.fn(async () => { throw closeFailure })
+    const close = vi.fn(async () =>
+      throw closeFailure
+    )
     const { handle } = markerHandle({ close })
 
     await expect(
@@ -269,7 +270,9 @@ describe "inspectAndCloseOwnedMarker", ->
 
   it "preserves validation and close failures together", async ->
     const closeFailure = new Error("private close failure")
-    const close = vi.fn(async () => { throw closeFailure })
+    const close = vi.fn(async () =>
+      throw closeFailure
+    )
     const { handle } = markerHandle({ close, content: "replaced-marker" })
     let failure: unknown
 

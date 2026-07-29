@@ -35,15 +35,13 @@ describe "Result helpers", ->
     const result = success({ count: 2 })
 
     const output = matchResult(result, {
-      success: (value) => {
+      success: (value) =>
         expectTypeOf(value).toEqualTypeOf<{ count: number }>()
         return `count:${value.count}`
-      },
-      failure: (reason) => {
+      failure: (reason) =>
         expectTypeOf(reason).toBeNever()
         didCallFailure = true
         return "failure"
-      },
     })
 
     expect(result).toEqual({ ok: true, value: { count: 2 } })
@@ -57,15 +55,13 @@ describe "Result helpers", ->
     const result = failure(reason)
 
     const output = matchResult(result, {
-      success: (value) => {
+      success: (value) =>
         expectTypeOf(value).toBeNever()
         didCallSuccess = true
         return "success"
-      },
-      failure: (matchedReason) => {
+      failure: (matchedReason) =>
         expectTypeOf(matchedReason).toEqualTypeOf<typeof reason>()
         return matchedReason.code
-      },
     })
 
     expect(result).toEqual({ ok: false, error: reason })
@@ -100,12 +96,11 @@ describe "normalizeUnknownError", ->
       42,
     ]
 
-    for (const value of unknownValues) {
+    for (const value of unknownValues)
       const normalized = normalizeUnknownError(value)
 
       expect(normalized).toEqual(normalizedError)
       expect(JSON.stringify(normalized)).not.toContain(secret)
-    }
 
 describe "@darkfactory/testkit fixtures", ->
   it "creates an isolated fixed clock that returns fresh dates", ->

@@ -4,34 +4,29 @@ export type Clock = Readonly<{
 
 export type IdFactory<Id extends string = string> = () => Id
 
-export const createFixedClock = (instant: Date | number): Clock => {
+export const createFixedClock = (instant: Date | number): Clock =>
   const capturedDate = new Date(
     instant instanceof Date ? instant.getTime() : instant,
   )
   const epochMilliseconds = capturedDate.getTime()
 
-  if (Number.isNaN(epochMilliseconds)) {
+  if (Number.isNaN(epochMilliseconds))
     throw new TypeError("Fixed clock requires a valid instant")
-  }
 
   return Object.freeze({
     now: () => new Date(epochMilliseconds),
   })
-}
 
 export const createIdSequence = <Id extends string>(
   ...ids: [Id, ...Id[]]
-): IdFactory<Id> => {
+): IdFactory<Id> =>
   let index = 0
 
-  return () => {
+  return () =>
     const id = ids[index]
 
-    if (id === undefined) {
+    if (id === undefined)
       throw new RangeError("ID fixture exhausted")
-    }
 
     index += 1
     return id
-  }
-}

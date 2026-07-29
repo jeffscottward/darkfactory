@@ -16,8 +16,8 @@ export const FeatureRecoveryAction = ({
   kind,
   onRetry,
   returnHref,
-}: FeatureRecoveryActionProps) => {
-  if (kind === "unauthorized") {
+}: FeatureRecoveryActionProps) =>
+  if (kind === "unauthorized")
     return (
       <a
         className={buttonVariants({ variant: "primary" })}
@@ -25,23 +25,17 @@ export const FeatureRecoveryAction = ({
       >
         <LogIn aria-hidden="true" className="size-4" />
         Sign in again
-      </a>
     )
-  }
 
-  if (kind === "forbidden" || kind === "not-found") {
+  if (kind === "forbidden" || kind === "not-found")
     return (
       <a className={buttonVariants({ variant: "secondary" })} href={returnHref}>
         <ArrowLeft aria-hidden="true" className="size-4" />
         {returnLabel(returnHref)}
-      </a>
     )
-  }
 
   return (
     <Button onClick={onRetry} variant="secondary">
       <RotateCcw aria-hidden="true" className="size-4" />
       Try again
-    </Button>
   )
-}

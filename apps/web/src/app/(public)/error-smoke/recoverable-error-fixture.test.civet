@@ -1,39 +1,37 @@
 import type { Dispatch, SetStateAction } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const hooks = vi.hoisted(() => {
+const hooks = vi.hoisted(() =>
   type Phase = "checking" | "recovered" | "throw"
   let phase: Phase = "checking"
   let effect: (() => void | undefined) | undefined
 
   return {
-    reset: () => {
+    reset: () =>
       phase = "checking"
       effect = undefined
-    },
     runEffect: () => effect?.(),
-    useEffect: (nextEffect: () => void | undefined): void => {
+    useEffect: (nextEffect: () => void | undefined): void =>
       effect = nextEffect
-    },
     useState: <Value>(_initial: Value): readonly [Value, Dispatch<SetStateAction<Value>>] => [
       phase as Value,
-      ((next: SetStateAction<Value>) => {
+      ((next: SetStateAction<Value>) =>
         phase = (typeof next === "function"
           ? (next as (current: Value) => Value)(phase as Value)
           : next) as Phase
-      }) as Dispatch<SetStateAction<Value>>,
+      ) as Dispatch<SetStateAction<Value>>,
     ],
   }
-})
+)
 
-vi.mock("react", async (importOriginal) => {
+vi.mock("react", async (importOriginal) =>
   const actual = await importOriginal<typeof import("react")>()
   return {
     ...actual,
     useEffect: hooks.useEffect,
     useState: hooks.useState,
   }
-})
+)
 
 import { PublicPage } from "../_components/public-content.civet"
 import PublicLoading from "../loading.civet"

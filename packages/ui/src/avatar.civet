@@ -26,9 +26,8 @@ export const Avatar = ({
     {...(src === undefined ? { role: "img", "aria-label": name } : {})}
   >
     {src === undefined ? (
-      <span aria-hidden="true">{fallback}</span>
+      <span aria-hidden="true">{fallback}
     ) : (
       <img className="size-full object-cover" src={src} alt={name} {...imageProps} />
     )}
-  </span>
 )

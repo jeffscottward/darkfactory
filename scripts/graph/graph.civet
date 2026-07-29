@@ -84,12 +84,10 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? value as Record<string, unknown>
     : null
 
-const stringArray = (value: unknown, name: string): readonly string[] => {
-  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+const stringArray = (value: unknown, name: string): readonly string[] =>
+  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || entry.length === 0))
     throw new Error(`Graph config ${name} must be a nonempty string array`)
-  }
   return Object.freeze([...value] as string[])
-}
 
 const isSafeRelative = (path: string): boolean =>
   path.length > 0 &&
@@ -104,26 +102,23 @@ const isSafeRelative = (path: string): boolean =>
 const isSafeRoot = (path: string): boolean => path === "." || isSafeRelative(path)
 const isSafeSymbol = (value: string): boolean => /^[A-Za-z_][A-Za-z0-9_.:$-]{0,127}$/.test(value)
 
-export const parseGraphConfig = (source: string): GraphConfig => {
+export const parseGraphConfig = (source: string): GraphConfig =>
   if (Buffer.byteLength(source, "utf8") > MAX_CONFIG_BYTES) throw new Error("Graph config is too large")
   let parsed: unknown
-  try {
+  try
     parsed = JSON.parse(source)
-  } catch {
+  catch
     throw new Error("Graph config is malformed")
-  }
   const root = asRecord(parsed)
   const sourceConfig = asRecord(root?.["source"])
   if (root?.["version"] !== 1 || !sourceConfig) throw new Error("Graph config version or source is invalid")
 
   const graphPath = root["graphPath"]
   const manifestPath = root["manifestPath"]
-  if (typeof graphPath !== "string" || typeof manifestPath !== "string") {
+  if (typeof graphPath !== "string" || typeof manifestPath !== "string")
     throw new Error("Graph config output paths are invalid")
-  }
-  if (graphPath !== SUPPORTED_GRAPH_PATH) {
+  if (graphPath !== SUPPORTED_GRAPH_PATH)
     throw new Error("Graph config must use the supported graph output path")
-  }
   const roots = stringArray(sourceConfig["roots"], "source.roots")
   const files = stringArray(sourceConfig["files"], "source.files")
   const extensions = stringArray(sourceConfig["extensions"], "source.extensions")
@@ -131,18 +126,14 @@ export const parseGraphConfig = (source: string): GraphConfig => {
   const verificationPath = stringArray(root["verificationPath"], "verificationPath")
   if (verificationPath.length < 2) throw new Error("Graph config verificationPath is too short")
 
-  for (const path of [graphPath, manifestPath, ...files, ...excludes]) {
+  for (const path of [graphPath, manifestPath, ...files, ...excludes])
     if (!isSafeRelative(path)) throw new Error(`Graph config contains an unsafe path: ${path}`)
-  }
-  for (const path of roots) {
+  for (const path of roots)
     if (!isSafeRoot(path)) throw new Error(`Graph config contains an unsafe path: ${path}`)
-  }
-  if (extensions.some((extension) => !/^\.[a-z0-9]+$/i.test(extension))) {
+  if (extensions.some((extension) => !/^\.[a-z0-9]+$/i.test(extension)))
     throw new Error("Graph config contains an invalid extension")
-  }
-  if (verificationPath.some((symbol) => !isSafeSymbol(symbol))) {
+  if (verificationPath.some((symbol) => !isSafeSymbol(symbol)))
     throw new Error("Graph config contains an unsafe verification symbol")
-  }
 
   return Object.freeze({
     version: 1,
@@ -151,31 +142,27 @@ export const parseGraphConfig = (source: string): GraphConfig => {
     source: Object.freeze({ roots, files, extensions, excludes }),
     verificationPath,
   })
-}
 
 const readRegularFile = async (
   files: GraphFileSystem,
   path: string,
   maximumBytes: number,
   label: string,
-): Promise<string> => {
+): Promise<string> =>
   const info = await files.inspect(path)
   if (info.kind !== "file") throw new Error(`${label} is missing or not a regular file`)
-  if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > maximumBytes) {
+  if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > maximumBytes)
     throw new Error(`${label} is too large`)
-  }
   const content = await files.readText(path, maximumBytes)
   if (Buffer.byteLength(content, "utf8") > maximumBytes) throw new Error(`${label} is too large`)
   return content
-}
 
-const parseManifest = (source: string): GraphManifest => {
+const parseManifest = (source: string): GraphManifest =>
   let parsed: unknown
-  try {
+  try
     parsed = JSON.parse(source)
-  } catch {
+  catch
     throw new Error("Graph manifest is malformed")
-  }
   const manifest = asRecord(parsed)
   const digests = ["configDigest", "graphDigest", "sourceFingerprint"] as const
   if (
@@ -193,7 +180,6 @@ const parseManifest = (source: string): GraphManifest => {
     sourceFingerprint: manifest["sourceFingerprint"] as string,
     sourceFileCount: manifest["sourceFileCount"] as number,
   })
-}
 
 export const calculateContentDigest = (content: string): string =>
   createHash("sha256").update(content).digest("hex")
@@ -201,28 +187,25 @@ export const calculateContentDigest = (content: string): string =>
 const compareCanonicalText = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
 
-const canonicalJson = (value: unknown): string => {
-  if (typeof value === "number") {
+const canonicalJson = (value: unknown): string =>
+  if (typeof value === "number")
     if (!Number.isFinite(value)) throw new Error("Graph output contains a non-finite number")
     return JSON.stringify(value)
-  }
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
     return JSON.stringify(value)
-  }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
   const record = value as Record<string, unknown>
   return `{${Object.keys(record)
     .sort(compareCanonicalText)
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
     .join(",")}}`
-}
 
 const canonicalizeHyperedge = (
   value: unknown,
   nodeIds: ReadonlyMap<string, string>,
   semanticNodeIds: ReadonlySet<string>,
   hyperedgeIds: Set<string>,
-): Readonly<Record<string, unknown>> => {
+): Readonly<Record<string, unknown>> =>
   const hyperedge = asRecord(value)
   const id = hyperedge?.["id"]
   if (
@@ -240,31 +223,26 @@ const canonicalizeHyperedge = (
   if (memberKeys.length !== 1) throw new Error("Graph output has invalid hyperedge members")
   const memberKey = memberKeys[0]!
   const memberValues = hyperedge[memberKey]
-  if (!Array.isArray(memberValues) || memberValues.length < 3) {
+  if (!Array.isArray(memberValues) || memberValues.length < 3)
     throw new Error("Graph output has too few hyperedge members")
-  }
-  const members = memberValues.map((member) => {
-    if (typeof member !== "string" || !nodeIds.has(member)) {
+  const members = memberValues.map((member) =>
+    if (typeof member !== "string" || !nodeIds.has(member))
       throw new Error("Graph output has an invalid hyperedge member")
-    }
     return nodeIds.get(member)!
-  })
-  if (new Set(members).size !== members.length) {
+  )
+  if (new Set(members).size !== members.length)
     throw new Error("Graph output has repeated hyperedge members")
-  }
   hyperedgeIds.add(id)
   return Object.fromEntries(Object.entries(hyperedge).map(([key, entry]) =>
     key === memberKey ? [key, members.sort(compareCanonicalText)] : [key, entry]
   ))
-}
 
-export const calculateGraphDigest = (content: string): string => {
+export const calculateGraphDigest = (content: string): string =>
   let parsed: unknown
-  try {
+  try
     parsed = JSON.parse(content)
-  } catch {
+  catch
     throw new Error("Graph output is malformed")
-  }
   const graph = asRecord(parsed)
   const nodes = graph?.["nodes"]
   const links = graph?.["links"]
@@ -275,12 +253,11 @@ export const calculateGraphDigest = (content: string): string => {
   const nodeIds = new Map<string, string>()
   const semanticNodeIds = new Set<string>()
   const canonicalNodes: string[] = []
-  for (const value of nodes) {
+  for (const value of nodes)
     const node = asRecord(value)
     const rawId = node?.["id"]
-    if (!node || typeof rawId !== "string" || rawId.length === 0 || nodeIds.has(rawId)) {
+    if (!node || typeof rawId !== "string" || rawId.length === 0 || nodeIds.has(rawId))
       throw new Error("Graph output has an invalid node identity")
-    }
     const semanticNode = Object.fromEntries(
       Object.entries(node).filter(([key]) =>
         key !== "id" && key !== "community" && key !== "norm_label"
@@ -288,15 +265,13 @@ export const calculateGraphDigest = (content: string): string => {
     )
     const canonicalNode = canonicalJson(semanticNode)
     const semanticId = calculateContentDigest(canonicalNode)
-    if (semanticNodeIds.has(semanticId)) {
+    if (semanticNodeIds.has(semanticId))
       throw new Error("Graph output has indistinguishable semantic nodes")
-    }
     semanticNodeIds.add(semanticId)
     nodeIds.set(rawId, semanticId)
     canonicalNodes.push(canonicalNode)
-  }
 
-  const canonicalLinks = links.map((value) => {
+  const canonicalLinks = links.map((value) =>
     const link = asRecord(value)
     if (
       !link ||
@@ -310,7 +285,7 @@ export const calculateGraphDigest = (content: string): string => {
       source: nodeIds.get(link["source"]),
       target: nodeIds.get(link["target"]),
     })
-  })
+  )
   const hyperedgeIds = new Set<string>()
   const canonicalHyperedges = hyperedges.map((value) =>
     canonicalJson(canonicalizeHyperedge(value, nodeIds, semanticNodeIds, hyperedgeIds))
@@ -330,14 +305,13 @@ export const calculateGraphDigest = (content: string): string => {
     `[${canonicalHyperedges.sort(compareCanonicalText).join(",")}]`,
   ].join("\0")
   return calculateContentDigest(canonicalGraph)
-}
 
 
 function updateFingerprint(
   hash: ReturnType<typeof createHash>,
   path: string,
   content: string,
-): void {
+): void
   hash.update(String(Buffer.byteLength(path, "utf8")))
   hash.update(":")
   hash.update(path)
@@ -346,22 +320,19 @@ function updateFingerprint(
   hash.update(":")
   hash.update(content)
   hash.update("\0")
-}
 
 export const calculateSourceFingerprint = (
   entries: readonly (readonly [string, string])[],
-): string => {
+): string =>
   const hash = createHash("sha256")
-  for (const [path, content] of [...entries].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [path, content] of [...entries].sort(([left], [right]) => left.localeCompare(right)))
     updateFingerprint(hash, path, content)
-  }
   return hash.digest("hex")
-}
 
 const serializeManifest = (manifest: GraphManifest): string => `${JSON.stringify(manifest, null, 2)}\n`
 
-const inspectGraphify = async (dependencies: GraphDependencies): Promise<string | null> => {
-  try {
+const inspectGraphify = async (dependencies: GraphDependencies): Promise<string | null> =>
+  try
     const result = await dependencies.process.run("graphify", ["--version"], {
       ...COMMAND_OPTIONS,
       timeoutMs: 10_000,
@@ -369,46 +340,39 @@ const inspectGraphify = async (dependencies: GraphDependencies): Promise<string 
     if (result.exitCode !== 0) return null
     const match = result.stdout.trim().match(/(?:graphify\s+)?(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)/i)
     return match?.[1] ?? null
-  } catch {
+  catch
     return null
-  }
-}
 
 const inspectSources = async (
   dependencies: GraphDependencies,
   config: GraphConfig,
-): Promise<Readonly<{ fingerprint: string; fileCount: number }>> => {
+): Promise<Readonly<{ fingerprint: string; fileCount: number }>> =>
   const paths = [...new Set(await dependencies.files.listSourceFiles(config))].sort()
   if (paths.length === 0) throw new Error("Architectural source corpus is empty")
   if (paths.length > MAX_SOURCE_FILES) throw new Error("Architectural source corpus has too many files")
 
   let totalBytes = 0
   const hash = createHash("sha256")
-  for (const path of paths) {
+  for (const path of paths)
     if (!isSafeRelative(path)) throw new Error("Source listing returned an unsafe path")
     const info = await dependencies.files.inspect(path)
     if (info.kind !== "file") throw new Error(`Architectural source is not a regular file: ${path}`)
-    if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > MAX_SOURCE_FILE_BYTES) {
+    if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > MAX_SOURCE_FILE_BYTES)
       throw new Error(`Architectural source is too large: ${path}`)
-    }
     totalBytes += info.size
     if (totalBytes > MAX_SOURCE_TOTAL_BYTES) throw new Error("Architectural source corpus is too large")
     const content = await dependencies.files.readText(path, MAX_SOURCE_FILE_BYTES)
-    if (Buffer.byteLength(content, "utf8") > MAX_SOURCE_FILE_BYTES) {
+    if (Buffer.byteLength(content, "utf8") > MAX_SOURCE_FILE_BYTES)
       throw new Error(`Architectural source is too large: ${path}`)
-    }
     updateFingerprint(hash, path, content)
-  }
   return Object.freeze({ fingerprint: hash.digest("hex"), fileCount: paths.length })
-}
 
 const inspectGraph = async (
   dependencies: GraphDependencies,
   config: GraphConfig,
-): Promise<Readonly<{ digest: string }>> => {
+): Promise<Readonly<{ digest: string }>> =>
   const content = await readRegularFile(dependencies.files, config.graphPath, MAX_GRAPH_BYTES, "Graph output")
   return Object.freeze({ digest: calculateGraphDigest(content) })
-}
 
 const failure = (action: GraphAction, reason: string): GraphReport => Object.freeze({
   action,
@@ -423,25 +387,23 @@ const inspectFreshness = async (
   config: GraphConfig,
   configSource: string,
   graphifyVersion: string,
-): Promise<GraphReport> => {
+): Promise<GraphReport> =>
   let graph: Readonly<{ digest: string }>
-  try {
+  try
     graph = await inspectGraph(dependencies, config)
-  } catch (error) {
+  catch (error)
     return failure(action, error instanceof Error ? error.message : "Missing graph output")
-  }
 
   let manifest: GraphManifest
-  try {
+  try
     manifest = parseManifest(await readRegularFile(
       dependencies.files,
       config.manifestPath,
       MAX_CONFIG_BYTES,
       "Graph manifest",
     ))
-  } catch {
+  catch
     return failure(action, "Graph manifest is missing or malformed")
-  }
 
   const sources = await inspectSources(dependencies, config)
   if (
@@ -458,7 +420,7 @@ const inspectFreshness = async (
     sourceFingerprint: sources.fingerprint,
     graphifyVersion,
   })
-  if (manifest.graphifyVersion !== graphifyVersion) {
+  if (manifest.graphifyVersion !== graphifyVersion)
     return Object.freeze({
       action,
       ok: false,
@@ -468,7 +430,6 @@ const inspectFreshness = async (
       sourceFingerprint: sources.fingerprint,
       graphifyVersion,
     })
-  }
 
   return Object.freeze({
     action,
@@ -479,7 +440,6 @@ const inspectFreshness = async (
     sourceFingerprint: sources.fingerprint,
     graphifyVersion,
   })
-}
 
 const buildOrUpdate = async (
   action: "build" | "update",
@@ -487,25 +447,23 @@ const buildOrUpdate = async (
   config: GraphConfig,
   configSource: string,
   graphifyVersion: string,
-): Promise<GraphReport> => {
+): Promise<GraphReport> =>
   const before = await inspectSources(dependencies, config)
   let snapshot: Awaited<ReturnType<GraphFileSystem["createSourceSnapshot"]>>
-  try {
+  try
     snapshot = await dependencies.files.createSourceSnapshot(config)
-  } catch (error) {
+  catch (error)
     const detail = error instanceof Error ? error.message : "unknown snapshot failure"
     return failure(action, `Graph source snapshot failed: ${detail}`)
-  }
   let execution: Readonly<{ exitCode: number }>
-  try {
-    try {
+  try
+    try
       await dependencies.files.resetGraphOutput(config.graphPath)
-    } catch (error) {
+    catch (error)
       const detail = error instanceof Error
         ? error.message
         : "unknown output reset failure"
       return failure(action, `Graph output reset failed: ${detail}`)
-    }
     execution = await dependencies.process.run(
       "graphify",
       ["extract", snapshot.path, "--out", "."],
@@ -514,22 +472,19 @@ const buildOrUpdate = async (
         environment: { GRAPHIFY_MAX_WORKERS: "1", PYTHONHASHSEED: "0" },
       },
     )
-  } finally {
+  finally
     await snapshot.cleanup()
-  }
   if (execution.exitCode !== 0) return failure(action, `Graphify ${action} command failed`)
 
   const after = await inspectSources(dependencies, config)
-  if (before.fingerprint !== after.fingerprint || before.fileCount !== after.fileCount) {
+  if (before.fingerprint !== after.fingerprint || before.fileCount !== after.fileCount)
     return failure(action, "Architectural sources changed during Graphify extraction")
-  }
 
   let graph: Readonly<{ digest: string }>
-  try {
+  try
     graph = await inspectGraph(dependencies, config)
-  } catch (error) {
+  catch (error)
     return failure(action, error instanceof Error ? error.message : "Graphify produced no graph")
-  }
 
   const manifest: GraphManifest = Object.freeze({
     version: 1,
@@ -549,7 +504,6 @@ const buildOrUpdate = async (
     sourceFingerprint: after.fingerprint,
     graphifyVersion,
   })
-}
 
 const pathQuerySucceeded = (stdout: string, from: string, to: string): boolean =>
   /^Shortest path \(\d+ hops?\):/m.test(stdout) && stdout.includes(from) && stdout.includes(to)
@@ -557,10 +511,10 @@ const pathQuerySucceeded = (stdout: string, from: string, to: string): boolean =
 export const runGraphAction = async (
   action: GraphAction,
   dependencies: GraphDependencies,
-): Promise<GraphReport> => {
+): Promise<GraphReport> =>
   let configSource: string
   let config: GraphConfig
-  try {
+  try
     configSource = await readRegularFile(
       dependencies.files,
       ".graphify/config.json",
@@ -568,17 +522,15 @@ export const runGraphAction = async (
       "Graph config",
     )
     config = parseGraphConfig(configSource)
-  } catch {
+  catch
     return failure(action, "Graph config is missing or malformed")
-  }
 
   const graphifyVersion = await inspectGraphify(dependencies)
   if (!graphifyVersion) return failure(action, "Graphify is unavailable or returned an invalid version")
 
-  try {
-    if (action === "build" || action === "update") {
+  try
+    if (action === "build" || action === "update")
       return await buildOrUpdate(action, dependencies, config, configSource, graphifyVersion)
-    }
 
     const freshness = await inspectFreshness(
       action,
@@ -590,7 +542,7 @@ export const runGraphAction = async (
     if (!freshness.ok || action === "check") return freshness
 
     let verified = 0
-    for (let index = 0; index < config.verificationPath.length - 1; index += 1) {
+    for (let index = 0; index < config.verificationPath.length - 1; index += 1)
       const from = config.verificationPath[index]!
       const to = config.verificationPath[index + 1]!
       const query = await dependencies.process.run("graphify", ["path", from, to], {
@@ -598,7 +550,7 @@ export const runGraphAction = async (
         timeoutMs: 30_000,
         environment: { GRAPHIFY_QUERY_LOG_DISABLE: "1" },
       })
-      if (query.exitCode !== 0 || !pathQuerySucceeded(query.stdout, from, to)) {
+      if (query.exitCode !== 0 || !pathQuerySucceeded(query.stdout, from, to))
         return Object.freeze({
           ...freshness,
           action,
@@ -606,9 +558,7 @@ export const runGraphAction = async (
           reason: `Graph verification path failed between ${from} and ${to}`,
           queriesVerified: verified,
         })
-      }
       verified += 1
-    }
 
     return Object.freeze({
       ...freshness,
@@ -616,7 +566,5 @@ export const runGraphAction = async (
       reason: "Graph is fresh and the architectural verification path resolves",
       queriesVerified: verified,
     })
-  } catch {
+  catch
     return failure(action, `Graph ${action} inspection failed`)
-  }
-}

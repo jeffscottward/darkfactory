@@ -55,10 +55,9 @@ type ExpectedErrorFactories = Record<
 const mapFeatureServiceError = (
   error: unknown,
   errors: ExpectedErrorFactories,
-): never => {
+): never =>
   if (!(error instanceof FeatureServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-}
 type ThemeExpectedErrorFactories = Record<
   ThemePreferenceServiceErrorCode,
   (options?: { message?: string }) => Error
@@ -67,10 +66,9 @@ type ThemeExpectedErrorFactories = Record<
 const mapThemePreferenceServiceError = (
   error: unknown,
   errors: ThemeExpectedErrorFactories,
-): never => {
+): never =>
   if (!(error instanceof ThemePreferenceServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-}
 
 const toContractItem = (item: FeatureItem): FeatureItemInput =>
   item as unknown as FeatureItemInput
@@ -86,42 +84,38 @@ type ServiceErrorFactories<Code extends string> = Record<
 const mapAccountServiceError = (
   error: unknown,
   errors: ServiceErrorFactories<AccountServiceErrorCode>,
-): never => {
+): never =>
   if (!(error instanceof AccountServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-}
 
 const mapAdminUsersServiceError = (
   error: unknown,
   errors: ServiceErrorFactories<AdminUsersServiceErrorCode>,
-): never => {
+): never =>
   if (!(error instanceof AdminUsersServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-}
 
 const mapDashboardServiceError = (
   error: unknown,
   errors: ServiceErrorFactories<DashboardServiceErrorCode>,
-): never => {
+): never =>
   if (!(error instanceof DashboardServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-}
 
 const mapContactServiceError = (
   error: unknown,
   errors: ServiceErrorFactories<ContactServiceErrorCode>,
-): never => {
+): never =>
   if (!(error instanceof ContactServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-}
 
 const emitContactSubmittedEvent = async (
   context: ApiContext,
   input: ContactSubmitInput,
   result: ContactSubmitOutput,
-): Promise<void> => {
+): Promise<void> =>
   if (context.semanticEvents === undefined) return
-  try {
+  try
     const event: SemanticEvent = {
       eventId: crypto.randomUUID(),
       name: "contact.submitted",
@@ -149,10 +143,8 @@ const emitContactSubmittedEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     })
-  } catch (_error) {
+  catch (_error)
     // Contact observability is best-effort and never exposes submission fields.
-  }
-}
 
 const toContractAddress = (address: Address) => ({
   id: address.id,
@@ -192,9 +184,9 @@ const emitAccountMutationEvent = async (
   context: ApiContext,
   principal: SafePrincipal,
   spec: AccountMutationEventSpec,
-): Promise<void> => {
+): Promise<void> =>
   if (context.semanticEvents === undefined) return
-  try {
+  try
     const event: SemanticEvent = {
       eventId: crypto.randomUUID(),
       name: spec.name,
@@ -217,10 +209,8 @@ const emitAccountMutationEvent = async (
       ...(context.span === undefined ? {} : { span: context.span }),
       ...(context.waitUntil === undefined ? {} : { waitUntil: context.waitUntil }),
     })
-  } catch (_error) {
+  catch (_error)
     // Observability is best-effort and never changes successful account mutations.
-  }
-}
 type MutationEventSpec = Readonly<{
   name:
     | "feature-item.created"
@@ -250,8 +240,8 @@ const emitMutationEvent = async (
   outcome: EventOutcome,
   entityId: string | undefined,
   error?: unknown,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     if (context.semanticEvents === undefined) return
     const event: SemanticEvent = {
       eventId: crypto.randomUUID(),
@@ -280,22 +270,20 @@ const emitMutationEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     })
-  } catch (_error) {
+  catch (_error)
     // Observability is best-effort and must not affect domain mutation results.
-  }
-}
 
 const runMutation = async (
   context: ApiContext,
   principal: SafePrincipal,
   spec: MutationEventSpec,
   operation: () => Promise<FeatureItem>,
-): Promise<FeatureItem> => {
-  try {
+): Promise<FeatureItem> =>
+  try
     const item = await operation()
     await emitMutationEvent(context, principal, spec, "success", item.id)
     return item
-  } catch (error) {
+  catch (error)
     await emitMutationEvent(
       context,
       principal,
@@ -305,16 +293,14 @@ const runMutation = async (
       error,
     )
     throw error
-  }
-}
 
 const emitThemeUpdateEvent = async (
   context: ApiContext,
   principal: SafePrincipal,
   outcome: EventOutcome,
   error?: unknown,
-): Promise<void> => {
-  try {
+): Promise<void> =>
+  try
     if (context.semanticEvents === undefined) return
     const event: SemanticEvent = {
       eventId: crypto.randomUUID(),
@@ -347,25 +333,21 @@ const emitThemeUpdateEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     })
-  } catch (_error) {
+  catch (_error)
     // Observability is best-effort and must not affect preference persistence.
-  }
-}
 
 const runThemeUpdate = async (
   context: ApiContext,
   principal: SafePrincipal,
   operation: () => Promise<ThemePreferenceOutput>,
-): Promise<ThemePreferenceOutput> => {
-  try {
+): Promise<ThemePreferenceOutput> =>
+  try
     const preference = await operation()
     await emitThemeUpdateEvent(context, principal, "success")
     return preference
-  } catch (error) {
+  catch (error)
     await emitThemeUpdateEvent(context, principal, "failure", error)
     throw error
-  }
-}
 
 
 type AuthorizationErrorFactories = Readonly<{
@@ -377,9 +359,9 @@ const authorizationErrors = (errors: unknown): AuthorizationErrorFactories =>
   errors as AuthorizationErrorFactories
 
 const requireAuthenticated = api.middleware(
-  async ({ context, next, errors }) => {
+  async ({ context, next, errors }) =>
     const authErrors = authorizationErrors(errors)
-    try {
+    try
       const session = await context.requireSession()
       return next({
         context: {
@@ -387,62 +369,57 @@ const requireAuthenticated = api.middleware(
           authSession: session,
         },
       })
-    } catch (error) {
+    catch (error)
       if (!(error instanceof AuthAuthorizationError)) throw error
       if (error.status === 401)
         throw authErrors.UNAUTHORIZED()
       throw authErrors.FORBIDDEN()
-    }
-  },
 )
 
-const requireAdmin = api.middleware(async ({ context, next, errors }) => {
+const requireAdmin = api.middleware(async ({ context, next, errors }) =>
   const authErrors = authorizationErrors(errors)
-  try {
+  try
     const session = await context.requireRole("admin")
     return next({ context: { principal: session.principal } })
-  } catch (error) {
+  catch (error)
     if (!(error instanceof AuthAuthorizationError)) throw error
     if (error.status === 401)
       throw authErrors.UNAUTHORIZED()
     throw authErrors.FORBIDDEN()
-  }
-})
+)
 
 const list = api.featureItems.list
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       return toContractItems(
         await createFeatureItemService(context.repositories.featureItems).list(
           context.principal,
           input,
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const get = api.featureItems.get
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       return toContractItem(
         await createFeatureItemService(context.repositories.featureItems).get(
           context.principal,
           input,
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const create = api.featureItems.create
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const service = createFeatureItemService(context.repositories.featureItems)
       return toContractItem(
         await runMutation(
@@ -457,15 +434,14 @@ const create = api.featureItems.create
           () => service.create(context.principal, input, context.requestId),
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const update = api.featureItems.update
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const service = createFeatureItemService(context.repositories.featureItems)
       return toContractItem(
         await runMutation(
@@ -481,15 +457,14 @@ const update = api.featureItems.update
           () => service.update(context.principal, input, context.requestId),
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const changeStatus = api.featureItems.changeStatus
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const service = createFeatureItemService(context.repositories.featureItems)
       return toContractItem(
         await runMutation(
@@ -505,15 +480,14 @@ const changeStatus = api.featureItems.changeStatus
           () => service.changeStatus(context.principal, input, context.requestId),
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const archive = api.featureItems.archive
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const service = createFeatureItemService(context.repositories.featureItems)
       return toContractItem(
         await runMutation(
@@ -529,69 +503,64 @@ const archive = api.featureItems.archive
           () => service.archive(context.principal, input, context.requestId),
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const adminList = api.admin.featureItems.list
   .use(requireAdmin)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       return toContractItems(
         await createFeatureItemService(context.repositories.featureItems).list(
           context.principal,
           input,
         ),
       )
-    } catch (error) {
+    catch (error)
       return mapFeatureServiceError(error, errors)
-    }
-  })
+  )
 
 const themeGet = api.preferences.theme.get
   .use(requireAuthenticated)
-  .handler(async ({ context, errors }) => {
-    try {
+  .handler(async ({ context, errors }) =>
+    try
       return await createThemePreferenceService(
         context.repositories.userPreferences,
       ).get(context.principal)
-    } catch (error) {
+    catch (error)
       return mapThemePreferenceServiceError(error, errors)
-    }
-  })
+  )
 
 const themeUpdate = api.preferences.theme.update
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const service = createThemePreferenceService(
         context.repositories.userPreferences,
       )
       const operation = (): Promise<ThemePreferenceOutput> =>
         service.update(context.principal, input)
       return await runThemeUpdate(context, context.principal, operation)
-    } catch (error) {
+    catch (error)
       return mapThemePreferenceServiceError(error, errors)
-    }
-  })
+  )
 
 const accountProfileGet = api.account.profile.get
   .use(requireAuthenticated)
-  .handler(async ({ context, errors }) => {
-    try {
+  .handler(async ({ context, errors }) =>
+    try
       return await createAccountService(context.repositories).getProfile(
         context.authSession,
       )
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const accountProfileUpdate = api.account.profile.update
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const result = await createAccountService(
         context.repositories,
       ).updateProfile(context.authSession, input)
@@ -602,28 +571,26 @@ const accountProfileUpdate = api.account.profile.update
         entityType: "profile",
       })
       return result
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const accountAddressesList = api.account.addresses.list
   .use(requireAuthenticated)
-  .handler(async ({ context, errors }) => {
-    try {
+  .handler(async ({ context, errors }) =>
+    try
       const addresses = await createAccountService(
         context.repositories,
       ).listAddresses(context.principal)
       return addresses.map(toContractAddress)
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const accountAddressesCreate = api.account.addresses.create
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const address = await createAccountService(
         context.repositories,
       ).createAddress(context.principal, input)
@@ -635,15 +602,14 @@ const accountAddressesCreate = api.account.addresses.create
         entityId: address.id,
       })
       return toContractAddress(address)
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const accountAddressesUpdate = api.account.addresses.update
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const address = await createAccountService(
         context.repositories,
       ).updateAddress(context.principal, input)
@@ -655,15 +621,14 @@ const accountAddressesUpdate = api.account.addresses.update
         entityId: address.id,
       })
       return toContractAddress(address)
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const accountAddressesRemove = api.account.addresses.remove
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const result = await createAccountService(
         context.repositories,
       ).removeAddress(context.principal, input)
@@ -675,15 +640,14 @@ const accountAddressesRemove = api.account.addresses.remove
         entityId: input.id,
       })
       return result
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const accountAddressesSetPrimary = api.account.addresses.setPrimary
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const address = await createAccountService(
         context.repositories,
       ).setPrimaryAddress(context.principal, input)
@@ -695,27 +659,25 @@ const accountAddressesSetPrimary = api.account.addresses.setPrimary
         entityId: address.id,
       })
       return toContractAddress(address)
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const preferencesGet = api.preferences.get
   .use(requireAuthenticated)
-  .handler(async ({ context, errors }) => {
-    try {
+  .handler(async ({ context, errors }) =>
+    try
       return await createAccountService(
         context.repositories,
       ).getPreferences(context.principal)
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const preferencesUpdate = api.preferences.update
   .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       const result = await createAccountService(
         context.repositories,
       ).updatePreferences(context.principal, input)
@@ -726,21 +688,19 @@ const preferencesUpdate = api.preferences.update
         entityType: "user-preferences",
       })
       return result
-    } catch (error) {
+    catch (error)
       return mapAccountServiceError(error, errors)
-    }
-  })
+  )
 
 const contactSubmit = api.contact.submit.handler(
-  async ({ context, input, errors }) => {
-    try {
+  async ({ context, input, errors }) =>
+    try
       if (
         context.contactDelivery === undefined ||
         context.contactThrottle === undefined ||
         context.contactThrottleKey === undefined
-      ) {
+      )
         throw new ContactServiceError("SERVICE_UNAVAILABLE")
-      }
       const result = await createContactService({
         delivery: context.contactDelivery,
         throttle: context.contactThrottle,
@@ -748,28 +708,25 @@ const contactSubmit = api.contact.submit.handler(
       }).submit(input)
       await emitContactSubmittedEvent(context, input, result)
       return result
-    } catch (error) {
+    catch (error)
       return mapContactServiceError(error, errors)
-    }
-  },
 )
 
 const adminUsersList = api.admin.users.list
   .use(requireAdmin)
-  .handler(async ({ context, input, errors }) => {
-    try {
+  .handler(async ({ context, input, errors }) =>
+    try
       return await createAdminUsersService(
         context.repositories.adminUsers,
       ).list(input)
-    } catch (error) {
+    catch (error)
       return mapAdminUsersServiceError(error, errors)
-    }
-  })
+  )
 
 const dashboardSummary = api.dashboard.summary
   .use(requireAuthenticated)
-  .handler(async ({ context, errors }) => {
-    try {
+  .handler(async ({ context, errors }) =>
+    try
       const summary = await createDashboardService(
         context.repositories.dashboard,
         context.capabilities,
@@ -788,10 +745,9 @@ const dashboardSummary = api.dashboard.summary
           recent: toContractItems(summary.featureItems.recent),
         },
       }
-    } catch (error) {
+    catch (error)
       return mapDashboardServiceError(error, errors)
-    }
-  })
+  )
 
 export const appRouter = api.router({
   featureItems: { list, get, create, update, changeStatus, archive },

@@ -9,6 +9,7 @@
     "certs:generate",
     "certs:install",
     "ci",
+    "civet:style:check",
     "coverage:check",
     "coverage:generate",
     "coverage:update",

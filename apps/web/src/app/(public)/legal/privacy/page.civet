@@ -5,6 +5,5 @@ export const metadata = {
   description: "A starter privacy notice outline that requires qualified legal review before production use.",
 }
 
-export default function LegalPrivacyPage() {
+export default function LegalPrivacyPage()
   return <LegalPage kind="privacy" />
-}

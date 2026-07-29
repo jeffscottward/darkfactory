@@ -32,7 +32,7 @@ const defaultCapture: AnalyticsCapture = Object.freeze({
 
 export const createAnalyticsCapture = (
   overrides: Partial<AnalyticsCapture> = {},
-): AnalyticsCapture => {
+): AnalyticsCapture =>
   const capture = {
     ...defaultCapture,
     ...overrides,
@@ -46,19 +46,16 @@ export const createAnalyticsCapture = (
     ...capture,
     properties: Object.freeze(capture.properties),
   })
-}
 
-export const createRecordingAnalyticsPort = (): RecordingAnalyticsPort => {
+export const createRecordingAnalyticsPort = (): RecordingAnalyticsPort =>
   const recorded: AnalyticsCapture[] = []
 
   return {
-    get captures(): readonly AnalyticsCapture[] {
+    get captures(): readonly AnalyticsCapture[]
       return Object.freeze([...recorded])
-    },
-    clear: () => {
+    clear: () =>
       recorded.length = 0
-    },
-    capture: async (input): Promise<AnalyticsResult> => {
+    capture: async (input): Promise<AnalyticsResult> =>
       const snapshot = snapshotAnalyticsCapture(input)
       if (!snapshot) return invalidCaptureResult()
 
@@ -67,6 +64,4 @@ export const createRecordingAnalyticsPort = (): RecordingAnalyticsPort => {
 
       recorded.push(snapshot)
       return { status: "captured", eventId: snapshot.eventId }
-    },
   }
-}

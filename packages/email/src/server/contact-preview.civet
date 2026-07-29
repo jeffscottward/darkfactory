@@ -38,41 +38,35 @@ const previewFailure = (
   retryable: false,
 })
 
-const assertCanonicalDirectory = async (directory: string): Promise<string> => {
+const assertCanonicalDirectory = async (directory: string): Promise<string> =>
   const requestedPath = resolve(directory)
   await mkdir(requestedPath, { recursive: true, mode: 0o700 })
   const requestedDirectory = await lstat(requestedPath)
-  if (requestedDirectory.isSymbolicLink() || !requestedDirectory.isDirectory()) {
+  if (requestedDirectory.isSymbolicLink() || !requestedDirectory.isDirectory())
     throw new Error("Unsafe preview directory")
-  }
 
   const canonicalDirectory = await realpath(requestedPath)
-  if (canonicalDirectory !== requestedPath) {
+  if (canonicalDirectory !== requestedPath)
     throw new Error("Unsafe preview directory ancestry")
-  }
   const root = parse(requestedPath).root
   let currentDirectory = requestedPath
-  while (currentDirectory !== root) {
+  while (currentDirectory !== root)
     const current = await lstat(currentDirectory)
-    if (current.isSymbolicLink() || !current.isDirectory()) {
+    if (current.isSymbolicLink() || !current.isDirectory())
       throw new Error("Unsafe preview directory ancestry")
-    }
     currentDirectory = dirname(currentDirectory)
-  }
 
   await chmod(canonicalDirectory, 0o700)
   return canonicalDirectory
-}
 
-const closeHandles = async (handles: readonly FileHandle[]): Promise<void> => {
+const closeHandles = async (handles: readonly FileHandle[]): Promise<void> =>
   await Promise.allSettled(handles.map((handle) => handle.close()))
-}
 
 const trimArtifacts = async (
   directory: string,
   currentHtmlName: string,
   maxArtifacts: number,
-): Promise<void> => {
+): Promise<void> =>
   const artifacts = await Promise.all(
     (await readdir(directory))
       .filter((fileName) => fileName.endsWith(".html"))
@@ -89,52 +83,47 @@ const trimArtifacts = async (
     )
     .slice(0, excess)
 
-  await Promise.all(expired.flatMap(({ fileName }) => {
+  await Promise.all(expired.flatMap(({ fileName }) =>
     const artifactName = fileName.slice(0, -".html".length)
     return [
       rm(join(directory, `${artifactName}.html`), { force: true }),
       rm(join(directory, `${artifactName}.txt`), { force: true }),
     ]
-  }))
-}
+  ))
 
 export const createPreviewContactEmailPort = (
   options: PreviewContactEmailPortOptions,
-): ContactEmailPort => {
-  if (options.environment === "production") {
+): ContactEmailPort =>
+  if (options.environment === "production")
     throw new Error("Preview contact email transport is unavailable in production")
-  }
 
   const directory = options.directory ?? defaultPreviewDirectory()
   const maxArtifacts = options.maxArtifacts ?? DEFAULT_MAX_ARTIFACTS
-  if (!Number.isInteger(maxArtifacts) || maxArtifacts <= 0) {
+  if (!Number.isInteger(maxArtifacts) || maxArtifacts <= 0)
     throw new RangeError("maxArtifacts must be a positive integer")
-  }
 
   return Object.freeze({
     sendContact: async (
       input: ContactEmailInput,
-    ): Promise<ContactEmailDeliveryResult> => {
+    ): Promise<ContactEmailDeliveryResult> =>
       let rendered
-      try {
+      try
         rendered = await renderContactEmail(input)
-      } catch {
+      catch
         return previewFailure("CONTACT_RENDER_FAILED")
-      }
 
       let canonicalDirectory: string
-      try {
+      try
         canonicalDirectory = await assertCanonicalDirectory(directory)
-      } catch {
+      catch
         return previewFailure("CONTACT_PREVIEW_WRITE_FAILED")
-      }
 
       const artifactName = `contact-${randomUUID()}`
       const htmlPath = join(canonicalDirectory, `${artifactName}.html`)
       const textPath = join(canonicalDirectory, `${artifactName}.txt`)
       const handles: FileHandle[] = []
 
-      try {
+      try
         const htmlHandle = await open(htmlPath, "wx", 0o600)
         handles.push(htmlHandle)
         const textHandle = await open(textPath, "wx", 0o600)
@@ -146,20 +135,17 @@ export const createPreviewContactEmailPort = (
         await closeHandles(handles)
         handles.length = 0
         await trimArtifacts(canonicalDirectory, `${artifactName}.html`, maxArtifacts)
-      } catch {
+      catch
         await closeHandles(handles)
         await Promise.allSettled([
           rm(htmlPath, { force: true }),
           rm(textPath, { force: true }),
         ])
         return previewFailure("CONTACT_PREVIEW_WRITE_FAILED")
-      }
 
       return {
         status: "previewed",
         provider: "preview",
         artifactPath: htmlPath,
       }
-    },
   })
-}

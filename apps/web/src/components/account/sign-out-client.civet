@@ -16,24 +16,22 @@ export type SignOutFetch = (
   init: RequestInit,
 ) => Promise<Response>
 
-const isConfirmedSignOut = async (response: Response): Promise<boolean> => {
+const isConfirmedSignOut = async (response: Response): Promise<boolean> =>
   if (!response.ok) return false
-  try {
+  try
     const data = await response.json() as unknown
     return typeof data === "object"
       && data !== null
       && !Array.isArray(data)
       && (data as Record<string, unknown>)["success"] === true
-  } catch {
+  catch
     return false
-  }
-}
 
 export const createCurrentSessionGateway = (
   fetchSignOut: SignOutFetch,
 ): CurrentSessionGateway => ({
-  signOut: async () => {
-    try {
+  signOut: async () =>
+    try
       const response = await fetchSignOut(STRICT_SIGN_OUT_ENDPOINT, {
         credentials: "same-origin",
         headers: { accept: "application/json" },
@@ -42,10 +40,8 @@ export const createCurrentSessionGateway = (
       return await isConfirmedSignOut(response)
         ? { ok: true }
         : { ok: false, message: SIGN_OUT_FAILED_MESSAGE }
-    } catch {
+    catch
       return { ok: false, message: SIGN_OUT_FAILED_MESSAGE }
-    }
-  },
 })
 
 export const browserCurrentSessionGateway = createCurrentSessionGateway(

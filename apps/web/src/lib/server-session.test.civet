@@ -76,7 +76,7 @@ describe "portal callback paths", ->
 
 describe "getPortalSession", ->
   it "forwards only the request cookie and trusted edge IP before validating the response", async ->
-    const fetchSession = vi.fn(async (request: Request) -> {
+    const fetchSession = vi.fn(async (request: Request) ->
       expect(request.url).toBe("https://darkfactory.localhost/api/auth/get-session")
       expect(request.headers.get("cookie")).toBe("better-auth.session_token=opaque")
       expect(request.headers.get("accept")).toBe("application/json")
@@ -87,7 +87,7 @@ describe "getPortalSession", ->
         "cookie",
       ])
       return Response.json(activeSession)
-    })
+    )
 
     await expect(getPortalSession({
       cookieHeader: "better-auth.session_token=opaque",
@@ -118,10 +118,9 @@ describe "getPortalSession", ->
 
   it "bounds a streaming response even when content-length is absent", async ->
     const oversized = new ReadableStream<Uint8Array>({
-      start(controller) {
+      start(controller)
         controller.enqueue(new Uint8Array(10_000))
         controller.enqueue(new Uint8Array(10_000))
-      },
     })
     await expect(getPortalSession({
       cookieHeader: "better-auth.session_token=opaque",
@@ -131,9 +130,8 @@ describe "getPortalSession", ->
 
   it "cancels a stalled response body at the same deadline", async ->
     const stalled = new ReadableStream<Uint8Array>({
-      start(controller) {
+      start(controller)
         controller.enqueue(new TextEncoder().encode("{"))
-      },
     })
     await expect(getPortalSession({
       cookieHeader: "better-auth.session_token=opaque",
@@ -143,9 +141,10 @@ describe "getPortalSession", ->
     })).resolves.toBeNull()
 
   it "aborts a hanging session request within the configured deadline", async ->
-    const fetchSession = vi.fn((request: Request) => new Promise<Response>((resolve) => {
+    const fetchSession = vi.fn((request: Request) => new Promise<Response>((resolve) =>
       request.signal.addEventListener("abort", () => resolve(new Response(null, { status: 504 })))
-    }))
+      return
+    ))
     await expect(getPortalSession({
       cookieHeader: "better-auth.session_token=opaque",
       fetch: fetchSession,
@@ -161,11 +160,10 @@ describe "getPortalSession", ->
       "https://portal.example.test?query=1",
       "https://portal.example.test#fragment",
       "not a URL",
-    ]) {
+    ])
       expect(() => resolvePortalAppUrl(configured)).toThrow(
         "Portal application URL must be a clean HTTPS origin",
       )
-    }
 
   it "accepts Date expirations and trims bounded administrator names", ->
     const expiresAt = new Date("2030-01-01T00:00:00.000Z")
@@ -221,9 +219,8 @@ describe "getPortalSession", ->
       "/dashboard\\nested",
       "/dashboard\u0000",
       `/${"x".repeat(2_048)}`,
-    ]) {
+    ])
       expect(safePortalCallbackPath(value)).toBeNull()
-    }
     expect(safePortalCallbackPath("/admin/users?cursor=next")).toBe(
       "/admin/users?cursor=next",
     )
@@ -265,16 +262,15 @@ describe "getPortalSession", ->
       }),
     ]
 
-    for (const response of responses) {
+    for (const response of responses)
       await expect(getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
         fetch: vi.fn(async () => response()),
         now: new Date("2029-01-01T00:00:00.000Z"),
       })).resolves.toBeNull()
-    }
 
   it "clamps finite deadlines and uses the default for non-finite input", async ->
-    for (const timeoutMs of [-10, 20_000, Number.NaN]) {
+    for (const timeoutMs of [-10, 20_000, Number.NaN])
       await expect(getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
         fetch: vi.fn(async () => new Response(
@@ -287,32 +283,33 @@ describe "getPortalSession", ->
         userId: "user-1",
         role: "member",
       })
-    }
 
   it "uses the global session transport when no fetch override is supplied", async ->
     const fetchSession = vi.fn(async () => Response.json(activeSession))
     vi.stubGlobal("fetch", fetchSession)
-    try {
+    try
       await expect(getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
         now: new Date("2029-01-01T00:00:00.000Z"),
       })).resolves.toMatchObject({ userId: "user-1", role: "member" })
       expect(fetchSession).toHaveBeenCalledOnce()
-    } finally {
+    finally
       vi.unstubAllGlobals()
-    }
 
   it "cancels a response body that arrives only after the session deadline", async ->
     vi.useFakeTimers()
     const cancel = vi.fn()
-    try {
+    try
       const pending = getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
-        fetch: (request) => new Promise<Response>((resolve) => {
-          request.signal.addEventListener("abort", () => {
-            resolve(new Response(new ReadableStream<Uint8Array>({ cancel })))
-          }, { once: true })
-        }),
+        fetch: (request) => new Promise<Response>((resolve) =>
+          request.signal.addEventListener(
+            "abort",
+            () => void resolve(new Response(new ReadableStream<Uint8Array>({ cancel }))),
+            { once: true },
+          )
+          return
+        ),
         timeoutMs: 5,
       })
 
@@ -320,21 +317,17 @@ describe "getPortalSession", ->
 
       await expect(pending).resolves.toBeNull()
       expect(cancel).toHaveBeenCalledOnce()
-    } finally {
+    finally
       vi.useRealTimers()
-    }
 
   it "fails closed if URL parsing throws after callback prevalidation", ->
     const NativeUrl = URL
-    class ThrowingUrl extends NativeUrl {
-      constructor(value: string | URL, base?: string | URL) {
+    class ThrowingUrl extends NativeUrl
+      constructor(value: string | URL, base?: string | URL)
         if (value === "/dashboard") throw new TypeError("URL parser unavailable")
         super(value, base)
-      }
-    }
     vi.stubGlobal("URL", ThrowingUrl)
-    try {
+    try
       expect(safePortalCallbackPath("/dashboard")).toBeNull()
-    } finally {
+    finally
       vi.unstubAllGlobals()
-    }

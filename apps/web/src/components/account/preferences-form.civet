@@ -50,13 +50,11 @@ const preferencesDefaults = (preferences: PreferencesOutput) => ({
 export const changedPreferencesInput = (
   initial: PreferencesOutput,
   current: ReturnType<typeof preferencesDefaults>,
-): PreferencesUpdateInput => {
+): PreferencesUpdateInput =>
   const patch: Record<string, unknown> = { expectedUpdatedAt: initial.updatedAt }
-  for (const field of Object.keys(current) as (keyof typeof current)[]) {
+  for (const field of Object.keys(current) as (keyof typeof current)[])
     if (current[field] !== initial[field]) patch[field] = current[field]
-  }
   return patch as PreferencesUpdateInput
-}
 
 export interface PreferencesFormProps {
   readonly feedback?: AccountFeedback | null | undefined
@@ -64,37 +62,33 @@ export interface PreferencesFormProps {
   readonly onSave: (input: PreferencesUpdateInput) => Promise<unknown> | unknown
 }
 
-export const PreferencesForm = ({ feedback, initialPreferences, onSave }: PreferencesFormProps) => {
+export const PreferencesForm = ({ feedback, initialPreferences, onSave }: PreferencesFormProps) =>
   const form = useForm({
     defaultValues: preferencesDefaults(initialPreferences),
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }) =>
       await onSave(changedPreferencesInput(initialPreferences, value))
-    },
   })
 
   return (
     <form
       className="space-y-8"
       noValidate
-      onSubmit={(event) => {
+      onSubmit={(event) =>
         event.preventDefault()
         event.stopPropagation()
         void form.handleSubmit()
-      }}
+      }
     >
       <AccountFeedbackMessage feedback={feedback} />
       <section aria-labelledby="appearance-summary" className="space-y-2">
-        <h2 className="font-heading text-lg font-semibold text-foreground" id="appearance-summary">Appearance</h2>
+        <h2 className="font-heading text-lg font-semibold text-foreground" id="appearance-summary">Appearance
         <p className="text-sm text-foreground">
           Current appearance: {labelFor(initialPreferences.themeMode)} mode with the {labelFor(initialPreferences.palette)} palette.
-        </p>
         <p className="max-w-reading text-sm text-muted-foreground">
           Use Theme settings in the top bar to change mode or palette.
-        </p>
-      </section>
 
       <fieldset className="space-y-3 border-t border-border pt-6">
-        <legend className="font-heading text-lg font-semibold text-foreground">Notifications and consent</legend>
+        <legend className="font-heading text-lg font-semibold text-foreground">Notifications and consent
         {preferenceToggles.map((definition) => (
           <form.Field key={definition.name} name={definition.name}>
             {(field) => (
@@ -109,22 +103,17 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
                   type="checkbox"
                 />
                 <span>
-                  <span className="block text-sm font-medium text-foreground">{definition.label}</span>
-                  <span className="block text-sm text-muted-foreground">{definition.help}</span>
-                </span>
-              </label>
+                  <span className="block text-sm font-medium text-foreground">{definition.label}
+                  <span className="block text-sm text-muted-foreground">{definition.help}
             )}
-          </form.Field>
         ))}
-      </fieldset>
 
       <form.Field name="profileVisibility">
         {(field) => (
           <div className="max-w-md space-y-2 border-t border-border pt-6">
-            <Label htmlFor="profileVisibility">Profile visibility</Label>
+            <Label htmlFor="profileVisibility">Profile visibility
             <p className="text-sm text-muted-foreground" id="profileVisibility-help">
               Choose who may see your non-sensitive profile summary.
-            </p>
             <select
               aria-describedby="profileVisibility-help"
               className="min-h-11 w-full rounded-sm border border-border-strong bg-surface px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -134,11 +123,10 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
               onChange={(event) => field.handleChange(event.target.value as PreferencesOutput["profileVisibility"])}
               value={field.state.value}
             >
-              {visibilities.map((visibility) => <option key={visibility} value={visibility}>{labelFor(visibility)}</option>)}
-            </select>
-          </div>
+              {visibilities.map((visibility) => (
+                <option key={visibility} value={visibility}>{labelFor(visibility)}
+              ))}
         )}
-      </form.Field>
 
       <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
         {([canSubmit, isDirty, isSubmitting]) => (
@@ -149,9 +137,5 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
             type="submit"
           >
             Save preferences
-          </Button>
         )}
-      </form.Subscribe>
-    </form>
   )
-}

@@ -18,7 +18,8 @@ export const Label = ({
     className={cn("flex items-baseline justify-between gap-3 font-body text-sm font-semibold text-foreground", className)}
     {...props}
   >
-    <span>{children}</span>
-    {optional ? <span className="font-normal text-muted-foreground">{optionalLabel}</span> : null}
-  </label>
+    <span>{children}
+    {optional ? (
+      <span className="font-normal text-muted-foreground">{optionalLabel}
+    ) : null}
 )

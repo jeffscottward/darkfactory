@@ -8,16 +8,16 @@ const mocks = vi.hoisted(->
   const confirmedSignOutHandler = vi.fn(
     async () => new Response("signed out", { status: 200 }),
   )
-  const waitUntil = vi.fn((task: Promise<unknown>) => {
+  const waitUntil = vi.fn((task: Promise<unknown>) =>
     void task.catch(() => undefined)
-  })
+  )
   return {
     close,
     finalize,
     requestHandler,
     confirmedSignOutHandler,
     waitUntil,
-    setAppEnvironment: (value: string) => { appEnvironment = value },
+    setAppEnvironment: (value: string) => void (appEnvironment = value),
     parseServerEnv: vi.fn(() => ({
       APP_ENV: appEnvironment,
       APP_URL: "https://darkfactory.localhost",
@@ -87,9 +87,8 @@ const request = new Request("https://darkfactory.localhost/api/auth/sign-in/emai
   method: "POST",
 })
 
-const handle = async (): Promise<void> => {
+const handle = async (): Promise<void> =>
   await handleAuthRequest(request, vi.fn())
-}
 
 describe "auth route rate-limit configuration", ->
   beforeEach ->
@@ -169,9 +168,8 @@ describe "auth Worker route adapters", ->
       ([schedule]) => schedule,
     )
     expect(schedulers).toHaveLength(3)
-    for (const schedule of schedulers) {
+    for (const schedule of schedulers)
       const task = Promise.resolve()
       schedule(task)
       expect(mocks.waitUntil).toHaveBeenCalledWith(task)
-    }
     expect(mocks.waitUntil).toHaveBeenCalledTimes(3)

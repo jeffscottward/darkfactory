@@ -15,7 +15,7 @@ const clientBoundarySource = [
   "export const clientReferences = [Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogTrigger, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, Tabs, TabsContent, TabsList, TabsTrigger, ThemePicker, ThemeProvider, Toaster, toast, useTheme];",
 ].join("\n")
 
-const runRscScanBuild = () => {
+const runRscScanBuild = () =>
   const script = `
     const { build } = await import("vite")
     const { default: civet } = await import("@danielx/civet/vite")
@@ -78,7 +78,6 @@ const runRscScanBuild = () => {
     cwd: webPackageRoot,
     encoding: "utf8",
   })
-}
 
 describe "UI client Vinext compatibility", ->
   it "imports every client export through the actual Vite RSC scan-strip path", ->

@@ -12,30 +12,28 @@ const rgb = (hex: string): readonly [number, number, number] => [
   Number.parseInt(hex.slice(5, 7), 16) / 255,
 ]
 
-const luminance = (hex: string): number => {
-  const channels = rgb(hex).map((channel) => {
+const luminance = (hex: string): number =>
+  const channels = rgb(hex).map((channel) =>
     return channel <= 0.04045
       ? channel / 12.92
       : ((channel + 0.055) / 1.055) ** 2.4
-  })
+  )
   return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!
-}
 
-const contrast = (first: string, second: string): number => {
+const contrast = (first: string, second: string): number =>
   const firstLuminance = luminance(first)
   const secondLuminance = luminance(second)
   return (
     (Math.max(firstLuminance, secondLuminance) + 0.05) /
     (Math.min(firstLuminance, secondLuminance) + 0.05)
   )
-}
 
-const lab = (hex: string): readonly [number, number, number] => {
-  const linear = rgb(hex).map((channel) => {
+const lab = (hex: string): readonly [number, number, number] =>
+  const linear = rgb(hex).map((channel) =>
     return channel <= 0.04045
       ? channel / 12.92
       : ((channel + 0.055) / 1.055) ** 2.4
-  })
+  )
   const x = (linear[0]! * 0.4124 + linear[1]! * 0.3576 + linear[2]! * 0.1805) / 0.95047
   const y = linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722
   const z = (linear[0]! * 0.0193 + linear[1]! * 0.1192 + linear[2]! * 0.9505) / 1.08883
@@ -47,9 +45,8 @@ const lab = (hex: string): readonly [number, number, number] => {
     500 * (transformedX! - transformedY!),
     200 * (transformedY! - transformedZ!),
   ]
-}
 
-const deltaE = (first: string, second: string): number => {
+const deltaE = (first: string, second: string): number =>
   const firstLab = lab(first)
   const secondLab = lab(second)
   return Math.sqrt(
@@ -58,7 +55,6 @@ const deltaE = (first: string, second: string): number => {
       0,
     ),
   )
-}
 
 const variables = (block: string): Readonly<Record<string, string>> =>
   Object.fromEntries(
@@ -67,12 +63,11 @@ const variables = (block: string): Readonly<Record<string, string>> =>
     ),
   )
 
-const blockFor = (css: string, selector: string): string => {
+const blockFor = (css: string, selector: string): string =>
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const match = css.match(new RegExp(`${escaped} \\{([\\s\\S]*?)\\n\\}`))
   if (match?.[1] === undefined) throw new Error(`Missing CSS block: ${selector}`)
   return match[1]
-}
 
 describe "CSS theme contract", ->
   it "defines explicit light, dark, and system mode application", async ->
@@ -99,9 +94,9 @@ describe "CSS theme contract", ->
   it "keeps palette text and meaningful boundaries WCAG-aware in both modes", async ->
     const css = await readFile(stylesheetUrl, "utf8")
 
-    for (const palette of PALETTE_NAMES) {
+    for (const palette of PALETTE_NAMES)
       const tokens = variables(blockFor(css, `.palette-${palette},\n[data-palette="${palette}"]`))
-      for (const mode of ["light", "dark"] as const) {
+      for (const mode of ["light", "dark"] as const)
         expect(
           contrast(tokens[`palette-primary-${mode}`]!, tokens[`palette-primary-foreground-${mode}`]!),
           `${palette} ${mode} primary text`,
@@ -114,25 +109,21 @@ describe "CSS theme contract", ->
           contrast(tokens[`palette-primary-subtle-${mode}`]!, tokens[`palette-primary-border-${mode}`]!),
           `${palette} ${mode} primary boundary`,
         ).toBeGreaterThanOrEqual(3)
-      }
-    }
 
     for (const selector of [
       ':root,\n[data-mode="light"],\n[data-mode="system"]',
       '[data-mode="dark"]',
-    ]) {
+    ])
       const tokens = variables(blockFor(css, selector))
-      for (const status of ["success", "warning", "info"] as const) {
+      for (const status of ["success", "warning", "info"] as const)
         expect(
           contrast(tokens[`${status}-subtle`]!, tokens[`${status}-border`]!),
           `${selector} ${status} boundary`,
         ).toBeGreaterThanOrEqual(3)
-      }
       expect(
         contrast(tokens["destructive-subtle"]!, tokens["destructive-border"]!),
         `${selector} destructive boundary`,
       ).toBeGreaterThanOrEqual(3)
-    }
 
   it "keeps every canonical palette perceptually distinct", async ->
     const css = await readFile(stylesheetUrl, "utf8")
@@ -143,9 +134,9 @@ describe "CSS theme contract", ->
       ),
     }))
 
-    for (const mode of ["light", "dark"] as const) {
-      for (let index = 0; index < catalog.length; index += 1) {
-        for (let comparison = index + 1; comparison < catalog.length; comparison += 1) {
+    for (const mode of ["light", "dark"] as const)
+      for (let index = 0; index < catalog.length; index += 1)
+        for (let comparison = index + 1; comparison < catalog.length; comparison += 1)
           const first = catalog[index]!
           const second = catalog[comparison]!
           expect(
@@ -155,9 +146,6 @@ describe "CSS theme contract", ->
             ),
             `${first.palette} and ${second.palette} ${mode}`,
           ).toBeGreaterThanOrEqual(13)
-        }
-      }
-    }
 
   it "owns mode-aware palette swatch presentation", async ->
     const css = await readFile(stylesheetUrl, "utf8")

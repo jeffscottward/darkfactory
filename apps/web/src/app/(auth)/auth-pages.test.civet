@@ -18,16 +18,13 @@ import { AuthShell } from "../../components/auth-shell.civet"
 type MarkupInput = Parameters<typeof renderToStaticMarkup>[0]
 
 const markup = (component: MarkupInput): string => renderToStaticMarkup(component)
-const childrenOf = (element: unknown): MarkupInput => {
-  if (typeof element !== "object" || element === null) {
+const childrenOf = (element: unknown): MarkupInput =>
+  if (typeof element !== "object" || element === null)
     throw new Error("Expected a React element")
-  }
   const props = Reflect.get(element, "props")
-  if (typeof props !== "object" || props === null) {
+  if (typeof props !== "object" || props === null)
     throw new Error("Expected React element props")
-  }
   return Reflect.get(props, "children") as MarkupInput
-}
 const searchParams = (
   values: Readonly<Record<string, string | undefined>> = {},
 ) => Promise.resolve(values)

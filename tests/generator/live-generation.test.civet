@@ -24,15 +24,14 @@ import {
 } from "./fixture.civet"
 
 const cleanups: Array<() => Promise<void>> = []
-afterEach(async () => {
+afterEach(async () =>
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
-})
+)
 
-const fixture = async () => {
+const fixture = async () =>
   const created = await createGeneratorFixture()
   cleanups.push(created.cleanup)
   return created
-}
 
 const registryPaths = [
   ".darkfactory/features.json",
@@ -134,9 +133,8 @@ describe "DF-069 live feature registration", ->
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
 
     await expect(applyGenerationPlan(plan, {
-      afterFilePromotion: async (_file, index) => {
+      afterFilePromotion: async (_file, index) =>
         if (index === 5) throw new Error("injected registration failure")
-      },
     } as ApplyGenerationOptions)).rejects.toThrow("injected registration failure")
 
     expect(await listFixtureEntries(root)).toEqual(beforeEntries)

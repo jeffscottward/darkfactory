@@ -8,39 +8,32 @@ export type BackgroundTaskLifecycle = Readonly<{
 export const createBackgroundTaskLifecycle = (
   scheduleExternal: BackgroundTaskScheduler,
   close: () => Promise<void>,
-): BackgroundTaskLifecycle => {
+): BackgroundTaskLifecycle =>
   const pending = new Set<Promise<unknown>>()
 
-  const schedule = (task: Promise<unknown>): void => {
+  const schedule = (task: Promise<unknown>): void =>
     let tracked!: Promise<unknown>
-    tracked = Promise.resolve(task).finally(() => {
+    tracked = Promise.resolve(task).finally(() =>
       pending.delete(tracked)
-    })
+    )
     pending.add(tracked)
     scheduleExternal(tracked)
-  }
 
-  const drainAndClose = async (): Promise<void> => {
-    while (pending.size > 0) {
+  const drainAndClose = async (): Promise<void> =>
+    while (pending.size > 0)
       await Promise.allSettled([...pending])
-    }
     await close()
-  }
 
-  const finalize = async (): Promise<void> => {
-    if (pending.size === 0) {
+  const finalize = async (): Promise<void> =>
+    if (pending.size === 0)
       await close()
       return
-    }
 
     const closeTask = drainAndClose()
-    try {
+    try
       scheduleExternal(closeTask)
-    } catch (error) {
+    catch error
       await closeTask
       throw error
-    }
-  }
 
   return Object.freeze({ schedule, finalize })
-}

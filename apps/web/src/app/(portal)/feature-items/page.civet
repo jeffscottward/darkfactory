@@ -5,7 +5,7 @@ import { FeatureItemsWorkspace } from "../../../components/portal/feature-items-
 
 export const metadata = { title: "Feature items" }
 
-export default function FeatureItemsPage() {
+export default function FeatureItemsPage()
   return (
     <div className="space-y-10">
       <PageHeader
@@ -13,13 +13,10 @@ export default function FeatureItemsPage() {
           <a className={buttonVariants({ variant: "primary" })} href="/feature-items/new">
             <FilePlus2 aria-hidden="true" className="size-4" />
             Create feature item
-          </a>
         )}
         description="Owner-scoped starter records backed by the typed featureItems oRPC contract."
         eyebrow="Vertical slice"
         title="Feature items"
       />
       <FeatureItemsWorkspace />
-    </div>
   )
-}

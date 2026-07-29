@@ -30,7 +30,7 @@ export const NavigationLinks = ({
   prefetch,
   orientation = "horizontal",
   showIcons = false,
-}: NavigationLinksProps) => {
+}: NavigationLinksProps) =>
   const frameworkPath = usePathname()
   const pathname = currentPath ?? frameworkPath ?? ""
 
@@ -42,7 +42,7 @@ export const NavigationLinks = ({
         className,
       )}
     >
-      {items.map((item) => {
+      {items.map((item) =>
         const active = isNavigationItemActive(pathname, item)
         const Icon = item.icon
         return (
@@ -60,12 +60,10 @@ export const NavigationLinks = ({
               href={item.href}
             >
               {showIcons ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
-              <span>{item.label}</span>
-              {active ? <span className="sr-only">, current page</span> : null}
-            </Link>
-          </li>
+              <span>{item.label}
+              {active ? (
+                <span className="sr-only">, current page
+              ) : null}
         )
-      })}
-    </ul>
+      )}
   )
-}

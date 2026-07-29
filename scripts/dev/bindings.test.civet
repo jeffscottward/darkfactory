@@ -34,21 +34,20 @@ const validBindings = [
 
 const MAX_BINDING_BYTES = 128 * 1024
 
-const directory = async (): Promise<string> => {
+const directory = async (): Promise<string> =>
   const path = await mkdtemp(join(tmpdir(), "darkfactory-bindings-"))
   directories.push(path)
   return path
-}
 
-beforeEach(() => {
+beforeEach(() =>
   mocks.spawnSync.mockReset()
-})
+)
 
-afterEach(async () => {
+afterEach(async () =>
   await Promise.all(directories.splice(0).map((path) => (
     rm(path, { force: true, recursive: true })
   )))
-})
+)
 
 describe "development Worker bindings", ->
   it "atomically replaces a regular file and enforces mode 0600", async ->
@@ -104,11 +103,10 @@ describe "development Worker bindings", ->
       "lowercase=value\nDATABASE_URL=database\nBETTER_AUTH_SECRET=secret\nCONTACT_THROTTLE_SECRET=secret\n",
       "DATABASE_URL=database\nBETTER_AUTH_SECRET=\nCONTACT_THROTTLE_SECRET=secret\n",
       "DATABASE_URL=database\nBETTER_AUTH_SECRET=secret\n",
-    ]) {
+    ])
       await expect(writeWorkerBindings(target, invalid)).rejects.toThrow(
         /empty|safe size|malformed|incomplete/i,
       )
-    }
 
   it "rejects directory and multiply-linked targets", async ->
     const root = await directory()

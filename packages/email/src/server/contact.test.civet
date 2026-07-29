@@ -19,9 +19,8 @@ const resendMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("resend", () => ({
-  Resend: class {
+  Resend: class
     emails = { send: resendMocks.send }
-  },
 }))
 
 import type { ContactEmailInput } from "../index.civet"
@@ -35,11 +34,10 @@ import {
 
 const temporaryDirectories: string[] = []
 
-const createTemporaryDirectory = async (): Promise<string> => {
+const createTemporaryDirectory = async (): Promise<string> =>
   const directory = await realpath(await mkdtemp(join(tmpdir(), "darkfactory-contact-email-")))
   temporaryDirectories.push(directory)
   return directory
-}
 
 afterEach async ->
   resendMocks.send.mockReset()
@@ -354,9 +352,8 @@ describe "createResendContactEmailPort", ->
       recipient: "support@example.test",
       apiKey: "re_test_key",
       from: "noreply@example.test",
-      clientFactory: () => {
+      clientFactory: () =>
         throw new Error(secret)
-      },
     })
 
     const result = await email.sendContact(contactInput)
@@ -382,7 +379,7 @@ describe "createResendContactEmailPort", ->
       "  ",
       `${"a".repeat(245)}@example.test`,
       "invalid",
-    ]) {
+    ])
       await expect(email.sendContact({
         ...contactInput,
         email: invalidEmail as string,
@@ -390,7 +387,6 @@ describe "createResendContactEmailPort", ->
         code: "CONTACT_INPUT_INVALID",
         retryable: false,
       })
-    }
     await expect(email.sendContact({
       ...contactInput,
       subject: "",
@@ -436,7 +432,7 @@ describe "createResendContactEmailPort", ->
       },
     ]
 
-    for (const { send, expected } of cases) {
+    for (const { send, expected } of cases)
       const email = createResendContactEmailPort({
         recipient: "support@example.test",
         apiKey: "re_test_key",
@@ -451,7 +447,6 @@ describe "createResendContactEmailPort", ->
         ...expected,
       })
       expect(JSON.stringify(result)).not.toContain(providerSecret)
-    }
 
   it "adapts the default Resend SDK response without a network request", async ->
     resendMocks.send.mockResolvedValue({
@@ -479,12 +474,11 @@ describe "createPreviewContactEmailPort", ->
       environment: "production",
     })).toThrowError("unavailable in production")
 
-    for (const maxArtifacts of [0, -1, 1.5]) {
+    for (const maxArtifacts of [0, -1, 1.5])
       expect(() => createPreviewContactEmailPort({
         environment: "test",
         maxArtifacts,
       })).toThrowError("maxArtifacts must be a positive integer")
-    }
 
   it "uses the default preview options while returning a redacted render failure", async ->
     const email = createPreviewContactEmailPort({ environment: "test" })
@@ -508,7 +502,7 @@ describe "createPreviewContactEmailPort", ->
     await mkdir(targetDirectory)
     await symlink(targetDirectory, symbolicDirectory, "dir")
 
-    for (const unsafeDirectory of [ordinaryFile, symbolicDirectory]) {
+    for (const unsafeDirectory of [ordinaryFile, symbolicDirectory])
       const email = createPreviewContactEmailPort({
         environment: "test",
         directory: unsafeDirectory,
@@ -517,7 +511,6 @@ describe "createPreviewContactEmailPort", ->
         status: "not-delivered",
         code: "CONTACT_PREVIEW_WRITE_FAILED",
       })
-    }
 
   it "fails closed for a symbolic-link ancestor in the preview path", async ->
     const directory = await createTemporaryDirectory()
@@ -557,9 +550,8 @@ describe "createPreviewContactEmailPort", ->
       first.status !== "previewed" ||
       second.status !== "previewed" ||
       third.status !== "previewed"
-    ) {
+    )
       throw new Error("Expected staged previews")
-    }
     const sameModifiedAt = new Date("2025-01-01T00:00:00.000Z")
     await Promise.all([
       utimes(first.artifactPath, sameModifiedAt, sameModifiedAt),
@@ -577,14 +569,13 @@ describe "createPreviewContactEmailPort", ->
     })
     if (current.status !== "previewed") throw new Error("Expected current preview")
 
-    for (const expired of [first, second, third]) {
+    for (const expired of [first, second, third])
       await expect(readFile(expired.artifactPath, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
       })
       await expect(
         readFile(expired.artifactPath.replace(/\.html$/, ".txt"), "utf8"),
       ).rejects.toMatchObject({ code: "ENOENT" })
-    }
     await expect(readFile(current.artifactPath, "utf8")).resolves.toContain(
       "Current request",
     )
@@ -675,13 +666,12 @@ describe "createPreviewContactEmailPort", ->
       ],
     ]
 
-    for (const identities of scenarios) {
+    for (const identities of scenarios)
       vi.doUnmock("node:fs/promises")
       vi.resetModules()
       const lstat = vi.fn()
-      for (const identity of identities) {
+      for (const identity of identities)
         lstat.mockResolvedValueOnce(identity)
-      }
       vi.doMock("node:fs/promises", async (importOriginal) => ({
         ...(await importOriginal<typeof import("node:fs/promises")>()),
         mkdir: vi.fn(),
@@ -700,7 +690,6 @@ describe "createPreviewContactEmailPort", ->
         code: "CONTACT_PREVIEW_WRITE_FAILED",
       })
       expect(lstat).toHaveBeenCalledTimes(identities.length)
-    }
 
   it "detects a symbolic-link ancestor introduced after canonicalization", async ->
     vi.doUnmock("node:fs/promises")

@@ -39,21 +39,21 @@ const stringRecord = (value: unknown): Record<string, unknown> => asRecord(value
 
 export const buildArchitectureInventory = (
   manifests: readonly PackageManifestSource[],
-): ArchitectureInventory => {
+): ArchitectureInventory =>
   const names = new Set<string>()
   let rootScripts: readonly string[] = []
-  const packages = manifests.map(({ path, source }) => {
+  const packages = manifests.map(({ path, source }) =>
     let parsed: JsonRecord
-    try {
-      parsed = asRecord(JSON.parse(source)) ?? (() => { throw new Error("invalid") })()
-    } catch {
+    try
+      parsed = asRecord(JSON.parse(source)) ?? (() =>
+        throw new Error("invalid")
+      )()
+    catch
       throw new Error(`Invalid package manifest: ${path}`)
-    }
     const name = parsed["name"]
     const version = parsed["version"]
-    if (typeof name !== "string" || name.length === 0 || typeof version !== "string" || version.length === 0) {
+    if (typeof name !== "string" || name.length === 0 || typeof version !== "string" || version.length === 0)
       throw new Error(`Invalid package manifest: ${path}`)
-    }
     if (names.has(name)) throw new Error(`Duplicate package name: ${name}`)
     names.add(name)
     const exports_ = stringRecord(parsed["exports"])
@@ -73,9 +73,8 @@ export const buildArchitectureInventory = (
         .map(([dependency]) => dependency)
         .sort(),
     })
-  }).sort((left, right) => left.name < right.name ? -1 : 1)
+  ).sort((left, right) => left.name < right.name ? -1 : 1)
   return Object.freeze({ version: 1, rootScripts: Object.freeze(rootScripts), packages: Object.freeze(packages) })
-}
 
 export const serializeArchitectureInventory = (inventory: ArchitectureInventory): string =>
   `${JSON.stringify(inventory, null, 2)}\n`
@@ -91,23 +90,19 @@ const report = (
 export const runDocsAction = async (
   action: "generate" | "check",
   dependencies: DocsDependencies,
-): Promise<DocsReport> => {
-  try {
+): Promise<DocsReport> =>
+  try
     const manifests = await dependencies.files.discoverPackageManifests()
     const inventory = buildArchitectureInventory(manifests)
     const expected = serializeArchitectureInventory(inventory)
     const current = await dependencies.files.readGenerated(GENERATED_INVENTORY_PATH)
-    if (action === "check") {
+    if (action === "check")
       return current === expected
         ? report(action, true, false, "Generated architecture inventory is current", inventory.packages.length)
         : report(action, false, false, "Generated architecture inventory is stale or missing", inventory.packages.length)
-    }
-    if (current === expected) {
+    if (current === expected)
       return report(action, true, false, "Generated architecture inventory is already current", inventory.packages.length)
-    }
     await dependencies.files.writeGenerated(GENERATED_INVENTORY_PATH, expected)
     return report(action, true, true, "Generated architecture inventory was updated", inventory.packages.length)
-  } catch (error) {
+  catch (error)
     return report(action, false, false, error instanceof Error ? error.message : "Documentation generation failed")
-  }
-}

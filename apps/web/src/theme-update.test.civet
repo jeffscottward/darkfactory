@@ -8,13 +8,12 @@ import type {
 import { updateTrustedThemePreference } from "./lib/theme-update.civet"
 import { fetchThemeApiRequest } from "./lib/theme-api-timeout.civet"
 
-const deferred = <Value>() => {
+const deferred = <Value>() =>
   let resolve!: (value: Value) => void
-  const promise = new Promise<Value>((settle) => {
-    resolve = settle
-  })
+  const promise = new Promise<Value>((settle) =>
+    void (resolve = settle)
+  )
   return { promise, resolve }
-}
 
 describe "trusted theme updates", ->
   afterEach -> vi.useRealTimers()
@@ -29,18 +28,16 @@ describe "trusted theme updates", ->
     const result = await updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
-      get: async () => {
+      get: async () =>
         calls.push("get")
         return { themeMode: "system", palette: "neutral", updatedAt: versionA }
-      },
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
-      update: async (input) => {
+      update: async (input) =>
         calls.push("update")
         updateInput = input
         return { themeMode: "dark", palette: "violet", updatedAt: versionB }
-      },
     })
 
     expect(calls).toEqual(["get", "update"])
@@ -70,9 +67,7 @@ describe "trusted theme updates", ->
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
-      update: async () => {
-        throw failure
-      },
+      update: async -> throw failure,
     })).rejects.toBe(failure)
     expect(get).toHaveBeenCalledOnce()
     expect(store.getState()).toMatchObject({
@@ -111,9 +106,7 @@ describe "trusted theme updates", ->
       palette: "neutral" as const,
       updatedAt: versionA,
     }))
-    const update = vi.fn(async () => {
-      throw Object.assign(new Error("stale"), { code: "CONFLICT" })
-    })
+    const update = vi.fn(async -> throw Object.assign(new Error("stale"), { code: "CONFLICT" }))
     const result = await updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
@@ -226,10 +219,9 @@ describe "trusted theme updates", ->
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
-      update: async () => {
+      update: async () =>
         remote = { themeMode: "dark", palette: "rose", updatedAt: versionB }
         throw new Error("response lost")
-      },
     })
 
     expect(result).toBe("reconciled")
@@ -243,16 +235,15 @@ describe "trusted theme updates", ->
     const pending = updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => authorityEpoch,
-      get: async () => {
+      get: async () =>
         getCount += 1
         return getCount === 1
           ? { themeMode: "system", palette: "neutral", updatedAt: versionA }
           : reconciliation.promise
-      },
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
-      update: async () => { throw new Error("response lost") },
+      update: async -> throw new Error("response lost"),
     })
 
     await vi.waitFor(() => expect(getCount).toBe(2))
@@ -367,18 +358,17 @@ describe "trusted theme updates", ->
     vi.useFakeTimers()
     const store = createUiStore()
     const stalledRequest = async (request: Request): Promise<Response> =>
-      new Promise<Response>((_resolve, reject) => {
-        request.signal.addEventListener(
+      new Promise<Response>((_resolve, reject) =>
+        void request.signal.addEventListener(
           "abort",
           () => reject(request.signal.reason),
           { once: true },
         )
-      })
+      )
     const boundedRequest = (httpMethod: "GET" | "PATCH") => fetchThemeApiRequest({
-      fetchRequest: async (input, init) => {
+      fetchRequest: async (input, init) =>
         const request = input instanceof Request ? input : new Request(input, init)
         return stalledRequest(request)
-      },
       request: new Request("https://darkfactory.example/api/orpc", {
         method: httpMethod,
       }),
@@ -387,10 +377,9 @@ describe "trusted theme updates", ->
     const getPending = updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
-      get: async () => {
+      get: async () =>
         await boundedRequest("GET")
         return { themeMode: "system", palette: "neutral", updatedAt: versionA }
-      },
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
@@ -404,21 +393,18 @@ describe "trusted theme updates", ->
     const patchPending = updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
-      get: async () => {
+      get: async () =>
         patchGetCount += 1
-        if (patchGetCount === 1) {
+        if (patchGetCount === 1)
           return { themeMode: "system", palette: "neutral", updatedAt: versionA }
-        }
         await boundedRequest("GET")
         return { themeMode: "system", palette: "neutral", updatedAt: versionA }
-      },
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
-      update: async () => {
+      update: async () =>
         await boundedRequest("PATCH")
         return { themeMode: "dark", palette: "rose", updatedAt: versionB }
-      },
     })
 
     await vi.advanceTimersByTimeAsync(25)
@@ -434,11 +420,10 @@ describe "bounded theme API transport", ->
   it "reconstructs a bounded streaming response with its response metadata", async ->
     const encoder = new TextEncoder()
     const body = new ReadableStream<Uint8Array>({
-      start(controller) {
+      start(controller)
         controller.enqueue(encoder.encode('{"themeMode":'))
         controller.enqueue(encoder.encode('"dark"}'))
-        controller.close()
-      },
+        void controller.close()
     })
 
     const response = await fetchThemeApiRequest({
@@ -464,9 +449,7 @@ describe "bounded theme API transport", ->
     })).resolves.toBe(source)
 
   it "fails closed when cancellation of declared or streamed excess rejects", async ->
-    const declaredCancel = vi.fn(async () => {
-      throw new Error("declared cancellation unavailable")
-    })
+    const declaredCancel = vi.fn(async -> throw new Error("declared cancellation unavailable"))
     const declaredBody = new ReadableStream<Uint8Array>({
       cancel: declaredCancel,
     })
@@ -478,13 +461,10 @@ describe "bounded theme API transport", ->
     })).rejects.toThrow("Theme response exceeded the safe size limit")
     expect(declaredCancel).toHaveBeenCalledOnce()
 
-    const streamedCancel = vi.fn(async () => {
-      throw new Error("stream cancellation unavailable")
-    })
+    const streamedCancel = vi.fn(async -> throw new Error("stream cancellation unavailable"))
     const streamedBody = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(16_385))
-      },
+      start(controller)
+        void controller.enqueue(new Uint8Array(16_385))
       cancel: streamedCancel,
     })
     await expect(fetchThemeApiRequest({
@@ -495,9 +475,7 @@ describe "bounded theme API transport", ->
 
   it "propagates primitive cancellation failures for declared and streamed excess", async ->
     const declaredFailure = "primitive declared cancellation failure"
-    const declaredCancel = vi.fn(async () => {
-      throw declaredFailure
-    })
+    const declaredCancel = vi.fn(async -> throw declaredFailure)
     await expect(fetchThemeApiRequest({
       fetchRequest: async () => new Response(
         new ReadableStream<Uint8Array>({ cancel: declaredCancel }),
@@ -508,14 +486,11 @@ describe "bounded theme API transport", ->
     expect(declaredCancel).toHaveBeenCalledOnce()
 
     const streamedFailure = "primitive streamed cancellation failure"
-    const streamedCancel = vi.fn(async () => {
-      throw streamedFailure
-    })
+    const streamedCancel = vi.fn(async -> throw streamedFailure)
     await expect(fetchThemeApiRequest({
       fetchRequest: async () => new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(new Uint8Array(16_385))
-        },
+        start(controller)
+          void controller.enqueue(new Uint8Array(16_385))
         cancel: streamedCancel,
       })),
       request: new Request("https://darkfactory.example/api/orpc"),
@@ -529,13 +504,12 @@ describe "bounded theme API transport", ->
     let forwardedSignal: AbortSignal | undefined
 
     await expect(fetchThemeApiRequest({
-      fetchRequest: async (input, init) => {
+      fetchRequest: async (input, init) =>
         const forwarded = input instanceof Request
           ? input
           : new Request(input, init)
         forwardedSignal = forwarded.signal
         return new Response(new ReadableStream<Uint8Array>())
-      },
       request: new Request("https://darkfactory.example/api/orpc", {
         signal: controller.signal,
       }),
@@ -544,9 +518,7 @@ describe "bounded theme API transport", ->
 
   it "absorbs body-cancellation failure while preserving the timeout reason", async ->
     vi.useFakeTimers()
-    const cancel = vi.fn(async () => {
-      throw new Error("deadline cancellation unavailable")
-    })
+    const cancel = vi.fn(async -> throw new Error("deadline cancellation unavailable"))
     const pending = fetchThemeApiRequest({
       fetchRequest: async () => new Response(
         new ReadableStream<Uint8Array>({ cancel }),
@@ -589,10 +561,9 @@ describe "trusted theme fail-closed branches", ->
     const result = await updateTrustedThemePreference({
       authority: () => authority,
       authorityEpoch: () => 0,
-      get: async () => {
+      get: async () =>
         authority = "anonymous"
         throw new Error("preflight unavailable")
-      },
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store: createUiStore(),
@@ -607,24 +578,20 @@ describe "trusted theme fail-closed branches", ->
     const result = await updateTrustedThemePreference({
       authority: () => authority,
       authorityEpoch: () => 0,
-      get: async () => {
+      get: async () =>
         getCount += 1
-        if (getCount === 1) {
+        if (getCount === 1)
           return {
             themeMode: "system" as const,
             palette: "neutral" as const,
             updatedAt: currentVersion,
           }
-        }
         authority = "anonymous"
         throw new Error("reconciliation unavailable")
-      },
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store: createUiStore(),
-      update: async () => {
-        throw new Error("save response unavailable")
-      },
+      update: async -> throw new Error("save response unavailable"),
     })
 
     expect(result).toBe("superseded")

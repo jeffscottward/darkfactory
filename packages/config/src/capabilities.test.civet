@@ -9,15 +9,13 @@ import {
 const manifestUrl = new URL("../../../capabilities.yaml", import.meta.url)
 const readManifest = async (): Promise<string> => await readFile(manifestUrl, "utf8")
 
-const captureManifestError = (source: string): CapabilityManifestValidationError => {
-  try {
+const captureManifestError = (source: string): CapabilityManifestValidationError =>
+  try
     loadCapabilityManifest(source)
-  } catch (error) {
+  catch (error)
     if (error instanceof CapabilityManifestValidationError) return error
     throw error
-  }
   throw new Error("expected manifest validation to fail")
-}
 
 const expectedManifest = {
   project: {
@@ -107,15 +105,15 @@ const expectedManifest = {
   },
 } as const
 
-describe("v0.1 capability manifest", () => {
-  it("loads the exact provider and capability contract", async () => {
+describe("v0.1 capability manifest", () =>
+  it("loads the exact provider and capability contract", async () =>
     expect(loadCapabilityManifest(await readManifest())).toEqual(expectedManifest)
-  })
+  )
 
-  it("contains no superseded providers or capabilities", async () => {
+  it("contains no superseded providers or capabilities", async () =>
     const source = await readManifest()
     expect(source).not.toMatch(/redis|rabbitmq|sst|payments|leads/i)
-  })
+  )
 
   it.each([
     ["unknown root key", (source: string) => `${source}\nunexpected: true\n`, "manifest"],
@@ -144,31 +142,30 @@ describe("v0.1 capability manifest", () => {
       (source: string) => source.replace("    metadata: postgres\n", ""),
       "capabilities.storage.metadata",
     ],
-  ])("rejects $0", async (_label, mutate, expectedPath) => {
+  ])("rejects $0", async (_label, mutate, expectedPath) =>
     const invalidManifest = mutate(await readManifest())
     expect(() => loadCapabilityManifest(invalidManifest)).toThrow(
       CapabilityManifestValidationError,
     )
-    try {
+    try
       loadCapabilityManifest(invalidManifest)
-    } catch (error) {
+    catch (error)
       const hasExpectedPath = (error as CapabilityManifestValidationError).issues.some(
         ({ path }) => path.startsWith(expectedPath),
       )
       expect(hasExpectedPath).toBe(true)
-    }
     return undefined
-  })
+  )
 
-  it("rejects duplicate YAML mapping keys", async () => {
+  it("rejects duplicate YAML mapping keys", async () =>
     const source = (await readManifest()).replace(
       "  name: DarkFactory",
       "  name: DarkFactory\n  name: Duplicate",
     )
     expect(() => loadCapabilityManifest(source)).toThrow(CapabilityManifestValidationError)
-  })
+  )
 
-  it("rejects public docs while docs are disabled", async () => {
+  it("rejects public docs while docs are disabled", async () =>
     const source = (await readManifest()).replace("    public: false", "    public: true")
     expect(captureManifestError(source).issues).toEqual([
       {
@@ -177,9 +174,9 @@ describe("v0.1 capability manifest", () => {
         message: "Manifest capability combination is invalid",
       },
     ])
-  })
+  )
 
-  it("rejects non-JSON mapping keys before conversion", () => {
+  it("rejects non-JSON mapping keys before conversion", () =>
     const error = captureManifestError("? [nested, key]\n: true\n")
     expect(error.issues).toEqual([
       {
@@ -188,9 +185,9 @@ describe("v0.1 capability manifest", () => {
         message: "Manifest must contain valid, unique-key YAML",
       },
     ])
-  })
+  )
 
-  it.each(["1", "true"])("rejects the non-string scalar key %s", (key) => {
+  it.each(["1", "true"])("rejects the non-string scalar key %s", (key) =>
     const error = captureManifestError(`${key}: value\n`)
     expect(error.issues).toEqual([
       {
@@ -199,9 +196,9 @@ describe("v0.1 capability manifest", () => {
         message: "Manifest must contain valid, unique-key YAML",
       },
     ])
-  })
+  )
 
-  it("rejects aliases before conversion", () => {
+  it("rejects aliases before conversion", () =>
     const error = captureManifestError(
       "first: &shared { value: true }\nsecond: *shared\n",
     )
@@ -212,15 +209,14 @@ describe("v0.1 capability manifest", () => {
         message: "Manifest must contain valid, unique-key YAML",
       },
     ])
-  })
+  )
 
   it.each(["__proto__", "constructor"])(
     "rejects the %s key without prototype pollution",
-    (key) => {
+    (key) =>
       const error = captureManifestError(`${key}:\n  polluted: true\n`)
       expect(error.issues.every(({ message }) => !message.includes(key))).toBe(true)
       expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined()
-    },
   )
 
   it.each([
@@ -231,25 +227,23 @@ describe("v0.1 capability manifest", () => {
     ],
     [
       "structural depth",
-      async () => {
+      async () =>
         return `${Array.from(
           { length: 40 },
           (_, index) => `${"  ".repeat(index)}level_${index}:\n`,
         ).join("")}${"  ".repeat(40)}value: true\n`
-      },
     ],
     [
       "node count",
-      async () => {
+      async () =>
         return `items:\n${Array.from(
           { length: 600 },
           (_, index) => `  - item-${index}\n`,
         ).join("")}`
-      },
     ],
     ["key length", async () => `${"k".repeat(300)}: true\n`],
     ["string length", async () => `extra: "${"x".repeat(5_000)}"\n`],
-  ])("rejects YAML exceeding the $0 budget before conversion", async (_label, source) => {
+  ])("rejects YAML exceeding the $0 budget before conversion", async (_label, source) =>
     const error = captureManifestError(await source())
     expect(error.issues).toEqual([
       {
@@ -259,9 +253,9 @@ describe("v0.1 capability manifest", () => {
       },
     ])
     return undefined
-  })
+  )
 
-  it("uses stable errors without reflecting attacker-controlled keys", async () => {
+  it("uses stable errors without reflecting attacker-controlled keys", async () =>
     const attackerKey = "SECRET-AS-KEY"
     const error = captureManifestError(`${await readManifest()}\n${attackerKey}: true\n`)
     const serialized = JSON.stringify(error)
@@ -275,23 +269,22 @@ describe("v0.1 capability manifest", () => {
     ])
     expect(String(error)).not.toContain(attackerKey)
     expect(serialized).not.toContain(attackerKey)
-  })
+  )
 
-  it("never reflects manifest values in validation errors", async () => {
+  it("never reflects manifest values in validation errors", async () =>
     const secret = "provider-secret-value-that-must-not-leak"
     const source = (await readManifest()).replace(
       "    public: false",
       `    public: false\n    access_token: ${secret}`,
     )
 
-    try {
+    try
       loadCapabilityManifest(source)
       throw new Error("expected validation to fail")
-    } catch (error) {
+    catch (error)
       expect(String(error)).not.toContain(secret)
       expect(JSON.stringify(error)).not.toContain(secret)
-    }
-  })
+  )
 
   it "sanitizes an untrusted schema issue path before returning it", ->
     const privatePath = "PRIVATE-SCHEMA-PATH"
@@ -326,7 +319,7 @@ describe("v0.1 capability manifest", () => {
     expect(JSON.stringify(failure)).not.toContain(privateValue)
 
   it "rejects non-string and empty manifest sources with one stable issue", ->
-    for (const source of [null as never, "   "]) {
+    for (const source of [null as never, "   "])
       expect(captureManifestError(source).issues).toEqual([
         {
           code: "invalid_yaml",
@@ -334,7 +327,6 @@ describe("v0.1 capability manifest", () => {
           message: "Manifest must contain valid, unique-key YAML",
         },
       ])
-    }
 
   it.each([
     ["multi-byte key", `${"é".repeat(65)}: true\n`],
@@ -553,4 +545,4 @@ describe("v0.1 capability manifest", () => {
     expect(String(failure)).not.toContain(privateDetail)
     expect(JSON.stringify(failure)).not.toContain(privateDetail)
   return undefined
-})
+)

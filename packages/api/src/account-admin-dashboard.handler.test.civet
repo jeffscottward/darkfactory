@@ -91,7 +91,9 @@ const repositories = (): Repositories => ({
   featureItems: {
     listByOwner: vi.fn(async () => []),
     findByIdForOwner: vi.fn(async () => null),
-    create: vi.fn(async () => { throw new Error("not used") }),
+    create: vi.fn(async () =>
+      throw new Error("not used")
+    ),
     update: vi.fn(async () => null),
     archive: vi.fn(async () => null),
   },
@@ -104,9 +106,9 @@ const repositories = (): Repositories => ({
 const clientFor = (
   requestSession: SafeAuthSession | null,
   options: Readonly<{ repositories?: Repositories; events?: SemanticEvent[] }> = {},
-) => {
+) =>
   const repos = options.repositories ?? repositories()
-  const fetch = async (request: Request): Promise<Response> => {
+  const fetch = async (request: Request): Promise<Response> =>
     const context = createApiContext(request, {
       repositories: repos,
       requestId: "request-account-1",
@@ -116,43 +118,36 @@ const clientFor = (
       },
       ...(options.events === undefined ? {} : {
         semanticEvents: {
-          emit: async (event: SemanticEvent) => {
+          emit: async (event: SemanticEvent) =>
             options.events!.push(event)
             return {
               structuredEvent: "emitted" as const,
               span: "skipped" as const,
               analytics: "skipped" as const,
             }
-          },
         },
       }),
-      requireSession: async () => {
+      requireSession: async () =>
         if (requestSession === null)
           throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED, 401)
         return requestSession
-      },
-      requireRole: async (_headers, role) => {
+      requireRole: async (_headers, role) =>
         if (requestSession === null)
           throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED, 401)
         if (requestSession.principal.role !== role)
           throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.FORBIDDEN, 403)
         return requestSession
-      },
     })
     return handleApiRequest(request, context)
-  }
   return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
-}
 
-const expectError = async (promise: Promise<unknown>, code: string, status: number) => {
-  try {
+const expectError = async (promise: Promise<unknown>, code: string, status: number) =>
+  try
     await promise
     throw new Error("Expected failure")
-  } catch (error) {
+  catch (error)
     expect(error).toBeInstanceOf(ORPCError)
     expect(error).toMatchObject({ code, status, defined: true })
-  }
-}
 
 describe "account/admin/dashboard router", ->
   it "requires an active session for account and full preferences", async ->

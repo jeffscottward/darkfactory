@@ -29,7 +29,7 @@ import {
 const FIXED_NOW = new Date("2026-01-02T03:04:05.000Z")
 const QUERY_DIALECT = new PgDialect()
 
-const tableName = (table: unknown): string => {
+const tableName = (table: unknown): string =>
   if (table === featureItems) return "feature_items"
   if (table === auditRecords) return "audit_records"
   if (table === outboxEvents) return "outbox_events"
@@ -37,7 +37,6 @@ const tableName = (table: unknown): string => {
   if (table === addresses) return "addresses"
   if (table === userPreferences) return "user_preferences"
   return "unknown"
-}
 
 type InsertOperation = {
   table: string
@@ -50,13 +49,13 @@ type DatabaseDoubleOptions = {
   beforeTransaction?: () => void | Promise<void>
 }
 
-const createDatabaseDouble = (options: DatabaseDoubleOptions = {}) => {
+const createDatabaseDouble = (options: DatabaseDoubleOptions = {}) =>
   const lifecycle: string[] = []
   const inserts: InsertOperation[] = []
 
   const transaction = {
     insert: (table: unknown) => ({
-      values: (value: Record<string, unknown>) => {
+      values: (value: Record<string, unknown>) =>
         const name = tableName(table)
         inserts.push({ table: name, value })
         lifecycle.push(`insert:${name}`)
@@ -71,28 +70,25 @@ const createDatabaseDouble = (options: DatabaseDoubleOptions = {}) => {
             },
           ],
         }
-      },
     }),
   }
 
   const database = {
-    transaction: vi.fn(async (operation: (tx: typeof transaction) => unknown) => {
+    transaction: vi.fn(async (operation: (tx: typeof transaction) => unknown) =>
       lifecycle.push("begin")
-      try {
+      try
         if (options.transactionError) throw options.transactionError
         await options.beforeTransaction?.()
         const result = await operation(transaction)
         lifecycle.push("commit")
         return result
-      } catch (error) {
+      catch error
         lifecycle.push("rollback")
         throw error
-      }
-    }),
+    ),
   } as unknown as Database
 
   return { database, inserts, lifecycle }
-}
 
 const mutationContext = {
   actorUserId: "user_alice",
@@ -152,7 +148,7 @@ type QueryDatabaseDoubleOptions = Partial<
 
 const createQueryDatabaseDouble = (
   options: QueryDatabaseDoubleOptions = {},
-) => {
+) =>
   const operations: QueryOperation[] = []
   const lifecycle: string[] = []
   const outcomes: Record<QueryKind, QueryOutcome[]> = {
@@ -162,63 +158,61 @@ const createQueryDatabaseDouble = (
     delete: [...(options.delete ?? [])],
   }
 
-  const resolveOutcome = async (outcome: QueryOutcome): Promise<QueryRows> => {
+  const resolveOutcome = async (outcome: QueryOutcome): Promise<QueryRows> =>
     if (outcome instanceof Error) throw outcome
     return outcome
-  }
 
   const createBuilder = (
     operation: QueryOperation,
     outcome: QueryOutcome,
-  ): QueryBuilder => {
+  ): QueryBuilder =>
     let builder = {} as QueryBuilder
-    builder.from = vi.fn((table: unknown) => {
+    builder.from = vi.fn((table: unknown) =>
       operation.table = tableName(table)
       return builder
-    })
-    builder.where = vi.fn((condition: unknown) => {
+    )
+    builder.where = vi.fn((condition: unknown) =>
       operation.where = condition
       return builder
-    })
-    builder.orderBy = vi.fn((...clauses: unknown[]) => {
+    )
+    builder.orderBy = vi.fn((...clauses: unknown[]) =>
       operation.orderBy = clauses
       return builder
-    })
-    builder.limit = vi.fn((value: number) => {
+    )
+    builder.limit = vi.fn((value: number) =>
       operation.limit = value
       return builder
-    })
-    builder.values = vi.fn((value: Record<string, unknown>) => {
+    )
+    builder.values = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.set = vi.fn((value: Record<string, unknown>) => {
+    )
+    builder.set = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.onConflictDoNothing = vi.fn(() => {
+    )
+    builder.onConflictDoNothing = vi.fn(() =>
       operation.conflict = "nothing"
       return builder
-    })
-    builder.onConflictDoUpdate = vi.fn((config: unknown) => {
+    )
+    builder.onConflictDoUpdate = vi.fn((config: unknown) =>
       operation.conflict = config
       return builder
-    })
-    builder.returning = vi.fn((selection?: unknown) => {
+    )
+    builder.returning = vi.fn((selection?: unknown) =>
       operation.returning = selection ?? true
       return builder
-    })
+    )
     builder.then = (onFulfilled, onRejected) =>
       resolveOutcome(outcome).then(onFulfilled, onRejected)
     return builder
-  }
 
   const query = (
     kind: QueryKind,
     scope: QueryScope,
     table?: unknown,
     selection?: unknown,
-  ): QueryBuilder => {
+  ): QueryBuilder =>
     const operation: QueryOperation = {
       kind,
       scope,
@@ -227,21 +221,18 @@ const createQueryDatabaseDouble = (
     }
     operations.push(operation)
     return createBuilder(operation, outcomes[kind].shift() ?? [])
-  }
 
   let transactionExecutor: Database
   const transaction = vi.fn(
-    async (operation: (transaction: Database) => Promise<unknown>) => {
+    async (operation: (transaction: Database) => Promise<unknown>) =>
       lifecycle.push("begin")
-      try {
+      try
         const result = await operation(transactionExecutor)
         lifecycle.push("commit")
         return result
-      } catch (error) {
+      catch error
         lifecycle.push("rollback")
         throw error
-      }
-    },
   )
 
   const createExecutor = (scope: QueryScope) => ({
@@ -251,18 +242,17 @@ const createQueryDatabaseDouble = (
     insert: vi.fn((table: unknown) => query("insert", scope, table)),
     update: vi.fn((table: unknown) => query("update", scope, table)),
     delete: vi.fn((table: unknown) => query("delete", scope, table)),
-    execute: vi.fn(async (statement: unknown) => {
+    execute: vi.fn(async (statement: unknown) =>
       operations.push({ kind: "execute", scope, statement })
       if (options.executeError !== undefined) throw options.executeError
       return []
-    }),
+    ),
     transaction,
   })
 
   transactionExecutor = createExecutor("transaction") as unknown as Database
   const database = createExecutor("database") as unknown as Database
   return { database, lifecycle, operations, transaction }
-}
 
 const queryParameters = (operation: QueryOperation): unknown[] =>
   operation.where === undefined
@@ -274,7 +264,7 @@ const cloneAddressRows = (rows: readonly Address[]): Address[] =>
 
 const createStatefulAddressDatabaseDouble = (
   initialRows: readonly Address[],
-) => {
+) =>
   const lifecycle: string[] = []
   const operations: QueryOperation[] = []
   let rows = cloneAddressRows(initialRows)
@@ -282,29 +272,27 @@ const createStatefulAddressDatabaseDouble = (
   const resolveOperation = (
     operation: QueryOperation,
     currentRows: Address[],
-  ): QueryRows => {
+  ): QueryRows =>
     const parameters = queryParameters(operation)
-    if (operation.kind === "select") {
-      if (operation.selection === undefined) {
+    if (operation.kind === "select")
+      if (operation.selection === undefined)
         const [id, userId] = parameters
         return currentRows
           .filter((row) => row.id === id && row.userId === userId)
           .slice(0, operation.limit)
           .map((row) => ({ ...row }))
-      }
 
       const [userId, isPrimary] = parameters
       const primary = currentRows.find(
         (row) => row.userId === userId && row.isPrimary === isPrimary,
       )
       return primary === undefined ? [] : [{ updatedAt: primary.updatedAt }]
-    }
 
     if (operation.kind !== "update")
       throw new Error(`unsupported stateful query: ${operation.kind}`)
 
     const values = operation.value ?? {}
-    if (values["isPrimary"] === false) {
+    if (values["isPrimary"] === false)
       const [userId, isPrimary, excludedId] = parameters
       for (const row of currentRows)
         if (
@@ -314,7 +302,6 @@ const createStatefulAddressDatabaseDouble = (
         )
           Object.assign(row, values)
       return []
-    }
 
     const [id, userId, expectedUpdatedAt] = parameters
     const address = currentRows.find(
@@ -328,55 +315,53 @@ const createStatefulAddressDatabaseDouble = (
       return []
     Object.assign(address, values)
     return operation.returning === undefined ? [] : [{ ...address }]
-  }
 
   const createBuilder = (
     operation: QueryOperation,
     currentRows: () => Address[],
-  ): QueryBuilder => {
+  ): QueryBuilder =>
     let builder = {} as QueryBuilder
-    builder.from = vi.fn((table: unknown) => {
+    builder.from = vi.fn((table: unknown) =>
       operation.table = tableName(table)
       return builder
-    })
-    builder.where = vi.fn((condition: unknown) => {
+    )
+    builder.where = vi.fn((condition: unknown) =>
       operation.where = condition
       return builder
-    })
-    builder.orderBy = vi.fn((...clauses: unknown[]) => {
+    )
+    builder.orderBy = vi.fn((...clauses: unknown[]) =>
       operation.orderBy = clauses
       return builder
-    })
-    builder.limit = vi.fn((value: number) => {
+    )
+    builder.limit = vi.fn((value: number) =>
       operation.limit = value
       return builder
-    })
-    builder.values = vi.fn((value: Record<string, unknown>) => {
+    )
+    builder.values = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.set = vi.fn((value: Record<string, unknown>) => {
+    )
+    builder.set = vi.fn((value: Record<string, unknown>) =>
       operation.value = value
       return builder
-    })
-    builder.onConflictDoNothing = vi.fn(() => {
+    )
+    builder.onConflictDoNothing = vi.fn(() =>
       operation.conflict = "nothing"
       return builder
-    })
-    builder.onConflictDoUpdate = vi.fn((config: unknown) => {
+    )
+    builder.onConflictDoUpdate = vi.fn((config: unknown) =>
       operation.conflict = config
       return builder
-    })
-    builder.returning = vi.fn((selection?: unknown) => {
+    )
+    builder.returning = vi.fn((selection?: unknown) =>
       operation.returning = selection ?? true
       return builder
-    })
+    )
     builder.then = (onFulfilled, onRejected) =>
       Promise.resolve()
         .then(() => resolveOperation(operation, currentRows()))
         .then(onFulfilled, onRejected)
     return builder
-  }
 
   const query = (
     kind: QueryKind,
@@ -384,7 +369,7 @@ const createStatefulAddressDatabaseDouble = (
     currentRows: () => Address[],
     table?: unknown,
     selection?: unknown,
-  ): QueryBuilder => {
+  ): QueryBuilder =>
     const operation: QueryOperation = {
       kind,
       scope,
@@ -393,28 +378,25 @@ const createStatefulAddressDatabaseDouble = (
     }
     operations.push(operation)
     return createBuilder(operation, currentRows)
-  }
 
   let createExecutor: (
     scope: QueryScope,
     currentRows: () => Address[],
   ) => Database
   const transaction = vi.fn(
-    async (operation: (transaction: Database) => Promise<unknown>) => {
+    async (operation: (transaction: Database) => Promise<unknown>) =>
       lifecycle.push("begin")
       const transactionRows = cloneAddressRows(rows)
-      try {
+      try
         const result = await operation(
           createExecutor("transaction", () => transactionRows),
         )
         rows = transactionRows
         lifecycle.push("commit")
         return result
-      } catch (error) {
+      catch error
         lifecycle.push("rollback")
         throw error
-      }
-    },
   )
   createExecutor = (scope, currentRows) =>
     ({
@@ -424,10 +406,10 @@ const createStatefulAddressDatabaseDouble = (
       update: vi.fn((table: unknown) =>
         query("update", scope, currentRows, table)
       ),
-      execute: vi.fn(async (statement: unknown) => {
+      execute: vi.fn(async (statement: unknown) =>
         operations.push({ kind: "execute", scope, statement })
         return []
-      }),
+      ),
       transaction,
     }) as unknown as Database
 
@@ -437,7 +419,6 @@ const createStatefulAddressDatabaseDouble = (
     operations,
     addresses: () => cloneAddressRows(rows),
   }
-}
 
 const PREVIOUS_VERSION = new Date("2026-01-01T03:04:05.000Z")
 const NEXT_VERSION = new Date(FIXED_NOW.getTime() + 1)
@@ -660,7 +641,7 @@ describe "feature item mutation repository", ->
     const repository = createFeatureItemRepository(double.database)
 
     let thrown: unknown
-    try {
+    try
       await repository.create(
         {
           id: "feature_metadata_check",
@@ -670,9 +651,8 @@ describe "feature item mutation repository", ->
         },
         mutationContext,
       )
-    } catch (error) {
+    catch error
       thrown = error
-    }
     expect(thrown).toBeInstanceOf(InvalidRepositoryInputError)
     expect(String(thrown)).not.toContain("secret_table")
     expect(String(thrown)).not.toContain("secret parameter")
@@ -823,9 +803,8 @@ describe "feature item mutation repository", ->
     const target = { nested: { value: "before" } }
     const metadata = new Proxy(target, {})
     const double = createDatabaseDouble({
-      beforeTransaction: () => {
+      beforeTransaction: () =>
         target.nested.value = "after";
-      },
     })
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -908,9 +887,8 @@ describe "feature item mutation repository", ->
       { nested: accessorObject },
       { nested: hiddenObject },
       new Proxy({}, {
-        ownKeys: () => {
+        ownKeys: () =>
           throw new Error("proxy trap")
-        },
       }),
     ]
 
@@ -1156,7 +1134,7 @@ describe "profile repository", ->
       { ...PROFILE_INPUT, locale: "" },
     ]
 
-    for (const input of invalidProfiles) {
+    for (const input of invalidProfiles)
       await expect(repository.upsert(input)).rejects.toBeInstanceOf(
         InvalidRepositoryInputError,
       )
@@ -1166,7 +1144,6 @@ describe "profile repository", ->
           expectedUpdatedAt: null,
         }),
       ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
-    }
     expect(double.operations).toEqual([])
 
 describe "address repository", ->
@@ -1651,7 +1628,7 @@ describe "address repository", ->
       }),
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
 
-    for (const double of [missingDouble, staleDouble]) {
+    for (const double of [missingDouble, staleDouble])
       expect(queryParameters(double.operations[0]!)).toEqual([
         double === missingDouble ? "address_missing" : "address_home",
         "user_alice",
@@ -1661,7 +1638,6 @@ describe "address repository", ->
         double === missingDouble ? "address_missing" : "address_home",
         "user_alice",
       ])
-    }
 
   it "atomically applies every supplied field while replacing the primary optimistically", async ->
     const primaryVersion = new Date(NEXT_VERSION.getTime() + 1)
@@ -2217,11 +2193,10 @@ describe "user preferences repository", ->
       failedDouble.database,
     )
     let thrown: unknown
-    try {
+    try
       await failedRepository.findThemeByUserId("user_alice")
-    } catch (error) {
+    catch error
       thrown = error
-    }
     expect(thrown).toBeInstanceOf(DatabasePersistenceError)
     expect(String(thrown)).toBe(
       "DatabasePersistenceError: Database operation failed: theme preference query",
@@ -2316,16 +2291,15 @@ describe "user preferences repository", ->
     })
 
     let thrown: unknown
-    try {
+    try
       await repository.upsertTheme({
         userId: "user_alice",
         mode: "dark",
         colorScheme: "violet",
         expectedUpdatedAt: null,
       })
-    } catch (error) {
+    catch error
       thrown = error
-    }
     expect(thrown).toBeInstanceOf(DatabasePersistenceError)
     expect(String(thrown)).toBe(
       "DatabasePersistenceError: Database operation failed: theme preference upsert",

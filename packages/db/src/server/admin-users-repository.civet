@@ -18,61 +18,52 @@ import {
 } from "../schema/index.civet"
 import { withTransaction, type DatabaseExecutor } from "./client.civet"
 
-export class InvalidAdminUsersCursorError extends Error {
-  constructor() {
+export class InvalidAdminUsersCursorError extends Error
+  constructor()
     super("Invalid admin user directory cursor")
     this.name = "InvalidAdminUsersCursorError"
-  }
-}
 
-export class AdminUsersPersistenceError extends Error {
-  constructor() {
+export class AdminUsersPersistenceError extends Error
+  constructor()
     super("Admin user directory is unavailable")
     this.name = "AdminUsersPersistenceError"
-  }
-}
 
 export type AdminUsersCursorKey = Readonly<{
   createdAt: Date
   id: string
 }>
 
-const toBase64Url = (value: string): string => {
+const toBase64Url = (value: string): string =>
   const bytes = new TextEncoder().encode(value)
   let binary = ""
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "")
-}
 
-const fromBase64Url = (value: string): string => {
+const fromBase64Url = (value: string): string =>
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new InvalidAdminUsersCursorError()
   const standard = value.replaceAll("-", "+").replaceAll("_", "/")
   const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4)
   let binary: string
-  try {
+  try
     binary = atob(padded)
-  } catch {
+  catch
     throw new InvalidAdminUsersCursorError()
-  }
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-  try {
+  try
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-  } catch {
+  catch
     throw new InvalidAdminUsersCursorError()
-  }
-}
 
 export const encodeAdminUsersCursor = (key: AdminUsersCursorKey): string =>
   toBase64Url(JSON.stringify({ v: 1, createdAt: key.createdAt.toISOString(), id: key.id }))
 
-export const decodeAdminUsersCursor = (cursor: string): AdminUsersCursorKey => {
+export const decodeAdminUsersCursor = (cursor: string): AdminUsersCursorKey =>
   let value: unknown
-  try {
+  try
     value = JSON.parse(fromBase64Url(cursor))
-  } catch (error) {
+  catch error
     if (error instanceof InvalidAdminUsersCursorError) throw error
     throw new InvalidAdminUsersCursorError()
-  }
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new InvalidAdminUsersCursorError()
   const record = value as Record<string, unknown>
@@ -89,7 +80,6 @@ export const decodeAdminUsersCursor = (cursor: string): AdminUsersCursorKey => {
   if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== timestamp)
     throw new InvalidAdminUsersCursorError()
   return { createdAt, id }
-}
 
 export type AdminUserSummary = Readonly<{
   id: string
@@ -129,7 +119,7 @@ const escapedLikePattern = (query: string): string =>
 export const createAdminUsersRepository = (
   database: DatabaseExecutor,
 ): AdminUsersRepository => ({
-  search: async (input) => {
+  search: async (input) =>
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
       throw new InvalidAdminUsersCursorError()
     const query = input.query?.trim()
@@ -141,15 +131,14 @@ export const createAdminUsersRepository = (
     const pattern = query === undefined || query.length === 0
       ? undefined
       : escapedLikePattern(query)
-    if (cursor !== undefined) {
+    if (cursor !== undefined)
       conditions.push(orWhere(
         lt(createdAtKey, cursor.createdAt),
         andWhere(eq(createdAtKey, cursor.createdAt), lt(users.id, cursor.id)),
       )!)
-    }
 
-    try {
-      return await withTransaction(database, async (transaction) => {
+    try
+      return await withTransaction(database, async (transaction) =>
         await transaction.execute(sql`set local statement_timeout = '2000ms'`)
         const selection = {
           id: users.id,
@@ -227,10 +216,8 @@ export const createAdminUsersRepository = (
             ? encodeAdminUsersCursor({ createdAt: last.createdAt, id: last.id })
             : null,
         }
-      })
-    } catch (error) {
+      )
+    catch error
       if (error instanceof InvalidAdminUsersCursorError) throw error
       throw new AdminUsersPersistenceError()
-    }
-  },
 })

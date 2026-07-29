@@ -23,13 +23,13 @@ const spawnResult = (
   ...(error === undefined ? {} : { error }),
 })
 
-afterEach(() => {
+afterEach(() =>
   mocks.spawnSync.mockReset()
   vi.restoreAllMocks()
-})
+)
 
-describe("repository hooks", () => {
-  it("runs staged Biome and Markdown scripts with case-insensitive, argument-safe paths", () => {
+describe("repository hooks", () =>
+  it("runs staged Biome and Markdown scripts with case-insensitive, argument-safe paths", () =>
     mocks.spawnSync
       .mockReturnValueOnce(spawnResult(
         0,
@@ -57,9 +57,9 @@ describe("repository hooks", () => {
         stdio: "inherit",
       }],
     ])
-  })
+  )
 
-  it("defers Civet-only changes and silently accepts other irrelevant or empty path records", () => {
+  it("defers Civet-only changes and silently accepts other irrelevant or empty path records", () =>
     const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
     mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "src/worker.CIVET\0"))
 
@@ -74,9 +74,9 @@ describe("repository hooks", () => {
     expect(runPreCommit()).toBe(0)
     expect(errorOutput).not.toHaveBeenCalled()
     expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
-  })
+  )
 
-  it("maps a failed staged-path lookup without hiding spawn errors or null statuses", () => {
+  it("maps a failed staged-path lookup without hiding spawn errors or null statuses", () =>
     const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const spawnError = Object.assign(new Error("git executable unavailable"), {
       code: "ENOENT",
@@ -90,9 +90,9 @@ describe("repository hooks", () => {
       ],
       ["git executable unavailable"],
     ])
-  })
+  )
 
-  it("stops at each failed staged command and reports the exact generated command", () => {
+  it("stops at each failed staged command and reports the exact generated command", () =>
     const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
 
     mocks.spawnSync
@@ -122,9 +122,9 @@ describe("repository hooks", () => {
     expect(runPreCommit()).toBe(6)
     expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
     expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:markdown:staged"))
-  })
+  )
 
-  it("returns success after a Biome-only staged batch reaches the terminal path", () => {
+  it("returns success after a Biome-only staged batch reaches the terminal path", () =>
     mocks.spawnSync
       .mockReturnValueOnce(spawnResult(0, "src/index.ts\0"))
       .mockReturnValue(spawnResult(0))
@@ -134,9 +134,9 @@ describe("repository hooks", () => {
     expect(
       mocks.spawnSync.mock.calls.slice(1).map(([, arguments_]) => arguments_[1]),
     ).toEqual(["format:staged", "lint:staged"])
-  })
+  )
 
-  it("runs the immutable pre-push script list through injected and default runners", () => {
+  it("runs the immutable pre-push script list through injected and default runners", () =>
     const injected = vi.fn(() => 17)
     expect(runPrePush(injected)).toBe(17)
     expect(injected).toHaveBeenCalledWith(["verify:core"])
@@ -149,11 +149,11 @@ describe("repository hooks", () => {
       ["run", "verify:core"],
       { shell: false, stdio: "inherit" },
     )
-  })
+  )
 
-  it("wires both executable entrypoints to their hook runner exit codes", async () => {
+  it("wires both executable entrypoints to their hook runner exit codes", async () =>
     const previousExitCode = process.exitCode
-    try {
+    try
       process.exitCode = undefined
       mocks.spawnSync.mockReturnValueOnce(spawnResult(0, ""))
       await import("./pre-commit.civet")
@@ -174,8 +174,7 @@ describe("repository hooks", () => {
         ["run", "verify:core"],
         { shell: false, stdio: "inherit" },
       )
-    } finally {
+    finally
       process.exitCode = previousExitCode
-    }
-  })
-})
+  )
+)

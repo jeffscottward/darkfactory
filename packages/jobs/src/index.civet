@@ -35,44 +35,38 @@ type SnapshotState = {
   ancestors: Set<object>
 }
 
-const addBytes = (state: SnapshotState, bytes: number): void => {
+const addBytes = (state: SnapshotState, bytes: number): void =>
   state.bytes += bytes
   if (state.bytes > MAX_JOB_PAYLOAD_BYTES) throw invalidPayload
-}
 
-const addJsonStringBytes = (state: SnapshotState, value: string): void => {
+const addJsonStringBytes = (state: SnapshotState, value: string): void =>
   if (value.length > MAX_JOB_PAYLOAD_BYTES) throw invalidPayload
   addBytes(state, utf8Encoder.encode(JSON.stringify(value)).byteLength)
-}
 
 const snapshotJsonValue = (
   value: unknown,
   state: SnapshotState,
   depth: number,
-): JsonValue => {
+): JsonValue =>
   if (depth > MAX_JOB_PAYLOAD_DEPTH) throw invalidPayload
-  if (value === null) {
+  if (value === null)
     addBytes(state, 4)
     return null
-  }
-  if (typeof value === "string") {
+  if (typeof value === "string")
     addJsonStringBytes(state, value)
     return value
-  }
-  if (typeof value === "boolean") {
+  if (typeof value === "boolean")
     addBytes(state, value ? 4 : 5)
     return value
-  }
-  if (typeof value === "number") {
+  if (typeof value === "number")
     if (!Number.isFinite(value)) throw invalidPayload
     const normalized = Object.is(value, -0) ? 0 : value
     addBytes(state, String(normalized).length)
     return normalized
-  }
   if (typeof value !== "object") throw invalidPayload
   if (state.ancestors.has(value)) throw invalidPayload
 
-  if (Array.isArray(value)) {
+  if (Array.isArray(value))
     if (Object.getPrototypeOf(value) !== Array.prototype) throw invalidPayload
     if (value.length > MAX_JOB_ARRAY_ITEMS) throw invalidPayload
     const keys = Reflect.ownKeys(value)
@@ -86,7 +80,7 @@ const snapshotJsonValue = (
     state.ancestors.add(value)
     addBytes(state, 2 + Math.max(0, value.length - 1))
     const snapshot: JsonValue[] = []
-    for (let index = 0; index < value.length; index += 1) {
+    for (let index = 0; index < value.length; index += 1)
       const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
       if (
         descriptor === undefined ||
@@ -95,10 +89,8 @@ const snapshotJsonValue = (
       )
         throw invalidPayload
       snapshot.push(snapshotJsonValue(descriptor.value, state, depth + 1))
-    }
     state.ancestors.delete(value)
     return snapshot
-  }
 
   const prototype = Object.getPrototypeOf(value)
   if (prototype !== Object.prototype && prototype !== null) throw invalidPayload
@@ -122,7 +114,7 @@ const snapshotJsonValue = (
   state.ancestors.add(value)
   addBytes(state, 2 + Math.max(0, sortedKeys.length - 1))
   const snapshot: Record<string, JsonValue> = {}
-  for (const [key, descriptor] of descriptors) {
+  for (const [key, descriptor] of descriptors)
     addJsonStringBytes(state, key)
     addBytes(state, 1)
     Object.defineProperty(snapshot, key, {
@@ -135,13 +127,11 @@ const snapshotJsonValue = (
       ),
       writable: true,
     })
-  }
   state.ancestors.delete(value)
   return snapshot
-}
 
-export const snapshotJobPayload = (payload: unknown): JobPayloadSnapshot => {
-  try {
+export const snapshotJobPayload = (payload: unknown): JobPayloadSnapshot =>
+  try
     const snapshot = snapshotJsonValue(
       payload,
       { bytes: 0, ancestors: new Set() },
@@ -150,10 +140,8 @@ export const snapshotJobPayload = (payload: unknown): JobPayloadSnapshot => {
     if (snapshot === null || Array.isArray(snapshot) || typeof snapshot !== "object")
       throw invalidPayload
     return Object.freeze({ status: "valid", payload: snapshot as JsonObject })
-  } catch {
+  catch
     return Object.freeze({ status: "invalid" })
-  }
-}
 
 export type JobExecutionContext<Name extends string> = Readonly<{
   jobId: string

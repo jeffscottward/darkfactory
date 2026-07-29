@@ -37,7 +37,6 @@ export const StatusBadge = ({
     className={cn(statusBadgeVariants({ status }), className)}
     {...props}
   >
-    <span className="sr-only">Status: </span>
-    <span>{children}</span>
-  </span>
+    <span className="sr-only">Status:
+    <span>{children}
 )

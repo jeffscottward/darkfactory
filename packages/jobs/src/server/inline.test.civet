@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest"
 import type { JobDefinition, JsonObject } from "../index.civet"
 import { createInlineJobPort } from "./inline.civet"
 
-const deferred = () => {
+const deferred = () =>
   let release!: () => void
-  const promise = new Promise<void>((resolve) => { release = resolve })
+  const promise = new Promise<void>((resolve) =>
+    release = resolve
+    return
+  )
   return { promise, release }
-}
 
 describe "inline job adapter", ->
   it "returns a typed result from inline execution", async ->
@@ -36,12 +38,11 @@ describe "inline job adapter", ->
     const order: string[] = []
     const definition: JobDefinition<"ordered", { label: string; wait: boolean }, string> = {
       name: "ordered",
-      execute: async ({ label, wait }) => {
+      execute: async ({ label, wait }) =>
         order.push(`${label}:start`)
         if (wait) await firstGate.promise
         order.push(`${label}:end`)
         return label
-      },
     }
 
     const first = jobs.enqueue(definition, { label: "first", wait: true })
@@ -75,11 +76,10 @@ describe "inline job adapter", ->
       >["execute"]
     } = {
       name: "snapshot",
-      execute: async (payload) => {
+      execute: async (payload) =>
         await gate.promise
         ;(payload.nested as { value: string }).value = "handler mutation"
         return payload.nested.value
-      },
     }
 
     const receiptPromise = jobs.enqueue(definition, callerPayload)
@@ -98,10 +98,9 @@ describe "inline job adapter", ->
     let executions = 0
     const definition: JobDefinition<"validated", JsonObject, string> = {
       name: "validated",
-      execute: async () => {
+      execute: async () =>
         executions += 1
         return "safe"
-      },
     }
 
     const invalid = await jobs.enqueue(
@@ -122,7 +121,8 @@ describe "inline job adapter", ->
     const jobs = createInlineJobPort()
     const failing: JobDefinition<"failing", JsonObject, never> = {
       name: "failing",
-      execute: async () => { throw new Error("token=provider-secret payload=user@example.test") },
+      execute: async () =>
+        throw new Error("token=provider-secret payload=user@example.test")
     }
     const succeeding: JobDefinition<"succeeding", JsonObject, string> = {
       name: "succeeding",

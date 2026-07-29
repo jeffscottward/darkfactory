@@ -23,7 +23,7 @@ export interface FeatureItemsWorkspaceProps {
   readonly gateway?: FeatureItemGateway
 }
 
-export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItemsWorkspaceProps) => {
+export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItemsWorkspaceProps) =>
   const [gateway] = useState(() => suppliedGateway ?? createBrowserFeatureItemGateway())
   const [state, setState] = useState<FeatureItemsCollectionState>({ type: "loading" })
   const [query, setQuery] = useState("")
@@ -41,53 +41,48 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
   const loadRevision = useRef(0)
   const isFiltered = appliedQuery.length > 0 || appliedStatus.length > 0
 
-  const load = useCallback(async () => {
+  const load = useCallback(async () =>
     const revision = loadRevision.current + 1
     loadRevision.current = revision
     setState({ type: "loading" })
-    try {
+    try
       const items = await gateway.list({
         limit: 50,
         ...(appliedQuery.length === 0 ? {} : { query: appliedQuery }),
         ...(appliedStatus.length === 0 ? {} : { status: appliedStatus as FeatureItemStatus }),
       })
       if (loadRevision.current === revision) setState({ type: "ready", items })
-    } catch (error) {
-      if (loadRevision.current === revision) {
+    catch (error)
+      if (loadRevision.current === revision)
         const failure = classifyFeatureFailure(error)
         setState({ type: "error", kind: failure.kind, message: failure.message })
-      }
-    }
-  }, [appliedQuery, appliedStatus, gateway])
+  , [appliedQuery, appliedStatus, gateway])
 
-  useEffect(() => {
+  useEffect(() =>
     const pendingLoad = load()
     void pendingLoad
-    return () => {
+    return () =>
       loadRevision.current += 1
       return undefined
-    }
-  }, [load])
+  , [load])
 
-  useEffect(() => {
+  useEffect(() =>
     if (archiveCandidate !== null) confirmButtonRef.current?.focus()
     return undefined
-  }, [archiveCandidate])
+  , [archiveCandidate])
 
-  const requestArchive = (item: FeatureItemOutput, trigger: HTMLButtonElement) => {
+  const requestArchive = (item: FeatureItemOutput, trigger: HTMLButtonElement) =>
     if (archivingId !== null) return
     archiveTriggerRef.current = trigger
     setArchiveFailure(null)
     setFailedArchiveItem(null)
     setArchiveCandidate(item)
-  }
 
-  const cancelArchive = () => {
+  const cancelArchive = () =>
     setArchiveCandidate(null)
     restorePortalFocus(archiveTriggerRef.current)
-  }
 
-  const confirmArchive = async () => {
+  const confirmArchive = async () =>
     if (archiveCandidate === null || archivingId !== null) return
     const item = archiveCandidate
     setArchiveCandidate(null)
@@ -96,7 +91,7 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
     setFailedArchiveItem(null)
     setFeedback("")
 
-    try {
+    try
       await gateway.archive(item.id)
       setState((current) => current.type === "ready"
         ? { type: "ready", items: withoutFeatureItem(current.items, item.id) }
@@ -104,31 +99,27 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
       void load()
       setFeedback(`${item.name} was archived.`)
       queueMicrotask(() => feedbackRef.current?.focus())
-    } catch (error) {
+    catch (error)
       const failure = classifyFeatureFailure(error)
       setArchiveFailure(failure)
       setFailedArchiveItem(item)
       setFeedback(failure.message)
       restorePortalFocus(archiveTriggerRef.current)
-    } finally {
+    finally
       setArchivingId(null)
-    }
-  }
 
-  const applyFilters = (event: React.FormEvent<HTMLFormElement>) => {
+  const applyFilters = (event: React.FormEvent<HTMLFormElement>) =>
     event.preventDefault()
     if (archivingId !== null) return
     setAppliedQuery(query.trim())
     setAppliedStatus(status)
-  }
 
-  const resetFilters = () => {
+  const resetFilters = () =>
     if (archivingId !== null) return
     setQuery("")
     setStatus("")
     setAppliedQuery("")
     setAppliedStatus("")
-  }
 
   return (
     <div className="space-y-6">
@@ -138,7 +129,7 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
         role="search"
       >
         <div className="space-y-2">
-          <Label htmlFor="feature-items-query">Search feature items</Label>
+          <Label htmlFor="feature-items-query">Search feature items
           <Input
             id="feature-items-query"
             disabled={archivingId !== null}
@@ -147,9 +138,8 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
             placeholder="Example: onboarding"
             value={query}
           />
-        </div>
         <div className="space-y-2">
-          <Label htmlFor="feature-items-status">Status</Label>
+          <Label htmlFor="feature-items-status">Status
           <select
             className="min-h-11 w-full rounded-md border border-border-strong bg-surface px-3 font-body text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             disabled={archivingId !== null}
@@ -157,20 +147,17 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
             onChange={(event) => setStatus(event.currentTarget.value as "" | FeatureItemStatus)}
             value={status}
           >
-            <option value="">All statuses</option>
-            <option value="draft">Draft</option>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
-          </select>
-        </div>
+            <option value="">All statuses
+            <option value="draft">Draft
+            <option value="active">Active
+            <option value="archived">Archived
         <div className="flex flex-wrap items-end gap-2">
-          <Button disabled={archivingId !== null} type="submit"><Search aria-hidden="true" className="size-4" />Apply</Button>
-          {isFiltered ? <Button disabled={archivingId !== null} onClick={resetFilters} variant="ghost">Reset</Button> : null}
-        </div>
-      </form>
+          <Button disabled={archivingId !== null} type="submit"><Search aria-hidden="true" className="size-4" />Apply
+          {isFiltered ? (
+            <Button disabled={archivingId !== null} onClick={resetFilters} variant="ghost">Reset
+          ) : null}
       <p className="text-xs text-muted-foreground">
         Showing up to 50 matching owner-scoped records.
-      </p>
 
       <div
         aria-atomic="true"
@@ -180,7 +167,6 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
         tabIndex={-1}
       >
         {feedback}
-      </div>
 
       {archiveFailure === null ? null : (
         <FeatureRecoveryAction
@@ -195,9 +181,9 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
           aria-describedby="archive-confirmation-description"
           aria-labelledby="archive-confirmation-title"
           className="flex flex-col gap-4 border-y border-warning-border bg-warning-subtle px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-          onKeyDown={(event) => {
+          onKeyDown={(event) =>
             if (event.key === "Escape") cancelArchive()
-          }}
+          }
           role="region"
         >
           <div className="min-w-0">
@@ -207,20 +193,13 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
               style={{ overflowWrap: "anywhere" }}
             >
               Archive {archiveCandidate.name}?
-            </h2>
             <p className="mt-1 text-sm text-muted-foreground" id="archive-confirmation-description">
               The record remains available in archived views.
-            </p>
-          </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={cancelArchive} size="compact" variant="ghost">
               <X aria-hidden="true" className="size-4" />Cancel
-            </Button>
             <Button onClick={confirmArchive} ref={confirmButtonRef} size="compact" variant="destructive">
               <Archive aria-hidden="true" className="size-4" />Archive item
-            </Button>
-          </div>
-        </section>
       )}
 
       <FeatureItemsCollection
@@ -232,6 +211,4 @@ export const FeatureItemsWorkspace = ({ gateway: suppliedGateway }: FeatureItems
         onRetry={load}
         state={state}
       />
-    </div>
   )
-}

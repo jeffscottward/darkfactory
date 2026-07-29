@@ -8,21 +8,18 @@ describe "client entrypoint SSR safety", ->
     )
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
-      get: () => {
+      get: () =>
         throw new Error("localStorage must not be read during import")
-      },
     })
     vi.resetModules()
 
-    try {
+    try
       const clientModule = await import("@darkfactory/state/client")
       const store = clientModule.createUiStore()
 
       expect(store.getState().palette).toBe("neutral")
-    } finally {
-      if (existingDescriptor) {
+    finally
+      if (existingDescriptor)
         Object.defineProperty(globalThis, "localStorage", existingDescriptor)
-      } else {
+      else
         Reflect.deleteProperty(globalThis, "localStorage")
-      }
-    }

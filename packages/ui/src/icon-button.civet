@@ -51,12 +51,11 @@ export const IconButton = ({
     disabled={disabled || loading}
     className={cn(iconButtonVariants({ variant }), className)}
   >
-    <span className={cn("inline-flex", loading && "invisible")}>{children}</span>
+    <span className={cn("inline-flex", loading && "invisible")}>{children}
     {loading ? (
       <LoaderCircle
         aria-hidden="true"
         className="absolute size-5 animate-spin motion-reduce:animate-none"
       />
     ) : null}
-  </button>
 )

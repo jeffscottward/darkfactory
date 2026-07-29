@@ -13,7 +13,7 @@ export const metadata = {
 
 export default async function SignInPage({
   searchParams,
-}: Readonly<{ searchParams: AuthSearchParams }>) {
+}: Readonly<{ searchParams: AuthSearchParams }>)
   const params = await searchParams
   const callbackURL = firstSearchParam(params["callbackURL"])
   const wasReset = firstSearchParam(params["reset"]) === "1"
@@ -29,11 +29,6 @@ export default async function SignInPage({
           {wasReset ? (
             <p className="mb-6 text-sm leading-6 text-foreground" role="status">
               Your password was updated. Sign in with the new password.
-            </p>
           ) : null}
           <SignInForm callbackURL={callbackURL} />
-        </>
-      </SessionRedirect>
-    </AuthPanel>
   )
-}

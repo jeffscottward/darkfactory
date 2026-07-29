@@ -19,13 +19,12 @@ export type RenderEmailVerificationEmailOptions = Readonly<{
 const trustedVerificationUrlError = (): TypeError =>
   new TypeError("verificationUrl must be a trusted email verification URL")
 
-const parseTrustedOrigin = (origin: string): URL => {
+const parseTrustedOrigin = (origin: string): URL =>
   let trustedUrl: URL
-  try {
+  try
     trustedUrl = new URL(origin)
-  } catch {
+  catch
     throw trustedVerificationUrlError()
-  }
 
   if (
     trustedUrl.protocol !== "https:" ||
@@ -34,24 +33,21 @@ const parseTrustedOrigin = (origin: string): URL => {
     trustedUrl.pathname !== "/" ||
     trustedUrl.search !== "" ||
     trustedUrl.hash !== ""
-  ) {
+  )
     throw trustedVerificationUrlError()
-  }
 
   return trustedUrl
-}
 
 const assertTrustedVerificationUrl = (
   verificationUrlValue: string,
   trustedAppOrigin: string,
-): void => {
+): void =>
   const trustedUrl = parseTrustedOrigin(trustedAppOrigin)
   let verificationUrl: URL
-  try {
+  try
     verificationUrl = new URL(verificationUrlValue)
-  } catch {
+  catch
     throw trustedVerificationUrlError()
-  }
 
   const queryKeys = [...verificationUrl.searchParams.keys()]
   const tokens = verificationUrl.searchParams.getAll("token")
@@ -68,16 +64,14 @@ const assertTrustedVerificationUrl = (
     tokens.length !== 1 ||
     !VERIFICATION_TOKEN_PATTERN.test(tokens[0] ?? "") ||
     callbackValues.length !== 1
-  ) {
+  )
     throw trustedVerificationUrlError()
-  }
 
   let callbackUrl: URL
-  try {
+  try
     callbackUrl = new URL(callbackValues[0]!, trustedUrl)
-  } catch {
+  catch
     throw trustedVerificationUrlError()
-  }
 
   if (
     callbackUrl.origin !== trustedUrl.origin ||
@@ -86,32 +80,28 @@ const assertTrustedVerificationUrl = (
     callbackUrl.pathname !== "/verify-email" ||
     callbackUrl.search !== "?verified=1" ||
     callbackUrl.hash !== ""
-  ) {
+  )
     throw trustedVerificationUrlError()
-  }
-}
 
 const assertValidVerificationInput = (
   input: EmailVerificationEmailInput,
   options: RenderEmailVerificationEmailOptions,
-): void => {
+): void =>
   if (
     !Number.isInteger(input.expiresInMinutes) ||
     input.expiresInMinutes <= 0
-  ) {
+  )
     throw new RangeError("expiresInMinutes must be a positive integer")
-  }
 
   assertTrustedVerificationUrl(
     input.verificationUrl,
     options.trustedAppOrigin ?? DEFAULT_TRUSTED_APP_ORIGIN,
   )
-}
 
 export const renderEmailVerificationEmail = async (
   input: EmailVerificationEmailInput,
   options: RenderEmailVerificationEmailOptions = {},
-): Promise<RenderedEmailVerificationEmail> => {
+): Promise<RenderedEmailVerificationEmail> =>
   assertValidVerificationInput(input, options)
   const greeting = input.recipientName ? `Hello ${input.recipientName},` : "Hello,"
   const expiryUnit = input.expiresInMinutes === 1 ? "minute" : "minutes"
@@ -142,4 +132,3 @@ export const renderEmailVerificationEmail = async (
     html,
     text,
   })
-}

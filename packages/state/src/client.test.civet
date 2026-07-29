@@ -106,7 +106,7 @@ describe "createUiStore", ->
       JSON.stringify({ version: 1, state: validState, extra: true }),
     ]
 
-    for (const malformed of malformedSnapshots) {
+    for (const malformed of malformedSnapshots)
       const store = createUiStore()
       const before = store.getState()
       const beforeSnapshot = before.dehydrate()
@@ -115,16 +115,14 @@ describe "createUiStore", ->
       expect(store.getState().hydrate(malformed)).toBe(false)
       expect(store.getState()).toBe(before)
       expect(store.getState().dehydrate()).toEqual(beforeSnapshot)
-    }
 
   it "does not execute hostile accessors or proxy traps during hydration", ->
     let accessorReads = 0
     const accessorSnapshot = Object.defineProperty({}, "state", {
       enumerable: true,
-      get: () => {
+      get: () =>
         accessorReads += 1
         throw new Error("hostile accessor executed")
-      },
     })
     const revocable = Proxy.revocable({}, {})
     revocable.revoke()
@@ -143,9 +141,9 @@ describe "createUiStore", ->
       state: typeof initialState
       previousState: typeof initialState
     }> = []
-    const unsubscribe = store.subscribe((state, previousState) => {
+    const unsubscribe = store.subscribe((state, previousState) =>
       updates.push({ state, previousState })
-    })
+    )
 
     store.getState().setPalette("blue")
 

@@ -11,15 +11,14 @@ export type RecordingAiPort = AiPort &
 
 export const createRecordingAiPort = (
   options: RecordingAiPortOptions,
-): RecordingAiPort => {
+): RecordingAiPort =>
   const requests: AiRequest[] = []
   const result = Object.freeze({ ...options.result }) as AiResult
 
   return Object.freeze({
-    get requests(): readonly AiRequest[] {
+    get requests(): readonly AiRequest[]
       return requests
-    },
-    generateText: async (request: AiRequest): Promise<AiResult> => {
+    generateText: async (request: AiRequest): Promise<AiResult> =>
       requests.push(
         Object.freeze(
           request.signal === undefined
@@ -28,6 +27,4 @@ export const createRecordingAiPort = (
         ),
       )
       return result
-    },
   })
-}

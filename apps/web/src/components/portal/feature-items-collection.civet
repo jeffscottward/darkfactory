@@ -26,28 +26,24 @@ export interface FeatureItemsCollectionProps {
   readonly onRetry?: () => void
 }
 
-const statusTone = (status: FeatureItemStatus): "neutral" | "success" | "warning" => {
+const statusTone = (status: FeatureItemStatus): "neutral" | "success" | "warning" =>
   if (status === "active") return "success"
   if (status === "archived") return "warning"
   return "neutral"
-}
 
 const statusLabel = (status: FeatureItemStatus): string =>
   status.charAt(0).toUpperCase() + status.slice(1)
 
 const LoadingCollection = () => (
   <div aria-busy="true" aria-live="polite" className="space-y-3" role="status">
-    <span className="sr-only">Loading feature items</span>
+    <span className="sr-only">Loading feature items
     {["one", "two", "three"].map((key) => (
       <div className="grid gap-4 border-b border-border py-5 sm:grid-cols-[minmax(0,1fr)_8rem]" key={key}>
         <div className="space-y-3">
           <Skeleton className="h-5 w-48 max-w-full" />
           <Skeleton className="h-4 w-80 max-w-full" />
-        </div>
         <Skeleton className="h-6 w-20 sm:justify-self-end" />
-      </div>
     ))}
-  </div>
 )
 
 export const FeatureItemsCollection = ({
@@ -58,10 +54,10 @@ export const FeatureItemsCollection = ({
   onResetFilters,
   onRetry,
   state,
-}: FeatureItemsCollectionProps) => {
+}: FeatureItemsCollectionProps) =>
   if (state.type === "loading") return <LoadingCollection />
 
-  if (state.type === "error") {
+  if (state.type === "error")
     return (
       <EmptyState
         action={(
@@ -76,38 +72,34 @@ export const FeatureItemsCollection = ({
         title="Feature items could not be loaded"
       />
     )
-  }
 
-  if (state.items.length === 0 && isFiltered) {
+  if (state.items.length === 0 && isFiltered)
     return (
       <EmptyState
-        action={<Button onClick={onResetFilters} variant="secondary">Reset filters</Button>}
+        action={<Button onClick={onResetFilters} variant="secondary">Reset filters}
         description="The current search and status filter returned no owner-scoped records."
         icon={<RotateCcw />}
         title="No matching feature items"
       />
     )
-  }
 
-  if (state.items.length === 0) {
+  if (state.items.length === 0)
     return (
       <EmptyState
         action={(
           <a className={buttonVariants({ variant: "primary" })} href="/feature-items/new">
             <FilePlus2 aria-hidden="true" className="size-4" />
             Create the first item
-          </a>
         )}
         description="Feature items demonstrate a complete owner-scoped request from this portal through oRPC and PostgreSQL."
         icon={<FilePlus2 />}
         title="No feature items yet"
       />
     )
-  }
 
   return (
     <div className="divide-y divide-border border-y border-border" role="list">
-      {state.items.map((item) => {
+      {state.items.map((item) =>
         const isArchiving = archivingId === item.id
         return (
           <article
@@ -122,21 +114,15 @@ export const FeatureItemsCollection = ({
                   style={{ overflowWrap: "anywhere" }}
                 >
                   {item.name}
-                </h2>
                 <StatusBadge status={statusTone(item.status)}>
                   {statusLabel(item.status)}
-                </StatusBadge>
-              </div>
               <p
                 className="max-w-reading text-sm leading-6 text-muted-foreground"
                 style={{ overflowWrap: "anywhere" }}
               >
                 {item.description.length > 0 ? item.description : "No description provided."}
-              </p>
               <p className="text-xs text-muted-foreground">
                 Updated {item.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
-              </p>
-            </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <a
                 aria-label={`${item.status === "archived" ? "View" : "Edit"} ${item.name}`}
@@ -144,7 +130,6 @@ export const FeatureItemsCollection = ({
                 href={`/feature-items/${encodeURIComponent(item.id)}`}
               >
                 {item.status === "archived" ? "View" : "Edit"}
-              </a>
               {item.status === "archived" ? null : (
                 <Button
                   aria-label={`Archive ${item.name}`}
@@ -157,12 +142,7 @@ export const FeatureItemsCollection = ({
                 >
                   <Archive aria-hidden="true" className="size-4" />
                   Archive
-                </Button>
               )}
-            </div>
-          </article>
         )
-      })}
-    </div>
+      )}
   )
-}

@@ -3,7 +3,7 @@ import type { ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const hookRuntime = vi.hoisted(() => {
+const hookRuntime = vi.hoisted(() =>
   type Effect = () => void | (() => void)
   type EffectSlot = {
     cleanup?: (() => void) | undefined
@@ -36,26 +36,23 @@ const hookRuntime = vi.hoisted(() => {
     || previous.some((value, index) => !Object.is(value, next[index]))
   )
 
-  const textOf = (node: unknown): string => {
+  const textOf = (node: unknown): string =>
     if (typeof node === "string" || typeof node === "number") return String(node)
     if (Array.isArray(node)) return node.map(textOf).join("")
     if (typeof node !== "object" || node === null) return ""
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return ""
     return textOf(Reflect.get(props, "children"))
-  }
 
   const visitElements = (
     node: unknown,
     visit: (element: Readonly<{ props: Record<string, unknown> }>) => void,
     seen = new WeakSet<object>(),
-  ): void => {
-    if (Array.isArray(node)) {
-      for (const child of node) {
+  ): void =>
+    if (Array.isArray(node))
+      for (const child of node)
         visitElements(child, visit, seen)
-      }
       return undefined
-    }
     if (typeof node !== "object" || node === null || seen.has(node)) return
     seen.add(node)
     const props = Reflect.get(node, "props")
@@ -63,10 +60,9 @@ const hookRuntime = vi.hoisted(() => {
     const element = node as Readonly<{ props: Record<string, unknown> }>
     visit(element)
     for (const value of Object.values(element.props)) visitElements(value, visit, seen)
-  }
 
-  const assignRefs = (tree: unknown): void => {
-    visitElements(tree, (element) => {
+  const assignRefs = (tree: unknown): void =>
+    visitElements(tree, (element) =>
       const ref = element.props["ref"]
       if (typeof ref !== "object" || ref === null || !("current" in ref)) return
       const label = typeof element.props["id"] === "string"
@@ -75,36 +71,30 @@ const hookRuntime = vi.hoisted(() => {
       Reflect.set(ref, "current", {
         focus: () => focusHistory.push(label),
       })
-    })
-  }
+    )
 
   return {
-    begin: () => {
+    begin: () =>
       stateCursor = 0
       refCursor = 0
       effectCursor = 0
       storeCursor = 0
       pendingEffects.length = 0
-    },
-    commit: (tree: unknown) => {
+    commit: (tree: unknown) =>
       assignRefs(tree)
-      for (const pending of pendingEffects.splice(0)) {
+      for (const pending of pendingEffects.splice(0))
         effectSlots[pending.index]?.cleanup?.()
         const cleanup = pending.effect()
         effectSlots[pending.index] = {
           cleanup: typeof cleanup === "function" ? cleanup : undefined,
           deps: pending.deps,
         }
-      }
-    },
-    disconnectStores: () => {
-      for (let index = 0; index < storeCleanups.length; index += 1) {
+    disconnectStores: () =>
+      for (let index = 0; index < storeCleanups.length; index += 1)
         storeCleanups[index]?.()
         storeCleanups[index] = undefined
-      }
-    },
     lastFocus: (): string | undefined => focusHistory.at(-1),
-    reset: () => {
+    reset: () =>
       for (const slot of effectSlots) slot.cleanup?.()
       for (const cleanup of storeCleanups) cleanup?.()
       stateSlots.length = 0
@@ -117,23 +107,19 @@ const hookRuntime = vi.hoisted(() => {
       refCursor = 0
       effectCursor = 0
       storeCursor = 0
-    },
     useCallback: <Callback>(callback: Callback): Callback => callback,
-    useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
+    useEffect: (effect: Effect, deps?: readonly unknown[]): void =>
       const index = effectCursor++
       const previous = effectSlots[index]
-      if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
+      if (previous === undefined || dependenciesChanged(previous.deps, deps))
         pendingEffects.push({ deps, effect, index })
-      }
-    },
-    useRef: <Value>(initialValue: Value): { current: Value } => {
+    useRef: <Value>(initialValue: Value): { current: Value } =>
       const index = refCursor++
       refSlots[index] ??= { current: initialValue }
       return refSlots[index] as { current: Value }
-    },
     useState: <Value>(
       initializer: Value | (() => Value),
-    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
+    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] =>
       const index = stateCursor++
       stateSlots[index] ??= {
         value: typeof initializer === "function"
@@ -143,26 +129,23 @@ const hookRuntime = vi.hoisted(() => {
       const slot = stateSlots[index]!
       return [
         slot.value as Value,
-        (next) => {
+        (next) =>
           slot.value = typeof next === "function"
             ? (next as (current: Value) => Value)(slot.value as Value)
             : next
-        },
       ]
-    },
     useSyncExternalStore: <Snapshot>(
       subscribe: (notify: () => void) => () => void,
       getSnapshot: () => Snapshot,
       _getServerSnapshot?: () => Snapshot,
-    ): Snapshot => {
+    ): Snapshot =>
       const index = storeCursor++
       storeCleanups[index] ??= subscribe(() => undefined)
       return getSnapshot()
-    },
   }
-})
+)
 
-vi.mock("react", async (importOriginal) => {
+vi.mock("react", async (importOriginal) =>
   const actual = await importOriginal<typeof import("react")>()
   return {
     ...actual,
@@ -172,7 +155,7 @@ vi.mock("react", async (importOriginal) => {
     useState: hookRuntime.useState,
     useSyncExternalStore: hookRuntime.useSyncExternalStore,
   }
-})
+)
 
 import {
   FeatureItemCreateWorkflow,
@@ -203,62 +186,52 @@ const gatewayWith = (overrides: Partial<FeatureItemGateway> = {}): FeatureItemGa
   ...overrides,
 })
 
-const deferred = <Value>() => {
-  let resolvePromise = (_value: Value): void => {
+const deferred = <Value>() =>
+  let resolvePromise = (_value: Value): void =>
     throw new Error("Deferred promise was not initialized")
-  }
-  let rejectPromise = (_reason: unknown): void => {
+  let rejectPromise = (_reason: unknown): void =>
     throw new Error("Deferred promise was not initialized")
-  }
-  const promise = new Promise<Value>((resolve, reject) => {
+  const promise = new Promise<Value>((resolve, reject) =>
     resolvePromise = resolve
     rejectPromise = reject
-  })
+  )
   return { promise, reject: rejectPromise, resolve: resolvePromise }
-}
 
-const textOf = (node: unknown): string => {
+const textOf = (node: unknown): string =>
   if (typeof node === "string" || typeof node === "number") return String(node)
   if (Array.isArray(node)) return node.map(textOf).join("")
   if (typeof node !== "object" || node === null) return ""
   const props = Reflect.get(node, "props")
   if (typeof props !== "object" || props === null) return ""
   return textOf(Reflect.get(props, "children"))
-}
 
 const findElement = (
   tree: unknown,
   predicate: (element: ElementRecord) => boolean,
-): ElementRecord | undefined => {
+): ElementRecord | undefined =>
   const seen = new WeakSet<object>()
-  const visit = (node: unknown): ElementRecord | undefined => {
-    if (Array.isArray(node)) {
-      for (const child of node) {
+  const visit = (node: unknown): ElementRecord | undefined =>
+    if (Array.isArray(node))
+      for (const child of node)
         const found = visit(child)
         if (found !== undefined) return found
-      }
       return undefined
-    }
     if (typeof node !== "object" || node === null || seen.has(node)) return undefined
     seen.add(node)
     const props = Reflect.get(node, "props")
     if (typeof props !== "object" || props === null) return undefined
     const element = node as ElementRecord
     if (predicate(element)) return element
-    for (const value of Object.values(element.props)) {
+    for (const value of Object.values(element.props))
       const found = visit(value)
       if (found !== undefined) return found
-    }
     return undefined
-  }
   return visit(tree)
-}
 
-const elementById = (tree: unknown, id: string): ElementRecord => {
+const elementById = (tree: unknown, id: string): ElementRecord =>
   const element = findElement(tree, (candidate) => candidate.props["id"] === id)
   expect(element, `Expected control #${id}`).toBeDefined()
   return element!
-}
 
 const controlByText = (tree: unknown, label: string): ElementRecord | undefined => (
   findElement(tree, (candidate) => (
@@ -267,30 +240,27 @@ const controlByText = (tree: unknown, label: string): ElementRecord | undefined 
   ))
 )
 
-const click = (tree: unknown, label: string): unknown => {
+const click = (tree: unknown, label: string): unknown =>
   const control = controlByText(tree, label)
   expect(control, `Expected control named ${label}`).toBeDefined()
   return (control!.props["onClick"] as () => unknown)()
-}
 
-const changeValue = (tree: unknown, id: string, value: string): void => {
+const changeValue = (tree: unknown, id: string, value: string): void =>
   const control = elementById(tree, id)
   expect(control.props["onChange"], `Expected #${id} to accept input`).toBeTypeOf("function")
   const onChange = control.props["onChange"] as (event: { currentTarget: { value: string } }) => void
   onChange({
     currentTarget: { value },
   })
-}
 
 const markup = (tree: unknown): string => renderToStaticMarkup(tree as ReactElement)
 
 const mountWorkflow = (gateway: FeatureItemGateway) => ({
-  render: (): ReactElement => {
+  render: (): ReactElement =>
     hookRuntime.begin()
     const tree = FeatureItemCreateWorkflow({ gateway })
     hookRuntime.commit(tree)
     return tree
-  },
 })
 
 const reachReview = (
@@ -300,7 +270,7 @@ const reachReview = (
     name?: string
     status?: "active" | "draft"
   }> = {},
-): ReactElement => {
+): ReactElement =>
   let tree = mount.render()
   changeValue(tree, "feature-name", options.name ?? "Release checklist")
   tree = mount.render()
@@ -312,15 +282,14 @@ const reachReview = (
   tree = mount.render()
   click(tree, "Review")
   return mount.render()
-}
 
 const flushMicrotasks = async ->
   await Promise.resolve()
   await Promise.resolve()
 
-afterEach(() => {
+afterEach(() =>
   hookRuntime.reset()
-})
+)
 
 describe "feature item create workflow", ->
   it "holds empty and over-limit details at step one, accepts exact limits, and restores field focus", async ->
@@ -488,9 +457,9 @@ describe "feature item create workflow", ->
     expect(markup(tree)).toContain("The feature item is ready")
 
   it "treats an unknown create outcome as non-retryable and directs duplicate-safe recovery", async ->
-    const create = vi.fn(async () => {
+    const create = vi.fn(async () =>
       throw new Error("private transport detail")
-    })
+    )
     const mount = mountWorkflow(gatewayWith({ create }))
     let tree = reachReview(mount, { description: "" })
     expect(markup(tree)).toContain("None provided")
@@ -562,7 +531,7 @@ describe "feature item create workflow", ->
     },
   ] as const
 
-  for (const recoveryCase of recoveryCases) {
+  for (const recoveryCase of recoveryCases)
     it `renders and honors ${recoveryCase.kind} creation recovery`, async ->
       const create = vi.fn()
         .mockRejectedValueOnce({ code: recoveryCase.code })
@@ -578,17 +547,15 @@ describe "feature item create workflow", ->
       expect(failure).toContain(recoveryCase.message)
       expect(failure).toContain(recoveryCase.action)
 
-      if (recoveryCase.kind === "unauthorized") {
+      if (recoveryCase.kind === "unauthorized")
         expect(failure).toContain("/sign-in?callbackURL=%2Ffeature-items")
-      } else if (recoveryCase.kind === "forbidden" || recoveryCase.kind === "not-found") {
+      else if (recoveryCase.kind === "forbidden" || recoveryCase.kind === "not-found")
         expect(failure).toContain("href=\"/feature-items\"")
         expect(controlByText(tree, "Try again")).toBeUndefined()
-      } else {
+      else
         expect(controlByText(tree, "Try again")).toBeDefined()
         await (click(tree, "Try again") as Promise<void>)
         tree = mount.render()
         expect(markup(tree)).toContain("The feature item is ready")
         expect(create).toHaveBeenCalledTimes(2)
-      }
-  }
   return undefined

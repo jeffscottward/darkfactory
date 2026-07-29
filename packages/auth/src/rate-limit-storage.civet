@@ -36,22 +36,20 @@ type DecisionRow = Readonly<{
   retry_after_seconds: number | null
 }>
 
-const assertRule = (rule: Readonly<{ window: number; max: number }>): void => {
+const assertRule = (rule: Readonly<{ window: number; max: number }>): void =>
   if (
     !Number.isSafeInteger(rule.window) ||
     rule.window <= 0 ||
     rule.window * 1_000 > MAX_RATE_LIMIT_WINDOW_MILLISECONDS ||
     !Number.isSafeInteger(rule.max) ||
     rule.max <= 0
-  ) {
+  )
     throw new RangeError("Auth rate limit rule is outside the supported bounds")
-  }
-}
 
 export const createAtomicAuthRateLimitStorage = (
   database: DatabaseExecutor,
 ): AtomicAuthRateLimitStorage => Object.freeze({
-  get: async (key: string): Promise<AuthRateLimitValue | null> => {
+  get: async (key: string): Promise<AuthRateLimitValue | null> =>
     const [row] = await database
       .select({
         key: rateLimitRows.key,
@@ -62,8 +60,7 @@ export const createAtomicAuthRateLimitStorage = (
       .where(eq(rateLimitRows.key, key))
       .limit(1)
     return row ?? null
-  },
-  set: async (key: string, value: AuthRateLimitValue): Promise<void> => {
+  set: async (key: string, value: AuthRateLimitValue): Promise<void> =>
     await database.execute(sql`
       insert into rate_limit (id, key, count, last_request)
       values (${globalThis.crypto.randomUUID()}, ${key}, ${value.count}, ${value.lastRequest})
@@ -71,15 +68,14 @@ export const createAtomicAuthRateLimitStorage = (
         count = excluded.count,
         last_request = excluded.last_request
     `)
-  },
   consume: async (
     key: string,
     rule: Readonly<{ window: number; max: number }>,
-  ): Promise<AuthRateLimitDecision> => {
+  ): Promise<AuthRateLimitDecision> =>
     assertRule(rule)
     const now = Date.now()
     const windowMilliseconds = rule.window * 1_000
-    const consumeOnce = async (): Promise<DecisionRow | undefined> => {
+    const consumeOnce = async (): Promise<DecisionRow | undefined> =>
       const decisionResult = await database.execute(sql`
         with attempted as (
           insert into rate_limit (id, key, count, last_request)
@@ -113,14 +109,11 @@ export const createAtomicAuthRateLimitStorage = (
       return (
         decisionResult as unknown as QueryRows<DecisionRow>
       ).rows[0]
-    }
     let decision = await consumeOnce()
-    if (decision === undefined) {
+    if (decision === undefined)
       decision = await consumeOnce()
-    }
-    if (decision === undefined) {
+    if (decision === undefined)
       throw new Error("Auth rate limiter did not return a decision")
-    }
 
     await database.execute(sql`
       delete from rate_limit
@@ -138,5 +131,4 @@ export const createAtomicAuthRateLimitStorage = (
       allowed: decision.allowed,
       retryAfter: decision.retry_after_seconds,
     }
-  },
 })

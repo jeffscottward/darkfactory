@@ -56,10 +56,10 @@ const fixture = async (): Promise<string> =>
 const statePath = (root: string): string =>
   join(root, "test-results", "e2e-runner-state.json")
 
-describe("atomic E2E runner state", () => {
-  it("atomically overwrites progress and final sanitized result at mode 0600", async () => {
+describe("atomic E2E runner state", () =>
+  it("atomically overwrites progress and final sanitized result at mode 0600", async () =>
     const root = await fixture()
-    try {
+    try
       persistE2ERunnerState(root, {
         version: 1,
         phase: "progress",
@@ -116,14 +116,13 @@ describe("atomic E2E runner state", () => {
       expect((await readdir(join(root, "test-results"))).filter((name) =>
         name.endsWith(".tmp")
       )).toEqual([])
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects an unknown runtime progress stage", async () => {
+  it("rejects an unknown runtime progress stage", async () =>
     const root = await fixture()
-    try {
+    try
       expect(() => persistE2ERunnerState(root, {
         version: 1,
         phase: "progress",
@@ -133,14 +132,13 @@ describe("atomic E2E runner state", () => {
           stage: "unknown",
         } as never,
       })).toThrow(/progress stage is invalid/i)
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("preserves the finite post-readiness runtime failure enums", async () => {
+  it("preserves the finite post-readiness runtime failure enums", async () =>
     const root = await fixture()
-    try {
+    try
       persistE2ERunnerState(root, {
         version: 1,
         phase: "result",
@@ -159,15 +157,14 @@ describe("atomic E2E runner state", () => {
           }],
         },
       })
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects a malicious fixed-target symlink without touching its referent", async () => {
+  it("rejects a malicious fixed-target symlink without touching its referent", async () =>
     const root = await fixture()
     const outside = join(root, "outside.json")
-    try {
+    try
       await mkdir(join(root, "test-results"))
       await writeFile(outside, "outside-safe")
       await symlink(outside, statePath(root))
@@ -177,17 +174,16 @@ describe("atomic E2E runner state", () => {
         report: report([result()]),
       })).toThrow(/target is unsafe/i)
       await expect(readFile(outside, "utf8")).resolves.toBe("outside-safe")
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
+  )
 
-  it("rejects an oversized sanitized report and leaves no temporary file", async () => {
+  it("rejects an oversized sanitized report and leaves no temporary file", async () =>
     const root = await fixture()
     const results = Array.from({ length: 256 }, (_, index) => result(
       `tests/e2e/${"a".repeat(190)}-${index}.spec.ts`,
     ))
-    try {
+    try
       expect(() => persistE2ERunnerState(root, {
         version: 1,
         phase: "result",
@@ -196,11 +192,10 @@ describe("atomic E2E runner state", () => {
       expect((await readdir(join(root, "test-results"))).filter((name) =>
         name.endsWith(".tmp")
       )).toEqual([])
-    } finally {
+    finally
       await rm(root, { force: true, recursive: true })
-    }
-  })
-})
+  )
+)
 
 const stateParentStats = (dev = 1, ino = 2) => ({
   dev,
@@ -217,12 +212,12 @@ const stateTemporaryStats = (mode = 0o600) => ({
 const missingStateTarget = (): NodeJS.ErrnoException =>
   Object.assign(new Error("missing"), { code: "ENOENT" })
 
-const fakeStateFileSystem = () => {
+const fakeStateFileSystem = () =>
   const lstatSync = vi.fn()
     .mockReturnValueOnce(stateParentStats())
-    .mockImplementationOnce(() => {
+    .mockImplementationOnce(() =>
       throw missingStateTarget()
-    })
+    )
     .mockReturnValueOnce(stateParentStats())
   const openSync = vi.fn()
     .mockReturnValueOnce(41)
@@ -245,11 +240,10 @@ const fakeStateFileSystem = () => {
       length: number,
     ) => length),
   }
-}
 
 const loadFakeStatePersistence = async (
   filesystem: ReturnType<typeof fakeStateFileSystem>,
-) => {
+) =>
   vi.doUnmock("node:crypto")
   vi.doUnmock("node:fs")
   vi.resetModules()
@@ -258,7 +252,6 @@ const loadFakeStatePersistence = async (
   }))
   vi.doMock("node:fs", () => filesystem)
   return (await import("./state.civet")).persistE2ERunnerState
-}
 
 const createdProgressState = Object.freeze({
   version: 1 as const,
@@ -270,15 +263,15 @@ const createdProgressState = Object.freeze({
   }),
 })
 
-describe("atomic state filesystem fakes", () => {
-  afterEach(() => {
+describe("atomic state filesystem fakes", () =>
+  afterEach(() =>
     vi.doUnmock("node:crypto")
     vi.doUnmock("node:fs")
     vi.resetModules()
     vi.restoreAllMocks()
-  })
+  )
 
-  it("uses portable flags and completes a partial state write", async () => {
+  it("uses portable flags and completes a partial state write", async () =>
     const filesystem = fakeStateFileSystem()
     let writes = 0
     filesystem.writeSync.mockImplementation((
@@ -307,9 +300,9 @@ describe("atomic state filesystem fakes", () => {
     expect(filesystem.fsyncSync).toHaveBeenCalledTimes(2)
     expect(filesystem.closeSync).toHaveBeenCalledTimes(2)
     expect(filesystem.rmSync).not.toHaveBeenCalled()
-  })
+  )
 
-  it("closes and removes a temporary file with unsafe metadata", async () => {
+  it("closes and removes a temporary file with unsafe metadata", async () =>
     const filesystem = fakeStateFileSystem()
     filesystem.fstatSync.mockReturnValue(stateTemporaryStats(0o644))
     const persist = await loadFakeStatePersistence(filesystem)
@@ -323,14 +316,14 @@ describe("atomic state filesystem fakes", () => {
       { force: true },
     )
     expect(filesystem.renameSync).not.toHaveBeenCalled()
-  })
+  )
 
-  it("preserves a no-progress write error when best-effort close also fails", async () => {
+  it("preserves a no-progress write error when best-effort close also fails", async () =>
     const filesystem = fakeStateFileSystem()
     filesystem.writeSync.mockReturnValue(0)
-    filesystem.closeSync.mockImplementation(() => {
+    filesystem.closeSync.mockImplementation(() =>
       throw new Error("private close failure")
-    })
+    )
     const persist = await loadFakeStatePersistence(filesystem)
 
     expect(() => persist("/workspace", createdProgressState)).toThrow(
@@ -339,15 +332,15 @@ describe("atomic state filesystem fakes", () => {
     expect(filesystem.closeSync).toHaveBeenCalledWith(41)
     expect(filesystem.rmSync).toHaveBeenCalledOnce()
     expect(filesystem.renameSync).not.toHaveBeenCalled()
-  })
+  )
 
-  it("removes the temporary file when the parent identity changes before publish", async () => {
+  it("removes the temporary file when the parent identity changes before publish", async () =>
     const filesystem = fakeStateFileSystem()
     filesystem.lstatSync.mockReset()
       .mockReturnValueOnce(stateParentStats())
-      .mockImplementationOnce(() => {
+      .mockImplementationOnce(() =>
         throw missingStateTarget()
-      })
+      )
       .mockReturnValueOnce(stateParentStats(9, 9))
     const persist = await loadFakeStatePersistence(filesystem)
 
@@ -357,32 +350,32 @@ describe("atomic state filesystem fakes", () => {
     expect(filesystem.renameSync).not.toHaveBeenCalled()
     expect(filesystem.rmSync).toHaveBeenCalledOnce()
     expect(filesystem.closeSync).toHaveBeenCalledTimes(1)
-  })
+  )
 
-  it("rethrows a non-existence mkdir failure before touching state paths", async () => {
+  it("rethrows a non-existence mkdir failure before touching state paths", async () =>
     const filesystem = fakeStateFileSystem()
     const failure = Object.assign(new Error("private mkdir failure"), {
       code: "EACCES",
     })
-    filesystem.mkdirSync.mockImplementation(() => {
+    filesystem.mkdirSync.mockImplementation(() =>
       throw failure
-    })
+    )
     const persist = await loadFakeStatePersistence(filesystem)
 
     expect(() => persist("/workspace", createdProgressState)).toThrow(failure)
     expect(filesystem.lstatSync).not.toHaveBeenCalled()
     expect(filesystem.openSync).not.toHaveBeenCalled()
     expect(filesystem.rmSync).not.toHaveBeenCalled()
-  })
+  )
 
-  it("removes an unopened temporary path without attempting descriptor cleanup", async () => {
+  it("removes an unopened temporary path without attempting descriptor cleanup", async () =>
     const filesystem = fakeStateFileSystem()
     const failure = Object.assign(new Error("private open failure"), {
       code: "EACCES",
     })
-    filesystem.openSync.mockReset().mockImplementationOnce(() => {
+    filesystem.openSync.mockReset().mockImplementationOnce(() =>
       throw failure
-    })
+    )
     const persist = await loadFakeStatePersistence(filesystem)
 
     expect(() => persist("/workspace", createdProgressState)).toThrow(failure)
@@ -392,14 +385,14 @@ describe("atomic state filesystem fakes", () => {
       { force: true },
     )
     expect(filesystem.renameSync).not.toHaveBeenCalled()
-  })
+  )
 
-  it("preserves the write failure when best-effort close throws a primitive", async () => {
+  it("preserves the write failure when best-effort close throws a primitive", async () =>
     const filesystem = fakeStateFileSystem()
     filesystem.writeSync.mockReturnValue(0)
-    filesystem.closeSync.mockImplementation(() => {
+    filesystem.closeSync.mockImplementation(() =>
       throw "private primitive close failure"
-    })
+    )
     const persist = await loadFakeStatePersistence(filesystem)
 
     expect(() => persist("/workspace", createdProgressState)).toThrow(
@@ -408,5 +401,5 @@ describe("atomic state filesystem fakes", () => {
     expect(filesystem.closeSync).toHaveBeenCalledWith(41)
     expect(filesystem.rmSync).toHaveBeenCalledOnce()
     expect(filesystem.renameSync).not.toHaveBeenCalled()
-  })
-})
+  )
+)

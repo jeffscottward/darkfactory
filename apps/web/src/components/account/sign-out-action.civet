@@ -21,23 +21,20 @@ export type SignOutActionState =
 export const restoreSignOutFocusAfterCommit = (
   state: SignOutActionState,
   button: Pick<HTMLButtonElement, "focus"> | null,
-): void => {
+): void =>
   if (state.type === "error") button?.focus()
-}
 type ReplaceLocation = (destination: typeof SIGNED_OUT_DESTINATION) => void
 
-const replaceBrowserLocation: ReplaceLocation = (destination) => {
+const replaceBrowserLocation: ReplaceLocation = (destination) =>
   window.location.replace(destination)
-}
 
 export const completeCurrentSessionSignOut = async (
   gateway: CurrentSessionGateway,
   replace: ReplaceLocation,
-): Promise<CurrentSessionSignOutResult> => {
+): Promise<CurrentSessionSignOutResult> =>
   const result = await gateway.signOut()
   if (result.ok) replace(SIGNED_OUT_DESTINATION)
   return result
-}
 
 export interface SignOutActionController {
   readonly activate: (
@@ -48,23 +45,20 @@ export interface SignOutActionController {
 export const createSignOutActionController = (
   gateway: CurrentSessionGateway,
   replace: ReplaceLocation,
-): SignOutActionController => {
+): SignOutActionController =>
   let inFlight = false
 
   return {
-    activate: async (setState) => {
+    activate: async (setState) =>
       if (inFlight) return
       inFlight = true
       setState({ type: "pending" })
 
       const result = await completeCurrentSessionSignOut(gateway, replace)
-      if (!result.ok) {
+      if (!result.ok)
         inFlight = false
         setState({ type: "error", message: result.message })
-      }
-    },
   }
-}
 
 export const SignOutActionView = ({
   buttonRef,
@@ -76,7 +70,7 @@ export const SignOutActionView = ({
   isHydrated: boolean
   onSignOut: () => void
   state: SignOutActionState
-}>) => {
+}>) =>
   const isPending = state.type === "pending"
   const errorId = state.type === "error" ? "portal-sign-out-error" : undefined
 
@@ -94,8 +88,7 @@ export const SignOutActionView = ({
         variant="ghost"
       >
         <LogOut aria-hidden="true" className="size-4" />
-        <span>Sign out</span>
-      </Button>
+        <span>Sign out
       {state.type === "error" ? (
         <p
           aria-atomic="true"
@@ -105,11 +98,8 @@ export const SignOutActionView = ({
           role="alert"
         >
           {state.message}
-        </p>
       ) : null}
-    </div>
   )
-}
 
 export const SignOutAction = ({
   gateway = browserCurrentSessionGateway,
@@ -117,7 +107,7 @@ export const SignOutAction = ({
 }: Readonly<{
   gateway?: CurrentSessionGateway
   replace?: ReplaceLocation
-}>) => {
+}>) =>
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [isHydrated, setIsHydrated] = useState(false)
   const [controller] = useState(() =>
@@ -125,15 +115,15 @@ export const SignOutAction = ({
   )
   const [state, setState] = useState<SignOutActionState>({ type: "idle" })
 
-  useEffect(() => {
+  useEffect(() =>
     setIsHydrated(true)
     return undefined
-  }, [])
+  , [])
 
-  useEffect(() => {
+  useEffect(() =>
     restoreSignOutFocusAfterCommit(state, buttonRef.current)
     return undefined
-  }, [state])
+  , [state])
   return (
     <SignOutActionView
       buttonRef={buttonRef}
@@ -142,4 +132,3 @@ export const SignOutAction = ({
       state={state}
     />
   )
-}

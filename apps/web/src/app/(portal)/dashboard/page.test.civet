@@ -5,9 +5,9 @@ const mocks = vi.hoisted(() => ({
   dispatchInternalOrpcRequest: vi.fn(),
   headers: vi.fn(),
   portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Fdashboard"),
-  redirect: vi.fn((href: string): never => {
+  redirect: vi.fn((href: string): never =>
     throw new Error(`REDIRECT:${href}`)
-  }),
+  ),
   resolvePortalAppUrl: vi.fn(
     () => new URL("https://darkfactory.localhost"),
   ),
@@ -176,14 +176,13 @@ describe "dashboard summary loader", ->
   it "makes the summary request without a cookie and redirects its typed 401", async ->
     mocks.headers.mockResolvedValueOnce(new Headers())
     mocks.dispatchInternalOrpcRequest.mockImplementationOnce(
-      async (request: Request) => {
+      async (request: Request) =>
         expect(request.headers.get("cookie")).toBeNull()
         return dashboardErrorResponse({
           defined: true,
           code: "UNAUTHORIZED",
           status: 401,
         }, 401)
-      },
     )
 
     await expect(DashboardPage()).rejects.toThrow(
@@ -213,9 +212,9 @@ describe "dashboard summary loader", ->
     expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce()
 
   it "DashboardPage loads identity and summary through one internal oRPC request without public fetch", async ->
-    const publicFetch = vi.fn(async (): Promise<Response> => {
+    const publicFetch = vi.fn(async (): Promise<Response> =>
       throw new Error("public fetch must not serve request-local SSR")
-    })
+    )
     vi.stubGlobal("fetch", publicFetch)
 
     const result = await DashboardPage()
