@@ -124,6 +124,7 @@ const writeWorkerVars = async (): Promise<void> =>
     BETTER_AUTH_SECRET: AUTH_SECRET,
     CONTACT_THROTTLE_SECRET: "test-only-contact-throttle-secret-32-characters",
     BETTER_AUTH_URL: APP_ORIGIN,
+    WORKFLOW_REPOSITORY_GRANTS: "worker-test-owner=darkfactory",
     EMAIL_TRANSPORT: "preview",
     EMAIL_FROM: "DarkFactory <noreply@domain.test>",
     OTEL_ENABLED: "false",

@@ -1,0 +1,6 @@
+import { runPilotWorkerMain } from "./pilot-worker.civet"
+
+try
+  await runPilotWorkerMain()
+catch
+  process.exitCode = 1

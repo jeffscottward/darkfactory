@@ -56,3 +56,4 @@ export const DEFAULT_UI_PREFERENCES: Readonly<UiPreferences> = Object.freeze({
   palette: "neutral",
   consent: "unknown",
 })
+

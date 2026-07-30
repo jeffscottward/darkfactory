@@ -1,0 +1,297 @@
+import {
+  MAX_WORKFLOW_SCOPE_BYTES,
+  parseWorkflowEffectScopeV1,
+} from "@darkfactory/state/workflow"
+import { oc } from "@orpc/contract"
+import { z } from "zod"
+
+export const OPERATOR_WORKFLOW_STATES = [
+  "draft",
+  "planning",
+  "awaitingApproval",
+  "implementing",
+  "verifying",
+  "blocked",
+  "completed",
+  "cancelled",
+] as const
+
+export const OperatorWorkflowStateSchema = z.enum(OPERATOR_WORKFLOW_STATES)
+const HashSchema = z.string().regex(/^[a-f0-9]{64}$/u)
+export const MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES = 6 * 1_024
+
+const utf8Encoder = new TextEncoder()
+const OperatorApprovalEffectScopeSchema = z.string().min(1)
+  .superRefine((value, context) =>
+    if utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_SCOPE_BYTES
+      context.addIssue({
+        code: "custom"
+        message: "Invalid workflow effect scope"
+      })
+      return
+    try
+      void parseWorkflowEffectScopeV1(JSON.parse(value))
+    catch
+      context.addIssue({
+        code: "custom"
+        message: "Invalid workflow effect scope"
+      })
+  )
+
+export const OperatorIdempotencyKeySchema = z.string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u)
+
+export const OperatorRunSummarySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().max(200).optional(),
+  state: OperatorWorkflowStateSchema,
+  sequence: z.number().int().nonnegative(),
+  updatedAt: z.date(),
+  headHash: HashSchema,
+  blockedReason: z.string().max(500).optional(),
+})
+
+export const OperatorTimelineEntrySchema = z.object({
+  sequence: z.number().int().positive(),
+  eventType: z.string().min(1).max(100),
+  summary: z.string().max(500),
+  hash: HashSchema,
+  createdAt: z.date(),
+})
+
+export const OperatorApprovalBindingSchema = z.object({
+  machineId: z.string().min(1).max(100),
+  machineVersion: z.number().int().positive(),
+  eventVersion: z.number().int().positive(),
+  snapshotSequence: z.number().int().nonnegative(),
+  journalHeadHash: HashSchema,
+  effectHash: HashSchema,
+  effectScope: OperatorApprovalEffectScopeSchema,
+  stale: z.boolean(),
+}).strict()
+
+export const OperatorApprovalBindingInputSchema =
+  OperatorApprovalBindingSchema.omit({ stale: true })
+
+export const OperatorEvidenceSchema = z.object({
+  id: z.string().min(1),
+  kind: z.string().min(1).max(100),
+  label: z.string().min(1).max(200),
+  redactedContent: z.string().max(4_096),
+  redacted: z.boolean(),
+  createdAt: z.date(),
+})
+
+export const OperatorImplementationPlanSchema = z.object({
+  summary: z.string().min(1).superRefine((value, context) =>
+    if (
+      value.trim().length === 0 ||
+      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value) ||
+      utf8Encoder.encode(value).byteLength > MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES
+    )
+      context.addIssue({
+        code: "custom"
+        message: "Invalid implementation plan summary"
+      })
+  )
+  digest: HashSchema
+  truncated: z.boolean()
+  redacted: z.boolean()
+}).strict()
+
+export const OperatorMessageSchema = z.object({
+  id: z.string().min(1),
+  authorLabel: z.string().min(1).max(200),
+  body: z.string().max(2_000),
+  createdAt: z.date(),
+})
+
+export const OperatorRunDetailSchema = z.object({
+  run: OperatorRunSummarySchema.extend({
+    machineId: z.string().min(1).max(100),
+    machineVersion: z.number().int().positive(),
+  }),
+  timeline: z.array(OperatorTimelineEntrySchema).max(1_000),
+  approval: OperatorApprovalBindingSchema.nullable(),
+  implementationPlan: OperatorImplementationPlanSchema.nullable(),
+  evidence: z.array(OperatorEvidenceSchema).max(200),
+  messages: z.array(OperatorMessageSchema).max(500),
+})
+
+export const OPERATOR_ERRORS = {
+  BAD_REQUEST: { status: 400, message: "Invalid operator request" },
+  UNAUTHORIZED: { status: 401, message: "Authentication required" },
+  FORBIDDEN: { status: 403, message: "Forbidden" },
+  NOT_FOUND: { status: 404, message: "Workflow run not found" },
+  CONFLICT: { status: 409, message: "Workflow run conflict" },
+  STALE_APPROVAL: { status: 409, message: "Approval binding is stale" },
+  PROJECTION_INVALID: { status: 409, message: "Workflow projection is invalid" },
+  VALIDATION_ERROR: { status: 422, message: "Workflow action is invalid" },
+  STORAGE_ERROR: { status: 503, message: "Workflow storage unavailable" },
+  SERVICE_UNAVAILABLE: { status: 503, message: "Workflow service unavailable" },
+} as const
+
+const operator = oc.errors(OPERATOR_ERRORS)
+const RunIdSchema = z.object({ id: z.string().min(1).max(128) }).strict()
+
+const OperatorSubmitScopeSchema = z.object({
+  repositoryId: z.string(),
+  paths: z.array(z.string()),
+}).strict().transform((value, context) =>
+  try
+    return parseWorkflowEffectScopeV1(value)
+  catch
+    context.addIssue({
+      code: "custom",
+      message: "Invalid workflow effect scope",
+    })
+    return z.NEVER
+)
+
+export const OperatorSubmitInputSchema = z.object({
+  idempotencyKey: OperatorIdempotencyKeySchema,
+  title: z.string().trim().min(1).max(200),
+  scope: OperatorSubmitScopeSchema,
+}).strict()
+
+export const OperatorWorkspaceInputSchema = z.object({
+  limit: z.number().int().min(1).max(100).default(100),
+}).strict()
+
+export const OperatorListInputSchema = z.object({
+  state: OperatorWorkflowStateSchema.optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(256).optional(),
+}).strict()
+
+export const OperatorListOutputSchema = z.object({
+  runs: z.array(OperatorRunSummarySchema).max(100),
+  nextCursor: z.string().max(256).nullable(),
+})
+
+const submit = operator
+  .route({
+    method: "POST",
+    path: "/operator/runs",
+    operationId: "operator.submit",
+    summary: "Submit a workflow run for the authenticated owner",
+    tags: ["Operator"],
+  })
+  .input(OperatorSubmitInputSchema)
+  .output(OperatorRunDetailSchema)
+
+const workspace = operator
+  .route({
+    method: "GET",
+    path: "/operator/workspace",
+    operationId: "operator.workspace",
+    summary: "Get the authenticated owner's workflow workspace",
+    tags: ["Operator"],
+  })
+  .input(OperatorWorkspaceInputSchema)
+  .output(z.object({ runs: z.array(OperatorRunSummarySchema).max(100) }))
+
+const list = operator
+  .route({
+    method: "GET",
+    path: "/operator/runs",
+    operationId: "operator.list",
+    summary: "List workflow runs for the authenticated owner",
+    tags: ["Operator"],
+  })
+  .input(OperatorListInputSchema)
+  .output(OperatorListOutputSchema)
+
+const detail = operator
+  .route({
+    method: "GET",
+    path: "/operator/runs/{id}",
+    operationId: "operator.detail",
+    summary: "Get a verified workflow run projection",
+    tags: ["Operator"],
+  })
+  .input(RunIdSchema)
+  .output(OperatorRunDetailSchema)
+
+const approve = operator
+  .route({
+    method: "POST",
+    path: "/operator/runs/{id}/approve",
+    operationId: "operator.approve",
+    summary: "Approve a bound workflow effect",
+    tags: ["Operator"],
+  })
+  .input(RunIdSchema.extend({ approval: OperatorApprovalBindingInputSchema }))
+  .output(OperatorRunDetailSchema)
+
+const reject = operator
+  .route({
+    method: "POST",
+    path: "/operator/runs/{id}/reject",
+    operationId: "operator.reject",
+    summary: "Reject a workflow approval",
+    tags: ["Operator"],
+  })
+  .input(RunIdSchema.extend({ reason: z.string().trim().min(1).max(2_000).optional() }))
+  .output(OperatorRunDetailSchema)
+
+const cancel = operator
+  .route({
+    method: "POST",
+    path: "/operator/runs/{id}/cancel",
+    operationId: "operator.cancel",
+    summary: "Cancel a workflow run",
+    tags: ["Operator"],
+  })
+  .input(RunIdSchema)
+  .output(OperatorRunDetailSchema)
+
+const retry = operator
+  .route({
+    method: "POST",
+    path: "/operator/runs/{id}/retry",
+    operationId: "operator.retry",
+    summary: "Retry a blocked workflow run",
+    tags: ["Operator"],
+  })
+  .input(RunIdSchema)
+  .output(OperatorRunDetailSchema)
+
+const message = operator
+  .route({
+    method: "POST",
+    path: "/operator/runs/{id}/messages",
+    operationId: "operator.message",
+    summary: "Add an operator message",
+    tags: ["Operator"],
+  })
+  .input(RunIdSchema.extend({
+    idempotencyKey: OperatorIdempotencyKeySchema,
+    body: z.string().trim().min(1).max(2_000),
+  }))
+  .output(OperatorRunDetailSchema)
+
+export const operatorContract = {
+  submit,
+  workspace,
+  list,
+  detail,
+  approve,
+  reject,
+  cancel,
+  retry,
+  message,
+}
+
+export type OperatorSubmitInput = z.input<typeof OperatorSubmitInputSchema>
+export type OperatorSubmit = z.output<typeof OperatorSubmitInputSchema>
+export type OperatorWorkflowState = z.infer<typeof OperatorWorkflowStateSchema>
+export type OperatorRunSummaryOutput = z.infer<typeof OperatorRunSummarySchema>
+export type OperatorApprovalBindingInput = z.input<typeof OperatorApprovalBindingInputSchema>
+export type OperatorImplementationPlanOutput =
+  z.infer<typeof OperatorImplementationPlanSchema>
+export type OperatorRunDetailOutput = z.infer<typeof OperatorRunDetailSchema>
+export type OperatorListInput = z.input<typeof OperatorListInputSchema>
+export type OperatorListOutput = z.infer<typeof OperatorListOutputSchema>

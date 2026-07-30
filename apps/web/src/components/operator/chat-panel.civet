@@ -1,0 +1,100 @@
+"use client"
+
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Textarea } from "@darkfactory/ui"
+import { MessageSquareText, Send } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+
+import {
+  createOperatorIdempotencyKeySlot,
+  type OperatorIdempotencyKeySlot,
+  type OperatorMessage,
+} from "./operator-client.civet"
+import { formatOperatorDate } from "./operator-format.civet"
+
+export interface ChatPanelProps {
+  readonly busy: boolean
+  readonly failureMessage?: string | undefined
+  readonly messages: readonly OperatorMessage[]
+  readonly onSend: (body: string, idempotencyKey: string) => Promise<boolean>
+}
+
+export const ChatPanel = ({ busy, failureMessage, messages, onSend }: ChatPanelProps) =>
+  const [body, setBody] = useState("")
+  const submissionInFlight = useRef(false)
+  const idempotency = useRef<OperatorIdempotencyKeySlot | null>(null)
+  const mounted = useRef(false)
+
+  useEffect(() =>
+    mounted.current = true
+    return () =>
+      mounted.current = false
+      return undefined
+  , [])
+  const changeBody = (value: string): void =>
+    idempotency.current?.invalidate()
+    setBody(value)
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) =>
+    event.preventDefault()
+    const message = body.trim()
+    if (message.length === 0 || busy || submissionInFlight.current) return
+    submissionInFlight.current = true
+    try
+      const keySlot = idempotency.current ?? createOperatorIdempotencyKeySlot()
+      idempotency.current = keySlot
+      const sent = await onSend(message, keySlot.key())
+      if (!mounted.current) return
+      if (sent)
+        keySlot.invalidate()
+        setBody("")
+    finally
+      submissionInFlight.current = false
+
+  return (
+    <Card aria-labelledby="chat-panel-title">
+      <CardHeader>
+        <CardTitle headingLevel={2} id="chat-panel-title">Operator messages
+        <CardDescription>
+          Messages shown here are bounded, owner-scoped records returned by the operator API.
+      <CardContent className="space-y-5">
+        {messages.length === 0 ? (
+          <div className="flex gap-3 border-y border-border py-4 text-sm text-muted-foreground">
+            <MessageSquareText aria-hidden="true" className="size-5 shrink-0" />No operator messages yet. Add context for the next decision or retry.
+        ) : (
+          <ol aria-live="polite" className="divide-y divide-border border-y border-border">
+            {messages.map((message) => (
+              <li className="min-w-0 py-4" key={message.id}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="break-words text-sm font-semibold text-foreground">{message.authorLabel}
+                  <time className="text-xs text-muted-foreground" dateTime={message.createdAt.toISOString()}>
+                    {formatOperatorDate(message.createdAt)}
+                <p className="mt-2 whitespace-pre-wrap break-all text-sm leading-6 text-foreground">{message.body}
+            ))}
+        )}
+        <form className="space-y-3" onSubmit={submit}>
+          <div className="space-y-2">
+            <Label htmlFor="operator-message">Add operator message
+            <Textarea
+              aria-describedby={failureMessage === undefined ? "operator-message-hint" : "operator-message-hint operator-message-error"}
+              disabled={busy}
+              id="operator-message"
+              maxLength={2_000}
+              onChange={(event) => changeBody(event.currentTarget.value)}
+              placeholder="Add bounded operational context"
+              required
+              rows={4}
+              value={body}
+            />
+            <p className="text-xs text-muted-foreground" id="operator-message-hint">
+              Do not paste secrets or raw prompt or command output. Storage policy applies before persistence.
+          {failureMessage === undefined ? null : (
+            <p className="text-sm text-destructive" id="operator-message-error" role="alert">{failureMessage}
+          )}
+          <Button
+            disabled={body.trim().length === 0 || busy}
+            loading={busy}
+            loadingLabel="Sending operator message"
+            type="submit"
+          >
+            <Send aria-hidden="true" className="size-4" />Send message
+)

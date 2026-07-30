@@ -1,0 +1,934 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  GENESIS_WORKFLOW_JOURNAL_HASH,
+  MAX_WORKFLOW_REPOSITORY_ID_BYTES,
+  MAX_WORKFLOW_SCOPE_BYTES,
+  MAX_WORKFLOW_SCOPE_PATH_BYTES,
+  MAX_WORKFLOW_SCOPE_PATHS,
+  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
+  WORKFLOW_GRAPH_V1,
+  WORKFLOW_MACHINE_ID,
+  approvalHashMaterialV1,
+  assertWorkflowEventV1,
+  assertWorkflowSnapshotV1,
+  canonicalJsonV1,
+  createInitialWorkflowSnapshotV1,
+  createWorkflowApprovalBindingV1,
+  hashWorkflowApprovalV1,
+  hashWorkflowEffectProposalV1,
+  hashWorkflowJournalEntryV1,
+  isWorkflowApprovalBindingV1,
+  isWorkflowEffectScopeV1,
+  isWorkflowEventV1,
+  isWorkflowRelativePathV1,
+  isWorkflowRepositoryIdV1,
+  isWorkflowSnapshotV1,
+  isWorkflowStateV1,
+  journalHashMaterialV1,
+  parseWorkflowEffectScopeV1,
+  replayWorkflowV1,
+  sha256Hex,
+  transitionWorkflowV1,
+  verifyWorkflowApprovalBindingV1,
+  verifyWorkflowProjectionV1,
+  workflowMachineV1,
+  WorkflowRetryLimitReachedError,
+  type WorkflowEffectKindV1,
+  type WorkflowEffectScopeV1,
+  type WorkflowEventV1,
+  type WorkflowJournalEntryV1,
+  type WorkflowSnapshotV1,
+} from "./index.civet"
+
+const H = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const H2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+const scope = { repositoryId: "darkfactory", paths: ["packages/state"] } as const
+const base = (eventId: string) => ({
+  eventId
+  eventVersion: 1 as const
+  machineVersion: 1 as const
+  occurredAt: "2026-07-29T00:00:00.000Z"
+})
+const submit = (): Extract<WorkflowEventV1, { readonly type: "RUN_SUBMITTED" }> => ({
+  ...base("submit")
+  type: "RUN_SUBMITTED"
+  taskId: "task-1"
+  workspaceId: "workspace-1"
+  taskRevision: 1
+  taskHash: H
+  scope
+})
+const plan = (): WorkflowEventV1 => ({
+  ...base("plan")
+  type: "PLAN_SUCCEEDED"
+  planEvidenceId: "plan-evidence"
+  planHash: H
+  implementationScope: scope
+})
+const implementation = (): WorkflowEventV1 => ({
+  ...base("implementation")
+  type: "IMPLEMENTATION_SUCCEEDED"
+  implementationEvidenceId: "implementation-evidence"
+  changeHash: H2
+  verificationScope: scope
+})
+const verification = (): WorkflowEventV1 => ({
+  ...base("verification")
+  type: "VERIFICATION_SUCCEEDED"
+  verificationEvidenceId: "verification-evidence"
+})
+const failure = { code: "adapter_failed", retryable: true } as const
+const initial = () => createInitialWorkflowSnapshotV1({ runId: "run-1", ownerId: "owner-1" })
+const live = (snapshot: WorkflowSnapshotV1, event: WorkflowEventV1) =>
+  transitionWorkflowV1(snapshot, event, "live")
+const planning = () => live(initial(), submit()).snapshot
+const awaitingApproval = () => live(planning(), plan()).snapshot
+const approve = (snapshot: WorkflowSnapshotV1): Extract<WorkflowEventV1, { readonly type: "APPROVAL_GRANTED" }> => ({
+  ...base("approve")
+  type: "APPROVAL_GRANTED"
+  approvalId: "approval-1"
+  approvalHash: H2
+  binding: createWorkflowApprovalBindingV1("approval-1", snapshot)
+})
+const implementing = () =>
+  const snapshot = awaitingApproval()
+  return live(snapshot, approve(snapshot)).snapshot
+const verifying = () => live(implementing(), implementation()).snapshot
+const blockedAt = (
+  stage: "planning" | "implementing" | "verifying"
+  kind: WorkflowEffectKindV1
+  attempts: number
+): WorkflowSnapshotV1 =>
+  const arranged = stage === "planning"
+    ? planning()
+    : stage === "implementing"
+      ? implementing()
+      : verifying()
+  const blocked = live(arranged, stage === "verifying"
+    ? {
+        ...base(`failed-${kind}`)
+        type: "VERIFICATION_FAILED"
+        failure
+      }
+    : {
+        ...base(`failed-${kind}`)
+        type: "EFFECT_FAILED"
+        effectKind: kind
+        failure
+      }
+  ).snapshot
+  return {
+    ...blocked
+    context: {
+      ...blocked.context
+      attempts: { ...blocked.context.attempts, [kind]: attempts }
+    }
+  }
+
+describe "workflow v1 contract", ->
+  it "exports the complete XState graph and stable identity", ->
+    expect(workflowMachineV1.id).toBe(WORKFLOW_MACHINE_ID)
+    expect(Object.keys(WORKFLOW_GRAPH_V1)).toEqual([
+      "draft", "planning", "awaitingApproval", "implementing",
+      "verifying", "blocked", "completed", "cancelled"
+    ])
+    expect(initial()).toMatchObject({
+      state: "draft"
+      sequence: 0
+      journalHeadHash: GENESIS_WORKFLOW_JOURNAL_HASH
+    })
+
+  it "rejects non-canonical or oversized scope at submission", ->
+    const invalidScopes: readonly unknown[] = [
+      { repositoryId: "../darkfactory", paths: ["packages/state"] }
+      { repositoryId: "darkfactory", paths: ["/packages/state"] }
+      { repositoryId: "darkfactory", paths: ["packages/../state"] }
+      { repositoryId: "darkfactory", paths: ["packages//state"] }
+      { repositoryId: "darkfactory", paths: ["x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES + 1)] }
+      {
+        repositoryId: "darkfactory"
+        paths: Array.from(
+          { length: MAX_WORKFLOW_SCOPE_PATHS + 1 }
+          (_, index) => `path-${index}`
+        )
+      }
+    ]
+
+    for invalidScope of invalidScopes
+      expect(isWorkflowEffectScopeV1(invalidScope)).toBe(false)
+      expect(() => live(initial(), {
+        ...submit()
+        scope: invalidScope as WorkflowEffectScopeV1
+      })).toThrow("Invalid workflow event")
+
+  it "completes the successful path with bounded hash/id payloads", ->
+    const p = live(initial(), submit())
+    expect(p.snapshot.state).toBe("planning")
+    expect(p.effects[0]).toMatchObject({
+      kind: "plan"
+      handler: "coding-agent.plan"
+      attempt: 1
+      payload: { taskId: "task-1", taskHash: H, evidenceIds: [] }
+    })
+    expect(p.effects[0]?.id).toBe(p.effects[0]?.idempotencyKey)
+
+    const a = live(p.snapshot, plan())
+    expect(a.snapshot.state).toBe("awaitingApproval")
+    expect(a.effects).toEqual([])
+    expect(a.snapshot.context).toMatchObject({ planEvidenceId: "plan-evidence", planHash: H })
+
+    const i = live(a.snapshot, approve(a.snapshot))
+    expect(i.snapshot.state).toBe("implementing")
+    expect(i.effects[0]).toMatchObject({ kind: "implement", handler: "coding-agent.implement" })
+
+    const v = live(i.snapshot, implementation())
+    expect(v.snapshot.state).toBe("verifying")
+    expect(v.effects[0]).toMatchObject({
+      kind: "verify"
+      handler: "coding-agent.verify"
+      payload: { evidenceIds: ["plan-evidence", "implementation-evidence"] }
+    })
+
+    const done = live(v.snapshot, verification())
+    expect(done.snapshot.state).toBe("completed")
+    expect(done.snapshot.context.verificationEvidenceId).toBe("verification-evidence")
+    expect(done.effects).toEqual([])
+
+  it "rejects approval into the cancelled terminal state", ->
+    const result = live(awaitingApproval(), {
+      ...base("reject")
+      type: "APPROVAL_REJECTED"
+      approvalId: "approval-2"
+      reasonCode: "plan_rejected"
+    })
+    expect(result.snapshot.state).toBe("cancelled")
+    expect(result.effects).toEqual([])
+
+  it.each([
+    ["planning", "plan", planning]
+    ["implementing", "implement", implementing]
+    ["verifying", "verify", verifying]
+  ] as const)("blocks and retries %s", (state, kind, arrange) =>
+    const blocked = live(arrange(), {
+      ...base(`failed-${kind}`)
+      type: "EFFECT_FAILED"
+      effectKind: kind as WorkflowEffectKindV1
+      failure
+    })
+    expect(blocked.snapshot.state).toBe("blocked")
+    expect(blocked.snapshot.context.failedStage).toBe(state)
+    expect(blocked.snapshot.context.lastErrorCode).toBe("adapter_failed")
+
+    const retry = live(blocked.snapshot, {
+      ...base(`retry-${kind}`)
+      type: "RETRY_REQUESTED"
+      reasonCode: "operator_retry"
+    })
+    expect(retry.snapshot.state).toBe(state)
+    expect(retry.effects[0]).toMatchObject({ kind, attempt: 2 })
+    expect(retry.snapshot.context.failedStage).toBeNull()
+  )
+
+  it "blocks VERIFICATION_FAILED and permits a fenced verification retry", ->
+    const blocked = live(verifying(), {
+      ...base("verification-failed")
+      type: "VERIFICATION_FAILED"
+      failure
+    })
+    expect(blocked.snapshot.context.failedStage).toBe("verifying")
+    const retry = live(blocked.snapshot, {
+      ...base("verification-retry")
+      type: "RETRY_REQUESTED"
+      reasonCode: "environment_recovered"
+    })
+    expect(retry.effects[0]?.kind).toBe("verify")
+
+  it.each([
+    ["planning", "plan"]
+    ["implementing", "implement"]
+    ["verifying", "verify"]
+  ] as const)("enforces the canonical total attempt ceiling for %s", (stage, kind) =>
+    const below = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1 - 1)
+    const accepted = live(below, {
+      ...base(`retry-boundary-${kind}`)
+      type: "RETRY_REQUESTED"
+      reasonCode: "operator_retry"
+    })
+    expect(accepted.effects).toHaveLength(1)
+    expect(accepted.effects[0]).toMatchObject({
+      kind
+      attempt: MAX_WORKFLOW_STAGE_ATTEMPTS_V1
+    })
+
+    const atLimit = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1)
+    const before = JSON.parse(JSON.stringify(atLimit))
+    let rejected: unknown
+    try
+      live(atLimit, {
+        ...base(`retry-exhausted-${kind}`)
+        type: "RETRY_REQUESTED"
+        reasonCode: "operator_retry"
+      })
+    catch error
+      rejected = error
+    expect(rejected).toBeInstanceOf(WorkflowRetryLimitReachedError)
+    expect(rejected).toMatchObject({
+      code: "RETRY_LIMIT_REACHED"
+      message: "Workflow retry limit reached; cancel this run or start a new run"
+    })
+    expect(atLimit).toEqual(before)
+    expect(atLimit.sequence).toBe(before.sequence)
+    expect(atLimit.journalHeadHash).toBe(before.journalHeadHash)
+
+    const aboveLimit = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1 + 1)
+    expect(isWorkflowSnapshotV1(aboveLimit)).toBe(false)
+    expect(() => live(aboveLimit, {
+      ...base(`retry-invalid-${kind}`)
+      type: "RETRY_REQUESTED"
+      reasonCode: "operator_retry"
+    })).toThrow("Invalid workflow snapshot")
+  )
+
+  it "preserves capped attempts through snapshot JSON roundtrip", ->
+    const capped = blockedAt(
+      "planning"
+      "plan"
+      MAX_WORKFLOW_STAGE_ATTEMPTS_V1
+    )
+    const restored = JSON.parse(JSON.stringify(capped)) as WorkflowSnapshotV1
+    expect(isWorkflowSnapshotV1(restored)).toBe(true)
+    expect(restored).toEqual(capped)
+    expect(() => live(restored, {
+      ...base("retry-after-roundtrip")
+      type: "RETRY_REQUESTED"
+      reasonCode: "operator_retry"
+    })).toThrow(WorkflowRetryLimitReachedError)
+
+  it.each([initial, planning, awaitingApproval, implementing, verifying])(
+    "rejects manual retry outside blocked state"
+    (arrange) =>
+      expect(() => live(arrange(), {
+        ...base("retry-not-blocked")
+        type: "RETRY_REQUESTED"
+        reasonCode: "operator_retry"
+      })).toThrow("not accepted")
+  )
+
+  it.each([initial, planning, awaitingApproval, implementing, verifying])(
+    "records message references and cancels every nonterminal state"
+    (arrange) =>
+      const messaged = live(arrange(), {
+        ...base("message")
+        type: "OPERATOR_MESSAGE_ADDED"
+        messageId: "message-1"
+      })
+      expect(messaged.snapshot.context.messageCount).toBe(1)
+      const cancelled = live(messaged.snapshot, {
+        ...base("cancel")
+        type: "CANCEL_REQUESTED"
+        reasonCode: "operator_cancelled"
+      })
+      expect(cancelled.snapshot.state).toBe("cancelled")
+  )
+
+  it "rejects bad versions, states, transitions, effect ownership, and terminal mutations", ->
+    expect(() => transitionWorkflowV1(
+      { ...initial(), machineVersion: 2 } as never, submit(), "live"
+    )).toThrow("Unsupported workflow machine version")
+    expect(() => transitionWorkflowV1(
+      initial(), { ...submit(), eventVersion: 2 } as never, "live"
+    )).toThrow("Unsupported workflow event version")
+    expect(() => transitionWorkflowV1(
+      { ...initial(), state: "unknown" } as never, submit(), "live"
+    )).toThrow("Invalid workflow state")
+    expect(() => live(initial(), plan())).toThrow("not accepted")
+    expect(() => live(planning(), {
+      ...base("wrong-owner")
+      type: "EFFECT_FAILED"
+      effectKind: "verify"
+      failure
+    })).toThrow("does not own")
+    const completed = live(verifying(), verification()).snapshot
+    expect(() => live(completed, {
+      ...base("terminal-message")
+      type: "OPERATOR_MESSAGE_ADDED"
+      messageId: "message-2"
+    })).toThrow("terminal")
+
+describe "canonical hashes and replay", ->
+  it "canonicalizes recursively and hashes with standard SHA-256", ->
+    expect(canonicalJsonV1({ b: 1, a: [3, { y: 2, x: 1 }] })).toBe(
+      '{"a":[3,{"x":1,"y":2}],"b":1}'
+    )
+    expect(sha256Hex("abc")).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
+    expect(() => canonicalJsonV1(Number.NaN)).toThrow("finite")
+    expect(() => canonicalJsonV1(1n)).toThrow("Unsupported")
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
+    expect(() => canonicalJsonV1(cyclic)).toThrow("cyclic")
+
+  it "replays deterministically and emits zero replay effects", ->
+    const start = initial()
+    const firstEvent = submit()
+    const first = live(start, firstEvent)
+    const secondEvent = plan()
+    const second = live(first.snapshot, secondEvent)
+    const approvalEvent = approve(second.snapshot)
+    const third = live(second.snapshot, approvalEvent)
+    const replayed = replayWorkflowV1(start, [firstEvent, secondEvent, approvalEvent])
+    expect(replayed.snapshot).toEqual(third.snapshot)
+    expect(replayed.effects).toEqual([])
+    expect(transitionWorkflowV1(start, firstEvent, "replay").effects).toEqual([])
+
+  it "counts a replayed manual retry once without emitting an effect", ->
+    const blocked = blockedAt(
+      "planning"
+      "plan"
+      MAX_WORKFLOW_STAGE_ATTEMPTS_V1 - 1
+    )
+    const event = {
+      ...base("replayed-retry")
+      type: "RETRY_REQUESTED" as const
+      reasonCode: "operator_retry"
+    }
+    const replayed = transitionWorkflowV1(blocked, event, "replay")
+    expect(replayed.snapshot.context.attempts.plan)
+      .toBe(MAX_WORKFLOW_STAGE_ATTEMPTS_V1)
+    expect(replayed.effects).toEqual([])
+    expect(() => transitionWorkflowV1(replayed.snapshot, event, "replay"))
+      .toThrow("not accepted")
+
+describe "approval and projection integrity", ->
+  it "binds every stale-sensitive approval field and fails closed", ->
+    const snapshot = awaitingApproval()
+    const binding = createWorkflowApprovalBindingV1("approval-1", snapshot)
+    expect(binding).toMatchObject({
+      snapshotSequence: snapshot.sequence
+      journalHeadHash: snapshot.journalHeadHash
+      action: "implement"
+      effectHash: hashWorkflowEffectProposalV1(snapshot.context.pendingEffect!)
+      effectScope: scope
+    })
+    expect(approvalHashMaterialV1({
+      runId: snapshot.context.runId
+      approvalId: binding.approvalId
+      snapshotSequence: binding.snapshotSequence
+      journalHeadHash: binding.journalHeadHash
+      effectHash: binding.effectHash
+      effectScope: binding.effectScope
+    })).toContain('"action":"implement"')
+    expect(verifyWorkflowApprovalBindingV1(binding, snapshot)).toEqual({ ok: true })
+    expect(verifyWorkflowApprovalBindingV1({ ...binding, effectHash: H }, snapshot)).toMatchObject({ ok: false })
+    expect(() => live(snapshot, {
+      ...approve(snapshot)
+      binding: { ...binding, snapshotSequence: 99 }
+    })).toThrow("Stale workflow approval")
+
+  it "verifies chain hashes and deterministic projections, rejecting corruption", ->
+    const start = initial()
+    const event = submit()
+    const result = live(start, event)
+    const entry: WorkflowJournalEntryV1 = {
+      sequence: result.snapshot.sequence
+      previousHash: start.journalHeadHash
+      hash: result.snapshot.journalHeadHash
+      event
+    }
+    expect(hashWorkflowJournalEntryV1(entry)).toBe(entry.hash)
+    expect(verifyWorkflowProjectionV1({
+      initialSnapshot: start
+      snapshot: result.snapshot
+      journal: [entry]
+    })).toEqual({ ok: true })
+    expect(verifyWorkflowProjectionV1({
+      initialSnapshot: start
+      snapshot: result.snapshot
+      journal: [{ ...entry, hash: H }]
+    })).toMatchObject({ ok: false, reason: "journal-entry-hash-mismatch" })
+    expect(isWorkflowEventV1(event)).toBe(true)
+    expect(isWorkflowEventV1({ ...event, type: "UNKNOWN" })).toBe(false)
+
+describe "canonical serialization constraints", ->
+  it "preserves JSON primitives and applies JSON container semantics to unsupported values", ->
+    expect(canonicalJsonV1(null)).toBe("null")
+    expect(canonicalJsonV1(true)).toBe("true")
+    expect(canonicalJsonV1("é")).toBe('"é"')
+    expect(canonicalJsonV1([undefined, () => null, Symbol("value")])).toBe(
+      "[null,null,null]"
+    )
+    expect(canonicalJsonV1({
+      kept: 1
+      omittedUndefined: undefined
+      omittedFunction: () => null
+      omittedSymbol: Symbol("value")
+    })).toBe('{"kept":1}')
+    for unsupported of [undefined, () => null, Symbol("value")]
+      expect(() => canonicalJsonV1(unsupported)).toThrow(
+        "Unsupported canonical JSON root value"
+      )
+
+  it "accepts null-prototype records, rejects branded objects, and releases shared ancestors", ->
+    const record = Object.create(null) as Record<string, unknown>
+    record["z"] = 2
+    record["a"] = 1
+    expect(canonicalJsonV1(record)).toBe('{"a":1,"z":2}')
+    expect(() => canonicalJsonV1(new Date(0))).toThrow("plain objects")
+    const shared = { stable: true }
+    expect(canonicalJsonV1([shared, shared])).toBe(
+      '[{"stable":true},{"stable":true}]'
+    )
+
+  it "materializes stable approval, effect, and journal hashes", ->
+    const proposal = planning().context.pendingEffect!
+    const journal = {
+      sequence: 1
+      previousHash: GENESIS_WORKFLOW_JOURNAL_HASH
+      event: submit()
+    }
+    expect(hashWorkflowEffectProposalV1(proposal)).toMatch(/^[a-f0-9]{64}$/u)
+    expect(journalHashMaterialV1(journal)).toContain('"sequence":1')
+    expect(hashWorkflowJournalEntryV1(journal)).toBe(
+      sha256Hex(journalHashMaterialV1(journal))
+    )
+    const binding = createWorkflowApprovalBindingV1(
+      "approval-hash"
+      awaitingApproval()
+    )
+    expect(hashWorkflowApprovalV1({
+      runId: "run-1"
+      approvalId: binding.approvalId
+      snapshotSequence: binding.snapshotSequence
+      journalHeadHash: binding.journalHeadHash
+      effectHash: binding.effectHash
+      effectScope: binding.effectScope
+    })).toMatch(/^[a-f0-9]{64}$/u)
+
+describe "approval policy transitions", ->
+  it "requires an awaiting implementation proposal before creating a binding", ->
+    expect(() => createWorkflowApprovalBindingV1("approval", initial()))
+      .toThrow("requires a pending implementation effect")
+    const awaiting = awaitingApproval()
+    expect(() => createWorkflowApprovalBindingV1("approval", {
+      ...awaiting
+      context: { ...awaiting.context, pendingEffect: null }
+    })).toThrow("requires a pending implementation effect")
+    expect(() => createWorkflowApprovalBindingV1("approval", {
+      ...awaiting
+      context: {
+        ...awaiting.context
+        pendingEffect: { ...awaiting.context.pendingEffect!, kind: "plan" }
+      }
+    } as never)).toThrow("must be implementation")
+
+  type ApprovalBindingPatch =
+    | "binding"
+    | null
+    | Readonly<Record<string, unknown>>
+  type ApprovalSnapshotPatch = Readonly<{
+    machineVersion?: number
+    context?: Readonly<{ pendingEffect: unknown }>
+  }> | null
+
+  it.each([
+    ["invalid-binding", null, null]
+    ["invalid-snapshot", "binding", { machineVersion: 2 }]
+    ["no-pending-effect", "binding", { context: { pendingEffect: null } }]
+    ["no-pending-effect", "binding", { context: { pendingEffect: planning().context.pendingEffect } }]
+    ["machine-mismatch", { machineId: "other-machine" }, null]
+    ["version-mismatch", { machineVersion: 2 }, null]
+    ["version-mismatch", { eventVersion: 2 }, null]
+    ["sequence-mismatch", { snapshotSequence: 999 }, null]
+    ["journal-head-mismatch", { journalHeadHash: H }, null]
+    ["effect-hash-mismatch", { effectHash: H }, null]
+    [
+      "effect-scope-mismatch"
+      { effectScope: { repositoryId: "darkfactory", paths: ["."] } }
+      null
+    ]
+  ] as readonly (readonly [string, ApprovalBindingPatch, ApprovalSnapshotPatch])[])("reports %s without accepting a stale binding", (reason, bindingPatch, snapshotPatch) =>
+    const snapshot = awaitingApproval()
+    const binding = createWorkflowApprovalBindingV1("approval", snapshot)
+    const candidateBinding = bindingPatch === "binding"
+      ? binding
+      : bindingPatch === null
+        ? null
+        : { ...binding, ...bindingPatch }
+    const candidateSnapshot = snapshotPatch === null
+      ? snapshot
+      : snapshotPatch.context === undefined
+        ? { ...snapshot, ...snapshotPatch }
+        : {
+            ...snapshot
+            context: { ...snapshot.context, ...snapshotPatch.context }
+          }
+    expect(verifyWorkflowApprovalBindingV1(
+      candidateBinding
+      candidateSnapshot as never
+    )).toEqual({ ok: false, reason })
+  )
+
+  it.each([
+    ["machineId", "other-machine", "machine-mismatch"]
+    ["machineVersion", 2, "version-mismatch"]
+  ] as const)("rejects a snapshot whose %s changes after validation", (field, staleValue, reason) =>
+    const snapshot = awaitingApproval()
+    const binding = createWorkflowApprovalBindingV1("approval", snapshot)
+    let reads = 0
+    const changingSnapshot = { ...snapshot } as Record<string, unknown>
+    Object.defineProperty(changingSnapshot, field, {
+      enumerable: true
+      get: () =>
+        reads += 1
+        return reads === 1 ? snapshot[field] : staleValue
+    })
+    expect(verifyWorkflowApprovalBindingV1(
+      binding
+      changingSnapshot as never
+    )).toEqual({ ok: false, reason })
+  )
+
+  it "rejects an approval event whose public ID differs from its valid binding", ->
+    const snapshot = awaitingApproval()
+    expect(() => live(snapshot, {
+      ...approve(snapshot)
+      approvalId: "different-approval"
+    })).toThrow("Stale workflow approval")
+
+describe "projection replay failures", ->
+  const projectionFixture = () =>
+    const start = initial()
+    const event = submit()
+    const result = live(start, event)
+    const entry: WorkflowJournalEntryV1 = {
+      sequence: result.snapshot.sequence
+      previousHash: start.journalHeadHash
+      hash: result.snapshot.journalHeadHash
+      event
+    }
+    return { start, snapshot: result.snapshot, entry }
+
+  type ProjectionPatch = Readonly<{
+    initialSnapshot?: Readonly<Record<string, unknown>>
+    snapshot?: Readonly<
+      Record<string, unknown> & {
+        context?: Readonly<Record<string, unknown>>
+      }
+    >
+    entry?: Readonly<
+      Record<string, unknown> & {
+        event?: Readonly<Record<string, unknown>>
+      }
+    >
+  }>
+
+  it.each([
+    ["invalid-initial-snapshot", { initialSnapshot: { machineVersion: 2 } }]
+    ["invalid-snapshot", { snapshot: { state: "unknown" } }]
+    ["invalid-journal-entry", { entry: { sequence: 1.5 } }]
+    ["invalid-journal-entry", { entry: { previousHash: 1 } }]
+    ["invalid-journal-entry", { entry: { hash: 1 } }]
+    ["invalid-journal-entry", { entry: { event: { type: "UNKNOWN" } } }]
+    ["journal-sequence-mismatch", { entry: { sequence: 2 } }]
+    ["journal-previous-hash-mismatch", { entry: { previousHash: H } }]
+    ["sequence-mismatch", { snapshot: { sequence: 2 } }]
+    ["journal-head-mismatch", { snapshot: { journalHeadHash: H } }]
+    ["projection-mismatch", { snapshot: { context: { messageCount: 1 } } }]
+  ] as readonly (readonly [string, ProjectionPatch])[])("reports %s for malformed or divergent projections", (reason, patch) =>
+    const fixture = projectionFixture()
+    const candidateSnapshot = patch.snapshot === undefined
+      ? fixture.snapshot
+      : patch.snapshot.context === undefined
+        ? { ...fixture.snapshot, ...patch.snapshot }
+        : {
+            ...fixture.snapshot
+            context: { ...fixture.snapshot.context, ...patch.snapshot.context }
+          }
+    const candidateInitial = patch.initialSnapshot === undefined
+      ? fixture.start
+      : { ...fixture.start, ...patch.initialSnapshot }
+    const candidateEntry = patch.entry === undefined
+      ? fixture.entry
+      : {
+          ...fixture.entry
+          ...patch.entry
+          event: patch.entry.event === undefined
+            ? fixture.entry.event
+            : { ...fixture.entry.event, ...patch.entry.event }
+        }
+    expect(verifyWorkflowProjectionV1({
+      initialSnapshot: candidateInitial as never
+      snapshot: candidateSnapshot as never
+      journal: [candidateEntry as never]
+    })).toMatchObject({ ok: false, reason })
+  )
+
+  it "reports replay failure for a valid event that is invalid from the replayed state", ->
+    const start = initial()
+    const event = verification()
+    const entry = {
+      sequence: 1
+      previousHash: start.journalHeadHash
+      hash: hashWorkflowJournalEntryV1({
+        sequence: 1
+        previousHash: start.journalHeadHash
+        event
+      })
+      event
+    }
+    expect(verifyWorkflowProjectionV1({
+      initialSnapshot: start
+      snapshot: {
+        ...start
+        sequence: 1
+        journalHeadHash: entry.hash
+      }
+      journal: [entry]
+    })).toEqual({ ok: false, reason: "replay-failed" })
+
+describe "workflow invariant guards", ->
+  it "validates portable repository IDs and relative paths at byte boundaries", ->
+    expect(isWorkflowRepositoryIdV1("a".repeat(MAX_WORKFLOW_REPOSITORY_ID_BYTES)))
+      .toBe(true)
+    for value of [
+      undefined
+      ""
+      "A"
+      "-repo"
+      "repo-"
+      "a".repeat(MAX_WORKFLOW_REPOSITORY_ID_BYTES + 1)
+    ]
+      expect(isWorkflowRepositoryIdV1(value)).toBe(false)
+    expect(isWorkflowRelativePathV1(".")).toBe(true)
+    expect(isWorkflowRelativePathV1("é/😀")).toBe(true)
+    expect(isWorkflowRelativePathV1("€/😀")).toBe(true)
+    for value of [
+      undefined
+      ""
+      "/absolute"
+      String.raw`C:\absolute`
+      "C:/absolute"
+      String.raw`nested\windows`
+      "nested//empty"
+      "nested/."
+      "nested/.."
+      "control\u0000path"
+      "x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES + 1)
+    ]
+      expect(isWorkflowRelativePathV1(value)).toBe(false)
+
+  it "parses and freezes a minimal scope while rejecting shape and total-byte violations", ->
+    const parsed = parseWorkflowEffectScopeV1({
+      repositoryId: "darkfactory"
+      paths: ["."]
+    })
+    expect(parsed).toEqual({ repositoryId: "darkfactory", paths: ["."] })
+    expect(Object.isFrozen(parsed)).toBe(true)
+    expect(Object.isFrozen(parsed.paths)).toBe(true)
+    const oversized = {
+      repositoryId: "darkfactory"
+      paths: Array.from(
+        { length: 17 }
+        (_, index) => `${index}-${"x".repeat(240)}`
+      )
+    }
+    expect(JSON.stringify(oversized).length).toBeGreaterThan(MAX_WORKFLOW_SCOPE_BYTES)
+    expect(isWorkflowEffectScopeV1(oversized)).toBe(false)
+    for invalid of [
+      null
+      { repositoryId: "darkfactory", paths: ["."] , extra: true }
+      { repositoryId: "darkfactory", paths: "packages" }
+      { repositoryId: "darkfactory", paths: [] }
+    ]
+      expect(() => parseWorkflowEffectScopeV1(invalid)).toThrow(
+        "Invalid workflow effect scope"
+      )
+
+  it "checks public state, approval, event, and snapshot invariants", ->
+    expect(isWorkflowStateV1("blocked")).toBe(true)
+    expect(isWorkflowStateV1(null)).toBe(false)
+    expect(isWorkflowStateV1("unknown")).toBe(false)
+    const snapshot = awaitingApproval()
+    const binding = createWorkflowApprovalBindingV1("approval", snapshot)
+    expect(isWorkflowApprovalBindingV1(binding)).toBe(true)
+    for patch of [
+      { approvalId: "" }
+      { action: "plan" }
+      { snapshotSequence: -1 }
+      { effectScope: null }
+    ]
+      expect(isWorkflowApprovalBindingV1({ ...binding, ...patch })).toBe(false)
+    expect(isWorkflowSnapshotV1(snapshot)).toBe(true)
+    expect(isWorkflowSnapshotV1(null)).toBe(false)
+    expect(isWorkflowSnapshotV1({
+      ...snapshot
+      context: { ...snapshot.context, failedStage: "draft" }
+    })).toBe(false)
+
+  it "rejects malformed failure evidence and every event-specific missing field", ->
+    const rejected: WorkflowEventV1 = {
+      ...base("rejected")
+      type: "APPROVAL_REJECTED"
+      approvalId: "approval"
+      reasonCode: "rejected"
+    }
+    const verificationFailed: WorkflowEventV1 = {
+      ...base("verification-failed")
+      type: "VERIFICATION_FAILED"
+      failure
+    }
+    const effectFailed: WorkflowEventV1 = {
+      ...base("effect-failed")
+      type: "EFFECT_FAILED"
+      effectKind: "plan"
+      failure
+    }
+    const retryRequested: WorkflowEventV1 = {
+      ...base("retry")
+      type: "RETRY_REQUESTED"
+      reasonCode: "retry"
+    }
+    const cancelRequested: WorkflowEventV1 = {
+      ...base("cancel")
+      type: "CANCEL_REQUESTED"
+      reasonCode: "cancel"
+    }
+    const messageAdded: WorkflowEventV1 = {
+      ...base("message")
+      type: "OPERATOR_MESSAGE_ADDED"
+      messageId: "message"
+    }
+    const events: readonly WorkflowEventV1[] = [
+      submit()
+      plan()
+      approve(awaitingApproval())
+      rejected
+      implementation()
+      verification()
+      verificationFailed
+      effectFailed
+      retryRequested
+      cancelRequested
+      messageAdded
+    ]
+    for event of events
+      expect(isWorkflowEventV1(event)).toBe(true)
+    expect(isWorkflowEventV1({
+      ...events[6]
+      failure: { code: "", retryable: "yes", evidenceId: "" }
+    })).toBe(false)
+    expect(isWorkflowEventV1({
+      ...verificationFailed
+      failure: { ...failure, evidenceId: "failure-evidence" }
+    })).toBe(true)
+    const malformedPending = planning()
+    expect(isWorkflowSnapshotV1({
+      ...malformedPending
+      context: {
+        ...malformedPending.context
+        pendingEffect: {
+          ...malformedPending.context.pendingEffect!
+          handler: "coding-agent.invalid"
+        }
+      }
+    })).toBe(false)
+    expect(isWorkflowEventV1({ ...events[7], effectKind: "unknown" })).toBe(false)
+    expect(isWorkflowEventV1({ ...events[8], reasonCode: "" })).toBe(false)
+    expect(isWorkflowEventV1({ ...events[10], messageId: "" })).toBe(false)
+    for invalid of [
+      null
+      { ...submit(), eventId: "" }
+      { ...submit(), occurredAt: "" }
+      { ...submit(), type: 1 }
+    ]
+      expect(isWorkflowEventV1(invalid)).toBe(false)
+    let typeReads = 0
+    const changingType = Object.defineProperty(
+      { ...messageAdded }
+      "type"
+      {
+        enumerable: true
+        get: () =>
+          typeReads += 1
+          return typeReads <= 2 ? "OPERATOR_MESSAGE_ADDED" : "UNKNOWN"
+      }
+    )
+    expect(isWorkflowEventV1(changingType)).toBe(false)
+
+  it "distinguishes assertion version, state, and structural failures", ->
+    expect(() => assertWorkflowEventV1(null)).toThrow("Invalid workflow event")
+    expect(() => assertWorkflowEventV1({ ...submit(), taskId: "" }))
+      .toThrow("Invalid workflow event")
+    expect(() => assertWorkflowEventV1({
+      ...submit()
+      machineVersion: 2
+    })).toThrow("Unsupported workflow machine version")
+    expect(() => assertWorkflowSnapshotV1(null))
+      .toThrow("Invalid workflow snapshot")
+    const snapshot = initial()
+    expect(() => assertWorkflowSnapshotV1({
+      ...snapshot
+      context: { ...snapshot.context, runId: "" }
+    })).toThrow("Invalid workflow snapshot")
+
+describe "state machine boundaries", ->
+  it "requires both initial identifiers and a supported transition mode", ->
+    expect(() => createInitialWorkflowSnapshotV1({ runId: "", ownerId: "owner" }))
+      .toThrow("identifiers are required")
+    expect(() => createInitialWorkflowSnapshotV1({ runId: "run", ownerId: "" }))
+      .toThrow("identifiers are required")
+    expect(() => transitionWorkflowV1(initial(), submit(), "invalid" as never))
+      .toThrow("Invalid transition mode")
+
+  it "fails closed for malformed retry state and event accessors", ->
+    const blocked = blockedAt("planning", "plan", 1)
+    expect(() => live({
+      ...blocked
+      context: { ...blocked.context, failedStage: null }
+    }, {
+      ...base("retry-without-stage")
+      type: "RETRY_REQUESTED"
+      reasonCode: "retry"
+    })).toThrow("Workflow retry requires a failed stage")
+
+    const changingEvent = Object.defineProperty(
+      {
+        ...base("changing-event")
+        type: "OPERATOR_MESSAGE_ADDED" as const
+        messageId: "message"
+      }
+      "type"
+      {
+        enumerable: true
+        get: () => new Error().stack?.includes("reduceContext")
+          ? "UNKNOWN"
+          : "OPERATOR_MESSAGE_ADDED"
+      }
+    ) as WorkflowEventV1
+    expect(() => live(initial(), changingEvent)).toThrow(
+      "Unsupported workflow event"
+    )
+
+  it "rejects mutations from both terminal states", ->
+    const completed = live(verifying(), verification()).snapshot
+    const cancelled = live(initial(), {
+      ...base("cancelled")
+      type: "CANCEL_REQUESTED"
+      reasonCode: "cancelled"
+    }).snapshot
+    const message = {
+      ...base("terminal-message")
+      type: "OPERATOR_MESSAGE_ADDED" as const
+      messageId: "message"
+    }
+    const retry = {
+      ...base("terminal-retry")
+      type: "RETRY_REQUESTED" as const
+      reasonCode: "operator_retry"
+    }
+    expect(() => live(completed, message)).toThrow("completed is terminal")
+    expect(() => live(cancelled, message)).toThrow("cancelled is terminal")
+    expect(() => live(completed, retry)).toThrow("completed is terminal")
+    expect(() => live(cancelled, retry)).toThrow("cancelled is terminal")

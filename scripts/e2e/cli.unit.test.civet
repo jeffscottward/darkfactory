@@ -1757,11 +1757,16 @@ describe("default CLI dependency fakes", () =>
     const canonicalDirectory = "/trusted-tools/bin"
     const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
     const canonicalNode = "/trusted-node/node"
+    const oversizedSuccessfulStderr = [
+      "x".repeat(17 * 1024),
+      "Error: Process from config.webServer was not able to start. Exit code: 1",
+      "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
+    ].join("\n")
     const runOwnedCommand = vi.fn()
       .mockResolvedValueOnce({
         exitCode: 0,
         stdout: "browser passed\n",
-        stderr: "",
+        stderr: oversizedSuccessfulStderr,
         treeTerminated: true,
         reason: "completed",
       })
@@ -1792,6 +1797,7 @@ describe("default CLI dependency fakes", () =>
       stage: "server-ready",
     }))
     let missingReportResult: unknown
+    const observedPlaywrightResults: unknown[] = []
     vi.doMock("node:fs/promises", async (importOriginal) =>
       const actual = await importOriginal<typeof import("node:fs/promises")>()
       return {
@@ -1837,8 +1843,17 @@ describe("default CLI dependency fakes", () =>
           mode: "e2e" | "a11y",
           dependencies: JourneyDependencies,
         ): Promise<JourneySuiteReport> =>
-          const report = await actual.runJourneySuite(mode, dependencies)
-          missingReportResult = await dependencies.runPlaywright(["pnpm"], {})
+          const runPlaywright = async (
+            ...args: Parameters<JourneyDependencies["runPlaywright"]>
+          ) =>
+            const result = await dependencies.runPlaywright(...args)
+            observedPlaywrightResults.push(result)
+            return result
+          const report = await actual.runJourneySuite(mode, {
+            ...dependencies,
+            runPlaywright,
+          })
+          missingReportResult = await runPlaywright(["pnpm"], {})
           return report
       }
     )
@@ -1858,6 +1873,13 @@ describe("default CLI dependency fakes", () =>
     )).resolves.toBe(1)
     expect(cli.output.join("")).toContain("browser passed")
     expect(cli.output.join("")).toContain("browser failed safely")
+    expect(observedPlaywrightResults[0]).toEqual(expect.objectContaining({
+      diagnostics: [],
+      exitCode: 0,
+    }))
+    expect(cli.errors.join("")).not.toContain(
+      "Dashboard session proof failed",
+    )
     expect(sanitizePlaywrightJsonReport).toHaveBeenNthCalledWith(
       1,
       "/workspace/test-results/e2e-runs/isolated_cli_run/playwright-report.json",

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import civet from "@danielx/civet/vite";
 import { defineConfig } from "vitest/config";
 import { transformWithEsbuild, type Plugin } from "vite";
@@ -17,6 +18,13 @@ const transformCivetTypescript: Plugin = {
 };
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "next/link": fileURLToPath(
+        new URL("./apps/web/src/test/next-link.civet", import.meta.url)
+      ),
+    },
+  },
   plugins: [civet({ ts: "preserve" }), transformCivetTypescript],
   test: {
     environment: "node",

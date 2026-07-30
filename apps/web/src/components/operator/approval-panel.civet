@@ -1,0 +1,140 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@darkfactory/ui"
+import { RefreshCw, ShieldCheck, TriangleAlert, XCircle } from "lucide-react"
+
+import type {
+  OperatorApprovalBinding,
+  OperatorImplementationPlan,
+} from "./operator-client.civet"
+
+export interface ApprovalPanelProps {
+  readonly approval: OperatorApprovalBinding | null
+  readonly implementationPlan: OperatorImplementationPlan | null
+  readonly busyAction: "approve" | "reject" | null
+  readonly conflictMessage?: string | undefined
+  readonly onApprove: () => void
+  readonly onReject: () => void
+  readonly onReload: () => void
+}
+
+const BindingValue = ({ children }: { readonly children: string | number }) => (
+  <dd className="min-w-0 break-all font-mono text-xs leading-5 text-foreground">
+    {children}
+)
+
+export const ApprovalPanel = ({
+  approval,
+  implementationPlan,
+  busyAction,
+  conflictMessage,
+  onApprove,
+  onReject,
+  onReload,
+}: ApprovalPanelProps) => (
+  <Card aria-labelledby="approval-panel-title">
+    <CardHeader>
+      <CardTitle headingLevel={2} id="approval-panel-title">Approval checkpoint
+      <CardDescription>
+        Approval is bound to one machine version, journal head, snapshot sequence, and effect scope.
+    <CardContent className="space-y-5">
+      {implementationPlan === null ? (
+        approval === null ? null : (
+          <div className="border-y border-destructive-border bg-destructive-subtle px-4 py-4" role="alert">
+            <h3 className="font-heading text-base font-semibold text-foreground">
+              Implementation plan unavailable
+            <p className="mt-1 text-sm leading-6 text-destructive">
+              Implementation plan evidence is unavailable. Approval is disabled.
+        )
+      ) : (
+        <section
+          aria-labelledby="implementation-plan-title"
+          className="min-w-0 border-y border-border bg-muted/30 px-4 py-4"
+        >
+          <h3
+            className="font-heading text-base font-semibold text-foreground"
+            id="implementation-plan-title"
+          >
+            Implementation plan
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            Review these exact digest-bound steps before approving or rejecting.
+          <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words border-y border-border bg-surface px-3 py-3 font-mono text-xs leading-5 text-foreground">
+            {implementationPlan.summary}
+          <dl className="mt-4 min-w-0">
+            <div className="min-w-0">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Plan digest
+              <dd className="mt-1 break-all font-mono text-xs leading-5 text-foreground">
+                {implementationPlan.digest}
+          {implementationPlan.redacted ? (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              Sensitive values were redacted.
+          ) : null}
+          {implementationPlan.truncated ? (
+            <p className="mt-1 text-xs leading-5 text-destructive" role="alert">
+              This plan is incomplete and cannot be approved. Regenerate a bounded plan.
+          ) : null}
+      )}
+      {approval === null ? (
+        <p className="text-sm leading-6 text-muted-foreground">
+          This run has no approval awaiting an explicit operator decision.
+      ) : (
+        <>
+          {approval.stale || conflictMessage !== undefined ? (
+            <div className="border-y border-warning-border bg-warning-subtle px-4 py-4" role="alert">
+              <div className="flex gap-3">
+                <TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-warning-foreground" />
+                <div>
+                  <h3 className="font-heading text-base font-semibold text-foreground">Stale approval conflict
+                  <p className="mt-1 text-sm leading-6 text-warning-foreground">
+                    {conflictMessage ?? "The journal moved after this binding was issued. Reload before deciding."}
+              <Button className="mt-3" onClick={onReload} size="compact" variant="secondary">
+                <RefreshCw aria-hidden="true" className="size-4" />Reload binding
+          ) : null}
+          <dl className="grid min-w-0 gap-x-6 gap-y-4 sm:grid-cols-2">
+            <div className="min-w-0">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Machine
+              <BindingValue>
+                {`${approval.machineId} v${approval.machineVersion}`}
+            <div className="min-w-0">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Event version
+              <BindingValue>
+                {approval.eventVersion}
+            <div className="min-w-0">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Snapshot sequence
+              <BindingValue>
+                {approval.snapshotSequence}
+            <div className="min-w-0 sm:col-span-2">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Journal head hash
+              <BindingValue>
+                {approval.journalHeadHash}
+            <div className="min-w-0 sm:col-span-2">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Effect hash
+              <BindingValue>
+                {approval.effectHash}
+            <div className="min-w-0 sm:col-span-2">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Effect scope
+              <BindingValue>
+                {approval.effectScope}
+          <div className="flex flex-col gap-2 border-t border-border pt-5 sm:flex-row">
+            <Button
+              disabled={
+                implementationPlan === null ||
+                implementationPlan.truncated ||
+                approval.stale ||
+                conflictMessage !== undefined ||
+                busyAction !== null
+              }
+              loading={busyAction === "approve"}
+              loadingLabel="Approving exact binding"
+              onClick={onApprove}
+            >
+              <ShieldCheck aria-hidden="true" className="size-4" />Approve exact binding
+            <Button
+              disabled={approval.stale || conflictMessage !== undefined || busyAction !== null}
+              loading={busyAction === "reject"}
+              loadingLabel="Rejecting approval"
+              onClick={onReject}
+              variant="destructive"
+            >
+              <XCircle aria-hidden="true" className="size-4" />Reject approval
+      )}
+)

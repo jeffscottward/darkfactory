@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { access, link, lstat, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { dirname, join, sep } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -1592,15 +1592,14 @@ describe("Graphify configured source corpus", () =>
   )
 
   it("keeps authored dotfiles but excludes generated framework and recovery output", async () =>
-    const root = join("scripts", "graph", `system-corpus-${randomUUID()}`)
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-system-corpus-"))
     const generated = join(root, ".next", "types", "routes.d.ts")
     const authored = join(root, ".authored", "source.ts")
-    const recoveryRoot = join(".session-recovery", `system-corpus-${randomUUID()}`)
-    const recovery = join(recoveryRoot, "private.json")
+    const recovery = join(root, ".session-recovery", "private.json")
     try
       await mkdir(join(root, ".next", "types"), { recursive: true })
       await mkdir(join(root, ".authored"), { recursive: true })
-      await mkdir(recoveryRoot, { recursive: true })
+      await mkdir(dirname(recovery), { recursive: true })
       await Promise.all([
         writeFile(generated, "export type GeneratedRoute = string\n"),
         writeFile(authored, "export const authored = true\n"),
@@ -1608,7 +1607,6 @@ describe("Graphify configured source corpus", () =>
       ])
 
       const config = parseGraphConfig(await readFile(".graphify/config.json", "utf8"))
-      const sources = await nodeGraphFileSystem.listSourceFiles(config)
 
       expect(config.source.files).toEqual([
         ".env.schema",
@@ -1618,12 +1616,17 @@ describe("Graphify configured source corpus", () =>
         "tsconfig.json",
       ])
       expect(config.source.excludes).toContain(".session-recovery")
-      expect(sources).toContain(authored)
-      expect(sources).not.toContain(generated)
-      expect(sources).not.toContain(recovery)
+      expect(
+        isGraphSourceExcluded(relative(root, authored), config.source.excludes),
+      ).toBe(false)
+      expect(
+        isGraphSourceExcluded(relative(root, generated), config.source.excludes),
+      ).toBe(true)
+      expect(
+        isGraphSourceExcluded(relative(root, recovery), config.source.excludes),
+      ).toBe(true)
     finally
       await rm(root, { force: true, recursive: true })
-      await rm(recoveryRoot, { force: true, recursive: true })
   )
 )
 

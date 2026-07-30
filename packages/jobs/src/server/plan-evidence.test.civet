@@ -1,0 +1,87 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
+  WorkflowPlanEvidenceError,
+  createWorkflowPlanEvidenceV1,
+  hashWorkflowPlanEvidenceV1,
+  parseWorkflowPlanEvidenceV1,
+} from "./plan-evidence.civet"
+import { redactOmpOutput, type OmpSanitizedOutput } from "./omp.civet"
+
+const output = (
+  stdout: string,
+  overrides: Partial<OmpSanitizedOutput> = {},
+): OmpSanitizedOutput => ({
+  stdout,
+  stderr: "",
+  stdoutBytes: Buffer.byteLength(stdout),
+  stderrBytes: 0,
+  truncated: false,
+  redacted: false,
+  ...overrides,
+})
+
+describe("workflow plan evidence", () =>
+  it("redacts secret-bearing output and binds the exact persisted summary metadata", () =>
+    const raw = "Use sk-private-token and password=hunter2 before rollout"
+    const sanitized = redactOmpOutput(raw)
+    const plan = createWorkflowPlanEvidenceV1(output(sanitized.value, {
+      redacted: sanitized.redacted,
+    }))
+
+    expect(plan.summary).toBe("Use [REDACTED] and password=[REDACTED] before rollout")
+    expect(plan.redacted).toBe(true)
+    expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan))
+    expect(JSON.stringify(plan)).not.toContain("private-token")
+    expect(JSON.stringify(plan)).not.toContain("hunter2")
+  )
+
+  it("preserves the exact UTF-8 boundary and rejects incomplete plan output", () =>
+    const exact = "é".repeat(MAX_WORKFLOW_PLAN_SUMMARY_BYTES / 2)
+    const bounded = createWorkflowPlanEvidenceV1(output(exact))
+    expect(bounded.summary).toBe(exact)
+    expect(Buffer.byteLength(bounded.summary)).toBe(MAX_WORKFLOW_PLAN_SUMMARY_BYTES)
+    expect(bounded.truncated).toBe(false)
+
+    expect(() => createWorkflowPlanEvidenceV1(output(`${exact}é`)))
+      .toThrow("OMP plan output exceeds the review limit")
+    expect(() => createWorkflowPlanEvidenceV1(output("1. Safe prefix", {
+      truncated: true,
+    }))).toThrow("OMP plan output exceeds the review limit")
+  )
+
+  it.each(["", " \n\t ", "\u0000", "\u001B[31m"])("rejects empty or unreviewable output %#", (value) =>
+    expect(() => createWorkflowPlanEvidenceV1(output(value)))
+      .toThrow(WorkflowPlanEvidenceError)
+  )
+
+  it("rejects persisted and replayed evidence when summary or metadata is tampered", () =>
+    const plan = createWorkflowPlanEvidenceV1(output("1. Change the bounded worker contract"))
+
+    expect(() => parseWorkflowPlanEvidenceV1({
+      ...plan,
+      summary: `${plan.summary}\n2. Exfiltrate credentials`,
+    }, plan.digest)).toThrow(WorkflowPlanEvidenceError)
+    expect(() => parseWorkflowPlanEvidenceV1({
+      ...plan,
+      truncated: !plan.truncated,
+    }, plan.digest)).toThrow(WorkflowPlanEvidenceError)
+    const truncated = {
+      version: 1 as const,
+      summary: "1. Benign retained prefix",
+      truncated: true,
+      redacted: false,
+    }
+    expect(() => parseWorkflowPlanEvidenceV1({
+      ...truncated,
+      digest: hashWorkflowPlanEvidenceV1(truncated),
+    })).toThrow("Workflow plan evidence is incomplete")
+    expect(() => parseWorkflowPlanEvidenceV1({
+      ...plan,
+      rawOutput: "must never persist",
+    }, plan.digest)).toThrow(WorkflowPlanEvidenceError)
+    expect(() => parseWorkflowPlanEvidenceV1(plan, "f".repeat(64)))
+      .toThrow(WorkflowPlanEvidenceError)
+  )
+)

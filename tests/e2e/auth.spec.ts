@@ -195,12 +195,35 @@ const expectDashboardFor = async (
   identity: { name: string; role: "admin" | "member" }
 ): Promise<void> => {
   await expect(page).toHaveURL((url) => url.pathname === "/dashboard");
-  await expect(
-    page.getByRole("heading", {
-      level: 2,
-      name: `Welcome back, ${identity.name}`,
-    })
-  ).toBeVisible();
+  const expectedHeading = page.getByRole("heading", {
+    level: 2,
+    name: `Welcome back, ${identity.name}`,
+  });
+  try {
+    await expect(expectedHeading).toBeVisible();
+  } catch (error) {
+    const diagnostic = await page.evaluate(async () => {
+      const response = await fetch("/api/orpc/dashboard/summary", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: {} }),
+      });
+      await response.body?.cancel();
+      return {
+        directStatus: response.status,
+        path: window.location.pathname,
+        renderedState: document.body.textContent?.includes(
+          "Account details are not shown when the dashboard summary cannot be loaded."
+        )
+          ? "error"
+          : "other",
+      };
+    });
+    throw new Error(
+      `Dashboard session proof failed: path=${diagnostic.path} rendered=${diagnostic.renderedState} directStatus=${diagnostic.directStatus}`,
+      { cause: error }
+    );
+  }
   await expect(
     page.getByText(
       identity.role === "admin" ? "Administrator access" : "Member access",

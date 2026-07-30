@@ -210,6 +210,7 @@ describe "application navigation manifest", ->
     ])
     expect(PORTAL_NAVIGATION.map((item) => item.href)).toEqual([
       "/dashboard",
+      "/operator",
       "/feature-items",
       "/account",
     ])
@@ -248,10 +249,11 @@ describe "application navigation manifest", ->
 
   it "marks exact and nested destinations without falsely selecting sibling routes", ->
     const dashboard = PORTAL_NAVIGATION[0]
-    const featureItems = PORTAL_NAVIGATION[1]
+    const featureItems = PORTAL_NAVIGATION[2]
     expect(dashboard).toBeDefined()
     expect(featureItems).toBeDefined()
     expect(isNavigationItemActive("/dashboard", dashboard!)).toBe(true)
+    expect(isNavigationItemActive("/operator/runs/run-1", PORTAL_NAVIGATION[1]!)).toBe(true)
     expect(isNavigationItemActive("/feature-items/example", featureItems!)).toBe(true)
     expect(isNavigationItemActive("/feature-items-archive", featureItems!)).toBe(false)
     expect(isNavigationItemActive("/about", PUBLIC_NAVIGATION[0]!)).toBe(false)

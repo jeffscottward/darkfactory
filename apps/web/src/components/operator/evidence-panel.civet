@@ -1,0 +1,37 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, StatusBadge } from "@darkfactory/ui"
+import { LockKeyhole } from "lucide-react"
+
+import type { OperatorEvidenceItem } from "./operator-client.civet"
+import { formatOperatorDate } from "./operator-format.civet"
+
+export const EvidencePanel = ({ evidence }: { readonly evidence: readonly OperatorEvidenceItem[] }) => (
+  <Card aria-labelledby="evidence-panel-title">
+    <CardHeader>
+      <CardTitle headingLevel={2} id="evidence-panel-title">Stored evidence
+      <CardDescription>
+        Only bounded, storage-safe evidence returned by the operator API is rendered. Raw prompts and raw command output are never requested.
+    <CardContent>
+      {evidence.length === 0 ? (
+        <div className="flex gap-3 py-3 text-sm text-muted-foreground">
+          <LockKeyhole aria-hidden="true" className="size-5 shrink-0" />No stored evidence is available for this run.
+      ) : (
+        <ul className="divide-y divide-border border-y border-border">
+          {evidence.map((item) => (
+            <li className="min-w-0 py-5" key={item.id}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="break-words font-heading text-base font-semibold text-foreground">{item.label}
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">{item.kind}
+                <div className="flex flex-wrap items-center gap-2">
+                  {item.redacted ? (
+                    <StatusBadge status="warning">Redacted
+                  ) : (
+                    <StatusBadge status="success">Storage-safe
+                  )}
+                  <time className="text-xs text-muted-foreground" dateTime={item.createdAt.toISOString()}>
+                    {formatOperatorDate(item.createdAt)}
+              <p className="mt-4 whitespace-pre-wrap break-all rounded-sm bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
+                {item.redactedContent.length === 0 ? "Content removed by storage policy." : item.redactedContent}
+          ))}
+      )}
+)

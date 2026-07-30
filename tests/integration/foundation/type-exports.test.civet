@@ -518,6 +518,11 @@ describe "type export audit", ->
         join(packageScope, "email"),
         symlinkType,
       ),
+      symlink(
+        join(projectRoot, "packages", "observability"),
+        join(packageScope, "observability"),
+        symlinkType,
+      ),
       symlink(authDirectory, join(packageScope, "auth"), symlinkType),
       symlink(databaseDirectory, join(packageScope, "db"), symlinkType),
     ])
@@ -560,6 +565,11 @@ describe "type export audit", ->
         packageName: "@darkfactory/db",
         subpath: "./server/migration",
         target: "./src/server/migration.civet.d.ts",
+      },
+      {
+        packageName: "@darkfactory/db",
+        subpath: "./server/workflow",
+        target: "./src/server/workflow-repository.civet.d.ts",
       },
     ])
 

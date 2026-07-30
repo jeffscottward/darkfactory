@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { CANONICAL_APP_URL, toClientEnv } from "./client.civet"
+import * as database from "./database.civet"
 import {
   EnvironmentValidationError,
   getProviderCapabilities,
@@ -7,7 +8,7 @@ import {
 } from "./server.civet"
 
 const validCoreEnv = (): Record<string, string> => ({
-  DATABASE_URL: "postgresql://database.example/darkfactory_test?sslmode=verify-full",
+  DATABASE_URL: "postgresql://database.pg.psdb.cloud:6432/darkfactory_test?sslmode=verify-full",
   BETTER_AUTH_SECRET: "a".repeat(32),
   CONTACT_THROTTLE_SECRET: "c".repeat(32),
 })
@@ -483,6 +484,44 @@ describe "parseServerEnv", ->
       message: "DATABASE_URL must use sslmode=verify-full in production",
     })
   )
+
+  it "requires the PlanetScale provider-managed PgBouncer endpoint in production", ->
+    const applicationUrl = "https://app.darkfactory.example"
+    const directDatabaseUrl =
+      "postgresql://private-user:private-password@database.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full"
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      APP_ENV: "production",
+      APP_URL: applicationUrl,
+      BETTER_AUTH_URL: applicationUrl,
+      DATABASE_URL: directDatabaseUrl,
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "r".repeat(32),
+    })
+
+    expect(error.issues).toContainEqual({
+      path: "DATABASE_URL",
+      message: expect.stringMatching(/PgBouncer endpoint on port 6432/),
+    })
+    expect(error.message).not.toContain(directDatabaseUrl)
+    expect(error.message).not.toContain("private-password")
+
+  it "does not convert unexpected database endpoint validator failures", ->
+    const applicationUrl = "https://app.darkfactory.example"
+    const unexpected = new Error("unexpected endpoint validator failure")
+    const validate = vi.spyOn(database, "validateRequestDatabaseEndpoint")
+      .mockImplementationOnce(() => throw unexpected)
+    try
+      expect(() => parseServerEnv({
+        ...validCoreEnv(),
+        APP_ENV: "production",
+        APP_URL: applicationUrl,
+        BETTER_AUTH_URL: applicationUrl,
+        EMAIL_TRANSPORT: "resend",
+        RESEND_API_KEY: "r".repeat(32),
+      })).toThrow(unexpected)
+    finally
+      validate.mockRestore()
 
   it "redacts a malformed credential-bearing production database URL", ->
     const malformedDatabaseUrl =

@@ -1,3 +1,5 @@
+import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.civet"
+
 export const CONTACT_REQUEST_MAX_BYTES = 64 * 1024
 
 export type ContactThrottleDomain = "edge" | "submit"
@@ -7,43 +9,11 @@ export type BufferedContactRequest = Readonly<{
   tooLarge: boolean
 }>
 
-export const bufferContactRequest = async (
+export const bufferContactRequest = (
   request: Request,
   maximumBytes = CONTACT_REQUEST_MAX_BYTES,
 ): Promise<BufferedContactRequest> =>
-  const declaredLength = request.headers.get("content-length")
-  if (
-    declaredLength !== null &&
-    /^\d+$/.test(declaredLength) &&
-    Number(declaredLength) > maximumBytes
-  )
-    await request.body?.cancel().catch(() => undefined)
-    return { request, tooLarge: true }
-  if (request.body === null) return { request, tooLarge: false }
-
-  const reader = request.body.getReader()
-  const chunks: Uint8Array[] = []
-  let totalBytes = 0
-  while (true)
-    const { done, value } = await reader.read()
-    if (done) break
-    totalBytes += value.byteLength
-    if (totalBytes > maximumBytes)
-      await reader.cancel().catch(() => undefined)
-      return { request, tooLarge: true }
-    chunks.push(value)
-
-  const body = new Uint8Array(totalBytes)
-  let offset = 0
-  for (const chunk of chunks)
-    body.set(chunk, offset)
-    offset += chunk.byteLength
-  const headers = new Headers(request.headers)
-  headers.set("content-length", String(totalBytes))
-  return {
-    request: new Request(request.url, { body, headers, method: request.method }),
-    tooLarge: false,
-  }
+  bufferBoundedRequest(request, maximumBytes)
 
 const UNKNOWN_CONTACT_SOURCE = "unknown"
 const canonicalIpv4 = (value: string): string | undefined =>

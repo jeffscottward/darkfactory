@@ -18,7 +18,9 @@ export type DatabaseOptions = Readonly<{
 export type RequestDatabaseOptions = Pick<
   DatabaseOptions,
   "connectionString" | "connectionTimeoutMillis"
->
+> & Readonly<{
+  diagnosticSink?: RequestDatabaseDiagnosticSink
+}>
 
 export type DatabaseResource = Readonly<{
   db: Database
@@ -83,7 +85,7 @@ const normalizePlanetScaleSystemRoot = (connectionString: string): string =>
   rawQueryParameters.splice(systemRootIndex, 1)
   return `${connectionString.slice(0, queryIndex + 1)}${rawQueryParameters.join("&")}`
 
-const drizzleDatabase = (client: Pool | Client): Database =>
+const drizzleDatabase = (client: Client | Pool): Database =>
   drizzle({ client, schema })
 
 export const createNodeDatabase = (
@@ -110,7 +112,35 @@ export const createNodeDatabase = (
 
 const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000
 const REQUEST_QUERY_TIMEOUT_MILLISECONDS = 10_000
+export const REQUEST_DATABASE_POOL_MAX_CONNECTIONS = 8
 const UNSAFE_REQUEST_CONNECTION_STRING_PATTERN = /[\u0000-\u001f]|\u0020$/u
+
+export type RequestDatabaseDiagnostic = Readonly<{
+  code:
+    | "REQUEST_DATABASE_CLIENT_ERROR"
+    | "REQUEST_DATABASE_CLIENT_CLOSE_ERROR"
+}>
+export type RequestDatabaseDiagnosticSink = (
+  diagnostic: RequestDatabaseDiagnostic,
+) => void
+
+const REQUEST_DATABASE_CLIENT_ERROR_DIAGNOSTIC =
+  Object.freeze<RequestDatabaseDiagnostic>({
+    code: "REQUEST_DATABASE_CLIENT_ERROR",
+  })
+const REQUEST_DATABASE_CLIENT_CLOSE_ERROR_DIAGNOSTIC =
+  Object.freeze<RequestDatabaseDiagnostic>({
+    code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+  })
+const emitRequestDatabaseDiagnostic = (
+  diagnosticSink: RequestDatabaseDiagnosticSink | undefined,
+  diagnostic: RequestDatabaseDiagnostic,
+): void =>
+  try
+    diagnosticSink?.(diagnostic)
+  catch
+    // A diagnostic failure must not turn a handled driver event into a crash.
+    undefined
 
 const assertSafeRequestConnectionString = (
   connectionString: string,
@@ -134,29 +164,80 @@ const assertSafeRequestConnectionString = (
       "Request database connection strings cannot set query_timeout",
     )
 
+let activeRequestConnections = 0
+
+const closeRequestDatabaseClient = (
+  client: Client,
+  diagnosticSink: RequestDatabaseDiagnosticSink | undefined,
+): (() => Promise<void>) =>
+  let closePromise: Promise<void> | undefined
+  return () =>
+    closePromise ??= (async (): Promise<void> =>
+      try
+        await client.end()
+      catch error
+        emitRequestDatabaseDiagnostic(
+          diagnosticSink,
+          REQUEST_DATABASE_CLIENT_CLOSE_ERROR_DIAGNOSTIC,
+        )
+        throw error
+      activeRequestConnections -= 1
+      undefined
+    )()
+
+
+export class RequestDatabaseCapacityError extends Error
+  override readonly name = "RequestDatabaseCapacityError"
+
+  constructor()
+    super("Request database capacity is exhausted")
+
 export const createRequestDatabase = async (
   options: RequestDatabaseOptions,
 ): Promise<DatabaseResource> =>
   assertSafeRequestConnectionString(options.connectionString)
+  if (activeRequestConnections >= REQUEST_DATABASE_POOL_MAX_CONNECTIONS)
+    throw new RequestDatabaseCapacityError()
+
+  const diagnosticSink = options.diagnosticSink
+  const connectionString = normalizePlanetScaleSystemRoot(
+    options.connectionString,
+  )
+  const connectionTimeoutMillis =
+    options.connectionTimeoutMillis ??
+    DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS
   const client = new Client({
-    connectionString: normalizePlanetScaleSystemRoot(options.connectionString),
-    connectionTimeoutMillis:
-      options.connectionTimeoutMillis ??
-      DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS,
+    connectionString,
+    connectionTimeoutMillis,
     query_timeout: REQUEST_QUERY_TIMEOUT_MILLISECONDS,
   })
-
+  client.on("error", () =>
+    emitRequestDatabaseDiagnostic(
+      diagnosticSink,
+      REQUEST_DATABASE_CLIENT_ERROR_DIAGNOSTIC,
+    )
+  )
+  activeRequestConnections += 1
+  const close = closeRequestDatabaseClient(client, diagnosticSink)
   try
     await client.connect()
   catch error
-    await client.end().catch(() => undefined)
+    try
+      await close()
+    catch
+      // The central close path reports the end failure.
+      undefined
     throw error
 
-  return {
-    db: drizzleDatabase(client),
-    close: async () =>
-      await client.end();
-  }
+  try
+    return {
+      db: drizzleDatabase(client),
+      close,
+    }
+  catch error
+    await close().catch(() => undefined)
+    throw error
+
 
 
 export const withTransaction = async <Result>(

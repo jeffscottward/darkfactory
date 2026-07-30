@@ -8,6 +8,7 @@ import { portalSignInHref } from "../../lib/server-session.civet"
 
 const MEMBER_PORTAL_ROUTES = Object.freeze([
   "/dashboard",
+  "/operator",
   "/feature-items",
   "/account",
   "/account/profile",

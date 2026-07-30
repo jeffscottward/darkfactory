@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   getPortalSession,
@@ -20,6 +20,7 @@ const activeSession = {
     expiresAt: "2030-01-01T00:00:00.000Z",
   },
 }
+afterEach -> vi.unstubAllEnvs()
 
 describe "resolvePortalAppUrl", ->
   it "uses one validated HTTPS application origin", ->
@@ -76,6 +77,7 @@ describe "portal callback paths", ->
 
 describe "getPortalSession", ->
   it "forwards only the request cookie and trusted edge IP before validating the response", async ->
+    vi.stubEnv("APP_URL", "https://darkfactory.localhost")
     const fetchSession = vi.fn(async (request: Request) ->
       expect(request.url).toBe("https://darkfactory.localhost/api/auth/get-session")
       expect(request.headers.get("cookie")).toBe("better-auth.session_token=opaque")
@@ -223,6 +225,9 @@ describe "getPortalSession", ->
       expect(safePortalCallbackPath(value)).toBeNull()
     expect(safePortalCallbackPath("/admin/users?cursor=next")).toBe(
       "/admin/users?cursor=next",
+    )
+    expect(safePortalCallbackPath("/operator/runs/run-1?view=timeline")).toBe(
+      "/operator/runs/run-1?view=timeline",
     )
 
     const fallbackHeaders = new Headers({

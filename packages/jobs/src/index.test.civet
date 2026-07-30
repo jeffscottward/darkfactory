@@ -308,7 +308,7 @@ describe "recording jobs adapter", ->
     expect(accessorReads).toBe(0)
 
 describe "jobs dependency inventory", ->
-  it "contains no runtime, optional, or peer dependencies", async ->
+  it "declares only internal runtime dependencies and explicit entrypoints", async ->
     const manifestText = await readFile(new URL("../package.json", import.meta.url), "utf8")
     const manifest = JSON.parse(manifestText)
 
@@ -317,8 +317,20 @@ describe "jobs dependency inventory", ->
       optionalDependencies: manifest.optionalDependencies ?? {},
       peerDependencies: manifest.peerDependencies ?? {},
     }).toEqual({
-      dependencies: {},
+      dependencies: {
+        "@darkfactory/db": "workspace:*"
+        "@darkfactory/state": "workspace:*"
+      },
       optionalDependencies: {},
       peerDependencies: {},
     })
-    expect(Object.keys(manifest.exports)).toEqual([".", "./server/inline", "./test"])
+    expect(Object.keys(manifest.exports)).toEqual([
+      "."
+      "./server/inline"
+      "./server/omp"
+      "./server/workflow-worker"
+      "./server/workflow-runtime"
+      "./server/plan-evidence"
+      "./server/pilot-worker"
+      "./test"
+    ])

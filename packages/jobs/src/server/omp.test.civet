@@ -1,0 +1,4832 @@
+import { createHash, randomUUID } from "node:crypto"
+import { EventEmitter } from "node:events"
+import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { homedir, tmpdir } from "node:os"
+import { basename, dirname, join } from "node:path"
+import { PassThrough } from "node:stream"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { MAX_WORKFLOW_SCOPE_PATHS } from "@darkfactory/state/workflow"
+
+type WPFilesystemDelegate = (
+  actual: (...arguments_: any[]) => any,
+  ...arguments_: any[]
+) => any
+
+const mocks = vi.hoisted(() => ({
+  execFile: vi.fn(),
+  spawn: vi.fn(),
+  WP1lstatDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP1readdirDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2mkdirDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2readFileDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2readdirDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2realpathDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2renameDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2rmDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2statDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP2writeFileDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP3accessDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP3realpathDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP3statDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP4lstatDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP4readFileDelegate: undefined as WPFilesystemDelegate | undefined,
+}))
+
+vi.mock("node:child_process", () => ({
+  execFile: mocks.execFile,
+  spawn: mocks.spawn,
+}))
+
+vi.mock("node:fs/promises", async (importOriginal) =>
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  const delegateFor = (
+    delegate: () => WPFilesystemDelegate | undefined,
+    implementation: (...arguments_: any[]) => any,
+  ) => (...arguments_: any[]) =>
+    const selected = delegate()
+    if selected === undefined
+      return implementation(...arguments_)
+    return selected(implementation, ...arguments_)
+  return {
+    ...actual,
+    access: delegateFor(() => mocks.WP3accessDelegate, actual.access),
+    lstat: (...arguments_: any[]) =>
+      if mocks.WP4lstatDelegate !== undefined
+        return mocks.WP4lstatDelegate(actual.lstat, ...arguments_)
+      return delegateFor(() => mocks.WP1lstatDelegate, actual.lstat)(...arguments_)
+    mkdir: delegateFor(() => mocks.WP2mkdirDelegate, actual.mkdir),
+    readFile: (...arguments_: any[]) =>
+      if mocks.WP4readFileDelegate !== undefined
+        return mocks.WP4readFileDelegate(actual.readFile, ...arguments_)
+      return delegateFor(() => mocks.WP2readFileDelegate, actual.readFile)(...arguments_)
+    readdir: (...arguments_: any[]) =>
+      if mocks.WP1readdirDelegate !== undefined
+        return mocks.WP1readdirDelegate(actual.readdir, ...arguments_)
+      return delegateFor(() => mocks.WP2readdirDelegate, actual.readdir)(...arguments_)
+    realpath: (...arguments_: any[]) =>
+      if mocks.WP2realpathDelegate !== undefined
+        return mocks.WP2realpathDelegate(actual.realpath, ...arguments_)
+      return delegateFor(() => mocks.WP3realpathDelegate, actual.realpath)(...arguments_)
+    rename: delegateFor(() => mocks.WP2renameDelegate, actual.rename),
+    rm: delegateFor(() => mocks.WP2rmDelegate, actual.rm),
+    stat: (...arguments_: any[]) =>
+      if mocks.WP2statDelegate !== undefined
+        return mocks.WP2statDelegate(actual.stat, ...arguments_)
+      return delegateFor(() => mocks.WP3statDelegate, actual.stat)(...arguments_)
+    writeFile: delegateFor(() => mocks.WP2writeFileDelegate, actual.writeFile),
+  }
+)
+
+import {
+  MAX_OMP_INSTRUCTION_BYTES,
+  MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,
+  OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
+  MAX_OMP_REDACTIONS,
+  OmpConfigurationError,
+  OmpRequestError,
+  OmpProcessTerminationError,
+  OmpWorkspaceCleanupError,
+  OmpWorkspaceBusyError,
+  applyOmpImplementationArtifact,
+  createOmpCliAdapter as createProductionOmpCliAdapter,
+  ompVerificationDigestFor,
+  OMP_VERIFIER_COMMAND_IDENTITY,
+  dockerVerifierArgumentsFor,
+  dockerCleanupBudgetFor,
+  decodeOmpImplementationArtifact,
+  runDockerVerifier,
+  OMP_VERIFIER_CONFIG_DIGEST,
+  OMP_VERIFIER_MEMORY,
+  OMP_VERIFIER_MEMORY_SWAP,
+  OMP_VERIFIER_CPUS,
+  OMP_VERIFIER_PIDS,
+  OMP_VERIFIER_FILE_SIZE,
+  OMP_VERIFIER_NOFILE,
+  isVerifierControlPath,
+  matchesTrustedVerifierManifest,
+  trustedVerifierManifestFor,
+  OMP_VERIFIER_ARGUMENTS,
+  OMP_VERIFIER_ARGV_IDENTITY,
+  OMP_VERIFIER_OUTPUT_TMPFS,
+  OMP_VERIFIER_CACHE_TMPFS,
+  OMP_VERIFIER_TMP_TMPFS,
+  type OmpCliAdapterOptions,
+  type OmpFilesystemSandboxBackend,
+  type DecodedOmpImplementationArtifact,
+  type OmpImplementationArtifact,
+
+  type OmpExecutionRequest,
+  type OmpVerifierRunnerResult,
+
+} from "./omp.civet"
+
+const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
+  requireAvailable: vi.fn(async () => undefined)
+} satisfies OmpFilesystemSandboxBackend)
+
+const createOmpCliAdapter = (options: OmpCliAdapterOptions) =>
+  createProductionOmpCliAdapter({
+    ...options,
+    filesystemSandboxBackend: TEST_FILESYSTEM_SANDBOX_BACKEND,
+  })
+
+type SandboxResponse = Readonly<{
+  error: NodeJS.ErrnoException | null
+  stdout: string
+  stderr: string
+  mutate?: (cwd: string) => Promise<void>
+  closeCode?: number | null
+  closeSignal?: NodeJS.Signals | null
+  pid?: number
+  holdOpen?: boolean
+  stdoutChunks?: readonly (string | Buffer)[]
+  stderrChunks?: readonly (string | Buffer)[]
+}>
+
+const sandboxResponses: SandboxResponse[] = []
+const workspaceDirectories: string[] = []
+const workspaceStatuses = new Map<string, string>()
+const trackedPaths = new Set<string>()
+const repositoryProgramConfigNames: string[] = []
+const gitResponseOverrides = new Map<string, string | Error>()
+const SOURCE_HEAD = "a".repeat(40)
+const VERIFIER_IMAGE_DIGEST = `sha256:${"b".repeat(64)}`
+const VERIFY_CORE_SCRIPT =
+  "bun run format:check && bun run lint && bun run auth:schema:check && bun run openapi:check && bun run civet:style:check && bun run typecheck && bun run build && bun run test:unit && bun run test:contract && bun run test:operations && bun run docs:check"
+
+const callbackWith = (
+  error: NodeJS.ErrnoException | null,
+  stdout = "",
+  stderr = "",
+  mutate?: (cwd: string) => Promise<void>,
+): void =>
+  sandboxResponses.push({
+    error,
+    stdout,
+    stderr,
+    ...(mutate === undefined ? {} : { mutate }),
+  })
+
+let repositoriesRoot = ""
+let repositoryDirectory = ""
+let scopedDirectory = ""
+let scopedFile = ""
+let originalProcessPath: string | undefined
+
+const sandboxCalls = () => mocks.spawn.mock.calls
+
+const gitSandboxCalls = () => mocks.execFile.mock.calls
+  .filter((call) =>
+    call[0] === "/usr/bin/sandbox-exec" &&
+    (call[1] as readonly string[])[2] === "/usr/bin/git"
+  )
+
+const gitCommandArguments = (arguments_: readonly string[]): readonly string[] =>
+  let index = 3
+  while arguments_[index] === "-c" then index += 2
+  return arguments_.slice(index)
+
+const gitCalls = () => gitSandboxCalls().map((call) => [
+  "/usr/bin/git"
+  gitCommandArguments(call[1] as readonly string[])
+  call[2]
+  call[3]
+])
+
+const directGitCalls = () => mocks.execFile.mock.calls
+  .filter((call) => call[0] === "/usr/bin/git")
+
+const resetWPFilesystemDelegates = (): void =>
+  mocks.WP1lstatDelegate = undefined
+  mocks.WP1readdirDelegate = undefined
+  mocks.WP2mkdirDelegate = undefined
+  mocks.WP2readFileDelegate = undefined
+  mocks.WP2readdirDelegate = undefined
+  mocks.WP2realpathDelegate = undefined
+  mocks.WP2renameDelegate = undefined
+  mocks.WP2rmDelegate = undefined
+  mocks.WP2statDelegate = undefined
+  mocks.WP2writeFileDelegate = undefined
+  mocks.WP3accessDelegate = undefined
+  mocks.WP3realpathDelegate = undefined
+  mocks.WP3statDelegate = undefined
+  mocks.WP4lstatDelegate = undefined
+  mocks.WP4readFileDelegate = undefined
+
+const removeOwnedTestArtifacts = async (): Promise<void> =>
+  let firstCleanupError: unknown
+  const attempt = async (operation: () => Promise<void>): Promise<void> =>
+    try
+      await operation()
+    catch error
+      if firstCleanupError === undefined then firstCleanupError = error
+  if repositoriesRoot.length > 0
+    await attempt(() => rm(repositoriesRoot, { recursive: true, force: true }))
+  for (const workspaceDirectory of workspaceDirectories)
+    await attempt(() => rm(workspaceDirectory, { recursive: true, force: true }))
+    await attempt(() =>
+      rm(`${workspaceDirectory}.lock`, { recursive: true, force: true })
+    )
+    await attempt(() => rm(`${workspaceDirectory}.owner.json`, { force: true }))
+    const parent = dirname(workspaceDirectory)
+    const baselinePrefix = `${basename(workspaceDirectory)}.baseline-`
+    let entries: string[] = []
+    await attempt(async () =>
+      entries = await readdir(parent)
+      return
+    )
+    for (const entry of entries)
+      if entry.startsWith(baselinePrefix)
+        await attempt(() => rm(join(parent, entry), { force: true }))
+  if firstCleanupError !== undefined then throw firstCleanupError
+
+const unsupportedMetadataFor = async (
+  path: string,
+): Promise<Awaited<ReturnType<typeof lstat>>> =>
+  const metadata = await lstat(path)
+  return Object.assign(metadata, {
+    mode: 0,
+    size: 0,
+    isFile: () => false,
+    isDirectory: () => false,
+    isSymbolicLink: () => false,
+  })
+
+beforeEach(async () =>
+  vi.clearAllMocks()
+  resetWPFilesystemDelegates()
+  sandboxResponses.length = 0
+  workspaceDirectories.length = 0
+  mocks.spawn.mockClear()
+  workspaceStatuses.clear()
+  trackedPaths.clear()
+  repositoryProgramConfigNames.length = 0
+  gitResponseOverrides.clear()
+  repositoriesRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "darkfactory-omp-test-")),
+  )
+  originalProcessPath = process.env["PATH"]
+  const executableDirectory = join(repositoriesRoot, "bin")
+  await mkdir(executableDirectory)
+  const executablePath = join(executableDirectory, "omp")
+  await writeFile(executablePath, "#!/bin/sh\nexit 0\n")
+  await chmod(executablePath, 0o700)
+  process.env["PATH"] = executableDirectory
+  repositoryDirectory = join(repositoriesRoot, "darkfactory")
+  scopedDirectory = join(repositoryDirectory, "packages", "jobs")
+  scopedFile = join(scopedDirectory, "representative.civet")
+  await mkdir(scopedDirectory, { recursive: true })
+  await mkdir(join(repositoryDirectory, ".git"), { recursive: true })
+  await writeFile(join(repositoryDirectory, "package.json"), JSON.stringify({
+    scripts: { "verify:core": VERIFY_CORE_SCRIPT }
+  }))
+  trackedPaths.add("package.json")
+  await writeFile(
+    join(scopedDirectory, "package.json"),
+    JSON.stringify({ name: "@darkfactory/jobs" }),
+  )
+  trackedPaths.add("packages/jobs/package.json")
+  const worktreesRoot = join(tmpdir(), "darkfactory-omp-worktrees")
+  await mkdir(worktreesRoot, { mode: 0o700, recursive: true })
+  await chmod(worktreesRoot, 0o700)
+  mocks.execFile.mockImplementation((
+    executable: string,
+    arguments_: readonly string[],
+    options: Readonly<{ cwd: string }>,
+    callback: (
+      error: NodeJS.ErrnoException | null,
+      stdout?: string | Buffer,
+      stderr?: string | Buffer,
+    ) => void,
+  ) =>
+    if (
+      executable === "/usr/bin/sandbox-exec" &&
+      arguments_[2] === "/usr/bin/git"
+    )
+      const gitArguments = gitCommandArguments(arguments_)
+      void (async () =>
+        const override = gitResponseOverrides.get(gitArguments.join("\0"))
+        if override instanceof Error then throw override
+        if override !== undefined then return override
+        if gitArguments[0] === "config"
+          return repositoryProgramConfigNames.join("\n")
+        if gitArguments[0] === "rev-parse" && gitArguments[1] === "--show-toplevel"
+          return options.cwd
+        if gitArguments[0] === "rev-parse" && gitArguments[1] === "--absolute-git-dir"
+          return join(repositoryDirectory, ".git")
+        if gitArguments[0] === "rev-parse" && gitArguments[1] === "HEAD"
+          return SOURCE_HEAD
+        if gitArguments[0] === "status"
+          return options.cwd === repositoryDirectory
+            ? ""
+            : workspaceStatuses.get(options.cwd) ?? ""
+        if gitArguments[0] === "worktree" && gitArguments[1] === "add"
+          const workspaceDirectory = gitArguments[3]!
+          await mkdir(workspaceDirectory, { recursive: true })
+          for (const relativePath of trackedPaths)
+            const sourcePath = join(repositoryDirectory, relativePath)
+            const workspacePath = join(workspaceDirectory, relativePath)
+            await mkdir(dirname(workspacePath), { recursive: true })
+            if (await lstat(sourcePath)).isSymbolicLink()
+              await symlink(await readlink(sourcePath), workspacePath)
+            else
+              await copyFile(sourcePath, workspacePath)
+          workspaceDirectories.push(workspaceDirectory)
+          return ""
+        if gitArguments[0] === "worktree" && gitArguments[1] === "remove"
+          const workspaceDirectory = gitArguments[3]!
+          workspaceStatuses.delete(workspaceDirectory)
+          await rm(workspaceDirectory, { recursive: true, force: true })
+          return ""
+        if gitArguments[0] === "worktree" && gitArguments[1] === "prune"
+          return ""
+        throw new Error("unexpected git invocation")
+      )().then(
+        (stdout) => callback(null, stdout),
+        (error: NodeJS.ErrnoException) => callback(error),
+      )
+      return
+    throw new Error("unexpected non-git execFile invocation")
+  )
+  mocks.spawn.mockImplementation((
+    _executable: string,
+    _arguments: readonly string[],
+    options: Readonly<{ cwd: string }>,
+  ) =>
+    const response = sandboxResponses.shift()
+    if response === undefined then throw new Error("missing sandbox response")
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const child = Object.assign(new EventEmitter(), {
+      pid: response.pid,
+      stdout,
+      stderr,
+      kill: vi.fn(() => true),
+    })
+    void (async () =>
+      if response.holdOpen then return
+      await response.mutate?.(options.cwd)
+      if response.mutate !== undefined && !workspaceStatuses.has(options.cwd)
+        workspaceStatuses.set(options.cwd, " M scoped-change")
+      if response.error?.code === "ETIMEDOUT"
+        return
+      if response.error !== null
+        child.emit("error", response.error)
+        return
+      for (const chunk of response.stdoutChunks ?? [response.stdout])
+        stdout.write(chunk)
+      for (const chunk of response.stderrChunks ?? [response.stderr])
+        stderr.write(chunk)
+      stdout.end()
+      stderr.end()
+      child.emit(
+        "close",
+        response.closeCode === undefined ? 0 : response.closeCode,
+        response.closeSignal === undefined ? null : response.closeSignal,
+      )
+    )().catch((error: unknown) =>
+      child.emit("error", error)
+    )
+    return child
+  )
+  return
+)
+
+afterEach(async () =>
+  resetWPFilesystemDelegates()
+  vi.restoreAllMocks()
+  delete process.env["OPENAI_API_KEY"]
+  delete process.env["UNRELATED_SECRET"]
+  delete process.env["GROQ_API_KEY"]
+  delete process.env["AWS_SECRET_ACCESS_KEY"]
+  delete process.env["AWS_SESSION_TOKEN"]
+  delete process.env["GOOGLE_API_KEY"]
+  delete process.env["AWS_ACCESS_KEY_ID"]
+  if originalProcessPath === undefined then delete process.env["PATH"]
+  else process.env["PATH"] = originalProcessPath
+  await removeOwnedTestArtifacts()
+)
+const requestFor = (
+  overrides: Partial<OmpExecutionRequest> = {},
+): OmpExecutionRequest => ({
+  command: "print",
+  workspaceId: "run-1",
+  effectKind: "plan",
+  instruction: "bounded work",
+  cwd: "darkfactory",
+  scopePaths: ["packages/jobs"],
+  ...overrides,
+})
+
+describe("OMP CLI adapter", () =>
+  it("launches sandbox-exec in a retained isolated workspace with scoped writes and session cleanup", async () =>
+    const instruction = "inspect; touch /tmp/must-not-run && $(whoami)"
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    repositoryProgramConfigNames.push(
+      "filter.attacker.clean",
+      "filter.attacker.smudge",
+      "filter.attacker.process",
+      "filter.attacker.required",
+      "diff.attacker.command",
+      "diff.attacker.textconv",
+      "diff.attacker.trustExitCode",
+    )
+    callbackWith(
+      null,
+      "done",
+      "",
+      async (cwd) =>
+        await writeFile(join(cwd, "packages", "jobs", "representative.civet"), "after")
+    )
+
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const result = await adapter.execute(requestFor({
+      effectKind: "implement",
+      instruction,
+    }))
+    expect(TEST_FILESYSTEM_SANDBOX_BACKEND.requireAvailable).toHaveBeenCalledOnce()
+
+    const call = sandboxCalls()[0]!
+    const arguments_ = call[1] as readonly string[]
+    const profile = arguments_[1]!
+    const ompExecutable = arguments_[2]!
+    const options = call[2] as Readonly<{
+      cwd: string
+      env: NodeJS.ProcessEnv
+      shell: boolean
+      windowsHide: boolean
+    }>
+    const workspaceDirectory = options.cwd
+    const isolatedScopedDirectory = join(workspaceDirectory, "packages", "jobs")
+    const isolatedScopedFile = join(isolatedScopedDirectory, "representative.civet")
+    const sessionArgument = arguments_.find((value) => value.startsWith("--session-dir="))
+    const sessionDirectory = sessionArgument!.slice("--session-dir=".length)
+
+    const gitArguments = gitCalls().map(
+      (gitCall) => gitCall[1] as readonly string[],
+    )
+    expect(gitArguments).toEqual(expect.arrayContaining([
+      ["rev-parse", "--show-toplevel"]
+      ["rev-parse", "HEAD"]
+      ["status", "--porcelain", "--untracked-files=all"]
+    ]))
+    const worktreeCall = gitCalls().find(
+      (gitCall) => (gitCall[1] as readonly string[])[0] === "worktree",
+    )
+    expect(worktreeCall).toBeDefined()
+    expect(worktreeCall![1]).toEqual([
+      "worktree"
+      "add"
+      "--detach"
+      workspaceDirectory
+      SOURCE_HEAD
+    ])
+    expect(worktreeCall![2]).toMatchObject({ cwd: repositoryDirectory })
+    expect(directGitCalls()).toHaveLength(0)
+    for gitCall of gitSandboxCalls()
+      const launcherArguments = gitCall[1] as readonly string[]
+      const gitProfile = launcherArguments[1]!
+      expect(launcherArguments.slice(0, 3)).toEqual([
+        "-p"
+        gitProfile
+        "/usr/bin/git"
+      ])
+      expect(gitProfile).toContain("(deny default)")
+      expect(gitProfile).toContain(`(literal "/usr/bin/git")`)
+      expect(gitProfile).not.toContain("network")
+      expect(launcherArguments).toEqual(expect.arrayContaining([
+        "core.hooksPath=/dev/null"
+        "core.fsmonitor=false"
+        "core.attributesFile=/dev/null"
+        "diff.external="
+        "submodule.recurse=false"
+      ]))
+      const commandArguments = gitCommandArguments(launcherArguments)
+      if commandArguments[0] !== "config"
+        expect(launcherArguments).toEqual(expect.arrayContaining([
+          "filter.attacker.clean="
+          "filter.attacker.smudge="
+          "filter.attacker.process="
+          "filter.attacker.required=false"
+          "diff.attacker.command="
+          "diff.attacker.textconv="
+          "diff.attacker.trustExitCode=false"
+        ]))
+    expect(call[0]).toBe("/usr/bin/sandbox-exec")
+    expect(arguments_.slice(0, 3)).toEqual(["-p", profile, ompExecutable])
+    const ompArguments = arguments_.slice(3)
+    expect(ompArguments).toEqual(expect.arrayContaining([
+      "-p"
+      "--mode=text"
+      "--tools=read,grep,glob,edit,write"
+      "--no-extensions"
+      "--no-skills"
+      "--no-session"
+      `--cwd=${workspaceDirectory}`
+      sessionArgument!
+      instruction
+    ]))
+    expect(ompArguments.at(-1)).toBe(instruction)
+    expect(arguments_).not.toContain("--no-tools")
+    expect(arguments_.join(" ")).not.toContain("bash")
+    expect(profile).toContain("(deny default)")
+    expect(profile).toContain(`(literal "${ompExecutable}")`)
+    const denySection = profile.slice(
+      profile.indexOf("(deny file-read* file-write*"),
+      profile.indexOf("(allow process-exec"),
+    )
+    expect(denySection).toContain(`(subpath "${join(workspaceDirectory, ".git")}")`)
+    expect(denySection).toContain(`(subpath "${join(workspaceDirectory, ".env")}")`)
+    const writeSection = profile.slice(profile.indexOf("(allow file-write*"))
+    const readSection = profile.slice(
+      profile.indexOf("(allow file-read*"),
+      profile.indexOf("(allow file-write*"),
+    )
+    expect(readSection).toContain(`(literal "${workspaceDirectory}")`)
+    expect(readSection).toContain(`(subpath "${isolatedScopedDirectory}")`)
+    expect(writeSection).toContain(`(subpath "${isolatedScopedDirectory}")`)
+    expect(writeSection).toContain(`(literal "${isolatedScopedDirectory}")`)
+    expect(writeSection).not.toContain(`(literal "${workspaceDirectory}")`)
+    expect(writeSection).not.toContain(`(subpath "${workspaceDirectory}")`)
+    expect(readSection).not.toContain(`(subpath "${homedir()}")`)
+    expect(options).toMatchObject({
+      cwd: workspaceDirectory
+      shell: false
+      windowsHide: true
+    })
+    for name of [
+      "HOME"
+      "OMP_HOME"
+      "PI_CODING_AGENT_DIR"
+      "XDG_CONFIG_HOME"
+      "XDG_CACHE_HOME"
+      "XDG_DATA_HOME"
+      "TMPDIR"
+    ]
+      expect(options.env[name]).toBe(sessionDirectory)
+    await expect(access(sessionDirectory)).rejects.toThrow()
+    await expect(access(workspaceDirectory)).resolves.toBeUndefined()
+    await expect(readFile(isolatedScopedFile, "utf8")).resolves.toBe("after")
+    await expect(readFile(scopedFile, "utf8")).resolves.toBe("before")
+    expect(result).toMatchObject({
+      status: "succeeded"
+      exitCode: 0
+      change: {
+        changeHash: expect.stringMatching(/^[a-f0-9]{64}$/u)
+        changedPaths: ["packages/jobs/representative.civet"]
+      }
+    })
+    expect(JSON.stringify(result)).not.toContain(instruction)
+  )
+  it("escalates an aborted owned process group before session and lock cleanup", async () =>
+    let exited = false
+    const signals: NodeJS.Signals[] = []
+    const processKill = vi.spyOn(process, "kill").mockImplementation((
+      _pid: number,
+      signal?: string | number,
+    ) =>
+      if signal === 0
+        if exited
+          throw Object.assign(new Error("process group exited"), { code: "ESRCH" })
+        return true
+      signals.push(signal as NodeJS.Signals)
+      if signal === "SIGKILL" then exited = true
+      return true
+    )
+    mocks.spawn.mockImplementation(() =>
+      Object.assign(new EventEmitter(), {
+        pid: 424_242
+        stdout: new PassThrough()
+        stderr: new PassThrough()
+        kill: vi.fn(() => true)
+      })
+    )
+    const controller = new AbortController()
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      shutdownTimeoutMs: 4
+    })
+
+    try
+      const running = adapter.execute(requestFor({ signal: controller.signal }))
+      await vi.waitFor(() => expect(sandboxCalls()).toHaveLength(1))
+      const ompArguments = sandboxCalls()[0]![1] as readonly string[]
+      const sessionArgument = ompArguments.find((value) =>
+        value.startsWith("--session-dir=")
+      )!
+      const sessionDirectory = sessionArgument.slice("--session-dir=".length)
+      controller.abort()
+
+      await expect(running).resolves.toMatchObject({ status: "aborted" })
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"])
+      expect(exited).toBe(true)
+      await expect(access(sessionDirectory)).rejects.toThrow()
+    finally
+      processKill.mockRestore()
+  )
+
+
+  it("gives plan and verify exactly read, grep, and glob", async () =>
+    callbackWith(null, "planned")
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      verificationRunner: async () => verifierRunnerResult()
+    })
+
+    const plan = await adapter.execute(requestFor({
+      workspaceId: "read-tools-plan"
+      effectKind: "plan"
+    }))
+    await plan.lifecycle!.finalize("unpersisted")
+    const prepared = await prepareVerificationWorkspace(adapter, "read-tools-verify")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verified")
+    const verification = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(sandboxCalls()).toHaveLength(3)
+    for call of [sandboxCalls()[0]!, sandboxCalls()[2]!]
+      const arguments_ = call[1] as readonly string[]
+      const profile = arguments_[1]!
+      const workspaceDirectory = (call[2] as Readonly<{ cwd: string }>).cwd
+      const isolatedScopedDirectory = join(workspaceDirectory, "packages", "jobs")
+      expect(arguments_).toContain("--tools=read,grep,glob")
+      expect(arguments_).not.toContain("--no-tools")
+      for forbidden of [
+        "bash"
+        "edit"
+        "write"
+        "lsp"
+        "python"
+        "notebook"
+        "inspect_image"
+        "browser"
+        "computer"
+        "task"
+        "todo"
+        "web_search"
+        "ask"
+      ]
+        expect(arguments_).not.toContain(`--tools=${forbidden}`)
+        expect(arguments_.find((value) => value.startsWith("--tools=")))
+          .not.toContain(forbidden)
+      const writeSection = profile.slice(profile.indexOf("(allow file-write*"))
+      const readSection = profile.slice(
+        profile.indexOf("(allow file-read*"),
+        profile.indexOf("(allow file-write*"),
+      )
+      expect(readSection).toContain(`(literal "${workspaceDirectory}")`)
+      expect(readSection).toContain(`(subpath "${isolatedScopedDirectory}")`)
+      expect(writeSection).not.toContain(`(literal "${workspaceDirectory}")`)
+      expect(writeSection).not.toContain(`(subpath "${workspaceDirectory}")`)
+      expect(readSection).not.toContain(`(subpath "${homedir()}")`)
+    await verification.lifecycle!.finalize("persisted")
+  )
+
+  it("does not report implementation success when exit zero makes no scoped change", async () =>
+    await writeFile(scopedFile, "unchanged")
+    trackedPaths.add("packages/jobs/representative.civet")
+    callbackWith(null, "done")
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+
+    await expect(adapter.execute(requestFor({ effectKind: "implement" })))
+      .resolves.toMatchObject({
+        status: "no-changes"
+        exitCode: 0
+        change: { changedPaths: [] }
+      })
+  )
+
+  it("keeps failed implementation mutations isolated without issuing success evidence", async () =>
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    callbackWith(
+      Object.assign(new Error("timed out"), {
+        code: "ETIMEDOUT",
+        killed: true,
+        signal: "SIGTERM",
+      }),
+      "",
+      "",
+      async (cwd) =>
+        await writeFile(join(cwd, "packages", "jobs", "representative.civet"), "partial")
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, timeoutMs: 1 })
+
+    const result = await adapter.execute(requestFor({ effectKind: "implement" }))
+
+    expect(result).toMatchObject({
+      status: "timed-out"
+      change: null
+      implementationArtifact: null
+    })
+    const workspaceDirectory = (
+      sandboxCalls()[0]![2] as Readonly<{ cwd: string }>
+    ).cwd
+    await expect(readFile(
+      join(workspaceDirectory, "packages", "jobs", "representative.civet"),
+      "utf8",
+    )).resolves.toBe("partial")
+    await expect(readFile(scopedFile, "utf8")).resolves.toBe("before")
+  )
+
+  it("escapes sandbox string literals for canonical scoped paths", async () =>
+    const quotedDirectory = join(repositoryDirectory, "packages", "quo\"ted")
+    const quotedFile = join(quotedDirectory, "change.civet")
+    await mkdir(quotedDirectory, { recursive: true })
+    await writeFile(quotedFile, "before")
+    trackedPaths.add("packages/quo\"ted/change.civet")
+    callbackWith(
+      null,
+      "",
+      "",
+      async (cwd) =>
+        await writeFile(join(cwd, "packages", "quo\"ted", "change.civet"), "after")
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+
+    await adapter.execute(requestFor({
+      effectKind: "implement"
+      scopePaths: ["packages/quo\"ted"]
+    }))
+
+    const profile = sandboxCalls()[0]![1][1] as string
+    expect(profile).toContain("packages/quo\\\"ted")
+    expect(profile).not.toContain("packages/quo\"ted")
+  )
+
+  it("rejects non-allowlisted executables and logical subcommands", async () =>
+    expect(() => createOmpCliAdapter({
+      executable: "sh"
+      repositoriesRoot
+    }))
+      .toThrow(OmpConfigurationError)
+
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    await expect(adapter.execute(requestFor({ command: "acp" as never })))
+      .rejects.toBeInstanceOf(OmpRequestError)
+    expect(mocks.execFile).not.toHaveBeenCalled()
+  )
+
+  it("fails closed on an uncorrelated live-owner workspace lock without spawning", async () =>
+    const workspaceId = "locked-run"
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+    const workspaceKey = createHash("sha256")
+      .update(`${repositoryDirectory}\0${workspaceId}`)
+      .digest("hex")
+    const lockDirectory = `${join(worktreesRoot, workspaceKey)}.lock`
+    const owner = JSON.stringify({
+      nonce: randomUUID()
+      pid: process.pid
+      createdAt: 1
+    })
+    await mkdir(lockDirectory, { mode: 0o700 })
+    await writeFile(join(lockDirectory, "owner.json"), owner, { mode: 0o600 })
+    try
+      const adapter = createOmpCliAdapter({ repositoriesRoot })
+      await expect(adapter.execute(requestFor({ workspaceId })))
+        .rejects.toThrow("OMP workspace requires operator cleanup (owner identity changed)")
+      expect(gitCalls().filter(
+        (call) => (call[1] as readonly string[])[0] === "worktree",
+      )).toHaveLength(0)
+      expect(sandboxCalls()).toHaveLength(0)
+      await expect(readFile(join(lockDirectory, "owner.json"), "utf8"))
+        .resolves.toBe(owner)
+    finally
+      await rm(lockDirectory, { recursive: true, force: true })
+  )
+
+  it("rejects whole-repository and sensitive implementation scopes before spawn", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for scopePath of [".", ".git", ".git/hooks", ".env", ".env.local", ".omp"]
+      await expect(adapter.execute(requestFor({
+        effectKind: "implement"
+        scopePaths: [scopePath]
+      }))).rejects.toBeInstanceOf(OmpRequestError)
+    expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("rejects a scope symlink resolving to the repository root before spawn", async () =>
+    await symlink(".", join(repositoryDirectory, "root-alias"))
+    trackedPaths.add("root-alias")
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+
+    await expect(adapter.execute(requestFor({
+      effectKind: "implement"
+      scopePaths: ["root-alias"]
+    }))).rejects.toBeInstanceOf(OmpRequestError)
+    expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("rejects invalid cwd and scope symlink escapes before spawn", async () =>
+    const outside = await mkdtemp(join(tmpdir(), "darkfactory-omp-outside-"))
+    try
+      await symlink(outside, join(repositoriesRoot, "escape"))
+      await symlink(outside, join(repositoryDirectory, "linked-outside"))
+      trackedPaths.add("linked-outside")
+      await writeFile(join(repositoriesRoot, "not-a-directory"), "file")
+      const adapter = createOmpCliAdapter({ repositoriesRoot })
+      for cwd of [
+        repositoryDirectory
+        "../outside"
+        "missing"
+        "not-a-directory"
+        "escape"
+        "x".repeat(257)
+      ]
+        await expect(adapter.execute(requestFor({ cwd })))
+          .rejects.toBeInstanceOf(OmpRequestError)
+      await expect(adapter.execute(requestFor({
+        effectKind: "implement"
+        scopePaths: ["linked-outside/change.civet"]
+      }))).rejects.toBeInstanceOf(OmpRequestError)
+      expect(sandboxCalls()).toHaveLength(0)
+    finally
+      await rm(outside, { recursive: true, force: true })
+  )
+
+  it("injects only approved model auth and redacts every injected secret value", async () =>
+    const sentinels = {
+      openai: "bare-openai-sentinel"
+      groq: "bare-groq-sentinel"
+      awsAccess: "bare-aws-access-sentinel"
+      awsSecret: "bare-aws-secret-sentinel"
+      awsSession: "bare-aws-session-sentinel"
+      custom: "bare-custom-sentinel"
+    }
+    process.env["OPENAI_API_KEY"] = sentinels.openai
+    process.env["GROQ_API_KEY"] = sentinels.groq
+    process.env["AWS_ACCESS_KEY_ID"] = sentinels.awsAccess
+    process.env["AWS_SECRET_ACCESS_KEY"] = sentinels.awsSecret
+    process.env["AWS_SESSION_TOKEN"] = sentinels.awsSession
+    process.env["UNRELATED_SECRET"] = "must-not-leak"
+    callbackWith(null, Object.values(sentinels).join(" "))
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+
+    const result = await adapter.execute(requestFor({
+      redactions: [sentinels.custom]
+    }))
+
+    const environment = sandboxCalls()[0]![2].env as NodeJS.ProcessEnv
+    expect(environment["OPENAI_API_KEY"]).toBe(sentinels.openai)
+    expect(environment["GROQ_API_KEY"]).toBe(sentinels.groq)
+    expect(environment["AWS_ACCESS_KEY_ID"]).toBe(sentinels.awsAccess)
+    expect(environment["UNRELATED_SECRET"]).toBeUndefined()
+    expect(result.output.redacted).toBe(true)
+    for sentinel of Object.values(sentinels)
+      expect(JSON.stringify(result.output)).not.toContain(sentinel)
+  )
+
+  it("redacts secrets and caps combined output before returning it", async () =>
+    const secret = "sk-live-private-token"
+    callbackWith(
+      null,
+      `result api_key=${secret} ${"x".repeat(200)}`,
+      `Bearer ${secret}`,
+    )
+
+    const adapter = createOmpCliAdapter({ maxOutputBytes: 80, repositoriesRoot })
+    const result = await adapter.execute(requestFor({ redactions: [secret] }))
+
+    expect(result.status).toBe("output-limit")
+    expect(result.output.truncated).toBe(true)
+    expect(result.output.redacted).toBe(true)
+    expect(result.output.stdout).toContain("[REDACTED]")
+    expect(JSON.stringify(result.output)).not.toContain(secret)
+    expect(Buffer.byteLength(result.output.stdout) + Buffer.byteLength(result.output.stderr))
+      .toBeLessThanOrEqual(80)
+  )
+
+  it("returns structured timeout and abort outcomes", async () =>
+    callbackWith(Object.assign(new Error("timed out"), {
+      code: "ETIMEDOUT",
+      killed: true,
+      signal: "SIGTERM",
+    }))
+    const adapter = createOmpCliAdapter({ timeoutMs: 25, repositoriesRoot })
+    await expect(adapter.execute(requestFor({ instruction: "slow" })))
+      .resolves.toMatchObject({ status: "timed-out", exitCode: null })
+
+    const abortController = new AbortController()
+    abortController.abort()
+    await expect(adapter.execute(requestFor({
+      instruction: "cancelled",
+      signal: abortController.signal,
+    }))).resolves.toMatchObject({ status: "aborted", exitCode: null })
+    expect(sandboxCalls()).toHaveLength(1)
+  )
+  it("rejects adapter and request boundary values before launching OMP", async () =>
+    for options of [
+      { repositoriesRoot: "relative" }
+      { repositoriesRoot: "/tmp/root\0escape" }
+      { repositoriesRoot, timeoutMs: 0 }
+      { repositoriesRoot, timeoutMs: 3_600_001 }
+      { repositoriesRoot, maxOutputBytes: 0 }
+      { repositoriesRoot, maxOutputBytes: 1_048_577 }
+      { repositoriesRoot, shutdownTimeoutMs: 0 }
+      { repositoriesRoot, shutdownTimeoutMs: 60_001 }
+    ]
+      expect(() => createOmpCliAdapter(options)).toThrow(OmpConfigurationError)
+
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for request of [
+      requestFor({ effectKind: "deploy" as never })
+      requestFor({ instruction: "" })
+      requestFor({ instruction: "x".repeat(MAX_OMP_INSTRUCTION_BYTES + 1) })
+      requestFor({ redactions: Array.from({ length: MAX_OMP_REDACTIONS + 1 }, () => "x") })
+      requestFor({ redactions: [""] })
+      requestFor({ redactions: ["x".repeat(4_097)] })
+    ]
+      await expect(adapter.execute(request)).rejects.toBeInstanceOf(OmpRequestError)
+    expect(sandboxCalls()).toHaveLength(0)
+
+    await expect(createOmpCliAdapter({
+      repositoriesRoot
+      executable: "/definitely/missing/omp"
+      allowedExecutables: ["/definitely/missing/omp"]
+    }).execute(requestFor())).rejects.toBeInstanceOf(OmpConfigurationError)
+  )
+
+  it("rejects invalid workspace identifiers and scope cardinality before spawn", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for workspaceId of ["", "x".repeat(257), "bad\nid"]
+      await expect(adapter.execute(requestFor({ workspaceId })))
+        .rejects.toBeInstanceOf(OmpRequestError)
+    for scopePaths of [
+      []
+      Array.from(
+        { length: MAX_WORKFLOW_SCOPE_PATHS + 1 },
+        (_, index) => `path-${index}`,
+      )
+    ]
+      await expect(adapter.execute(requestFor({
+        workspaceId: `scope-${scopePaths.length}`
+        scopePaths
+      }))).rejects.toBeInstanceOf(OmpRequestError)
+    expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("returns failed results for process errors and nonzero or signaled closes", async () =>
+    sandboxResponses.push({
+      error: Object.assign(new Error("spawned process error"), { code: "EIO" })
+      stdout: ""
+      stderr: ""
+    })
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    await expect(adapter.execute(requestFor({ workspaceId: "process-error" })))
+      .resolves.toMatchObject({ status: "failed", exitCode: null, signal: null })
+
+    sandboxResponses.push({
+      error: null
+      stdout: ""
+      stderr: "failure"
+      closeCode: 7
+    })
+    await expect(adapter.execute(requestFor({ workspaceId: "nonzero" })))
+      .resolves.toMatchObject({ status: "failed", exitCode: 7, signal: null })
+
+    sandboxResponses.push({
+      error: null
+      stdout: ""
+      stderr: ""
+      closeCode: null
+      closeSignal: "SIGTERM"
+    })
+    await expect(adapter.execute(requestFor({ workspaceId: "signaled" })))
+      .resolves.toMatchObject({ status: "failed", exitCode: null, signal: "SIGTERM" })
+    for result of mocks.spawn.mock.results
+      expect(result.value.kill).toHaveBeenCalledWith("SIGTERM")
+  )
+
+  it("captures mixed string and buffer chunks and clamps negative clock movement", async () =>
+    sandboxResponses.push({
+      error: null
+      stdout: ""
+      stderr: ""
+      stdoutChunks: ["alpha", Buffer.from("-beta")]
+      stderrChunks: [Buffer.from("token=private")]
+    })
+    const times = [100, 90]
+    const result = await createOmpCliAdapter({
+      repositoriesRoot
+      now: () => times.shift() ?? 90
+    }).execute(requestFor({ redactions: ["private"] }))
+
+    expect(result).toMatchObject({
+      status: "succeeded"
+      durationMs: 0
+      output: {
+        stdout: "alpha-beta"
+        stderr: "token=[REDACTED]"
+        redacted: true
+        truncated: false
+      }
+    })
+  )
+
+  it("maps synchronous spawn and sandboxed git failures to bounded domain errors", async () =>
+    mocks.spawn.mockImplementationOnce(() =>
+      throw new Error("spawn unavailable")
+    )
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: "spawn-throws" }),
+    )).rejects.toThrow("OMP process failed to start")
+
+    gitResponseOverrides.set(
+      ["rev-parse", "HEAD"].join("\0"),
+      Object.assign(new Error("git unavailable"), { code: "EIO" }),
+    )
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: "git-fails" }),
+    )).rejects.toThrow("OMP git workspace operation failed")
+  )
+
+  it("surfaces process termination failures from error-path worktree disposal", async () =>
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    let dateNow: { mockRestore: () => void } | undefined
+    mocks.spawn.mockImplementationOnce(() =>
+      dateNow = vi.spyOn(Date, "now")
+        .mockReturnValueOnce(0)
+        .mockReturnValue(1_000)
+      mocks.execFile.mockImplementationOnce((
+        _executable: string,
+        _arguments: readonly string[],
+        _options: unknown,
+        callback: (error: NodeJS.ErrnoException | null) => void,
+      ) =>
+        const child = Object.assign(new EventEmitter(), {
+          pid: 737_373
+          kill: vi.fn(() => true)
+        })
+        queueMicrotask(() =>
+          callback(Object.assign(new Error("git cleanup failed"), { code: "EIO" }))
+        )
+        child
+      )
+      throw new Error("spawn unavailable")
+    )
+    try
+      await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId: "error-cleanup-termination" }),
+      )).rejects.toBeInstanceOf(OmpProcessTerminationError)
+    finally
+      dateNow?.mockRestore()
+      processKill.mockRestore()
+  )
+
+  it("fails closed for dangerous repository program configuration", async () =>
+    for configName of [
+      "filter.bad name.clean"
+      "diff.bad name.command"
+    ]
+      repositoryProgramConfigNames.push(configName)
+      await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId: configName.startsWith("filter") ? "bad-filter" : "bad-diff" }),
+      )).rejects.toBeInstanceOf(OmpRequestError)
+      repositoryProgramConfigNames.length = 0
+    expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("rejects source identity, revision, dirtiness, missing verification recovery, and ambiguous retained states", async () =>
+    const invalidGitResponses = [
+      [["rev-parse", "--show-toplevel"], repositoriesRoot]
+      [["rev-parse", "--absolute-git-dir"], repositoriesRoot]
+      [["rev-parse", "HEAD"], "not-a-revision"]
+      [["status", "--porcelain", "--untracked-files=all"], " M dirty"]
+    ] as const
+    for entry of invalidGitResponses
+      const arguments_ = entry[0]
+      const response = entry[1]
+      gitResponseOverrides.set(arguments_.join("\0"), response)
+      await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId: `invalid-${arguments_[1]}` }),
+      )).rejects.toBeInstanceOf(OmpRequestError)
+      gitResponseOverrides.clear()
+
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "clean-verify"
+      effectKind: "verify"
+    }))).rejects.toThrow("OMP implementation artifact is invalid")
+
+    callbackWith(null, "planned")
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const plan = await adapter.execute(requestFor({ workspaceId: "dirty-plan" }))
+    await plan.lifecycle!.finalize("unpersisted")
+    const workspaceDirectory = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    workspaceStatuses.set(workspaceDirectory, " M retained-change")
+    await expect(adapter.execute(requestFor({ workspaceId: "dirty-plan" })))
+      .rejects.toThrow("OMP workspace state is ambiguous")
+  )
+
+  it("reuses a canonical implementation baseline and rejects malformed retained baseline data", async () =>
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    callbackWith(null, "", "", async (cwd) =>
+      await writeFile(join(cwd, "packages", "jobs", "representative.civet"), "after")
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const implementation = await adapter.execute(requestFor({
+      workspaceId: "baseline"
+      effectKind: "implement"
+    }))
+    await implementation.lifecycle!.finalize("persisted")
+    const workspaceDirectory = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    const baselineName = (await readdir(dirname(workspaceDirectory))).find((entry) =>
+      entry.startsWith(`${basename(workspaceDirectory)}.baseline-`)
+    )!
+    await writeFile(join(dirname(workspaceDirectory), baselineName), "{malformed")
+
+    await expect(adapter.execute(requestFor({
+      workspaceId: "baseline"
+      effectKind: "implement"
+    }))).rejects.toThrow("OMP implementation baseline is invalid")
+    expect(sandboxCalls()).toHaveLength(1)
+  )
+
+  it("reports symlink target changes as bounded implementation evidence", async () =>
+    const linkPath = join(scopedDirectory, "representative.civet")
+    await symlink("before-target", linkPath)
+    trackedPaths.add("packages/jobs/representative.civet")
+    callbackWith(null, "", "", async (cwd) =>
+      const isolated = join(cwd, "packages", "jobs", "representative.civet")
+      await rm(isolated)
+      await symlink("after-target", isolated)
+    )
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "symlink-change"
+      effectKind: "implement"
+    }))
+
+    expect(result).toMatchObject({
+      status: "succeeded"
+      change: {
+        changeHash: expect.stringMatching(/^[a-f0-9]{64}$/u)
+        changedPaths: ["packages/jobs/representative.civet"]
+      }
+    })
+  )
+
+  it("rejects when an owned process group survives TERM and KILL", async () =>
+    sandboxResponses.push({
+      error: null
+      stdout: ""
+      stderr: ""
+      pid: 515_151
+      holdOpen: true
+    })
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    try
+      await expect(createOmpCliAdapter({
+        repositoriesRoot
+        timeoutMs: 1
+        shutdownTimeoutMs: 2
+      }).execute(requestFor({ workspaceId: "unkillable" })))
+        .rejects.toBeInstanceOf(OmpProcessTerminationError)
+      expect(processKill).toHaveBeenCalledWith(-515_151, "SIGTERM")
+      expect(processKill).toHaveBeenCalledWith(-515_151, "SIGKILL")
+    finally
+      processKill.mockRestore()
+  )
+  it("redacts implicit secret forms and truncates at a valid UTF-8 boundary", async () =>
+    sandboxResponses.push({
+      error: null
+      stdout: "ééé"
+      stderr: ""
+    })
+    const truncated = await createOmpCliAdapter({
+      repositoriesRoot
+      maxOutputBytes: 5
+    }).execute(requestFor({ workspaceId: "utf8-output" }))
+    expect(truncated).toMatchObject({
+      status: "output-limit"
+      output: {
+        stdout: "éé"
+        stdoutBytes: 4
+        truncated: true
+      }
+    })
+
+    callbackWith(null, "sk-abcdefgh op://vault/item password=hunter2")
+    const redacted = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: "implicit-redactions" }),
+    )
+    expect(redacted.output.stdout).toBe(
+      "[REDACTED] [REDACTED] password=[REDACTED]",
+    )
+    expect(redacted.output.redacted).toBe(true)
+  )
+
+  it("collapses duplicate and nested nonexistent scopes to one sandbox boundary", async () =>
+    callbackWith(null, "done")
+    await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "collapsed-scopes"
+      scopePaths: [
+        "packages/jobs"
+        "packages/jobs"
+        "packages/jobs/not-created"
+      ]
+    }))
+    const call = sandboxCalls().at(-1)!
+    const profile = call[1][1] as string
+    const workspaceDirectory = (call[2] as Readonly<{ cwd: string }>).cwd
+    const literal = `(literal "${join(workspaceDirectory, "packages", "jobs")}")`
+    expect(profile.split(literal)).toHaveLength(2)
+    expect(profile).not.toContain("not-created")
+  )
+
+  it("rejects a dirty retained implementation workspace without a clean baseline", async () =>
+    callbackWith(null, "planned")
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const plan = await adapter.execute(requestFor({ workspaceId: "missing-baseline" }))
+    await plan.lifecycle!.finalize("unpersisted")
+    const workspaceDirectory = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    workspaceStatuses.set(workspaceDirectory, " M retained-change")
+
+    await expect(adapter.execute(requestFor({
+      workspaceId: "missing-baseline"
+      effectKind: "implement"
+    }))).rejects.toThrow("OMP dirty workspace has no clean baseline")
+  )
+
+  it("fails implementation evidence when more than 512 scoped paths change", async () =>
+    callbackWith(null, "", "", async (cwd) =>
+      const directory = join(cwd, "packages", "jobs")
+      await mkdir(directory, { recursive: true })
+      await Promise.all(Array.from({ length: 513 }, (_, index) =>
+        writeFile(join(directory, `generated-${index}.txt`), `${index}`)
+      ))
+      return
+    )
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "too-many-changes"
+      effectKind: "implement"
+    }))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      exitCode: 0
+      change: null
+    })
+  )
+  it("fails implementation evidence when changed path metadata exceeds 8 KiB", async () =>
+    callbackWith(null, "", "", async (cwd) =>
+      const directory = join(cwd, "packages", "jobs")
+      await mkdir(directory, { recursive: true })
+      await Promise.all(Array.from({ length: 40 }, (_, index) =>
+        writeFile(
+          join(directory, `${String(index).padStart(2, "0")}-${"p".repeat(220)}.txt`),
+          `${index}`,
+        )
+      ))
+      return
+    )
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "oversized-change-paths"
+      effectKind: "implement"
+    }))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      change: null
+      implementationArtifact: null
+    })
+  )
+
+  const verifierRunnerResult = (
+    overrides: Partial<OmpVerifierRunnerResult> = {},
+  ): OmpVerifierRunnerResult => ({
+    status: "succeeded"
+    exitCode: 0
+    signal: null
+    durationMs: 7
+    output: {
+      stdout: "tests: 12 passed"
+      stderr: ""
+      stdoutBytes: 16
+      stderrBytes: 0
+      truncated: false
+      redacted: false
+    }
+    ...overrides
+  })
+
+  const prepareVerificationWorkspace = async (
+    adapter: ReturnType<typeof createOmpCliAdapter>,
+    workspaceId: string,
+  ) =>
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    callbackWith(null, "implemented", "", async (cwd) =>
+      await writeFile(
+        join(cwd, "packages", "jobs", "representative.civet"),
+        `after-${workspaceId}`,
+      )
+    )
+    const implementation = await adapter.execute(requestFor({
+      workspaceId
+      effectKind: "implement"
+    }))
+    const workspaceDirectory = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    expect(implementation).toMatchObject({
+      status: "succeeded"
+      implementationArtifact: {
+        identity: "workflow-implementation-artifact-v1"
+        bytes: expect.any(Number)
+        digest: expect.stringMatching(/^[a-f0-9]{64}$/u)
+      }
+    })
+    return { implementation, workspaceDirectory, workspaceId }
+
+  const verificationRequestFor = (
+    prepared: Awaited<ReturnType<typeof prepareVerificationWorkspace>>,
+    evidence = prepared.implementation,
+    overrides: Partial<OmpExecutionRequest> = {},
+  ): OmpExecutionRequest =>
+    const artifact = evidence.implementationArtifact!
+    return requestFor({
+      workspaceId: prepared.workspaceId
+      effectKind: "verify"
+      ...overrides
+      recovery: {
+        artifact
+        changeHash: evidence.change!.changeHash
+      }
+    })
+
+  it("disposes an unpersisted implementation before retrying the workspace", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const first = await prepareVerificationWorkspace(adapter, "lost-persistence")
+    await first.implementation.lifecycle!.finalize("unpersisted")
+    await expect(access(first.workspaceDirectory)).rejects.toMatchObject({
+      code: "ENOENT"
+    })
+
+    const retry = await prepareVerificationWorkspace(adapter, "lost-persistence")
+    expect(retry.implementation.status).toBe("succeeded")
+    await retry.implementation.lifecycle!.finalize("unpersisted")
+  )
+
+  it("cleans a retained implementation idempotently from artifact evidence", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const prepared = await prepareVerificationWorkspace(adapter, "cleanup-replay")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const artifact = prepared.implementation.implementationArtifact!
+    const cleanup = {
+      cwd: "darkfactory"
+      recovery: {
+        artifact
+        changeHash: prepared.implementation.change!.changeHash
+      }
+    }
+
+    await adapter.cleanupRetainedWorkspace(cleanup)
+    await adapter.cleanupRetainedWorkspace(cleanup)
+
+    await expect(access(prepared.workspaceDirectory)).rejects.toMatchObject({
+      code: "ENOENT"
+    })
+  )
+
+  it("treats a live lock-only cleanup as busy and recovers its stale replay", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const prepared = await prepareVerificationWorkspace(adapter, "lock-only-cleanup")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const artifact = prepared.implementation.implementationArtifact!
+    const cleanup = {
+      cwd: "darkfactory"
+      recovery: {
+        artifact
+        changeHash: prepared.implementation.change!.changeHash
+      }
+    }
+    await rm(prepared.workspaceDirectory, { recursive: true, force: true })
+    await rm(`${prepared.workspaceDirectory}.owner.json`, { force: true })
+    const lockDirectory = `${prepared.workspaceDirectory}.lock`
+    await mkdir(lockDirectory, { recursive: true })
+    const ownerPath = join(lockDirectory, "owner.json")
+    await writeFile(ownerPath, JSON.stringify({
+      nonce: artifact.ownerNonce
+      pid: process.pid
+      createdAt: 1
+    }))
+
+    await expect(adapter.cleanupRetainedWorkspace(cleanup))
+      .rejects.toBeInstanceOf(OmpWorkspaceBusyError)
+    await writeFile(ownerPath, JSON.stringify({
+      nonce: artifact.ownerNonce
+      pid: 999_999_999
+      createdAt: 1
+    }))
+    await adapter.cleanupRetainedWorkspace(cleanup)
+    await expect(access(lockDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+  )
+
+  it("aborts a retained cleanup during repository config preflight", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const prepared = await prepareVerificationWorkspace(adapter, "cleanup-abort")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const artifact = prepared.implementation.implementationArtifact!
+    const controller = new AbortController()
+    mocks.execFile.mockImplementationOnce((
+      _executable: string,
+      _arguments: readonly string[],
+      options: Readonly<{ signal?: AbortSignal }>,
+      callback: (error: NodeJS.ErrnoException | null) => void,
+    ) =>
+      const child = Object.assign(new EventEmitter(), {
+        pid: undefined
+        kill: vi.fn(() => true)
+      })
+      const abort = (): void =>
+        callback(Object.assign(new Error("aborted"), { code: "ABORT_ERR" }))
+      options.signal?.addEventListener("abort", abort, { once: true })
+      queueMicrotask(() => controller.abort())
+      child
+    )
+
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory"
+      recovery: {
+        artifact
+        changeHash: prepared.implementation.change!.changeHash
+      }
+      signal: controller.signal
+      deadlineAtMs: Date.now() + 1_000
+    })).rejects.toBeInstanceOf(OmpRequestError)
+    await expect(access(prepared.workspaceDirectory)).resolves.toBeUndefined()
+  )
+
+  it("retains a durable failed verification for a later successful retry", async () =>
+    const verificationRunner = vi.fn()
+      .mockResolvedValueOnce(verifierRunnerResult({
+        status: "failed"
+        exitCode: 1
+      }))
+      .mockResolvedValueOnce(verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(adapter, "verification-retry")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "generic OMP success")
+    const failed = await adapter.execute(verificationRequestFor(prepared))
+    await failed.lifecycle!.finalize("persisted")
+    await expect(access(prepared.workspaceDirectory)).resolves.toBeUndefined()
+
+    callbackWith(null, "generic OMP success")
+    const succeeded = await adapter.execute(
+      verificationRequestFor(prepared, failed),
+    )
+    expect(succeeded.status).toBe("succeeded")
+    await succeeded.lifecycle!.finalize("persisted")
+    await expect(access(prepared.workspaceDirectory)).rejects.toMatchObject({
+      code: "ENOENT"
+    })
+  )
+
+  it("requires a configured verifier and retains the failed verification workspace", async () =>
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      verificationRunner: null
+    })
+    const prepared = await prepareVerificationWorkspace(adapter, "no-verifier")
+    const artifact = prepared.implementation.implementationArtifact!
+    expect(createHash("sha256").update(artifact.content).digest("hex"))
+      .toBe(artifact.digest)
+    expect(JSON.parse(artifact.content)).toEqual({
+      version: 1
+      sourceHead: artifact.sourceHead
+      workspaceKey: artifact.workspaceKey
+      ownerNonce: artifact.ownerNonce
+      changeHash: artifact.changeHash
+      entries: [{
+        path: "packages/jobs/representative.civet"
+        kind: "file"
+        mode: expect.any(Number)
+        contentBase64: Buffer.from("after-no-verifier").toString("base64")
+      }]
+    })
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    await expect(access(prepared.workspaceDirectory)).resolves.toBeUndefined()
+
+    callbackWith(null, "model claims verification passed")
+    const verification = await adapter.execute(verificationRequestFor(prepared))
+    expect(verification).toMatchObject({
+      status: "failed"
+      exitCode: 0
+      verification: null
+    })
+    await verification.lifecycle!.finalize("persisted")
+
+    await expect(access(prepared.workspaceDirectory)).resolves.toBeUndefined()
+    const baselinePrefix = `${basename(prepared.workspaceDirectory)}.baseline-`
+    expect((await readdir(dirname(prepared.workspaceDirectory)))
+      .some((entry) => entry.startsWith(baselinePrefix))).toBe(true)
+    expect(gitCalls()).toEqual(expect.arrayContaining([
+      expect.arrayContaining([
+        "/usr/bin/git"
+        ["worktree", "remove", "--force", prepared.workspaceDirectory]
+      ])
+      expect.arrayContaining([
+        "/usr/bin/git"
+        ["worktree", "prune"]
+      ])
+    ]))
+  )
+
+  it("derives bounded auditable evidence from an injected verifier", async () =>
+    const verificationRunner = vi.fn(async (
+      _request: Readonly<{ cwd: string; signal?: AbortSignal }>
+    ) => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      verificationRunner
+    })
+    const prepared = await prepareVerificationWorkspace(adapter, "verified")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "generic OMP zero")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+    const expectedDigest = ompVerificationDigestFor({
+      commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY
+      imageDigest: result.verification!.imageDigest
+      configDigest: OMP_VERIFIER_CONFIG_DIGEST
+      argvIdentity: OMP_VERIFIER_ARGV_IDENTITY
+      implementationChangeDigest: result.change!.changeHash
+      implementationArtifactDigest: result.implementationArtifact!.digest
+      manifestDigest: result.verification!.manifestDigest
+      exitCode: 0
+      resultSummary: "tests: 12 passed"
+    })
+    expect(result).toMatchObject({
+      status: "succeeded"
+      exitCode: 0
+      verification: {
+        commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY
+        imageDigest: expect.stringMatching(/^injected:/u)
+        configDigest: OMP_VERIFIER_CONFIG_DIGEST
+        status: "succeeded"
+        exitCode: 0
+        resultBytes: Buffer.byteLength("tests: 12 passed")
+        resultSummary: "tests: 12 passed"
+        digest: expectedDigest
+      }
+    })
+    const verifierRequest = verificationRunner.mock.calls[0]![0]
+    expect(verifierRequest.signal).toBeUndefined()
+    expect(verifierRequest.cwd).not.toBe(prepared.workspaceDirectory)
+    expect(verifierRequest.cwd).toContain(`${prepared.workspaceDirectory}.verify-`)
+    await result.lifecycle!.finalize("persisted")
+  )
+  it("rejects implementation changes to verifier control files before running checks", async () =>
+    const controlPath = join(repositoryDirectory, "scripts", "verify.civet")
+    await mkdir(dirname(controlPath), { recursive: true })
+    await writeFile(controlPath, "trusted")
+    trackedPaths.add("scripts/verify.civet")
+    const verificationRunner = vi.fn(async () => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    callbackWith(null, "implemented", "", async (cwd) =>
+      await writeFile(join(cwd, "scripts", "verify.civet"), "malicious")
+    )
+    const implementation = await adapter.execute(requestFor({
+      workspaceId: "verifier-control-change"
+      effectKind: "implement"
+      scopePaths: ["scripts/verify.civet"]
+    }))
+    await implementation.lifecycle!.finalize("persisted")
+    await expect(adapter.execute(requestFor({
+      workspaceId: "verifier-control-change"
+      effectKind: "verify"
+      scopePaths: ["scripts/verify.civet"]
+      recovery: {
+        artifact: implementation.implementationArtifact!
+        changeHash: implementation.change!.changeHash
+      }
+    }))).rejects.toThrow("OMP artifact changes verifier control inputs")
+    expect(verificationRunner).not.toHaveBeenCalled()
+  )
+
+  it("fails verification when a verifier mutates the reviewed implementation", async () =>
+    const verificationRunner = vi.fn(async ({ cwd }: Readonly<{ cwd: string }>) =>
+      await writeFile(
+        join(cwd, "packages", "jobs", "representative.civet"),
+        "tampered-during-verification",
+      )
+      return verifierRunnerResult()
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(adapter, "verifier-write")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "model claims checks passed")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: {
+        status: "failed"
+        implementationChangeDigest: result.change!.changeHash
+        implementationArtifactDigest: result.implementationArtifact!.digest
+      }
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("fails closed for nonzero, timeout, abort, empty, and oversized verifier results", async () =>
+    const cases: readonly Readonly<{
+      name: string
+      expected: OmpVerifierRunnerResult["status"] | "failed"
+      result: OmpVerifierRunnerResult
+    }>[] = [
+      {
+        name: "nonzero"
+        expected: "failed"
+        result: verifierRunnerResult({ status: "failed", exitCode: 2 })
+      }
+      {
+        name: "timeout"
+        expected: "timed-out"
+        result: verifierRunnerResult({
+          status: "timed-out"
+          exitCode: null
+          signal: "SIGTERM"
+        })
+      }
+      {
+        name: "abort"
+        expected: "aborted"
+        result: verifierRunnerResult({ status: "aborted", exitCode: null })
+      }
+      {
+        name: "empty"
+        expected: "failed"
+        result: verifierRunnerResult({
+          output: {
+            stdout: ""
+            stderr: ""
+            stdoutBytes: 0
+            stderrBytes: 0
+            truncated: false
+            redacted: false
+          }
+        })
+      }
+      {
+        name: "oversized"
+        expected: "output-limit"
+        result: verifierRunnerResult({
+          output: {
+            stdout: "x".repeat(32 * 1_024 + 1)
+            stderr: ""
+            stdoutBytes: 32 * 1_024 + 1
+            stderrBytes: 0
+            truncated: false
+            redacted: false
+          }
+        })
+      }
+    ]
+
+    for testCase of cases
+      const adapter = createOmpCliAdapter({
+        repositoriesRoot
+        verificationRunner: async () => testCase.result
+      })
+      const workspaceId = `verifier-${testCase.name}`
+      const prepared = await prepareVerificationWorkspace(adapter, workspaceId)
+      await prepared.implementation.lifecycle!.finalize("persisted")
+      callbackWith(null, "generic OMP zero")
+      const result = await adapter.execute(verificationRequestFor(prepared))
+      expect(result.status).toBe(testCase.expected)
+      expect(result.verification?.digest).toBeNull()
+      expect(result.verification?.resultBytes).toBeLessThanOrEqual(32 * 1_024)
+      await result.lifecycle!.finalize("persisted")
+  )
+
+  it("disposes plan worktrees when durable persistence retries", async () =>
+    callbackWith(null, "planned")
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const result = await adapter.execute(requestFor({
+      workspaceId: "persistence-retry"
+      effectKind: "plan"
+    }))
+    const workspaceDirectory = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    await result.lifecycle!.finalize("retry")
+    await expect(access(workspaceDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+
+    callbackWith(null, "planned again")
+    const replay = await adapter.execute(requestFor({
+      workspaceId: "persistence-retry"
+      effectKind: "plan"
+    }))
+    expect(replay.status).toBe("succeeded")
+    await replay.lifecycle!.finalize("persisted")
+  )
+
+  it("preserves process termination errors from worktree disposal", async () =>
+    callbackWith(null, "planned")
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: "cleanup-termination-error" }),
+    )
+    mocks.execFile.mockImplementationOnce((
+      _executable: string,
+      _arguments: readonly string[],
+      _options: unknown,
+      callback: (error: NodeJS.ErrnoException | null) => void,
+    ) =>
+      const child = Object.assign(new EventEmitter(), {
+        pid: 626_262
+        kill: vi.fn(() => true)
+      })
+      queueMicrotask(() =>
+        callback(Object.assign(new Error("git cleanup failed"), { code: "EIO" }))
+      )
+      child
+    )
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    const dateNow = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValue(1_000)
+    try
+      await expect(result.lifecycle!.finalize("persisted"))
+        .rejects.toBeInstanceOf(OmpProcessTerminationError)
+    finally
+      dateNow.mockRestore()
+      processKill.mockRestore()
+  )
+
+  it("refuses cleanup after the owned workspace lock identity changes", async () =>
+    callbackWith(null, "planned")
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: "cleanup-owner-changed" }),
+    )
+    const workspaceDirectory = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    await writeFile(
+      join(`${workspaceDirectory}.lock`, "owner.json"),
+      JSON.stringify({ nonce: "different-owner", pid: process.pid, createdAt: 1 }),
+    )
+
+    await expect(result.lifecycle!.finalize("persisted"))
+      .rejects.toBeInstanceOf(OmpWorkspaceCleanupError)
+    await expect(access(workspaceDirectory)).resolves.toBeUndefined()
+    expect(gitCalls().some((call) =>
+      (call[1] as readonly string[])[0] === "worktree" &&
+      (call[1] as readonly string[])[1] === "remove"
+    )).toBe(false)
+  )
+  it("rejects invalid verifier output limits at adapter construction", () =>
+    for verifierMaxResultBytes of [0, 1_048_577, 1.5]
+      expect(() => createOmpCliAdapter({
+        repositoriesRoot
+        verifierMaxResultBytes
+      })).toThrow(OmpConfigurationError)
+  )
+  it("rejects an unapproved verifier identity", () =>
+    expect(() => createOmpCliAdapter({
+      repositoriesRoot
+      verifierId: "arbitrary-command" as never
+    })).toThrow("OMP verifier is not approved")
+  )
+  it("classifies every recursive verifier control family", () =>
+    for path of [
+      "apps/web/vite.config.ts"
+      "packages/auth/auth.schema.config.ts"
+      "scripts/check-auth-schema.ts"
+      "docs/site-config.json"
+      "playwright.config.ts"
+      "packages/jobs/package.json"
+    ]
+      expect(isVerifierControlPath(path), path).toBe(true)
+    for path of [
+      "apps/web/app/page.civet"
+      "packages/auth/src/server.civet"
+      "docs/architecture.md"
+    ]
+      expect(isVerifierControlPath(path), path).toBe(false)
+  )
+
+  it("rejects a retained workspace when its control manifest no longer matches source", async () =>
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY
+      verifierImageDigest: VERIFIER_IMAGE_DIGEST
+    })
+    const prepared = await prepareVerificationWorkspace(adapter, "manifest-mismatch")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const sourceManifest = await trustedVerifierManifestFor(repositoryDirectory)
+    await expect(
+      matchesTrustedVerifierManifest(prepared.workspaceDirectory, sourceManifest),
+    ).resolves.toBe(true)
+    const addedControl = join(
+      prepared.workspaceDirectory,
+      "apps",
+      "web",
+      "vite.config.ts",
+    )
+    await mkdir(dirname(addedControl), { recursive: true })
+    await writeFile(addedControl, "export default {}")
+    await expect(
+      matchesTrustedVerifierManifest(prepared.workspaceDirectory, sourceManifest),
+    ).resolves.toBe(false)
+    await rm(addedControl)
+    callbackWith(null, "model claims checks passed", "", async (cwd) =>
+      await writeFile(join(cwd, "package.json"), JSON.stringify({
+        description: "tampered during verification"
+        scripts: { "verify:core": VERIFY_CORE_SCRIPT }
+      }))
+    )
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(result).toMatchObject({ status: "failed", verification: null })
+    expect(sandboxCalls()).toHaveLength(2)
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("constructs the exact mandatory Docker verifier argv and bomb defenses", async () =>
+    const workspace = "/tmp/darkfactory-omp-worktrees/workspace.verify"
+    const cidPath = "/tmp/darkfactory-omp/session/verifier.cid"
+    const containerName =
+      "darkfactory-verifier-00000000-0000-4000-8000-000000000000"
+    const arguments_ = dockerVerifierArgumentsFor(
+      workspace,
+      cidPath,
+      VERIFIER_IMAGE_DIGEST,
+      containerName,
+    )
+
+    expect(arguments_).toEqual([
+      "run"
+      "--pull=never"
+      "--cidfile", cidPath
+      "--name", containerName
+      `--label=org.darkfactory.verifier.owner=${containerName}`
+      "--network=none"
+      "--ipc=none"
+      "--read-only"
+      `--memory=${OMP_VERIFIER_MEMORY}`
+      `--memory-swap=${OMP_VERIFIER_MEMORY_SWAP}`
+      `--pids-limit=${OMP_VERIFIER_PIDS}`
+      `--cpus=${OMP_VERIFIER_CPUS}`
+      `--ulimit=fsize=${OMP_VERIFIER_FILE_SIZE}:${OMP_VERIFIER_FILE_SIZE}`
+      `--ulimit=nofile=${OMP_VERIFIER_NOFILE}:${OMP_VERIFIER_NOFILE}`
+      "--ulimit=cpu=300:300"
+      "--cap-drop=ALL"
+      "--security-opt=no-new-privileges=true"
+      "--user=65532:65532"
+      "--init"
+      "--stop-timeout=2"
+      "--workdir=/workspace"
+      `--tmpfs=/tmp:${OMP_VERIFIER_TMP_TMPFS}`
+      `--tmpfs=/output:${OMP_VERIFIER_OUTPUT_TMPFS}`
+      `--tmpfs=/cache:${OMP_VERIFIER_CACHE_TMPFS}`
+      `--mount=type=bind,source=${workspace},target=/workspace,readonly,bind-propagation=rprivate`
+      "--env=CI=1"
+      "--env=HOME=/tmp/home"
+      "--env=NODE_ENV=test"
+      "--env=NO_COLOR=1"
+      "--env=TMPDIR=/tmp"
+      "--env=XDG_CACHE_HOME=/cache"
+      "--env=XDG_CONFIG_HOME=/cache/config"
+      "--env=XDG_DATA_HOME=/cache/data"
+      VERIFIER_IMAGE_DIGEST
+      ...OMP_VERIFIER_ARGUMENTS
+    ])
+    const bombDefenses = {
+      fork: `--pids-limit=${OMP_VERIFIER_PIDS}`
+      memory: `--memory=${OMP_VERIFIER_MEMORY}`
+      cpu: `--cpus=${OMP_VERIFIER_CPUS}`
+      disk: `--ulimit=fsize=${OMP_VERIFIER_FILE_SIZE}:${OMP_VERIFIER_FILE_SIZE}`
+      inode: `--tmpfs=/output:${OMP_VERIFIER_OUTPUT_TMPFS}`
+      network: "--network=none"
+      sourceWrite:
+        `--mount=type=bind,source=${workspace},target=/workspace,readonly,bind-propagation=rprivate`
+      configRewrite: "--read-only"
+    }
+    for [bomb, defense] of Object.entries(bombDefenses)
+      expect(arguments_, bomb).toContain(defense)
+    expect(arguments_.join("\0")).not.toContain("verify:core")
+    expect(() => createOmpCliAdapter({
+      repositoriesRoot
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY
+    })).toThrow("OMP verifier image digest is required")
+    expect(dockerCleanupBudgetFor(1_000, 900)).toEqual({
+      timeoutMs: 50
+      shutdownTimeoutMs: 50
+    })
+    expect(() => dockerCleanupBudgetFor(1_000, 999))
+      .toThrow(OmpProcessTerminationError)
+    const verifierConfig = await readFile(new URL(
+      "../../../../infra/docker/verifier/checks.json",
+      import.meta.url,
+    ))
+    expect(createHash("sha256").update(verifierConfig).digest("hex"))
+      .toBe(OMP_VERIFIER_CONFIG_DIGEST)
+    expect(createHash("sha256").update(Buffer.concat([
+      verifierConfig,
+      Buffer.from(" "),
+    ])).digest("hex")).not.toBe(OMP_VERIFIER_CONFIG_DIGEST)
+    expect(createHash("sha256")
+      .update(JSON.stringify(OMP_VERIFIER_ARGUMENTS))
+      .digest("hex")).toBe(OMP_VERIFIER_ARGV_IDENTITY)
+  )
+
+  it("cleans named Docker containers on pre-create failure, overflow, and cleanup failure", async () =>
+    const inspectIdentity =
+      `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`
+    const run = () => runDockerVerifier({
+      dockerExecutable: "/usr/bin/docker"
+      workspace: repositoryDirectory
+      sessionDirectory: repositoriesRoot
+      imageDigest: VERIFIER_IMAGE_DIGEST
+      timeoutMs: 1_000
+      shutdownTimeoutMs: 100
+      maximumOutputBytes: 64
+      redactions: ["custom-docker-sentinel"]
+      now: Date.now
+    })
+    const response = (
+      stdout = "",
+      stderr = "",
+      closeCode = 0,
+      stdoutChunks?: readonly (string | Buffer)[],
+    ): SandboxResponse => ({
+      error: null
+      stdout
+      stderr
+      closeCode
+      ...(stdoutChunks === undefined ? {} : { stdoutChunks })
+    })
+
+    sandboxResponses.push(
+      response(inspectIdentity),
+      response("", "mount rejected", 125),
+      response("", "No such container", 1),
+      response(""),
+    )
+    await expect(run()).resolves.toMatchObject({ status: "failed", exitCode: 125 })
+    const failedRunArguments = sandboxCalls()[1]![1] as readonly string[]
+    const containerName = failedRunArguments[
+      failedRunArguments.indexOf("--name") + 1
+    ]!
+    expect(sandboxCalls()[2]![1]).toEqual([
+      "container", "rm", "--force", "--volumes", containerName
+    ])
+    expect(sandboxCalls()[3]![1]).toContain(
+      `--filter=name=^/${containerName}$`,
+    )
+
+    sandboxResponses.push(
+      response(inspectIdentity),
+      response("", "", 0, ["x".repeat(65)]),
+      response(containerName),
+    )
+    await expect(run()).resolves.toMatchObject({ status: "output-limit" })
+
+    sandboxResponses.push(
+      response(inspectIdentity),
+      response("{\"status\":\"passed\"}"),
+      response("", "removal denied", 1),
+      response("c".repeat(64)),
+    )
+    await expect(run()).rejects.toBeInstanceOf(OmpProcessTerminationError)
+
+    process.env["OPENAI_API_KEY"] = "provider-docker-sentinel"
+    const dockerOptions = sandboxCalls()[1]![2] as Readonly<{
+      env: NodeJS.ProcessEnv
+    }>
+    expect(dockerOptions.env["OPENAI_API_KEY"]).toBeUndefined()
+    expect(JSON.stringify(failedRunArguments)).not.toContain("custom-docker-sentinel")
+  )
+  it("shares one shutdown budget across an aborted verifier and container cleanup", async () =>
+    const inspectIdentity =
+      `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`
+    sandboxResponses.push(
+      {
+        error: null
+        stdout: inspectIdentity
+        stderr: ""
+      },
+      {
+        error: null
+        stdout: ""
+        stderr: ""
+        pid: 616_161
+        holdOpen: true
+      },
+      {
+        error: null
+        stdout: ""
+        stderr: ""
+        pid: 717_171
+        holdOpen: true
+      },
+    )
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    const controller = new AbortController()
+    try
+      const pending = runDockerVerifier({
+        dockerExecutable: "/usr/bin/docker"
+        workspace: repositoryDirectory
+        sessionDirectory: repositoriesRoot
+        imageDigest: VERIFIER_IMAGE_DIGEST
+        signal: controller.signal
+        timeoutMs: 1_000
+        shutdownTimeoutMs: 100
+        maximumOutputBytes: 64
+        redactions: []
+        now: Date.now
+      })
+      await vi.waitFor(() => expect(sandboxCalls()).toHaveLength(2))
+      const startedAt = Date.now()
+      controller.abort()
+      await expect(pending).rejects.toBeInstanceOf(OmpProcessTerminationError)
+      expect(Date.now() - startedAt).toBeLessThan(175)
+      expect(processKill).toHaveBeenCalledWith(-616_161, "SIGTERM")
+      expect(processKill).toHaveBeenCalledWith(-717_171, "SIGTERM")
+    finally
+      processKill.mockRestore()
+  )
+
+  it("normalizes combined verifier output and fails closed on verifier exceptions", async () =>
+    const combined = createOmpCliAdapter({
+      repositoriesRoot
+      verifierMaxResultBytes: 64
+      verificationRunner: async () => verifierRunnerResult({
+        output: {
+          stdout: "  checks passed  "
+          stderr: "  one warning  "
+          stdoutBytes: 17
+          stderrBytes: 15
+          truncated: false
+          redacted: false
+        }
+      })
+    })
+    const prepared = await prepareVerificationWorkspace(combined, "combined-verifier")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "generic OMP success")
+    const combinedResult = await combined.execute(
+      verificationRequestFor(prepared),
+    )
+    expect(combinedResult.verification).toMatchObject({
+      status: "succeeded"
+      resultSummary: "checks passed\none warning"
+      resultBytes: Buffer.byteLength("checks passed\none warning")
+    })
+    await combinedResult.lifecycle!.finalize("persisted")
+
+    for error of [
+      new Error("verifier unavailable")
+      new OmpProcessTerminationError()
+    ]
+      const adapter = createOmpCliAdapter({
+        repositoriesRoot
+        verificationRunner: async () =>
+          throw error
+      })
+      const workspaceId = error instanceof OmpProcessTerminationError
+        ? "verifier-termination-error"
+        : "verifier-ordinary-error"
+      const retained = await prepareVerificationWorkspace(adapter, workspaceId)
+      await retained.implementation.lifecycle!.finalize("persisted")
+      callbackWith(null, "generic OMP success")
+      if error instanceof OmpProcessTerminationError
+        await expect(adapter.execute(verificationRequestFor(retained)))
+          .rejects.toBe(error)
+      else
+        const result = await adapter.execute(verificationRequestFor(retained))
+        expect(result).toMatchObject({ status: "failed", verification: null })
+        await result.lifecycle!.finalize("persisted")
+  )
+
+  it("builds directory, symlink, and deletion implementation artifacts", async () =>
+    const cases = [
+      {
+        workspaceId: "artifact-directory"
+        source: undefined
+        mutate: async (cwd: string): Promise<void> =>
+          await mkdir(join(cwd, "packages", "jobs", "generated"), { recursive: true })
+          return
+        expected: {
+          path: "packages/jobs/generated"
+          kind: "directory"
+        }
+      }
+      {
+        workspaceId: "artifact-symlink"
+        source: "before"
+        mutate: async (cwd: string) =>
+          const path = join(cwd, "packages", "jobs", "representative.civet")
+          await rm(path)
+          await symlink("generated-target", path)
+        expected: {
+          path: "packages/jobs/representative.civet"
+          kind: "symlink"
+          target: "generated-target"
+        }
+      }
+      {
+        workspaceId: "artifact-deleted"
+        source: "before"
+        mutate: async (cwd: string) =>
+          await rm(join(cwd, "packages", "jobs", "representative.civet"))
+        expected: {
+          path: "packages/jobs/representative.civet"
+          kind: "deleted"
+        }
+      }
+    ] as const
+    for testCase of cases
+      if testCase.source !== undefined
+        await writeFile(scopedFile, testCase.source)
+        trackedPaths.add("packages/jobs/representative.civet")
+      callbackWith(null, "implemented", "", testCase.mutate)
+      const result = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+        workspaceId: testCase.workspaceId
+        effectKind: "implement"
+      }))
+      expect(result.status).toBe("succeeded")
+      expect(JSON.parse(result.implementationArtifact!.content).entries)
+        .toContainEqual(testCase.expected)
+      await result.lifecycle!.finalize("persisted")
+      await rm(scopedFile, { force: true })
+      trackedPaths.clear()
+  )
+
+  it("fails artifact creation for an oversized changed file while retaining bounded change evidence", async () =>
+    callbackWith(null, "implemented", "", async (cwd) =>
+      const path = join(cwd, "packages", "jobs", "oversized.txt")
+      await mkdir(dirname(path), { recursive: true })
+      await writeFile(
+        path,
+        "x".repeat(MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES + 1),
+      )
+    )
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "artifact-oversized"
+      effectKind: "implement"
+    }))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      change: {
+        changedPaths: expect.arrayContaining(["packages/jobs/oversized.txt"])
+      }
+      implementationArtifact: null
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+  it("rejects every malformed implementation artifact envelope and entry shape", () =>
+    const changeHash = "c".repeat(64)
+    const workspaceKey = "d".repeat(64)
+    const ownerNonce = "11111111-1111-4111-8111-111111111111"
+    const valueFor = (entries: readonly unknown[]): Readonly<Record<string, unknown>> => ({
+      version: 1,
+      sourceHead: SOURCE_HEAD,
+      workspaceKey,
+      ownerNonce,
+      changeHash,
+      entries,
+    })
+    const artifactForContent = (
+      content: string,
+      overrides: Readonly<Record<string, unknown>> = {},
+    ): OmpImplementationArtifact => ({
+      identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
+      bytes: Buffer.byteLength(content),
+      digest: createHash("sha256").update(content).digest("hex"),
+      content,
+      sourceHead: SOURCE_HEAD,
+      workspaceKey,
+      ownerNonce,
+      changeHash,
+      ...overrides,
+    } as unknown as OmpImplementationArtifact)
+    const artifactFor = (
+      value: unknown,
+      overrides: Readonly<Record<string, unknown>> = {},
+    ): OmpImplementationArtifact =>
+      const content = JSON.stringify(value)
+      if content === undefined then throw new TypeError("artifact value is not serializable")
+      return artifactForContent(content, overrides)
+    const valid = artifactFor(valueFor([{ path: "a", kind: "deleted" }]))
+
+    const malformedEnvelopes: readonly OmpImplementationArtifact[] = [
+      { ...valid, identity: "wrong" } as unknown as OmpImplementationArtifact,
+      { ...valid, bytes: 1.5 },
+      { ...valid, bytes: 0 },
+      { ...valid, bytes: MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES + 1 },
+      { ...valid, bytes: valid.bytes + 1 },
+      { ...valid, digest: "invalid" },
+      { ...valid, digest: "f".repeat(64) },
+      { ...valid, sourceHead: "invalid" },
+      { ...valid, workspaceKey: "invalid" },
+      { ...valid, ownerNonce: "invalid" },
+      { ...valid, changeHash: "invalid" },
+    ]
+    for (const artifact of malformedEnvelopes)
+      expect(() => decodeOmpImplementationArtifact(artifact, changeHash))
+        .toThrow(OmpRequestError)
+    expect(() => decodeOmpImplementationArtifact(valid, "e".repeat(64)))
+      .toThrow(OmpRequestError)
+
+    const malformedDocuments = [
+      artifactForContent("{"),
+      artifactFor(null),
+      artifactFor([]),
+      artifactForContent(` ${JSON.stringify(valueFor([{ path: "a", kind: "deleted" }]))}`),
+      artifactFor({
+        version: 1,
+        sourceHead: SOURCE_HEAD,
+        workspaceKey,
+        ownerNonce,
+        changeHash,
+        entries: [{ path: "a", kind: "deleted" }],
+        extra: true,
+      }),
+      artifactFor({ ...valueFor([{ path: "a", kind: "deleted" }]), version: 2 }),
+      artifactFor({ ...valueFor([{ path: "a", kind: "deleted" }]), sourceHead: "e".repeat(40) }),
+      artifactFor({ ...valueFor([{ path: "a", kind: "deleted" }]), workspaceKey: "e".repeat(64) }),
+      artifactFor({
+        ...valueFor([{ path: "a", kind: "deleted" }]),
+        ownerNonce: "22222222-2222-4222-8222-222222222222",
+      }),
+      artifactFor({ ...valueFor([{ path: "a", kind: "deleted" }]), changeHash: "e".repeat(64) }),
+      artifactFor({ ...valueFor([]), entries: "invalid" }),
+      artifactFor(valueFor([])),
+      artifactFor(valueFor(Array.from({ length: 513 }, () => 0))),
+    ]
+    for (const artifact of malformedDocuments)
+      expect(() => decodeOmpImplementationArtifact(artifact, changeHash))
+        .toThrow(OmpRequestError)
+
+    const malformedEntries: readonly (readonly unknown[])[] = [
+      [null],
+      [[]],
+      ["entry"],
+      [{ path: 1, kind: "deleted" }],
+      [{ path: "../escape", kind: "deleted" }],
+      [{ path: ".", kind: "deleted" }],
+      [{ path: "a", kind: "deleted" }, { path: "a", kind: "directory" }],
+      [{ path: "packages/jobs/node_modules/shadow", kind: "deleted" }],
+      [{ path: "a", kind: "unknown" }],
+      [{ path: "a", kind: "directory", extra: true }],
+      [{ path: "a", kind: "symlink", target: 1 }],
+      [{ path: "a", kind: "symlink", target: "" }],
+      [{ path: "a", kind: "symlink", target: "x".repeat(4_097) }],
+      [{ path: "a", kind: "symlink", target: "bad\0target" }],
+      [{ path: "a", kind: "symlink", target: "/absolute" }],
+      [{ path: "a/link", kind: "symlink", target: "../../escape" }],
+      [{ path: "a", kind: "file", mode: "644", contentBase64: "" }],
+      [{ path: "a", kind: "file", mode: 1.5, contentBase64: "" }],
+      [{ path: "a", kind: "file", mode: -1, contentBase64: "" }],
+      [{ path: "a", kind: "file", mode: 0o1000, contentBase64: "" }],
+      [{ path: "a", kind: "file", mode: 0o600, contentBase64: 1 }],
+      [{ path: "a", kind: "file", mode: 0o600, contentBase64: "not-base64" }],
+      [{ path: "b", kind: "deleted" }, { path: "a", kind: "deleted" }],
+      [
+        { path: "a", kind: "file", mode: 0o600, contentBase64: "" },
+        { path: "a/b", kind: "deleted" },
+      ],
+      [
+        { path: "a", kind: "symlink", target: "target" },
+        { path: "a/b", kind: "deleted" },
+      ],
+    ]
+    for (const entries of malformedEntries)
+      expect(() => decodeOmpImplementationArtifact(artifactFor(valueFor(entries)), changeHash))
+        .toThrow(OmpRequestError)
+  )
+
+  it("applies ordered artifact operations and rejects forged filesystem boundaries", async () =>
+    const root = join(repositoriesRoot, "artifact-application")
+    await mkdir(root)
+    await writeFile(join(root, "a"), "replace-directory")
+    const artifact: DecodedOmpImplementationArtifact = Object.freeze({
+      sourceHead: SOURCE_HEAD,
+      workspaceKey: "d".repeat(64),
+      ownerNonce: "11111111-1111-4111-8111-111111111111",
+      changeHash: "c".repeat(64),
+      entries: Object.freeze([
+        Object.freeze({ path: "z", kind: "deleted" as const }),
+        Object.freeze({ path: "z/child", kind: "deleted" as const }),
+        Object.freeze({ path: "a/b", kind: "directory" as const }),
+        Object.freeze({ path: "a", kind: "directory" as const }),
+        Object.freeze({
+          path: "a/b/file",
+          kind: "file" as const,
+          mode: 0o640,
+          contentBase64: Buffer.from("recovered").toString("base64"),
+        }),
+        Object.freeze({ path: "a/link", kind: "symlink" as const, target: "b/file" }),
+        Object.freeze({ path: "missing-link", kind: "symlink" as const, target: "missing/target" }),
+        Object.freeze({ path: "self-link", kind: "symlink" as const, target: "." }),
+      ]),
+    })
+
+    await applyOmpImplementationArtifact(root, artifact)
+
+    expect(await readFile(join(root, "a", "b", "file"), "utf8")).toBe("recovered")
+    expect(await readlink(join(root, "a", "link"))).toBe("b/file")
+    expect(await readlink(join(root, "missing-link"))).toBe("missing/target")
+    expect(await readlink(join(root, "self-link"))).toBe(".")
+
+    const alias = join(repositoriesRoot, "artifact-application-alias")
+    await symlink(root, alias)
+    await expect(applyOmpImplementationArtifact(alias, artifact)).rejects.toThrow(OmpRequestError)
+    const fileRoot = join(repositoriesRoot, "artifact-file-root")
+    await writeFile(fileRoot, "not-directory")
+    await expect(applyOmpImplementationArtifact(fileRoot, artifact)).rejects.toThrow(OmpRequestError)
+
+    await writeFile(join(root, "intermediate-file"), "blocked")
+    await expect(applyOmpImplementationArtifact(root, {
+      ...artifact,
+      entries: [{
+        path: "unsafe-link",
+        kind: "symlink",
+        target: "intermediate-file/child",
+      }],
+    })).rejects.toThrow(OmpRequestError)
+    await symlink("a", join(root, "intermediate-link"))
+    await expect(applyOmpImplementationArtifact(root, {
+      ...artifact,
+      entries: [{
+        path: "unsafe-symlink-target",
+        kind: "symlink",
+        target: "intermediate-link/b/file",
+      }],
+    })).rejects.toThrow(OmpRequestError)
+  )
+
+  it("rejects forged apply paths before any filesystem mutation", async () =>
+    const root = join(repositoriesRoot, "forged-artifact-application")
+    const marker = join(root, "marker.txt")
+    const outside = join(repositoriesRoot, "outside.txt")
+    await mkdir(root)
+    await writeFile(marker, "preserved")
+    await writeFile(outside, "outside-preserved")
+    const artifactFor = (
+      entries: readonly unknown[],
+    ): DecodedOmpImplementationArtifact => ({
+      sourceHead: SOURCE_HEAD,
+      workspaceKey: "d".repeat(64),
+      ownerNonce: "11111111-1111-4111-8111-111111111111",
+      changeHash: "c".repeat(64),
+      entries,
+    } as unknown as DecodedOmpImplementationArtifact)
+    const forgedCases = [
+      {
+        label: "dot",
+        entries: [
+          { path: "marker.txt", kind: "deleted" },
+          { path: ".", kind: "deleted" },
+        ],
+      },
+      {
+        label: "traversal",
+        entries: [
+          { path: "marker.txt", kind: "deleted" },
+          { path: "../outside.txt", kind: "deleted" },
+        ],
+      },
+      {
+        label: "dependency",
+        entries: [
+          { path: "marker.txt", kind: "deleted" },
+          { path: "node_modules/forged", kind: "directory" },
+        ],
+      },
+      {
+        label: "duplicate",
+        entries: [
+          { path: "marker.txt", kind: "deleted" },
+          { path: "marker.txt", kind: "directory" },
+        ],
+      },
+      {
+        label: "invalid-parent",
+        entries: [
+          { path: "marker.txt", kind: "deleted" },
+          { path: "parent", kind: "file", mode: 0o600, contentBase64: "" },
+          { path: "parent/child", kind: "deleted" },
+        ],
+      },
+    ] as const
+
+    for (const testCase of forgedCases)
+      await expect(applyOmpImplementationArtifact(
+        root,
+        artifactFor(testCase.entries),
+      )).rejects.toThrow("OMP implementation artifact is invalid")
+      expect(await readFile(marker, "utf8"), testCase.label).toBe("preserved")
+      expect(await readFile(outside, "utf8"), testCase.label)
+        .toBe("outside-preserved")
+  )
+
+  it("covers symlinked, missing, and escaped verifier manifests", async () =>
+    const controlTarget = join(repositoryDirectory, "control-target")
+    await writeFile(controlTarget, "control")
+    await symlink("control-target", join(repositoryDirectory, "tsconfig.json"))
+    const manifest = await trustedVerifierManifestFor(repositoryDirectory)
+    expect(manifest.entries).toContainEqual({
+      path: "tsconfig.json",
+      digest: expect.stringMatching(/^link:[a-f0-9]{64}$/u),
+    })
+    expect(isVerifierControlPath("")).toBe(false)
+    await expect(
+      matchesTrustedVerifierManifest(join(repositoryDirectory, "missing"), manifest),
+    ).resolves.toBe(false)
+
+    const escapedRoot = join(repositoriesRoot, "escaped-manifest")
+    await mkdir(escapedRoot)
+    const outsidePackage = join(repositoriesRoot, "outside-package.json")
+    await writeFile(outsidePackage, "{}")
+    await symlink(outsidePackage, join(escapedRoot, "package.json"))
+    await expect(trustedVerifierManifestFor(escapedRoot))
+      .rejects.toThrow("OMP verifier manifest is outside source")
+
+    const oversizedRoot = join(repositoriesRoot, "oversized-manifest")
+    await mkdir(oversizedRoot)
+    await writeFile(join(oversizedRoot, "package.json"), "{}")
+    const oversizedControl = await open(join(oversizedRoot, "tsconfig.json"), "w")
+    await oversizedControl.truncate(32 * 1_024 * 1_024 + 1)
+    await oversizedControl.close()
+    await expect(trustedVerifierManifestFor(oversizedRoot))
+      .rejects.toThrow("OMP verifier control manifest is oversized")
+
+  )
+
+  it("rejects each malformed Docker verifier identity component", () =>
+    const validName = "darkfactory-verifier-11111111-1111-4111-8111-111111111111"
+    const validDigest = `sha256:${"a".repeat(64)}`
+    const cases = [
+      ["workspace", "relative", "/tmp/cid", validDigest, validName],
+      ["cid", "/tmp/workspace", "relative", validDigest, validName],
+      ["workspace NUL", "/tmp/workspace\0bad", "/tmp/cid", validDigest, validName],
+      ["cid NUL", "/tmp/workspace", "/tmp/cid\0bad", validDigest, validName],
+      ["digest", "/tmp/workspace", "/tmp/cid", "sha256:bad", validName],
+      ["name", "/tmp/workspace", "/tmp/cid", validDigest, "bad"],
+    ] as const
+    for (const [_label, workspace, cidPath, digest, name] of cases)
+      expect(() => dockerVerifierArgumentsFor(workspace, cidPath, digest, name))
+        .toThrow(OmpConfigurationError)
+  )
+
+  it("rejects uncovered adapter configuration and request filesystem boundaries", async () =>
+    repositoryProgramConfigNames.push("core.editor")
+    expect(() => createOmpCliAdapter({
+      repositoriesRoot: `${repositoriesRoot}\0invalid`,
+    })).toThrow("OMP repositories root must be absolute")
+    expect(() => createOmpCliAdapter({
+      repositoriesRoot,
+      verifierImageDigest: "sha256:invalid",
+    })).toThrow("OMP verifier image digest is invalid")
+    expect(() => createOmpCliAdapter({
+      repositoriesRoot,
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY,
+    })).toThrow("OMP verifier image digest is required")
+
+    const fileRoot = join(repositoriesRoot, "repositories-file")
+    await writeFile(fileRoot, "not-directory")
+    await expect(createOmpCliAdapter({ repositoriesRoot: fileRoot }).execute(requestFor()))
+      .rejects.toThrow("OMP repositories root is invalid")
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      scopePaths: ["/absolute"],
+    }))).rejects.toThrow("OMP scope path is invalid")
+    await expect(createOmpCliAdapter({
+      repositoriesRoot,
+      executable: "./omp",
+      allowedExecutables: ["./omp"],
+    }).execute(requestFor())).rejects.toThrow("OMP executable is unavailable")
+    await expect(createOmpCliAdapter({
+      repositoriesRoot,
+      executable: repositoryDirectory,
+      allowedExecutables: [repositoryDirectory],
+    }).execute(requestFor())).rejects.toThrow("OMP executable is unavailable")
+    await symlink("loop", join(repositoryDirectory, "loop"))
+    trackedPaths.add("loop")
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "scope-symlink-loop",
+      scopePaths: ["loop/child"],
+    }))).rejects.toThrow("OMP scope path is invalid")
+
+    const originalPath = process.env["PATH"]
+    delete process.env["PATH"]
+    await expect(createOmpCliAdapter({
+      repositoriesRoot,
+      executable: "missing-omp",
+      allowedExecutables: ["missing-omp"],
+    }).execute(requestFor())).rejects.toThrow("OMP executable is unavailable")
+    if originalPath === undefined then delete process.env["PATH"]
+    else process.env["PATH"] = originalPath
+
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("linux")
+    await expect(createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor()))
+      .rejects.toThrow("OMP filesystem sandbox is unsupported")
+    platform.mockRestore()
+
+    const controlExecutable = join(repositoriesRoot, "omp\n")
+    await writeFile(controlExecutable, "#!/bin/sh\n")
+    await chmod(controlExecutable, 0o700)
+    await expect(createOmpCliAdapter({
+      repositoriesRoot,
+      executable: controlExecutable,
+      allowedExecutables: [controlExecutable],
+    }).execute(requestFor({
+      workspaceId: "control-executable",
+    }))).rejects.toThrow("OMP sandbox path contains control characters")
+
+    await writeFile(scopedFile, "scope-parent")
+    trackedPaths.add("packages/jobs/representative.civet")
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "scope-parent-file",
+      effectKind: "implement",
+      scopePaths: ["packages/jobs/representative.civet/child"],
+    }))).rejects.toMatchObject({ code: "ENOTDIR" })
+
+    const worktreesRoot = join(tmpdir(), "darkfactory-omp-worktrees")
+    await chmod(worktreesRoot, 0o755)
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "insecure-worktree-root",
+    }))).rejects.toThrow("OMP worktree root is insecure")
+    await chmod(worktreesRoot, 0o700)
+  )
+
+  it("fails closed for an oversized implementation manifest entry", async () =>
+    callbackWith(null, "implemented", "", async (cwd) =>
+      const path = join(cwd, "packages", "jobs", "sparse.bin")
+      const handle = await open(path, "w")
+      await handle.truncate(256 * 1_024 * 1_024 + 1)
+      await handle.close()
+    )
+    const oversized = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "oversized-manifest-file",
+      effectKind: "implement",
+    }))
+    expect(oversized).toMatchObject({ status: "failed", change: null })
+    await oversized.lifecycle!.finalize("unpersisted")
+
+  )
+
+  it("rejects expired retained cleanup deadlines", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const prepared = await prepareVerificationWorkspace(adapter, "expired-cleanup")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: prepared.implementation.implementationArtifact!,
+        changeHash: prepared.implementation.change!.changeHash,
+      },
+      deadlineAtMs: Date.now() - 1,
+    })).rejects.toThrow("OMP workspace cleanup aborted")
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: prepared.implementation.implementationArtifact!,
+        changeHash: prepared.implementation.change!.changeHash,
+      },
+      deadlineAtMs: 0,
+    })).rejects.toThrow("OMP workspace cleanup deadline is invalid")
+
+    const worktreesRoot = join(tmpdir(), "darkfactory-omp-worktrees")
+    await chmod(worktreesRoot, 0o755)
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: prepared.implementation.implementationArtifact!,
+        changeHash: prepared.implementation.change!.changeHash,
+      },
+    })).rejects.toThrow("OMP worktree root is insecure")
+    await chmod(worktreesRoot, 0o700)
+
+    await rm(`${prepared.workspaceDirectory}.owner.json`, { force: true })
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: prepared.implementation.implementationArtifact!,
+        changeHash: prepared.implementation.change!.changeHash,
+      },
+    })).rejects.toThrow("OMP workspace cleanup ownership changed")
+
+    const topLevel = await prepareVerificationWorkspace(adapter, "cleanup-top-level")
+    await topLevel.implementation.lifecycle!.finalize("persisted")
+    gitResponseOverrides.set(
+      ["rev-parse", "--show-toplevel"].join("\0"),
+      repositoriesRoot,
+    )
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: topLevel.implementation.implementationArtifact!,
+        changeHash: topLevel.implementation.change!.changeHash,
+      },
+    })).rejects.toThrow("OMP cwd must be a git worktree root")
+    gitResponseOverrides.delete(["rev-parse", "--show-toplevel"].join("\0"))
+
+    const gitDirectory = await prepareVerificationWorkspace(adapter, "cleanup-git-directory")
+    await gitDirectory.implementation.lifecycle!.finalize("persisted")
+    gitResponseOverrides.set(
+      ["rev-parse", "--absolute-git-dir"].join("\0"),
+      repositoriesRoot,
+    )
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: gitDirectory.implementation.implementationArtifact!,
+        changeHash: gitDirectory.implementation.change!.changeHash,
+      },
+    })).rejects.toThrow("OMP source git directory is invalid")
+    gitResponseOverrides.delete(["rev-parse", "--absolute-git-dir"].join("\0"))
+
+    const signaledCleanup = await prepareVerificationWorkspace(adapter, "cleanup-with-signal")
+    await signaledCleanup.implementation.lifecycle!.finalize("persisted")
+    const cleanupController = new AbortController()
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: signaledCleanup.implementation.implementationArtifact!,
+        changeHash: signaledCleanup.implementation.change!.changeHash,
+      },
+      signal: cleanupController.signal,
+    })).resolves.toBeUndefined()
+
+
+    const abortedGit = await prepareVerificationWorkspace(adapter, "cleanup-aborted-git")
+    await abortedGit.implementation.lifecycle!.finalize("persisted")
+    let abortedReads = 0
+    const stagedAbortController = new AbortController()
+    Object.defineProperty(stagedAbortController.signal, "aborted", {
+      configurable: true,
+      get: () =>
+        abortedReads += 1
+        return abortedReads > 1
+    })
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: abortedGit.implementation.implementationArtifact!,
+        changeHash: abortedGit.implementation.change!.changeHash,
+      },
+      signal: stagedAbortController.signal,
+    })).rejects.toThrow("OMP git workspace operation aborted")
+
+    await rm(worktreesRoot, { recursive: true, force: true })
+    await expect(adapter.cleanupRetainedWorkspace({
+      cwd: "darkfactory",
+      recovery: {
+        artifact: gitDirectory.implementation.implementationArtifact!,
+        changeHash: gitDirectory.implementation.change!.changeHash,
+      },
+    })).resolves.toBeUndefined()
+    await mkdir(worktreesRoot, { mode: 0o700 })
+    await chmod(worktreesRoot, 0o700)
+  )
+  it("covers Docker inspection rejection, abort, cleanup cid, and process-group races", async () =>
+    const inspectIdentity =
+      `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`
+    const run = (signal?: AbortSignal) => runDockerVerifier({
+      dockerExecutable: "/usr/bin/docker",
+      workspace: repositoryDirectory,
+      sessionDirectory: repositoriesRoot,
+      imageDigest: VERIFIER_IMAGE_DIGEST,
+      ...(signal === undefined ? {} : { signal }),
+      timeoutMs: 100,
+      shutdownTimeoutMs: 20,
+      maximumOutputBytes: 64,
+      redactions: [],
+      now: Date.now,
+    })
+    const response = (
+      stdout = "",
+      stderr = "",
+      closeCode = 0,
+      mutate?: (cwd: string) => Promise<void>,
+    ): SandboxResponse => ({
+      error: null,
+      stdout,
+      stderr,
+      closeCode,
+      ...(mutate === undefined ? {} : { mutate }),
+    })
+
+    sandboxResponses.push(response("", "inspect failed", 1))
+    await expect(run()).resolves.toMatchObject({ status: "failed", exitCode: 1 })
+    sandboxResponses.length = 0
+
+    sandboxResponses.push(response("wrong-image-identity"))
+    await expect(run()).rejects.toThrow("OMP Docker verifier image digest mismatch")
+    sandboxResponses.length = 0
+
+    const alreadyAborted = new AbortController()
+    alreadyAborted.abort()
+    await expect(run(alreadyAborted.signal)).resolves.toMatchObject({
+      status: "aborted",
+      exitCode: null,
+    })
+    sandboxResponses.length = 0
+
+    sandboxResponses.push(
+      response(inspectIdentity),
+      response("passed", "", 0, async () =>
+        const arguments_ = sandboxCalls().at(-1)![1] as readonly string[]
+        const cidPath = arguments_[arguments_.indexOf("--cidfile") + 1]!
+        await writeFile(cidPath, "invalid-cid")
+      ),
+      response(),
+    )
+    await expect(run()).rejects.toBeInstanceOf(OmpProcessTerminationError)
+    sandboxResponses.length = 0
+
+    sandboxResponses.push(
+      response(inspectIdentity),
+      response("passed", "", 0, async () =>
+        const arguments_ = sandboxCalls().at(-1)![1] as readonly string[]
+        const cidPath = arguments_[arguments_.indexOf("--cidfile") + 1]!
+        await mkdir(cidPath)
+      ),
+      response(),
+    )
+    await expect(run()).rejects.toMatchObject({ code: expect.any(String) })
+    sandboxResponses.length = 0
+
+    const abortController = new AbortController()
+    sandboxResponses.push({
+      error: null,
+      stdout: "",
+      stderr: "",
+      pid: 818_181,
+      holdOpen: true,
+    })
+    const processKill = vi.spyOn(process, "kill").mockImplementation((
+      _pid: number,
+      signal?: string | number,
+    ) =>
+      const error = new Error("gone") as NodeJS.ErrnoException
+      error.code = "ESRCH"
+      throw error
+    )
+    const pendingAbort = run(abortController.signal)
+    await vi.waitFor(() => expect(sandboxCalls().at(-1)?.[1]).toContain("image"))
+    abortController.abort()
+    await expect(pendingAbort).resolves.toMatchObject({ status: "aborted" })
+    processKill.mockRestore()
+    sandboxResponses.length = 0
+
+    const permissionController = new AbortController()
+    sandboxResponses.push({
+      error: null,
+      stdout: "",
+      stderr: "",
+      pid: 919_191,
+      holdOpen: true,
+    })
+    const permissionKill = vi.spyOn(process, "kill").mockImplementation((
+      _pid: number,
+      signal?: string | number,
+    ) =>
+      if signal === 0
+        const error = new Error("permission denied") as NodeJS.ErrnoException
+        error.code = "EPERM"
+        throw error
+      return true
+    )
+    const pendingPermission = run(permissionController.signal)
+    await vi.waitFor(() => expect(sandboxCalls().at(-1)?.[1]).toContain("image"))
+    permissionController.abort()
+    await expect(pendingPermission).rejects.toBeInstanceOf(OmpProcessTerminationError)
+    permissionKill.mockRestore()
+    sandboxResponses.length = 0
+  )
+
+  it("fails verification when OMP removes all changes or edits a control input", async () =>
+    const verifyMutation = async (
+      workspaceId: string,
+      mutate: (cwd: string) => Promise<void>,
+      expectedChange?: string,
+    ): Promise<void> =>
+      const adapter = createOmpCliAdapter({
+        repositoriesRoot,
+        verificationRunner: async () => verifierRunnerResult(),
+      })
+      const prepared = await prepareVerificationWorkspace(adapter, workspaceId)
+      await prepared.implementation.lifecycle!.finalize("persisted")
+      callbackWith(null, "verification", "", mutate)
+
+      const result = await adapter.execute(verificationRequestFor(prepared))
+
+      expect(result).toMatchObject({ status: "failed", verification: null })
+      if expectedChange !== undefined
+        expect(result.change?.changedPaths).toContain(expectedChange)
+      await result.lifecycle!.finalize("unpersisted")
+
+    const removeAllChanges = async (workspaceCwd: string): Promise<void> =>
+      await writeFile(
+        join(workspaceCwd, "packages", "jobs", "representative.civet"),
+        "before",
+      )
+      workspaceStatuses.set(workspaceCwd, "")
+    const editControlInput = async (workspaceCwd: string): Promise<void> =>
+      await writeFile(
+        join(workspaceCwd, "packages", "jobs", "package.json"),
+        JSON.stringify({ name: "@darkfactory/jobs", description: "changed" }),
+      )
+      workspaceStatuses.set(workspaceCwd, " M packages/jobs/package.json")
+
+    await verifyMutation("verification-no-change", removeAllChanges)
+    await verifyMutation(
+      "verification-control-change",
+      editControlInput,
+      "packages/jobs/package.json",
+    )
+  )
+  it("rejects unsafe verifier workspace package layouts before injected checks", async () =>
+    const verifyRejectedLayout = async (workspaceId: string): Promise<void> =>
+      const verificationRunner = vi.fn(async () => verifierRunnerResult())
+      const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+      const prepared = await prepareVerificationWorkspace(adapter, workspaceId)
+      await prepared.implementation.lifecycle!.finalize("persisted")
+      callbackWith(null, "verification")
+      const result = await adapter.execute(verificationRequestFor(prepared))
+      expect(result).toMatchObject({ status: "failed", verification: null })
+      expect(verificationRunner).not.toHaveBeenCalled()
+      await result.lifecycle!.finalize("unpersisted")
+
+    const longDirectory = "x".repeat(129)
+    const longManifest = `packages/${longDirectory}/package.json`
+    await mkdir(join(repositoryDirectory, "packages", longDirectory))
+    await writeFile(
+      join(repositoryDirectory, longManifest),
+      JSON.stringify({ name: `@darkfactory/${longDirectory}` }),
+    )
+    trackedPaths.add(longManifest)
+    await verifyRejectedLayout("verifier-package-long-name")
+    trackedPaths.delete(longManifest)
+    await rm(join(repositoryDirectory, "packages", longDirectory), { recursive: true })
+
+    const linkedDirectory = join(repositoryDirectory, "packages", "linked-package")
+    await symlink("jobs", linkedDirectory)
+    trackedPaths.add("packages/linked-package")
+    await verifyRejectedLayout("verifier-package-symlink")
+    trackedPaths.delete("packages/linked-package")
+    await rm(linkedDirectory)
+
+    const invalidManifest = "packages/invalid-package/package.json"
+    await mkdir(dirname(join(repositoryDirectory, invalidManifest)))
+    await writeFile(
+      join(repositoryDirectory, invalidManifest),
+      JSON.stringify({ name: "not-darkfactory" }),
+    )
+    trackedPaths.add(invalidManifest)
+    await verifyRejectedLayout("verifier-package-invalid-manifest")
+    trackedPaths.delete(invalidManifest)
+    await rm(join(repositoryDirectory, "packages", "invalid-package"), { recursive: true })
+
+    const existingLink = "node_modules/@darkfactory/jobs"
+    await mkdir(dirname(join(repositoryDirectory, existingLink)), { recursive: true })
+    await writeFile(join(repositoryDirectory, existingLink), "occupied")
+    trackedPaths.add(existingLink)
+    await verifyRejectedLayout("verifier-package-existing-link")
+    trackedPaths.delete(existingLink)
+    await rm(join(repositoryDirectory, "node_modules"), { recursive: true })
+
+    const extraManifests = Array.from({ length: 257 }, (_, index) =>
+      `packages/extra-${String(index).padStart(3, "0")}/package.json`
+    )
+    for (const manifestPath of extraManifests)
+      await mkdir(dirname(join(repositoryDirectory, manifestPath)))
+      const packageName = basename(dirname(manifestPath))
+      await writeFile(
+        join(repositoryDirectory, manifestPath),
+        JSON.stringify({ name: `@darkfactory/${packageName}` }),
+      )
+      trackedPaths.add(manifestPath)
+    await verifyRejectedLayout("verifier-package-count")
+    for (const manifestPath of extraManifests)
+      trackedPaths.delete(manifestPath)
+      await rm(dirname(join(repositoryDirectory, manifestPath)), { recursive: true })
+  )
+
+  it("normalizes nullish injected verifier streams", async () =>
+    const controller = new AbortController()
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot,
+      verificationRunner: async (request) =>
+        expect(request.signal).toBe(controller.signal)
+        return verifierRunnerResult({
+          output: {
+            stdout: null,
+            stderr: undefined,
+            stdoutBytes: 0,
+            stderrBytes: 0,
+            truncated: false,
+            redacted: false,
+          } as unknown as OmpVerifierRunnerResult["output"],
+        })
+    })
+    const prepared = await prepareVerificationWorkspace(adapter, "nullish-verifier-output")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verification")
+
+    const result = await adapter.execute(verificationRequestFor(
+      prepared,
+      prepared.implementation,
+      { signal: controller.signal },
+    ))
+
+    expect(result.output).toMatchObject({ stdout: "verification", stderr: "" })
+    expect(result.verification).toMatchObject({
+      status: "failed",
+      resultSummary: "",
+      resultBytes: 0,
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP1 applies directory states and preserves filesystem application failures", async () =>
+    const root = join(repositoriesRoot, "wp1-artifact-application")
+    await mkdir(join(root, "existing"), { recursive: true })
+    await writeFile(join(root, "existing", "marker"), "preserved")
+    await writeFile(join(root, "replacement"), "replace me")
+    const artifactFor = (
+      entries: DecodedOmpImplementationArtifact["entries"],
+    ): DecodedOmpImplementationArtifact => Object.freeze({
+      sourceHead: SOURCE_HEAD,
+      workspaceKey: "d".repeat(64),
+      ownerNonce: "11111111-1111-4111-8111-111111111111",
+      changeHash: "c".repeat(64),
+      entries,
+    })
+    await applyOmpImplementationArtifact(root, artifactFor(Object.freeze([
+      Object.freeze({ path: "existing", kind: "directory" as const }),
+      Object.freeze({ path: "replacement", kind: "directory" as const }),
+      Object.freeze({ path: "created", kind: "directory" as const }),
+      Object.freeze({ path: "created/nested", kind: "directory" as const }),
+    ])))
+    expect(await readFile(join(root, "existing", "marker"), "utf8")).toBe("preserved")
+    expect((await lstat(join(root, "replacement"))).isDirectory()).toBe(true)
+    expect((await lstat(join(root, "created", "nested"))).isDirectory()).toBe(true)
+
+    await writeFile(join(root, "blocked-parent"), "not a directory")
+    await expect(applyOmpImplementationArtifact(root, artifactFor(Object.freeze([
+      Object.freeze({ path: "blocked-parent/leaf", kind: "deleted" as const }),
+    ])))).rejects.toBeInstanceOf(OmpRequestError)
+
+    const parentFailure = Object.assign(new Error("wp1 parent lstat failed"), { code: "EIO" })
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === join(root, "failed-parent") then throw parentFailure
+      return await actual(path, ...arguments_)
+    await expect(applyOmpImplementationArtifact(root, artifactFor(Object.freeze([
+      Object.freeze({
+        path: "failed-parent/leaf",
+        kind: "file" as const,
+        mode: 0o600,
+        contentBase64: Buffer.from("unreachable").toString("base64"),
+      }),
+    ])))).rejects.toBe(parentFailure)
+
+    const destinationFailure = Object.assign(
+      new Error("wp1 destination lstat failed"),
+      { code: "EACCES" },
+    )
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === join(root, "failed-directory") then throw destinationFailure
+      return await actual(path, ...arguments_)
+    await expect(applyOmpImplementationArtifact(root, artifactFor(Object.freeze([
+      Object.freeze({ path: "failed-directory", kind: "directory" as const }),
+    ])))).rejects.toBe(destinationFailure)
+    mocks.WP1lstatDelegate = undefined
+  )
+
+  it("WP1 rejects verifier controls whose real path has unsupported metadata", async () =>
+    const controlPath = join(repositoryDirectory, "scripts", "wp1.config")
+    await mkdir(dirname(controlPath), { recursive: true })
+    await writeFile(controlPath, "control")
+    const unsupportedMetadata = await unsupportedMetadataFor(controlPath)
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === controlPath then return unsupportedMetadata
+      return await actual(path, ...arguments_)
+    try
+      await expect(trustedVerifierManifestFor(repositoryDirectory))
+        .rejects.toThrow("OMP verifier control manifest contains unsupported data")
+    finally
+      mocks.WP1lstatDelegate = undefined
+  )
+
+  it("WP1 bounds an implementation manifest at 20,001 unique entries", async () =>
+    const unsupportedMetadata = await unsupportedMetadataFor(
+      join(repositoryDirectory, "package.json"),
+    )
+    const virtualNames = Array.from({ length: 20_000 }, (_, index) =>
+      `wp1-entry-${String(index).padStart(5, "0")}`
+    )
+    let WP1scopeRoot = ""
+    let WP1expanded = false
+    mocks.WP1readdirDelegate = async (actual, path, ...arguments_) =>
+      if WP1expanded && String(path) === WP1scopeRoot then return virtualNames
+      return await actual(path, ...arguments_)
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if WP1expanded && String(path).startsWith(`${WP1scopeRoot}/wp1-entry-`)
+        return unsupportedMetadata
+      return await actual(path, ...arguments_)
+    callbackWith(null, "implemented", "", async (cwd) =>
+      WP1scopeRoot = join(cwd, "packages", "jobs")
+      WP1expanded = true
+      return
+    )
+    try
+      const result = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+        workspaceId: "wp1-manifest-20001",
+        effectKind: "implement",
+      }))
+      expect(result).toMatchObject({
+        status: "failed",
+        change: null,
+        implementationArtifact: null,
+      })
+      await result.lifecycle!.finalize("unpersisted")
+    finally
+      mocks.WP1lstatDelegate = undefined
+      mocks.WP1readdirDelegate = undefined
+  )
+
+  it("WP1 treats manifest and artifact disappearance as bounded public evidence", async () =>
+    await writeFile(scopedFile, "present")
+    trackedPaths.add("packages/jobs/representative.civet")
+    let WP1manifestLstatCalls = 0
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if (
+        String(path).includes("darkfactory-omp-worktrees") &&
+        String(path).endsWith("/packages/jobs/representative.civet")
+      )
+        WP1manifestLstatCalls += 1
+        if WP1manifestLstatCalls === 1
+          throw Object.assign(new Error("wp1 disappeared"), { code: "ENOENT" })
+      return await actual(path, ...arguments_)
+    callbackWith(null, "implemented", "", async (cwd) =>
+      await writeFile(join(cwd, "packages", "jobs", "representative.civet"), "present")
+    )
+    const manifestDisappearance = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({
+        workspaceId: "wp1-manifest-disappearance",
+        effectKind: "implement",
+      }),
+    )
+    expect(manifestDisappearance).toMatchObject({
+      status: "succeeded",
+      change: { changedPaths: ["packages/jobs/representative.civet"] },
+    })
+    await manifestDisappearance.lifecycle!.finalize("unpersisted")
+
+    mocks.WP1lstatDelegate = undefined
+    let WP1artifactLstatCalls = 0
+    let WP1disappearingPath = ""
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === WP1disappearingPath
+        WP1artifactLstatCalls += 1
+        if WP1artifactLstatCalls === 2
+          throw Object.assign(new Error("wp1 disappeared"), { code: "ENOENT" })
+      return await actual(path, ...arguments_)
+    callbackWith(null, "implemented", "", async (cwd) =>
+      WP1disappearingPath = join(cwd, "packages", "jobs", "disappearing.txt")
+      await writeFile(WP1disappearingPath, "transient")
+    )
+    const artifactDisappearance = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({
+        workspaceId: "wp1-artifact-disappearance",
+        effectKind: "implement",
+      }),
+    )
+    expect(artifactDisappearance.status).toBe("succeeded")
+    expect(JSON.parse(artifactDisappearance.implementationArtifact!.content).entries)
+      .toContainEqual({
+        path: "packages/jobs/disappearing.txt",
+        kind: "deleted",
+      })
+    await artifactDisappearance.lifecycle!.finalize("unpersisted")
+    mocks.WP1lstatDelegate = undefined
+  )
+
+  it("WP1 rejects every retained baseline identity and entry mismatch", async () =>
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    const cases = [
+      {
+        label: "source-head",
+        mutate: (baseline: Record<string, unknown>) => ({
+          ...baseline,
+          sourceHead: "b".repeat(40),
+        }),
+      },
+      {
+        label: "scope-paths",
+        mutate: (baseline: Record<string, unknown>) => ({
+          ...baseline,
+          scopePaths: ["packages"],
+        }),
+      },
+      {
+        label: "entries-not-array",
+        mutate: (baseline: Record<string, unknown>) => ({ ...baseline, entries: {} }),
+      },
+      {
+        label: "entries-too-many",
+        mutate: (baseline: Record<string, unknown>) => ({
+          ...baseline,
+          entries: Array.from({ length: 20_001 }, (_, index) => [`p${index}`, "d"]),
+        }),
+      },
+      {
+        label: "entry-not-array",
+        mutate: (baseline: Record<string, unknown>) => ({ ...baseline, entries: [null] }),
+      },
+      {
+        label: "entry-length",
+        mutate: (baseline: Record<string, unknown>) => ({ ...baseline, entries: [["p"]] }),
+      },
+      {
+        label: "entry-path",
+        mutate: (baseline: Record<string, unknown>) => ({ ...baseline, entries: [[1, "d"]] }),
+      },
+      {
+        label: "entry-digest",
+        mutate: (baseline: Record<string, unknown>) => ({ ...baseline, entries: [["p", 1]] }),
+      },
+    ] as const
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for (const testCase of cases)
+      callbackWith(null, "implemented", "", async (cwd) =>
+        await writeFile(
+          join(cwd, "packages", "jobs", "representative.civet"),
+          `after-${testCase.label}`,
+        )
+      )
+      const implementation = await adapter.execute(requestFor({
+        workspaceId: `wp1-baseline-${testCase.label}`,
+        effectKind: "implement",
+      }))
+      await implementation.lifecycle!.finalize("persisted")
+      const workspaceDirectory = (
+        sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+      ).cwd
+      const baselineName = (await readdir(dirname(workspaceDirectory))).find((entry) =>
+        entry.startsWith(`${basename(workspaceDirectory)}.baseline-`)
+      )!
+      const baselinePath = join(dirname(workspaceDirectory), baselineName)
+      const baseline = JSON.parse(await readFile(baselinePath, "utf8")) as Record<string, unknown>
+      await writeFile(baselinePath, JSON.stringify(testCase.mutate(baseline)))
+      await expect(adapter.execute(requestFor({
+        workspaceId: `wp1-baseline-${testCase.label}`,
+        effectKind: "implement",
+      }))).rejects.toThrow("OMP implementation baseline is invalid")
+  )
+
+  it("WP1 rejects a clean baseline whose serialized manifest exceeds its byte budget", async () =>
+    const unsupportedMetadata = await unsupportedMetadataFor(
+      join(repositoryDirectory, "package.json"),
+    )
+    const virtualNames = Array.from({ length: 1_200 }, (_, index) =>
+      `wp1-long-${String(index).padStart(4, "0")}-${"x".repeat(200)}`
+    )
+    let WP1baselineRoot = ""
+    mocks.WP1readdirDelegate = async (actual, path, ...arguments_) =>
+      const candidate = String(path)
+      if (
+        candidate.includes("darkfactory-omp-worktrees") &&
+        candidate.endsWith("/packages/jobs")
+      )
+        WP1baselineRoot = candidate
+        return virtualNames
+      return await actual(path, ...arguments_)
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if (
+        WP1baselineRoot.length > 0 &&
+        String(path).startsWith(`${WP1baselineRoot}/wp1-long-`)
+      )
+        return unsupportedMetadata
+      return await actual(path, ...arguments_)
+    try
+      await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+        workspaceId: "wp1-baseline-byte-budget",
+        effectKind: "implement",
+      }))).rejects.toThrow("OMP implementation baseline is too large")
+      expect(sandboxCalls()).toHaveLength(0)
+    finally
+      mocks.WP1lstatDelegate = undefined
+      mocks.WP1readdirDelegate = undefined
+  )
+
+  it("WP1 reports metadata-other and aggregate artifact failures through implement execution", async () =>
+    const unsupportedMetadata = await unsupportedMetadataFor(
+      join(repositoryDirectory, "package.json"),
+    )
+    let WP1otherPath = ""
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === WP1otherPath then return unsupportedMetadata
+      return await actual(path, ...arguments_)
+    callbackWith(null, "implemented", "", async (cwd) =>
+      WP1otherPath = join(cwd, "packages", "jobs", "metadata-other.config")
+      await writeFile(WP1otherPath, "real backing artifact")
+    )
+    const metadataOther = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "wp1-metadata-other",
+      effectKind: "implement",
+    }))
+    expect(metadataOther).toMatchObject({
+      status: "failed",
+      change: { changedPaths: ["packages/jobs/metadata-other.config"] },
+      implementationArtifact: null,
+    })
+    await metadataOther.lifecycle!.finalize("unpersisted")
+    mocks.WP1lstatDelegate = undefined
+
+    callbackWith(null, "implemented", "", async (cwd) =>
+      const directory = join(cwd, "packages", "jobs")
+      await writeFile(join(directory, "aggregate-a.txt"), "a".repeat(7_000))
+      await writeFile(join(directory, "aggregate-b.txt"), "b".repeat(7_000))
+    )
+    const aggregate = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "wp1-artifact-aggregate",
+      effectKind: "implement",
+    }))
+    expect(aggregate).toMatchObject({
+      status: "failed",
+      change: {
+        changedPaths: [
+          "packages/jobs/aggregate-a.txt",
+          "packages/jobs/aggregate-b.txt",
+        ],
+      },
+      implementationArtifact: null,
+    })
+    await aggregate.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP1 emits a byte- and digest-stable artifact that reapplies to a real temp root", async () =>
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    callbackWith(null, "implemented", "", async (cwd) =>
+      await writeFile(
+        join(cwd, "packages", "jobs", "representative.civet"),
+        "stable-after",
+      )
+    )
+    const implementation = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "wp1-artifact-stability",
+      effectKind: "implement",
+    }))
+    const artifact = implementation.implementationArtifact!
+    expect(artifact.bytes).toBe(Buffer.byteLength(artifact.content))
+    expect(artifact.digest).toBe(createHash("sha256").update(artifact.content).digest("hex"))
+    const decoded = decodeOmpImplementationArtifact(
+      artifact,
+      implementation.change!.changeHash,
+    )
+    const target = join(repositoriesRoot, "wp1-artifact-target")
+    await mkdir(target)
+    await applyOmpImplementationArtifact(target, decoded)
+    await applyOmpImplementationArtifact(target, decoded)
+    expect(await readFile(
+      join(target, "packages", "jobs", "representative.civet"),
+      "utf8",
+    )).toBe("stable-after")
+    expect(artifact.digest).toBe(createHash("sha256").update(artifact.content).digest("hex"))
+    await implementation.lifecycle!.finalize("unpersisted")
+  )
+
+  const WP2errno = (code: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(`WP2 ${code}`), { code })
+  const WP2differentNonce = (nonce: string): string =>
+    `${nonce[0] === "0" ? "1" : "0"}${nonce.slice(1)}`
+
+  const WP2cleanupFor = (
+    prepared: Awaited<ReturnType<typeof prepareVerificationWorkspace>>,
+  ) => ({
+    cwd: "darkfactory",
+    recovery: {
+      artifact: prepared.implementation.implementationArtifact!,
+      changeHash: prepared.implementation.change!.changeHash,
+    },
+  })
+
+  const WP2prepareRetained = async (
+    adapter: ReturnType<typeof createOmpCliAdapter>,
+    workspaceId: string,
+  ) =>
+    const prepared = await prepareVerificationWorkspace(adapter, workspaceId)
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    return prepared
+
+  it("WP2 preserves lock creation, write, and owner metadata failures", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+
+    mocks.WP2mkdirDelegate = async (actual, path, ...arguments_) =>
+      if String(path).endsWith(".lock") then throw WP2errno("EACCES")
+      return await actual(path, ...arguments_)
+    await expect(adapter.execute(requestFor({ workspaceId: "wp2-lock-mkdir" })))
+      .rejects.toMatchObject({ code: "EACCES" })
+    mocks.WP2mkdirDelegate = undefined
+
+    const writeFailureId = "wp2-lock-write"
+    const writeFailureKey = createHash("sha256")
+      .update(`${repositoryDirectory}\0${writeFailureId}`)
+      .digest("hex")
+    const writeFailureLock = join(worktreesRoot, `${writeFailureKey}.lock`)
+    mocks.WP2writeFileDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === join(writeFailureLock, "owner.json")
+        throw WP2errno("EIO")
+      return await actual(path, ...arguments_)
+    await expect(adapter.execute(requestFor({ workspaceId: writeFailureId })))
+      .rejects.toMatchObject({ code: "EIO" })
+    mocks.WP2writeFileDelegate = undefined
+    await expect(access(writeFailureLock)).rejects.toMatchObject({ code: "ENOENT" })
+
+    const unavailableId = "wp2-owner-unavailable"
+    const unavailableKey = createHash("sha256")
+      .update(`${repositoryDirectory}\0${unavailableId}`)
+      .digest("hex")
+    const unavailableLock = join(worktreesRoot, `${unavailableKey}.lock`)
+    const unavailableOwner = join(unavailableLock, "owner.json")
+    await mkdir(unavailableLock)
+    await writeFile(unavailableOwner, "{")
+    await expect(adapter.execute(requestFor({ workspaceId: unavailableId })))
+      .rejects.toThrow("owner metadata unavailable")
+    await writeFile(unavailableOwner, JSON.stringify({
+      nonce: randomUUID(),
+      pid: process.pid,
+      createdAt: 1,
+    }))
+    mocks.WP2readFileDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === unavailableOwner then throw WP2errno("EACCES")
+      return await actual(path, ...arguments_)
+    await expect(adapter.execute(requestFor({ workspaceId: unavailableId })))
+      .rejects.toThrow("owner metadata unavailable")
+    mocks.WP2readFileDelegate = undefined
+    await rm(unavailableLock, { recursive: true, force: true })
+
+    const retained = await WP2prepareRetained(adapter, "wp2-owner-identities")
+    const artifact = retained.implementation.implementationArtifact!
+    const lockDirectory = `${retained.workspaceDirectory}.lock`
+    const ownerPath = join(lockDirectory, "owner.json")
+    const invalidOwners = [
+      { nonce: WP2differentNonce(artifact.ownerNonce), pid: 999_999_991, createdAt: 1 },
+      { nonce: artifact.ownerNonce, pid: 1.5, createdAt: 1 },
+      { nonce: artifact.ownerNonce, pid: 0, createdAt: 1 },
+      { nonce: artifact.ownerNonce, pid: 999_999_991, createdAt: 1.5 },
+      { nonce: artifact.ownerNonce, pid: 999_999_991, createdAt: -1 },
+    ] as const
+    for (const owner of invalidOwners)
+      await mkdir(lockDirectory)
+      await writeFile(ownerPath, JSON.stringify(owner))
+      await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+        .rejects.toThrow("owner identity changed")
+      await rm(lockDirectory, { recursive: true, force: true })
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained))
+  )
+
+  it("WP2 validates real ownership markers and reports atomic persistence failures", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const retained = await WP2prepareRetained(adapter, "wp2-marker-matrix")
+    const markerPath = `${retained.workspaceDirectory}.owner.json`
+    const originalContent = await readFile(markerPath, "utf8")
+    const original = JSON.parse(originalContent) as Record<string, unknown>
+    const malformedMarkers = [
+      ` ${originalContent}`,
+      JSON.stringify({ ...original, identity: "wrong" }),
+      JSON.stringify({ ...original, sourceCwdDigest: "bad" }),
+      JSON.stringify({ ...original, sourceHead: "bad" }),
+      JSON.stringify({ ...original, workspaceKey: "bad" }),
+      JSON.stringify({ ...original, ownerNonce: "bad" }),
+      JSON.stringify({ ...original, artifactDigest: "bad" }),
+      JSON.stringify({ ...original, changeHash: "bad" }),
+    ]
+    for (const content of malformedMarkers)
+      await writeFile(markerPath, content)
+      await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+        .rejects.toBeInstanceOf(OmpRequestError)
+
+    await writeFile(markerPath, JSON.stringify({
+      ...original,
+      ownerNonce: WP2differentNonce(String(original["ownerNonce"])),
+    }))
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+      .rejects.toThrow("ownership identity changed")
+    await writeFile(markerPath, originalContent)
+
+    for (const code of ["ENOENT", "EACCES", "EIO"])
+      mocks.WP2readFileDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === markerPath then throw WP2errno(code)
+        return await actual(path, ...arguments_)
+      await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+        .rejects.toBeInstanceOf(OmpRequestError)
+      mocks.WP2readFileDelegate = undefined
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained))
+
+    await writeFile(scopedFile, "before")
+    trackedPaths.add("packages/jobs/representative.civet")
+    for (const operation of ["write", "rename"] as const)
+      callbackWith(null, "implemented", "", async (cwd) =>
+        await writeFile(
+          join(cwd, "packages", "jobs", "representative.civet"),
+          `wp2-${operation}`,
+        )
+      )
+      if operation === "write"
+        mocks.WP2writeFileDelegate = async (actual, path, ...arguments_) =>
+          if String(path).includes(".owner.json.") && String(path).endsWith(".tmp")
+            throw WP2errno("EIO")
+          return await actual(path, ...arguments_)
+      else
+        mocks.WP2renameDelegate = async (actual, source, ...arguments_) =>
+          if String(source).includes(".owner.json.") && String(source).endsWith(".tmp")
+            throw WP2errno("EIO")
+          return await actual(source, ...arguments_)
+      const result = await adapter.execute(requestFor({
+        workspaceId: `wp2-marker-${operation}`,
+        effectKind: "implement",
+      }))
+      expect(result).toMatchObject({
+        status: "failed",
+        change: { changedPaths: ["packages/jobs/representative.civet"] },
+        implementationArtifact: null,
+      })
+      mocks.WP2writeFileDelegate = undefined
+      mocks.WP2renameDelegate = undefined
+      await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP2 detects owner disappearance and deterministic cleanup ownership races", async () =>
+    callbackWith(null, "planned")
+    const plan = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "wp2-owner-disappears",
+    }))
+    const planWorkspace = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    await rm(join(`${planWorkspace}.lock`, "owner.json"))
+    await expect(plan.lifecycle!.finalize("persisted"))
+      .rejects.toBeInstanceOf(OmpWorkspaceCleanupError)
+
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for (const race of ["baseline", "marker"] as const)
+      const retained = await WP2prepareRetained(adapter, `wp2-${race}-ownership-race`)
+      const cleanup = WP2cleanupFor(retained)
+      const worktreesRoot = dirname(retained.workspaceDirectory)
+      const lockDirectory = `${retained.workspaceDirectory}.lock`
+      const ownerPath = join(lockDirectory, "owner.json")
+      const baselinePrefix = `${basename(retained.workspaceDirectory)}.baseline-`
+      if race === "marker"
+        for (const entry of await readdir(worktreesRoot))
+          if entry.startsWith(baselinePrefix)
+            await rm(join(worktreesRoot, entry), { force: true })
+      let ownerReads = 0
+      mocks.WP2readFileDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === ownerPath
+          ownerReads += 1
+          if ownerReads === 2
+            return JSON.stringify({
+              nonce: WP2differentNonce(
+                retained.implementation.implementationArtifact!.ownerNonce,
+              ),
+              pid: process.pid,
+              createdAt: 1,
+            })
+        return await actual(path, ...arguments_)
+      mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === retained.workspaceDirectory then return
+        return await actual(path, ...arguments_)
+      await expect(adapter.cleanupRetainedWorkspace(cleanup))
+        .rejects.toThrow("cleanup ownership changed")
+      mocks.WP2readFileDelegate = undefined
+      mocks.WP2rmDelegate = undefined
+      await adapter.cleanupRetainedWorkspace(cleanup)
+  )
+
+  it("WP2 fails closed across cleanup path, root, git, and filesystem boundaries", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+
+    const statFailure = await WP2prepareRetained(adapter, "wp2-cleanup-stat-eacces")
+    mocks.WP2statDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === statFailure.workspaceDirectory then throw WP2errno("EACCES")
+      return await actual(path, ...arguments_)
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(statFailure)))
+      .rejects.toMatchObject({ code: "EACCES" })
+    mocks.WP2statDelegate = undefined
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(statFailure))
+
+    const invalidRoot = await WP2prepareRetained(adapter, "wp2-cleanup-root-file")
+    mocks.WP2statDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === worktreesRoot
+        return await actual(join(repositoryDirectory, "package.json"))
+      return await actual(path, ...arguments_)
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(invalidRoot)))
+      .rejects.toThrow("OMP worktree root is insecure")
+    mocks.WP2statDelegate = undefined
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(invalidRoot))
+
+    const invalidPath = await WP2prepareRetained(adapter, "wp2-cleanup-canonical-path")
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === invalidPath.workspaceDirectory then return worktreesRoot
+      return await actual(path, ...arguments_)
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(invalidPath)))
+      .rejects.toThrow("cleanup path is invalid")
+    mocks.WP2realpathDelegate = undefined
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(invalidPath))
+
+    const wrongHead = await WP2prepareRetained(adapter, "wp2-cleanup-head")
+    gitResponseOverrides.set(["rev-parse", "HEAD"].join("\0"), "b".repeat(40))
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(wrongHead)))
+      .rejects.toThrow("cleanup identity changed")
+    gitResponseOverrides.delete(["rev-parse", "HEAD"].join("\0"))
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(wrongHead))
+
+    for (const outcome of ["oversized", "EIO"] as const)
+      const retained = await WP2prepareRetained(adapter, `wp2-cleanup-readdir-${outcome}`)
+      mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === retained.workspaceDirectory then return
+        return await actual(path, ...arguments_)
+      mocks.WP2readdirDelegate = async (actual, path, ...arguments_) =>
+        if basename(String(path)) === "darkfactory-omp-worktrees"
+          if outcome === "EIO" then throw WP2errno("EIO")
+          return Array.from({ length: 20_001 }, (_, index) => `entry-${index}`)
+        return await actual(path, ...arguments_)
+      const rejection = expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+        .rejects
+      if outcome === "EIO"
+        await rejection.toMatchObject({ code: "EIO" })
+      else
+        await rejection.toThrow("cleanup root is oversized")
+      mocks.WP2readdirDelegate = undefined
+      mocks.WP2rmDelegate = undefined
+      await adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained))
+
+    for (const denied of ["baseline", "marker"] as const)
+      const retained = await WP2prepareRetained(adapter, `wp2-cleanup-${denied}-eacces`)
+      const markerPath = `${retained.workspaceDirectory}.owner.json`
+      const baselinePrefix = `${basename(retained.workspaceDirectory)}.baseline-`
+      mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+        const value = String(path)
+        if value === retained.workspaceDirectory then return
+        if (
+          (denied === "marker" && value === markerPath) ||
+          (denied === "baseline" && basename(value).startsWith(baselinePrefix))
+        )
+          throw WP2errno("EACCES")
+        return await actual(path, ...arguments_)
+      await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+        .rejects.toMatchObject({ code: "EACCES" })
+      mocks.WP2rmDelegate = undefined
+      await adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained))
+
+    const pruneFailure = await WP2prepareRetained(adapter, "wp2-cleanup-prune")
+    gitResponseOverrides.set(
+      ["worktree", "prune"].join("\0"),
+      WP2errno("EIO"),
+    )
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(pruneFailure)))
+      .rejects.toBeInstanceOf(OmpRequestError)
+    gitResponseOverrides.delete(["worktree", "prune"].join("\0"))
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(pruneFailure))
+  )
+
+  it("WP2 releases a vanished cleanup race and rejects mismatched signed recovery", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const vanished = await WP2prepareRetained(adapter, "wp2-cleanup-vanished")
+    const vanishedMarker = `${vanished.workspaceDirectory}.owner.json`
+    const vanishedLock = `${vanished.workspaceDirectory}.lock`
+    const disappearanceCounts = new Map<string, number>()
+    mocks.WP2statDelegate = async (actual, path, ...arguments_) =>
+      const value = String(path)
+      if value === vanished.workspaceDirectory || value === vanishedMarker
+        const count = (disappearanceCounts.get(value) ?? 0) + 1
+        disappearanceCounts.set(value, count)
+        if count > 1 then throw WP2errno("ENOENT")
+      return await actual(path, ...arguments_)
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(vanished)))
+      .resolves.toBeUndefined()
+    mocks.WP2statDelegate = undefined
+    await expect(access(vanishedLock)).rejects.toMatchObject({ code: "ENOENT" })
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(vanished))
+
+    const retained = await WP2prepareRetained(adapter, "wp2-recovery-identity")
+    await expect(adapter.execute(verificationRequestFor(
+      retained,
+      retained.implementation,
+      { workspaceId: "wp2-different-workspace" },
+    ))).rejects.toThrow("workspace recovery identity changed")
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained))
+  )
+
+  it("WP2 deterministically takes over stale recovery and verifier replay locks", async () =>
+    const verificationRunner = vi.fn(async () => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const retained = await WP2prepareRetained(adapter, "wp2-stale-takeover")
+    const artifact = retained.implementation.implementationArtifact!
+    const stalePid = 999_999_993
+    const mainLock = `${retained.workspaceDirectory}.lock`
+    await mkdir(mainLock)
+    await writeFile(join(mainLock, "owner.json"), JSON.stringify({
+      nonce: artifact.ownerNonce,
+      pid: stalePid,
+      createdAt: 1,
+    }))
+
+    const verifierKey = createHash("sha256")
+      .update(`${artifact.workspaceKey}\0${artifact.digest}`)
+      .digest("hex")
+    const verifierWorkspace = join(
+      dirname(retained.workspaceDirectory),
+      `${artifact.workspaceKey}.verify-${verifierKey}`,
+    )
+    await mkdir(verifierWorkspace)
+    await writeFile(
+      `${verifierWorkspace}.owner.json`,
+      await readFile(`${retained.workspaceDirectory}.owner.json`, "utf8"),
+    )
+    const verifierLock = `${verifierWorkspace}.lock`
+    await mkdir(verifierLock)
+    await writeFile(join(verifierLock, "owner.json"), JSON.stringify({
+      nonce: artifact.ownerNonce,
+      pid: stalePid,
+      createdAt: 1,
+    }))
+    const processKill = vi.spyOn(process, "kill").mockImplementation((pid) =>
+      if pid === stalePid then throw WP2errno("ESRCH")
+      return true
+    )
+    try
+      callbackWith(null, "verification")
+      const result = await adapter.execute(verificationRequestFor(retained))
+      expect(result).toMatchObject({
+        status: "succeeded",
+        verification: { status: "succeeded" },
+      })
+      expect(gitCalls().some((call) =>
+        const arguments_ = call[1] as readonly string[]
+        return (
+          arguments_[0] === "worktree" &&
+          arguments_[1] === "remove" &&
+          arguments_[3] === verifierWorkspace
+        )
+      )).toBe(true)
+      await result.lifecycle!.finalize("persisted")
+    finally
+      processKill.mockRestore()
+  )
+
+  it("WP2 maps retained release failures to cleanup ownership errors", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const retained = await WP2prepareRetained(adapter, "wp2-retained-release-failure")
+    const markerPath = `${retained.workspaceDirectory}.owner.json`
+    const originalMarker = await readFile(markerPath, "utf8")
+    const changedMarker = {
+      ...(JSON.parse(originalMarker) as Record<string, unknown>),
+      sourceHead: "b".repeat(40),
+    }
+    await writeFile(markerPath, JSON.stringify(changedMarker))
+    const lockDirectory = `${retained.workspaceDirectory}.lock`
+    mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === lockDirectory then throw WP2errno("EIO")
+      return await actual(path, ...arguments_)
+    await expect(adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained)))
+      .rejects.toBeInstanceOf(OmpWorkspaceCleanupError)
+    mocks.WP2rmDelegate = undefined
+    await rm(lockDirectory, { recursive: true, force: true })
+    await writeFile(markerPath, originalMarker)
+    await adapter.cleanupRetainedWorkspace(WP2cleanupFor(retained))
+
+    callbackWith(null, "planned")
+    const plan = await adapter.execute(requestFor({
+      workspaceId: "wp2-lifecycle-release-failure",
+    }))
+    const planWorkspace = (
+      sandboxCalls().at(-1)![2] as Readonly<{ cwd: string }>
+    ).cwd
+    mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === `${planWorkspace}.lock` then throw WP2errno("EIO")
+      return await actual(path, ...arguments_)
+    await expect(plan.lifecycle!.finalize("persisted"))
+      .rejects.toBeInstanceOf(OmpWorkspaceCleanupError)
+    mocks.WP2rmDelegate = undefined
+  )
+
+  it("WP3 rejects unavailable, denied, and non-file sandbox candidates and control-byte paths", async () =>
+    const errnoFor = (code: "ENOENT" | "EACCES"): NodeJS.ErrnoException =>
+      Object.assign(new Error(code), { code })
+    const sandboxExecutable = "/usr/bin/sandbox-exec"
+
+    for (const [label, code] of [
+      ["unavailable", "ENOENT"],
+      ["denied", "EACCES"],
+    ] as const)
+      mocks.WP3accessDelegate = async (actual, path, mode) =>
+        if String(path) === sandboxExecutable then throw errnoFor(code)
+        return actual(path, mode)
+      const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+      try
+        await expect(createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+          workspaceId: `wp3-sandbox-${label}`,
+        }))).rejects.toMatchObject({
+          name: "OmpConfigurationError",
+          message: "OMP filesystem sandbox is unavailable",
+        })
+        expect(sandboxCalls()).toHaveLength(0)
+      finally
+        platform.mockRestore()
+
+    const nonFileCandidate = join(repositoriesRoot, "wp3-sandbox-directory")
+    await mkdir(nonFileCandidate)
+    await chmod(nonFileCandidate, 0o700)
+    mocks.WP3accessDelegate = async (actual, path, mode) =>
+      if String(path) === sandboxExecutable then return actual(nonFileCandidate, mode)
+      return actual(path, mode)
+    mocks.WP3statDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === sandboxExecutable
+        return actual(nonFileCandidate, ...arguments_)
+      return actual(path, ...arguments_)
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    try
+      await expect(createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+        workspaceId: "wp3-sandbox-non-file",
+      }))).rejects.toMatchObject({
+        name: "OmpConfigurationError",
+        message: "OMP filesystem sandbox is unavailable",
+      })
+      expect(sandboxCalls()).toHaveLength(0)
+    finally
+      platform.mockRestore()
+
+    const validExecutableDirectory = join(repositoriesRoot, "wp3-valid-bin")
+    const validExecutable = join(validExecutableDirectory, "omp")
+    await mkdir(validExecutableDirectory)
+    await writeFile(validExecutable, "#!/bin/sh\nexit 0\n")
+    await chmod(validExecutable, 0o700)
+    mocks.WP3accessDelegate = async (actual, path, mode) =>
+      if String(path) === sandboxExecutable then return
+      return actual(path, mode)
+    mocks.WP3statDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === sandboxExecutable
+        return {
+          isFile: () => true,
+        } as Awaited<ReturnType<typeof stat>>
+      return actual(path, ...arguments_)
+    const originalPath = process.env["PATH"]
+    process.env["PATH"] = validExecutableDirectory
+    const validPlatform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    try
+      callbackWith(null, "planned with valid sandbox")
+      const validPlan = await createProductionOmpCliAdapter({
+        repositoriesRoot,
+      }).execute(requestFor({
+        workspaceId: "wp3-sandbox-valid-file",
+      }))
+      expect(validPlan.status).toBe("succeeded")
+      expect(sandboxCalls()).toHaveLength(1)
+      await validPlan.lifecycle!.finalize("unpersisted")
+    finally
+      if originalPath === undefined then delete process.env["PATH"]
+      else process.env["PATH"] = originalPath
+      validPlatform.mockRestore()
+
+    mocks.WP3accessDelegate = undefined
+    mocks.WP3statDelegate = undefined
+    const controlExecutable = join(repositoriesRoot, "wp3-omp\ncontrol")
+    await writeFile(controlExecutable, "#!/bin/sh\nexit 0\n")
+    await chmod(controlExecutable, 0o700)
+    await expect(createOmpCliAdapter({
+      repositoriesRoot,
+      executable: controlExecutable,
+      allowedExecutables: [controlExecutable],
+    }).execute(requestFor({
+      workspaceId: "wp3-sandbox-control",
+    }))).rejects.toBeInstanceOf(OmpRequestError)
+
+    callbackWith(null, "planned after candidate checks")
+    const planned = await createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+      workspaceId: "wp3-plan-after-candidates",
+    }))
+    expect(planned).toMatchObject({
+      status: "succeeded",
+      verification: null,
+      implementationArtifact: null,
+    })
+    await planned.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP3 fails closed for unavailable, denied, and non-file Docker candidates", async () =>
+    const errnoFor = (code: "ENOENT" | "EACCES"): NodeJS.ErrnoException =>
+      Object.assign(new Error(code), { code })
+    const dockerCandidates = [
+      "/usr/bin/docker",
+      "/usr/local/bin/docker",
+      "/opt/homebrew/bin/docker",
+    ] as const
+    const sandboxExecutable = "/usr/bin/sandbox-exec"
+    const nonFileCandidate = join(repositoriesRoot, "wp3-docker-directory")
+    await mkdir(nonFileCandidate)
+    await chmod(nonFileCandidate, 0o700)
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot,
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY,
+      verifierImageDigest: VERIFIER_IMAGE_DIGEST,
+    })
+    const prepared = await prepareVerificationWorkspace(adapter, "wp3-docker-candidates")
+    await prepared.implementation.lifecycle!.finalize("persisted")
+
+    for (const state of ["unavailable", "denied", "non-file"] as const)
+      const candidateAccesses: string[] = []
+      mocks.WP3accessDelegate = async (actual, path, mode) =>
+        const candidate = String(path)
+        if candidate === sandboxExecutable then return actual(path, mode)
+        if !dockerCandidates.includes(candidate as typeof dockerCandidates[number])
+          return actual(path, mode)
+        candidateAccesses.push(candidate)
+        if state === "non-file" && candidate === dockerCandidates[0]
+          return actual(nonFileCandidate, mode)
+        const code = state === "denied" && candidate === dockerCandidates[0]
+          ? "EACCES"
+          : "ENOENT"
+        throw errnoFor(code)
+      mocks.WP3realpathDelegate = async (actual, path, ...arguments_) =>
+        if state === "non-file" && String(path) === dockerCandidates[0]
+          return actual(nonFileCandidate, ...arguments_)
+        return actual(path, ...arguments_)
+
+      callbackWith(null, `verification with ${state} Docker`)
+      const result = await adapter.execute(verificationRequestFor(prepared))
+      expect(result).toMatchObject({
+        status: "failed",
+        verification: null,
+      })
+      expect(candidateAccesses).toEqual(dockerCandidates)
+      await result.lifecycle!.finalize("persisted")
+
+    mocks.WP3accessDelegate = undefined
+    mocks.WP3realpathDelegate = undefined
+  )
+
+  it("WP3 resolves Docker with and without a request signal and records the configured image", async () =>
+    const dockerCandidate = "/usr/bin/docker"
+    const resolvedDocker = join(repositoriesRoot, "wp3-docker")
+    await writeFile(resolvedDocker, "#!/bin/sh\nexit 0\n")
+    await chmod(resolvedDocker, 0o700)
+    mocks.WP3accessDelegate = async (actual, path, mode) =>
+      if String(path) === dockerCandidate then return actual(resolvedDocker, mode)
+      return actual(path, mode)
+    mocks.WP3realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === dockerCandidate
+        return actual(resolvedDocker, ...arguments_)
+      return actual(path, ...arguments_)
+    const inspectIdentity =
+      `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`
+    const dockerResponse = (
+      stdout = "",
+      stderr = "",
+      closeCode = 0,
+    ): SandboxResponse => ({
+      error: null,
+      stdout,
+      stderr,
+      closeCode,
+    })
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot,
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY,
+      verifierImageDigest: VERIFIER_IMAGE_DIGEST,
+    })
+
+    for (const requestSignal of [undefined, new AbortController().signal] as const)
+      const workspaceId = requestSignal === undefined
+        ? "wp3-docker-without-signal"
+        : "wp3-docker-with-signal"
+      const prepared = await prepareVerificationWorkspace(adapter, workspaceId)
+      await prepared.implementation.lifecycle!.finalize("persisted")
+      callbackWith(null, `verification for ${workspaceId}`)
+      sandboxResponses.push(
+        dockerResponse(inspectIdentity),
+        dockerResponse("tests: docker passed"),
+        dockerResponse(),
+      )
+
+      const result = await adapter.execute(verificationRequestFor(
+        prepared,
+        prepared.implementation,
+        requestSignal === undefined ? {} : { signal: requestSignal },
+      ))
+
+      expect(result).toMatchObject({
+        status: "succeeded",
+        verification: {
+          status: "succeeded",
+          commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY,
+          imageDigest: VERIFIER_IMAGE_DIGEST,
+          configDigest: OMP_VERIFIER_CONFIG_DIGEST,
+        },
+      })
+      const resolvedCalls = sandboxCalls().filter((call) =>
+        call[0] === resolvedDocker
+      )
+      expect(resolvedCalls.at(-3)?.[1]).toContain("image")
+      expect(resolvedCalls.at(-2)?.[1]).toContain("run")
+      expect(resolvedCalls.at(-1)?.[1]).toContain("container")
+      await result.lifecycle!.finalize("persisted")
+
+    mocks.WP3accessDelegate = undefined
+    mocks.WP3realpathDelegate = undefined
+  )
+
+  it("WP3 distinguishes disappearing and surviving owned process groups with Node errno shapes", async () =>
+    const inspect = (pid: number): SandboxResponse => ({
+      error: null,
+      stdout: "",
+      stderr: "",
+      pid,
+      holdOpen: true,
+    })
+    const run = (signal: AbortSignal) => runDockerVerifier({
+      dockerExecutable: "/usr/bin/docker",
+      workspace: repositoryDirectory,
+      sessionDirectory: repositoriesRoot,
+      imageDigest: VERIFIER_IMAGE_DIGEST,
+      signal,
+      timeoutMs: 1_000,
+      shutdownTimeoutMs: 4,
+      maximumOutputBytes: 64,
+      redactions: [],
+      now: () => 0,
+    })
+    const errnoFor = (code: "ESRCH" | "EPERM"): NodeJS.ErrnoException =>
+      Object.assign(new Error(code), { code })
+    const begin = async (pid: number) =>
+      sandboxResponses.push(inspect(pid))
+      const controller = new AbortController()
+      const pending = run(controller.signal)
+      await vi.waitFor(() =>
+        expect(sandboxCalls().at(-1)?.[1]).toContain("image")
+      )
+      return { controller, pending }
+
+    const duringLoop = await begin(303_031)
+    let killedDuringLoop = false
+    const duringLoopKill = vi.spyOn(process, "kill").mockImplementation((
+      _pid: number,
+      signal?: string | number,
+    ) =>
+      if signal === "SIGKILL"
+        killedDuringLoop = true
+        return true
+      if signal === 0 && killedDuringLoop then throw errnoFor("ESRCH")
+      return true
+    )
+    const duringLoopTimes = [0, 0, 2, 2, 2]
+    const duringLoopNow = vi.spyOn(Date, "now")
+      .mockImplementation(() => duringLoopTimes.shift() ?? 4)
+    duringLoop.controller.abort()
+    await expect(duringLoop.pending).resolves.toMatchObject({ status: "aborted" })
+    expect(duringLoopKill).toHaveBeenCalledWith(-303_031, "SIGKILL")
+    duringLoopNow.mockRestore()
+    duringLoopKill.mockRestore()
+
+    const atDeadline = await begin(303_032)
+    let killedAtDeadline = false
+    let postKillProbes = 0
+    const atDeadlineKill = vi.spyOn(process, "kill").mockImplementation((
+      _pid: number,
+      signal?: string | number,
+    ) =>
+      if signal === "SIGKILL"
+        killedAtDeadline = true
+        return true
+      if signal === 0 && killedAtDeadline
+        postKillProbes += 1
+        if postKillProbes > 1 then throw errnoFor("ESRCH")
+      return true
+    )
+    const atDeadlineTimes = [0, 0, 2, 2, 2, 4]
+    const atDeadlineNow = vi.spyOn(Date, "now")
+      .mockImplementation(() => atDeadlineTimes.shift() ?? 4)
+    atDeadline.controller.abort()
+    await expect(atDeadline.pending).resolves.toMatchObject({ status: "aborted" })
+    expect(postKillProbes).toBe(2)
+    atDeadlineNow.mockRestore()
+    atDeadlineKill.mockRestore()
+
+    const surviving = await begin(303_033)
+    let killedSurvivor = false
+    const survivingKill = vi.spyOn(process, "kill").mockImplementation((
+      _pid: number,
+      signal?: string | number,
+    ) =>
+      if signal === "SIGKILL"
+        killedSurvivor = true
+        return true
+      if signal === 0 && killedSurvivor then throw errnoFor("EPERM")
+      return true
+    )
+    const survivingTimes = [0, 0, 2, 2, 2, 4]
+    const survivingNow = vi.spyOn(Date, "now")
+      .mockImplementation(() => survivingTimes.shift() ?? 4)
+    surviving.controller.abort()
+    await expect(surviving.pending).rejects.toBeInstanceOf(
+      OmpProcessTerminationError,
+    )
+    expect(survivingKill).toHaveBeenCalledWith(-303_033, "SIGKILL")
+    survivingNow.mockRestore()
+    survivingKill.mockRestore()
+  )
+  const WP4errno = (code: NodeJS.ErrnoException["code"]): NodeJS.ErrnoException =>
+    Object.assign(new Error(`WP4 ${code} filesystem failure`), { code })
+  const WP4terminateNextGitCleanup = (pid: number) =>
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    const dateNow = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValue(1_000)
+    mocks.execFile.mockImplementationOnce((
+      _executable: string,
+      _arguments: readonly string[],
+      _options: unknown,
+      callback: (error: NodeJS.ErrnoException | null) => void,
+    ) =>
+      const child = Object.assign(new EventEmitter(), {
+        pid,
+        kill: vi.fn(() => true),
+      })
+      queueMicrotask(() =>
+        callback(Object.assign(new Error("git cleanup failed"), { code: "EIO" }))
+      )
+      child
+    )
+    return { processKill, dateNow }
+
+
+  const WP4verifierWorkspaceFor = (
+    artifact: OmpImplementationArtifact,
+  ): string =>
+    const verifierKey = createHash("sha256")
+      .update(`${artifact.workspaceKey}\0${artifact.digest}`)
+      .digest("hex")
+    return join(
+      tmpdir(),
+      "darkfactory-omp-worktrees",
+      `${artifact.workspaceKey}.verify-${verifierKey}`,
+    )
+
+  it("WP4 fails closed when verifier reconstruction reads different reviewed content", async () =>
+    const verificationRunner = vi.fn(async () => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-reconstruction-drift",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    mocks.WP4readFileDelegate = async (actual, path, ...arguments_) =>
+      const file = String(path)
+      if (
+        file.includes(".verify-") &&
+        file.endsWith("packages/jobs/representative.civet")
+      )
+        return Buffer.from("WP4 different reconstructed content")
+      return actual(path, ...arguments_)
+    callbackWith(null, "verification preflight")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: null
+      change: prepared.implementation.change
+      implementationArtifact: prepared.implementation.implementationArtifact
+    })
+    expect(verificationRunner).not.toHaveBeenCalled()
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 fails closed when a verifier control changes before initial manifest comparison", async () =>
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY
+      verifierImageDigest: VERIFIER_IMAGE_DIGEST
+    })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-initial-control-drift",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const WP4controlEvents: string[] = []
+    mocks.WP4lstatDelegate = async (actual, path, ...arguments_) =>
+      const file = String(path)
+      if (
+        WP4controlEvents.length === 0 &&
+        basename(dirname(file)).includes(".verify-") &&
+        basename(file) === "package.json"
+      )
+        WP4controlEvents.push(`initial-manifest:${file}`)
+        await writeFile(file, JSON.stringify({
+          description: "WP4 verifier control drift"
+          scripts: { "verify:core": VERIFY_CORE_SCRIPT }
+        }))
+      return actual(path, ...arguments_)
+    callbackWith(null, "verification preflight")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+    const WP4canonicalVerifierCwd = join(
+      await realpath(join(tmpdir(), "darkfactory-omp-worktrees")),
+      basename(WP4verifierWorkspaceFor(
+        prepared.implementation.implementationArtifact!,
+      )),
+    )
+
+    expect(WP4controlEvents).toEqual([
+      `initial-manifest:${join(WP4canonicalVerifierCwd, "package.json")}`,
+    ])
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: null
+      change: prepared.implementation.change
+      implementationArtifact: prepared.implementation.implementationArtifact
+    })
+    expect(sandboxCalls().some((call) => basename(String(call[0])) === "docker"))
+      .toBe(false)
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 preserves typed cleanup failure when releasing a prepared verifier workspace", async () =>
+    const verificationRunner = vi.fn(async ({ cwd }: Readonly<{ cwd: string }>) =>
+      gitResponseOverrides.set(
+        ["worktree", "remove", "--force", cwd].join("\0"),
+        WP4errno("EIO"),
+      )
+      return verifierRunnerResult()
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-release-cleanup-error",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const verifierCwd = WP4verifierWorkspaceFor(
+      prepared.implementation.implementationArtifact!,
+    )
+    callbackWith(null, "verification")
+
+    await expect(adapter.execute(verificationRequestFor(prepared)))
+      .rejects.toBeInstanceOf(OmpWorkspaceCleanupError)
+    await expect(access(`${verifierCwd}.lock`)).rejects.toMatchObject({
+      code: "ENOENT"
+    })
+  )
+
+  it("WP4 releases the verifier lock and preserves cleanup failure during failed preparation", async () =>
+    const verificationRunner = vi.fn(async () => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-prepare-cleanup-error",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    let verifierCwd = ""
+    mocks.WP4readFileDelegate = async (actual, path, ...arguments_) =>
+      const file = String(path)
+      if (
+        file.includes(".verify-") &&
+        file.endsWith("packages/jobs/representative.civet")
+      )
+        verifierCwd = dirname(dirname(dirname(file)))
+        gitResponseOverrides.set(
+          ["worktree", "remove", "--force", verifierCwd].join("\0"),
+          WP4errno("EIO"),
+        )
+        return Buffer.from("WP4 reconstruction failure before cleanup")
+      return actual(path, ...arguments_)
+    callbackWith(null, "verification preflight")
+
+    await expect(adapter.execute(verificationRequestFor(prepared)))
+      .rejects.toBeInstanceOf(OmpWorkspaceCleanupError)
+    expect(verificationRunner).not.toHaveBeenCalled()
+    await expect(access(`${verifierCwd}.lock`)).rejects.toMatchObject({
+      code: "ENOENT"
+    })
+  )
+
+  it("WP4 rethrows process termination from failed verifier preparation after attempting its lock release", async () =>
+    const verificationRunner = vi.fn(async () => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-prepare-cleanup-termination",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    let verifierCwd = ""
+    let reconstructionMutated = false
+    let termination: ReturnType<typeof WP4terminateNextGitCleanup> | undefined
+    let lockReleaseAttempts = 0
+    mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === `${verifierCwd}.lock`
+        lockReleaseAttempts += 1
+        throw WP4errno("EIO")
+      return actual(path, ...arguments_)
+    mocks.WP4readFileDelegate = async (actual, path, ...arguments_) =>
+      const file = String(path)
+      if (
+        !reconstructionMutated &&
+        file.includes(".verify-") &&
+        file.endsWith("packages/jobs/representative.civet")
+      )
+        reconstructionMutated = true
+        verifierCwd = dirname(dirname(dirname(file)))
+        termination = WP4terminateNextGitCleanup(848_484)
+        return Buffer.from("WP4 reconstruction failure before terminating cleanup")
+      return actual(path, ...arguments_)
+    callbackWith(null, "verification preflight")
+
+    try
+      await expect(adapter.execute(verificationRequestFor(prepared)))
+        .rejects.toBeInstanceOf(OmpProcessTerminationError)
+    finally
+      mocks.WP4readFileDelegate = undefined
+      mocks.WP2rmDelegate = undefined
+      termination?.dateNow.mockRestore()
+      termination?.processKill.mockRestore()
+    expect(reconstructionMutated).toBe(true)
+    expect(verificationRunner).not.toHaveBeenCalled()
+    expect(lockReleaseAttempts).toBe(1)
+    await expect(access(`${verifierCwd}.lock`)).resolves.toBeUndefined()
+  )
+
+  it("WP4 normalizes an ordinary retained artifact read error during verification preflight", async () =>
+    const verificationRunner = vi.fn(async () => verifierRunnerResult())
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-preflight-read-error",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    const retainedFile = join(
+      prepared.workspaceDirectory,
+      "packages",
+      "jobs",
+      "representative.civet",
+    )
+    callbackWith(null, "verification preflight", "", async () =>
+      mocks.WP4readFileDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === retainedFile then throw WP4errno("EIO")
+        return actual(path, ...arguments_)
+      return
+    )
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: null
+      change: null
+      implementationArtifact: null
+    })
+    expect(verificationRunner).not.toHaveBeenCalled()
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 converts a verifier post-artifact read error into failed evidence", async () =>
+    let verifierFile = ""
+    const verificationRunner = vi.fn(async ({ cwd }: Readonly<{ cwd: string }>) =>
+      verifierFile = join(cwd, "packages", "jobs", "representative.civet")
+      mocks.WP4readFileDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === verifierFile then throw WP4errno("EACCES")
+        return actual(path, ...arguments_)
+      return verifierRunnerResult()
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-verifier-post-read-error",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verification")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(verifierFile).toContain(".verify-")
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: {
+        status: "failed"
+        digest: null
+      }
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 fails default verification when Docker-time control evidence drifts", async () =>
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot
+      verifierId: OMP_VERIFIER_COMMAND_IDENTITY
+      verifierImageDigest: VERIFIER_IMAGE_DIGEST
+    })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-docker-control-drift",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verification")
+    callbackWith(
+      null,
+      `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`,
+    )
+    let WP4dockerVerifierCwd = ""
+    callbackWith(null, "tests: 12 passed", "", async () =>
+      const arguments_ = sandboxCalls().at(-1)![1] as readonly string[]
+      const mount = arguments_.find((argument) =>
+        argument.startsWith("--mount=type=bind,source=")
+      )!
+      const prefix = "--mount=type=bind,source="
+      WP4dockerVerifierCwd = mount.slice(
+        prefix.length,
+        mount.indexOf(",target=/workspace"),
+      )
+      await writeFile(join(WP4dockerVerifierCwd, "package.json"), JSON.stringify({
+        description: "WP4 Docker-time verifier control drift"
+        scripts: { "verify:core": VERIFY_CORE_SCRIPT }
+      }))
+    )
+    callbackWith(null)
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(WP4dockerVerifierCwd).toContain(".verify-")
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: {
+        status: "failed"
+        digest: null
+      }
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 fails verification when the retained reviewed file drifts during checks", async () =>
+    let WP4retainedFile = ""
+    const verificationRunner = vi.fn(async () =>
+      await writeFile(WP4retainedFile, "WP4 retained implementation drift")
+      return verifierRunnerResult()
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-retained-drift",
+    )
+    WP4retainedFile = join(
+      prepared.workspaceDirectory,
+      "packages",
+      "jobs",
+      "representative.civet",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verification")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: {
+        status: "failed"
+        digest: null
+      }
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 converts a retained post-manifest errno into failed verification evidence", async () =>
+    let WP4retainedFile = ""
+    const verificationRunner = vi.fn(async () =>
+      mocks.WP4lstatDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === WP4retainedFile then throw WP4errno("EACCES")
+        return actual(path, ...arguments_)
+      return verifierRunnerResult()
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-retained-post-read-error",
+    )
+    WP4retainedFile = join(
+      prepared.workspaceDirectory,
+      "packages",
+      "jobs",
+      "representative.civet",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verification")
+
+    const result = await adapter.execute(verificationRequestFor(prepared))
+
+    expect(result).toMatchObject({
+      status: "failed"
+      verification: {
+        status: "failed"
+        digest: null
+      }
+    })
+    await result.lifecycle!.finalize("unpersisted")
+  )
+
+  it("WP4 propagates typed verifier termination and cleanup errors unchanged", async () =>
+    for error of [
+      new OmpProcessTerminationError()
+      new OmpWorkspaceCleanupError()
+    ]
+      const adapter = createOmpCliAdapter({
+        repositoriesRoot
+        verificationRunner: async () => throw error
+      })
+      const prepared = await prepareVerificationWorkspace(
+        adapter,
+        error instanceof OmpProcessTerminationError
+          ? "WP4-typed-process-termination"
+          : "WP4-typed-workspace-cleanup",
+      )
+      await prepared.implementation.lifecycle!.finalize("persisted")
+      callbackWith(null, "verification")
+
+      await expect(adapter.execute(verificationRequestFor(prepared)))
+        .rejects.toBe(error)
+  )
+
+  it("preserves verifier runner termination when verifier lock release fails", async () =>
+    const terminationError = new OmpProcessTerminationError()
+    let verifierLock = ""
+    let lockReleaseAttempts = 0
+    const verificationRunner = vi.fn(async ({ cwd }: Readonly<{ cwd: string }>) =>
+      verifierLock = `${cwd}.lock`
+      mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+        if String(path) === verifierLock
+          lockReleaseAttempts += 1
+          throw WP2errno("EIO")
+        return actual(path, ...arguments_)
+      throw terminationError
+    )
+    const adapter = createOmpCliAdapter({ repositoriesRoot, verificationRunner })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "WP4-runner-termination-release-failure",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    callbackWith(null, "verification")
+
+    try
+      await expect(adapter.execute(verificationRequestFor(prepared)))
+        .rejects.toBe(terminationError)
+    finally
+      mocks.WP2rmDelegate = undefined
+    expect(verificationRunner).toHaveBeenCalledOnce()
+    expect(lockReleaseAttempts).toBe(1)
+    await expect(access(verifierLock)).resolves.toBeUndefined()
+  )
+
+  it("keeps a retained worktree locked when release no longer owns it", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "final-release-owner-changed",
+    )
+    const lockDirectory = `${prepared.workspaceDirectory}.lock`
+    const ownerPath = join(lockDirectory, "owner.json")
+    const originalOwner = JSON.parse(
+      await readFile(ownerPath, "utf8"),
+    ) as Readonly<{ nonce: string, pid: number, createdAt: number }>
+    const changedOwner = {
+      ...originalOwner,
+      nonce: WP2differentNonce(originalOwner.nonce),
+    }
+    await writeFile(ownerPath, JSON.stringify(changedOwner))
+    let ownerReads = 0
+    let lockRemovals = 0
+    mocks.WP2readFileDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === ownerPath then ownerReads += 1
+      return await actual(path, ...arguments_)
+    mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === lockDirectory then lockRemovals += 1
+      return await actual(path, ...arguments_)
+
+    await expect(prepared.implementation.lifecycle!.finalize("persisted"))
+      .resolves.toBeUndefined()
+
+    mocks.WP2readFileDelegate = undefined
+    mocks.WP2rmDelegate = undefined
+    expect(ownerReads).toBe(1)
+    expect(lockRemovals).toBe(0)
+    expect(JSON.parse(await readFile(ownerPath, "utf8"))).toEqual(changedOwner)
+    await expect(access(prepared.workspaceDirectory)).resolves.toBeUndefined()
+  )
+
+  it("rejects canonical worktree escapes and both workspace identity mismatches", async () =>
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+    const workspaceFor = (workspaceId: string): string =>
+      join(
+        worktreesRoot,
+        createHash("sha256")
+          .update(`${repositoryDirectory}\0${workspaceId}`)
+          .digest("hex"),
+      )
+
+    const escapedId = "final-canonical-worktree-escape"
+    const escapedWorkspace = workspaceFor(escapedId)
+    const escapedRealpathEvents: string[] = []
+    let escapedPhase = "preparation"
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === escapedWorkspace
+        escapedRealpathEvents.push(`${escapedPhase}:${String(path)}`)
+        if escapedPhase === "preparation"
+          escapedPhase = "cleanup"
+          return repositoryDirectory
+      return await actual(path, ...arguments_)
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: escapedId }),
+    )).rejects.toThrow("OMP workspace path is invalid")
+    mocks.WP2realpathDelegate = undefined
+    expect(escapedRealpathEvents).toEqual(expect.arrayContaining([
+      `preparation:${escapedWorkspace}`,
+      `cleanup:${escapedWorkspace}`,
+    ]))
+    expect(sandboxCalls()).toHaveLength(0)
+
+    const topLevelId = "final-workspace-top-level-mismatch"
+    const topLevelWorkspace = workspaceFor(topLevelId)
+    const topLevelRealpathEvents: string[] = []
+    let topLevelPhase = "canonical-workspace"
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === topLevelWorkspace
+        topLevelRealpathEvents.push(`${topLevelPhase}:${String(path)}`)
+        if topLevelPhase === "canonical-workspace"
+          topLevelPhase = "source-top-level"
+        else if topLevelPhase === "source-top-level"
+          topLevelPhase = "cleanup"
+          return repositoryDirectory
+      return await actual(path, ...arguments_)
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId: topLevelId }),
+    )).rejects.toThrow("OMP workspace source identity changed")
+    mocks.WP2realpathDelegate = undefined
+    expect(topLevelRealpathEvents).toEqual(expect.arrayContaining([
+      `canonical-workspace:${topLevelWorkspace}`,
+      `source-top-level:${topLevelWorkspace}`,
+      `cleanup:${topLevelWorkspace}`,
+    ]))
+    expect(sandboxCalls()).toHaveLength(0)
+
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    const retained = await prepareVerificationWorkspace(
+      adapter,
+      "final-workspace-head-mismatch",
+    )
+    await retained.implementation.lifecycle!.finalize("persisted")
+    mocks.spawn.mockClear()
+    gitResponseOverrides.set(["rev-parse", "HEAD"].join("\0"), "b".repeat(40))
+    await expect(adapter.execute(verificationRequestFor(retained)))
+      .rejects.toThrow("OMP workspace source identity changed")
+    gitResponseOverrides.delete(["rev-parse", "HEAD"].join("\0"))
+    expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("releases preparation ownership without masking the original identity error", async () =>
+    const workspaceId = "final-prepare-cleanup-failure"
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+    const workspaceDirectory = join(
+      worktreesRoot,
+      createHash("sha256")
+        .update(`${repositoryDirectory}\0${workspaceId}`)
+        .digest("hex"),
+    )
+    const lockDirectory = `${workspaceDirectory}.lock`
+    let workspaceRealpaths = 0
+    let cleanupRootReads = 0
+    let lockRemovals = 0
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === workspaceDirectory
+        workspaceRealpaths += 1
+        if workspaceRealpaths === 2 then return repositoryDirectory
+      return await actual(path, ...arguments_)
+    mocks.WP2readdirDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === worktreesRoot
+        cleanupRootReads += 1
+        throw WP2errno("EIO")
+      return await actual(path, ...arguments_)
+    mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === lockDirectory then lockRemovals += 1
+      return await actual(path, ...arguments_)
+
+    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({ workspaceId }),
+    )).rejects.toThrow("OMP workspace source identity changed")
+
+    mocks.WP2realpathDelegate = undefined
+    mocks.WP2readdirDelegate = undefined
+    mocks.WP2rmDelegate = undefined
+    expect(cleanupRootReads).toBe(1)
+    expect(lockRemovals).toBe(1)
+    await expect(access(lockDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+  )
+
+  it("rethrows process termination from failed worktree preparation after attempting its lock release", async () =>
+    const workspaceId = "final-prepare-cleanup-termination"
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+    const workspaceDirectory = join(
+      worktreesRoot,
+      createHash("sha256")
+        .update(`${repositoryDirectory}\0${workspaceId}`)
+        .digest("hex"),
+    )
+    const lockDirectory = `${workspaceDirectory}.lock`
+    const realpathEvents: string[] = []
+    let phase = "canonical-workspace"
+    let termination: ReturnType<typeof WP4terminateNextGitCleanup> | undefined
+    let lockReleaseAttempts = 0
+    mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === lockDirectory
+        lockReleaseAttempts += 1
+        throw WP2errno("EIO")
+      return actual(path, ...arguments_)
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === workspaceDirectory
+        realpathEvents.push(`${phase}:${String(path)}`)
+        if phase === "canonical-workspace"
+          phase = "source-top-level"
+        else if phase === "source-top-level"
+          phase = "cleanup"
+          termination = WP4terminateNextGitCleanup(858_585)
+          return repositoryDirectory
+      return await actual(path, ...arguments_)
+
+    try
+      await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId }),
+      )).rejects.toBeInstanceOf(OmpProcessTerminationError)
+    finally
+      mocks.WP2realpathDelegate = undefined
+      mocks.WP2rmDelegate = undefined
+      termination?.dateNow.mockRestore()
+      termination?.processKill.mockRestore()
+    expect(realpathEvents).toEqual(expect.arrayContaining([
+      `canonical-workspace:${workspaceDirectory}`,
+      `source-top-level:${workspaceDirectory}`,
+    ]))
+    expect(sandboxCalls()).toHaveLength(0)
+    expect(lockReleaseAttempts).toBe(1)
+    await expect(access(lockDirectory)).resolves.toBeUndefined()
+  )
+
+  it("rethrows a non-ESRCH process-group signal failure", async () =>
+    const controller = new AbortController()
+    const pid = 929_292
+    sandboxResponses.push({
+      error: null,
+      stdout: "",
+      stderr: "",
+      pid,
+      holdOpen: true,
+    })
+    const permissionError = Object.assign(
+      new Error("process group signal denied"),
+      { code: "EPERM" },
+    )
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() =>
+      throw permissionError
+    )
+    const pending = runDockerVerifier({
+      dockerExecutable: "/usr/bin/docker",
+      workspace: repositoryDirectory,
+      sessionDirectory: repositoriesRoot,
+      imageDigest: VERIFIER_IMAGE_DIGEST,
+      signal: controller.signal,
+      timeoutMs: 100,
+      shutdownTimeoutMs: 20,
+      maximumOutputBytes: 64,
+      redactions: [],
+      now: Date.now,
+    })
+    await vi.waitFor(() =>
+      expect(sandboxCalls().at(-1)?.[1]).toContain("image")
+    )
+    controller.abort()
+    try
+      await expect(pending).rejects.toBe(permissionError)
+      expect(processKill).toHaveBeenCalledWith(-pid, "SIGTERM")
+    finally
+      processKill.mockRestore()
+      sandboxResponses.length = 0
+  )
+
+  it("rejects each recovered implementation mismatch after valid preflight", async () =>
+    for mismatch of ["change-hash", "artifact-digest", "artifact-content"] as const
+      const adapter = createOmpCliAdapter({
+        repositoriesRoot,
+        verificationRunner: async () => verifierRunnerResult(),
+      })
+      const prepared = await prepareVerificationWorkspace(
+        adapter,
+        `final-recovery-${mismatch}`,
+      )
+      await prepared.implementation.lifecycle!.finalize("persisted")
+      const changeHash = prepared.implementation.change!.changeHash
+      const mutableArtifact = {
+        ...prepared.implementation.implementationArtifact!,
+      }
+      expect(() =>
+        decodeOmpImplementationArtifact(mutableArtifact, changeHash)
+      ).not.toThrow()
+      const recoveredFile = join(
+        prepared.workspaceDirectory,
+        "packages",
+        "jobs",
+        "representative.civet",
+      )
+      let boundaryMutations = 0
+      let recoveredFileReads = 0
+      if mismatch === "change-hash"
+        mocks.WP2writeFileDelegate = async (actual, path, ...arguments_) =>
+          const result = await actual(path, ...arguments_)
+          if String(path) === recoveredFile
+            boundaryMutations += 1
+            await actual(path, Buffer.from("changed-after-valid-recovery"))
+          return result
+      else
+        mocks.WP4readFileDelegate = async (actual, path, ...arguments_) =>
+          const result = await actual(path, ...arguments_)
+          if String(path) === recoveredFile
+            recoveredFileReads += 1
+            if recoveredFileReads === 1
+              boundaryMutations += 1
+              if mismatch === "artifact-digest"
+                mutableArtifact.digest = "f".repeat(64)
+              else
+                mutableArtifact.content = `${mutableArtifact.content} `
+          return result
+      const request = requestFor({
+        workspaceId: prepared.workspaceId,
+        effectKind: "verify",
+        recovery: {
+          artifact: mutableArtifact,
+          changeHash,
+        },
+      })
+
+      await expect(adapter.execute(request))
+        .rejects.toThrow("OMP recovered implementation digest changed")
+
+      mocks.WP2writeFileDelegate = undefined
+      mocks.WP4readFileDelegate = undefined
+      expect(boundaryMutations).toBe(1)
+      if mismatch !== "change-hash" then expect(recoveredFileReads).toBe(1)
+  )
+
+  it("preserves the primary typed error when ordinary worktree cleanup fails", async () =>
+    const primaryError = new OmpWorkspaceCleanupError()
+    const worktreesRoot = await realpath(join(tmpdir(), "darkfactory-omp-worktrees"))
+    let cleanupRootReads = 0
+    let retainedLockRemovals = 0
+    let retainedLock = ""
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot,
+      verificationRunner: async () =>
+        mocks.WP2readdirDelegate = async (actual, path, ...arguments_) =>
+          if String(path) === worktreesRoot
+            cleanupRootReads += 1
+            if cleanupRootReads === 2 then throw WP2errno("EIO")
+          return await actual(path, ...arguments_)
+        mocks.WP2rmDelegate = async (actual, path, ...arguments_) =>
+          if String(path) === retainedLock then retainedLockRemovals += 1
+          return await actual(path, ...arguments_)
+        throw primaryError
+    })
+    const prepared = await prepareVerificationWorkspace(
+      adapter,
+      "final-primary-error-cleanup-failure",
+    )
+    await prepared.implementation.lifecycle!.finalize("persisted")
+    retainedLock = `${prepared.workspaceDirectory}.lock`
+    callbackWith(null, "verification")
+
+    await expect(adapter.execute(verificationRequestFor(prepared)))
+      .rejects.toBe(primaryError)
+
+    mocks.WP2readdirDelegate = undefined
+    mocks.WP2rmDelegate = undefined
+    expect(cleanupRootReads).toBe(2)
+    expect(retainedLockRemovals).toBe(1)
+    await expect(access(retainedLock)).rejects.toMatchObject({ code: "ENOENT" })
+  )
+)

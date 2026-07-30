@@ -1,0 +1,56 @@
+import type {
+  RequestDatabaseDiagnostic,
+  RequestDatabaseDiagnosticSink,
+} from "@darkfactory/db/server"
+import type {
+  SemanticEvent,
+  StructuredEventSink,
+} from "@darkfactory/observability"
+
+import type {
+  BackgroundTaskScheduler,
+} from "./background-task-lifecycle.civet"
+
+
+type RequestDatabaseDiagnosticAdapterOptions = Readonly<{
+  sink: StructuredEventSink
+  scheduleBackgroundTask: BackgroundTaskScheduler
+  requestId: string
+}>
+
+const eventProfileFor = (
+  diagnostic: RequestDatabaseDiagnostic,
+): Readonly<{ name: string; errorCategory: string }> | undefined =>
+  switch diagnostic.code
+    when "REQUEST_DATABASE_CLIENT_ERROR"
+      Object.freeze({
+        name: "request-database.client-failed",
+        errorCategory: "REQUEST_DATABASE_CLIENT_ERROR",
+      })
+    when "REQUEST_DATABASE_CLIENT_CLOSE_ERROR"
+      Object.freeze({
+        name: "request-database.client-close-failed",
+        errorCategory: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+      })
+    else undefined
+
+export const createRequestDatabaseDiagnosticSink = (
+  options: RequestDatabaseDiagnosticAdapterOptions,
+): RequestDatabaseDiagnosticSink =>
+  (diagnostic) =>
+    const profile = eventProfileFor(diagnostic)
+    if (profile === undefined) return
+    const event = Object.freeze<SemanticEvent>({
+      eventId: globalThis.crypto.randomUUID(),
+      name: profile.name,
+      occurredAt: new Date().toISOString(),
+      correlation: Object.freeze({ requestId: options.requestId }),
+      outcome: "failure",
+      source: "worker",
+      errorCategory: profile.errorCategory,
+    })
+    const emission = Promise.resolve().then(() => options.sink.emit(event))
+    try
+      options.scheduleBackgroundTask(emission)
+    catch
+      void emission.catch(() => undefined)

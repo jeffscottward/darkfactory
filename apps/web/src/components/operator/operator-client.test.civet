@@ -1,0 +1,325 @@
+import type { ApiClient } from "@darkfactory/api"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const apiTransport = vi.hoisted(() => ({ createApiClient: vi.fn() }))
+
+vi.mock("@darkfactory/api", async (importOriginal) =>
+  const actual = await importOriginal<typeof import("@darkfactory/api")>()
+  return { ...actual, createApiClient: apiTransport.createApiClient }
+)
+
+import {
+  classifyOperatorFailure,
+  classifyOperatorSubmissionFailure,
+  createBrowserOperatorGateway,
+  createOperatorGateway,
+  createOperatorIdempotencyKey,
+  createOperatorIdempotencyKeySlot,
+  submitOperatorRun,
+  type OperatorApprovalBinding,
+  type OperatorGateway,
+  type OperatorRunDetailOutput,
+  type OperatorWorkspaceOutput,
+} from "./operator-client.civet"
+
+const workspace: OperatorWorkspaceOutput = { runs: [] }
+const detail: OperatorRunDetailOutput = {
+  run: {
+    id: "run-1",
+    title: "Run one",
+    state: "awaitingApproval",
+    sequence: 4,
+    updatedAt: new Date("2026-07-29T12:00:00.000Z"),
+    headHash: "head-hash",
+    machineId: "darkfactory-pilot",
+    machineVersion: 1,
+  },
+  timeline: [],
+  approval: null,
+  implementationPlan: null,
+  evidence: [],
+  messages: [],
+}
+const approval: OperatorApprovalBinding = {
+  machineId: "darkfactory-pilot",
+  machineVersion: 1,
+  eventVersion: 1,
+  snapshotSequence: 4,
+  journalHeadHash: "head-hash",
+  effectHash: "effect-hash",
+  effectScope: "run:run-1",
+  stale: false,
+}
+
+afterEach ->
+  apiTransport.createApiClient.mockReset()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+
+describe "operator oRPC transport", ->
+  it "maps every gateway operation to the typed operator contract", async ->
+    const operator = {
+      submit: vi.fn(async () => detail),
+      workspace: vi.fn(async () => workspace),
+      detail: vi.fn(async () => detail),
+      approve: vi.fn(async () => detail),
+      reject: vi.fn(async () => detail),
+      cancel: vi.fn(async () => detail),
+      retry: vi.fn(async () => detail),
+      message: vi.fn(async () => detail),
+    }
+    const gateway = createOperatorGateway({ operator } as unknown as ApiClient)
+
+    await expect(gateway.submit(
+      "Pilot run",
+      { repositoryId: "darkfactory", paths: ["packages/state"] },
+      "submit-key-1",
+    )).resolves.toBe(detail)
+    await expect(gateway.workspace()).resolves.toBe(workspace)
+    await expect(gateway.detail("run-1")).resolves.toBe(detail)
+    await expect(gateway.approve("run-1", approval)).resolves.toBe(detail)
+    await expect(gateway.reject("run-1")).resolves.toBe(detail)
+    await expect(gateway.cancel("run-1")).resolves.toBe(detail)
+    await expect(gateway.retry("run-1")).resolves.toBe(detail)
+    await expect(gateway.message("run-1", "Bounded context", "message-key-1")).resolves.toBe(detail)
+
+    expect(operator.submit).toHaveBeenCalledWith({
+      title: "Pilot run",
+      scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
+      idempotencyKey: "submit-key-1",
+    })
+    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 })
+    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.approve).toHaveBeenCalledWith({
+      id: "run-1",
+      approval: {
+        machineId: approval.machineId,
+        machineVersion: approval.machineVersion,
+        eventVersion: approval.eventVersion,
+        snapshotSequence: approval.snapshotSequence,
+        journalHeadHash: approval.journalHeadHash,
+        effectHash: approval.effectHash,
+        effectScope: approval.effectScope,
+      },
+    })
+    expect(operator.reject).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.cancel).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.retry).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.message).toHaveBeenCalledWith({
+      id: "run-1",
+      body: "Bounded context",
+      idempotencyKey: "message-key-1",
+    })
+
+  it "reuses one idempotency key until a logical payload is deliberately changed", ->
+    const keys = ["attempt-1", "attempt-2"]
+    const createKey = vi.fn(() => keys.shift()!)
+    const slot = createOperatorIdempotencyKeySlot(createKey)
+
+    expect(slot.key()).toBe("attempt-1")
+    expect(slot.key()).toBe("attempt-1")
+    expect(createKey).toHaveBeenCalledOnce()
+
+    slot.invalidate()
+    expect(slot.key()).toBe("attempt-2")
+    expect(createKey).toHaveBeenCalledTimes(2)
+
+  it "submits the exact bounded scope, refreshes the workspace, and returns the selected run", async ->
+    const refreshedWorkspace: OperatorWorkspaceOutput = { runs: [detail.run] }
+    const gateway = {
+      submit: vi.fn(async () => detail),
+      workspace: vi.fn(async () => refreshedWorkspace),
+    } as unknown as OperatorGateway
+
+    const outcome = await submitOperatorRun(
+      gateway,
+      {
+        title: "  Pilot run  ",
+        repositoryId: " DarkFactory ",
+        scopePaths: " packages/state \r\n apps/web ",
+      },
+      "submission-attempt-1",
+    )
+
+    expect(gateway.submit).toHaveBeenCalledWith(
+      "  Pilot run  ",
+      {
+        repositoryId: "darkfactory",
+        paths: ["packages/state", "apps/web"],
+      },
+      "submission-attempt-1",
+    )
+    expect(gateway.workspace).toHaveBeenCalledOnce()
+    expect(outcome).toEqual({
+      selectedRun: detail,
+      workspace: refreshedWorkspace,
+    })
+
+  it "passes blank, absolute, and traversal paths to the existing API contract unchanged", async ->
+    const rejection = { code: "BAD_REQUEST", message: "raw validation detail" }
+    const gateway = {
+      submit: vi.fn(async () =>
+        throw rejection
+      ),
+      workspace: vi.fn(),
+    } as unknown as OperatorGateway
+
+    await expect(submitOperatorRun(
+      gateway,
+      {
+        title: "Pilot run",
+        repositoryId: "darkfactory",
+        scopePaths: "packages/state\n\n/etc\npackages/../secrets",
+      },
+      "submission-attempt-invalid",
+    )).rejects.toBe(rejection)
+    expect(gateway.submit).toHaveBeenCalledWith(
+      "Pilot run",
+      {
+        repositoryId: "darkfactory",
+        paths: ["packages/state", "", "/etc", "packages/../secrets"],
+      },
+      "submission-attempt-invalid",
+    )
+    expect(gateway.workspace).not.toHaveBeenCalled()
+
+  it "keeps a successful selection when the workspace refresh fails safely", async ->
+    const gateway = {
+      submit: vi.fn(async () => detail),
+      workspace: vi.fn(async () =>
+        throw new Error("raw storage detail")
+      ),
+    } as unknown as OperatorGateway
+
+    await expect(submitOperatorRun(
+      gateway,
+      {
+        title: "Pilot run",
+        repositoryId: "darkfactory",
+        scopePaths: "packages/state",
+      },
+      "submission-attempt-2",
+    )).resolves.toEqual({
+      selectedRun: detail,
+      workspaceFailure: {
+        kind: "unknown",
+        message: "The operator request could not be completed. Try again.",
+      },
+    })
+
+  it "classifies stale approval conflicts without exposing thrown details", ->
+    expect(classifyOperatorFailure({ code: "STALE_APPROVAL", message: "secret provider detail" })).toEqual({
+      kind: "stale",
+      message: "The approval binding is stale. Reload the run before taking action.",
+    })
+    expect(classifyOperatorFailure({ data: { code: "UNAUTHORIZED" } }).kind).toBe("unauthorized")
+    expect(classifyOperatorSubmissionFailure({
+      code: "BAD_REQUEST",
+      message: "raw validation detail",
+    })).toEqual({
+      kind: "invalid",
+      message: "Check the run title, repository ID, and relative scope paths, then try again.",
+    })
+    expect(classifyOperatorFailure(new Error("raw failure"))).toEqual({
+      kind: "unknown",
+      message: "The operator request could not be completed. Try again.",
+    })
+
+  it "lazily creates one browser client and delegates every operation through it", async ->
+    const operator = {
+      submit: vi.fn(async () => detail),
+      workspace: vi.fn(async () => workspace),
+      detail: vi.fn(async () => detail),
+      approve: vi.fn(async () => detail),
+      reject: vi.fn(async () => detail),
+      cancel: vi.fn(async () => detail),
+      retry: vi.fn(async () => detail),
+      message: vi.fn(async () => detail),
+    }
+    apiTransport.createApiClient.mockReturnValue({ operator })
+    vi.stubGlobal("window", { location: { origin: "https://operator.example" } })
+    const gateway = createBrowserOperatorGateway()
+
+    expect(apiTransport.createApiClient).not.toHaveBeenCalled()
+    await expect(gateway.workspace()).resolves.toBe(workspace)
+    await expect(gateway.submit("Pilot", { repositoryId: "darkfactory", paths: ["apps/web"] }, "submit-key")).resolves.toBe(detail)
+    await expect(gateway.detail("run-1")).resolves.toBe(detail)
+    await expect(gateway.approve("run-1", approval)).resolves.toBe(detail)
+    await expect(gateway.reject("run-1")).resolves.toBe(detail)
+    await expect(gateway.cancel("run-1")).resolves.toBe(detail)
+    await expect(gateway.retry("run-1")).resolves.toBe(detail)
+    await expect(gateway.message("run-1", "Context", "message-key")).resolves.toBe(detail)
+
+    expect(apiTransport.createApiClient).toHaveBeenCalledOnce()
+    expect(apiTransport.createApiClient).toHaveBeenCalledWith({ baseUrl: "https://operator.example" })
+    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 })
+    expect(operator.submit).toHaveBeenCalledWith({
+      title: "Pilot",
+      scope: { repositoryId: "darkfactory", paths: ["apps/web"] },
+      idempotencyKey: "submit-key",
+    })
+    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.approve).toHaveBeenCalledOnce()
+    expect(operator.reject).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.cancel).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.retry).toHaveBeenCalledWith({ id: "run-1" })
+    expect(operator.message).toHaveBeenCalledWith({
+      id: "run-1",
+      body: "Context",
+      idempotencyKey: "message-key",
+    })
+
+  it "classifies every public transport failure without leaking provider details", ->
+    const cases = [
+      [{ code: "UNAUTHORIZED" }, "unauthorized", "Your session ended. Sign in again to continue."],
+      [{ code: "FORBIDDEN" }, "forbidden", "You do not have access to this workflow run."],
+      [{ code: "NOT_FOUND" }, "not-found", "This workflow run is no longer available."],
+      [{ code: "CONFLICT" }, "stale", "The approval binding is stale. Reload the run before taking action."],
+      [{ code: "STALE_APPROVAL" }, "stale", "The approval binding is stale. Reload the run before taking action."],
+      [{ code: "STORAGE_ERROR" }, "transient", "Operator data is temporarily unavailable. Try again."],
+      [{ data: { code: "SERVICE_UNAVAILABLE" } }, "transient", "Operator data is temporarily unavailable. Try again."],
+    ] as const
+    for (const [error, kind, message] of cases)
+      expect(classifyOperatorFailure(error)).toEqual({ kind, message })
+
+    expect(classifyOperatorFailure({
+      code: "FORBIDDEN",
+      data: { code: "UNAUTHORIZED" },
+    }).kind).toBe("forbidden")
+    for (const error of [
+      undefined,
+      null,
+      "raw failure",
+      { code: 42 },
+      { data: null },
+      { data: "raw failure" },
+      { data: { code: 42 } },
+    ])
+      expect(classifyOperatorFailure(error)).toEqual({
+        kind: "unknown",
+        message: "The operator request could not be completed. Try again.",
+      })
+
+    expect(classifyOperatorSubmissionFailure({ code: "VALIDATION_ERROR" })).toEqual({
+      kind: "invalid",
+      message: "Check the run title, repository ID, and relative scope paths, then try again.",
+    })
+    expect(classifyOperatorSubmissionFailure({ code: "UNAUTHORIZED" })).toEqual({
+      kind: "unauthorized",
+      message: "Your session ended. Sign in again to continue.",
+    })
+
+  it "uses the platform UUID callback by default and rotates only after invalidation", ->
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce("direct-key")
+      .mockReturnValueOnce("slot-key-1")
+      .mockReturnValueOnce("slot-key-2")
+    vi.stubGlobal("crypto", { randomUUID })
+
+    expect(createOperatorIdempotencyKey()).toBe("direct-key")
+    const slot = createOperatorIdempotencyKeySlot()
+    expect(slot.key()).toBe("slot-key-1")
+    expect(slot.key()).toBe("slot-key-1")
+    slot.invalidate()
+    expect(slot.key()).toBe("slot-key-2")
+    expect(randomUUID).toHaveBeenCalledTimes(3)

@@ -3,7 +3,9 @@ import { toClientEnv } from "./client.civet"
 import { parseServerEnv } from "./server.civet"
 import {
   DatabaseConfigurationError,
+  RequestDatabaseEndpointError,
   composeDatabaseProfile,
+  validateRequestDatabaseEndpoint,
 } from "./database.civet"
 
 const DATABASE_URL = "postgresql://localhost/darkfactory_test"
@@ -17,6 +19,81 @@ const serverEnvFor = (provider: "planetscale" | "postgres" = "planetscale") =>
     BETTER_AUTH_SECRET,
     CONTACT_THROTTLE_SECRET,
   })
+
+const PRODUCTION_PLANETSCALE_POOLED_URL =
+  "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory?sslmode=verify-full"
+
+describe "validateRequestDatabaseEndpoint", ->
+  it "accepts only the current PlanetScale provider-managed PgBouncer endpoint in production", ->
+    expect(validateRequestDatabaseEndpoint({
+      appEnvironment: "production",
+      provider: "planetscale",
+      connectionString: PRODUCTION_PLANETSCALE_POOLED_URL,
+    })).toBeUndefined()
+
+    const directUrl =
+      "postgresql://private-user:private-password@aws.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full"
+    const validateDirect = () => validateRequestDatabaseEndpoint({
+      appEnvironment: "production",
+      provider: "planetscale",
+      connectionString: directUrl,
+    })
+    expect(validateDirect).toThrow(RequestDatabaseEndpointError)
+    expect(validateDirect).toThrow(/PgBouncer endpoint on port 6432/)
+    try
+      validateDirect()
+    catch error
+      expect(String(error)).not.toContain(directUrl)
+      expect(String(error)).not.toContain("private-password")
+
+  it.each([
+    [
+      "missing verified TLS",
+      "planetscale",
+      "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory",
+      /sslmode=verify-full/,
+    ],
+    [
+      "a malformed URL",
+      "planetscale",
+      "postgresql://private-user:private-password@[invalid",
+      /PostgreSQL URL/,
+    ],
+    [
+      "a generic host without a documented pooled-host pattern",
+      "postgres",
+      "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
+      /explicitly supported provider-managed pooled endpoint/,
+    ],
+  ] as const)("rejects production endpoint with $0 without reflecting credentials", (
+    _label,
+    provider,
+    connectionString,
+    expectedMessage,
+  ) ->
+    const validate = () => validateRequestDatabaseEndpoint({
+      appEnvironment: "production",
+      provider,
+      connectionString,
+    })
+
+    expect(validate).toThrow(expectedMessage)
+    try
+      validate()
+    catch error
+      expect(String(error)).not.toContain(connectionString)
+      expect(String(error)).not.toContain("private-password")
+  )
+
+  it.each(["development", "test"] as const)(
+    "keeps direct PostgreSQL endpoints available in %s",
+    (appEnvironment) ->
+      expect(validateRequestDatabaseEndpoint({
+        appEnvironment,
+        provider: "postgres",
+        connectionString: DATABASE_URL,
+      })).toBeUndefined()
+  )
 
 describe "composeDatabaseProfile", ->
   it "changes composition metadata but preserves one PostgreSQL connection contract", ->

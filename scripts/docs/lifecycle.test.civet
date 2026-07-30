@@ -164,20 +164,23 @@ describe("DF-101/106 lifecycle contract", () =>
     for (const script of rootScripts)
       if (script.includes("vitest"))
         expect(script).toMatch(/(?:^|&& )corepack pnpm exec vitest /u)
+    expect(rootPackage.scripts["deploy:web:validate"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/deployment.civet",
+    )
     expect(rootPackage.scripts["deploy:web"]).toBe(
-      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
+      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
     )
     expect(rootPackage.scripts["deploy:web:check"]).toBe(
-      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run",
+      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run",
     )
     expect(rootPackage.scripts["deploy:web:preview"]).toBe(
-      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --preview",
+      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --preview",
     )
     expect(rootPackage.scripts["deploy:web:staging"]).toBe(
-      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --env staging",
+      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --env staging",
     )
     expect(rootPackage.scripts["deploy:web:staging:check"]).toBe(
-      "corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run --env staging",
+      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run --env staging",
     )
 
     const byName = new Map(packageManifests.map((manifest) => [manifest.name, manifest]))

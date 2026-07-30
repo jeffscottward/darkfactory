@@ -37,12 +37,21 @@ export const resetDevelopment = async (
         "profiles",
         "user_preferences",
         "feature_items",
+        "contact_rate_limits",
+        "workflow_omp_resources",
+        "workflow_messages",
+        "workflow_evidence",
+        "workflow_approvals",
+        "workflow_snapshots",
+        "workflow_journal",
+        "workflow_runs",
         "audit_records",
         "user",
         "verification",
+        "rate_limit",
         "outbox_events"
       RESTART IDENTITY
     `)
   )
 
-  return Object.freeze({ tablesCleared: 10 })
+  return Object.freeze({ tablesCleared: 19 })

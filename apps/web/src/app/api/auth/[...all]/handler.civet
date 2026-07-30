@@ -1,16 +1,33 @@
 import { createAuth, createAuthHandler } from "@darkfactory/auth/server"
+import { resolveApiRequestId } from "@darkfactory/api/server"
 import { parseServerEnv } from "@darkfactory/config/server"
 import { composeDatabaseProfile } from "@darkfactory/config/database"
 import { createRequestDatabase } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
+import {
+  createEvlogSink,
+  initializeEvlog,
+} from "@darkfactory/observability/server/evlog"
 
-import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
+import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.civet"
+import {
+  resolveE2eEmailPreviewOptions,
+} from "../../../../lib/e2e-fixtures.civet"
 import {
   createBackgroundTaskLifecycle,
   type BackgroundTaskScheduler,
 } from "../../../../lib/background-task-lifecycle.civet"
+import {
+  createRequestDatabaseDiagnosticSink,
+} from "../../../../lib/request-database-diagnostics.civet"
 export type { BackgroundTaskScheduler } from "../../../../lib/background-task-lifecycle.civet"
 
+
+const AUTH_BODY_METHODS: readonly string[] = ["POST", "PUT", "PATCH", "DELETE"]
+export const AUTH_REQUEST_MAX_BYTES = 64 * 1024
+
+const authPayloadTooLargeResponse = (): Response =>
+  Response.json({ error: "Payload Too Large" }, { status: 413 })
 
 export const handleAuthRequest = async (
   request: Request,
@@ -18,13 +35,36 @@ export const handleAuthRequest = async (
 ): Promise<Response> =>
   const env = parseServerEnv(process.env)
   const previewOptions = resolveE2eEmailPreviewOptions()
+  const boundedRequest = AUTH_BODY_METHODS.includes(request.method.toUpperCase())
+    ? await bufferBoundedRequest(request, AUTH_REQUEST_MAX_BYTES)
+    : { request, tooLarge: false }
+  if (boundedRequest.tooLarge) return authPayloadTooLargeResponse()
+  const effectiveRequest = boundedRequest.request
   const databaseProfile = composeDatabaseProfile(env)
-  const database = await createRequestDatabase({
+  const requestId = resolveApiRequestId(effectiveRequest)
+  const evlogSink = createEvlogSink({
+    runtime: initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME }),
+    request: effectiveRequest,
+    executionContext: { waitUntil: scheduleBackgroundTask },
+  })
+  const diagnosticSink = createRequestDatabaseDiagnosticSink({
+    sink: evlogSink,
+    scheduleBackgroundTask,
+    requestId,
+  })
+  const createDatabase = createRequestDatabase
+  const database = await createDatabase({
     connectionString: databaseProfile.connection.connectionString,
+    diagnosticSink,
   })
   const backgroundTasks = createBackgroundTaskLifecycle(
     scheduleBackgroundTask,
-    database.close,
+    async () =>
+      try
+        await database.close()
+      catch _error
+        // Cleanup is best-effort after the auth response has been determined.
+        undefined
   )
 
   try
@@ -47,6 +87,6 @@ export const handleAuthRequest = async (
       rateLimitEnabled: env.APP_ENV !== "test",
       scheduleBackgroundTask: backgroundTasks.schedule,
     })
-    return await createAuthHandler(auth)(request)
+    return await createAuthHandler(auth)(effectiveRequest)
   finally
     await backgroundTasks.finalize()

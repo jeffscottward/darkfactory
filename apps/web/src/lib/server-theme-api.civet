@@ -16,6 +16,21 @@ const isUnauthorized = (error: unknown): boolean =>
   const record = error as Record<string, unknown>
   return record["status"] === 401 && record["code"] === "UNAUTHORIZED"
 
+const BETTER_AUTH_SESSION_COOKIE_NAMES = new Set([
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+])
+const hasBetterAuthSessionCookie = (cookieHeader: string | null): boolean =>
+  if (cookieHeader === null) return false
+  for segment of cookieHeader.split(";")
+    const separator = segment.indexOf("=")
+    if (separator === -1) continue
+    const name = segment.slice(0, separator).trim()
+    const value = segment.slice(separator + 1).trim()
+    if (BETTER_AUTH_SESSION_COOKIE_NAMES.has(name) && value.length > 0)
+      return true
+  false
+
 const FORWARDED_THEME_HEADERS = [
   "accept",
   "content-type",
@@ -76,6 +91,7 @@ export const loadApiThemePreference = async ({
   fetch: fetchRequest = globalThis.fetch,
   requestId,
 }: ThemeApiRequestOptions): Promise<unknown> =>
+  if (!hasBetterAuthSessionCookie(cookieHeader)) return undefined
   try
     const configuredAppUrl = new URL(appUrl)
     const trustedOrigin = requireTrustedOrigin(configuredAppUrl.origin)

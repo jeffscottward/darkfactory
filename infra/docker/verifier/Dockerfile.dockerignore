@@ -1,0 +1,15 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/
+!apps/*/
+!apps/*/package.json
+!packages/
+!packages/*/
+!packages/*/package.json
+!infra/
+!infra/docker/
+!infra/docker/verifier/
+!infra/docker/verifier/checks.json
+!infra/docker/verifier/runner.civet

@@ -45,6 +45,13 @@ const EXPECTED_TABLES = [
   "user",
   "user_preferences",
   "verification",
+  "workflow_approvals",
+  "workflow_evidence",
+  "workflow_journal",
+  "workflow_messages",
+  "workflow_omp_resources",
+  "workflow_runs",
+  "workflow_snapshots",
 ]
 
 const USER_COLUMNS = [
@@ -167,6 +174,15 @@ const OUTBOX_COLUMNS = [
   "occurred_at",
   "published_at",
   "attempt_count",
+  "handler",
+  "idempotency_key",
+  "request_hash",
+  "available_at",
+  "lease_owner",
+  "lease_expires_at",
+  "fence",
+  "last_error",
+  "dead_at",
 ]
 
 const AUDIT_COLUMNS = [
@@ -512,7 +528,14 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
             "user_preferences",
           ].includes(tableName)
           ? "user_id"
-          : "id"
+          : tableName === "workflow_journal"
+            ? "run_id,sequence"
+            : [
+                "workflow_omp_resources",
+                "workflow_snapshots",
+              ].includes(tableName)
+              ? "run_id"
+              : "id"
       return `p:${tableName}:${primaryColumn}`
     )
     expectedKeys.push("u:rate_limit:key", "u:session:token", "u:user:email")
@@ -778,6 +801,12 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "profiles.date_of_birth",
       "addresses.line_2",
       "outbox_events.published_at",
+      "outbox_events.idempotency_key",
+      "outbox_events.request_hash",
+      "outbox_events.lease_owner",
+      "outbox_events.lease_expires_at",
+      "outbox_events.last_error",
+      "outbox_events.dead_at",
       "audit_records.actor_user_id",
     ])
     const booleanColumns = new Set([
@@ -798,6 +827,7 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       "contact_rate_limits.request_count",
       "outbox_events.attempt_count",
     ])
+    const bigintColumns = new Set(["outbox_events.fence"])
     const timestampColumns = new Set(
       rows
         .filter((row) =>
@@ -815,17 +845,14 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
       for (const columnName of expectedColumnNames)
         const key = `${tableName}.${columnName}`
         const column = columns.get(key)
-        const expectedDataType = booleanColumns.has(key)
-          ? "boolean"
-          : jsonColumns.has(key)
-            ? "jsonb"
-            : dateColumns.has(key)
-              ? "date"
-              : integerColumns.has(key)
-                ? "integer"
-                : timestampColumns.has(key)
-                  ? "timestamp with time zone"
-                  : "text"
+        let expectedDataType = "text"
+        if (booleanColumns.has(key)) expectedDataType = "boolean"
+        else if (jsonColumns.has(key)) expectedDataType = "jsonb"
+        else if (dateColumns.has(key)) expectedDataType = "date"
+        else if (integerColumns.has(key)) expectedDataType = "integer"
+        else if (bigintColumns.has(key)) expectedDataType = "bigint"
+        else if (timestampColumns.has(key))
+          expectedDataType = "timestamp with time zone"
 
         expect(column, key).toBeDefined()
         expect(column?.is_nullable, key).toBe(

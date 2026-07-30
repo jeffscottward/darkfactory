@@ -664,6 +664,40 @@ export function redactProcessOutput(
     return redactProcessOutputUnsafe(value, knownSensitiveValues)
   catch
     return REDACTED_SENSITIVE_PROCESS_OUTPUT
+const PLAYWRIGHT_WEB_SERVER_START_FAILURE =
+  "Error: Process from config.webServer was not able to start. Exit code: 1"
+const PLAYWRIGHT_WEB_SERVER_START_FAILURE_LINE =
+  /(?:^|\r?\n)Error: Process from config\.webServer was not able to start\. Exit code: 1(?=\r?\n|$)/u
+const DASHBOARD_SESSION_PROOF_FAILURE_LINE =
+  /(?:^|\r?\n)Error: Dashboard session proof failed: path=\/dashboard rendered=(error|other) directStatus=([1-5]\d{2})(?=\r?\n|$)/gu
+
+const allowlistedOversizedDiagnosticLines = (
+  value: string,
+  channel: "stderr" | "stdout",
+): string[] =>
+  if !processOutputIsOversized(value) return []
+  const diagnostics = new Set<string>()
+  if PLAYWRIGHT_WEB_SERVER_START_FAILURE_LINE.test(value)
+    diagnostics.add(`${channel}: ${PLAYWRIGHT_WEB_SERVER_START_FAILURE}`)
+  for match of value.matchAll(DASHBOARD_SESSION_PROOF_FAILURE_LINE)
+    diagnostics.add(
+      `${channel}: Dashboard session proof failed: path=/dashboard ` +
+        `rendered=${match[1]} directStatus=${match[2]}`,
+    )
+  return [...diagnostics]
+
+const processDiagnosticLines = (
+  value: string,
+  channel: "stderr" | "stdout",
+  knownSensitiveValues: readonly string[],
+): string[] => [
+  ...allowlistedOversizedDiagnosticLines(value, channel),
+  ...boundedDiagnosticLines(
+    redactProcessOutput(value, knownSensitiveValues),
+    channel,
+  ),
+].slice(-4)
+
 const boundedDiagnosticLines = (value: string, channel: "stderr" | "stdout"): string[] =>
   value
     .split(/\r?\n/gu)
@@ -677,14 +711,8 @@ export const collectProcessDiagnostics = (
   stderr: string,
   knownSensitiveValues: readonly string[] = [],
 ): readonly string[] => Object.freeze([
-  ...boundedDiagnosticLines(
-    redactProcessOutput(stdout, knownSensitiveValues),
-    "stdout",
-  ),
-  ...boundedDiagnosticLines(
-    redactProcessOutput(stderr, knownSensitiveValues),
-    "stderr",
-  ),
+  ...processDiagnosticLines(stdout, "stdout", knownSensitiveValues),
+  ...processDiagnosticLines(stderr, "stderr", knownSensitiveValues),
 ])
 const decodeDatabaseUrlComponent = (value: string): string =>
   try

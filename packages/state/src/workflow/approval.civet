@@ -1,0 +1,105 @@
+import {
+  canonicalJsonV1,
+  hashWorkflowEffectProposalV1,
+  sha256Hex,
+} from "./canonical.civet"
+import { isWorkflowApprovalBindingV1, isWorkflowSnapshotV1 } from "./guards.civet"
+import {
+  WORKFLOW_EVENT_VERSION,
+  WORKFLOW_MACHINE_ID,
+  WORKFLOW_MACHINE_VERSION,
+  type WorkflowApprovalBindingV1,
+  type WorkflowEffectScopeV1,
+  type WorkflowIntegrityResultV1,
+  type WorkflowSnapshotV1,
+} from "./types.civet"
+
+export interface WorkflowApprovalHashMaterialInputV1 {
+  readonly runId: string
+  readonly approvalId: string
+  readonly snapshotSequence: number
+  readonly journalHeadHash: string
+  readonly effectHash: string
+  readonly effectScope: WorkflowEffectScopeV1
+}
+
+export const approvalHashMaterialV1 = (
+  input: WorkflowApprovalHashMaterialInputV1
+): string => canonicalJsonV1({
+  domain: "darkfactory.workflow.approval"
+  runId: input.runId
+  machineId: WORKFLOW_MACHINE_ID
+  machineVersion: WORKFLOW_MACHINE_VERSION
+  eventVersion: WORKFLOW_EVENT_VERSION
+  approvalId: input.approvalId
+  requestedSequence: input.snapshotSequence
+  requestedJournalHeadHash: input.journalHeadHash
+  action: "implement"
+  effectPayloadHash: input.effectHash
+  effectScope: input.effectScope
+})
+
+export const hashWorkflowApprovalV1 = (
+  input: WorkflowApprovalHashMaterialInputV1
+): string => sha256Hex(approvalHashMaterialV1(input))
+
+export const createWorkflowApprovalBindingV1 = (
+  approvalId: string
+  snapshot: WorkflowSnapshotV1
+): WorkflowApprovalBindingV1 =>
+  if snapshot.state !== "awaitingApproval" || snapshot.context.pendingEffect === null
+    throw new Error("Workflow approval requires a pending implementation effect")
+  if snapshot.context.pendingEffect.kind !== "implement"
+    throw new Error("Workflow approval pending effect must be implementation")
+
+  return {
+    approvalId
+    machineId: WORKFLOW_MACHINE_ID
+    machineVersion: WORKFLOW_MACHINE_VERSION
+    eventVersion: WORKFLOW_EVENT_VERSION
+    snapshotSequence: snapshot.sequence
+    journalHeadHash: snapshot.journalHeadHash
+    action: "implement"
+    effectHash: hashWorkflowEffectProposalV1(snapshot.context.pendingEffect)
+    effectScope: snapshot.context.pendingEffect.scope
+  }
+
+export const verifyWorkflowApprovalBindingV1 = (
+  binding: unknown
+  snapshot: WorkflowSnapshotV1
+): WorkflowIntegrityResultV1 =>
+  if binding !== null && typeof binding === "object" && !Array.isArray(binding)
+    const candidate = binding as Readonly<Record<string, unknown>>
+    if (
+      typeof candidate["machineId"] === "string" &&
+      candidate["machineId"] !== WORKFLOW_MACHINE_ID
+    )
+      return { ok: false, reason: "machine-mismatch" }
+    if (
+      (typeof candidate["machineVersion"] === "number" &&
+        candidate["machineVersion"] !== WORKFLOW_MACHINE_VERSION) ||
+      (typeof candidate["eventVersion"] === "number" &&
+        candidate["eventVersion"] !== WORKFLOW_EVENT_VERSION)
+    )
+      return { ok: false, reason: "version-mismatch" }
+  if !isWorkflowApprovalBindingV1(binding)
+    return { ok: false, reason: "invalid-binding" }
+  if !isWorkflowSnapshotV1(snapshot)
+    return { ok: false, reason: "invalid-snapshot" }
+  const pending = snapshot.context.pendingEffect
+  if pending === null || pending.kind !== "implement"
+    return { ok: false, reason: "no-pending-effect" }
+  if binding.machineId !== snapshot.machineId
+    return { ok: false, reason: "machine-mismatch" }
+  if binding.machineVersion !== snapshot.machineVersion ||
+      binding.eventVersion !== WORKFLOW_EVENT_VERSION
+    return { ok: false, reason: "version-mismatch" }
+  if binding.snapshotSequence !== snapshot.sequence
+    return { ok: false, reason: "sequence-mismatch" }
+  if binding.journalHeadHash !== snapshot.journalHeadHash
+    return { ok: false, reason: "journal-head-mismatch" }
+  if binding.effectHash !== hashWorkflowEffectProposalV1(pending)
+    return { ok: false, reason: "effect-hash-mismatch" }
+  if canonicalJsonV1(binding.effectScope) !== canonicalJsonV1(pending.scope)
+    return { ok: false, reason: "effect-scope-mismatch" }
+  return { ok: true }
