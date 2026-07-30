@@ -172,6 +172,7 @@ let repositoriesRoot = ""
 let repositoryDirectory = ""
 let scopedDirectory = ""
 let scopedFile = ""
+let originalProcessPath: string | undefined
 
 const sandboxCalls = () => mocks.spawn.mock.calls
 
@@ -265,6 +266,13 @@ beforeEach(async () =>
   repositoriesRoot = await realpath(
     await mkdtemp(join(tmpdir(), "darkfactory-omp-test-")),
   )
+  originalProcessPath = process.env["PATH"]
+  const executableDirectory = join(repositoriesRoot, "bin")
+  await mkdir(executableDirectory)
+  const executablePath = join(executableDirectory, "omp")
+  await writeFile(executablePath, "#!/bin/sh\nexit 0\n")
+  await chmod(executablePath, 0o700)
+  process.env["PATH"] = executableDirectory
   repositoryDirectory = join(repositoriesRoot, "darkfactory")
   scopedDirectory = join(repositoryDirectory, "packages", "jobs")
   scopedFile = join(scopedDirectory, "representative.civet")
@@ -395,6 +403,8 @@ afterEach(async () =>
   delete process.env["AWS_SESSION_TOKEN"]
   delete process.env["GOOGLE_API_KEY"]
   delete process.env["AWS_ACCESS_KEY_ID"]
+  if originalProcessPath === undefined then delete process.env["PATH"]
+  else process.env["PATH"] = originalProcessPath
   await removeOwnedTestArtifacts()
 )
 const requestFor = (
