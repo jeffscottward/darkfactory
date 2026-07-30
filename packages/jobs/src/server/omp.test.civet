@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   WP3statDelegate: undefined as WPFilesystemDelegate | undefined,
   WP4lstatDelegate: undefined as WPFilesystemDelegate | undefined,
   WP4readFileDelegate: undefined as WPFilesystemDelegate | undefined,
+  WP4openDelegate: undefined as WPFilesystemDelegate | undefined,
 }))
 
 vi.mock("node:child_process", () => ({
@@ -50,6 +51,7 @@ vi.mock("node:fs/promises", async (importOriginal) =>
     return selected(implementation, ...arguments_)
   return {
     ...actual,
+    open: delegateFor(() => mocks.WP4openDelegate, actual.open),
     access: delegateFor(() => mocks.WP3accessDelegate, actual.access),
     lstat: (...arguments_: any[]) =>
       if mocks.WP4lstatDelegate !== undefined
@@ -80,6 +82,10 @@ vi.mock("node:fs/promises", async (importOriginal) =>
 
 import {
   MAX_OMP_INSTRUCTION_BYTES,
+  OMP_WAYFINDER_SKILLS,
+  MAX_OMP_WAYFINDER_MAP_BYTES,
+  captureOmpWayfinderTrackerArtifact,
+  validateOmpWayfinderTrackerArtifact,
   MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,
   OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
   MAX_OMP_REDACTIONS,
@@ -120,6 +126,7 @@ import {
   type OmpVerifierRunnerResult,
 
 } from "./omp.civet"
+import { createLocalWayfinderExecutionAdapter } from "./wayfinder.civet"
 
 const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
   requireAvailable: vi.fn(async () => undefined)
@@ -212,6 +219,7 @@ const resetWPFilesystemDelegates = (): void =>
   mocks.WP3realpathDelegate = undefined
   mocks.WP3statDelegate = undefined
   mocks.WP4lstatDelegate = undefined
+  mocks.WP4openDelegate = undefined
   mocks.WP4readFileDelegate = undefined
 
 const removeOwnedTestArtifacts = async (): Promise<void> =>
@@ -805,6 +813,27 @@ describe("OMP CLI adapter", () =>
         scopePaths: [scopePath]
       }))).rejects.toBeInstanceOf(OmpRequestError)
     expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("continues scope resolution after an ENOTDIR descendant", async () =>
+    const scopePath = "packages/jobs/not-created/child"
+    let rejectedCandidate = false
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if !rejectedCandidate && String(path).endsWith(scopePath)
+        rejectedCandidate = true
+        throw Object.assign(new Error("not a directory"), { code: "ENOTDIR" })
+      return await actual(path, ...arguments_)
+    callbackWith(null, "planned")
+
+    const result = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      requestFor({
+        workspaceId: "scope-enotdir-descendant"
+        scopePaths: [scopePath]
+      }),
+    )
+
+    expect(rejectedCandidate).toBe(true)
+    expect(result.output.stdout).toBe("planned")
   )
 
   it("rejects a scope symlink resolving to the repository root before spawn", async () =>
@@ -4828,5 +4857,382 @@ describe("OMP CLI adapter", () =>
     expect(cleanupRootReads).toBe(2)
     expect(retainedLockRemovals).toBe(1)
     await expect(access(retainedLock)).rejects.toMatchObject({ code: "ENOENT" })
+  )
+
+  it("publishes the bounded Wayfinder tracker before disposing the detached worktree", async () =>
+    const skillsRoot = join(repositoriesRoot, "skills")
+    for skillName of OMP_WAYFINDER_SKILLS
+      const skillDirectory = join(skillsRoot, skillName)
+      await mkdir(skillDirectory, { recursive: true })
+      await writeFile(
+        join(skillDirectory, "SKILL.md"),
+        `---\nname: ${skillName}\n---\n`,
+      )
+    process.env["UNRELATED_SECRET"] = "must-not-enter-wayfinder"
+    callbackWith(
+      null,
+      "Wayfinder map queued",
+      "",
+      async (cwd) =>
+        const tracker = join(cwd, ".scratch", "run-wayfinder-1")
+        await mkdir(join(tracker, "issues"), { recursive: true, mode: 0o700 })
+        await writeFile(join(tracker, "map.md"), "# Durable map\n", { mode: 0o600 })
+        await writeFile(
+          join(tracker, "issues", "01-storage.md"),
+          "# Storage ticket\n",
+          { mode: 0o600 },
+        )
+    )
+    const omp = createOmpCliAdapter({
+      repositoriesRoot
+      wayfinderSkillsRoot: skillsRoot
+    })
+    const adapter = createLocalWayfinderExecutionAdapter({
+      omp
+      repositoriesRoot
+      skillPath: join(skillsRoot, "wayfinder", "SKILL.md")
+    })
+
+    const result = await adapter.execute({
+      command: "print"
+      workspaceId: "run-wayfinder-1"
+      effectKind: "plan"
+      cwd: "darkfactory"
+      scopePaths: ["packages/jobs"]
+      repositoryId: "darkfactory"
+      humanRequest: "Chart the operator extraction."
+    })
+
+    const target = join(
+      repositoryDirectory,
+      ".scratch",
+      "run-wayfinder-1",
+    )
+    await expect(readFile(join(target, "map.md"), "utf8"))
+      .resolves.toBe("# Durable map\n")
+    await expect(readFile(join(target, "issues", "01-storage.md"), "utf8"))
+      .resolves.toBe("# Storage ticket\n")
+    expect("wayfinderTrackerArtifact" in result).toBe(false)
+    expect(JSON.stringify(result)).not.toContain("# Durable map")
+    await expect(access(workspaceDirectories[0]!)).resolves.toBeUndefined()
+    const receipt = await readlink(target)
+    expect(receipt).toMatch(
+      /^\.run-wayfinder-1\.publish-[0-9a-f]{64}-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    )
+    expect((await readdir(join(repositoryDirectory, ".scratch"))).sort())
+      .toEqual([receipt, "run-wayfinder-1"].sort())
+
+    const call = sandboxCalls()[0]!
+    const arguments_ = call[1] as readonly string[]
+    const profile = arguments_[1]!
+    const ompArguments = arguments_.slice(3)
+    const options = call[2] as Readonly<{ env: NodeJS.ProcessEnv; cwd: string }>
+    expect(ompArguments).toContain(
+      `--skills=${OMP_WAYFINDER_SKILLS.join(",")}`,
+    )
+    expect(ompArguments).toContain(
+      "--tools=read,grep,glob,edit,write,task,web_search",
+    )
+    expect(ompArguments).not.toContain("--no-skills")
+    expect(options.env["HOME"]).toMatch(/darkfactory-omp-/u)
+    expect(options.env["UNRELATED_SECRET"]).toBeUndefined()
+    const writeSection = profile.slice(profile.indexOf("(allow file-write*"))
+    expect(writeSection).toContain(
+      `(subpath "${join(options.cwd, ".scratch", "run-wayfinder-1")}")`,
+    )
+    expect(writeSection).not.toContain(
+      `(subpath "${join(options.cwd, ".scratch")}")`,
+    )
+    expect(writeSection).not.toContain(`(subpath "${skillsRoot}")`)
+
+    await result.lifecycle!.finalize("persisted")
+    await expect(access(workspaceDirectories[0]!))
+      .rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(target, "map.md"), "utf8"))
+      .resolves.toBe("# Durable map\n")
+  )
+
+  it.each([
+    ["missing map", async (tracker: string) =>
+      await rm(join(tracker, "map.md"))],
+    ["extra path", async (tracker: string) =>
+      await writeFile(join(tracker, "notes.md"), "extra", { mode: 0o600 })],
+    ["symbolic link", async (tracker: string) =>
+      const target = join(dirname(tracker), "outside-map.md")
+      await writeFile(target, "outside", { mode: 0o600 })
+      await rm(join(tracker, "map.md"))
+      await symlink(target, join(tracker, "map.md"))],
+    ["unsafe mode", async (tracker: string) =>
+      await chmod(join(tracker, "map.md"), 0o700)],
+    ["map limit", async (tracker: string) =>
+      await writeFile(
+        join(tracker, "map.md"),
+        Buffer.alloc(MAX_OMP_WAYFINDER_MAP_BYTES + 1, 0x61),
+        { mode: 0o600 },
+      )],
+  ] as const)("rejects a Wayfinder tracker with %s", async (_name, mutate) =>
+    const tracker = await mkdtemp(join(repositoriesRoot, "tracker-boundary-"))
+    await chmod(tracker, 0o700)
+    await writeFile(join(tracker, "map.md"), "# Map\n", { mode: 0o600 })
+    await mutate(tracker)
+
+    await expect(captureOmpWayfinderTrackerArtifact({
+      trackerDirectory: tracker
+      repositoryId: "darkfactory"
+      runId: "run-wayfinder-boundary"
+    })).rejects.toBeInstanceOf(OmpRequestError)
+  )
+  it("rejects every malformed Wayfinder tracker artifact boundary", async () =>
+    const tracker = await mkdtemp(join(repositoriesRoot, "tracker-artifact-"))
+    await chmod(tracker, 0o700)
+    await mkdir(join(tracker, "issues"), { mode: 0o700 })
+    await writeFile(join(tracker, "map.md"), "# Map\n", { mode: 0o600 })
+    await writeFile(
+      join(tracker, "issues", "01-route.md"),
+      "# Route\n",
+      { mode: 0o600 },
+    )
+    const expected = {
+      repositoryId: "darkfactory"
+      runId: "run-wayfinder-artifact"
+    }
+    const artifact = await captureOmpWayfinderTrackerArtifact({
+      trackerDirectory: tracker
+      ...expected
+    })
+    const [mapEntry, issueEntry] = artifact.entries
+    const entryFor = (entry: typeof mapEntry, overrides = {}) => ({
+      ...entry
+      ...overrides
+    })
+    const invalidEntryContent = (content: unknown) => entryFor(mapEntry, {
+      content
+      bytes: typeof content === "string" ? Buffer.byteLength(content) : mapEntry!.bytes
+      digest: typeof content === "string"
+        ? createHash("sha256").update(content).digest("hex")
+        : mapEntry!.digest
+    })
+    const invalidArtifacts: unknown[] = [
+      null
+      { ...artifact, identity: "forged" }
+      { ...artifact, entries: [] }
+      { ...artifact, entries: [null] }
+      { ...artifact, entries: [entryFor(mapEntry, { path: 1 })] }
+      { ...artifact, entries: [entryFor(mapEntry, { path: "issues/bad.md" })] }
+      { ...artifact, entries: [mapEntry, mapEntry] }
+      { ...artifact, entries: [entryFor(mapEntry, { bytes: mapEntry!.bytes + 1 })] }
+      { ...artifact, entries: [entryFor(mapEntry, { digest: "0".repeat(64) })] }
+      { ...artifact, entries: [issueEntry] }
+      { ...artifact, entries: [issueEntry, mapEntry] }
+      { ...artifact, entries: [invalidEntryContent(1)] }
+      { ...artifact, entries: [invalidEntryContent("\0")] }
+      { ...artifact, entries: [invalidEntryContent("")] }
+    ]
+    for invalid of invalidArtifacts
+      expect(() => validateOmpWayfinderTrackerArtifact(invalid, expected))
+        .toThrow("OMP Wayfinder tracker artifact is invalid")
+    expect(() => validateOmpWayfinderTrackerArtifact(artifact, {
+      repositoryId: "."
+      runId: expected.runId
+    })).toThrow("OMP Wayfinder tracker artifact is invalid")
+  )
+
+  it("rejects Wayfinder tracker filesystem races and encoding boundaries", async () =>
+    const capture = async (
+      name: string,
+      mutate: (tracker: string) => Promise<void>,
+    ) =>
+      const tracker = await mkdtemp(join(repositoriesRoot, `tracker-${name}-`))
+      await chmod(tracker, 0o700)
+      await writeFile(join(tracker, "map.md"), "# Map\n", { mode: 0o600 })
+      await mutate(tracker)
+      await expect(captureOmpWayfinderTrackerArtifact({
+        trackerDirectory: tracker
+        repositoryId: "darkfactory"
+        runId: `run-wayfinder-${name}`
+      })).rejects.toBeInstanceOf(OmpRequestError)
+      mocks.WP4openDelegate = undefined
+
+    await capture("insecure-root", async (tracker) =>
+      await chmod(tracker, 0o777)
+    )
+    await capture("invalid-utf8", async (tracker) =>
+      await writeFile(join(tracker, "map.md"), Buffer.from([0xff]), {
+        mode: 0o600,
+      })
+    )
+    await capture("unsafe-issue", async (tracker) =>
+      await mkdir(join(tracker, "issues"), { mode: 0o700 })
+      await writeFile(join(tracker, "issues", "bad.md"), "# Bad\n", {
+        mode: 0o600,
+      })
+    )
+    for race of ["opened", "after"] as const
+      await capture(`${race}-race`, async (tracker) =>
+        const mapPath = join(tracker, "map.md")
+        mocks.WP4openDelegate = async (actual, path, ...arguments_) =>
+          const handle = await actual(path, ...arguments_)
+          if String(path) !== mapPath then return handle
+          let statCalls = 0
+          return {
+            stat: async () =>
+              const metadata = await handle.stat()
+              statCalls += 1
+              if race === "opened" && statCalls === 1
+                return Object.assign(metadata, { ino: metadata.ino + 1 })
+              if race === "after" && statCalls === 2
+                return Object.assign(metadata, { size: metadata.size + 1 })
+              return metadata
+            readFile: (...readArguments: any[]) => handle.readFile(...readArguments)
+            close: () => handle.close()
+          }
+        return
+      )
+
+    await expect(captureOmpWayfinderTrackerArtifact({
+      trackerDirectory: join(repositoriesRoot, "missing-tracker")
+      repositoryId: "darkfactory"
+      runId: "run-wayfinder-missing-root"
+    })).rejects.toBeInstanceOf(OmpRequestError)
+  )
+  it("rejects Wayfinder adapter configuration and request identity boundaries", async () =>
+    expect(() => createOmpCliAdapter({
+      repositoriesRoot
+      wayfinderSkillsRoot: "relative"
+    })).toThrow("OMP Wayfinder skills root must be absolute")
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for request of [
+      requestFor({ skillProfile: "other" as never })
+      requestFor({ skillProfile: "wayfinder", effectKind: "implement" })
+      requestFor({
+        skillProfile: "wayfinder"
+        workspaceId: "unsafe:wayfinder"
+      })
+    ]
+      await expect(adapter.execute(request)).rejects.toBeInstanceOf(OmpRequestError)
+  )
+
+  it("fails closed for every Wayfinder skill bundle security limit", async () =>
+    const skillsRootFor = async (name: string): Promise<string> =>
+      const root = join(repositoriesRoot, `skills-${name}-${randomUUID()}`)
+      for skillName of OMP_WAYFINDER_SKILLS
+        const directory = join(root, skillName)
+        await mkdir(directory, { recursive: true, mode: 0o700 })
+        await writeFile(
+          join(directory, "SKILL.md"),
+          `---\nname: ${skillName}\n---\n`,
+          { mode: 0o600 },
+        )
+      return root
+    const rejectsBundle = async (name: string, skillsRoot: string) =>
+      await expect(createOmpCliAdapter({
+        repositoriesRoot
+        wayfinderSkillsRoot: skillsRoot
+      }).execute(requestFor({
+        workspaceId: `run-wayfinder-${name}`
+        skillProfile: "wayfinder"
+      }))).rejects.toThrow("OMP Wayfinder skill bundle is unavailable")
+
+    const depthRoot = await skillsRootFor("depth")
+    let nested = join(depthRoot, OMP_WAYFINDER_SKILLS[0]!)
+    for index of Array.from({ length: 17 }, (_, index) => index)
+      nested = join(nested, `nested-${index}`)
+      await mkdir(nested, { mode: 0o700 })
+    await writeFile(join(nested, "leaf.txt"), "leaf", { mode: 0o600 })
+    await rejectsBundle("depth", depthRoot)
+
+    const modeRoot = await skillsRootFor("mode")
+    const unsafeMode = join(modeRoot, OMP_WAYFINDER_SKILLS[0]!, "unsafe.txt")
+    await writeFile(unsafeMode, "unsafe", { mode: 0o600 })
+    await chmod(unsafeMode, 0o666)
+    await rejectsBundle("mode", modeRoot)
+
+    const entriesRoot = await skillsRootFor("entries")
+    const entriesDirectory = join(entriesRoot, OMP_WAYFINDER_SKILLS[0]!)
+    await Promise.all(Array.from({ length: 513 }, (_, index) =>
+      writeFile(
+        join(entriesDirectory, `entry-${index.toString().padStart(3, "0")}.txt`),
+        "",
+        { mode: 0o600 },
+      )
+    ))
+    await rejectsBundle("entries", entriesRoot)
+
+    const nameRoot = await skillsRootFor("name")
+    await writeFile(
+      join(nameRoot, OMP_WAYFINDER_SKILLS[0]!, "unsafe\nname.txt"),
+      "unsafe",
+      { mode: 0o600 },
+    )
+    await rejectsBundle("name", nameRoot)
+
+    const unsupportedRoot = await skillsRootFor("unsupported")
+    const unsupported = join(
+      unsupportedRoot,
+      OMP_WAYFINDER_SKILLS[0]!,
+      "unsupported-entry",
+    )
+    await writeFile(unsupported, "unsupported", { mode: 0o600 })
+    mocks.WP1lstatDelegate = async (actual, path, ...arguments_) =>
+      const metadata = await actual(path, ...arguments_)
+      if String(path) !== unsupported then return metadata
+      return Object.assign(metadata, {
+        isFile: () => false
+        isDirectory: () => false
+      })
+    await rejectsBundle("unsupported", unsupportedRoot)
+    mocks.WP1lstatDelegate = undefined
+
+    const bytesRoot = await skillsRootFor("bytes")
+    const oversized = await open(
+      join(bytesRoot, OMP_WAYFINDER_SKILLS[0]!, "oversized.bin"),
+      "w",
+      0o600,
+    )
+    await oversized.truncate(2 * 1_024 * 1_024 + 1)
+    await oversized.close()
+    await rejectsBundle("bytes", bytesRoot)
+
+    const manifestRoot = await skillsRootFor("manifest")
+    const manifest = join(manifestRoot, OMP_WAYFINDER_SKILLS[0]!, "SKILL.md")
+    await rm(manifest)
+    await mkdir(manifest, { mode: 0o700 })
+    await rejectsBundle("manifest", manifestRoot)
+  )
+
+  it("fails closed when the Wayfinder tracker escapes or cannot be captured", async () =>
+    const skillsRoot = join(repositoriesRoot, `skills-runtime-${randomUUID()}`)
+    for skillName of OMP_WAYFINDER_SKILLS
+      const directory = join(skillsRoot, skillName)
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+      await writeFile(
+        join(directory, "SKILL.md"),
+        `---\nname: ${skillName}\n---\n`,
+        { mode: 0o600 },
+      )
+
+    mocks.WP2realpathDelegate = async (actual, path, ...arguments_) =>
+      if String(path).endsWith(".scratch/run-wayfinder-escape")
+        return join(repositoriesRoot, "escaped-tracker")
+      return actual(path, ...arguments_)
+    await expect(createOmpCliAdapter({
+      repositoriesRoot
+      wayfinderSkillsRoot: skillsRoot
+    }).execute(requestFor({
+      workspaceId: "run-wayfinder-escape"
+      skillProfile: "wayfinder"
+    }))).rejects.toThrow("OMP Wayfinder tracker path is invalid")
+    mocks.WP2realpathDelegate = undefined
+
+    callbackWith(null, "tracker omitted")
+    const result = await createOmpCliAdapter({
+      repositoriesRoot
+      wayfinderSkillsRoot: skillsRoot
+    }).execute(requestFor({
+      workspaceId: "run-wayfinder-missing"
+      skillProfile: "wayfinder"
+    }))
+    expect(result.status).toBe("failed")
+    await result.lifecycle!.finalize("unpersisted")
   )
 )

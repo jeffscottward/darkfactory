@@ -417,6 +417,7 @@ const requireNonBlank = (value: string, field: string): void =>
   if (value.trim().length === 0)
     throw new WorkflowPersistenceInputError(`${field} must not be blank`)
 
+
 const requireHash = (value: string, field: string): void =>
   if (!HASH_PATTERN.test(value))
     throw new WorkflowPersistenceInputError(`${field} must be a lowercase SHA-256 hash`)
@@ -923,16 +924,17 @@ const hashWorkflowAppendRequest = (
   input: AppendWorkflowInput,
   event: JsonObject,
 ): string =>
-  const effects = (input.effects ?? []).map((effect) =>
+  const requestedEffects = input.effects ?? []
+  for (const effect of requestedEffects)
     requireNonBlank(effect.handler, "effect.handler")
     requireNonBlank(effect.idempotencyKey, "effect.idempotencyKey")
     requireNonBlank(effect.eventType, "effect.eventType")
-    if (
-      effect.availableAt !== undefined &&
-      (!(effect.availableAt instanceof Date) ||
-        !Number.isFinite(effect.availableAt.getTime()))
-    )
-      throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+    if effect.availableAt !== undefined
+      if !(effect.availableAt instanceof Date)
+        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+      if !Number.isFinite(effect.availableAt.getTime())
+        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+  const effects = requestedEffects.map((effect) =>
     return {
       id: effect.id ?? null,
       handler: effect.handler,
@@ -996,12 +998,11 @@ const insertEffects = async (
     requireNonBlank(effect.handler, "effect.handler")
     requireNonBlank(effect.idempotencyKey, "effect.idempotencyKey")
     requireNonBlank(effect.eventType, "effect.eventType")
-    if (
-      effect.availableAt !== undefined &&
-      (!(effect.availableAt instanceof Date) ||
-        !Number.isFinite(effect.availableAt.getTime()))
-    )
-      throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+    if effect.availableAt !== undefined
+      if !(effect.availableAt instanceof Date)
+        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+      if !Number.isFinite(effect.availableAt.getTime())
+        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
     const payload = redactBoundedObject(effect.payload, MAX_EFFECT_BYTES, "effect.payload")
     const requestHash = hashWorkflowEffectRequest({
       handler: effect.handler,

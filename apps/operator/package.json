@@ -1,0 +1,52 @@
+{
+  "name": "@darkfactory/operator-app",
+  "version": "0.2.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffscottward/darkfactory.git"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js dev",
+    "build": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js build",
+    "start": "vite preview",
+    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src"
+  },
+  "dependencies": {
+    "@darkfactory/auth": "workspace:*",
+    "@darkfactory/config": "workspace:*",
+    "@darkfactory/db": "workspace:*",
+    "@darkfactory/email": "workspace:*",
+    "@darkfactory/operator": "workspace:*",
+    "@darkfactory/state": "workspace:*",
+    "@darkfactory/ui": "workspace:*",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-server-dom-webpack": "catalog:",
+    "tailwindcss": "catalog:",
+    "vinext": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitejs/plugin-rsc": "catalog:",
+    "esbuild": "catalog:",
+    "jsdom": "^26.1.0",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

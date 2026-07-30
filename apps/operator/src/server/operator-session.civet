@@ -1,0 +1,26 @@
+import {
+  AuthAuthorizationError,
+  requireRole,
+} from "@darkfactory/auth/server"
+
+import { withOperatorAuth } from "./operator-auth.civet"
+
+export interface OperatorAdministrator {
+  readonly userId: string
+  readonly name: string
+}
+
+export const getOperatorAdministrator = async (
+  requestHeaders: Headers,
+): Promise<OperatorAdministrator | null> =>
+  try
+    const session = await withOperatorAuth((auth) =>
+      requireRole(auth, requestHeaders, "admin")
+    )
+    return Object.freeze({
+      userId: session.principal.userId,
+      name: session.user.name,
+    })
+  catch error
+    if (error instanceof AuthAuthorizationError) return null
+    throw error

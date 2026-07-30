@@ -1,0 +1,65 @@
+{
+  "name": "@darkfactory/operator",
+  "version": "0.2.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffscottward/darkfactory.git"
+  },
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/server/unsupported.civet"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.civet.d.ts",
+      "import": "./src/index.civet",
+      "default": "./src/index.civet"
+    },
+    "./contract": {
+      "types": "./src/contract.civet.d.ts",
+      "import": "./src/contract.civet",
+      "default": "./src/contract.civet"
+    },
+    "./client": {
+      "types": "./src/client.civet.d.ts",
+      "import": "./src/client.civet",
+      "default": "./src/client.civet"
+    },
+    "./server": {
+      "types": "./src/server/index.civet.d.ts",
+      "workerd": "./src/server/unsupported.civet",
+      "worker": "./src/server/unsupported.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/index.civet",
+      "default": "./src/server/index.civet"
+    }
+  },
+  "scripts": {
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/contract.civet src/client.civet src/server/index.civet src/server/context.civet src/server/handler.civet src/server/router.civet src/server/operator-service.civet src/server/workflow-runtime.civet src/server/wayfinder-service.civet && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.civet",
+    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@darkfactory/auth": "workspace:*",
+    "@darkfactory/db": "workspace:*",
+    "@darkfactory/jobs": "workspace:*",
+    "@darkfactory/state": "workspace:*",
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@danielx/civet": "catalog:",
+    "@types/node": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

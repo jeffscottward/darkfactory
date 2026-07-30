@@ -1,0 +1,188 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  auth: { runtime: "auth" },
+  close: vi.fn(async () => undefined),
+  composeDatabaseProfile: vi.fn(() => ({
+    connection: { connectionString: "postgres://operator.test/database" },
+  })),
+  context: { requestId: "operator-request" },
+  createOperatorAuthForDatabase: vi.fn(),
+  createOperatorContext: vi.fn(),
+  createOperatorWayfinderWorkflowService: vi.fn(),
+  createOperatorWorkflowPort: vi.fn(),
+  createRequestDatabase: vi.fn(),
+  createWorkflowRepository: vi.fn(),
+  db: { runtime: "database" },
+  handleOperatorRequest: vi.fn(async () => new Response("ok")),
+  isWorkflowRepositoryGranted: vi.fn(() => true),
+  parseServerEnv: vi.fn(),
+  parseWorkflowRepositoryGrants: vi.fn(() => [{ ownerId: "admin-1", repositoryId: "darkfactory" }]),
+  repository: { runtime: "workflow-repository" },
+  requireRole: vi.fn(async () => ({ principal: { userId: "admin-1" } })),
+  workflowOperator: { runtime: "workflow-operator" },
+  wayfinder: {
+    status: vi.fn(async () => ({
+      availability: "installed",
+      tracker: "local-markdown",
+    })),
+    start: vi.fn(async () => ({
+      runId: "run-wayfinder-1",
+      status: "queued",
+      tracker: "local-markdown",
+    })),
+  },
+}))
+
+vi.mock("@darkfactory/auth/server", () => ({ requireRole: mocks.requireRole }))
+vi.mock("@darkfactory/config/database", () => ({
+  composeDatabaseProfile: mocks.composeDatabaseProfile,
+}))
+vi.mock("@darkfactory/config/server", () => ({ parseServerEnv: mocks.parseServerEnv }))
+vi.mock("@darkfactory/db/server", () => ({
+  createRequestDatabase: mocks.createRequestDatabase,
+  createWorkflowRepository: mocks.createWorkflowRepository,
+}))
+vi.mock("@darkfactory/operator/server", () => ({
+  createOperatorContext: mocks.createOperatorContext,
+  createOperatorWorkflowPort: mocks.createOperatorWorkflowPort,
+  createOperatorWayfinderWorkflowService: mocks.createOperatorWayfinderWorkflowService,
+  handleOperatorRequest: mocks.handleOperatorRequest,
+}))
+vi.mock("@darkfactory/state/workflow", () => ({
+  isWorkflowRepositoryGranted: mocks.isWorkflowRepositoryGranted,
+  parseWorkflowRepositoryGrants: mocks.parseWorkflowRepositoryGrants,
+}))
+vi.mock("../../../../server/operator-auth.civet", () => ({
+  createOperatorAuthForDatabase: mocks.createOperatorAuthForDatabase,
+}))
+
+import { handleOperatorOrpcRequest } from "./handler.civet"
+
+describe "standalone operator oRPC composition", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "/srv/repositories")
+    mocks.parseServerEnv.mockReturnValue({
+      APP_ENV: "development",
+      WORKFLOW_REPOSITORY_GRANTS: "admin-1:darkfactory",
+      BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters",
+    })
+    mocks.createRequestDatabase.mockResolvedValue({ db: mocks.db, close: mocks.close })
+    mocks.createWorkflowRepository.mockReturnValue(mocks.repository)
+    mocks.createOperatorAuthForDatabase.mockReturnValue(mocks.auth)
+    mocks.createOperatorWorkflowPort.mockReturnValue(mocks.workflowOperator)
+    mocks.createOperatorWayfinderWorkflowService.mockReturnValue(mocks.wayfinder)
+    mocks.createOperatorContext.mockReturnValue(mocks.context)
+    mocks.handleOperatorRequest.mockResolvedValue(new Response("ok"))
+
+  afterEach ->
+    vi.unstubAllEnvs()
+
+  it "builds an administrator-only operator context and closes the request database", async ->
+    const request = new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+      { headers: { origin: "https://operator.darkfactory.localhost" } },
+    )
+    const response = await handleOperatorOrpcRequest(request)
+    expect(response.status).toBe(200)
+    expect(mocks.createWorkflowRepository).toHaveBeenCalledWith(mocks.db)
+    expect(mocks.createOperatorWorkflowPort).toHaveBeenCalledWith({
+      repository: mocks.repository,
+      authorizeRepository: expect.any(Function),
+    })
+    const workflowOptions = mocks.createOperatorWorkflowPort.mock.calls[0]![0]
+    expect(mocks.createOperatorWayfinderWorkflowService).toHaveBeenCalledWith({
+      repository: mocks.repository,
+      authorizeRepository: workflowOptions.authorizeRepository,
+      omp: { repositoriesRoot: "/srv/repositories" },
+    })
+    const dependencies = mocks.createOperatorContext.mock.calls[0]![1]
+    expect(dependencies.wayfinder).toBe(mocks.wayfinder)
+    await dependencies.requireSession(new Headers({ cookie: "session=opaque" }))
+    expect(mocks.requireRole).toHaveBeenCalledWith(
+      mocks.auth,
+      expect.any(Headers),
+      "admin",
+    )
+    expect(mocks.handleOperatorRequest).toHaveBeenCalledWith(request, mocks.context)
+    expect(mocks.close).toHaveBeenCalledOnce()
+    expect(mocks.wayfinder.start).not.toHaveBeenCalled()
+
+  it "rejects cross-origin mutations before opening a database", async ->
+    const response = await handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/runs",
+      {
+        method: "POST",
+        headers: { origin: "https://darkfactory.localhost" },
+      },
+    ))
+    expect(response.status).toBe(403)
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+
+  it "rejects unsupported methods without opening a database", async ->
+    const response = await handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+      { method: "PUT" },
+    ))
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, POST")
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+
+  it "fails closed before opening a database when the repository root is missing", async ->
+    vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "")
+    await expect(handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+    ))).rejects.toThrow("WORKFLOW_REPOSITORIES_ROOT")
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
+
+  it "uses empty grants and delegates repository authorization", async ->
+    mocks.parseServerEnv.mockReturnValueOnce({
+      APP_ENV: "development",
+      WORKFLOW_REPOSITORY_GRANTS: undefined,
+      BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters",
+    })
+    mocks.isWorkflowRepositoryGranted.mockReturnValueOnce(false)
+    await handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+    ))
+    expect(mocks.parseWorkflowRepositoryGrants).not.toHaveBeenCalled()
+    const authorizeRepository = mocks.createOperatorWorkflowPort.mock.calls[0]![0]
+      .authorizeRepository
+    expect(authorizeRepository("admin-1", "darkfactory")).toBe(false)
+    expect(mocks.isWorkflowRepositoryGranted).toHaveBeenCalledWith(
+      [],
+      "admin-1",
+      "darkfactory",
+    )
+
+  it "waits for rejected background work before closing the database", async ->
+    let rejectTask: ((error: Error) => void) | undefined
+    const task = new Promise<never>((_resolve, reject) =>
+      rejectTask = reject
+    )
+    mocks.createOperatorAuthForDatabase.mockImplementationOnce(
+      (_database, _env, scheduleBackgroundTask) =>
+        scheduleBackgroundTask(task)
+        return mocks.auth
+    )
+    const responsePromise = handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+    ))
+    await vi.waitFor(() => expect(mocks.handleOperatorRequest).toHaveBeenCalledOnce())
+    expect(mocks.close).not.toHaveBeenCalled()
+    rejectTask?.(new Error("background task failed"))
+    await expect(responsePromise).resolves.toBeInstanceOf(Response)
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "rejects missing and relative repository roots", async ->
+    vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", undefined)
+    await expect(handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+    ))).rejects.toThrow("WORKFLOW_REPOSITORIES_ROOT")
+
+    vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "repositories")
+    await expect(handleOperatorOrpcRequest(new Request(
+      "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
+    ))).rejects.toThrow("WORKFLOW_REPOSITORIES_ROOT")
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()

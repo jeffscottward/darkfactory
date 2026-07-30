@@ -223,7 +223,7 @@ describe("PM2 and portless lifecycle", () =>
     ])
     expect(fixture.calls).toContainEqual([
       "pm2",
-      ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"],
+      ["start", "portless", "--interpreter", "none", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"],
     ])
     const startOptions = fixture.options.find((value) =>
       (value as { environment?: Record<string, string> })?.environment
@@ -276,7 +276,7 @@ describe("PM2 and portless lifecycle", () =>
     expect(fixture.calls).toContainEqual(["pm2", ["delete", "7"]])
     expect(fixture.calls).toContainEqual([
       "pm2",
-      ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"],
+      ["start", "portless", "--interpreter", "none", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"],
     ])
     expect(fixture.calls).not.toContainEqual(["pm2", ["start", "7"]])
     expect(fixture.calls.filter(([command, args]) =>

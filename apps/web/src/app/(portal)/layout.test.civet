@@ -115,7 +115,6 @@ describe "PortalLayout", ->
       false,
       [
         "/dashboard",
-        "/operator",
         "/feature-items",
         "/account",
         "/account/profile",
@@ -129,7 +128,6 @@ describe "PortalLayout", ->
       true,
       [
         "/dashboard",
-        "/operator",
         "/feature-items",
         "/account",
         "/account/profile",

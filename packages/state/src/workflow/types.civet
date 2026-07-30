@@ -3,6 +3,7 @@ export const WORKFLOW_MACHINE_VERSION = 1 as const
 export const WORKFLOW_EVENT_VERSION = 1 as const
 export const GENESIS_WORKFLOW_JOURNAL_HASH = "0".repeat(64)
 export const MAX_WORKFLOW_STAGE_ATTEMPTS_V1 = 3
+export const MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 = 1_024
 
 export class WorkflowRetryLimitReachedError extends Error
   readonly code = "RETRY_LIMIT_REACHED" as const
@@ -52,6 +53,7 @@ export type WorkflowEffectHandlerV1 =
   | "coding-agent.implement"
   | "coding-agent.verify"
 export type WorkflowActiveEffectStateV1 = "planning" | "implementing" | "verifying"
+export type WorkflowExecutionModeV1 = "pilot" | "wayfinder"
 export type WorkflowTransitionMode = "live" | "replay"
 
 export interface WorkflowEffectScopeV1 {
@@ -72,6 +74,8 @@ export interface WorkflowEffectPayloadV1 {
   readonly taskHash: string
   readonly sourceSequence: number
   readonly evidenceIds: readonly string[]
+  readonly executionMode?: WorkflowExecutionModeV1
+  readonly humanRequest?: string
 }
 
 export interface WorkflowEffectProposalV1 {
@@ -118,6 +122,8 @@ export type WorkflowEventV1 =
       readonly taskRevision: number
       readonly taskHash: string
       readonly scope: WorkflowEffectScopeV1
+      readonly executionMode?: WorkflowExecutionModeV1
+      readonly humanRequest?: string
     })
   | (WorkflowEventBaseV1 & {
       readonly type: "PLAN_SUCCEEDED"
@@ -182,6 +188,8 @@ export interface WorkflowContextV1 {
   readonly taskRevision: number | null
   readonly taskHash: string | null
   readonly scope: WorkflowEffectScopeV1 | null
+  readonly executionMode?: WorkflowExecutionModeV1
+  readonly humanRequest?: string
   readonly attempts: WorkflowAttemptsV1
   readonly pendingEffect: WorkflowEffectProposalV1 | null
   readonly planEvidenceId: string | null

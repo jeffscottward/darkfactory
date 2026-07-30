@@ -1,4 +1,6 @@
 import {
+  OPERATOR_DEVELOPMENT_PROFILE,
+  WEB_DEVELOPMENT_PROFILE,
   runDevelopmentAction,
   type DevelopmentAction,
   type LifecycleFileSystem,
@@ -26,7 +28,12 @@ export const runDevelopmentCli = async (
   arguments_: readonly string[],
   dependencies: DevelopmentCliDependencies,
 ): Promise<number> =>
-  const [candidate, ...extra] = arguments_
+  const isOperator = arguments_[0] === "operator"
+  const actionArguments = isOperator ? arguments_.slice(1) : arguments_
+  const profile = isOperator
+    ? OPERATOR_DEVELOPMENT_PROFILE
+    : WEB_DEVELOPMENT_PROFILE
+  const [candidate, ...extra] = actionArguments
   if (candidate === undefined || extra.length > 0 || !ACTIONS.has(candidate as DevelopmentAction))
     dependencies.writeError("Usage: dev <start|status|logs|stop|trust|certs-install|certs-generate>\n")
     return 2
@@ -36,6 +43,7 @@ export const runDevelopmentCli = async (
       candidate as DevelopmentAction,
       dependencies.process,
       dependencies.files,
+      profile,
     )
     const { output: commandOutput, ...summary } = report
     const rendered = `${JSON.stringify(summary, null, 2)}\n`

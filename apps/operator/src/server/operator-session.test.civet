@@ -1,0 +1,52 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+} from "@darkfactory/auth/server"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  auth: { runtime: "auth" },
+  requireRole: vi.fn(),
+  withOperatorAuth: vi.fn(),
+}))
+
+vi.mock("@darkfactory/auth/server", async (importOriginal) =>
+  const original = await importOriginal<typeof import("@darkfactory/auth/server")>()
+  return { ...original, requireRole: mocks.requireRole }
+)
+vi.mock("./operator-auth.civet", () => ({
+  withOperatorAuth: mocks.withOperatorAuth,
+}))
+
+import { getOperatorAdministrator } from "./operator-session.civet"
+
+describe "operator administrator session", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    mocks.withOperatorAuth.mockImplementation(async (operation) => operation(mocks.auth))
+    return
+
+  it "returns the bounded administrator identity", async ->
+    const headers = new Headers({ cookie: "session=opaque" })
+    mocks.requireRole.mockResolvedValue({
+      principal: { userId: "admin-1" },
+      user: { name: "Development Administrator" },
+    })
+    await expect(getOperatorAdministrator(headers)).resolves.toEqual({
+      userId: "admin-1",
+      name: "Development Administrator",
+    })
+    expect(mocks.requireRole).toHaveBeenCalledWith(mocks.auth, headers, "admin")
+
+  it "maps authorization failures to an anonymous session", async ->
+    mocks.requireRole.mockRejectedValue(new AuthAuthorizationError(
+      AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+      403,
+    ))
+    await expect(getOperatorAdministrator(new Headers())).resolves.toBeNull()
+
+  it "preserves unexpected authentication failures", async ->
+    mocks.requireRole.mockRejectedValue(new Error("database unavailable"))
+    await expect(getOperatorAdministrator(new Headers())).rejects.toThrow(
+      "database unavailable",
+    )

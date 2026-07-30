@@ -294,9 +294,34 @@ describe("root executable wrappers", () =>
     expect(process.exitCode).toBe(17)
   )
 
+  it("rejects unsupported binding targets before materialization", async () =>
+    const materializeWorkerBindings = vi.fn(async () => undefined)
+    const workerBindingsTargetPath = vi.fn(() => "unused")
+    vi.doMock("./dev/bindings.civet", () => ({
+      materializeWorkerBindings,
+      workerBindingsTargetPath,
+    }))
+    process.argv = ["node", "dev-bindings.civet", "web"]
+    process.exitCode = undefined
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+
+    await import("./dev-bindings.civet")
+
+    expect(materializeWorkerBindings).not.toHaveBeenCalled()
+    expect(workerBindingsTargetPath).not.toHaveBeenCalled()
+    expect(stdout).not.toHaveBeenCalled()
+    expect(stderr).toHaveBeenCalledWith("Usage: dev-bindings [operator]\n")
+    expect(process.exitCode).toBe(2)
+  )
+
   it("materializes validated development bindings and reports the protected target", async () =>
     const materializeWorkerBindings = vi.fn(async () => undefined)
-    vi.doMock("./dev/bindings.civet", () => ({ materializeWorkerBindings }))
+    vi.doMock("./dev/bindings.civet", () => ({
+      materializeWorkerBindings,
+      workerBindingsTargetPath: () => "apps/web/.dev.vars",
+    }))
+    process.argv = ["node", "dev-bindings.civet"]
     process.exitCode = undefined
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
@@ -311,11 +336,36 @@ describe("root executable wrappers", () =>
     expect(process.exitCode).toBeUndefined()
   )
 
+  it("materializes operator bindings through the independent protected target", async () =>
+    const materializeWorkerBindings = vi.fn(async () => undefined)
+    vi.doMock("./dev/bindings.civet", () => ({
+      materializeWorkerBindings,
+      workerBindingsTargetPath: () => "apps/operator/.dev.vars",
+    }))
+    process.argv = ["node", "dev-bindings.civet", "operator"]
+    process.exitCode = undefined
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+
+    await import("./dev-bindings.civet")
+
+    expect(materializeWorkerBindings).toHaveBeenCalledWith(process.cwd(), "operator")
+    expect(stdout).toHaveBeenCalledWith(
+      '{"action":"operator:bindings","ok":true,"target":"apps/operator/.dev.vars","mode":"0600"}\n',
+    )
+    expect(stderr).not.toHaveBeenCalled()
+    expect(process.exitCode).toBeUndefined()
+  )
+
   it("normalizes binding materialization exceptions to a safe error and exit code", async () =>
     const materializeWorkerBindings = vi.fn(async () =>
       throw new Error("private binding payload")
     )
-    vi.doMock("./dev/bindings.civet", () => ({ materializeWorkerBindings }))
+    vi.doMock("./dev/bindings.civet", () => ({
+      materializeWorkerBindings,
+      workerBindingsTargetPath: () => "apps/web/.dev.vars",
+    }))
+    process.argv = ["node", "dev-bindings.civet"]
     process.exitCode = undefined
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)

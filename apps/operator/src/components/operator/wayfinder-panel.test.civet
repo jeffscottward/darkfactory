@@ -1,0 +1,125 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { OperatorGateway } from "./operator-client.civet"
+import { WayfinderPanel } from "./wayfinder-panel.civet"
+
+type WayfinderGateway = Pick<OperatorGateway, "wayfinderStatus" | "startWayfinder">
+
+const gatewayWith = (availability: "installed" | "unavailable"): WayfinderGateway => ({
+  wayfinderStatus: vi.fn<WayfinderGateway["wayfinderStatus"]>(async () => ({
+    availability,
+    tracker: "local-markdown",
+  })),
+  startWayfinder: vi.fn<WayfinderGateway["startWayfinder"]>(async (_request, _scope) => ({
+    runId: "run-wayfinder-1",
+    status: "queued",
+    tracker: "local-markdown",
+  })),
+})
+
+afterEach ->
+  cleanup()
+  vi.clearAllMocks()
+
+describe "Wayfinder local workflow panel", ->
+  it "shows unavailable status and prevents queueing", async ->
+    const gateway = gatewayWith("unavailable")
+    render(<WayfinderPanel gateway={gateway} />)
+
+    expect(await screen.findByText("Wayfinder is unavailable")).toBeDefined()
+    expect((screen.getByRole("button", { name: "Queue Wayfinder run" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(gateway.startWayfinder).not.toHaveBeenCalled()
+
+  it "shows installed status and durably queues the bounded request before execution", async ->
+    const gateway = gatewayWith("installed")
+    render(<WayfinderPanel gateway={gateway} />)
+
+    expect(await screen.findByText("Wayfinder is installed")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Wayfinder repository ID"), {
+      target: { value: "darkfactory" },
+    })
+    fireEvent.change(screen.getByLabelText("Wayfinder request"), {
+      target: { value: "Plan the standalone operator cutover" },
+    })
+    fireEvent.change(screen.getByLabelText("Wayfinder scope paths, one per line"), {
+      target: { value: " apps/operator \n\n packages/operator " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Queue Wayfinder run" }))
+
+    await waitFor(() => expect(gateway.startWayfinder).toHaveBeenCalledWith(
+      "Plan the standalone operator cutover",
+      {
+        repositoryId: "darkfactory",
+        paths: ["apps/operator", "packages/operator"],
+      },
+    ))
+    expect(await screen.findByText("Queued with local-markdown")).toBeDefined()
+    const runLink = screen.getByRole("link", { name: "Open queued run run-wayfinder-1" })
+    expect(runLink.getAttribute("href")).toBe("/operator/runs/run-wayfinder-1")
+
+  it "fails closed when the availability request fails", async ->
+    const gateway = gatewayWith("installed")
+    vi.mocked(gateway.wayfinderStatus).mockRejectedValueOnce(new Error("status failed"))
+    render(<WayfinderPanel gateway={gateway} />)
+    expect(await screen.findByText("Wayfinder is unavailable")).toBeDefined()
+    const button = screen.getByRole("button", { name: "Queue Wayfinder run" })
+    fireEvent.submit(button.closest("form")!)
+    expect(gateway.startWayfinder).not.toHaveBeenCalled()
+
+  it "does not update state from settled availability work after unmount", async ->
+    let resolveStatus: WayfinderGateway["wayfinderStatus"] extends () => Promise<infer Result>
+      ? ((result: Result) => void)
+      : never
+    const resolvingGateway = gatewayWith("installed")
+    vi.mocked(resolvingGateway.wayfinderStatus).mockReturnValueOnce(new Promise((resolve) =>
+      resolveStatus = resolve
+    ))
+    const first = render(<WayfinderPanel gateway={resolvingGateway} />)
+    first.unmount()
+    resolveStatus!({ availability: "installed", tracker: "local-markdown" })
+    await Promise.resolve()
+
+    let rejectStatus: ((error: Error) => void) | undefined
+    const rejectingGateway = gatewayWith("installed")
+    vi.mocked(rejectingGateway.wayfinderStatus).mockReturnValueOnce(new Promise((_resolve, reject) =>
+      rejectStatus = reject
+    ))
+    const second = render(<WayfinderPanel gateway={rejectingGateway} />)
+    second.unmount()
+    rejectStatus?.(new Error("status failed"))
+    await Promise.resolve()
+
+  it "shows a bounded request failure and permits a retry", async ->
+    const gateway = gatewayWith("installed")
+    vi.mocked(gateway.startWayfinder)
+      .mockRejectedValueOnce(new Error("private provider detail"))
+      .mockResolvedValueOnce({
+        runId: "run/wayfinder 2",
+        status: "queued",
+        tracker: "local-markdown",
+      })
+    render(<WayfinderPanel gateway={gateway} />)
+    expect(await screen.findByText("Wayfinder is installed")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Wayfinder repository ID"), {
+      target: { value: " DARKFACTORY " },
+    })
+    fireEvent.change(screen.getByLabelText("Wayfinder request"), {
+      target: { value: " Plan the cutover " },
+    })
+    fireEvent.change(screen.getByLabelText("Wayfinder scope paths, one per line"), {
+      target: { value: "apps/operator" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Queue Wayfinder run" }))
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The operator request could not be completed. Try again.",
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Queue Wayfinder run" }))
+    const runLink = await screen.findByRole("link", {
+      name: "Open queued run run/wayfinder 2",
+    })
+    expect(runLink.getAttribute("href")).toBe("/operator/runs/run%2Fwayfinder%202")
+    expect(screen.queryByRole("alert")).toBeNull()

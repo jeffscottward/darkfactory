@@ -7,16 +7,19 @@ import {
   mkdir,
   mkdtemp,
   open,
+  readFile,
   realpath,
   rename,
   rm,
 } from "node:fs/promises"
+import { request as requestHttps } from "node:https"
 import { createConnection } from "node:net"
 import { homedir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 
 import {
   MAX_COMMAND_OUTPUT_BYTES,
+  SAFE_PROCESS_ENVIRONMENT_KEYS,
   type CommandOptions,
   type CommandResult,
   type LifecycleFileSystem,
@@ -24,10 +27,10 @@ import {
 } from "./lifecycle.civet"
 
 const repositoryRoot = await realpath(process.cwd())
-const ALLOWED_ENV = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "PM2_HOME", "COREPACK_HOME"] as const
 const minimalEnvironment = (additions: Readonly<Record<string, string>> = {}): NodeJS.ProcessEnv =>
   const environment: NodeJS.ProcessEnv = {}
-  for (const name of ALLOWED_ENV) if (process.env[name]) environment[name] = process.env[name]
+  for (const name of SAFE_PROCESS_ENVIRONMENT_KEYS)
+    if (process.env[name]) environment[name] = process.env[name]
   return { ...environment, ...additions }
 
 const environmentFor = (
@@ -69,15 +72,53 @@ const pm2DaemonIsLive = async (): Promise<boolean> =>
   if (await readLivePid(pm2Home) === null) return false
   return socketIsLive(join(pm2Home, "rpc.sock"))
 
+const isLocalProbeHost = (hostname: string): boolean =>
+  const normalized = hostname.toLowerCase()
+  return normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalized)
+
+const localProbeCertificate = async (url: URL): Promise<Buffer | undefined> =>
+  if (!isLocalProbeHost(url.hostname)) return undefined
+  const path = process.env["NODE_EXTRA_CA_CERTS"] || join(homedir(), ".portless", "ca.pem")
+  try
+    return await readFile(path)
+  catch
+    return undefined
+
+const probeHttps = async (value: string): Promise<boolean> =>
+  try
+    const url = new URL(value)
+    if (url.protocol !== "https:") return false
+    const ca = await localProbeCertificate(url)
+    return await new Promise<boolean>((resolveProbe) =>
+      let settled = false
+      const finish = (healthy: boolean): void =>
+        if (settled) return
+        settled = true
+        resolveProbe(healthy)
+      const request = requestHttps(url, {
+        ...(ca === undefined ? {} : { ca }),
+        method: "HEAD",
+        rejectUnauthorized: true,
+        signal: AbortSignal.timeout(5_000),
+      }, (response) =>
+        response.resume()
+        const status = response.statusCode ?? 0
+        finish(status >= 200 && status < 400)
+      )
+      request.once("error", () => finish(false))
+      request.end()
+    )
+  catch
+    return false
+
+
 export const nodeProcessAdapter: ProcessAdapter = Object.freeze({
   workingDirectory: process.cwd(),
   pm2DaemonAvailable: pm2DaemonIsLive,
-  probeHttps: async (url) =>
-    try
-      const response = await fetch(url, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(5_000) })
-      return response.status >= 200 && response.status < 400
-    catch
-      return false
+  probeHttps,
   run: (command, arguments_, options = {}) => new Promise<CommandResult>((resolveCommand) =>
     execFile(command, [...arguments_], {
       encoding: "utf8",

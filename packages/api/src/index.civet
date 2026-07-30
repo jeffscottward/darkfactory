@@ -66,34 +66,6 @@ export type {
   ProfileUpdateInput,
 } from "./contract.civet"
 
-export {
-  OPERATOR_ERRORS,
-  OPERATOR_WORKFLOW_STATES,
-  MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES,
-  OperatorApprovalBindingSchema,
-  OperatorEvidenceSchema,
-  OperatorImplementationPlanSchema,
-  OperatorListInputSchema,
-  OperatorListOutputSchema,
-  OperatorMessageSchema,
-  OperatorRunDetailSchema,
-  OperatorSubmitInputSchema,
-  OperatorRunSummarySchema,
-  OperatorTimelineEntrySchema,
-  OperatorWorkflowStateSchema,
-  OperatorWorkspaceInputSchema,
-} from "./contracts/operator.civet"
-export type {
-  OperatorApprovalBindingInput,
-  OperatorImplementationPlanOutput,
-  OperatorListInput,
-  OperatorListOutput,
-  OperatorRunDetailOutput,
-  OperatorSubmit,
-  OperatorSubmitInput,
-  OperatorRunSummaryOutput,
-  OperatorWorkflowState,
-} from "./contracts/operator.civet"
 
 
 export { createApiClient } from "./client.civet"

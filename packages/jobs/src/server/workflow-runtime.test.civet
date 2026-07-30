@@ -740,6 +740,71 @@ describe("workflow runtime composition", () =>
       .rejects.toThrow("Digest-bound plan evidence is invalid")
   )
 
+  it("rejects durable plan evidence with the wrong persisted kind", async () =>
+    const fake = fakeRepository()
+    const runtime = runtimeFor(fake, {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace: vi.fn(async () => undefined)
+    }, "worker-plan-kind")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await runtime.runOnce()
+    const repository = Object.freeze({
+      ...fake.repository
+      findEvidenceByOwner: vi.fn(async (
+        id: string,
+        runId: string,
+        ownerId: string,
+      ) =>
+        const evidence = await fake.repository.findEvidenceByOwner(
+          id,
+          runId,
+          ownerId,
+        )
+        return evidence === null ? null : {
+          ...evidence
+          kind: "implementation.succeeded"
+        } as never
+      )
+    }) as WorkflowRepository
+
+    await expect(createWorkflowApplication(repository).findProjection(
+      OWNER_ID,
+      RUN_ID,
+    )).rejects.toThrow("Digest-bound plan evidence has an invalid kind")
+  )
+
+  it("rejects a projection whose durable plan identity becomes incomplete", async () =>
+    const fake = fakeRepository()
+    const runtime = runtimeFor(fake, {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace: vi.fn(async () => undefined)
+    }, "worker-plan-incomplete")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    await runtime.runOnce()
+    const projection = fake.projection()!
+    let evidenceIdReads = 0
+    const context = new Proxy(projection.snapshot.context, {
+      get: (target, property, receiver) =>
+        if property === "planEvidenceId"
+          evidenceIdReads += 1
+          if evidenceIdReads > 2 then return null
+        return Reflect.get(target, property, receiver)
+    })
+    const repository = Object.freeze({
+      ...fake.repository
+      findProjectionByOwner: vi.fn(async () => ({
+        ...projection
+        snapshot: { ...projection.snapshot, context }
+      }))
+    }) as WorkflowRepository
+
+    await expect(createWorkflowApplication(repository).findProjection(
+      OWNER_ID,
+      RUN_ID,
+    )).rejects.toThrow("Plan evidence identity is incomplete")
+    expect(evidenceIdReads).toBeGreaterThan(1)
+  )
+
   it("preserves unexpected durable plan evidence getter errors", async () =>
     const fake = fakeRepository()
     const runtime = runtimeFor(fake, {
@@ -1201,6 +1266,36 @@ describe("workflow runtime composition", () =>
     expect(replay).toEqual(first)
     expect(fake.appended).toHaveLength(1)
     expect(fake.messages).toHaveLength(2)
+
+    await expect(application.addMessage({
+      ...input
+      id: "message-2"
+      event: {
+        ...input.event
+        messageId: "message-2"
+      }
+    })).rejects.toThrow("Workflow run changed before the event could be appended")
+  )
+
+
+  it("rejects an operator message for a missing owned run", async () =>
+    const application = createWorkflowApplication(fakeRepository().repository)
+    await expect(application.addMessage({
+      id: "message-missing"
+      runId: RUN_ID
+      ownerId: OWNER_ID
+      authorId: OWNER_ID
+      idempotencyKey: "message-missing"
+      content: "Status?"
+      event: {
+        type: "OPERATOR_MESSAGE_ADDED"
+        eventId: "message-event-missing"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: NOW.toISOString()
+        messageId: "message-missing"
+      }
+    })).rejects.toBeInstanceOf(WorkflowRunNotFoundError)
   )
 
   it("rejects a new operator message after the workflow becomes terminal", async () =>
@@ -1373,6 +1468,35 @@ describe("workflow runtime composition", () =>
       { ...row, payload: { ...payload, task: { ...task, taskId: "x".repeat(1_025) } } }
       { ...row, payload: { ...payload, task: { ...task, workspaceId: "" } } }
       { ...row, payload: { ...payload, task: { ...task, taskRevision: -1 } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        executionMode: undefined
+        humanRequest: "unexpected"
+      } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        executionMode: "wayfinder"
+      } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        executionMode: "wayfinder"
+        humanRequest: ""
+      } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        executionMode: "wayfinder"
+        humanRequest: " padded "
+      } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        executionMode: "wayfinder"
+        humanRequest: "x".repeat(1_025)
+      } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        executionMode: "wayfinder"
+        humanRequest: "control\n"
+      } } }
     ] as unknown as readonly OutboxEvent[]
 
     for malformedRow of malformed
@@ -1390,6 +1514,36 @@ describe("workflow runtime composition", () =>
         limit: 1
         leaseMilliseconds: 1_000
       })).rejects.toBeInstanceOf(TypeError)
+
+    for executionMetadata of [
+      { executionMode: "pilot" as const }
+      {
+        executionMode: "wayfinder" as const
+        humanRequest: "Chart the bounded route."
+      }
+    ]
+      const metadataRow = {
+        ...row
+        payload: {
+          ...payload
+          task: { ...task, ...executionMetadata }
+        }
+      } as unknown as OutboxEvent
+      const repository = Object.freeze({
+        ...fake.repository
+        claimDueEffects: vi.fn(async () => [metadataRow])
+      }) as WorkflowRepository
+      const outbox = createWorkflowRepositoryOutboxAdapter({
+        repository
+        application
+      })
+      const [claimed] = await outbox.claimDueEffects({
+        handler: WORKFLOW_EFFECT_HANDLER
+        leaseOwner: "worker-a"
+        limit: 1
+        leaseMilliseconds: 1_000
+      })
+      expect(claimed!.taskMetadata).toMatchObject(executionMetadata)
   )
 
   it("retries retryable failures with exponential delay, then dead-letters the final attempt", async () =>
@@ -1822,6 +1976,13 @@ describe("workflow runtime composition", () =>
       cleanupLeaseMilliseconds: 2_000
       cleanupBatchSize: 3
       cleanupHeartbeatMilliseconds: 500
+      wayfinderAdapter: Object.freeze({
+        status: vi.fn(async () => Object.freeze({
+          availability: "installed" as const
+          tracker: "local-markdown" as const
+        }))
+        execute: vi.fn(async () => successfulExecution())
+      })
     })
 
     await expect(runtime.runOnce()).resolves.toEqual([])

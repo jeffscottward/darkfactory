@@ -1,0 +1,10 @@
+@import "@darkfactory/ui/styles.css";
+
+@source "../../../../packages/ui/src/**/*.civet";
+@source "../**/*.civet";
+
+@layer base {
+  a {
+    text-decoration-thickness: from-font;
+  }
+}

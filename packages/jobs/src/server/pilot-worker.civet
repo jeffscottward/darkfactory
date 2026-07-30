@@ -19,6 +19,10 @@ import {
   type OmpApprovedVerifierId,
 } from "./omp.civet"
 import {
+  createLocalWayfinderExecutionAdapter,
+  type WayfinderExecutionPort,
+} from "./wayfinder.civet"
+import {
   createWorkflowRuntime,
   type WorkflowRuntime,
 } from "./workflow-runtime.civet"
@@ -290,9 +294,14 @@ export type PilotWorkerDependencies = Readonly<{
     verifierId: OmpApprovedVerifierId,
     verifierImageDigest: string,
   ) => OmpCliAdapter
+  createWayfinderAdapter: (input: Readonly<{
+    omp: OmpCliAdapter
+    repositoriesRoot: string
+  }>) => WayfinderExecutionPort
   createRuntime: (input: Readonly<{
     repository: WorkflowRepository
     adapter: OmpCliAdapter
+    wayfinderAdapter: WayfinderExecutionPort
     leaseOwner: string
     authorizeRepository: (ownerId: string, repositoryId: string) => boolean
   }>) => WorkflowRuntime
@@ -320,6 +329,7 @@ const defaultDependencies: PilotWorkerDependencies = Object.freeze({
   }),
   createRepository: createWorkflowRepository,
   createAdapter: createDefaultAdapter,
+  createWayfinderAdapter: createLocalWayfinderExecutionAdapter,
   createRuntime: (input) => createWorkflowRuntime(input),
 })
 
@@ -340,6 +350,10 @@ export const createPilotWorker = async (
       configuration.verifierId,
       configuration.verifierImageDigest,
     )
+    const wayfinderAdapter = dependencies.createWayfinderAdapter({
+      omp: adapter
+      repositoriesRoot: configuration.repositoriesRoot
+    })
     const authorizeRepository = (ownerId: string, repositoryId: string): boolean =>
       isWorkflowRepositoryGranted(
         configuration.repositoryGrants,
@@ -349,6 +363,7 @@ export const createPilotWorker = async (
     const runtime = dependencies.createRuntime({
       repository,
       adapter,
+      wayfinderAdapter,
       leaseOwner: configuration.leaseOwner,
       authorizeRepository,
     })

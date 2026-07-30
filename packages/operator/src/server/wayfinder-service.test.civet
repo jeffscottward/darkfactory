@@ -1,0 +1,150 @@
+import type { SafePrincipal } from "@darkfactory/auth/types"
+import type { WorkflowRepository } from "@darkfactory/db/server/workflow"
+import { WayfinderRequestError } from "@darkfactory/jobs/server/wayfinder"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  OPERATOR_WAYFINDER_TRACKER,
+  type OperatorWayfinderStart,
+} from "../contract.civet"
+import {
+  OperatorServiceError,
+  operatorServiceErrorMessage,
+} from "./operator-service.civet"
+import {
+  createOperatorWayfinderService,
+  createOperatorWayfinderWorkflowService,
+  type OperatorWayfinderPort,
+} from "./wayfinder-service.civet"
+
+const principal: SafePrincipal = {
+  userId: "owner-1"
+  role: "member"
+  status: "active"
+}
+
+const input: OperatorWayfinderStart = {
+  scope: {
+    repositoryId: "darkfactory"
+    paths: ["packages/operator"]
+  }
+  request: "Map the operator extraction"
+}
+
+const workflow = (
+  overrides: Partial<OperatorWayfinderPort> = {},
+): OperatorWayfinderPort => ({
+  status: vi.fn<OperatorWayfinderPort["status"]>(async () => ({
+    availability: "installed"
+    tracker: "local-markdown"
+  }))
+  start: vi.fn<OperatorWayfinderPort["start"]>(async (_input) => ({
+    runId: "run-wayfinder-1"
+    status: "queued"
+    tracker: "local-markdown"
+  }))
+  ...overrides
+})
+
+const expectServiceError = async (
+  operation: Promise<unknown>
+  code: ConstructorParameters<typeof OperatorServiceError>[0]
+): Promise<void> =>
+  const failure = await operation.catch((error: unknown) => error)
+  expect(failure).toEqual(new OperatorServiceError(
+    code
+    operatorServiceErrorMessage(code)
+  ))
+
+describe "operator Wayfinder service", ->
+  it "reports unavailable and rejects start when no local service is composed", async ->
+    const service = createOperatorWayfinderService(undefined)
+    await expect(service.status()).resolves.toEqual({
+      availability: "unavailable"
+      tracker: OPERATOR_WAYFINDER_TRACKER
+    })
+    await expectServiceError(
+      service.start(principal, input)
+      "SERVICE_UNAVAILABLE"
+    )
+
+  it "forwards the authenticated owner and bounded request to durable queueing", async ->
+    const port = workflow()
+    const service = createOperatorWayfinderService(port)
+
+    await expect(service.start(principal, input)).resolves.toEqual({
+      runId: "run-wayfinder-1"
+      status: "queued"
+      tracker: OPERATOR_WAYFINDER_TRACKER
+    })
+    expect(port.start).toHaveBeenCalledWith({
+      ownerId: "owner-1"
+      repositoryId: "darkfactory"
+      paths: ["packages/operator"]
+      request: "Map the operator extraction"
+    })
+
+  it "fails status closed to unavailable without exposing adapter failures", async ->
+    const service = createOperatorWayfinderService(workflow({
+      status: vi.fn(async () => throw new Error("path=/Users/private token=secret"))
+    }))
+    await expect(service.status()).resolves.toEqual({
+      availability: "unavailable"
+      tracker: OPERATOR_WAYFINDER_TRACKER
+    })
+
+  it "normalizes a non-installed adapter status to the operator tracker", async ->
+    const service = createOperatorWayfinderService(workflow({
+      status: vi.fn<OperatorWayfinderPort["status"]>(async () => ({
+        availability: "unavailable"
+        tracker: "local-markdown"
+      }))
+    }))
+    await expect(service.status()).resolves.toEqual({
+      availability: "unavailable"
+      tracker: OPERATOR_WAYFINDER_TRACKER
+    })
+
+  it.each([
+    ["INVALID_WAYFINDER_REQUEST", "VALIDATION_ERROR"]
+    ["WAYFINDER_FORBIDDEN", "FORBIDDEN"]
+    ["WAYFINDER_UNAVAILABLE", "SERVICE_UNAVAILABLE"]
+  ] as const)("maps %s to the fixed %s operator contract", async (wayfinderCode, code) =>
+    const service = createOperatorWayfinderService(workflow({
+      start: vi.fn(async () =>
+        throw new WayfinderRequestError(wayfinderCode, "safe jobs message")
+      )
+    }))
+    await expectServiceError(service.start(principal, input), code)
+  )
+
+  it "maps unknown queue failures to the fixed storage contract", async ->
+    const service = createOperatorWayfinderService(workflow({
+      start: vi.fn(async () => throw new Error("password=private queue table missing"))
+    }))
+    await expectServiceError(service.start(principal, input), "STORAGE_ERROR")
+
+  it "composes the real durable Wayfinder service with default and injected clocks", ->
+    const repository = {} as unknown as WorkflowRepository
+    const authorizeRepository = vi.fn(() => true)
+    const defaults = createOperatorWayfinderWorkflowService({
+      repository
+      authorizeRepository
+      omp: { repositoriesRoot: "/srv/repositories" }
+    })
+    const configured = createOperatorWayfinderWorkflowService({
+      repository
+      authorizeRepository
+      omp: { repositoriesRoot: "/srv/repositories" }
+      generateId: () => "run-wayfinder-composed"
+      now: () => new Date("2026-07-29T12:00:00.000Z")
+    })
+
+    expect(defaults).toEqual({
+      status: expect.any(Function)
+      start: expect.any(Function)
+    })
+    expect(configured).toEqual({
+      status: expect.any(Function)
+      start: expect.any(Function)
+    })

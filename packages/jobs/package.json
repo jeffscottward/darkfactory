@@ -33,6 +33,14 @@
       "import": "./src/server/omp.civet",
       "default": "./src/server/omp.civet"
     },
+    "./server/wayfinder": {
+      "types": "./src/server/wayfinder.civet.d.ts",
+      "workerd": "./src/server/unsupported.civet",
+      "worker": "./src/server/unsupported.civet",
+      "browser": "./src/server/unsupported.civet",
+      "import": "./src/server/wayfinder.civet",
+      "default": "./src/server/wayfinder.civet"
+    },
     "./server/workflow-worker": {
       "types": "./src/server/workflow-worker.civet.d.ts",
       "workerd": "./src/server/unsupported.civet",
@@ -72,7 +80,7 @@
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/inline.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/omp.civet src/server/plan-evidence.civet src/server/workflow-worker.civet src/server/workflow-runtime.civet src/server/pilot-worker.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/inline.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/omp.civet src/server/wayfinder.civet src/server/plan-evidence.civet src/server/workflow-worker.civet src/server/workflow-runtime.civet src/server/pilot-worker.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",

@@ -559,6 +559,15 @@ describe("workflow outbox worker", () =>
         taskHash: "a".repeat(64)
         sourceSequence: 0
       } })
+      claim({ taskMetadata: {
+        taskId: "task"
+        workspaceId: "workspace-1"
+        taskRevision: 0
+        taskHash: "a".repeat(64)
+        sourceSequence: 0
+        executionMode: "pilot"
+        humanRequest: "Pilot requests must not carry Wayfinder input."
+      } })
       claim({ effectKind: "deploy" as never })
       claim({ fenceToken: 0 })
       claim({ taskMetadata: {

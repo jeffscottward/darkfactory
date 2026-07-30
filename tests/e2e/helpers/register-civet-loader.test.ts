@@ -21,7 +21,8 @@ const canonicalTargets = {
 };
 type WebServerFixtureModule = Readonly<{
   createE2EServerInvocation: (
-    source: Readonly<Record<string, string | undefined>>
+    source: Readonly<Record<string, string | undefined>>,
+    appPort: number
   ) => Readonly<{
     command: string;
     arguments: readonly string[];
@@ -139,10 +140,13 @@ describe("Civet E2E loader boundary", () => {
     )) as WebServerFixtureModule;
 
     expect(
-      createE2EServerInvocation({
-        ...canonicalTargets,
-        NODE_ENV: "test",
-      })
+      createE2EServerInvocation(
+        {
+          ...canonicalTargets,
+          NODE_ENV: "test",
+        },
+        43_111
+      )
     ).toStrictEqual({
       command: canonicalTargets[NODE_TARGET_KEY],
       arguments: [
@@ -156,6 +160,10 @@ describe("Civet E2E loader boundary", () => {
         "@darkfactory/web",
         "run",
         "dev",
+        "--port",
+        "43111",
+        "--hostname",
+        "127.0.0.1",
       ],
       workerBindingsDirectory: webDirectory,
     });
@@ -177,10 +185,13 @@ describe("Civet E2E loader boundary", () => {
     )) as WebServerFixtureModule;
 
     expect(
-      createE2EServerInvocation({
-        ...canonicalTargets,
-        [WEB_SCRIPT_KEY]: "start",
-      })
+      createE2EServerInvocation(
+        {
+          ...canonicalTargets,
+          [WEB_SCRIPT_KEY]: "start",
+        },
+        43_112
+      )
     ).toStrictEqual({
       command: canonicalTargets[NODE_TARGET_KEY],
       arguments: [
@@ -196,15 +207,49 @@ describe("Civet E2E loader boundary", () => {
         "start",
         "--logLevel",
         "warn",
+        "--port",
+        "43112",
+        "--host",
+        "127.0.0.1",
       ],
       workerBindingsDirectory: productionBindingsDirectory,
     });
     expect(() =>
-      createE2EServerInvocation({
-        ...canonicalTargets,
-        [WEB_SCRIPT_KEY]: "preview",
-      })
+      createE2EServerInvocation(
+        {
+          ...canonicalTargets,
+          [WEB_SCRIPT_KEY]: "preview",
+        },
+        43_113
+      )
     ).toThrow("E2E web server script is invalid");
+  });
+  it.each([
+    0,
+    -1,
+    1.5,
+    65_536,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])("rejects invalid app port %s", async (appPort) => {
+    const lifecycleCompletion = new Promise<never>(() => undefined);
+    vi.doMock("./serialized-lifecycle.ts", () => ({
+      createSerializedLifecycle: () => ({
+        completion: lifecycleCompletion,
+        control: { requestShutdown: vi.fn(async () => undefined) },
+      }),
+      isIntentionalLifecycleShutdownInterruption: () => false,
+    }));
+    vi.spyOn(process, "once").mockReturnValue(process);
+    const webServerModulePath = ["./web-server", "civet"].join(".");
+    // Dynamic import is intentional: the lifecycle mock must precede module evaluation.
+    const { createE2EServerInvocation } = (await import(
+      webServerModulePath
+    )) as WebServerFixtureModule;
+
+    expect(() => createE2EServerInvocation(canonicalTargets, appPort)).toThrow(
+      "E2E app port is invalid"
+    );
   });
   it("loads the Node preview capture boundary with confined TypeScript fallbacks", () => {
     // Dynamic import is intentional: this test exercises the registered loader boundary.

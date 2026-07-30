@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   randomUUID: vi.fn(() => "fixed-uuid"),
   readdir: vi.fn(),
   rename: vi.fn(),
+  realpath: vi.fn(),
   rm: vi.fn(),
   spawnSync: vi.fn(),
 }))
@@ -16,6 +17,7 @@ vi.mock("node:fs/promises", () => ({
   lstat: mocks.lstat,
   open: mocks.open,
   readdir: mocks.readdir,
+  realpath: mocks.realpath,
   rename: mocks.rename,
   rm: mocks.rm,
 }))
@@ -41,10 +43,15 @@ const regularMetadata = (overrides: Record<string, unknown> = {}) => ({
   nlink: 1,
   ...overrides,
 })
+const directoryMetadata = {
+  isDirectory: () => true,
+  isSymbolicLink: () => false,
+}
 
 beforeEach(() =>
   vi.clearAllMocks()
   mocks.lstat.mockRejectedValue(errno("ENOENT"))
+  mocks.realpath.mockImplementation(async (path: string) => path)
   mocks.rename.mockResolvedValue(undefined)
   mocks.rm.mockResolvedValue(undefined)
 )
@@ -133,12 +140,26 @@ describe("Worker binding failure cleanup", () =>
     )
   )
 
+  it("rejects a regular binding parent that resolves outside the repository", async () =>
+    mocks.lstat.mockResolvedValueOnce(directoryMetadata)
+    mocks.realpath
+      .mockResolvedValueOnce("/repo")
+      .mockResolvedValueOnce("/outside/operator")
+
+    await expect(materializeWorkerBindings("/repo", "operator")).rejects.toThrow(
+      "Worker bindings directory is unsafe",
+    )
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+    expect(mocks.open).not.toHaveBeenCalled()
+  )
+
   it("uses the current working directory by default without continuing after resolver failure", async () =>
     mocks.spawnSync.mockReturnValueOnce({
       status: 1,
       error: undefined,
       stdout: "",
     })
+    mocks.lstat.mockResolvedValueOnce(directoryMetadata)
 
     await expect(materializeWorkerBindings()).rejects.toThrow(
       "Unable to resolve validated Worker bindings",
@@ -148,6 +169,6 @@ describe("Worker binding failure cleanup", () =>
       ["load", "--format", "env", "--compact"],
       expect.objectContaining({ cwd: process.cwd() }),
     )
-    expect(mocks.lstat).not.toHaveBeenCalled()
+    expect(mocks.lstat).toHaveBeenCalledWith(expect.stringContaining("apps/web"))
   )
 )

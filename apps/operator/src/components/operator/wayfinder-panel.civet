@@ -1,0 +1,161 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  StatusBadge,
+  Textarea,
+} from "@darkfactory/ui"
+
+import {
+  classifyOperatorFailure,
+  type OperatorGateway,
+  type OperatorWayfinderQueuedRun,
+  type OperatorWayfinderStatus,
+} from "./operator-client.civet"
+
+type WayfinderGateway = Pick<OperatorGateway, "wayfinderStatus" | "startWayfinder">
+
+type StatusState =
+  | Readonly<{ type: "loading" }>
+  | Readonly<{ type: "ready"; status: OperatorWayfinderStatus }>
+
+export interface WayfinderPanelProps {
+  readonly gateway: WayfinderGateway
+}
+
+export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) =>
+  const [statusState, setStatusState] = useState<StatusState>({ type: "loading" })
+  const [repositoryId, setRepositoryId] = useState("")
+  const [scopePaths, setScopePaths] = useState("")
+  const [request, setRequest] = useState("")
+  const [queued, setQueued] = useState<OperatorWayfinderQueuedRun | null>(null)
+  const [failure, setFailure] = useState("")
+  const [isPending, setIsPending] = useState(false)
+
+  useEffect(() =>
+    let active = true
+    void gateway.wayfinderStatus()
+      .then((status) =>
+        if (active) setStatusState({ type: "ready", status })
+      )
+      .catch(() =>
+        if (active)
+          setStatusState({
+            type: "ready",
+            status: { availability: "unavailable", tracker: "local-markdown" },
+          })
+      )
+    return () =>
+      active = false
+      return
+  , [gateway])
+
+  const availability = statusState.type === "ready"
+    ? statusState.status.availability
+    : null
+  const canSubmit = availability === "installed"
+    && repositoryId.trim().length > 0
+    && request.trim().length > 0
+    && scopePaths.split(/\r?\n/u).some((path) => path.trim().length > 0)
+    && !isPending
+
+  return (
+    <Card aria-labelledby="wayfinder-panel-title">
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle headingLevel={2} id="wayfinder-panel-title">Wayfinder planning
+            <CardDescription>
+              Queue a bounded local planning request. Execution happens outside the HTTP request.
+          {availability === null ? (
+            <span aria-label="Checking Wayfinder availability" role="status">Checking…
+          ) : availability === "installed" ? (
+            <StatusBadge status="success">Wayfinder is installed
+          ) : (
+            <StatusBadge status="warning">Wayfinder is unavailable
+          )}
+      <CardContent>
+        <form
+          className="grid gap-5"
+          onSubmit={async (event) =>
+            event.preventDefault()
+            if (!canSubmit) return
+            setFailure("")
+            setQueued(null)
+            setIsPending(true)
+            try
+              const result = await gateway.startWayfinder(
+                request.trim(),
+                {
+                  repositoryId: repositoryId.trim().toLowerCase(),
+                  paths: scopePaths
+                    .split(/\r?\n/u)
+                    .map((path) => path.trim())
+                    .filter((path) => path.length > 0),
+                },
+              )
+              setQueued(result)
+            catch error
+              setFailure(classifyOperatorFailure(error).message)
+            finally
+              setIsPending(false)
+          }
+        >
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="wayfinder-repository">Wayfinder repository ID
+              <Input
+                className="min-h-11"
+                disabled={availability !== "installed" || isPending}
+                id="wayfinder-repository"
+                onChange={(event) => setRepositoryId(event.target.value)}
+                required
+                value={repositoryId}
+              />
+            <div className="grid gap-2 md:row-span-2">
+              <Label htmlFor="wayfinder-request">Wayfinder request
+              <Textarea
+                className="min-h-32"
+                disabled={availability !== "installed" || isPending}
+                id="wayfinder-request"
+                maxLength={1_024}
+                onChange={(event) => setRequest(event.target.value)}
+                required
+                value={request}
+              />
+            <div className="grid gap-2">
+              <Label htmlFor="wayfinder-scope">Wayfinder scope paths, one per line
+              <Textarea
+                className="min-h-24"
+                disabled={availability !== "installed" || isPending}
+                id="wayfinder-scope"
+                onChange={(event) => setScopePaths(event.target.value)}
+                required
+                value={scopePaths}
+              />
+          {failure.length === 0 ? null : (
+            <p className="text-sm font-medium text-destructive" role="alert">{failure}
+          )}
+          {queued === null ? null : (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-success-border bg-success-subtle px-4 py-3" role="status">
+              <div>
+                <p className="text-sm font-semibold text-success-foreground">Queued with {queued.tracker}
+                <p className="mt-1 break-all font-mono text-xs text-success-foreground">{queued.runId}
+              <a
+                aria-label={`Open queued run ${queued.runId}`}
+                className="inline-flex min-h-11 items-center font-semibold text-success-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                href={`/operator/runs/${encodeURIComponent(queued.runId)}`}
+              >
+                Open run
+          )}
+          <Button disabled={!canSubmit} type="submit">
+            {isPending ? "Queueing…" : "Queue Wayfinder run"}
+  )

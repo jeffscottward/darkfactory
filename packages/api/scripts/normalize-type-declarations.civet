@@ -20,7 +20,6 @@ const declarationPaths = [
   "src/contracts/admin-users.civet.d.ts"
   "src/contracts/contact.civet.d.ts"
   "src/contracts/dashboard.civet.d.ts"
-  "src/contracts/operator.civet.d.ts"
   "src/generated/contract-registry.civet.d.ts"
   "src/generated/public-registry.civet.d.ts"
   "src/generated/router-registry.civet.d.ts"
@@ -33,8 +32,6 @@ const declarationPaths = [
   "src/server/admin-users-service.civet.d.ts"
   "src/server/contact-service.civet.d.ts"
   "src/server/dashboard-service.civet.d.ts"
-  "src/server/operator-service.civet.d.ts"
-  "src/server/workflow-runtime.civet.d.ts"
 ] as const
 
 const isWithin = (root: string, path: string): boolean =>

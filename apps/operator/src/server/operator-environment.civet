@@ -1,0 +1,37 @@
+export const OPERATOR_APP_ORIGIN = "https://operator.darkfactory.localhost" as const
+
+export const assertLocalOperatorEnvironment = (
+  env: Readonly<{ APP_ENV: string }>,
+): void =>
+  if (env.APP_ENV !== "development" && env.APP_ENV !== "test")
+    throw new Error("Operator app is development-only")
+
+const MUTATION_METHODS = Object.freeze(["POST", "PATCH", "DELETE"] as const)
+
+export const isOperatorMutationDenied = (request: Request): boolean =>
+  if (!MUTATION_METHODS.includes(request.method.toUpperCase() as (typeof MUTATION_METHODS)[number]))
+    return false
+  if (request.headers.get("origin") !== OPERATOR_APP_ORIGIN) return true
+  const fetchSite = request.headers.get("sec-fetch-site")
+  return fetchSite !== null && fetchSite !== "same-origin"
+
+export const safeOperatorCallbackPath = (value: string | null | undefined): string =>
+  if (value === undefined
+    || value === null
+    || value === "/"
+    || value.length === 0
+    || value.length > 2_048
+    || !value.startsWith("/")
+    || value.startsWith("//")
+    || value.includes("\\")
+    || value.includes("#")
+    || /[\u0000-\u001f\u007f]/.test(value)) return "/operator"
+
+  try
+    const parsed = new URL(value, OPERATOR_APP_ORIGIN)
+    if (parsed.origin !== OPERATOR_APP_ORIGIN
+      || (parsed.pathname !== "/operator" && !parsed.pathname.startsWith("/operator/")))
+      return "/operator"
+    return `${parsed.pathname}${parsed.search}`
+  catch
+    return "/operator"

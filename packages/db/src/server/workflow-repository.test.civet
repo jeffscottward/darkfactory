@@ -893,20 +893,23 @@ describe "workflow creation", ->
     )
     expect(fake.lifecycle).toEqual({ commits: 1, rollbacks: 0 })
 
-  it "creates a run with explicit identity and no effects", async ->
+  it.each([
+    {
+      submission_count: "0",
+      retry_after_seconds: null,
+      owner_count: "0",
+      global_count: "0",
+    },
+    {
+      submission_count: 0,
+      retry_after_seconds: null,
+      owner_count: 0,
+      global_count: 0,
+    },
+  ])("creates a run with explicit identity for admission counts %#", async (admission) =>
     const projection = projectionFixture()
     const { fake, repository } = repositoryFor({
-      executes: [
-        [],
-        [],
-        [],
-        [{
-          submission_count: "0",
-          retry_after_seconds: null,
-          owner_count: "0",
-          global_count: "0",
-        }],
-      ],
+      executes: [[], [], [], [admission]],
       inserts: [[], [], []],
       selects: projectionSelects(projection),
     })
@@ -914,6 +917,7 @@ describe "workflow creation", ->
       projection,
     )
     expect(methodValues(fake, "insert")).toHaveLength(3)
+  )
 
   it.each([
     { ownerId: " " },

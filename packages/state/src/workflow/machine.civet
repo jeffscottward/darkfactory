@@ -164,6 +164,12 @@ const proposalFor = (
     taskHash: context.taskHash!
     sourceSequence
     evidenceIds: evidenceIds(context)
+    ...(context.executionMode === undefined
+      ? {}
+      : { executionMode: context.executionMode })
+    ...(context.humanRequest === undefined
+      ? {}
+      : { humanRequest: context.humanRequest })
   }
 })
 
@@ -199,6 +205,12 @@ const reduceContext = (
         taskRevision: event.taskRevision
         taskHash: event.taskHash
         scope: event.scope
+        ...(event.executionMode === undefined
+          ? {}
+          : { executionMode: event.executionMode })
+        ...(event.humanRequest === undefined
+          ? {}
+          : { humanRequest: event.humanRequest })
         attempts: incrementAttempt(context, "plan")
       }
       return {

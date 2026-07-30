@@ -36,11 +36,6 @@ import {
 } from "./dashboard-service.civet"
 import type { ApiContext } from "./context.civet"
 import {
-  OperatorServiceError,
-  createOperatorService,
-  type OperatorServiceErrorCode,
-} from "./operator-service.civet"
-import {
   FeatureServiceError,
   ThemePreferenceServiceError,
   createFeatureItemService,
@@ -113,12 +108,6 @@ const mapContactServiceError = (
 ): never =>
   if (!(error instanceof ContactServiceError)) throw error
   throw errors[error.code]({ message: error.message })
-const mapOperatorServiceError = (
-  error: unknown,
-  errors: ServiceErrorFactories<OperatorServiceErrorCode>,
-): never =>
-  if (!(error instanceof OperatorServiceError)) throw error
-  throw errors[error.code]()
 
 
 const emitContactSubmittedEvent = async (
@@ -761,124 +750,11 @@ const dashboardSummary = api.dashboard.summary
       return mapDashboardServiceError(error, errors)
   )
 
-const operatorSubmit = api.operator.submit
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator)
-        .submit(context.principal, input)
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorWorkspace = api.operator.workspace
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator)
-        .workspace(context.principal, input)
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorList = api.operator.list
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator)
-        .list(context.principal, input)
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorDetail = api.operator.detail
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator)
-        .detail(context.principal, input.id)
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorApprove = api.operator.approve
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator).approve(
-        context.principal,
-        input.id,
-        input.approval,
-        context.requestId,
-      )
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorReject = api.operator.reject
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator).reject(
-        context.principal,
-        input.id,
-        input.reason,
-        context.requestId,
-      )
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorCancel = api.operator.cancel
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator)
-        .cancel(context.principal, input.id, context.requestId)
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorRetry = api.operator.retry
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator)
-        .retry(context.principal, input.id, context.requestId)
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
-
-const operatorMessage = api.operator.message
-  .use(requireAuthenticated)
-  .handler(async ({ context, input, errors }) =>
-    try
-      return await createOperatorService(context.workflowOperator).message(
-        context.principal,
-        input.id,
-        input.body,
-        input.idempotencyKey,
-        context.requestId,
-      )
-    catch (error)
-      return mapOperatorServiceError(error, errors)
-  )
 
 export const appRouter = api.router({
   featureItems: { list, get, create, update, changeStatus, archive },
   ...generatedFeatureRouters,
   contact: { submit: contactSubmit },
-  operator: {
-    submit: operatorSubmit,
-    workspace: operatorWorkspace,
-    list: operatorList,
-    detail: operatorDetail,
-    approve: operatorApprove,
-    reject: operatorReject,
-    cancel: operatorCancel,
-    retry: operatorRetry,
-    message: operatorMessage,
-  },
   account: {
     profile: { get: accountProfileGet, update: accountProfileUpdate },
     addresses: {

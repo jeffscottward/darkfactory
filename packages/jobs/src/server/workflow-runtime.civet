@@ -14,6 +14,7 @@ import {
 import type { OutboxEvent } from "@darkfactory/db/schema"
 import {
   WORKFLOW_MACHINE_ID,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   WORKFLOW_MACHINE_VERSION,
   canonicalJsonV1,
   createInitialWorkflowSnapshotV1,
@@ -58,6 +59,7 @@ import {
   type WorkflowOutboxPort,
   type WorkflowWorkerItemResult,
 } from "./workflow-worker.civet"
+import type { WayfinderExecutionPort } from "./wayfinder.civet"
 const MAX_WORKFLOW_FINALIZATION_EVIDENCE_BYTES = 48 * 1_024
 
 
@@ -796,6 +798,30 @@ const requiredTaskTitle = (value: unknown): string =>
   else
     return value
 
+const workflowExecutionMetadataFor = (
+  task: Readonly<Record<string, unknown>>,
+): Readonly<{
+  executionMode?: "pilot" | "wayfinder"
+  humanRequest?: string
+}> =>
+  const executionMode = task["executionMode"]
+  const humanRequest = task["humanRequest"]
+  if (executionMode === undefined && humanRequest === undefined)
+    return Object.freeze({})
+  if (executionMode === "pilot" && humanRequest === undefined)
+    return Object.freeze({ executionMode })
+  if (
+    executionMode === "wayfinder" &&
+    typeof humanRequest === "string" &&
+    humanRequest.length > 0 &&
+    humanRequest.trim() === humanRequest &&
+    new TextEncoder().encode(humanRequest).byteLength <=
+      MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 &&
+    !/[\u0000-\u001F\u007F]/u.test(humanRequest)
+  )
+    return Object.freeze({ executionMode, humanRequest })
+  throw new TypeError("Invalid workflow effect execution metadata")
+
 const requiredInteger = (value: unknown, field: string): number =>
   if (!Number.isSafeInteger(value) || (value as number) < 0)
     throw new TypeError(`Invalid workflow effect ${field}`)
@@ -826,12 +852,14 @@ const parseClaim = (row: OutboxEvent): Readonly<{
   const effectScope = parseScope(payload["effectScope"])
   const ownerId = requiredString(payload["ownerId"], "ownerId")
   const effectId = requiredString(payload["effectId"], "effectId")
+  const executionMetadata = workflowExecutionMetadataFor(task)
   const taskMetadata = Object.freeze({
     taskId: requiredTaskTitle(task["taskId"]),
     workspaceId: requiredString(task["workspaceId"], "workspaceId"),
     taskRevision: requiredInteger(task["taskRevision"], "taskRevision"),
     taskHash: requiredString(task["taskHash"], "taskHash"),
     sourceSequence: requiredInteger(task["sourceSequence"], "sourceSequence"),
+    ...executionMetadata,
   })
   return Object.freeze({
     claim: Object.freeze({
@@ -1122,6 +1150,7 @@ export const createWorkflowTerminalReconciler = (
 export type WorkflowRuntimeOptions = WorkflowApplicationOptions & Readonly<{
   repository: WorkflowRepository
   adapter: OmpCliAdapter
+  wayfinderAdapter?: WayfinderExecutionPort
   leaseOwner: string
   authorizeRepository: (ownerId: string, repositoryId: string) => boolean
   leaseMilliseconds?: number
@@ -1150,6 +1179,9 @@ export const createWorkflowRuntime = (
   const worker = createWorkflowOutboxWorker({
     repository: outbox,
     adapter: options.adapter,
+    ...(options.wayfinderAdapter === undefined
+      ? {}
+      : { wayfinderAdapter: options.wayfinderAdapter }),
     leaseOwner: options.leaseOwner,
     authorizeRepository: options.authorizeRepository,
     ...(options.leaseMilliseconds === undefined

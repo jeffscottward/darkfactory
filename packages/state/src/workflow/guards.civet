@@ -3,6 +3,7 @@ import {
   WORKFLOW_EVENT_TYPES,
   WORKFLOW_EVENT_VERSION,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   WORKFLOW_MACHINE_ID,
   WORKFLOW_MACHINE_VERSION,
   WORKFLOW_STATES,
@@ -76,6 +77,20 @@ const isWorkflowStageAttempt = (value: unknown): value is number =>
 const isHash = (value: unknown): value is string =>
   typeof value === "string" && sha256Pattern.test(value)
 
+const isWorkflowExecutionMetadataV1 = (
+  executionMode: unknown,
+  humanRequest: unknown,
+): boolean =>
+  if executionMode === undefined
+    return humanRequest === undefined
+  if executionMode === "pilot"
+    return humanRequest === undefined
+  return executionMode === "wayfinder" &&
+    typeof humanRequest === "string" &&
+    humanRequest.length > 0 &&
+    utf8Bytes(humanRequest) <= MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 &&
+    !/[\u0000-\u001F\u007F]/u.test(humanRequest)
+
 export const isWorkflowStateV1 = (value: unknown): value is WorkflowStateV1 =>
   typeof value === "string" && stateNames.has(value)
 
@@ -138,7 +153,11 @@ export const isWorkflowEventV1 = (value: unknown): value is WorkflowEventV1 =>
         isNonEmptyString(value["workspaceId"]) &&
         isNonNegativeInteger(value["taskRevision"]) &&
         isHash(value["taskHash"]) &&
-        isWorkflowEffectScopeV1(value["scope"])
+        isWorkflowEffectScopeV1(value["scope"]) &&
+        isWorkflowExecutionMetadataV1(
+          value["executionMode"],
+          value["humanRequest"],
+        )
     when "PLAN_SUCCEEDED"
       return isNonEmptyString(value["planEvidenceId"]) &&
         isHash(value["planHash"]) &&
@@ -186,7 +205,11 @@ const isWorkflowEffectProposalV1 = (value: unknown): boolean =>
     isHash(payload["taskHash"]) &&
     isNonNegativeInteger(payload["sourceSequence"]) &&
     Array.isArray(payload["evidenceIds"]) &&
-    payload["evidenceIds"].every(isNonEmptyString)
+    payload["evidenceIds"].every(isNonEmptyString) &&
+    isWorkflowExecutionMetadataV1(
+      payload["executionMode"],
+      payload["humanRequest"],
+    )
 
 const isWorkflowContextV1 = (value: unknown): value is WorkflowContextV1 =>
   if !isRecord(value) ||
@@ -197,6 +220,10 @@ const isWorkflowContextV1 = (value: unknown): value is WorkflowContextV1 =>
       !(value["taskRevision"] === null || isNonNegativeInteger(value["taskRevision"])) ||
       !(value["taskHash"] === null || isHash(value["taskHash"])) ||
       !(value["scope"] === null || isWorkflowEffectScopeV1(value["scope"])) ||
+      !isWorkflowExecutionMetadataV1(
+        value["executionMode"],
+        value["humanRequest"],
+      ) ||
       !isRecord(value["attempts"]) ||
       !isWorkflowStageAttempt(value["attempts"]["plan"]) ||
       !isWorkflowStageAttempt(value["attempts"]["implement"]) ||

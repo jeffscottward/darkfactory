@@ -1,0 +1,720 @@
+import { createHash, randomUUID } from "node:crypto"
+import { constants } from "node:fs"
+import {
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  symlink,
+  stat,
+} from "node:fs/promises"
+import { homedir } from "node:os"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
+
+import {
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
+  canonicalJsonV1,
+  parseWorkflowEffectScopeV1,
+  type WorkflowEventV1,
+} from "@darkfactory/state/workflow"
+
+import {
+  captureOmpWayfinderTrackerArtifact,
+  validateOmpWayfinderTrackerArtifact,
+  type OmpCliAdapter,
+  type OmpCommand,
+  type OmpExecutionResult,
+  type OmpWayfinderTrackerArtifact,
+} from "./omp.civet"
+
+export const WAYFINDER_TRACKER = "local-markdown" as const
+export const WAYFINDER_SKILL_PATH = join(
+  homedir(),
+  ".agents",
+  "skills",
+  "wayfinder",
+  "SKILL.md",
+)
+
+const MAX_WAYFINDER_SKILL_BYTES = 256 * 1_024
+const SAFE_WORKFLOW_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u
+const SAFE_WAYFINDER_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+const WAYFINDER_STAGING_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+const WAYFINDER_TRACKER_DIGEST = /^[0-9a-f]{64}$/u
+const WAYFINDER_MANIFEST_NAME = /(?:^|\n)name:\s*wayfinder\s*(?:\n|$)/u
+const CONTROL_CHARACTER = /[\u0000-\u001F\u007F]/u
+
+export type WayfinderAvailability = "installed" | "unavailable"
+
+export type WayfinderStatus = Readonly<{
+  availability: WayfinderAvailability
+  tracker: typeof WAYFINDER_TRACKER
+}>
+
+export type WayfinderRequestErrorCode =
+  | "INVALID_WAYFINDER_REQUEST"
+  | "WAYFINDER_FORBIDDEN"
+  | "WAYFINDER_UNAVAILABLE"
+
+export class WayfinderRequestError extends Error
+  readonly code: WayfinderRequestErrorCode
+
+  constructor(code: WayfinderRequestErrorCode, message: string)
+    super(message)
+    this.name = "WayfinderRequestError"
+    this.code = code
+
+export type WayfinderExecutionRequest = Readonly<{
+  command: OmpCommand
+  workspaceId: string
+  effectKind: "plan"
+  cwd: string
+  scopePaths: readonly string[]
+  repositoryId: string
+  humanRequest: string
+  redactions?: readonly string[]
+  signal?: AbortSignal
+}>
+
+export type WayfinderExecutionPort = Readonly<{
+  status: () => Promise<WayfinderStatus>
+  execute: (request: WayfinderExecutionRequest) => Promise<OmpExecutionResult>
+}>
+
+export type LocalWayfinderExecutionAdapterOptions = Readonly<{
+  omp: OmpCliAdapter
+  repositoriesRoot: string
+  skillPath?: string
+}>
+
+const unavailableStatus = (): WayfinderStatus => Object.freeze({
+  availability: "unavailable"
+  tracker: WAYFINDER_TRACKER
+})
+
+const installedStatus = (): WayfinderStatus => Object.freeze({
+  availability: "installed"
+  tracker: WAYFINDER_TRACKER
+})
+
+const verifiedSkillStatus = async (skillPath: string): Promise<WayfinderStatus> =>
+  try
+    const metadata = await stat(skillPath)
+    if (
+      !metadata.isFile() ||
+      metadata.size <= 0 ||
+      metadata.size > MAX_WAYFINDER_SKILL_BYTES
+    )
+      return unavailableStatus()
+    const content = await readFile(skillPath, "utf8")
+    if (
+      Buffer.byteLength(content) > MAX_WAYFINDER_SKILL_BYTES ||
+      !WAYFINDER_MANIFEST_NAME.test(content)
+    )
+      return unavailableStatus()
+    return installedStatus()
+  catch
+    return unavailableStatus()
+
+const parseHumanRequest = (value: unknown): string =>
+  if (typeof value !== "string")
+    throw new WayfinderRequestError(
+      "INVALID_WAYFINDER_REQUEST",
+      "Wayfinder request is invalid",
+    )
+  const request = value.trim()
+  if (
+    request.length === 0 ||
+    Buffer.byteLength(request) > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
+    CONTROL_CHARACTER.test(request)
+  )
+    throw new WayfinderRequestError(
+      "INVALID_WAYFINDER_REQUEST",
+      "Wayfinder request is invalid",
+    )
+  return request
+
+const parseScope = (
+  repositoryId: unknown,
+  paths: unknown,
+): Readonly<{ repositoryId: string; paths: readonly string[] }> =>
+  try
+    return parseWorkflowEffectScopeV1({ repositoryId, paths })
+  catch
+    throw new WayfinderRequestError(
+      "INVALID_WAYFINDER_REQUEST",
+      "Wayfinder repository scope is invalid",
+    )
+
+const trackerPublicationError = (): WayfinderRequestError =>
+  new WayfinderRequestError(
+    "WAYFINDER_UNAVAILABLE",
+    "Wayfinder tracker publication failed",
+  )
+
+const isContainedPath = (root: string, candidate: string): boolean =>
+  const child = relative(root, candidate)
+  child.length > 0 &&
+    child !== ".." &&
+    !child.startsWith(`..${sep}`) &&
+    !isAbsolute(child)
+
+const pathMetadata = async (path: string) =>
+  try
+    return await lstat(path)
+  catch error
+    if (error as NodeJS.ErrnoException).code === "ENOENT" then return null
+    throw error
+
+const requirePrivateDirectory = async (path: string) =>
+  const metadata = await lstat(path)
+  if (
+    !metadata.isDirectory() ||
+    metadata.isSymbolicLink() ||
+    (metadata.mode & 0o077) !== 0 ||
+    (
+      typeof process.getuid === "function" &&
+      metadata.uid !== process.getuid()
+    )
+  )
+    throw trackerPublicationError()
+  return Object.freeze({ dev: metadata.dev, ino: metadata.ino })
+
+const fsyncPath = async (path: string): Promise<void> =>
+  const handle = await open(path, constants.O_RDONLY)
+  try
+    await handle.sync()
+  finally
+    await handle.close()
+
+const removeOwnedDirectory = async (
+  path: string,
+  ownership: Readonly<{ dev: number; ino: number }> | undefined,
+): Promise<void> =>
+  if ownership === undefined then return
+  try
+    const metadata = await lstat(path)
+    if (
+      metadata.isDirectory() &&
+      !metadata.isSymbolicLink() &&
+      metadata.dev === ownership.dev &&
+      metadata.ino === ownership.ino
+    )
+      await rm(path, { recursive: true })
+  catch error
+    if (error as NodeJS.ErrnoException).code !== "ENOENT" then throw error
+
+const requireOwnedNonWritableDirectory = async (path: string): Promise<void> =>
+  const metadata = await lstat(path)
+  if (
+    !metadata.isDirectory() ||
+    metadata.isSymbolicLink() ||
+    (metadata.mode & 0o022) !== 0 ||
+    (
+      typeof process.getuid === "function" &&
+      metadata.uid !== process.getuid()
+    )
+  )
+    throw trackerPublicationError()
+
+const resolveWayfinderRepository = async (
+  repositoriesRoot: string,
+  repositoryId: string,
+): Promise<string> =>
+  try
+    parseWorkflowEffectScopeV1({ repositoryId, paths: ["."] })
+  catch
+    throw trackerPublicationError()
+  if (!isAbsolute(repositoriesRoot) || repositoriesRoot.includes("\0"))
+    throw trackerPublicationError()
+  const root = await realpath(repositoriesRoot)
+  const repository = await realpath(resolve(root, repositoryId))
+  if !isContainedPath(root, repository) then throw trackerPublicationError()
+  await requireOwnedNonWritableDirectory(root)
+  await requireOwnedNonWritableDirectory(repository)
+  return repository
+
+const createPrivateDirectory = async (path: string): Promise<void> =>
+  await mkdir(path, { mode: 0o700 })
+  await chmod(path, 0o700)
+
+const writePublishedTracker = async (
+  staging: string,
+  artifact: OmpWayfinderTrackerArtifact,
+): Promise<void> =>
+  if artifact.entries.some((entry) => entry.path.startsWith("issues/"))
+    const issues = join(staging, "issues")
+    await createPrivateDirectory(issues)
+  for (const entry of artifact.entries)
+    const destination = join(staging, ...entry.path.split("/"))
+    const handle = await open(destination, "wx", 0o600)
+    try
+      await handle.writeFile(entry.content, "utf8")
+      await handle.chmod(0o600)
+      await handle.sync()
+    finally
+      await handle.close()
+  if artifact.entries.some((entry) => entry.path.startsWith("issues/"))
+    await fsyncPath(join(staging, "issues"))
+  await fsyncPath(staging)
+
+const requirePublishedTrackerModes = async (
+  trackerDirectory: string,
+  artifact: OmpWayfinderTrackerArtifact,
+): Promise<void> =>
+  await requirePrivateDirectory(trackerDirectory)
+  if artifact.entries.some((entry) => entry.path.startsWith("issues/"))
+    await requirePrivateDirectory(join(trackerDirectory, "issues"))
+  for (const entry of artifact.entries)
+    const metadata = await lstat(
+      join(trackerDirectory, ...entry.path.split("/")),
+    )
+    if (
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      metadata.nlink !== 1 ||
+      (metadata.mode & 0o777) !== 0o600 ||
+      (
+        typeof process.getuid === "function" &&
+        metadata.uid !== process.getuid()
+      )
+    )
+      throw trackerPublicationError()
+
+type CapturedPublishedTracker = Readonly<{
+  artifact: OmpWayfinderTrackerArtifact
+  stagingBasename?: string
+}>
+
+const capturePublishedTrackerAt = async (
+  scratch: string,
+  target: string,
+  repositoryId: string,
+  runId: string,
+): Promise<CapturedPublishedTracker | null> =>
+  const targetMetadata = await pathMetadata(target)
+  if targetMetadata === null then return null
+  if targetMetadata.isDirectory() && !targetMetadata.isSymbolicLink()
+    const artifact = await captureOmpWayfinderTrackerArtifact({
+      trackerDirectory: target
+      repositoryId
+      runId
+    })
+    await requirePublishedTrackerModes(target, artifact)
+    return Object.freeze({ artifact })
+  if (
+    !targetMetadata.isSymbolicLink() ||
+    (
+      typeof process.getuid === "function" &&
+      targetMetadata.uid !== process.getuid()
+    )
+  )
+    throw trackerPublicationError()
+
+  const stagingBasename = await readlink(target)
+  const prefix = `.${runId}.publish-`
+  const receipt = stagingBasename.slice(prefix.length)
+  const receiptDigest = receipt.slice(0, 64)
+  const receiptUuid = receipt.slice(65)
+  if (
+    isAbsolute(stagingBasename) ||
+    /[\\/]/u.test(stagingBasename) ||
+    !stagingBasename.startsWith(prefix) ||
+    receipt[64] !== "-" ||
+    !WAYFINDER_TRACKER_DIGEST.test(receiptDigest) ||
+    !WAYFINDER_STAGING_UUID.test(receiptUuid)
+  )
+    throw trackerPublicationError()
+  const trackerDirectory = join(scratch, stagingBasename)
+  await requirePrivateDirectory(trackerDirectory)
+  const resolvedTracker = await realpath(trackerDirectory)
+  if (relative(scratch, resolvedTracker) !== stagingBasename)
+    throw trackerPublicationError()
+  const artifact = await captureOmpWayfinderTrackerArtifact({
+    trackerDirectory: resolvedTracker
+    repositoryId
+    runId
+  })
+  await requirePublishedTrackerModes(resolvedTracker, artifact)
+
+  if artifact.digest !== receiptDigest then throw trackerPublicationError()
+  const confirmedMetadata = await lstat(target)
+  if (
+    !confirmedMetadata.isSymbolicLink() ||
+    confirmedMetadata.dev !== targetMetadata.dev ||
+    confirmedMetadata.ino !== targetMetadata.ino ||
+    (
+      typeof process.getuid === "function" &&
+      confirmedMetadata.uid !== process.getuid()
+    ) ||
+    await readlink(target) !== stagingBasename
+  )
+    throw trackerPublicationError()
+  return Object.freeze({ artifact, stagingBasename })
+
+const capturePublishedTracker = async (
+  repositoriesRoot: string,
+  repositoryId: string,
+  runId: string,
+): Promise<OmpWayfinderTrackerArtifact | null> =>
+  try
+    const repository = await resolveWayfinderRepository(
+      repositoriesRoot,
+      repositoryId,
+    )
+    const scratch = join(repository, ".scratch")
+    if (await pathMetadata(scratch)) === null then return null
+    await requirePrivateDirectory(scratch)
+    const captured = await capturePublishedTrackerAt(
+      scratch,
+      join(scratch, runId),
+      repositoryId,
+      runId,
+    )
+    return captured?.artifact ?? null
+  catch
+    throw trackerPublicationError()
+
+type WayfinderTrackerPublication = Readonly<{
+  artifact: OmpWayfinderTrackerArtifact
+  published: boolean
+}>
+
+const publishLocalWayfinderTrackerArtifact = async (
+  input: Readonly<{
+    repositoriesRoot: string
+    repositoryId: string
+    runId: string
+    artifact: OmpWayfinderTrackerArtifact
+  }>,
+): Promise<WayfinderTrackerPublication> =>
+  let stagingOwnership: Readonly<{ dev: number; ino: number }> | undefined
+  let scratch = ""
+  let staging = ""
+  let scratchVerified = false
+  try
+    const artifact = validateOmpWayfinderTrackerArtifact(input.artifact, {
+      repositoryId: input.repositoryId
+      runId: input.runId
+    })
+    const repository = await resolveWayfinderRepository(
+      input.repositoriesRoot,
+      input.repositoryId,
+    )
+    scratch = join(repository, ".scratch")
+    const createdScratch = await mkdir(
+      scratch,
+      { recursive: true, mode: 0o700 },
+    )
+    if createdScratch !== undefined then await chmod(scratch, 0o700)
+    await requirePrivateDirectory(scratch)
+    scratchVerified = true
+    const target = join(scratch, input.runId)
+    const existing = await capturePublishedTrackerAt(
+      scratch,
+      target,
+      input.repositoryId,
+      input.runId,
+    )
+    if existing !== null
+      return Object.freeze({ artifact: existing.artifact, published: false })
+
+    const stagingBasename =
+      `.${input.runId}.publish-${artifact.digest}-${randomUUID()}`
+    staging = join(scratch, stagingBasename)
+    await createPrivateDirectory(staging)
+    stagingOwnership = await requirePrivateDirectory(staging)
+    await writePublishedTracker(staging, artifact)
+    await fsyncPath(scratch)
+    try
+      await symlink(stagingBasename, target, "dir")
+    catch publicationError
+      try
+        const receiptMetadata = await lstat(target)
+        if (
+          receiptMetadata.isSymbolicLink() &&
+          await readlink(target) === stagingBasename
+        )
+          stagingOwnership = undefined
+      catch
+        // Only a verified self-receipt relinquishes cleanup ownership.
+      const winner = await capturePublishedTrackerAt(
+        scratch,
+        target,
+        input.repositoryId,
+        input.runId,
+      )
+      if winner === null then throw publicationError
+      if winner.stagingBasename === stagingBasename
+        stagingOwnership = undefined
+        await fsyncPath(scratch)
+        return Object.freeze({ artifact: winner.artifact, published: true })
+      return Object.freeze({ artifact: winner.artifact, published: false })
+
+    stagingOwnership = undefined
+    await fsyncPath(scratch)
+    const persisted = await capturePublishedTrackerAt(
+      scratch,
+      target,
+      input.repositoryId,
+      input.runId,
+    )
+    if persisted === null || persisted.artifact.digest !== artifact.digest
+      throw trackerPublicationError()
+    return Object.freeze({ artifact: persisted.artifact, published: true })
+  catch
+    throw trackerPublicationError()
+  finally
+    const cleanupRequired = stagingOwnership !== undefined
+    await removeOwnedDirectory(staging, stagingOwnership)
+    if cleanupRequired && scratchVerified then await fsyncPath(scratch)
+
+export const persistLocalWayfinderTrackerArtifact = async (
+  input: Readonly<{
+    repositoriesRoot: string
+    repositoryId: string
+    runId: string
+    artifact: OmpWayfinderTrackerArtifact
+  }>,
+): Promise<void> =>
+  const publication = await publishLocalWayfinderTrackerArtifact(input)
+  if publication.artifact.digest !== input.artifact.digest
+    throw trackerPublicationError()
+
+export const buildWayfinderInstruction = (
+  humanRequest: string,
+  scope: Readonly<{ repositoryId: string; paths: readonly string[] }>,
+  runId: string,
+): string => [
+  "/wayfinder",
+  `Tracker: ${WAYFINDER_TRACKER}.`,
+  `Tracker root: ${JSON.stringify(`.scratch/${runId}`)}.`,
+  "Write one non-empty map.md of at most 131072 UTF-8 bytes.",
+  "Write up to 64 non-empty issues/NN-safe-slug.md files of at most 65536 UTF-8 bytes each.",
+  "Keep the tracker total at most 524288 bytes.",
+  "Do not write to .scratch siblings or any other repository path.",
+  `Human request: ${JSON.stringify(humanRequest)}.`,
+  `Bounded repository scope: ${canonicalJsonV1(scope)}.`,
+  "Chart the route only. Do not execute the destination work.",
+].join("\n")
+
+const canonicalWayfinderResult = (
+  command: OmpCommand,
+  artifact: OmpWayfinderTrackerArtifact,
+  lifecycle?: OmpExecutionResult["lifecycle"],
+): OmpExecutionResult =>
+  const stdout = `Wayfinder tracker published: ${artifact.digest}`
+  return Object.freeze({
+    command
+    status: "succeeded"
+    exitCode: 0
+    signal: null
+    durationMs: 0
+    output: Object.freeze({
+      stdout
+      stderr: ""
+      stdoutBytes: Buffer.byteLength(stdout)
+      stderrBytes: 0
+      truncated: false
+      redacted: false
+    })
+    change: null
+    verification: null
+    implementationArtifact: null
+    ...(lifecycle === undefined ? {} : { lifecycle })
+  })
+
+export const createLocalWayfinderExecutionAdapter = (
+  options: LocalWayfinderExecutionAdapterOptions,
+): WayfinderExecutionPort =>
+  if (
+    !isAbsolute(options.repositoriesRoot) ||
+    options.repositoriesRoot.includes("\0")
+  )
+    throw trackerPublicationError()
+  const skillPath = options.skillPath ?? WAYFINDER_SKILL_PATH
+  const status = (): Promise<WayfinderStatus> => verifiedSkillStatus(skillPath)
+
+  return Object.freeze({
+    status
+    execute: async (input) =>
+      const humanRequest = parseHumanRequest(input.humanRequest)
+      const scope = parseScope(input.repositoryId, input.scopePaths)
+      if !SAFE_WAYFINDER_RUN_ID.test(input.workspaceId)
+        throw new WayfinderRequestError(
+          "INVALID_WAYFINDER_REQUEST",
+          "Wayfinder run identity is invalid",
+        )
+      if (input.effectKind !== "plan")
+        throw new WayfinderRequestError(
+          "INVALID_WAYFINDER_REQUEST",
+          "Wayfinder execution mode is invalid",
+        )
+      const replay = await capturePublishedTracker(
+        options.repositoriesRoot,
+        scope.repositoryId,
+        input.workspaceId,
+      )
+      if replay !== null
+        return canonicalWayfinderResult(input.command, replay)
+
+      const availability = await status()
+      if (availability.availability !== "installed")
+        throw new WayfinderRequestError(
+          "WAYFINDER_UNAVAILABLE",
+          "Wayfinder is unavailable",
+        )
+      const result = await options.omp.execute({
+        command: input.command
+        workspaceId: input.workspaceId
+        effectKind: "plan"
+        instruction: buildWayfinderInstruction(
+          humanRequest,
+          scope,
+          input.workspaceId,
+        )
+        cwd: scope.repositoryId
+        scopePaths: scope.paths
+        skillProfile: "wayfinder"
+        ...(input.redactions === undefined ? {} : { redactions: input.redactions })
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      })
+      const { wayfinderTrackerArtifact, ...ordinaryResult } = result
+      const strippedResult = Object.freeze(ordinaryResult)
+      if result.status !== "succeeded" then return strippedResult
+      let publication: WayfinderTrackerPublication
+      try
+        if wayfinderTrackerArtifact === undefined
+          throw trackerPublicationError()
+        publication = await publishLocalWayfinderTrackerArtifact({
+          repositoriesRoot: options.repositoriesRoot
+          repositoryId: scope.repositoryId
+          runId: input.workspaceId
+          artifact: wayfinderTrackerArtifact
+        })
+      catch
+        try
+          await result.lifecycle?.finalize("unpersisted")
+        catch
+          // Publication failure remains the authoritative typed failure.
+        throw trackerPublicationError()
+      if !publication.published
+        try
+          await result.lifecycle?.finalize("unpersisted")
+        catch
+          // The valid race winner remains authoritative.
+        return canonicalWayfinderResult(input.command, publication.artifact)
+      return canonicalWayfinderResult(
+        input.command,
+        publication.artifact,
+        result.lifecycle,
+      )
+  })
+
+export type WayfinderStartInput = Readonly<{
+  ownerId: string
+  repositoryId: string
+  paths: readonly string[]
+  request: string
+}>
+
+export type WayfinderQueuedRun = Readonly<{
+  runId: string
+  status: "queued"
+  tracker: typeof WAYFINDER_TRACKER
+}>
+
+export type WayfinderWorkflowQueuePort = Readonly<{
+  createRun: (input: Readonly<{
+    ownerId: string
+    runId: string
+    event: Extract<WorkflowEventV1, { type: "RUN_SUBMITTED" }>
+  }>) => Promise<unknown>
+}>
+
+export type WayfinderWorkflowService = Readonly<{
+  status: () => Promise<WayfinderStatus>
+  start: (input: WayfinderStartInput) => Promise<WayfinderQueuedRun>
+}>
+
+export type WayfinderWorkflowServiceOptions = Readonly<{
+  queue: WayfinderWorkflowQueuePort
+  execution: WayfinderExecutionPort
+  authorizeRepository: (ownerId: string, repositoryId: string) => boolean
+  generateId?: () => string
+  now?: () => Date
+}>
+
+const hashFor = (value: unknown): string => createHash("sha256")
+  .update(canonicalJsonV1(value))
+  .digest("hex")
+
+export const createWayfinderWorkflowService = (
+  options: WayfinderWorkflowServiceOptions,
+): WayfinderWorkflowService =>
+  const generateId = options.generateId ?? (() => `run-wayfinder-${randomUUID()}`)
+  const now = options.now ?? (() => new Date())
+
+  return Object.freeze({
+    status: options.execution.status
+    start: async (input) =>
+      if (!SAFE_WORKFLOW_IDENTIFIER.test(input.ownerId))
+        throw new WayfinderRequestError(
+          "INVALID_WAYFINDER_REQUEST",
+          "Wayfinder owner is invalid",
+        )
+      const scope = parseScope(input.repositoryId, input.paths)
+      const humanRequest = parseHumanRequest(input.request)
+      if (!options.authorizeRepository(input.ownerId, scope.repositoryId))
+        throw new WayfinderRequestError(
+          "WAYFINDER_FORBIDDEN",
+          "Wayfinder repository access is denied",
+        )
+      const availability = await options.execution.status()
+      if (availability.availability !== "installed")
+        throw new WayfinderRequestError(
+          "WAYFINDER_UNAVAILABLE",
+          "Wayfinder is unavailable",
+        )
+
+      const runId = generateId()
+      if (!SAFE_WAYFINDER_RUN_ID.test(runId))
+        throw new WayfinderRequestError(
+          "INVALID_WAYFINDER_REQUEST",
+          "Wayfinder run identity is invalid",
+        )
+      const taskHash = hashFor({
+        executionMode: "wayfinder"
+        humanRequest
+        scope
+        tracker: WAYFINDER_TRACKER
+      })
+      await options.queue.createRun({
+        ownerId: input.ownerId
+        runId
+        event: {
+          type: "RUN_SUBMITTED"
+          eventId: `submit-${runId}`
+          eventVersion: 1
+          machineVersion: 1
+          occurredAt: now().toISOString()
+          taskId: humanRequest
+          workspaceId: scope.repositoryId
+          taskRevision: 1
+          taskHash
+          scope
+          executionMode: "wayfinder"
+          humanRequest
+        }
+      })
+      return Object.freeze({
+        runId
+        status: "queued"
+        tracker: WAYFINDER_TRACKER
+      })
+  })

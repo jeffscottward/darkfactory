@@ -27,7 +27,7 @@
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/contract.civet src/client.civet src/openapi.civet src/contracts/account.civet src/contracts/admin-users.civet src/contracts/contact.civet src/contracts/dashboard.civet src/contracts/operator.civet src/generated/contract-registry.civet src/generated/public-registry.civet src/generated/router-registry.civet src/server/index.civet src/server/context.civet src/server/handler.civet src/server/router.civet src/server/service.civet src/server/account-service.civet src/server/admin-users-service.civet src/server/contact-service.civet src/server/dashboard-service.civet src/server/operator-service.civet src/server/workflow-runtime.civet && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/contract.civet src/client.civet src/openapi.civet src/contracts/account.civet src/contracts/admin-users.civet src/contracts/contact.civet src/contracts/dashboard.civet src/generated/contract-registry.civet src/generated/public-registry.civet src/generated/router-registry.civet src/server/index.civet src/server/context.civet src/server/handler.civet src/server/router.civet src/server/service.civet src/server/account-service.civet src/server/admin-users-service.civet src/server/contact-service.civet src/server/dashboard-service.civet && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
@@ -40,9 +40,7 @@
   "dependencies": {
     "@darkfactory/auth": "workspace:*",
     "@darkfactory/db": "workspace:*",
-    "@darkfactory/jobs": "workspace:*",
     "@darkfactory/observability": "workspace:*",
-    "@darkfactory/state": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",

@@ -1,8 +1,10 @@
 import {
   MAX_WORKFLOW_SCOPE_BYTES,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   canonicalJsonV1,
   parseWorkflowEffectScopeV1,
   type WorkflowEffectScopeV1,
+  type WorkflowExecutionModeV1,
 } from "@darkfactory/state/workflow"
 
 import {
@@ -22,6 +24,7 @@ import {
   createWorkflowPlanEvidenceV1,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.civet"
+import type { WayfinderExecutionPort } from "./wayfinder.civet"
 
 export const WORKFLOW_EFFECT_HANDLER = "workflow.omp"
 export const DEFAULT_WORKFLOW_LEASE_MS = 30_000
@@ -45,6 +48,8 @@ export type ClaimedWorkflowEffect = Readonly<{
     taskRevision: number
     taskHash: string
     sourceSequence: number
+    executionMode?: WorkflowExecutionModeV1
+    humanRequest?: string
   }>
   implementationEvidence?: unknown
   implementationChangeHash?: unknown
@@ -131,6 +136,7 @@ export type WorkflowOutboxWorker = Readonly<{
 export type WorkflowOutboxWorkerOptions = Readonly<{
   repository: WorkflowOutboxPort
   adapter: OmpCliAdapter
+  wayfinderAdapter?: WayfinderExecutionPort
   leaseOwner: string
   authorizeRepository: (ownerId: string, repositoryId: string) => boolean
   leaseMilliseconds?: number
@@ -262,6 +268,36 @@ const validateClaim = (claim: ClaimedWorkflowEffect): ValidatedWorkflowClaim =>
       claim.taskMetadata.sourceSequence < 0
     )
       throw new WorkflowWorkerConfigurationError("Workflow task metadata is invalid")
+    const executionMode = claim.taskMetadata.executionMode
+    const humanRequest = claim.taskMetadata.humanRequest
+    if (
+      (
+        executionMode === undefined &&
+        humanRequest !== undefined
+      ) ||
+      (
+        executionMode === "pilot" &&
+        humanRequest !== undefined
+      ) ||
+      (
+        executionMode === "wayfinder" &&
+        (
+          typeof humanRequest !== "string" ||
+          humanRequest.length === 0 ||
+          new TextEncoder().encode(humanRequest).byteLength >
+            MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
+          /[\u0000-\u001F\u007F]/u.test(humanRequest)
+        )
+      ) ||
+      (
+        executionMode !== undefined &&
+        executionMode !== "pilot" &&
+        executionMode !== "wayfinder"
+      )
+    )
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow execution metadata is invalid",
+      )
   if (!["plan", "implement", "verify"].includes(claim.effectKind))
     throw new WorkflowWorkerConfigurationError("Unexpected workflow effect kind")
   if (!Number.isSafeInteger(claim.fenceToken) || claim.fenceToken <= 0)
@@ -523,18 +559,40 @@ export const createWorkflowOutboxWorker = (
         )
         let result: OmpExecutionResult
         try
-          result = sanitizeExecutionResult(await options.adapter.execute({
-            workspaceId: claim.runId,
-            command: "print",
-            effectKind: claim.effectKind,
-            instruction: instructionFor(claim, scope),
-            cwd: scope.repositoryId,
-            scopePaths: scope.paths,
-            signal: abortController.signal,
-            ...(validated.recovery === undefined
-              ? {}
-              : { recovery: validated.recovery }),
-          }))
+          const wayfinderTask = claim.effectKind === "plan" &&
+            claim.taskMetadata?.executionMode === "wayfinder"
+            ? claim.taskMetadata
+            : null
+          const execution = wayfinderTask === null
+            ? options.adapter.execute({
+                workspaceId: claim.runId,
+                command: "print",
+                effectKind: claim.effectKind,
+                instruction: instructionFor(claim, scope),
+                cwd: scope.repositoryId,
+                scopePaths: scope.paths,
+                signal: abortController.signal,
+                ...(validated.recovery === undefined
+                  ? {}
+                  : { recovery: validated.recovery }),
+              })
+            : (
+                options.wayfinderAdapter === undefined
+                  ? Promise.reject(new WorkflowWorkerConfigurationError(
+                      "Wayfinder execution adapter is unavailable",
+                    ))
+                  : options.wayfinderAdapter.execute({
+                      workspaceId: claim.runId,
+                      command: "print",
+                      effectKind: "plan",
+                      cwd: scope.repositoryId,
+                      scopePaths: scope.paths,
+                      repositoryId: scope.repositoryId,
+                      humanRequest: wayfinderTask.humanRequest!,
+                      signal: abortController.signal,
+                    })
+              )
+          result = sanitizeExecutionResult(await execution)
         catch error
           await heartbeatTail
           if (leaseLost || (stopping && abortController.signal.aborted))

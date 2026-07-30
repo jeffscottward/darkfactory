@@ -166,6 +166,44 @@ describe "development Worker bindings", ->
     )
     expect(await listTemporaryBindingFiles(join(root, "apps", "web"))).toEqual([])
 
+  it "materializes operator bindings separately without changing web bindings", async ->
+    const root = await directory()
+    await mkdir(join(root, "apps", "web"), { recursive: true })
+    await mkdir(join(root, "apps", "operator"), { recursive: true })
+    const webTarget = join(root, "apps", "web", ".dev.vars")
+    const operatorTarget = join(root, "apps", "operator", ".dev.vars")
+    await writeFile(webTarget, "existing-web-bindings", { mode: 0o600 })
+    mocks.spawnSync.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      stdout: validBindings,
+    })
+
+    await materializeWorkerBindings(root, "operator")
+
+    expect(await readFile(webTarget, "utf8")).toBe("existing-web-bindings")
+    expect(await readFile(operatorTarget, "utf8")).toBe(validBindings)
+    expect((await lstat(operatorTarget)).mode & 0o777).toBe(0o600)
+    expect(await listTemporaryBindingFiles(join(root, "apps", "operator"))).toEqual([])
+
+  it "rejects an operator binding parent that resolves outside the repository", async ->
+    const root = await directory()
+    const outside = await directory()
+    await mkdir(join(root, "apps"), { recursive: true })
+    await symlink(outside, join(root, "apps", "operator"))
+    mocks.spawnSync.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      stdout: validBindings,
+    })
+
+    await expect(materializeWorkerBindings(root, "operator")).rejects.toThrow(
+      "Worker bindings directory is unsafe",
+    )
+    await expect(lstat(join(outside, ".dev.vars"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+
   it "rejects both nonzero and spawn-error Varlock outcomes without writing output", async ->
     const root = await directory()
     await mkdir(join(root, "apps", "web"), { recursive: true })
