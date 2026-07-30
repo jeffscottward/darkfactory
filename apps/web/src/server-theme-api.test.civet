@@ -7,6 +7,9 @@ import {
 } from "./lib/server-theme-api.civet"
 import { INDETERMINATE_THEME } from "./lib/server-theme.civet"
 
+const ACTIVE_SESSION_COOKIE = "better-auth.session_token=trusted"
+const SECURE_SESSION_COOKIE = "__Secure-better-auth.session_token=trusted"
+
 describe "server theme API forwarding", ->
   afterEach -> vi.useRealTimers()
 
@@ -135,6 +138,27 @@ describe "server theme API forwarding", ->
     })).rejects.toThrow("Theme response exceeded the safe size limit")
     expect(cancel).toHaveBeenCalledOnce()
 
+  it "skips trusted theme transport without a session cookie", async ->
+    const clientFactory = vi.fn(() =>
+      throw new Error("anonymous requests must not create an API client")
+    ) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>
+
+    for (const cookieHeader of [
+      null,
+      "",
+      "better-auth.session_token=",
+      "__Secure-better-auth.session_token=",
+      "darkfactory-theme=dark%3Arose",
+      "unrelated=value; darkfactory-theme=light%3Ablue",
+    ])
+      await expect(loadApiThemePreference({
+        appUrl: "https://darkfactory.example",
+        clientFactory,
+        cookieHeader,
+        requestId: "request-anonymous",
+      })).resolves.toBeUndefined()
+    expect(clientFactory).not.toHaveBeenCalled()
+
   it "maps unauthorized, trusted, and infrastructure outcomes to distinct authorities", async ->
     const load = async (get: () => Promise<unknown>) => (
       loadApiThemePreference({
@@ -142,7 +166,7 @@ describe "server theme API forwarding", ->
         clientFactory: (() => ({
           preferences: { theme: { get } },
         })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>,
-        cookieHeader: "session=trusted",
+        cookieHeader: ACTIVE_SESSION_COOKIE,
         requestId: "request-123",
       })
     )
@@ -172,7 +196,7 @@ describe "server theme API forwarding", ->
   it "executes the client transport through bounded same-origin forwarding", async ->
     const fetchRequest = vi.fn<typeof globalThis.fetch>(async (input, init) =>
       const request = input instanceof Request ? input : new Request(input, init)
-      expect(request.headers.get("cookie")).toBe("session=trusted")
+      expect(request.headers.get("cookie")).toBe(SECURE_SESSION_COOKIE)
       expect(request.headers.get("x-request-id")).toBe("request-transport")
       return Response.json({
         themeMode: "dark",
@@ -204,7 +228,7 @@ describe "server theme API forwarding", ->
     await expect(loadApiThemePreference({
       appUrl: "https://darkfactory.example",
       clientFactory,
-      cookieHeader: "session=trusted",
+      cookieHeader: SECURE_SESSION_COOKIE,
       fetch: fetchRequest,
       requestId: "request-transport",
     })).resolves.toEqual({
@@ -224,7 +248,7 @@ describe "server theme API forwarding", ->
           },
         },
       })) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>,
-      cookieHeader: null,
+      cookieHeader: ACTIVE_SESSION_COOKIE,
       requestId: null,
     })
 
