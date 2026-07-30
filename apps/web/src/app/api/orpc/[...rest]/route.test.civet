@@ -376,13 +376,12 @@ describe "oRPC Worker route provider composition", ->
       { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
     )
 
-    await expect(POST(request)).resolves.toMatchObject({ status: 202 })
+    const response = POST(request)
+    await vi.waitFor(() => expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce())
     expect(mocks.close).not.toHaveBeenCalled()
 
     resolveTask()
-    await Promise.allSettled(
-      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
-    )
+    await expect(response).resolves.toMatchObject({ status: 202 })
     expect(mocks.close).toHaveBeenCalledOnce()
 
   it "preserves handler rejection while draining its auth background task", async ->
@@ -400,13 +399,12 @@ describe "oRPC Worker route provider composition", ->
       { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
     )
 
-    await expect(POST(request)).rejects.toBe(applicationError)
+    const rejection = expect(POST(request)).rejects.toBe(applicationError)
+    await vi.waitFor(() => expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce())
     expect(mocks.close).not.toHaveBeenCalled()
 
     resolveTask()
-    await Promise.allSettled(
-      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
-    )
+    await rejection
     expect(mocks.close).toHaveBeenCalledOnce()
 
   it "preserves response precedence and tracks one safe close diagnostic through the reused evlog sink", async ->
@@ -719,9 +717,10 @@ describe "oRPC Worker route provider composition", ->
       authOptions.scheduleBackgroundTask(backgroundTask)
       return new Response("handled", { status: 202 })
     )
-    await expect(GET(new Request(
+    const deferredResponse = GET(new Request(
       "https://darkfactory.localhost/api/orpc/dashboard/summary?deferred=1",
-    ))).resolves.toMatchObject({ status: 202 })
+    ))
+    await vi.waitFor(() => expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce())
     expect(mocks.close).not.toHaveBeenCalled()
 
     let releaseHandlers!: () => void
@@ -746,9 +745,7 @@ describe "oRPC Worker route provider composition", ->
     ))).resolves.toMatchObject({ status: 503 })
 
     resolveBackgroundTask()
-    await Promise.allSettled(
-      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
-    )
+    await expect(deferredResponse).resolves.toMatchObject({ status: 202 })
     expect(mocks.close).toHaveBeenCalledOnce()
 
     const replacement = GET(new Request(
