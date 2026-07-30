@@ -231,6 +231,10 @@ export type OmpCliAdapter = Readonly<{
   ) => Promise<void>
 }>
 
+export type OmpFilesystemSandboxBackend = Readonly<{
+  requireAvailable: () => Promise<void>
+}>
+
 export type OmpCliAdapterOptions = Readonly<{
   repositoriesRoot: string
   executable?: string
@@ -246,6 +250,7 @@ export type OmpCliAdapterOptions = Readonly<{
   verifierMaxResultBytes?: number
 
   now?: () => number
+  filesystemSandboxBackend?: OmpFilesystemSandboxBackend
 }>
 
 export class OmpConfigurationError extends Error
@@ -966,6 +971,10 @@ const requireSandboxBackend = async (): Promise<void> =>
       throw new Error("not a file")
   catch
     throw new OmpConfigurationError("OMP filesystem sandbox is unavailable")
+
+const DEFAULT_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
+  requireAvailable: requireSandboxBackend,
+} satisfies OmpFilesystemSandboxBackend)
 
 const sandboxLiteral = (value: string): string =>
   if /[\u0000-\u001F\u007F]/u.test(value)
@@ -2470,6 +2479,9 @@ export const createOmpCliAdapter = (
     1_024 * 1_024,
   )
   const now = options.now ?? Date.now
+  const filesystemSandboxBackend = (
+    options.filesystemSandboxBackend ?? DEFAULT_FILESYSTEM_SANDBOX_BACKEND
+  )
 
   const execute = async (
     request: OmpExecutionRequest
@@ -2510,7 +2522,7 @@ export const createOmpCliAdapter = (
     )
       ? await trustedVerifierManifestFor(sourceCwd)
       : null
-    await requireSandboxBackend()
+    await filesystemSandboxBackend.requireAvailable()
     const ompExecutable = await resolveOmpExecutable(executable)
     let worktree = await prepareWorktree(
       sourceCwd,

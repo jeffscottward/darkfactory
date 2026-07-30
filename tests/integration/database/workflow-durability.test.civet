@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto"
 import {
   StaleWorkflowApprovalError,
   WorkflowConcurrencyError,
@@ -26,11 +27,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 let testDatabase: PostgresTestDatabase
 let databaseResource: ReturnType<typeof createNodeDatabase>
 let repository: WorkflowRepository
-let serial = 0
-
-const nextId = (prefix: string): string =>
-  serial += 1
-  return `${prefix}-${serial}`
+const nextId = (prefix: string): string => `${prefix}-${randomUUID()}`
 
 const createOwner = async (id = nextId("owner")): Promise<string> =>
   const instant = new Date("2026-07-29T12:00:00.000Z")
@@ -52,7 +49,7 @@ const eventFor = (
   eventId,
   eventVersion: 1,
   machineVersion: 1,
-  occurredAt: new Date(Date.UTC(2026, 6, 29, 12, 0, serial)).toISOString(),
+  occurredAt: "2026-07-29T12:00:00.000Z",
   taskId: nextId("task"),
   workspaceId: "workspace-db",
   taskRevision: "revision-1",
@@ -177,10 +174,13 @@ const messageInputFor = (
   }> = {},
 ): Parameters<WorkflowRepository["addMessageAndAppend"]>[0] =>
   const idempotencyKey = options.idempotencyKey ?? nextId("message-key")
-  const messageId = options.messageId ?? `${idempotencyKey}-message`
+  const messageIdentity = createHash("sha256")
+    .update(`${projection.run.id}\u0000${idempotencyKey}`)
+    .digest("hex")
+  const messageId = options.messageId ?? `message-${messageIdentity}`
   const event: PersistedWorkflowEvent = {
     type: "OPERATOR_MESSAGE_ADDED",
-    eventId: options.eventId ?? `${idempotencyKey}-event`,
+    eventId: options.eventId ?? `message-event-${messageIdentity}`,
     eventVersion: 1,
     machineVersion: 1,
     occurredAt: "2026-07-29T13:00:00.000Z",
@@ -609,7 +609,22 @@ describe.sequential "workflow durability on real PostgreSQL", ->
        WHERE aggregate_id = $1`,
       [mismatched.run.id, otherOwnerId],
     )
-    await appendMessage(obsolete, ownerId)
+    const obsoleteCancellation = appendInputFor(
+      obsolete,
+      ownerId,
+      eventFor(nextId("obsolete-event"), "CANCEL_REQUESTED"),
+      "cancelled",
+    )
+    await repository.append({
+      ...obsoleteCancellation,
+      snapshot: {
+        ...obsoleteCancellation.snapshot,
+        context: {
+          ...obsoleteCancellation.snapshot.context,
+          pendingEffect: null,
+        },
+      },
+    })
 
     const claims = await repository.claimDueEffects({
       handler,
@@ -724,7 +739,7 @@ describe.sequential "workflow durability on real PostgreSQL", ->
         ...baseCompletionInput.evidence,
         data: {
           ...baseCompletionInput.evidence.data,
-          token: "first-private-token",
+          result: "first-plan",
         },
       },
     }
@@ -738,7 +753,7 @@ describe.sequential "workflow durability on real PostgreSQL", ->
         ...completionInput.evidence,
         data: {
           ...completionInput.evidence.data,
-          token: "second-private-token",
+          result: "second-plan",
         },
       },
     })).rejects.toThrow(WorkflowConcurrencyError)
@@ -937,15 +952,25 @@ describe.sequential "workflow durability on real PostgreSQL", ->
     const second = await createRun(secondOwnerId)
     const idempotencyKey = "shared-message-key"
 
+    const firstInput = messageInputFor(first, firstOwnerId, {
+      idempotencyKey,
+      content: "First owner message",
+    })
+    const secondInput = messageInputFor(second, secondOwnerId, {
+      idempotencyKey,
+      content: "Second owner message",
+    })
+    const replayedFirstInput = messageInputFor(first, firstOwnerId, {
+      idempotencyKey,
+      content: "First owner message",
+    })
+    expect(replayedFirstInput.id).toBe(firstInput.id)
+    expect(replayedFirstInput.event.eventId).toBe(firstInput.event.eventId)
+    expect(firstInput.event.eventId).not.toBe(secondInput.event.eventId)
+
     const [firstMessage, secondMessage] = await Promise.all([
-      repository.addMessageAndAppend(messageInputFor(first, firstOwnerId, {
-        idempotencyKey,
-        content: "First owner message",
-      })),
-      repository.addMessageAndAppend(messageInputFor(second, secondOwnerId, {
-        idempotencyKey,
-        content: "Second owner message",
-      })),
+      repository.addMessageAndAppend(firstInput),
+      repository.addMessageAndAppend(secondInput),
     ])
 
     expect(firstMessage.message.id).not.toBe(secondMessage.message.id)

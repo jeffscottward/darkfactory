@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { SemanticEvent } from "@darkfactory/observability"
 
 const mocks = vi.hoisted(->
   const waitUntil = vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined))
   const close = vi.fn(async () => undefined)
+  const analyticsCapture = vi.fn()
   const forceFlush = vi.fn(async () => undefined)
   const span = {
     correlation: {
@@ -37,6 +39,7 @@ const mocks = vi.hoisted(->
     runDatabaseClose,
     waitUntil,
     close,
+    analyticsCapture,
     forceFlush,
     span,
     withSpan,
@@ -49,13 +52,15 @@ const mocks = vi.hoisted(->
       dispose: vi.fn(async () => undefined),
     })),
     initializeEvlog: vi.fn(() => ({ runtime: "evlog" })),
-    createEvlogSink: vi.fn((_options: unknown) => ({ emit: vi.fn() })),
+    createEvlogSink: vi.fn((_options: unknown) => ({
+      emit: vi.fn(async (_event: SemanticEvent) => undefined),
+    })),
     createSemanticEventFanout: vi.fn(
       (_options: Readonly<{
         resolveConsent: () => "granted" | "denied" | "unknown"
       }>) => ({ emit: vi.fn() }),
     ),
-    createPostHogAnalyticsPort: vi.fn(() => ({ capture: vi.fn() })),
+    createPostHogAnalyticsPort: vi.fn(() => ({ capture: analyticsCapture })),
     createApiContext: vi.fn((_request, dependencies) => ({
       ...dependencies,
       requestId: dependencies.requestId,
@@ -70,7 +75,26 @@ const mocks = vi.hoisted(->
     }>) => workflowOperator),
     createWorkflowRepository: vi.fn(() => workflowRepository),
     resolveApiRequestId: vi.fn(() => "request-stable"),
-    createRequestDatabase: vi.fn(async () => ({ db: { request: true }, close })),
+    createRequestDatabase: vi.fn(async (
+      options: Readonly<{
+        connectionString: string
+        diagnosticSink?: (
+          diagnostic: Readonly<{
+            code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR"
+          }>,
+        ) => void
+      }>,
+    ) => ({
+      db: { request: true },
+      close: async () =>
+        try
+          await close()
+        catch error
+          options.diagnosticSink?.(Object.freeze({
+            code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+          }))
+          throw error
+    })),
     createRepositories: vi.fn(() => ({
       featureItems: {},
       workflows: workflowRepository,
@@ -189,11 +213,16 @@ import {
 
 describe "oRPC Worker route provider composition", ->
   beforeEach ->
+    vi.stubEnv("APP_ENV", "test")
+    vi.stubEnv("E2E_FIXTURES", "0")
+    vi.stubEnv("NODE_ENV", "test")
     mocks.setRepeatDatabaseClose(false)
     mocks.waitUntil.mockClear()
     mocks.close.mockClear()
     mocks.forceFlush.mockClear()
+    mocks.withSpan.mockClear()
     mocks.createEvlogSink.mockClear()
+    mocks.analyticsCapture.mockClear()
     mocks.createSemanticEventFanout.mockClear()
     mocks.createApiContext.mockClear()
     mocks.createOperatorWorkflowPort.mockClear()
@@ -215,6 +244,18 @@ describe "oRPC Worker route provider composition", ->
   afterEach ->
     vi.unstubAllEnvs()
   
+  it "uses fresh request clients when E2E fixtures are not validated", async ->
+    vi.stubEnv("APP_ENV", "production")
+    vi.stubEnv("E2E_FIXTURES", "1")
+    vi.stubEnv("NODE_ENV", "production")
+
+    const response = await GET(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))
+
+    expect(response.status).toBe(202)
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
+
   it "uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async ->
     const firstRequest = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create?endpoint=https://attacker.invalid",
@@ -368,16 +409,51 @@ describe "oRPC Worker route provider composition", ->
     )
     expect(mocks.close).toHaveBeenCalledOnce()
 
-  it "preserves a successful response when database close rejects", async ->
-    mocks.close.mockRejectedValueOnce(new Error("private close failure"))
+  it "preserves response precedence and tracks one safe close diagnostic through the reused evlog sink", async ->
+    mocks.close.mockRejectedValueOnce(
+      new Error(
+        "private close failure for postgresql://credential@configured.invalid/db; cookie=session-private",
+      ),
+    )
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
+      {
+        method: "POST",
+        headers: {
+          origin: "https://darkfactory.localhost",
+          cookie: "session-private",
+        },
+      },
     )
 
     await expect(POST(request)).resolves.toMatchObject({ status: 202 })
+    await Promise.allSettled(
+      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
+    )
+
     expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
     expect(mocks.close).toHaveBeenCalledOnce()
+    expect(mocks.createRequestDatabase).toHaveBeenCalledWith({
+      connectionString: "postgres://configured.invalid/db",
+      diagnosticSink: expect.any(Function),
+    })
+    const requestSink = mocks.createEvlogSink.mock.results[0]!.value
+    expect(mocks.createSemanticEventFanout).toHaveBeenCalledWith(
+      expect.objectContaining({ sink: requestSink }),
+    )
+    expect(requestSink.emit).toHaveBeenCalledOnce()
+    const event = requestSink.emit.mock.calls[0]![0]
+    expect(event).toMatchObject({
+      name: "request-database.client-close-failed",
+      correlation: { requestId: "request-stable" },
+      outcome: "failure",
+      source: "worker",
+      errorCategory: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+    })
+    expect(JSON.stringify(event)).not.toContain("private")
+    expect(JSON.stringify(event)).not.toContain("credential")
+    expect(JSON.stringify(event)).not.toContain("cookie")
+    expect(mocks.analyticsCapture).not.toHaveBeenCalled()
   
   it "preserves the application error when database close also rejects", async ->
     const applicationError = new Error("application failure")
@@ -745,7 +821,7 @@ describe "oRPC Worker route provider composition", ->
       ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
     )
 
-  it "releases isolate admission when pooled connection acquisition rejects", async ->
+  it "releases isolate admission when request database acquisition rejects", async ->
     const connectionFailure = new Error("connection failed")
     mocks.createRequestDatabase.mockRejectedValueOnce(connectionFailure)
 
@@ -910,6 +986,7 @@ describe "oRPC Worker route provider composition", ->
     ))
 
     expect(response.status).toBe(202)
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
     expect(mocks.selectEmailPort).toHaveBeenCalledWith(
       expect.objectContaining({
         previewDirectory: authDirectory,

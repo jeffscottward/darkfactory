@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { PassThrough } from "node:stream"
@@ -89,7 +89,7 @@ import {
   OmpWorkspaceCleanupError,
   OmpWorkspaceBusyError,
   applyOmpImplementationArtifact,
-  createOmpCliAdapter,
+  createOmpCliAdapter as createProductionOmpCliAdapter,
   ompVerificationDigestFor,
   OMP_VERIFIER_COMMAND_IDENTITY,
   dockerVerifierArgumentsFor,
@@ -111,6 +111,8 @@ import {
   OMP_VERIFIER_OUTPUT_TMPFS,
   OMP_VERIFIER_CACHE_TMPFS,
   OMP_VERIFIER_TMP_TMPFS,
+  type OmpCliAdapterOptions,
+  type OmpFilesystemSandboxBackend,
   type DecodedOmpImplementationArtifact,
   type OmpImplementationArtifact,
 
@@ -118,6 +120,16 @@ import {
   type OmpVerifierRunnerResult,
 
 } from "./omp.civet"
+
+const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
+  requireAvailable: vi.fn(async () => undefined)
+} satisfies OmpFilesystemSandboxBackend)
+
+const createOmpCliAdapter = (options: OmpCliAdapterOptions) =>
+  createProductionOmpCliAdapter({
+    ...options,
+    filesystemSandboxBackend: TEST_FILESYSTEM_SANDBOX_BACKEND,
+  })
 
 type SandboxResponse = Readonly<{
   error: NodeJS.ErrnoException | null
@@ -424,6 +436,7 @@ describe("OMP CLI adapter", () =>
       effectKind: "implement",
       instruction,
     }))
+    expect(TEST_FILESYSTEM_SANDBOX_BACKEND.requireAvailable).toHaveBeenCalledOnce()
 
     const call = sandboxCalls()[0]!
     const arguments_ = call[1] as readonly string[]
@@ -2510,7 +2523,7 @@ describe("OMP CLI adapter", () =>
     else process.env["PATH"] = originalPath
 
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("linux")
-    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor()))
+    await expect(createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor()))
       .rejects.toThrow("OMP filesystem sandbox is unsupported")
     platform.mockRestore()
 
@@ -3714,13 +3727,17 @@ describe("OMP CLI adapter", () =>
       mocks.WP3accessDelegate = async (actual, path, mode) =>
         if String(path) === sandboxExecutable then throw errnoFor(code)
         return actual(path, mode)
-      await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
-        workspaceId: `wp3-sandbox-${label}`,
-      }))).rejects.toMatchObject({
-        name: "OmpConfigurationError",
-        message: "OMP filesystem sandbox is unavailable",
-      })
-      expect(sandboxCalls()).toHaveLength(0)
+      const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+      try
+        await expect(createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+          workspaceId: `wp3-sandbox-${label}`,
+        }))).rejects.toMatchObject({
+          name: "OmpConfigurationError",
+          message: "OMP filesystem sandbox is unavailable",
+        })
+        expect(sandboxCalls()).toHaveLength(0)
+      finally
+        platform.mockRestore()
 
     const nonFileCandidate = join(repositoriesRoot, "wp3-sandbox-directory")
     await mkdir(nonFileCandidate)
@@ -3732,13 +3749,49 @@ describe("OMP CLI adapter", () =>
       if String(path) === sandboxExecutable
         return actual(nonFileCandidate, ...arguments_)
       return actual(path, ...arguments_)
-    await expect(createOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
-      workspaceId: "wp3-sandbox-non-file",
-    }))).rejects.toMatchObject({
-      name: "OmpConfigurationError",
-      message: "OMP filesystem sandbox is unavailable",
-    })
-    expect(sandboxCalls()).toHaveLength(0)
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    try
+      await expect(createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor({
+        workspaceId: "wp3-sandbox-non-file",
+      }))).rejects.toMatchObject({
+        name: "OmpConfigurationError",
+        message: "OMP filesystem sandbox is unavailable",
+      })
+      expect(sandboxCalls()).toHaveLength(0)
+    finally
+      platform.mockRestore()
+
+    const validExecutableDirectory = join(repositoriesRoot, "wp3-valid-bin")
+    const validExecutable = join(validExecutableDirectory, "omp")
+    await mkdir(validExecutableDirectory)
+    await writeFile(validExecutable, "#!/bin/sh\nexit 0\n")
+    await chmod(validExecutable, 0o700)
+    mocks.WP3accessDelegate = async (actual, path, mode) =>
+      if String(path) === sandboxExecutable then return
+      return actual(path, mode)
+    mocks.WP3statDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === sandboxExecutable
+        return {
+          isFile: () => true,
+        } as Awaited<ReturnType<typeof stat>>
+      return actual(path, ...arguments_)
+    const originalPath = process.env["PATH"]
+    process.env["PATH"] = validExecutableDirectory
+    const validPlatform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    try
+      callbackWith(null, "planned with valid sandbox")
+      const validPlan = await createProductionOmpCliAdapter({
+        repositoriesRoot,
+      }).execute(requestFor({
+        workspaceId: "wp3-sandbox-valid-file",
+      }))
+      expect(validPlan.status).toBe("succeeded")
+      expect(sandboxCalls()).toHaveLength(1)
+      await validPlan.lifecycle!.finalize("unpersisted")
+    finally
+      if originalPath === undefined then delete process.env["PATH"]
+      else process.env["PATH"] = originalPath
+      validPlatform.mockRestore()
 
     mocks.WP3accessDelegate = undefined
     mocks.WP3statDelegate = undefined

@@ -49,6 +49,7 @@ const EXPECTED_TABLES = [
   "workflow_evidence",
   "workflow_journal",
   "workflow_messages",
+  "workflow_omp_resources",
   "workflow_runs",
   "workflow_snapshots",
 ]
@@ -529,7 +530,10 @@ describe.sequential "DF-031 through DF-039 ordinary Postgres persistence", ->
           ? "user_id"
           : tableName === "workflow_journal"
             ? "run_id,sequence"
-            : tableName === "workflow_snapshots"
+            : [
+                "workflow_omp_resources",
+                "workflow_snapshots",
+              ].includes(tableName)
               ? "run_id"
               : "id"
       return `p:${tableName}:${primaryColumn}`

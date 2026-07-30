@@ -43,7 +43,12 @@ import {
   type BackgroundTaskScheduler,
 } from "../../../../lib/background-task-lifecycle.civet"
 import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.civet"
-import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.civet"
+import {
+  resolveE2eEmailPreviewOptions,
+} from "../../../../lib/e2e-fixtures.civet"
+import {
+  createRequestDatabaseDiagnosticSink,
+} from "../../../../lib/request-database-diagnostics.civet"
 import { handleOrpcRequest } from "./handler.civet"
 import {
   bufferContactRequest,
@@ -200,6 +205,7 @@ export const handleOrpcRuntimeRequest = async (
   const method = request.method.toUpperCase()
   if (!SUPPORTED_ORPC_METHODS.includes(method)) return methodNotAllowedResponse()
   const previewOptions = resolveE2eEmailPreviewOptions()
+  const createDatabase = createRequestDatabase
   if (unsafeRequestDenied(request, env.APP_URL)) return forbiddenOriginResponse()
 
   return withDatabaseAdmission(async (admission) =>
@@ -227,10 +233,21 @@ export const handleOrpcRuntimeRequest = async (
       scheduleBackgroundTask,
       async (span) =>
         const databaseProfile = composeDatabaseProfile(env)
+        const sink = createEvlogSink({
+          runtime: evlogFor(env),
+          request: effectiveRequest,
+          executionContext: { waitUntil: scheduleBackgroundTask },
+        })
+        const diagnosticSink = createRequestDatabaseDiagnosticSink({
+          sink,
+          scheduleBackgroundTask,
+          requestId,
+        })
         let database
         try
-          database = await createRequestDatabase({
+          database = await createDatabase({
             connectionString: databaseProfile.connection.connectionString,
+            diagnosticSink,
           })
         catch error
           if (error instanceof RequestDatabaseCapacityError)
@@ -309,11 +326,6 @@ export const handleOrpcRuntimeRequest = async (
             baseURL: env.BETTER_AUTH_URL,
             trustedOrigins: [env.APP_URL],
             scheduleBackgroundTask: backgroundTasks.schedule,
-          })
-          const sink = createEvlogSink({
-            runtime: evlogFor(env),
-            request: effectiveRequest,
-            executionContext: { waitUntil: scheduleBackgroundTask },
           })
           const semanticEvents = createSemanticEventFanout({
             sink,

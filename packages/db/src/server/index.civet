@@ -11,6 +11,8 @@ export type {
   DatabaseOptions,
   DatabaseResource,
   RequestDatabaseOptions,
+  RequestDatabaseDiagnostic,
+  RequestDatabaseDiagnosticSink,
   Transaction,
 } from "./client.civet"
 
