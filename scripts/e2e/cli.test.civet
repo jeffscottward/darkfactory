@@ -1579,4 +1579,63 @@ describe("E2E lifecycle CLIs", () =>
     expect(diagnostics.every((line) => line.length <= 408)).toBe(true)
   )
 
+  it("extracts only exact allowlisted diagnostics from oversized output", () =>
+    const oversized = [
+      "-----BEGIN PRIVATE KEY-----",
+      "A".repeat(20 * 1024),
+      "-----END PRIVATE KEY-----",
+      "Error: Process from config.webServer was not able to start. Exit code: 1",
+      ...Array.from(
+        { length: 5 },
+        () => "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
+      ),
+    ].join("\n")
+    const diagnostics = collectProcessDiagnostics("", oversized)
+    expect(diagnostics).toHaveLength(3)
+
+    expect(diagnostics).toContain(
+      "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
+    )
+    expect(diagnostics).toContain(
+      "stderr: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
+    )
+    expect(diagnostics).toContain(
+      "stderr: [REDACTED OVERSIZED PROCESS OUTPUT]",
+    )
+    expect(diagnostics.join("\n")).not.toContain("PRIVATE KEY")
+    expect(diagnostics.join("\n")).not.toContain("A".repeat(100))
+  )
+
+  it("rejects near-miss allowlisted diagnostics from oversized output", () =>
+    const nearMisses = [
+      "prefix Error: Process from config.webServer was not able to start. Exit code: 1",
+      "Error: Process from config.webServer was not able to start. Exit code: 1 suffix",
+      "Error: Dashboard session proof failed: path=/operator rendered=error directStatus=500",
+      "Error: Dashboard session proof failed: path=/dashboard rendered=ready directStatus=500",
+      "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=099",
+      "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=600",
+      `prefix\rError: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500`,
+    ]
+
+    for nearMiss of nearMisses
+      expect(collectProcessDiagnostics(
+        "",
+        `${"x".repeat(17 * 1024)}\n${nearMiss}`,
+      )).toEqual(["stderr: [REDACTED OVERSIZED PROCESS OUTPUT]"])
+  )
+
+  it("matches exact CRLF diagnostics without shared regular-expression state", () =>
+    const oversized = [
+      "x".repeat(17 * 1024),
+      "Error: Dashboard session proof failed: path=/dashboard rendered=other directStatus=404",
+    ].join("\r\n")
+    const expected = [
+      "stderr: Dashboard session proof failed: path=/dashboard rendered=other directStatus=404",
+      "stderr: [REDACTED OVERSIZED PROCESS OUTPUT]",
+    ]
+
+    expect(collectProcessDiagnostics("", oversized)).toEqual(expected)
+    expect(collectProcessDiagnostics("", oversized)).toEqual(expected)
+  )
+
 )
