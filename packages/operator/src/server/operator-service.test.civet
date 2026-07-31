@@ -2,6 +2,7 @@ import type { SafePrincipal } from "@darkfactory/auth/types"
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
 import { describe, expect, it, vi } from "vitest"
 
+import { OperatorRunDetailSchema } from "../contract.civet"
 import {
   OperatorServiceError,
   OperatorWorkflowPortError,
@@ -47,6 +48,9 @@ const detail = (
 ): WorkflowOperatorDetail => ({
   ownerId: "owner-1"
   integrity: "verified"
+  canRequestPlanRevision: false
+  originalRequest: "Plan the bounded operator change"
+  planRevisions: []
   run: summary()
   timeline: [{
     sequence: 1
@@ -73,6 +77,7 @@ const portFor = (
   reject: vi.fn(async () => detail())
   cancel: vi.fn(async () => detail())
   retry: vi.fn(async () => detail())
+  revise: vi.fn(async () => detail())
   message: vi.fn(async () => detail())
   ...overrides
 })
@@ -143,6 +148,50 @@ describe "operator service projection boundary", ->
       code: "PROJECTION_INVALID"
     })
 
+  it "round-trips exact multibyte title, author, and note contract boundaries", async ->
+    const title = "😀".repeat(100)
+    const authorLabel = "界".repeat(200)
+    const body = "😀".repeat(1_000)
+    const service = createOperatorService(portFor({
+      detail: vi.fn(async () => detail({
+        run: summary({ title })
+        messages: [{
+          id: "message-boundary"
+          authorLabel
+          body
+          createdAt: NOW
+        }]
+      }))
+    }))
+
+    const projected = await service.detail(principal, "run-1")
+    expect(title).toHaveLength(200)
+    expect(authorLabel).toHaveLength(200)
+    expect(body).toHaveLength(2_000)
+    expect(projected.run.title).toBe(title)
+    expect(projected.messages[0]?.authorLabel).toBe(authorLabel)
+    expect(projected.messages[0]?.body).toBe(body)
+    expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(true)
+
+  it "bounds oversized legacy text without splitting surrogate pairs", async ->
+    const service = createOperatorService(portFor({
+      detail: vi.fn(async () => detail({
+        run: summary({ title: `${"😀".repeat(100)}x` })
+        messages: [{
+          id: "message-legacy"
+          authorLabel: `${"a".repeat(199)}😀legacy`
+          body: `${"b".repeat(1_999)}😀legacy`
+          createdAt: NOW
+        }]
+      }))
+    }))
+
+    const projected = await service.detail(principal, "run-1")
+    expect(projected.run.title).toBe("😀".repeat(100))
+    expect(projected.messages[0]?.authorLabel).toBe("a".repeat(199))
+    expect(projected.messages[0]?.body).toBe("b".repeat(1_999))
+    expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(true)
+
   it "redacts secrets, caps UTF-8 safely, and bounds projected collections", async ->
     const longTimeline = Array.from({ length: 1_001 }, (_, index) => ({
       sequence: index + 1
@@ -169,6 +218,11 @@ describe "operator service projection boundary", ->
       body: index === 0 ? `${"a".repeat(1_999)}😀` : "safe"
       createdAt: NOW
     }))
+    const exactRevision = "Keep password=literal in the exact clarification text."
+    const longPlanRevisions = Array.from({ length: 1_001 }, (_, index) => ({
+      message: index === 0 ? exactRevision : `Revision ${index}`
+      createdAt: NOW
+    }))
     const service = createOperatorService(portFor({
       detail: vi.fn(async () => detail({
         run: summary({
@@ -178,6 +232,7 @@ describe "operator service projection boundary", ->
         timeline: longTimeline
         evidence: longEvidence
         messages: longMessages
+        planRevisions: longPlanRevisions
       }))
     }))
 
@@ -197,6 +252,14 @@ describe "operator service projection boundary", ->
     })
     expect(projected.messages).toHaveLength(500)
     expect(projected.messages[0]?.body).toBe("a".repeat(1_999))
+    expect(projected.originalRequest).toBe("Plan the bounded operator change")
+    expect(projected.planRevisions).toHaveLength(1_000)
+    expect(projected.planRevisions[0]).toEqual({
+      message: exactRevision
+      createdAt: NOW
+    })
+    expect(Object.isFrozen(projected.planRevisions)).toBe(true)
+    expect(Object.isFrozen(projected.planRevisions[0])).toBe(true)
 
   it "redacts exact normalized sensitive keys across JSON and plain evidence", async ->
     const nestedJson = JSON.stringify({
@@ -480,6 +543,15 @@ describe "operator service projection boundary", ->
       { redacted: true, redactedContent: "[REDACTED]" }
     ])
 
+  it "projects the authoritative plan-revision capability", async ->
+    const service = createOperatorService(portFor({
+      detail: vi.fn(async () => detail({ canRequestPlanRevision: true }))
+    }))
+
+    await expect(service.detail(principal, "run-1")).resolves.toMatchObject({
+      canRequestPlanRevision: true
+    })
+
   it "projects the exact digest-bound plan and rejects a tampered port value", async ->
     const service = createOperatorService(portFor({
       detail: vi.fn(async () => detail({ implementationPlan: PLAN }))
@@ -545,6 +617,7 @@ describe "operator service projection boundary", ->
 describe "operator service action forwarding", ->
   it "forwards owner-scoped submit, approval, and action contexts", async ->
     const port = portFor()
+    const exactNote = "😀".repeat(1_000)
     const service = createOperatorService(port)
     const approval = {
       machineId: "darkfactory-pilot"
@@ -565,10 +638,17 @@ describe "operator service action forwarding", ->
     await service.reject(principal, "run-1", "not ready", "request-reject-2")
     await service.cancel(principal, "run-1", "request-cancel")
     await service.retry(principal, "run-1", "request-retry")
+    await service.revise(
+      principal
+      "run-1"
+      "Keep the plan bounded"
+      "revision-attempt-1"
+      "request-revision"
+    )
     await service.message(
       principal
       "run-1"
-      `${"m".repeat(1_999)}😀`
+      exactNote
       "message-1"
       "request-message"
     )
@@ -600,8 +680,15 @@ describe "operator service action forwarding", ->
     expect(port.retry).toHaveBeenCalledWith(expect.objectContaining({
       requestId: "request-retry"
     }))
+    expect(port.revise).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "revision-attempt-1"
+      clarification: "Keep the plan bounded"
+      requestId: "request-revision"
+    }))
     expect(port.message).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "message-1"
-      body: "m".repeat(1_999)
+      body: exactNote
       requestId: "request-message"
     }))
+    expect(new TextEncoder().encode(exactNote).byteLength)
+      .toBeLessThanOrEqual(8 * 1_024)

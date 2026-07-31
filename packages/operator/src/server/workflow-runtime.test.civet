@@ -63,6 +63,15 @@ const submissionHashFor = (ownerId: string, idempotencyKey: string): string =>
   sha256Hex(canonicalJsonV1({ ownerId, idempotencyKey }))
 const runIdFor = (ownerId: string, idempotencyKey: string): string =>
   `run-${submissionHashFor(ownerId, idempotencyKey)}`
+const revisionEventIdFor = (
+  ownerId: string,
+  runId: string,
+  idempotencyKey: string,
+): string => `plan-revision-${sha256Hex(canonicalJsonV1({
+  ownerId,
+  runId,
+  idempotencyKey,
+}))}`
 
 const duplicateKeyError = (): Error & { code: "23505" } =>
   const error = new Error(
@@ -353,6 +362,8 @@ describe("operator workflow submit idempotency", () =>
 
     expect(first.run.id).toBe(runIdFor(input.ownerId, input.idempotencyKey))
     expect(retry).toEqual(first)
+    expect(first.originalRequest).toBe(input.title)
+    expect(first.planRevisions).toEqual([])
     expect(fake.createRun).toHaveBeenCalledOnce()
     expect(fake.createRun).toHaveBeenCalledWith(expect.objectContaining({
       id: first.run.id,
@@ -367,6 +378,37 @@ describe("operator workflow submit idempotency", () =>
         context: expect.objectContaining({ ownerId: input.ownerId, scope: SCOPE }),
       }),
     }))
+  )
+
+  it("projects the exact Wayfinder request from the verified initial journal event", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+    const humanRequest =
+      "Plan the full operator cutover with durable transcript details, not the short run title."
+    await application.createRun({
+      ownerId: "owner-1",
+      runId: "run-wayfinder-request",
+      event: {
+        type: "RUN_SUBMITTED",
+        eventId: "submit-wayfinder-request",
+        eventVersion: 1,
+        machineVersion: 1,
+        occurredAt: NOW.toISOString(),
+        taskId: "Operator cutover",
+        workspaceId: SCOPE.repositoryId,
+        taskRevision: 1,
+        taskHash: "b".repeat(64),
+        scope: SCOPE,
+        executionMode: "wayfinder",
+        humanRequest,
+      },
+    })
+
+    const projected = await portFor(fake).detail(
+      "owner-1",
+      "run-wayfinder-request",
+    )
+    expect(projected?.originalRequest).toBe(humanRequest)
   )
 
   it("recovers the owner-scoped run after a concurrent duplicate create loses its response", async () =>
@@ -701,6 +743,231 @@ describe("operator workflow approval idempotency", () =>
     expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
   )
 )
+
+describe "operator Wayfinder plan revision", ->
+  it "queues a new plan effect, clears review evidence, and rejects the old approval", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const run = await awaitingRun(fake, port)
+    const { stale: _stale, ...oldApproval } = run.approval
+
+    const revised = await port.revise({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: run.submitted.run.id
+      idempotencyKey: "revision-attempt-1"
+      requestId: "request-plan-revision"
+      clarification: "Keep the plan within packages/operator."
+    })
+
+    expect(revised).toMatchObject({
+      run: { state: "planning" }
+      approval: null
+      implementationPlan: null
+    })
+    expect(revised.originalRequest).toBe(run.submitted.originalRequest)
+    expect(revised.planRevisions).toEqual([{
+      message: "Keep the plan within packages/operator."
+      createdAt: NOW
+    }])
+    const append = fake.append.mock.calls.at(-1)![0]
+    expect(append).toMatchObject({
+      ownerId: "owner-1"
+      event: {
+        type: "PLAN_REVISION_REQUESTED"
+        eventId: revisionEventIdFor(
+          "owner-1",
+          run.submitted.run.id,
+          "revision-attempt-1",
+        )
+        clarification: "Keep the plan within packages/operator."
+      }
+      snapshot: {
+        state: "planning"
+        context: {
+          taskRevision: 2
+          planEvidenceId: null
+          planHash: null
+          approvalId: null
+          approvalHash: null
+        }
+      }
+      effects: [expect.objectContaining({
+        payload: expect.objectContaining({
+          ownerId: "owner-1"
+          effectKind: "plan"
+          effectScope: SCOPE
+          task: expect.objectContaining({
+            taskRevision: 2
+            planClarification: "Keep the plan within packages/operator."
+          })
+        })
+      })]
+    })
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledWith({
+      approval: {
+        id: expect.any(String)
+        runId: run.submitted.run.id
+        ownerId: "owner-1"
+        decidedBy: "owner-1"
+        decision: "rejected"
+        reason: "plan-revision-requested"
+      }
+      append: expect.objectContaining({
+        event: expect.objectContaining({
+          type: "PLAN_REVISION_REQUESTED"
+          clarification: "Keep the plan within packages/operator."
+        })
+      })
+    })
+    await expectWorkflowPortError(port.approve({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: run.submitted.run.id
+      requestId: "approve-stale-plan"
+      approval: oldApproval
+    }), "STALE_APPROVAL")
+
+  it "replays a lost approval response exactly and conflicts on changed text", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const run = await awaitingRun(fake, port)
+    const input = {
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: run.submitted.run.id
+      idempotencyKey: "revision-lost-response"
+      requestId: "revision-first-request"
+      clarification: "Keep the plan within packages/operator."
+    }
+
+    fake.failAfterNextDecision()
+    await expectWorkflowPortError(port.revise(input), "STORAGE_ERROR")
+    const replayed = await port.revise({
+      ...input
+      requestId: "revision-retry-request"
+    })
+
+    expect(replayed).toMatchObject({
+      run: { state: "planning", sequence: run.submitted.run.sequence + 2 }
+      canRequestPlanRevision: false
+    })
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2)
+    await expectWorkflowPortError(port.revise({
+      ...input
+      requestId: "revision-conflict-request"
+      clarification: "Use a different plan."
+    }), "CONFLICT")
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2)
+
+  it "coalesces concurrent exact revision requests into one journal event", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const run = await awaitingRun(fake, port)
+    const input = {
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: run.submitted.run.id
+      idempotencyKey: "revision-concurrent"
+      clarification: "Keep the plan bounded."
+    }
+
+    const [first, second] = await Promise.all([
+      port.revise({ ...input, requestId: "revision-concurrent-1" })
+      port.revise({ ...input, requestId: "revision-concurrent-2" })
+    ])
+
+    expect(second.run.sequence).toBe(first.run.sequence)
+    expect(second.timeline.filter(
+      ({ eventType }) => eventType === "PLAN_REVISION_REQUESTED"
+    )).toHaveLength(1)
+
+  it "derives revision capability from state and the blocked failure stage", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const submitted = await port.submit(submitInput())
+    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+    expect((await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision)
+      .toBe(false)
+    await application.transition({
+      ownerId: "owner-1"
+      runId: submitted.run.id
+      event: {
+        type: "EFFECT_FAILED"
+        eventId: "blocked-plan-revision-capability"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: NOW.toISOString()
+        effectKind: "plan"
+        failure: { code: "adapter_failed", retryable: true }
+      }
+    })
+    expect((await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision)
+      .toBe(true)
+    await expect(port.revise({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: submitted.run.id
+      idempotencyKey: "blocked-plan-revision"
+      requestId: "blocked-plan-revision"
+      clarification: "Use a smaller backend slice."
+    })).resolves.toMatchObject({ canRequestPlanRevision: false })
+    expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
+
+    const implementingFake = fakeRepository()
+    const implementingPort = portFor(implementingFake)
+    const awaiting = await awaitingRun(implementingFake, implementingPort)
+    const { stale: _stale, ...approval } = awaiting.approval
+    await implementingPort.approve({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: awaiting.submitted.run.id
+      requestId: "approve-before-implementation-failure"
+      approval
+    })
+    const implementingApplication = createWorkflowApplication(
+      implementingFake.repository,
+      { now: () => NOW },
+    )
+    await implementingApplication.transition({
+      ownerId: "owner-1"
+      runId: awaiting.submitted.run.id
+      event: {
+        type: "EFFECT_FAILED"
+        eventId: "blocked-implementation-revision-capability"
+        eventVersion: 1
+        machineVersion: 1
+        occurredAt: NOW.toISOString()
+        effectKind: "implement"
+        failure: { code: "adapter_failed", retryable: true }
+      }
+    })
+    expect((await implementingPort.detail(
+      "owner-1",
+      awaiting.submitted.run.id,
+    ))?.canRequestPlanRevision).toBe(false)
+
+  it "rejects wrong-owner and invalid-state plan revisions", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const submitted = await port.submit(submitInput())
+    await expectWorkflowPortError(port.revise({
+      ownerId: "owner-2"
+      actorUserId: "owner-2"
+      runId: submitted.run.id
+      idempotencyKey: "wrong-owner-revision"
+      requestId: "wrong-owner-revision"
+      clarification: "Revise the plan."
+    }), "NOT_FOUND")
+    await expectWorkflowPortError(port.revise({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: submitted.run.id
+      idempotencyKey: "invalid-state-revision"
+      requestId: "invalid-state-revision"
+      clarification: "Revise the plan."
+    }), "VALIDATION_ERROR")
+
 
 describe("operator workflow pagination", () =>
   it("reaches owner-and-state-matching runs beyond the first 100 with limit plus one", async () =>
@@ -1365,6 +1632,20 @@ describe "operator workflow port error mapping", ->
       )
     )
   )
+  it "preserves an internal storage cause without exposing it in the public message", async ->
+    const failure = Object.assign(new Error("database password=private"), { code: "XX000" })
+    const fake = fakeRepository()
+    vi.spyOn(fake.repository, "listRunsByOwner").mockRejectedValue(failure)
+    const port = portFor(fake)
+    const mapped = await port.workspace("owner-1", { limit: 1 }).catch((error) => error)
+    expect(mapped).toBeInstanceOf(OperatorWorkflowPortError)
+    expect(mapped).toMatchObject({
+      code: "STORAGE_ERROR",
+      message: operatorServiceErrorMessage("STORAGE_ERROR"),
+      cause: failure,
+    })
+    expect((mapped as Error).message).not.toContain("password")
+
 
   it "uses validation fallback errors for invalid submit, cancel, and retry input", async ->
     const fake = fakeRepository()

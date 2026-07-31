@@ -26,6 +26,7 @@ export const WORKFLOW_STATES = Object.freeze([
 export const WORKFLOW_EVENT_TYPES = Object.freeze([
   "RUN_SUBMITTED"
   "PLAN_SUCCEEDED"
+  "PLAN_REVISION_REQUESTED"
   "APPROVAL_GRANTED"
   "APPROVAL_REJECTED"
   "IMPLEMENTATION_SUCCEEDED"
@@ -76,6 +77,7 @@ export interface WorkflowEffectPayloadV1 {
   readonly evidenceIds: readonly string[]
   readonly executionMode?: WorkflowExecutionModeV1
   readonly humanRequest?: string
+  readonly planClarification?: string
 }
 
 export interface WorkflowEffectProposalV1 {
@@ -130,6 +132,10 @@ export type WorkflowEventV1 =
       readonly planEvidenceId: string
       readonly planHash: string
       readonly implementationScope: WorkflowEffectScopeV1
+    })
+  | (WorkflowEventBaseV1 & {
+      readonly type: "PLAN_REVISION_REQUESTED"
+      readonly clarification: string
     })
   | (WorkflowEventBaseV1 & {
       readonly type: "APPROVAL_GRANTED"
@@ -190,6 +196,7 @@ export interface WorkflowContextV1 {
   readonly scope: WorkflowEffectScopeV1 | null
   readonly executionMode?: WorkflowExecutionModeV1
   readonly humanRequest?: string
+  readonly planClarification?: string
   readonly attempts: WorkflowAttemptsV1
   readonly pendingEffect: WorkflowEffectProposalV1 | null
   readonly planEvidenceId: string | null

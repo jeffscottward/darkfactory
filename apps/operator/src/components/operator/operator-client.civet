@@ -20,6 +20,7 @@ export type OperatorTimelineEntry = OperatorRunDetailOutput["timeline"][number]
 export type OperatorApprovalBinding = NonNullable<OperatorRunDetailOutput["approval"]>
 export type OperatorImplementationPlan =
   NonNullable<OperatorRunDetailOutput["implementationPlan"]>
+export type OperatorPlanRevision = OperatorRunDetailOutput["planRevisions"][number]
 export type OperatorEvidenceItem = OperatorRunDetailOutput["evidence"][number]
 export type OperatorMessage = OperatorRunDetailOutput["messages"][number]
 export type OperatorWorkspaceOutput = Readonly<{
@@ -69,6 +70,11 @@ export interface OperatorGateway {
     body: string,
     idempotencyKey: string,
   ) => Promise<OperatorRunDetailOutput>
+  readonly revise: (
+    id: string,
+    message: string,
+    idempotencyKey: string,
+  ) => Promise<OperatorRunDetailOutput>
   readonly wayfinderStatus: () => Promise<OperatorWayfinderStatus>
   readonly startWayfinder: (
     request: string,
@@ -95,6 +101,13 @@ export const createOperatorGateway = (client: OperatorClient): OperatorGateway =
     }
     return client.operator.approve(input)
 
+  const revise = (
+    id: string,
+    message: string,
+    idempotencyKey: string,
+  ): Promise<OperatorRunDetailOutput> =>
+    client.operator.wayfinder.revise({ runId: id, message, idempotencyKey })
+
   return Object.freeze({
     submit: (title: string, scope: OperatorSubmitScope, idempotencyKey: string) =>
       client.operator.submit({
@@ -110,6 +123,7 @@ export const createOperatorGateway = (client: OperatorClient): OperatorGateway =
     retry: (id: string) => client.operator.retry({ id }),
     message: (id: string, body: string, idempotencyKey: string) =>
       client.operator.message({ id, body, idempotencyKey })
+    revise,
     wayfinderStatus: () => client.operator.wayfinder.status({}),
     startWayfinder: (request: string, scope: OperatorSubmitScope) =>
       client.operator.wayfinder.start({
@@ -135,6 +149,8 @@ export const createBrowserOperatorGateway = (): OperatorGateway =>
     retry: (id: string) => current().retry(id),
     message: (id: string, body: string, idempotencyKey: string) =>
       current().message(id, body, idempotencyKey)
+    revise: (id: string, message: string, idempotencyKey: string) =>
+      current().revise(id, message, idempotencyKey)
     wayfinderStatus: () => current().wayfinderStatus(),
     startWayfinder: (request: string, scope: OperatorSubmitScope) =>
       current().startWayfinder(request, scope)
@@ -171,7 +187,7 @@ export const classifyOperatorFailure = (error: unknown): OperatorFailure =>
       return { kind: "not-found", message: "This workflow run is no longer available." }
     case "CONFLICT":
     case "STALE_APPROVAL":
-      return { kind: "stale", message: "The approval binding is stale. Reload the run before taking action." }
+      return { kind: "stale", message: "The plan changed. Reload the run before you take action." }
     case "STORAGE_ERROR":
     case "SERVICE_UNAVAILABLE":
       return { kind: "transient", message: "Operator data is temporarily unavailable. Try again." }

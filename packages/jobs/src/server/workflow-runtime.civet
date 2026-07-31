@@ -50,12 +50,14 @@ import {
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.civet"
 import {
-  WORKFLOW_EFFECT_HANDLER,
+  WORKFLOW_EFFECT_HANDLER_V1,
+  WORKFLOW_EFFECT_HANDLER_V2,
   createWorkflowOutboxWorker,
   workflowImplementationRecoveryFromEvidence,
   type ClaimedWorkflowEffect,
   type WorkflowEffectCompletion,
   type WorkflowEffectFailure,
+  type WorkflowEffectHandler,
   type WorkflowOutboxPort,
   type WorkflowWorkerItemResult,
 } from "./workflow-worker.civet"
@@ -199,7 +201,7 @@ const persistedEffects = (
   effects: readonly WorkflowEffectV1[],
 ): readonly WorkflowEffectInput[] => effects.map((effect) => ({
   id: effect.id,
-  handler: WORKFLOW_EFFECT_HANDLER,
+  handler: WORKFLOW_EFFECT_HANDLER_V2,
   idempotencyKey: effect.idempotencyKey,
   eventType: "WORKFLOW_EFFECT_REQUESTED",
   payload: {
@@ -822,6 +824,22 @@ const workflowExecutionMetadataFor = (
     return Object.freeze({ executionMode, humanRequest })
   throw new TypeError("Invalid workflow effect execution metadata")
 
+const workflowPlanClarificationFor = (
+  task: Readonly<Record<string, unknown>>,
+): Readonly<{ planClarification?: string }> =>
+  const planClarification = task["planClarification"]
+  if planClarification === undefined return Object.freeze({})
+  if (
+    typeof planClarification !== "string" ||
+    planClarification.length === 0 ||
+    planClarification.trim() !== planClarification ||
+    new TextEncoder().encode(planClarification).byteLength >
+      MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
+    /[\u0000-\u001F\u007F]/u.test(planClarification)
+  )
+    throw new TypeError("Invalid workflow plan clarification")
+  return Object.freeze({ planClarification })
+
 const requiredInteger = (value: unknown, field: string): number =>
   if (!Number.isSafeInteger(value) || (value as number) < 0)
     throw new TypeError(`Invalid workflow effect ${field}`)
@@ -830,12 +848,19 @@ const requiredInteger = (value: unknown, field: string): number =>
 const parseScope = (value: unknown): WorkflowEffectScopeV1 =>
   parseWorkflowEffectScopeV1(value)
 
-const parseClaim = (row: OutboxEvent): Readonly<{
+const parseClaim = (
+  row: OutboxEvent,
+  expectedHandler: WorkflowEffectHandler,
+): Readonly<{
   claim: ClaimedWorkflowEffect
   metadata: WorkflowCompletionMetadata
 }> =>
   if (
-    row.handler !== WORKFLOW_EFFECT_HANDLER ||
+    (
+      expectedHandler !== WORKFLOW_EFFECT_HANDLER_V1 &&
+      expectedHandler !== WORKFLOW_EFFECT_HANDLER_V2
+    ) ||
+    row.handler !== expectedHandler ||
     row.aggregateType !== "workflow_run" ||
     row.idempotencyKey === null ||
     row.leaseOwner === null ||
@@ -853,6 +878,15 @@ const parseClaim = (row: OutboxEvent): Readonly<{
   const ownerId = requiredString(payload["ownerId"], "ownerId")
   const effectId = requiredString(payload["effectId"], "effectId")
   const executionMetadata = workflowExecutionMetadataFor(task)
+  const planClarification = workflowPlanClarificationFor(task)
+  if (
+    planClarification.planClarification !== undefined &&
+    (
+      row.handler !== WORKFLOW_EFFECT_HANDLER_V2 ||
+      effectKind !== "plan"
+    )
+  )
+    throw new TypeError("Workflow effect handler does not support plan clarification")
   const taskMetadata = Object.freeze({
     taskId: requiredTaskTitle(task["taskId"]),
     workspaceId: requiredString(task["workspaceId"], "workspaceId"),
@@ -860,13 +894,14 @@ const parseClaim = (row: OutboxEvent): Readonly<{
     taskHash: requiredString(task["taskHash"], "taskHash"),
     sourceSequence: requiredInteger(task["sourceSequence"], "sourceSequence"),
     ...executionMetadata,
+    ...planClarification,
   })
   return Object.freeze({
     claim: Object.freeze({
       id: row.id,
       runId: row.aggregateId,
       ownerId,
-      handler: WORKFLOW_EFFECT_HANDLER,
+      handler: row.handler as WorkflowEffectHandler,
       idempotencyKey: row.idempotencyKey,
       effectId,
       effectKind,
@@ -919,7 +954,7 @@ export const createWorkflowRepositoryOutboxAdapter = (
     claimDueEffects: async (input) =>
       const rows = await options.repository.claimDueEffects(input)
       return rows.map((row) =>
-        const parsed = parseClaim(row)
+        const parsed = parseClaim(row, input.handler)
         claims.set(row.id, parsed)
         return parsed.claim
       )

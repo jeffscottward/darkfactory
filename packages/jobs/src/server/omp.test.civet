@@ -5117,7 +5117,7 @@ describe("OMP CLI adapter", () =>
     await expect(access(retainedLock)).rejects.toMatchObject({ code: "ENOENT" })
   )
 
-  it("publishes the bounded Wayfinder tracker before disposing the detached worktree", async () =>
+  it("publishes a bounded tracker redacted with the exact child environment before disposing the worktree", async () =>
     const skillsRoot = join(repositoriesRoot, "skills")
     for skillName of OMP_WAYFINDER_SKILLS
       const skillDirectory = join(skillsRoot, skillName)
@@ -5126,6 +5126,8 @@ describe("OMP CLI adapter", () =>
         join(skillDirectory, "SKILL.md"),
         `---\nname: ${skillName}\n---\n`,
       )
+    const childSecret = "standalone-omp-child-environment-value"
+    process.env["OPENAI_API_KEY"] = childSecret
     process.env["UNRELATED_SECRET"] = "must-not-enter-wayfinder"
     callbackWith(
       null,
@@ -5134,12 +5136,18 @@ describe("OMP CLI adapter", () =>
       async (cwd) =>
         const tracker = join(cwd, ".scratch", "run-wayfinder-1")
         await mkdir(join(tracker, "issues"), { recursive: true, mode: 0o700 })
-        await writeFile(join(tracker, "map.md"), "# Durable map\n", { mode: 0o600 })
         await writeFile(
-          join(tracker, "issues", "01-storage.md"),
-          "# Storage ticket\n",
+          join(tracker, "map.md"),
+          `# Durable map\n${childSecret}\n`,
           { mode: 0o600 },
         )
+        await writeFile(
+          join(tracker, "issues", "01-storage.md"),
+          `# Storage ticket\n${childSecret}\n`,
+          { mode: 0o600 },
+        )
+        process.env["OPENAI_API_KEY"] = "replacement-after-child-start"
+        return
     )
     const omp = createOmpCliAdapter({
       repositoriesRoot
@@ -5167,11 +5175,14 @@ describe("OMP CLI adapter", () =>
       "run-wayfinder-1",
     )
     await expect(readFile(join(target, "map.md"), "utf8"))
-      .resolves.toBe("# Durable map\n")
+      .resolves.toBe("# Durable map\n[REDACTED]\n")
     await expect(readFile(join(target, "issues", "01-storage.md"), "utf8"))
-      .resolves.toBe("# Storage ticket\n")
+      .resolves.toBe("# Storage ticket\n[REDACTED]\n")
     expect("wayfinderTrackerArtifact" in result).toBe(false)
-    expect(JSON.stringify(result)).not.toContain("# Durable map")
+    expect(result.output.stdout).toContain("# Durable map")
+    expect(result.output.stdout).toMatch(/Tracker digest: [0-9a-f]{64}/u)
+    expect(result.output.stdout).toContain("[REDACTED]")
+    expect(JSON.stringify(result)).not.toContain(childSecret)
     await expect(access(workspaceDirectories[0]!)).resolves.toBeUndefined()
     const receipt = await readlink(target)
     expect(receipt).toMatch(
@@ -5194,6 +5205,7 @@ describe("OMP CLI adapter", () =>
     expect(ompArguments).not.toContain("--no-skills")
     expect(ompArguments).toContain("--thinking=off")
     expect(options.env["HOME"]).toMatch(/darkfactory-omp-/u)
+    expect(options.env["OPENAI_API_KEY"]).toBe(childSecret)
     expect(options.env["UNRELATED_SECRET"]).toBeUndefined()
     const writeSection = profile.slice(profile.indexOf("(allow file-write*"))
     expect(writeSection).toContain(
@@ -5208,7 +5220,7 @@ describe("OMP CLI adapter", () =>
     await expect(access(workspaceDirectories[0]!))
       .rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(target, "map.md"), "utf8"))
-      .resolves.toBe("# Durable map\n")
+      .resolves.toBe("# Durable map\n[REDACTED]\n")
   )
 
   it.each([

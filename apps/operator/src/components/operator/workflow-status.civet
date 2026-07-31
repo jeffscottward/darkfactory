@@ -3,12 +3,12 @@ import { StatusBadge, type StatusBadgeProps } from "@darkfactory/ui"
 import type { WorkflowState } from "./operator-client.civet"
 
 const WORKFLOW_STATE_LABELS: Readonly<Record<WorkflowState, string>> = Object.freeze({
-  draft: "Draft",
+  draft: "Start planning",
   planning: "Planning",
-  awaitingApproval: "Awaiting approval",
-  implementing: "Implementing",
-  verifying: "Verifying",
-  blocked: "Blocked",
+  awaitingApproval: "Review plan",
+  implementing: "Work in progress",
+  verifying: "Work in progress",
+  blocked: "Needs attention",
   completed: "Completed",
   cancelled: "Cancelled",
 })

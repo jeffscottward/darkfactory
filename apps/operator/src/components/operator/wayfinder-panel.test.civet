@@ -24,30 +24,35 @@ afterEach ->
   cleanup()
   vi.clearAllMocks()
 
-describe "Wayfinder local workflow panel", ->
-  it "shows unavailable status and prevents queueing", async ->
+describe "Wayfinder first-time planning journey", ->
+  it "leads with one planning action and explains approval before code changes", async ->
     const gateway = gatewayWith("unavailable")
     render(<WayfinderPanel gateway={gateway} />)
 
     expect(await screen.findByText("Wayfinder is unavailable")).toBeDefined()
-    expect((screen.getByRole("button", { name: "Queue Wayfinder run" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole("heading", { name: "Plan with Wayfinder" })).toBeDefined()
+    expect(screen.getByRole("heading", { name: "Start planning" })).toBeDefined()
+    expect(screen.getByText("Review plan")).toBeDefined()
+    expect(screen.getByText("Monitor work")).toBeDefined()
+    expect(screen.getByText(/does not edit code until you approve/)).toBeDefined()
+    expect((screen.getByRole("button", { name: "Start planning" }) as HTMLButtonElement).disabled).toBe(true)
     expect(gateway.startWayfinder).not.toHaveBeenCalled()
 
   it "shows installed status and durably queues the bounded request before execution", async ->
     const gateway = gatewayWith("installed")
     render(<WayfinderPanel gateway={gateway} />)
 
-    expect(await screen.findByText("Wayfinder is installed")).toBeDefined()
-    fireEvent.change(screen.getByLabelText("Wayfinder repository ID"), {
+    expect(await screen.findByText("Wayfinder is ready")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Repository"), {
       target: { value: "darkfactory" },
     })
-    fireEvent.change(screen.getByLabelText("Wayfinder request"), {
+    fireEvent.change(screen.getByLabelText("What should Wayfinder plan?"), {
       target: { value: "Plan the standalone operator cutover" },
     })
-    fireEvent.change(screen.getByLabelText("Wayfinder scope paths, one per line"), {
+    fireEvent.change(screen.getByLabelText("Files Wayfinder can review, one path per line"), {
       target: { value: " apps/operator \n\n packages/operator " },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Queue Wayfinder run" }))
+    fireEvent.click(screen.getByRole("button", { name: "Start planning" }))
 
     await waitFor(() => expect(gateway.startWayfinder).toHaveBeenCalledWith(
       "Plan the standalone operator cutover",
@@ -56,16 +61,114 @@ describe "Wayfinder local workflow panel", ->
         paths: ["apps/operator", "packages/operator"],
       },
     ))
-    expect(await screen.findByText("Queued with local-markdown")).toBeDefined()
-    const runLink = screen.getByRole("link", { name: "Open queued run run-wayfinder-1" })
+    expect(await screen.findByText("Planning queued")).toBeDefined()
+    const runLink = screen.getByRole("link", { name: "Review run run-wayfinder-1" })
     expect(runLink.getAttribute("href")).toBe("/operator/runs/run-wayfinder-1")
+
+
+  it "uses shared loading semantics while planning is being queued", async ->
+    let resolveStart: (
+      result: Awaited<ReturnType<WayfinderGateway["startWayfinder"]>>,
+    ) => void
+    const gateway = gatewayWith("installed")
+    vi.mocked(gateway.startWayfinder).mockReturnValueOnce(new Promise((resolve) =>
+      resolveStart = resolve
+    ))
+    render(<WayfinderPanel gateway={gateway} />)
+    expect(await screen.findByText("Wayfinder is ready")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Repository"), {
+      target: { value: "darkfactory" },
+    })
+    fireEvent.change(screen.getByLabelText("What should Wayfinder plan?"), {
+      target: { value: "Plan the bounded launch" },
+    })
+    fireEvent.change(screen.getByLabelText("Files Wayfinder can review, one path per line"), {
+      target: { value: "apps/operator" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Start planning" }))
+
+    const loadingButton = screen.getByRole("button", {
+      name: /Starting planning/,
+    }) as HTMLButtonElement
+    expect(loadingButton.getAttribute("aria-busy")).toBe("true")
+    expect(loadingButton.disabled).toBe(true)
+
+    resolveStart!({
+      runId: "run-wayfinder-pending",
+      status: "queued",
+      tracker: "local-markdown",
+    })
+    expect(await screen.findByText("Planning queued")).toBeDefined()
+    expect(screen.getByRole("button", { name: "Start planning" })).toBeDefined()
+
+  it "rejects a planning request above the UTF-8 byte limit before the gateway call", async ->
+    const gateway = gatewayWith("installed")
+    render(<WayfinderPanel gateway={gateway} />)
+    expect(await screen.findByText("Wayfinder is ready")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Repository"), {
+      target: { value: "darkfactory" },
+    })
+    const request = screen.getByLabelText("What should Wayfinder plan?")
+    fireEvent.change(request, { target: { value: "é".repeat(600) } })
+    fireEvent.change(screen.getByLabelText("Files Wayfinder can review, one path per line"), {
+      target: { value: "apps/operator" },
+    })
+
+    expect(screen.getByText("1,200 / 1,024 bytes")).toBeDefined()
+    expect(screen.getByRole("alert").textContent).toContain("1,024 UTF-8 bytes or fewer")
+    expect((screen.getByRole("button", { name: "Start planning" }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.submit(request.closest("form")!)
+    expect(gateway.startWayfinder).not.toHaveBeenCalled()
+    fireEvent.change(request, { target: { value: "é".repeat(512) } })
+    expect(screen.getByText("1,024 / 1,024 bytes")).toBeDefined()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect((screen.getByRole("button", { name: "Start planning" }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.submit(request.closest("form")!)
+    expect(gateway.startWayfinder).toHaveBeenCalledWith(
+      "é".repeat(512),
+      { repositoryId: "darkfactory", paths: ["apps/operator"] },
+    )
+
+  it "rejects a multiline planning request before the gateway call", async ->
+    const gateway = gatewayWith("installed")
+    render(<WayfinderPanel gateway={gateway} />)
+    expect(await screen.findByText("Wayfinder is ready")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Repository"), {
+      target: { value: "darkfactory" },
+    })
+    const request = screen.getByLabelText("What should Wayfinder plan?")
+    fireEvent.change(request, { target: { value: "Plan the bounded\nlaunch" } })
+    fireEvent.change(screen.getByLabelText("Files Wayfinder can review, one path per line"), {
+      target: { value: "apps/operator" },
+    })
+
+    expect(request.getAttribute("aria-invalid")).toBe("true")
+    expect(request.getAttribute("aria-describedby")).toContain("wayfinder-request-error")
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Use one line without control characters.",
+    )
+    const button = screen.getByRole("button", { name: "Start planning" }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.submit(request.closest("form")!)
+    expect(gateway.startWayfinder).not.toHaveBeenCalled()
+    fireEvent.change(request, { target: { value: " Plan safely\n" } })
+    expect(request.getAttribute("aria-invalid")).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(button.disabled).toBe(false)
+    fireEvent.submit(request.closest("form")!)
+    expect(gateway.startWayfinder).toHaveBeenCalledWith(
+      "Plan safely",
+      { repositoryId: "darkfactory", paths: ["apps/operator"] },
+    )
+
 
   it "fails closed when the availability request fails", async ->
     const gateway = gatewayWith("installed")
     vi.mocked(gateway.wayfinderStatus).mockRejectedValueOnce(new Error("status failed"))
     render(<WayfinderPanel gateway={gateway} />)
     expect(await screen.findByText("Wayfinder is unavailable")).toBeDefined()
-    const button = screen.getByRole("button", { name: "Queue Wayfinder run" })
+    const button = screen.getByRole("button", { name: "Start planning" })
     fireEvent.submit(button.closest("form")!)
     expect(gateway.startWayfinder).not.toHaveBeenCalled()
 
@@ -102,24 +205,27 @@ describe "Wayfinder local workflow panel", ->
         tracker: "local-markdown",
       })
     render(<WayfinderPanel gateway={gateway} />)
-    expect(await screen.findByText("Wayfinder is installed")).toBeDefined()
-    fireEvent.change(screen.getByLabelText("Wayfinder repository ID"), {
+    expect(await screen.findByText("Wayfinder is ready")).toBeDefined()
+    fireEvent.change(screen.getByLabelText("Repository"), {
       target: { value: " DARKFACTORY " },
     })
-    fireEvent.change(screen.getByLabelText("Wayfinder request"), {
+    fireEvent.change(screen.getByLabelText("What should Wayfinder plan?"), {
       target: { value: " Plan the cutover " },
     })
-    fireEvent.change(screen.getByLabelText("Wayfinder scope paths, one per line"), {
+    fireEvent.change(screen.getByLabelText("Files Wayfinder can review, one path per line"), {
       target: { value: "apps/operator" },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Queue Wayfinder run" }))
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    fireEvent.click(screen.getByRole("button", { name: "Start planning" }))
+    const failureAlert = await screen.findByRole("alert")
+    expect(failureAlert.textContent).toBe(
       "The operator request could not be completed. Try again.",
     )
+    expect(failureAlert.getAttribute("tabindex")).toBe("-1")
+    expect(document.activeElement).toBe(failureAlert)
 
-    fireEvent.click(screen.getByRole("button", { name: "Queue Wayfinder run" }))
+    fireEvent.click(screen.getByRole("button", { name: "Start planning" }))
     const runLink = await screen.findByRole("link", {
-      name: "Open queued run run/wayfinder 2",
+      name: "Review run run/wayfinder 2",
     })
     expect(runLink.getAttribute("href")).toBe("/operator/runs/run%2Fwayfinder%202")
     expect(screen.queryByRole("alert")).toBeNull()

@@ -23,7 +23,7 @@ export type GitRunner = (
 
 export type CivetStyleDependencies = Readonly<{
   discoverFiles: (root: string) => Promise<readonly string[]>
-  readSource: (root: string, file: string) => Promise<string>
+  readSource: (root: string, file: string) => Promise<string | undefined>
 }>
 
 export type CivetStyleStreams = Readonly<{
@@ -475,17 +475,25 @@ export const discoverCivetFiles = async (
 
 const defaultDependencies: CivetStyleDependencies = {
   discoverFiles: discoverCivetFiles,
-  readSource: async (root, file) => readFile(join(root, file), "utf8"),
+  readSource: async (root, file) =>
+    try
+      return await readFile(join(root, file), "utf8")
+    catch error
+      if (error as NodeJS.ErrnoException).code === "ENOENT" then return undefined
+      throw error
 }
 
 export const scanCivetRepository = async (
   root: string,
   dependencies: CivetStyleDependencies = defaultDependencies,
 ): Promise<CivetStyleReport> =>
-  const files = [...new Set(await dependencies.discoverFiles(root))].sort(compareText)
+  const discovered = [...new Set(await dependencies.discoverFiles(root))].sort(compareText)
+  const files: string[] = []
   const violations: CivetStyleViolation[] = []
-  for (const file of files)
+  for (const file of discovered)
     const source = await dependencies.readSource(root, file)
+    if source === undefined then continue
+    files.push(file)
     violations.push(...scanCivetSource(source, file))
   return { files, violations: violations.sort(compareViolations) }
 

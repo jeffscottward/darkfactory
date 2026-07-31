@@ -110,11 +110,30 @@ export const OperatorMessageSchema = z.object({
   createdAt: z.date(),
 })
 
+const OperatorPlanRevisionTextSchema = z.string().min(1).superRefine((value, context) =>
+  if (
+    /[\u0000-\u001F\u007F]/u.test(value) ||
+    utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
+  )
+    context.addIssue({
+      code: "custom"
+      message: "Invalid operator conversation text"
+    })
+)
+
+export const OperatorPlanRevisionSchema = z.object({
+  message: OperatorPlanRevisionTextSchema,
+  createdAt: z.date(),
+}).strict()
+
 export const OperatorRunDetailSchema = z.object({
   run: OperatorRunSummarySchema.extend({
     machineId: z.string().min(1).max(100),
     machineVersion: z.number().int().positive(),
   }),
+  originalRequest: z.string().min(1),
+  planRevisions: z.array(OperatorPlanRevisionSchema).max(1_000).readonly(),
+  canRequestPlanRevision: z.boolean(),
   timeline: z.array(OperatorTimelineEntrySchema).max(1_000),
   approval: OperatorApprovalBindingSchema.nullable(),
   implementationPlan: OperatorImplementationPlanSchema.nullable(),
@@ -189,6 +208,21 @@ export const OperatorWayfinderStartInputSchema = z.object({
       context.addIssue({
         code: "custom"
         message: "Invalid Wayfinder request"
+      })
+  ),
+}).strict()
+
+export const OperatorWayfinderReviseInputSchema = z.object({
+  runId: z.string().min(1).max(128),
+  idempotencyKey: OperatorIdempotencyKeySchema,
+  message: z.string().trim().min(1).superRefine((value, context) =>
+    if (
+      WAYFINDER_CONTROL_CHARACTER_PATTERN.test(value) ||
+      utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
+    )
+      context.addIssue({
+        code: "custom"
+        message: "Invalid Wayfinder revision message"
       })
   ),
 }).strict()
@@ -323,6 +357,17 @@ const wayfinderStart = operator
   .input(OperatorWayfinderStartInputSchema)
   .output(OperatorWayfinderQueuedRunSchema)
 
+const wayfinderRevise = operator
+  .route({
+    method: "POST",
+    path: "/operator/wayfinder/runs/{runId}/revise",
+    operationId: "operator.wayfinder.revise",
+    summary: "Request a bounded revision of a Wayfinder plan",
+    tags: ["Operator"],
+  })
+  .input(OperatorWayfinderReviseInputSchema)
+  .output(OperatorRunDetailSchema)
+
 
 export const operatorContract = {
   submit,
@@ -337,6 +382,7 @@ export const operatorContract = {
   wayfinder: {
     status: wayfinderStatus,
     start: wayfinderStart,
+    revise: wayfinderRevise,
   },
 }
 export const operatorApiContract = { operator: operatorContract }
@@ -359,5 +405,9 @@ export type OperatorWayfinderStartInput =
   z.input<typeof OperatorWayfinderStartInputSchema>
 export type OperatorWayfinderStart =
   z.output<typeof OperatorWayfinderStartInputSchema>
+export type OperatorWayfinderReviseInput =
+  z.input<typeof OperatorWayfinderReviseInputSchema>
+export type OperatorWayfinderRevise =
+  z.output<typeof OperatorWayfinderReviseInputSchema>
 export type OperatorWayfinderQueuedRunOutput =
   z.infer<typeof OperatorWayfinderQueuedRunSchema>

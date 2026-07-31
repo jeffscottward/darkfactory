@@ -175,6 +175,21 @@ const wayfinderStart = operator.operator.wayfinder.start
       return mapOperatorServiceError(error, errors)
   )
 
+const wayfinderRevise = operator.operator.wayfinder.revise
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) =>
+    try
+      return await createOperatorService(context.workflowOperator).revise(
+        context.principal,
+        input.runId,
+        input.message,
+        input.idempotencyKey,
+        context.requestId,
+      )
+    catch (error)
+      return mapOperatorServiceError(error, errors)
+  )
+
 
 export const operatorRouter = operator.router({
   operator: {
@@ -190,6 +205,7 @@ export const operatorRouter = operator.router({
     wayfinder: {
       status: wayfinderStatus,
       start: wayfinderStart,
+      revise: wayfinderRevise,
     },
   },
 })

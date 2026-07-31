@@ -41,8 +41,8 @@ export class OperatorServiceError extends Error
 export class OperatorWorkflowPortError extends Error
   readonly code: OperatorServiceErrorCode
 
-  constructor(code: OperatorServiceErrorCode, message: string = code)
-    super(message)
+  constructor(code: OperatorServiceErrorCode, message: string = code, options?: ErrorOptions)
+    super(message, options)
     this.name = "OperatorWorkflowPortError"
     this.code = code
 
@@ -83,9 +83,17 @@ export type WorkflowOperatorMessage = Readonly<{
   createdAt: Date
 }>
 
+export type WorkflowOperatorPlanRevision = Readonly<{
+  message: string
+  createdAt: Date
+}>
+
 export type WorkflowOperatorDetail = Readonly<{
   ownerId: string
   integrity: "verified" | "invalid"
+  canRequestPlanRevision: boolean
+  originalRequest: string
+  planRevisions: readonly WorkflowOperatorPlanRevision[]
   run: WorkflowOperatorRunSummary
   timeline: readonly WorkflowOperatorTimelineEntry[]
   approval: OperatorRunDetailOutput["approval"]
@@ -130,6 +138,10 @@ export type OperatorWorkflowPort = Readonly<{
   ) => Promise<WorkflowOperatorDetail>
   cancel: (input: OperatorActionContext) => Promise<WorkflowOperatorDetail>
   retry: (input: OperatorActionContext) => Promise<WorkflowOperatorDetail>
+  revise: (
+    input: OperatorActionContext &
+      Readonly<{ clarification: string; idempotencyKey: string }>,
+  ) => Promise<WorkflowOperatorDetail>
   message: (
     input: OperatorActionContext &
       Readonly<{ body: string; idempotencyKey: string }>,
@@ -169,6 +181,13 @@ export type OperatorService = Readonly<{
     id: string,
     requestId: string,
   ) => Promise<OperatorRunDetailOutput>
+  revise: (
+    principal: SafePrincipal,
+    runId: string,
+    message: string,
+    idempotencyKey: string,
+    requestId: string,
+  ) => Promise<OperatorRunDetailOutput>
   message: (
     principal: SafePrincipal,
     id: string,
@@ -185,6 +204,18 @@ const capUtf8 = (value: string, maximumBytes: number): string =>
   const encoded = utf8Encoder.encode(value)
   if (encoded.byteLength <= maximumBytes) return value
   return utf8Decoder.decode(encoded.slice(0, maximumBytes)).replace(/\uFFFD$/u, "")
+
+const capUtf16 = (value: string, maximumUnits: number): string =>
+  if (value.length <= maximumUnits) return value
+  const bounded = value.slice(0, maximumUnits)
+  const lastCodeUnit = bounded.charCodeAt(bounded.length - 1)
+  const nextCodeUnit = value.charCodeAt(maximumUnits)
+  const splitsSurrogatePair =
+    lastCodeUnit >= 0xD800 &&
+    lastCodeUnit <= 0xDBFF &&
+    nextCodeUnit >= 0xDC00 &&
+    nextCodeUnit <= 0xDFFF
+  return splitsSurrogatePair ? bounded.slice(0, -1) : bounded
 
 const maximumSensitiveKeyLength = 128
 const sensitiveKeys = new Set([
@@ -296,6 +327,17 @@ const safeText = (
     redacted: sanitized.redacted || bounded !== sanitized.value,
   })
 
+const safeContractText = (
+  value: string,
+  maximumUnits: number,
+): Readonly<{ value: string; redacted: boolean }> =>
+  const sanitized = redact(value)
+  const bounded = capUtf16(sanitized.value, maximumUnits)
+  return Object.freeze({
+    value: bounded,
+    redacted: sanitized.redacted || bounded !== sanitized.value,
+  })
+
 const mapPortError = (error: unknown): never =>
   if (error instanceof OperatorServiceError)
     throw new OperatorServiceError(
@@ -324,7 +366,9 @@ const summaryFor = (
 ): OperatorRunSummaryOutput =>
   if (run.ownerId !== ownerId)
     throw new OperatorServiceError("FORBIDDEN", "Workflow owner scope mismatch")
-  const title = run.title === undefined ? undefined : safeText(run.title, 200).value
+  const title = run.title === undefined
+    ? undefined
+    : safeContractText(run.title, 200).value
   const blockedReason = run.blockedReason === undefined
     ? undefined
     : safeText(run.blockedReason, 500).value
@@ -372,6 +416,14 @@ const detailFor = (
       machineId: detail.run.machineId,
       machineVersion: detail.run.machineVersion,
     },
+    canRequestPlanRevision: detail.canRequestPlanRevision,
+    originalRequest: detail.originalRequest,
+    planRevisions: Object.freeze(detail.planRevisions.slice(0, 1_000).map((revision) =>
+      Object.freeze({
+        message: revision.message,
+        createdAt: revision.createdAt,
+      })
+    )),
     timeline: detail.timeline.slice(0, 1_000).map((entry) => ({
       sequence: entry.sequence,
       eventType: entry.eventType,
@@ -399,8 +451,8 @@ const detailFor = (
     ),
     messages: detail.messages.slice(0, 500).map((message) => ({
       id: message.id,
-      authorLabel: safeText(message.authorLabel, 200).value,
-      body: safeText(message.body, 2_000).value,
+      authorLabel: safeContractText(message.authorLabel, 200).value,
+      body: safeContractText(message.body, 2_000).value,
       createdAt: message.createdAt,
     })),
   }
@@ -485,12 +537,21 @@ export const createOperatorService = (
       (workflow) => workflow.retry(actionContext(principal, id, requestId)),
     )
 
+    revise: (principal, runId, message, idempotencyKey, requestId) => projectAction(
+      principal,
+      (workflow) => workflow.revise({
+        ...actionContext(principal, runId, requestId),
+        idempotencyKey,
+        clarification: message,
+      }),
+    )
+
     message: (principal, id, body, idempotencyKey, requestId) => projectAction(
       principal,
       (workflow) => workflow.message({
         ...actionContext(principal, id, requestId),
         idempotencyKey,
-        body: safeText(body, 2_000).value,
+        body: safeContractText(body, 2_000).value,
       }),
     )
   })

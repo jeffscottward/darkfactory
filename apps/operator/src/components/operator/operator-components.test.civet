@@ -10,7 +10,7 @@ vi.mock("next/link", () => ({
 }))
 
 import { ApprovalPanel } from "./approval-panel.civet"
-import { ChatPanel } from "./chat-panel.civet"
+import { ConversationPanel } from "./conversation-panel.civet"
 import { EvidencePanel } from "./evidence-panel.civet"
 import type {
   OperatorApprovalBinding,
@@ -22,9 +22,9 @@ import {
   OperatorSubmitFormView,
   type OperatorSubmitFeedback,
 } from "./operator-workspace.civet"
-import { RunKanban, runsByWorkflowState } from "./run-kanban.civet"
+import { RunMonitor, runsByWorkflowState } from "./run-monitor.civet"
 import { RunTimeline } from "./run-timeline.civet"
-import { WorkflowGraph, workflowStateCounts } from "./workflow-graph.civet"
+import { WorkflowStatus } from "./workflow-status.civet"
 
 const run = (overrides: Partial<OperatorRunSummary> = {}): OperatorRunSummary => ({
   id: "run-1",
@@ -54,29 +54,37 @@ const implementationPlan = {
 } as const
 
 describe "operator workflow components", ->
-  it "groups and orders the responsive run board without horizontal scrolling", ->
+  it "groups runs into a plain-language monitor and omits empty stages", ->
     const runs = [
       run({ id: "older", updatedAt: new Date("2026-07-28T12:00:00.000Z") }),
       run({ id: "newer", title: undefined, updatedAt: new Date("2026-07-29T12:00:00.000Z") }),
       run({ id: "blocked", state: "blocked", blockedReason: "Verification failed safely." }),
+      run({ id: "draft", title: "Draft rollout", state: "draft" }),
+      run({ id: "cancelled", title: "Stopped rollout", state: "cancelled" }),
     ]
     expect(runsByWorkflowState(runs).awaitingApproval.map((item) => item.id)).toEqual(["newer", "older"])
-    expect(workflowStateCounts(runs)).toMatchObject({ awaitingApproval: 2, blocked: 1, completed: 0 })
 
     const markup = renderToStaticMarkup(
-      <>
-        <WorkflowGraph runs={runs} />
-        <RunKanban runs={runs} selectedRunId="newer" />
+      <RunMonitor runs={runs} selectedRunId="newer" />,
     )
-    expect(markup).toContain("Workflow graph")
-    expect(markup).toContain("Run board")
-    expect(markup).toContain("xl:grid-cols-4")
+    expect(markup).toContain("Work monitor")
+    expect(markup).toMatch(/<h3[^>]*>Planning<\/h3>/u)
+    expect(markup).not.toMatch(/<h3[^>]*>Start planning<\/h3>/u)
+    expect(markup).toContain("Review plan")
+    expect(markup).toContain("Needs attention")
+    expect(markup).not.toContain("Work in progress")
+    expect(markup).toContain("Finished")
+    expect(markup).toContain('aria-label="Open Stopped rollout, Cancelled"')
+    expect(markup).toContain(">Cancelled<")
+    expect(markup).not.toContain("No runs in this state")
     expect(markup).not.toContain("overflow-x-auto")
-    expect(markup).toContain('aria-label="Open newer, Awaiting approval"')
-    expect(markup).toContain("seq 7")
+    expect(markup).toContain('aria-label="Open newer, Review plan"')
+    expect(markup).toContain("Why it needs attention")
+    expect(markup).toContain("Verification failed safely.")
+    expect(markup).toContain("Open this run to review the next action.")
+    expect(markup).not.toContain("journal-head")
     expect(markup).toContain('aria-current="true"')
     expect(markup).toContain("bg-accent")
-
   it "shows the exact approval binding and fails closed for a stale conflict", ->
     const markup = renderToStaticMarkup(
       <ApprovalPanel
@@ -88,15 +96,16 @@ describe "operator workflow components", ->
         onReload={vi.fn()}
       />,
     )
-    expect(markup).toContain("Stale approval conflict")
+    expect(markup).toContain("Plan changed")
+    expect(markup).toContain("Integrity details")
     expect(markup).toContain(approval.journalHeadHash)
     expect(markup).toContain(approval.effectHash)
     expect(markup).toContain(approval.effectScope)
     expect(markup).toContain(implementationPlan.summary)
     expect(markup).toContain(implementationPlan.digest)
-    expect(markup).toContain("Approve exact binding")
+    expect(markup).toContain("Approve this plan")
     expect(markup.match(/disabled=""/g)).toHaveLength(2)
-    expect(markup).toContain("Reload binding")
+    expect(markup).toContain("Reload plan")
 
   it "renders only the bounded redacted evidence projection and exact journal metadata", ->
     const evidence = [{
@@ -122,7 +131,7 @@ describe "operator workflow components", ->
     expect(markup).toContain("[REDACTED] command completed")
     expect(markup).not.toContain("SECRET_RAW_VALUE")
     expect(markup).toContain("event-hash-0123456789abcdef")
-    expect(markup).toContain("seq 7")
+    expect(markup).toContain("Sequence 7")
     expect(markup).toContain("Redacted")
 
   it "keeps the bounded submission form labelled, stackable, and disabled while pending", ->
@@ -153,17 +162,92 @@ describe "operator workflow components", ->
     expect(markup).toContain('disabled=""')
     expect(markup).toContain('aria-busy="true"')
     expect(markup).toContain("sm:grid-cols-2")
-    expect(markup).toContain("A human operator must review the exact approval binding")
+    expect(markup).toContain("Advanced")
 
-  it "labels chat input and disables an empty message action", ->
+  it "renders the human request, planner plan, and non-executing operator notes as one conversation", ->
     const markup = renderToStaticMarkup(
-      <ChatPanel busy={false} messages={[]} onSend={vi.fn(async () => true)} />,
+      <ConversationPanel
+        busy={false}
+        implementationPlan={implementationPlan}
+        runState="awaitingApproval"
+        planRevisions={[
+          {
+            message: "Keep the release steps explicit."
+            createdAt: new Date("2026-07-29T12:05:00.000Z")
+          }
+          {
+            message: "Show rollback before approval."
+            createdAt: new Date("2026-07-29T12:10:00.000Z")
+          }
+        ]}
+        messages={[]}
+        onSend={vi.fn(async () => true)}
+        originalRequest="Plan a safe operator cutover"
+      />,
     )
+    expect(markup).toContain("Conversation")
+    expect(markup).toContain("Your request")
+    expect(markup).toContain("Plan a safe operator cutover")
+    expect(markup).toContain("You requested changes")
+    expect(markup).toContain("Keep the release steps explicit.")
+    expect(markup).toContain("Show rollback before approval.")
+    expect(markup.indexOf("Plan a safe operator cutover"))
+      .toBeLessThan(markup.indexOf("Keep the release steps explicit."))
+    expect(markup.indexOf("Keep the release steps explicit."))
+      .toBeLessThan(markup.indexOf("Show rollback before approval."))
+    expect(markup.indexOf("Show rollback before approval."))
+      .toBeLessThan(markup.indexOf(implementationPlan.summary))
+    expect(markup).toContain("Wayfinder")
+    expect(markup).toContain(implementationPlan.summary)
+    expect(markup).toContain("Operator notes")
+    expect(markup).toContain("Notes add context only. They do not start or change work.")
     expect(markup).toContain('for="operator-message"')
-    expect(markup).toContain('id="operator-message"')
-    expect(markup).toContain("Do not paste secrets")
+    expect(markup).toContain("Add note")
     expect(markup).toContain('disabled=""')
-    expect(markup).toContain("Send message")
+
+    const withoutRevisions = renderToStaticMarkup(
+      <ConversationPanel
+        busy={false}
+        implementationPlan={implementationPlan}
+        runState="awaitingApproval"
+        messages={[]}
+        onSend={vi.fn(async () => true)}
+        originalRequest="Plan a safe operator cutover"
+        planRevisions={[]}
+      />,
+    )
+    expect(withoutRevisions).not.toContain("You requested changes")
+
+  it "describes a missing plan from the authoritative run lifecycle", ->
+    const missingPlanMarkup = (state: OperatorRunSummary["state"]): string =>
+      renderToStaticMarkup(
+        <ConversationPanel
+          busy={false}
+          implementationPlan={null}
+          messages={[]}
+          onSend={vi.fn(async () => true)}
+          originalRequest="Plan safely"
+          planRevisions={[]}
+          runState={state}
+        />,
+      )
+
+    const planning = missingPlanMarkup("planning")
+    expect(planning).toContain("No plan is available yet. Refresh this run to check again.")
+    expect(planning).not.toContain("Wayfinder is preparing")
+
+    const draft = missingPlanMarkup("draft")
+    expect(draft).toContain("Planning has not started.")
+    expect(draft).not.toContain("Wayfinder is preparing")
+
+    const blocked = missingPlanMarkup("blocked")
+    expect(blocked).toContain("Planning stopped before a plan was available.")
+    expect(blocked).not.toContain("Wayfinder is preparing")
+
+    for (const terminalState of ["completed", "cancelled"] as const)
+      const terminal = missingPlanMarkup(terminalState)
+      expect(terminal).toContain("No plan is available for this run.")
+      expect(terminal).not.toContain("Wayfinder is preparing")
 
   it "renders absent, fresh, conflicted, and busy approval checkpoints", ->
     const absent = renderToStaticMarkup(
@@ -176,8 +260,8 @@ describe "operator workflow components", ->
         onReload={vi.fn()}
       />,
     )
-    expect(absent).toContain("no approval awaiting")
-    expect(absent).not.toContain("Approve exact binding")
+    expect(absent).toContain("No plan is waiting for your review.")
+    expect(absent).not.toContain("Approve this plan")
 
     const fresh = renderToStaticMarkup(
       <ApprovalPanel
@@ -191,7 +275,7 @@ describe "operator workflow components", ->
     )
     expect(fresh).toContain("darkfactory-pilot v1")
     expect(fresh).toContain(">1</dd>")
-    expect(fresh).not.toContain("Stale approval conflict")
+    expect(fresh).not.toContain("Plan changed")
     expect(fresh).not.toContain('disabled=""')
 
     const truncatedPlan = renderToStaticMarkup(
@@ -241,8 +325,8 @@ describe "operator workflow components", ->
         onReload={vi.fn()}
       />,
     )
-    expect(approving).toContain("Approving exact binding")
-    expect(rejecting).toContain("Rejecting approval")
+    expect(approving).toContain("Approving this plan")
+    expect(rejecting).toContain("Rejecting plan")
 
   it "renders evidence empty, storage-safe, redacted, and policy-removed projections", ->
     const safeEvidence: readonly OperatorEvidenceItem[] = [{
@@ -271,6 +355,24 @@ describe "operator workflow components", ->
     expect(populated).toContain("Safe summary")
     expect(populated).toContain("summary")
 
+  it "distinguishes a queued submission from the planning lifecycle state", ->
+    const markup = renderToStaticMarkup(
+      <>
+        <WorkflowStatus state="planning" />
+        <RunTimeline entries={[{
+          sequence: 8,
+          eventType: "RUN_SUBMITTED",
+          summary: "The bounded request was accepted.",
+          hash: "submitted-event-hash",
+          createdAt: new Date("2026-07-29T12:05:00.000Z"),
+        }]} />
+    )
+
+    expect(markup).toContain(">Planning<")
+    expect(markup).toContain(">Planning queued<")
+    expect(markup).not.toContain("Planning started")
+    expect(markup).not.toContain("Start planning")
+
   it "renders an empty timeline and normalizes event labels including empty segments", ->
     const empty = renderToStaticMarkup(<RunTimeline entries={[]} />)
     const populated = renderToStaticMarkup(<RunTimeline entries={[{
@@ -281,10 +383,10 @@ describe "operator workflow components", ->
       createdAt: new Date("2026-07-29T12:05:00.000Z"),
     }]} />)
 
-    expect(empty).toContain("No journal events have been recorded.")
-    expect(populated).toContain("Build  Done")
+    expect(empty).toContain("No run history yet.")
+    expect(populated).toContain("Build Done")
     expect(populated).toContain("Build completed.")
-    expect(populated).toContain("seq 8 · event-hash")
+    expect(populated).toContain("Sequence 8 · event-hash")
 
   it "formats run titles, UTC dates, and short and long journal hashes", ->
     const timestamp = new Date("2026-07-29T12:00:00.000Z")

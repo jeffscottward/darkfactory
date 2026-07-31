@@ -24,12 +24,15 @@ import {
 
 import {
   captureOmpWayfinderTrackerArtifact,
-  validateOmpWayfinderTrackerArtifact,
+  redactEffectiveOmpOutput,
+  truncateOmpUtf8,
+  sanitizeOmpWayfinderTrackerArtifact,
   type OmpCliAdapter,
   type OmpCommand,
   type OmpExecutionResult,
   type OmpWayfinderTrackerArtifact,
 } from "./omp.civet"
+import { MAX_WORKFLOW_PLAN_SUMMARY_BYTES } from "./plan-evidence.civet"
 
 export const WAYFINDER_TRACKER = "local-markdown" as const
 export const WAYFINDER_SKILL_PATH = join(
@@ -77,6 +80,7 @@ export type WayfinderExecutionRequest = Readonly<{
   scopePaths: readonly string[]
   repositoryId: string
   humanRequest: string
+  planClarification?: string
   redactions?: readonly string[]
   signal?: AbortSignal
 }>
@@ -383,6 +387,7 @@ const capturePublishedTracker = async (
 type WayfinderTrackerPublication = Readonly<{
   artifact: OmpWayfinderTrackerArtifact
   published: boolean
+  redacted: boolean
 }>
 
 const publishLocalWayfinderTrackerArtifact = async (
@@ -391,6 +396,7 @@ const publishLocalWayfinderTrackerArtifact = async (
     repositoryId: string
     runId: string
     artifact: OmpWayfinderTrackerArtifact
+    redactions?: readonly string[]
   }>,
 ): Promise<WayfinderTrackerPublication> =>
   let stagingOwnership: Readonly<{ dev: number; ino: number }> | undefined
@@ -398,10 +404,11 @@ const publishLocalWayfinderTrackerArtifact = async (
   let staging = ""
   let scratchVerified = false
   try
-    const artifact = validateOmpWayfinderTrackerArtifact(input.artifact, {
+    const artifact = sanitizeOmpWayfinderTrackerArtifact(input.artifact, {
       repositoryId: input.repositoryId
       runId: input.runId
-    })
+    }, input.redactions)
+    const trackerRedacted = artifact.digest !== input.artifact.digest
     const repository = await resolveWayfinderRepository(
       input.repositoriesRoot,
       input.repositoryId,
@@ -422,7 +429,11 @@ const publishLocalWayfinderTrackerArtifact = async (
       input.runId,
     )
     if existing !== null
-      return Object.freeze({ artifact: existing.artifact, published: false })
+      return Object.freeze({
+        artifact: existing.artifact
+        published: false
+        redacted: trackerRedacted
+      })
 
     const stagingBasename =
       `.${input.runId}.publish-${artifact.digest}-${randomUUID()}`
@@ -453,8 +464,16 @@ const publishLocalWayfinderTrackerArtifact = async (
       if winner.stagingBasename === stagingBasename
         stagingOwnership = undefined
         await fsyncPath(scratch)
-        return Object.freeze({ artifact: winner.artifact, published: true })
-      return Object.freeze({ artifact: winner.artifact, published: false })
+        return Object.freeze({
+          artifact: winner.artifact
+          published: true
+          redacted: trackerRedacted
+        })
+      return Object.freeze({
+        artifact: winner.artifact
+        published: false
+        redacted: trackerRedacted
+      })
 
     stagingOwnership = undefined
     await fsyncPath(scratch)
@@ -466,7 +485,11 @@ const publishLocalWayfinderTrackerArtifact = async (
     )
     if persisted === null || persisted.artifact.digest !== artifact.digest
       throw trackerPublicationError()
-    return Object.freeze({ artifact: persisted.artifact, published: true })
+    return Object.freeze({
+      artifact: persisted.artifact
+      published: true
+      redacted: trackerRedacted
+    })
   catch
     throw trackerPublicationError()
   finally
@@ -482,24 +505,37 @@ export const persistLocalWayfinderTrackerArtifact = async (
     artifact: OmpWayfinderTrackerArtifact
   }>,
 ): Promise<void> =>
-  const publication = await publishLocalWayfinderTrackerArtifact(input)
-  if publication.artifact.digest !== input.artifact.digest
+  const expected = sanitizeOmpWayfinderTrackerArtifact(input.artifact, {
+    repositoryId: input.repositoryId
+    runId: input.runId
+  })
+  const publication = await publishLocalWayfinderTrackerArtifact({
+    ...input
+    artifact: expected
+  })
+  if publication.artifact.digest !== expected.digest
     throw trackerPublicationError()
 
 export const buildWayfinderInstruction = (
   humanRequest: string,
   scope: Readonly<{ repositoryId: string; paths: readonly string[] }>,
   runId: string,
+  planClarification?: string,
 ): string => [
   "/wayfinder",
   `Tracker: ${WAYFINDER_TRACKER}.`,
   `Tracker root: ${JSON.stringify(`.scratch/${runId}`)}.`,
-  "Write one non-empty map.md of at most 131072 UTF-8 bytes.",
+  "Write one non-empty map.md of at most 5120 UTF-8 bytes.",
   "Use the write tool to create map.md in the tracker root before responding.",
   "Write up to 64 non-empty issues/NN-safe-slug.md files of at most 65536 UTF-8 bytes each.",
   "Keep the tracker total at most 524288 bytes.",
   "Do not write to .scratch siblings or any other repository path.",
-  `Human request: ${JSON.stringify(humanRequest)}.`,
+  ...(planClarification === undefined
+    ? [`Human request: ${JSON.stringify(humanRequest)}.`]
+    : [
+        `Human request: ${JSON.stringify(humanRequest)}.`,
+        `Requested plan changes: ${JSON.stringify(planClarification)}.`,
+      ]),
   `Bounded repository scope: ${canonicalJsonV1(scope)}.`,
   "Chart the route only. Do not execute the destination work.",
 ].join("\n")
@@ -507,9 +543,27 @@ export const buildWayfinderInstruction = (
 const canonicalWayfinderResult = (
   command: OmpCommand,
   artifact: OmpWayfinderTrackerArtifact,
+  redactions: readonly string[] = [],
+  trackerRedacted = false,
   lifecycle?: OmpExecutionResult["lifecycle"],
 ): OmpExecutionResult =>
-  const stdout = `Wayfinder tracker published: ${artifact.digest}`
+  const trackerHasRedaction = artifact.entries.some(
+    (entry) => entry.content.includes("[REDACTED]"),
+  )
+  const map = artifact.entries.find((entry) => entry.path === "map.md")!
+  const review = [
+    "# Wayfinder plan",
+    map.content.trim(),
+    "",
+    "## Integrity",
+    `Tracker digest: ${artifact.digest}`,
+    `Map digest: ${map.digest}`,
+  ].join("\n")
+  const redacted = redactEffectiveOmpOutput(review, redactions)
+  const bounded = truncateOmpUtf8(
+    redacted.value,
+    MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
+  )
   return Object.freeze({
     command
     status: "succeeded"
@@ -517,12 +571,12 @@ const canonicalWayfinderResult = (
     signal: null
     durationMs: 0
     output: Object.freeze({
-      stdout
+      stdout: bounded.value
       stderr: ""
-      stdoutBytes: Buffer.byteLength(stdout)
+      stdoutBytes: bounded.bytes
       stderrBytes: 0
-      truncated: false
-      redacted: false
+      truncated: bounded.truncated
+      redacted: trackerRedacted || trackerHasRedaction || redacted.redacted
     })
     change: null
     verification: null
@@ -545,6 +599,9 @@ export const createLocalWayfinderExecutionAdapter = (
     status
     execute: async (input) =>
       const humanRequest = parseHumanRequest(input.humanRequest)
+      const planClarification = input.planClarification === undefined
+        ? undefined
+        : parseHumanRequest(input.planClarification)
       const scope = parseScope(input.repositoryId, input.scopePaths)
       if !SAFE_WAYFINDER_RUN_ID.test(input.workspaceId)
         throw new WayfinderRequestError(
@@ -562,7 +619,11 @@ export const createLocalWayfinderExecutionAdapter = (
         input.workspaceId,
       )
       if replay !== null
-        return canonicalWayfinderResult(input.command, replay)
+        return canonicalWayfinderResult(
+          input.command,
+          replay,
+          input.redactions,
+        )
 
       const availability = await status()
       if (availability.availability !== "installed")
@@ -578,6 +639,7 @@ export const createLocalWayfinderExecutionAdapter = (
           humanRequest,
           scope,
           input.workspaceId,
+          planClarification,
         )
         cwd: scope.repositoryId
         scopePaths: scope.paths
@@ -597,6 +659,7 @@ export const createLocalWayfinderExecutionAdapter = (
           repositoryId: scope.repositoryId
           runId: input.workspaceId
           artifact: wayfinderTrackerArtifact
+          ...(input.redactions === undefined ? {} : { redactions: input.redactions })
         })
       catch
         try
@@ -609,10 +672,17 @@ export const createLocalWayfinderExecutionAdapter = (
           await result.lifecycle?.finalize("unpersisted")
         catch
           // The valid race winner remains authoritative.
-        return canonicalWayfinderResult(input.command, publication.artifact)
+        return canonicalWayfinderResult(
+          input.command,
+          publication.artifact,
+          input.redactions,
+          publication.redacted,
+        )
       return canonicalWayfinderResult(
         input.command,
         publication.artifact,
+        input.redactions,
+        publication.redacted,
         result.lifecycle,
       )
   })

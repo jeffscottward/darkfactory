@@ -10,7 +10,9 @@ import {
   OperatorApprovalBindingInputSchema,
   OperatorApprovalBindingSchema,
   OperatorImplementationPlanSchema,
+  OperatorRunDetailSchema,
   OperatorSubmitInputSchema,
+  OperatorWayfinderReviseInputSchema,
   OperatorWayfinderStartInputSchema,
   OperatorWayfinderStatusSchema,
 } from "./contract.civet"
@@ -100,6 +102,46 @@ describe "operator approval effect-scope contracts", ->
       approvalBinding("{not-json}")
     ).success).toBe(false)
 
+describe "operator run detail capability contract", ->
+  const output = {
+    run: {
+      id: "run-1"
+      state: "awaitingApproval"
+      sequence: 2
+      updatedAt: new Date("2026-07-31T12:00:00.000Z")
+      headHash: "a".repeat(64)
+      machineId: "darkfactory-pilot"
+      machineVersion: 1
+    }
+    originalRequest: "Plan the bounded operator change"
+    planRevisions: [{
+      message: "Keep the change within packages/operator."
+      createdAt: new Date("2026-07-31T12:05:00.000Z")
+    }]
+    canRequestPlanRevision: true
+    timeline: []
+    approval: null
+    implementationPlan: null
+    evidence: []
+    messages: []
+  }
+
+  it "requires bounded durable conversation projection fields", ->
+    expect(OperatorRunDetailSchema.safeParse(output).success).toBe(true)
+    const { originalRequest: _request, ...missingRequest } = output
+    expect(OperatorRunDetailSchema.safeParse(missingRequest).success).toBe(false)
+    const { planRevisions: _revisions, ...missingRevisions } = output
+    expect(OperatorRunDetailSchema.safeParse(missingRevisions).success).toBe(false)
+    const { canRequestPlanRevision: _capability, ...missingCapability } = output
+    expect(OperatorRunDetailSchema.safeParse(missingCapability).success).toBe(false)
+    expect(OperatorRunDetailSchema.safeParse({
+      ...output
+      planRevisions: [{
+        message: "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2 + 1)
+        createdAt: new Date("2026-07-31T12:05:00.000Z")
+      }]
+    }).success).toBe(false)
+
 describe "operator Wayfinder contract", ->
   it "accepts installed and unavailable local-markdown status only", ->
     expect(OperatorWayfinderStatusSchema.safeParse({
@@ -145,3 +187,35 @@ describe "operator Wayfinder contract", ->
       }
     ]
       expect(OperatorWayfinderStartInputSchema.safeParse(input).success).toBe(false)
+
+
+  it "trims and bounds plan revision clarification", ->
+    const message = "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2)
+    const idempotencyKey = "revision-attempt-1"
+    expect(OperatorWayfinderReviseInputSchema.parse({
+      runId: "run-wayfinder-1"
+      idempotencyKey
+      message: ` ${message} `
+    })).toEqual({
+      runId: "run-wayfinder-1"
+      idempotencyKey
+      message
+    })
+    for invalid of [
+      ""
+      "   "
+      "line one\nline two"
+      `${message}é`
+    ]
+      expect(OperatorWayfinderReviseInputSchema.safeParse({
+        runId: "run-wayfinder-1"
+        idempotencyKey
+        message: invalid
+      }).success).toBe(false)
+
+    for idempotencyKey of ["", "../revision", "a".repeat(129)]
+      expect(OperatorWayfinderReviseInputSchema.safeParse({
+        runId: "run-wayfinder-1"
+        idempotencyKey
+        message: "Keep the plan bounded."
+      }).success).toBe(false)

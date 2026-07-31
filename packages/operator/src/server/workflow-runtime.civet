@@ -26,8 +26,10 @@ import {
   WorkflowRetryLimitReachedError,
   canonicalJsonV1,
   createWorkflowApprovalBindingV1,
+  createInitialWorkflowSnapshotV1,
   hashWorkflowApprovalV1,
   parseWorkflowEffectScopeV1,
+  replayWorkflowV1,
   sha256Hex,
 } from "@darkfactory/state/workflow"
 
@@ -110,6 +112,7 @@ const mapError = (
   throw new OperatorWorkflowPortError(
     fallback,
     operatorServiceErrorMessage(fallback),
+    { cause: error },
   )
 
 const runPort = async <Value>(
@@ -173,6 +176,15 @@ const matchesApproval = (
     input.effectHash === expected.effectHash &&
     input.effectScope === expected.effectScope
 
+const canRequestPlanRevision = (
+  projection: VerifiedWorkflowProjection,
+): boolean =>
+  projection.snapshot.state === "awaitingApproval" ||
+    (
+      projection.snapshot.state === "blocked" &&
+      projection.snapshot.context.failedStage === "planning"
+    )
+
 export const createOperatorWorkflowPort = (
   options: OperatorWorkflowPortOptions,
 ): OperatorWorkflowPort =>
@@ -213,6 +225,20 @@ export const createOperatorWorkflowPort = (
   const detailFor = async (
     projection: VerifiedWorkflowProjection,
   ): Promise<WorkflowOperatorDetail> =>
+    const submittedEvent = projection.journal[0]?.event
+    if (submittedEvent?.type !== "RUN_SUBMITTED")
+      throw new WorkflowProjectionVerificationError(
+        "missing initial run submission",
+      )
+    const planRevisions: WorkflowOperatorDetail["planRevisions"][number][] = []
+    for entry of projection.journal
+      if (entry.event.type === "PLAN_REVISION_REQUESTED")
+        planRevisions.push(Object.freeze({
+          message: entry.event.clarification,
+          createdAt: new Date(entry.event.occurredAt),
+        }))
+        if (planRevisions.length === 1_000) break
+
     const runId = projection.persistence.run.id
     const ownerId = projection.persistence.run.ownerId
     const [evidencePage, messagePage, implementationPlan] = await Promise.all([
@@ -225,6 +251,9 @@ export const createOperatorWorkflowPort = (
     return Object.freeze({
       ownerId,
       integrity: "verified",
+      canRequestPlanRevision: canRequestPlanRevision(projection),
+      originalRequest: submittedEvent.humanRequest ?? submittedEvent.taskId,
+      planRevisions: Object.freeze(planRevisions),
       run: summaryFor(projection),
       timeline: Object.freeze(projection.persistence.journal.map((entry) => ({
         sequence: entry.sequence,
@@ -324,6 +353,104 @@ export const createOperatorWorkflowPort = (
       if (recovered !== null) return recovered
       throw error
     return detailFor(projection)
+
+  const revisePlan = async (
+    input: Parameters<OperatorWorkflowPort["revise"]>[0],
+  ): Promise<WorkflowOperatorDetail> =>
+    const identityHash = sha256Hex(canonicalJsonV1({
+      ownerId: input.ownerId,
+      runId: input.runId,
+      idempotencyKey: input.idempotencyKey,
+    }))
+    const eventId = `plan-revision-${identityHash}`
+    const proposedEvent = {
+      type: "PLAN_REVISION_REQUESTED" as const,
+      eventId,
+      eventVersion: 1 as const,
+      machineVersion: 1 as const,
+      occurredAt: now().toISOString(),
+      clarification: input.clarification,
+    }
+    const apply = async (
+      projection: VerifiedWorkflowProjection,
+    ): Promise<WorkflowOperatorDetail> =>
+      const existingIndex = projection.journal.findIndex(
+        (entry) => entry.event.eventId === eventId,
+      )
+      const existing = existingIndex === -1
+        ? undefined
+        : projection.journal[existingIndex]!.event
+      if (
+        existing !== undefined &&
+        (
+          existing.type !== "PLAN_REVISION_REQUESTED" ||
+          existing.clarification !== input.clarification
+        )
+      )
+        throw new WorkflowConcurrencyError()
+
+      const event = existing?.type === "PLAN_REVISION_REQUESTED"
+        ? existing
+        : proposedEvent
+      const decisionSnapshot =
+        if (existingIndex === -1) projection.snapshot
+        else
+          const initial = createInitialWorkflowSnapshotV1({
+            runId: input.runId,
+            ownerId: input.ownerId,
+          })
+          replayWorkflowV1(
+            initial,
+            projection.journal
+              .slice(0, existingIndex)
+              .map((entry) => entry.event),
+          ).snapshot
+
+      unless (
+        decisionSnapshot.state === "awaitingApproval" ||
+        (
+          decisionSnapshot.state === "blocked" &&
+          decisionSnapshot.context.failedStage === "planning"
+        )
+      )
+        throw new OperatorWorkflowPortError(
+          "VALIDATION_ERROR",
+          operatorServiceErrorMessage("VALIDATION_ERROR"),
+        )
+
+      if (decisionSnapshot.state === "awaitingApproval")
+        const decided = await application.decideApproval({
+          ownerId: input.ownerId,
+          runId: input.runId,
+          approval: {
+            id: workflowApprovalIdFor(decisionSnapshot),
+            runId: input.runId,
+            ownerId: input.ownerId,
+            decidedBy: input.actorUserId,
+            decision: "rejected",
+            reason: "plan-revision-requested",
+          },
+          event,
+        })
+        return detailFor(decided)
+      if (existing !== undefined) return detailFor(projection)
+      return actionDetail(input, proposedEvent)
+
+    const projection = await requireProjection(input.ownerId, input.runId)
+    try
+      return await apply(projection)
+    catch error
+      unless (
+        error instanceof WorkflowConcurrencyError ||
+        error instanceof StaleWorkflowApprovalError
+      )
+        throw error
+      const recovered = await requireProjection(input.ownerId, input.runId)
+      unless recovered.journal.some(
+        (entry) => entry.event.eventId === eventId,
+      )
+        throw error
+      return apply(recovered)
 
   return Object.freeze({
     submit: (input) => runPort(() => submitRun(input), "VALIDATION_ERROR"),
@@ -495,6 +622,8 @@ export const createOperatorWorkflowPort = (
       occurredAt: now().toISOString(),
       reasonCode: "operator-retry",
     }), "VALIDATION_ERROR"),
+
+    revise: (input) => runPort(() => revisePlan(input)),
 
     message: (input) => runPort(async () =>
       const identityHash = sha256Hex(canonicalJsonV1({

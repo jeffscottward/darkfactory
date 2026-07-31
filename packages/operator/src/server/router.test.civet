@@ -50,6 +50,9 @@ const detail = (
 ): WorkflowOperatorDetail => ({
   ownerId: "owner-1",
   integrity: "verified",
+  canRequestPlanRevision: true,
+  originalRequest: "Plan the bounded pilot run",
+  planRevisions: [],
   run: {
     id: "run-1", ownerId: "owner-1", title: "Pilot run",
     state: "awaitingApproval", sequence: 2, updatedAt: NOW,
@@ -105,6 +108,7 @@ const workflowPort = (
   reject: vi.fn(async () => storedDetail),
   cancel: vi.fn(async () => storedDetail),
   retry: vi.fn(async () => storedDetail),
+  revise: vi.fn(async () => storedDetail),
   message: vi.fn(async () => storedDetail),
   ...overrides,
 })
@@ -223,6 +227,15 @@ describe("operator API", () =>
       "UNAUTHORIZED",
       401,
     )
+    await expectError(
+      client.operator.wayfinder.revise({
+        runId: "run-wayfinder-1"
+        idempotencyKey: "revision-attempt-unauthorized"
+        message: "Keep the backend slice smaller."
+      }),
+      "UNAUTHORIZED",
+      401,
+    )
   )
 
   it "maps forbidden sessions and preserves unexpected authentication failures", async ->
@@ -294,6 +307,11 @@ describe("operator API", () =>
       scope: { repositoryId: "darkfactory", paths: ["packages/operator"] }
       request: "Map the operator package"
     }), "SERVICE_UNAVAILABLE", 503)
+    await expectError(client.operator.wayfinder.revise({
+      runId: "run-wayfinder-1"
+      idempotencyKey: "revision-attempt-unavailable"
+      message: "Keep the backend slice smaller."
+    }), "SERVICE_UNAVAILABLE", 503)
 
 
   it.each(["", "../submit", "a".repeat(129)])(
@@ -310,6 +328,22 @@ describe("operator API", () =>
         400,
       )
       expect(workflow.submit).not.toHaveBeenCalled()
+  )
+
+  it.each(["", "../revision", "a".repeat(129)])(
+    "rejects unsafe or oversized revision idempotency key %s",
+    async (idempotencyKey) =>
+      const workflow = workflowPort()
+      await expectError(
+        clientFor(memberSession("owner-1"), workflow).operator.wayfinder.revise({
+          runId: "run-1",
+          idempotencyKey,
+          message: "Keep the plan bounded.",
+        } as never),
+        "BAD_REQUEST",
+        400,
+      )
+      expect(workflow.revise).not.toHaveBeenCalled()
   )
 
   it("rejects a non-canonical submit scope before calling the workflow port", async () =>
@@ -334,6 +368,7 @@ describe("operator API", () =>
     await expect(clientFor(memberSession("owner-1"), workflow).operator.detail({ id: "run-1" }))
       .resolves.toMatchObject({
         run: { id: "run-1" },
+        canRequestPlanRevision: true,
         implementationPlan: {
           summary: PLAN.summary,
           digest: PLAN.digest,
@@ -479,6 +514,11 @@ describe("operator API", () =>
     await client.operator.reject({ id: "run-1", reason: "Needs revision" })
     await client.operator.cancel({ id: "run-1" })
     await client.operator.retry({ id: "run-1" })
+    await client.operator.wayfinder.revise({
+      runId: "run-1"
+      idempotencyKey: "revision-attempt-1"
+      message: "  Keep the backend slice smaller.  "
+    })
     await client.operator.message({
       id: "run-1",
       idempotencyKey: "message-attempt-1",
@@ -494,6 +534,14 @@ describe("operator API", () =>
     }))
     expect(workflow.cancel).toHaveBeenCalledWith(expect.objectContaining({ ownerId: "owner-1" }))
     expect(workflow.retry).toHaveBeenCalledWith(expect.objectContaining({ ownerId: "owner-1" }))
+    expect(workflow.revise).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      requestId: "request-operator-1"
+      runId: "run-1"
+      idempotencyKey: "revision-attempt-1"
+      clarification: "Keep the backend slice smaller."
+    }))
     expect(workflow.message).toHaveBeenCalledWith(expect.objectContaining({
       ownerId: "owner-1", idempotencyKey: "message-attempt-1",
       body: "Check package boundary",

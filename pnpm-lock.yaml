@@ -244,6 +244,9 @@ importers:
       '@darkfactory/observability':
         specifier: workspace:*
         version: link:packages/observability
+      '@darkfactory/operator':
+        specifier: workspace:*
+        version: link:packages/operator
       '@darkfactory/shared':
         specifier: workspace:*
         version: link:packages/shared

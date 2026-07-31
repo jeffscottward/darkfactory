@@ -33,8 +33,7 @@ import {
 } from "./operator-client.civet"
 import { operatorRunTitle } from "./operator-format.civet"
 import { OperatorRunDetail } from "./operator-run-detail.civet"
-import { RunKanban } from "./run-kanban.civet"
-import { WorkflowGraph } from "./workflow-graph.civet"
+import { RunMonitor } from "./run-monitor.civet"
 import { WayfinderPanel } from "./wayfinder-panel.civet"
 
 export interface OperatorSubmitFeedback {
@@ -66,86 +65,90 @@ export const OperatorSubmitFormView = ({
       ? "border-warning-border bg-warning-subtle text-warning-foreground"
       : "border-success-border bg-success-subtle text-success-foreground"
   return (
-    <Card aria-labelledby="operator-submit-title">
-      <CardHeader>
-        <CardTitle headingLevel={2} id="operator-submit-title">Submit a bounded run
-        <CardDescription>
-          Limit the run to repository-relative paths. A human operator must review the exact approval binding before implementation can begin.
-      <CardContent>
-        <form
-          aria-busy={pending || undefined}
-          aria-labelledby="operator-submit-title"
-          className="space-y-5"
-          noValidate
-          onSubmit={onSubmit}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="operator-run-title">Run title
-              <Input
-                aria-describedby="operator-run-title-hint"
-                aria-required="true"
-                autoComplete="off"
-                disabled={pending}
-                id="operator-run-title"
-                name="title"
-                onChange={(event) => onChange("title", event.currentTarget.value)}
-                required
-                value={values.title}
-              />
-              <p className="text-xs leading-5 text-muted-foreground" id="operator-run-title-hint">
-                Use a concise title for the operator journal.
-            <div className="space-y-2">
-              <Label htmlFor="operator-repository-id">Repository ID
-              <Input
-                aria-describedby="operator-repository-id-hint"
-                aria-required="true"
-                autoCapitalize="none"
-                autoComplete="off"
-                disabled={pending}
-                id="operator-repository-id"
-                name="repositoryId"
-                onChange={(event) => onChange("repositoryId", event.currentTarget.value)}
-                required
-                spellCheck={false}
-                value={values.repositoryId}
-              />
-              <p className="text-xs leading-5 text-muted-foreground" id="operator-repository-id-hint">
-                Enter the repository slug; it is normalized to lowercase before submission.
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="operator-scope-paths">Relative scope paths, one per line
-              <Textarea
-                aria-describedby="operator-scope-paths-hint"
-                aria-required="true"
-                disabled={pending}
-                id="operator-scope-paths"
-                name="scopePaths"
-                onChange={(event) => onChange("scopePaths", event.currentTarget.value)}
-                placeholder="packages/state"
-                required
-                rows={5}
-                spellCheck={false}
-                value={values.scopePaths}
-              />
-              <p className="text-xs leading-5 text-muted-foreground" id="operator-scope-paths-hint">
-                Repository-relative paths only. Do not enter a filesystem root, traversal segments, or secrets.
-          {feedback === null ? null : (
-            <p
-              className={`border-y px-4 py-3 text-sm leading-6 ${feedbackClassName}`}
-              id="operator-submit-status"
-              role={feedback.tone === "error" ? "alert" : "status"}
-              tabIndex={-1}
-            >
-              {feedback.message}
-          )}
-          <Button
-            className="w-full sm:w-auto"
-            disabled={pending}
-            loading={pending}
-            loadingLabel="Submitting workflow run"
-            type="submit"
+    <details className="group border-y border-border">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-3 font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        Advanced
+        <span aria-hidden="true" className="text-sm font-normal text-muted-foreground">Bounded run form
+      <Card aria-labelledby="operator-submit-title" className="mb-5 mt-2">
+        <CardHeader>
+          <CardTitle headingLevel={2} id="operator-submit-title">Submit a bounded run
+          <CardDescription>
+            Use this technical form only when you already know the repository scope. For guided planning, use Start planning above.
+        <CardContent>
+          <form
+            aria-busy={pending || undefined}
+            aria-labelledby="operator-submit-title"
+            className="space-y-5"
+            noValidate
+            onSubmit={onSubmit}
           >
-            <Play aria-hidden="true" className="size-4" />Submit run
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="operator-run-title">Run title
+                <Input
+                  aria-describedby="operator-run-title-hint"
+                  aria-required="true"
+                  autoComplete="off"
+                  disabled={pending}
+                  id="operator-run-title"
+                  name="title"
+                  onChange={(event) => onChange("title", event.currentTarget.value)}
+                  required
+                  value={values.title}
+                />
+                <p className="text-xs leading-5 text-muted-foreground" id="operator-run-title-hint">
+                  Use a concise title for the operator journal.
+              <div className="space-y-2">
+                <Label htmlFor="operator-repository-id">Repository ID
+                <Input
+                  aria-describedby="operator-repository-id-hint"
+                  aria-required="true"
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  disabled={pending}
+                  id="operator-repository-id"
+                  name="repositoryId"
+                  onChange={(event) => onChange("repositoryId", event.currentTarget.value)}
+                  required
+                  spellCheck={false}
+                  value={values.repositoryId}
+                />
+                <p className="text-xs leading-5 text-muted-foreground" id="operator-repository-id-hint">
+                  Enter the repository slug; it is normalized to lowercase before submission.
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="operator-scope-paths">Relative scope paths, one per line
+                <Textarea
+                  aria-describedby="operator-scope-paths-hint"
+                  aria-required="true"
+                  disabled={pending}
+                  id="operator-scope-paths"
+                  name="scopePaths"
+                  onChange={(event) => onChange("scopePaths", event.currentTarget.value)}
+                  placeholder="packages/state"
+                  required
+                  rows={5}
+                  spellCheck={false}
+                  value={values.scopePaths}
+                />
+                <p className="text-xs leading-5 text-muted-foreground" id="operator-scope-paths-hint">
+                  Repository-relative paths only. Do not enter a filesystem root, traversal segments, or secrets.
+            {feedback === null ? null : (
+              <p
+                className={`border-y px-4 py-3 text-sm leading-6 ${feedbackClassName}`}
+                id="operator-submit-status"
+                role={feedback.tone === "error" ? "alert" : "status"}
+                tabIndex={-1}
+              >
+                {feedback.message}
+            )}
+            <Button
+              className="w-full sm:w-auto"
+              disabled={pending}
+              loading={pending}
+              loadingLabel="Submitting workflow run"
+              type="submit"
+            >
+              <Play aria-hidden="true" className="size-4" />Submit run
   )
 
 interface OperatorSubmitFormProps {
@@ -195,7 +198,7 @@ const OperatorSubmitForm = ({ gateway, onSubmitted }: OperatorSubmitFormProps) =
       setFeedback("workspaceFailure" in outcome
         ? {
           tone: "warning",
-          message: `Run “${title}” was submitted and selected, but the run board could not refresh. ${outcome.workspaceFailure.message}`,
+          message: `Run “${title}” was submitted and selected, but the work monitor could not refresh. ${outcome.workspaceFailure.message}`,
         }
         : {
           tone: "success",
@@ -307,17 +310,16 @@ export const OperatorWorkspace = ({ gateway: suppliedGateway }: OperatorWorkspac
             <Button onClick={load} variant="secondary">
               <RefreshCw aria-hidden="true" className="size-4" />Refresh runs
           )}
-          description="Submit a bounded run above or refresh after an authenticated runtime submission. This workspace never invents production records."
+          description="Start planning above. The new run will appear here after Wayfinder saves it."
           icon={<GitBranch />}
-          title="No workflow runs yet"
+          title="No planned work yet"
         />
       ) : (
         <>
           <div className="flex justify-end">
             <Button onClick={load} size="compact" variant="secondary">
               <RefreshCw aria-hidden="true" className="size-4" />Refresh workspace
-          <WorkflowGraph runs={state.output.runs} />
-          <RunKanban
+          <RunMonitor
             runs={state.output.runs}
             selectedRunId={selectedRun?.run.id}
           />
@@ -326,9 +328,7 @@ export const OperatorWorkspace = ({ gateway: suppliedGateway }: OperatorWorkspac
         <section aria-labelledby="selected-run-detail-title" className="space-y-4">
           <div className="border-b border-border pb-4">
             <h2 className="break-words font-heading text-xl font-semibold text-foreground" id="selected-run-detail-title">
-              Selected run: {operatorRunTitle(selectedRun.run)}
-            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-              {selectedRun.run.id}
+              Run details: {operatorRunTitle(selectedRun.run)}
           <OperatorRunDetail
             gateway={gateway}
             id={selectedRun.run.id}

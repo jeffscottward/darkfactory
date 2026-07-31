@@ -9,7 +9,7 @@ import {
 
 import {
   OmpProcessTerminationError,
-  redactOmpOutput,
+  redactEffectiveOmpOutput,
   OmpWorkspaceCleanupError,
   decodeOmpImplementationArtifact,
   type OmpCliAdapter,
@@ -26,7 +26,11 @@ import {
 } from "./plan-evidence.civet"
 import type { WayfinderExecutionPort } from "./wayfinder.civet"
 
-export const WORKFLOW_EFFECT_HANDLER = "workflow.omp"
+export const WORKFLOW_EFFECT_HANDLER_V1 = "workflow.omp"
+export const WORKFLOW_EFFECT_HANDLER_V2 = "workflow.omp.v2"
+export type WorkflowEffectHandler =
+  | typeof WORKFLOW_EFFECT_HANDLER_V1
+  | typeof WORKFLOW_EFFECT_HANDLER_V2
 export const DEFAULT_WORKFLOW_LEASE_MS = 30_000
 export const DEFAULT_WORKFLOW_HEARTBEAT_MS = 10_000
 export const DEFAULT_WORKFLOW_POLL_MS = 1_000
@@ -37,7 +41,7 @@ export type ClaimedWorkflowEffect = Readonly<{
   id: string
   runId: string
   ownerId: string
-  handler: typeof WORKFLOW_EFFECT_HANDLER
+  handler: WorkflowEffectHandler
   idempotencyKey: string
   effectId: string
   effectKind: WorkflowEffectKind
@@ -50,6 +54,7 @@ export type ClaimedWorkflowEffect = Readonly<{
     sourceSequence: number
     executionMode?: WorkflowExecutionModeV1
     humanRequest?: string
+    planClarification?: string
   }>
   implementationEvidence?: unknown
   implementationChangeHash?: unknown
@@ -96,7 +101,7 @@ export type WorkflowEffectFailure = Readonly<{
 
 export type WorkflowOutboxPort = Readonly<{
   claimDueEffects: (input: Readonly<{
-    handler: typeof WORKFLOW_EFFECT_HANDLER
+    handler: WorkflowEffectHandler
     leaseOwner: string
     limit: number
     leaseMilliseconds: number
@@ -218,7 +223,10 @@ const requirePositiveInteger = (
   return value
 
 const validateClaim = (claim: ClaimedWorkflowEffect): ValidatedWorkflowClaim =>
-  if (claim.handler !== WORKFLOW_EFFECT_HANDLER)
+  if (
+    claim.handler !== WORKFLOW_EFFECT_HANDLER_V1 &&
+    claim.handler !== WORKFLOW_EFFECT_HANDLER_V2
+  )
     throw new WorkflowWorkerConfigurationError("Unexpected workflow effect handler")
   for (const value of [
     claim.id,
@@ -298,8 +306,34 @@ const validateClaim = (claim: ClaimedWorkflowEffect): ValidatedWorkflowClaim =>
       throw new WorkflowWorkerConfigurationError(
         "Workflow execution metadata is invalid",
       )
+    const planClarification = claim.taskMetadata.planClarification
+    if (
+      planClarification !== undefined &&
+      (
+        planClarification.length === 0 ||
+        planClarification.trim() !== planClarification ||
+        new TextEncoder().encode(planClarification).byteLength >
+          MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
+        /[\u0000-\u001F\u007F]/u.test(planClarification)
+      )
+    )
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow plan clarification is invalid",
+      )
+    if (
+      claim.handler === WORKFLOW_EFFECT_HANDLER_V1 &&
+      planClarification !== undefined
+    )
+      throw new WorkflowWorkerConfigurationError(
+        "Legacy workflow effects cannot carry plan clarification",
+      )
   if (!["plan", "implement", "verify"].includes(claim.effectKind))
     throw new WorkflowWorkerConfigurationError("Unexpected workflow effect kind")
+  if claim.effectKind !== "plan" &&
+      claim.taskMetadata?.planClarification !== undefined
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow plan clarification belongs only to plan effects",
+    )
   if (!Number.isSafeInteger(claim.fenceToken) || claim.fenceToken <= 0)
     throw new WorkflowWorkerConfigurationError("Invalid workflow effect fence")
   const recovered = claim.effectKind === "verify"
@@ -340,6 +374,9 @@ const instructionFor = (
           `Task revision: ${task.taskRevision}.`,
           `Task hash: ${task.taskHash}.`,
           `Source sequence: ${task.sourceSequence}.`,
+          ...(task.planClarification === undefined
+            ? []
+            : [`Requested plan changes: ${JSON.stringify(task.planClarification)}.`]),
         ]),
   ].join(" ")
 
@@ -360,8 +397,8 @@ const outputMetadata = (result: OmpExecutionResult) => ({
 const sanitizeExecutionResult = (
   result: OmpExecutionResult,
 ): OmpExecutionResult =>
-  const stdout = redactOmpOutput(result.output.stdout)
-  const stderr = redactOmpOutput(result.output.stderr)
+  const stdout = redactEffectiveOmpOutput(result.output.stdout)
+  const stderr = redactEffectiveOmpOutput(result.output.stderr)
   if (!stdout.redacted && !stderr.redacted) return result
   return Object.freeze({
     ...result,
@@ -504,15 +541,20 @@ export const createWorkflowOutboxWorker = (
   ): Promise<WorkflowWorkerItemResult> =>
     const failClaimException = async (): Promise<WorkflowWorkerItemResult> =>
       try
-        const failed = await options.repository.failEffect({
+        const persistence = await options.repository.failEffect({
           id: claim.id
           leaseOwner: claim.leaseOwner
           fenceToken: claim.fenceToken
           result: exceptionFailure()
         })
+        const disposition: OmpPersistenceDisposition = persistence === true
+          ? "persisted"
+          : persistence === false
+            ? "unpersisted"
+            : persistence
         return Object.freeze({
           id: claim.id
-          status: failed ? "failed" : "lease-lost"
+          status: disposition === "unpersisted" ? "lease-lost" : "failed"
         })
       catch
         return Object.freeze({ id: claim.id, status: "lease-lost" })
@@ -582,13 +624,18 @@ export const createWorkflowOutboxWorker = (
                       "Wayfinder execution adapter is unavailable",
                     ))
                   : options.wayfinderAdapter.execute({
-                      workspaceId: claim.runId,
+                      workspaceId: wayfinderTask.taskRevision > 1
+                        ? claim.effectId
+                        : claim.runId,
                       command: "print",
                       effectKind: "plan",
                       cwd: scope.repositoryId,
                       scopePaths: scope.paths,
                       repositoryId: scope.repositoryId,
                       humanRequest: wayfinderTask.humanRequest!,
+                      ...(wayfinderTask.planClarification === undefined
+                        ? {}
+                        : { planClarification: wayfinderTask.planClarification }),
                       signal: abortController.signal,
                     })
               )
@@ -698,14 +745,24 @@ export const createWorkflowOutboxWorker = (
 
   const performRun = async (): Promise<readonly WorkflowWorkerItemResult[]> =>
     if (stopping) return Object.freeze([])
-    const claims = await options.repository.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER,
+    const v2Claims = await options.repository.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: options.leaseOwner,
       limit: batchSize,
       leaseMilliseconds,
     })
     if (stopping) return Object.freeze([])
-    return Promise.all(claims.map(processClaim))
+    const remaining = batchSize - v2Claims.length
+    const v1Claims = remaining > 0
+      ? await options.repository.claimDueEffects({
+          handler: WORKFLOW_EFFECT_HANDLER_V1,
+          leaseOwner: options.leaseOwner,
+          limit: remaining,
+          leaseMilliseconds,
+        })
+      : Object.freeze([])
+    if (stopping) return Object.freeze([])
+    return Promise.all([...v2Claims, ...v1Claims].map(processClaim))
 
   const runOnce = (): Promise<readonly WorkflowWorkerItemResult[]> =>
     if (activeRun !== null) return activeRun

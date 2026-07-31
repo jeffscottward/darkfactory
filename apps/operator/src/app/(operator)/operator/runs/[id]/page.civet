@@ -19,9 +19,9 @@ export default async function OperatorRunPage({ params }: OperatorRunPageProps)
             <ArrowLeft aria-hidden="true" className="size-4" />
             Back to operator
         )}
-        description="Review the journal, exact approval binding, bounded evidence, and operator discussion for this run."
+        description="Review the conversation and latest plan. Request changes or approve before code work begins."
         eyebrow="Operator"
-        title="Workflow run"
+        title="Review plan and monitor work"
       />
       <OperatorRunDetail id={id} />
   )

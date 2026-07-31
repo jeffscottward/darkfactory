@@ -41,7 +41,11 @@ import {
   createWorkflowRuntime,
   workflowApprovalIdFor,
 } from "./workflow-runtime.civet"
-import { WORKFLOW_EFFECT_HANDLER } from "./workflow-worker.civet"
+import {
+  WORKFLOW_EFFECT_HANDLER_V1,
+  WORKFLOW_EFFECT_HANDLER_V2,
+  createWorkflowOutboxWorker,
+} from "./workflow-worker.civet"
 
 const NOW = new Date("2026-07-29T12:00:00.000Z")
 const OWNER_ID = "owner-1"
@@ -597,7 +601,7 @@ describe("workflow runtime composition", () =>
       event: { type: "RUN_SUBMITTED" },
       snapshot: { state: "planning", sequence: 1 },
       effects: [expect.objectContaining({
-        handler: WORKFLOW_EFFECT_HANDLER,
+        handler: WORKFLOW_EFFECT_HANDLER_V2,
         payload: expect.objectContaining({
           ownerId: OWNER_ID,
           effectKind: "plan",
@@ -614,7 +618,7 @@ describe("workflow runtime composition", () =>
     expect(fake.outbox()).toMatchObject({
       aggregateType: "workflow_run",
       aggregateId: RUN_ID,
-      handler: WORKFLOW_EFFECT_HANDLER,
+      handler: WORKFLOW_EFFECT_HANDLER_V2,
       fence: 0,
     })
     expect(adapter.execute).not.toHaveBeenCalled()
@@ -902,7 +906,7 @@ describe("workflow runtime composition", () =>
     })
 
     const [claim] = await outbox.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -912,6 +916,140 @@ describe("workflow runtime composition", () =>
       ownerId: OWNER_ID
       taskMetadata: { taskId: taskTitle }
     })
+  )
+
+  it("parses a legacy V1 row and preserves its handler", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const row = fake.outbox()!
+    const legacyRow = {
+      ...row
+      handler: WORKFLOW_EFFECT_HANDLER_V1
+      leaseOwner: "worker-a"
+      fence: 1
+    } as OutboxEvent
+    const repository = Object.freeze({
+      ...fake.repository
+      claimDueEffects: vi.fn(async () => [legacyRow])
+    }) as WorkflowRepository
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository
+      application
+    })
+
+    const [claimed] = await outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V1
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+
+    expect(claimed!.handler).toBe(WORKFLOW_EFFECT_HANDLER_V1)
+  )
+
+  it("rejects plan clarification on a legacy V1 row", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const row = fake.outbox()!
+    const task = row.payload["task"] as Readonly<Record<string, unknown>>
+    const legacyRow = {
+      ...row
+      handler: WORKFLOW_EFFECT_HANDLER_V1
+      leaseOwner: "worker-a"
+      fence: 1
+      payload: {
+        ...row.payload
+        task: { ...task, planClarification: "Keep the change bounded." }
+      }
+    } as OutboxEvent
+    const repository = Object.freeze({
+      ...fake.repository
+      claimDueEffects: vi.fn(async () => [legacyRow])
+    }) as WorkflowRepository
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository
+      application
+    })
+
+    await expect(outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V1
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })).rejects.toBeInstanceOf(TypeError)
+  )
+
+  it("preserves bounded plan clarification on a V2 row", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const row = fake.outbox()!
+    const task = row.payload["task"] as Readonly<Record<string, unknown>>
+    const v2Row = {
+      ...row
+      leaseOwner: "worker-a"
+      fence: 1
+      payload: {
+        ...row.payload
+        task: { ...task, planClarification: "Keep the change bounded." }
+      }
+    } as OutboxEvent
+    const repository = Object.freeze({
+      ...fake.repository
+      claimDueEffects: vi.fn(async () => [v2Row])
+    }) as WorkflowRepository
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository
+      application
+    })
+
+    const [claimed] = await outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V2
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })
+
+    expect(claimed!.taskMetadata?.planClarification)
+      .toBe("Keep the change bounded.")
+  )
+
+  it("rejects a repository row whose handler mismatches the claim request", async () =>
+    const fake = fakeRepository()
+    const application = createWorkflowApplication(fake.repository, {
+      generateId: () => RUN_ID,
+    })
+    await application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const row = fake.outbox()!
+    const mismatchedRow = {
+      ...row
+      handler: WORKFLOW_EFFECT_HANDLER_V1
+      leaseOwner: "worker-a"
+      fence: 1
+    } as OutboxEvent
+    const repository = Object.freeze({
+      ...fake.repository
+      claimDueEffects: vi.fn(async () => [mismatchedRow])
+    }) as WorkflowRepository
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository
+      application
+    })
+
+    await expect(outbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V2
+      leaseOwner: "worker-a"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })).rejects.toBeInstanceOf(TypeError)
   )
 
   it("maps a DB fence to fenceToken and rejects a stale completion before transition", async () =>
@@ -928,7 +1066,7 @@ describe("workflow runtime composition", () =>
       now: fake.now,
     })
     const [claim] = await outbox.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER,
+      handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
       leaseMilliseconds: 1_000,
@@ -966,14 +1104,14 @@ describe("workflow runtime composition", () =>
       now: fake.now
     })
     const [staleClaim] = await first.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
     })
     fake.advance(1_001)
     const [currentClaim] = await second.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-b"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1026,7 +1164,7 @@ describe("workflow runtime composition", () =>
       now: fake.now
     })
     const [claim] = await outbox.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1046,6 +1184,59 @@ describe("workflow runtime composition", () =>
       leaseMilliseconds: 1_000
     })).resolves.toBe(false)
     expect(fake.heartbeats).toHaveLength(heartbeatCount)
+  )
+
+  it("reports lease loss when completion throws after the production adapter releases its claim", async () =>
+    const fake = fakeRepository()
+    const executionAdapter: OmpCliAdapter = {
+      execute: vi.fn(async () => successfulExecution())
+      cleanupRetainedWorkspace
+    }
+    const runtime = runtimeFor(fake, executionAdapter, "unused-worker")
+    await runtime.application.createRun({ ownerId: OWNER_ID, event: submission() })
+    const application = Object.freeze({
+      ...runtime.application
+      completeEffect: vi.fn(async () =>
+        throw new Error("finalization unavailable")
+      )
+    })
+    const outbox = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository
+      application
+      now: fake.now
+    })
+    const worker = createWorkflowOutboxWorker({
+      repository: outbox
+      adapter: executionAdapter
+      leaseOwner: "worker-a"
+      authorizeRepository: () => true
+      leaseMilliseconds: 1_000
+      heartbeatMilliseconds: 100
+    })
+
+    await expect(worker.runOnce()).resolves.toEqual([
+      { id: fake.outbox()!.id, status: "lease-lost" }
+    ])
+    expect(application.completeEffect).toHaveBeenCalledOnce()
+    expect(fake.completions).toHaveLength(0)
+
+    fake.advance(1_001)
+    const recoveryOutbox = createWorkflowRepositoryOutboxAdapter({
+      repository: fake.repository
+      application: runtime.application
+      now: fake.now
+    })
+    await expect(recoveryOutbox.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V2
+      leaseOwner: "worker-after-recovery"
+      limit: 1
+      leaseMilliseconds: 1_000
+    })).resolves.toEqual([
+      expect.objectContaining({
+        id: fake.outbox()!.id
+        fenceToken: 2
+      })
+    ])
   )
 
   it("reuses the durable approval event for grant and reject retries after the clock advances", async () =>
@@ -1444,7 +1635,7 @@ describe("workflow runtime composition", () =>
     })
     await application.createRun({ ownerId: OWNER_ID, event: submission() })
     const [leased] = await fake.repository.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1497,6 +1688,14 @@ describe("workflow runtime composition", () =>
         executionMode: "wayfinder"
         humanRequest: "control\n"
       } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        planClarification: " padded "
+      } } }
+      { ...row, payload: { ...payload, task: {
+        ...task
+        planClarification: "x".repeat(1_025)
+      } } }
     ] as unknown as readonly OutboxEvent[]
 
     for malformedRow of malformed
@@ -1509,7 +1708,7 @@ describe("workflow runtime composition", () =>
         application
       })
       await expect(outbox.claimDueEffects({
-        handler: WORKFLOW_EFFECT_HANDLER
+        handler: WORKFLOW_EFFECT_HANDLER_V2
         leaseOwner: "worker-a"
         limit: 1
         leaseMilliseconds: 1_000
@@ -1520,6 +1719,7 @@ describe("workflow runtime composition", () =>
       {
         executionMode: "wayfinder" as const
         humanRequest: "Chart the bounded route."
+        planClarification: "Keep the backend slice smaller."
       }
     ]
       const metadataRow = {
@@ -1538,7 +1738,7 @@ describe("workflow runtime composition", () =>
         application
       })
       const [claimed] = await outbox.claimDueEffects({
-        handler: WORKFLOW_EFFECT_HANDLER
+        handler: WORKFLOW_EFFECT_HANDLER_V2
         leaseOwner: "worker-a"
         limit: 1
         leaseMilliseconds: 1_000
@@ -1553,7 +1753,7 @@ describe("workflow runtime composition", () =>
     })
     await application.createRun({ ownerId: OWNER_ID, event: submission() })
     const [leased] = await fake.repository.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1583,7 +1783,7 @@ describe("workflow runtime composition", () =>
       now: () => NOW
     })
     const [retryClaim] = await retrying.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1613,7 +1813,7 @@ describe("workflow runtime composition", () =>
       application
     })
     const [declinedClaim] = await defaultClock.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1642,7 +1842,7 @@ describe("workflow runtime composition", () =>
       application: finalApplication
     })
     const [finalClaim] = await finalizing.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1663,7 +1863,7 @@ describe("workflow runtime composition", () =>
     })
     await application.createRun({ ownerId: OWNER_ID, event: submission() })
     const [leased] = await fake.repository.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000
@@ -1678,7 +1878,7 @@ describe("workflow runtime composition", () =>
     }) as WorkflowRepository
     const outbox = createWorkflowRepositoryOutboxAdapter({ repository, application })
     const [claimed] = await outbox.claimDueEffects({
-      handler: WORKFLOW_EFFECT_HANDLER
+      handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
       limit: 1
       leaseMilliseconds: 1_000

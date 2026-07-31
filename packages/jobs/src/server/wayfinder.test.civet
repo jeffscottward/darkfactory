@@ -52,6 +52,11 @@ import {
   type OmpExecutionResult,
   type OmpWayfinderTrackerArtifact,
 } from "./omp.civet"
+import {
+  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
+  createWorkflowPlanEvidenceV1,
+  hashWorkflowPlanEvidenceV1,
+} from "./plan-evidence.civet"
 
 const temporaryRoots = new Set<string>()
 
@@ -129,6 +134,7 @@ const trackerArtifactFor = async (
   map = "# Route\n",
   issue = "# Storage\n",
   runId = "run-wayfinder-1",
+  issueName = "01-storage.md",
 ): Promise<OmpWayfinderTrackerArtifact> =>
   const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-artifact-"))
   temporaryRoots.add(root)
@@ -136,7 +142,7 @@ const trackerArtifactFor = async (
   await mkdir(join(trackerDirectory, "issues"), { recursive: true, mode: 0o700 })
   await writeFile(join(trackerDirectory, "map.md"), map, { mode: 0o600 })
   await writeFile(
-    join(trackerDirectory, "issues", "01-storage.md"),
+    join(trackerDirectory, "issues", issueName),
     issue,
     { mode: 0o600 },
   )
@@ -145,6 +151,17 @@ const trackerArtifactFor = async (
     repositoryId: "darkfactory"
     runId
   })
+
+const planReviewFor = (artifact: OmpWayfinderTrackerArtifact): string =>
+  const map = artifact.entries.find((entry) => entry.path === "map.md")!
+  return [
+    "# Wayfinder plan",
+    map.content.trim(),
+    "",
+    "## Integrity",
+    `Tracker digest: ${artifact.digest}`,
+    `Map digest: ${map.digest}`,
+  ].join("\n")
 
 const mapOnlyTrackerArtifactFor = async (
   repositoryId = "darkfactory",
@@ -226,7 +243,7 @@ describe("local Wayfinder execution adapter", () =>
     })
 
     const result = await adapter.execute(executionRequest)
-    const stdout = `Wayfinder tracker published: ${artifact.digest}`
+    const stdout = planReviewFor(artifact)
     expect(result).toEqual({
       command: "print"
       status: "succeeded"
@@ -247,6 +264,8 @@ describe("local Wayfinder execution adapter", () =>
       lifecycle: ompResult.lifecycle
     })
     expect("wayfinderTrackerArtifact" in result).toBe(false)
+    expect(result.output.stdout).toContain("# Route")
+    expect(result.output.stdout).toContain(`Tracker digest: ${artifact.digest}`)
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
       command: "print"
@@ -286,6 +305,108 @@ describe("local Wayfinder execution adapter", () =>
     expect(serialized).not.toContain(skillPath)
     expect(serialized).not.toContain("sk-wayfinder-secret-value")
   )
+
+  it "bounds and redacts tracker plan content before worker persistence", async ->
+    const secret = "sk-wayfinder-plan-secret"
+    const skillPath = await createSkillPath()
+    const repositoriesRoot = await createRepositoriesRoot()
+    const artifact = await trackerArtifactFor(
+      `# Route\n${secret}\n${"é".repeat(MAX_WORKFLOW_PLAN_SUMMARY_BYTES)}`
+    )
+    const adapter = createLocalWayfinderExecutionAdapter({
+      repositoriesRoot
+      skillPath
+      omp: ompAdapter(async () => resultFor(artifact))
+    })
+
+    const result = await adapter.execute(executionRequest)
+
+    expect(result.output.truncated).toBe(true)
+    expect(result.output.redacted).toBe(true)
+    expect(result.output.stdoutBytes).toBeLessThanOrEqual(
+      MAX_WORKFLOW_PLAN_SUMMARY_BYTES
+    )
+    expect(result.output.stdout).not.toContain(secret)
+    expect(result.output.stdout).toContain("[REDACTED]")
+
+  it "redacts effective OMP environment secrets before tracker publication and plan evidence", async ->
+    const secret = "standalone-wayfinder-environment-value"
+    const redactedMap = "# Route\nUse [REDACTED] only.\n"
+    const redactedIssue = "# Storage\nNever persist [REDACTED].\n"
+    process.env["OPENAI_API_KEY"] = secret
+    const skillPath = await createSkillPath()
+    const repositoriesRoot = await createRepositoriesRoot()
+    const artifact = await trackerArtifactFor(
+      `# Route\nUse ${secret} only.\n`
+      `# Storage\nNever persist ${secret}.\n`
+    )
+    const expectedArtifact = await trackerArtifactFor(
+      redactedMap
+      redactedIssue
+    )
+    const execute = vi.fn(async () => resultFor(artifact))
+    const adapter = createLocalWayfinderExecutionAdapter({
+      repositoriesRoot
+      skillPath
+      omp: ompAdapter(execute)
+    })
+
+    const result = await adapter.execute(executionRequest)
+    const trackerRoot = join(
+      repositoriesRoot
+      "darkfactory"
+      ".scratch"
+      executionRequest.workspaceId
+    )
+    const plan = createWorkflowPlanEvidenceV1(result.output)
+
+    await expect(readFile(join(trackerRoot, "map.md"), "utf8"))
+      .resolves.toBe(redactedMap)
+    await expect(readFile(
+      join(trackerRoot, "issues", "01-storage.md")
+      "utf8"
+    )).resolves.toBe(redactedIssue)
+    expect(await readlink(trackerRoot)).toContain(expectedArtifact.digest)
+    expect(result.output).toMatchObject({
+      redacted: true
+      stdout: planReviewFor(expectedArtifact)
+    })
+    expect(plan).toMatchObject({
+      summary: planReviewFor(expectedArtifact)
+      redacted: true
+    })
+    expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan))
+    expect(JSON.stringify({ result, plan })).not.toContain(secret)
+    delete process.env["OPENAI_API_KEY"]
+    const replayResult = await adapter.execute(executionRequest)
+    const replayPlan = createWorkflowPlanEvidenceV1(replayResult.output)
+    expect(replayResult.output).toEqual(result.output)
+    expect(replayPlan).toEqual(plan)
+    expect(execute).toHaveBeenCalledOnce()
+
+  it "rejects an effective environment secret in a tracker path", async ->
+    const secret = "standalone-wayfinder-path-value"
+    process.env["OPENAI_API_KEY"] = secret
+    const skillPath = await createSkillPath()
+    const repositoriesRoot = await createRepositoriesRoot()
+    const artifact = await trackerArtifactFor(
+      "# Route\n"
+      "# Storage\n"
+      executionRequest.workspaceId
+      `01-${secret}.md`
+    )
+    const finalize = vi.fn(async () => undefined)
+    const adapter = createLocalWayfinderExecutionAdapter({
+      repositoriesRoot
+      skillPath
+      omp: ompAdapter(async () => resultFor(artifact, finalize))
+    })
+
+    await expect(adapter.execute(executionRequest)).rejects.toMatchObject({
+      code: "WAYFINDER_UNAVAILABLE"
+      message: "Wayfinder tracker publication failed"
+    })
+    expect(finalize).toHaveBeenCalledWith("unpersisted")
 
   it("fails closed and finalizes once when a successful OMP result has a missing or invalid artifact", async () =>
     const skillPath = await createSkillPath()
@@ -414,7 +535,7 @@ describe("local Wayfinder execution adapter", () =>
     })
     await expect(replayAdapter.execute(executionRequest)).resolves.toMatchObject({
       status: "succeeded"
-      output: { stdout: `Wayfinder tracker published: ${artifact.digest}` }
+      output: { stdout: planReviewFor(artifact) }
     })
     expect(executeReplay).not.toHaveBeenCalled()
     await expect(readFile(join(scratch, artifact.runId, "map.md"), "utf8"))
@@ -469,7 +590,7 @@ describe("local Wayfinder execution adapter", () =>
 
     await expect(adapter.execute(executionRequest)).resolves.toMatchObject({
       status: "succeeded"
-      output: { stdout: `Wayfinder tracker published: ${artifact.digest}` }
+      output: { stdout: planReviewFor(artifact) }
     })
     expect(execute).toHaveBeenCalledOnce()
     await expect(stat(legacyLock)).resolves.toMatchObject({ mode: expect.any(Number) })
@@ -500,7 +621,7 @@ describe("local Wayfinder execution adapter", () =>
       status: "succeeded"
       durationMs: 0
       output: {
-        stdout: `Wayfinder tracker published: ${winner.digest}`
+        stdout: planReviewFor(winner)
       }
     })
     expect("lifecycle" in result).toBe(false)
@@ -737,7 +858,7 @@ describe("local Wayfinder execution adapter", () =>
 
     await expect(adapter.execute(executionRequest)).resolves.toMatchObject({
       status: "succeeded"
-      output: { stdout: `Wayfinder tracker published: ${artifact.digest}` }
+      output: { stdout: planReviewFor(artifact) }
     })
     expect(execute).not.toHaveBeenCalled()
     expect((await lstat(target)).isSymbolicLink()).toBe(false)

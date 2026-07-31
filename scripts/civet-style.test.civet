@@ -516,6 +516,19 @@ describe "Civet source discovery", ->
       ["/repo", "b.civet"],
     ])
 
+  it "ignores tracked Civet files deleted from the working tree", async ->
+    const readSource = vi.fn(async (_root, file) =>
+      if file === "deleted.civet" then undefined else "const clean = true"
+    )
+    await expect(scanCivetRepository("/repo", {
+      discoverFiles: async -> ["kept.civet", "deleted.civet"],
+      readSource,
+    })).resolves.toEqual({
+      files: ["kept.civet"],
+      violations: [],
+    })
+    expect(readSource).toHaveBeenCalledTimes(2)
+
 describe "Civet style CLI", ->
   const dependencies = (sources: Readonly<Record<string, string>>): CivetStyleDependencies => ({
     discoverFiles: async -> Object.keys(sources).reverse(),

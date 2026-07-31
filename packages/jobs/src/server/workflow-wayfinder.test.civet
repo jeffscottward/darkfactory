@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { canonicalJsonV1 } from "@darkfactory/state/workflow"
 
 import {
-  WORKFLOW_EFFECT_HANDLER,
+  WORKFLOW_EFFECT_HANDLER_V2,
   createWorkflowOutboxWorker,
   type ClaimedWorkflowEffect,
   type WorkflowOutboxPort,
@@ -14,11 +14,13 @@ import type {
 } from "./omp.civet"
 import type { WayfinderExecutionPort } from "./wayfinder.civet"
 
-const wayfinderClaim = (): ClaimedWorkflowEffect => Object.freeze({
+const wayfinderClaim = (
+  overrides: Partial<ClaimedWorkflowEffect> = {},
+): ClaimedWorkflowEffect => Object.freeze({
   id: "outbox-1"
   runId: "run-wayfinder-1"
   ownerId: "owner-1"
-  handler: WORKFLOW_EFFECT_HANDLER
+  handler: WORKFLOW_EFFECT_HANDLER_V2
   idempotencyKey: "effect-1"
   effectId: "effect-1"
   effectKind: "plan"
@@ -38,6 +40,7 @@ const wayfinderClaim = (): ClaimedWorkflowEffect => Object.freeze({
   attemptCount: 0
   leaseOwner: "worker-1"
   fenceToken: 1
+  ...overrides
 })
 
 const succeeded = (): OmpExecutionResult => Object.freeze({
@@ -130,6 +133,45 @@ describe("Wayfinder workflow worker dispatch", () =>
     expect(repository.completeEffect).toHaveBeenCalledOnce()
     expect(operations).toEqual(["publish", "complete"])
   )
+
+  it "dispatches a revised plan to a fresh tracker with the original request", async ->
+    const revisedClaim = wayfinderClaim({
+      effectId: "effect-revision-2"
+      idempotencyKey: "effect-revision-2"
+      taskMetadata: {
+        ...wayfinderClaim().taskMetadata!
+        taskRevision: 2
+        sourceSequence: 3
+        planClarification: "Keep the plan within packages/operator."
+      }
+    })
+    const repository = repositoryFor(revisedClaim)
+    const wayfinderExecute = vi.fn<WayfinderExecutionPort["execute"]>(
+      async () => succeeded()
+    )
+    const worker = createWorkflowOutboxWorker({
+      repository
+      adapter: baseAdapter()
+      wayfinderAdapter: {
+        status: async () => ({
+          availability: "installed"
+          tracker: "local-markdown"
+        })
+        execute: wayfinderExecute
+      }
+      leaseOwner: "worker-1"
+      authorizeRepository: () => true
+      heartbeatMilliseconds: 5
+      leaseMilliseconds: 50
+    })
+
+    await worker.runOnce()
+
+    expect(wayfinderExecute).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "effect-revision-2"
+      humanRequest: "Chart the operator extraction."
+      planClarification: "Keep the plan within packages/operator."
+    }))
 
   it("fails closed without persisting adapter exception details or invoking pilot mode", async () =>
     const secret = "sk-wayfinder-must-not-persist"

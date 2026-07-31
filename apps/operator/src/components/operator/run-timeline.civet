@@ -4,21 +4,32 @@ import { Clock3 } from "lucide-react"
 import type { OperatorTimelineEntry } from "./operator-client.civet"
 import { formatOperatorDate } from "./operator-format.civet"
 
+const EVENT_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  RUN_SUBMITTED: "Planning queued",
+  PLAN_PUBLISHED: "Plan ready",
+  PLAN_REVISION_REQUESTED: "Changes requested",
+  APPROVAL_GRANTED: "Plan approved",
+  IMPLEMENTATION_STARTED: "Work started",
+  VERIFICATION_SUCCEEDED: "Checks passed",
+  RUN_BLOCKED: "Needs attention",
+  RUN_COMPLETED: "Done",
+})
+
 const eventLabel = (eventType: string): string =>
-  eventType.toLowerCase().split("_").map((part) => (
-    part.length === 0 ? part : `${part[0]!.toUpperCase()}${part.slice(1)}`
-  )).join(" ")
+  EVENT_LABELS[eventType] ?? eventType.toLowerCase().split("_").filter(
+    (part) => part.length > 0,
+  ).map((part) => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ")
 
 export const RunTimeline = ({ entries }: { readonly entries: readonly OperatorTimelineEntry[] }) => (
   <Card aria-labelledby="run-timeline-title">
     <CardHeader>
-      <CardTitle headingLevel={2} id="run-timeline-title">Journal timeline
+      <CardTitle headingLevel={2} id="run-timeline-title">Run history
       <CardDescription>
-        Append-only workflow events. Sequence and event hashes are shown exactly as stored.
+        Key events recorded while this run moves from planning to completion.
     <CardContent>
       {entries.length === 0 ? (
         <div className="flex gap-3 py-3 text-sm text-muted-foreground">
-          <Clock3 aria-hidden="true" className="size-5 shrink-0" />No journal events have been recorded.
+          <Clock3 aria-hidden="true" className="size-5 shrink-0" />No run history yet.
       ) : (
         <ol className="relative border-l border-border pl-5">
           {entries.map((entry) => (
@@ -30,8 +41,11 @@ export const RunTimeline = ({ entries }: { readonly entries: readonly OperatorTi
                 <time className="text-xs text-muted-foreground" dateTime={entry.createdAt.toISOString()}>
                   {formatOperatorDate(entry.createdAt)}
               <p className="mt-2 text-sm leading-6 text-foreground">{entry.summary}
-              <code className="mt-2 block break-all font-mono text-xs leading-5 text-muted-foreground">
-                seq {entry.sequence} · {entry.hash}
+              <details className="mt-2">
+                <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  Integrity details
+                <code className="block break-all font-mono text-xs leading-5 text-muted-foreground">
+                  Sequence {entry.sequence} · {entry.hash}
           ))}
       )}
 )

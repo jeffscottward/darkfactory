@@ -1069,32 +1069,39 @@ const OMP_SECRET_ENVIRONMENT_NAMES = Object.freeze([
   "AWS_SESSION_TOKEN",
 ] as const)
 
-const environmentForOmp = (sessionDirectory: string): NodeJS.ProcessEnv =>
-  const environment: NodeJS.ProcessEnv = {
-    NODE_ENV: "production"
-    NO_COLOR: "1"
-    HOME: sessionDirectory
-    OMP_HOME: sessionDirectory
-    PI_CODING_AGENT_DIR: sessionDirectory
-    XDG_CONFIG_HOME: sessionDirectory
-    XDG_CACHE_HOME: sessionDirectory
-    XDG_DATA_HOME: sessionDirectory
-    TMPDIR: sessionDirectory
-  }
+const captureInheritedOmpEnvironment = (): Readonly<Partial<NodeJS.ProcessEnv>> =>
+  const environment: Partial<NodeJS.ProcessEnv> = {}
   for (const name of [
     ...OMP_NONSECRET_ENVIRONMENT_NAMES,
     ...OMP_SECRET_ENVIRONMENT_NAMES,
   ])
     const value = process.env[name]
     if (value !== undefined) environment[name] = value
-  return environment
+  return Object.freeze(environment)
+
+const environmentForOmp = (
+  sessionDirectory: string,
+  inheritedEnvironment: Readonly<Partial<NodeJS.ProcessEnv>>,
+): NodeJS.ProcessEnv => ({
+  NODE_ENV: "production"
+  NO_COLOR: "1"
+  HOME: sessionDirectory
+  OMP_HOME: sessionDirectory
+  PI_CODING_AGENT_DIR: sessionDirectory
+  XDG_CONFIG_HOME: sessionDirectory
+  XDG_CACHE_HOME: sessionDirectory
+  XDG_DATA_HOME: sessionDirectory
+  TMPDIR: sessionDirectory
+  ...inheritedEnvironment
+})
 
 const effectiveOmpRedactions = (
   explicitRedactions: readonly string[],
+  environment: Readonly<Partial<NodeJS.ProcessEnv>> = captureInheritedOmpEnvironment(),
 ): readonly string[] => Object.freeze([...new Set([
   ...explicitRedactions,
   ...OMP_SECRET_ENVIRONMENT_NAMES
-    .map((name) => process.env[name])
+    .map((name) => environment[name])
     .filter((value): value is string => value !== undefined && value.length > 0),
 ])])
 
@@ -1133,6 +1140,49 @@ export const redactOmpOutput = (
     .replace(/op:\/\/[^\s"'`]+/giu, "[REDACTED]")
 
   return Object.freeze({ value: sanitized, redacted: sanitized !== value })
+
+export const redactEffectiveOmpOutput = (
+  value: string,
+  explicitRedactions: readonly string[] = [],
+): Readonly<{ value: string; redacted: boolean }> =>
+  redactOmpOutput(value, effectiveOmpRedactions(explicitRedactions))
+
+export const sanitizeOmpWayfinderTrackerArtifact = (
+  artifact: unknown,
+  expected: Readonly<{ repositoryId: string; runId: string }>,
+  explicitRedactions: readonly string[] = [],
+): OmpWayfinderTrackerArtifact =>
+  const validated = validateOmpWayfinderTrackerArtifact(artifact, expected)
+  const redactions = effectiveOmpRedactions(explicitRedactions)
+  if (
+    validated.entries.some((entry) =>
+      redactions.some((redaction) => entry.path.includes(redaction))
+    )
+  )
+    wayfinderArtifactError()
+  const entries = validated.entries.map((entry) =>
+    const redacted = redactOmpOutput(entry.content, redactions)
+    const content = validateWayfinderContent(entry.path, redacted.value)
+    return Object.freeze({
+      path: entry.path
+      bytes: content.bytes
+      digest: content.digest
+      content: content.content
+    })
+  )
+  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
+  return validateOmpWayfinderTrackerArtifact({
+    identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY
+    repositoryId: validated.repositoryId
+    runId: validated.runId
+    bytes
+    digest: wayfinderArtifactDigestFor(
+      validated.repositoryId,
+      validated.runId,
+      entries,
+    )
+    entries
+  }, expected)
 
 export const truncateOmpUtf8 = (
   value: string,
@@ -3038,7 +3088,11 @@ export const createOmpCliAdapter = (
 
     const explicitRedactions = request.redactions ?? []
     validateRedactions(explicitRedactions)
-    const redactions = effectiveOmpRedactions(explicitRedactions)
+    const inheritedEnvironment = captureInheritedOmpEnvironment()
+    const redactions = effectiveOmpRedactions(
+      explicitRedactions,
+      inheritedEnvironment,
+    )
     if (request.signal?.aborted) return abortedResult(request.command)
 
     const sourceCwd = await resolveExecutionCwd(options.repositoriesRoot, request.cwd)
@@ -3172,7 +3226,7 @@ export const createOmpCliAdapter = (
         executable: SANDBOX_EXECUTABLE
         arguments: ["-p", profile, ompExecutable, ...ompArguments]
         cwd
-        environment: environmentForOmp(sessionDirectory)
+        environment: environmentForOmp(sessionDirectory, inheritedEnvironment)
         ...(request.signal === undefined ? {} : { signal: request.signal })
         timeoutMs
         shutdownTimeoutMs
@@ -3241,12 +3295,18 @@ export const createOmpCliAdapter = (
       if request.skillProfile === "wayfinder"
         try
           return resultFor("succeeded", {
-            wayfinderTrackerArtifact:
+            wayfinderTrackerArtifact: sanitizeOmpWayfinderTrackerArtifact(
               await captureOmpWayfinderTrackerArtifact({
                 trackerDirectory: wayfinderTrackerDirectory!
                 repositoryId: request.cwd
                 runId: request.workspaceId
-              })
+              }),
+              {
+                repositoryId: request.cwd
+                runId: request.workspaceId
+              },
+              redactions,
+            )
           })
         catch
           return resultFor("failed")

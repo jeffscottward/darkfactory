@@ -33,11 +33,14 @@ const detail: OperatorRunDetailOutput = {
     machineId: "darkfactory-pilot",
     machineVersion: 1,
   },
+  originalRequest: "Plan the bounded run",
+  planRevisions: [],
   timeline: [],
   approval: null,
   implementationPlan: null,
   evidence: [],
   messages: [],
+  canRequestPlanRevision: true,
 }
 const approval: OperatorApprovalBinding = {
   machineId: "darkfactory-pilot",
@@ -78,6 +81,7 @@ describe "operator oRPC transport", ->
       wayfinder: {
         status: vi.fn(async () => wayfinderStatus),
         start: vi.fn(async () => wayfinderQueued),
+        revise: vi.fn(async () => detail),
       },
     }
     const gateway = createOperatorGateway({ operator } as unknown as OperatorClient)
@@ -94,6 +98,11 @@ describe "operator oRPC transport", ->
     await expect(gateway.cancel("run-1")).resolves.toBe(detail)
     await expect(gateway.retry("run-1")).resolves.toBe(detail)
     await expect(gateway.message("run-1", "Bounded context", "message-key-1")).resolves.toBe(detail)
+    await expect(gateway.revise(
+      "run-1",
+      "Clarify the verification steps",
+      "revision-key-1",
+    )).resolves.toBe(detail)
     await expect(gateway.wayfinderStatus()).resolves.toBe(wayfinderStatus)
     await expect(gateway.startWayfinder(
       "Plan the bounded operator extraction",
@@ -131,6 +140,11 @@ describe "operator oRPC transport", ->
     expect(operator.wayfinder.start).toHaveBeenCalledWith({
       request: "Plan the bounded operator extraction",
       scope: { repositoryId: "darkfactory", paths: ["apps/operator"] },
+    })
+    expect(operator.wayfinder.revise).toHaveBeenCalledWith({
+      runId: "run-1",
+      message: "Clarify the verification steps",
+      idempotencyKey: "revision-key-1",
     })
 
   it "reuses one idempotency key until a logical payload is deliberately changed", ->
@@ -232,7 +246,7 @@ describe "operator oRPC transport", ->
   it "classifies stale approval conflicts without exposing thrown details", ->
     expect(classifyOperatorFailure({ code: "STALE_APPROVAL", message: "secret provider detail" })).toEqual({
       kind: "stale",
-      message: "The approval binding is stale. Reload the run before taking action.",
+      message: "The plan changed. Reload the run before you take action.",
     })
     expect(classifyOperatorFailure({ data: { code: "UNAUTHORIZED" } }).kind).toBe("unauthorized")
     expect(classifyOperatorSubmissionFailure({
@@ -260,6 +274,7 @@ describe "operator oRPC transport", ->
       wayfinder: {
         status: vi.fn(async () => wayfinderStatus),
         start: vi.fn(async () => wayfinderQueued),
+        revise: vi.fn(async () => detail),
       },
     }
     operatorTransport.createOperatorClient.mockReturnValue({ operator })
@@ -275,6 +290,7 @@ describe "operator oRPC transport", ->
     await expect(gateway.cancel("run-1")).resolves.toBe(detail)
     await expect(gateway.retry("run-1")).resolves.toBe(detail)
     await expect(gateway.message("run-1", "Context", "message-key")).resolves.toBe(detail)
+    await expect(gateway.revise("run-1", "Clarify scope", "revision-key-2")).resolves.toBe(detail)
     await expect(gateway.wayfinderStatus()).resolves.toBe(wayfinderStatus)
     await expect(gateway.startWayfinder(
       "Plan the local workflow",
@@ -304,14 +320,19 @@ describe "operator oRPC transport", ->
       request: "Plan the local workflow",
       scope: { repositoryId: "darkfactory", paths: ["apps/operator"] },
     })
+    expect(operator.wayfinder.revise).toHaveBeenCalledWith({
+      runId: "run-1",
+      message: "Clarify scope",
+      idempotencyKey: "revision-key-2",
+    })
 
   it "classifies every public transport failure without leaking provider details", ->
     const cases = [
       [{ code: "UNAUTHORIZED" }, "unauthorized", "Your session ended. Sign in again to continue."],
       [{ code: "FORBIDDEN" }, "forbidden", "You do not have access to this workflow run."],
       [{ code: "NOT_FOUND" }, "not-found", "This workflow run is no longer available."],
-      [{ code: "CONFLICT" }, "stale", "The approval binding is stale. Reload the run before taking action."],
-      [{ code: "STALE_APPROVAL" }, "stale", "The approval binding is stale. Reload the run before taking action."],
+      [{ code: "CONFLICT" }, "stale", "The plan changed. Reload the run before you take action."],
+      [{ code: "STALE_APPROVAL" }, "stale", "The plan changed. Reload the run before you take action."],
       [{ code: "STORAGE_ERROR" }, "transient", "Operator data is temporarily unavailable. Try again."],
       [{ data: { code: "SERVICE_UNAVAILABLE" } }, "transient", "Operator data is temporarily unavailable. Try again."],
     ] as const

@@ -109,6 +109,7 @@
     "@darkfactory/email": "workspace:*",
     "@darkfactory/jobs": "workspace:*",
     "@darkfactory/observability": "workspace:*",
+    "@darkfactory/operator": "workspace:*",
     "@darkfactory/shared": "workspace:*",
     "@darkfactory/state": "workspace:*",
     "@darkfactory/storage": "workspace:*",
