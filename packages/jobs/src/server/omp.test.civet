@@ -573,6 +573,7 @@ describe("OMP CLI adapter", () =>
       instruction
     ]))
     expect(ompArguments.at(-1)).toBe(instruction)
+    expect(ompArguments).not.toContain("--thinking=off")
     expect(arguments_).not.toContain("--no-tools")
     expect(arguments_.join(" ")).not.toContain("bash")
     expect(profile).toContain("(deny default)")
@@ -5161,6 +5162,7 @@ describe("OMP CLI adapter", () =>
       "--tools=read,grep,glob,edit,write,task,web_search",
     )
     expect(ompArguments).not.toContain("--no-skills")
+    expect(ompArguments).toContain("--thinking=off")
     expect(options.env["HOME"]).toMatch(/darkfactory-omp-/u)
     expect(options.env["UNRELATED_SECRET"]).toBeUndefined()
     const writeSection = profile.slice(profile.indexOf("(allow file-write*"))

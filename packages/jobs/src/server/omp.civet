@@ -3151,6 +3151,7 @@ export const createOmpCliAdapter = (
       const ompArguments = [
         "-p",
         "--mode=text",
+        ...(request.skillProfile === "wayfinder" ? ["--thinking=off"] : []),
         `--tools=${tools.join(",")}`,
         "--no-extensions",
         skillArgument,
