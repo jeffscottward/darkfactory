@@ -262,6 +262,9 @@ describe("local Wayfinder execution adapter", () =>
     expect(requests[0]!.instruction).toContain(
       ".scratch/run-wayfinder-1",
     )
+    expect(requests[0]!.instruction).toContain(
+      "Use the write tool to create map.md in the tracker root before responding.",
+    )
     await expect(readFile(
       join(repositoriesRoot, "darkfactory", ".scratch", "run-wayfinder-1", "map.md"),
       "utf8",

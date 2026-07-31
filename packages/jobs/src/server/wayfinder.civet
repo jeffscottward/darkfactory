@@ -495,6 +495,7 @@ export const buildWayfinderInstruction = (
   `Tracker: ${WAYFINDER_TRACKER}.`,
   `Tracker root: ${JSON.stringify(`.scratch/${runId}`)}.`,
   "Write one non-empty map.md of at most 131072 UTF-8 bytes.",
+  "Use the write tool to create map.md in the tracker root before responding.",
   "Write up to 64 non-empty issues/NN-safe-slug.md files of at most 65536 UTF-8 bytes each.",
   "Keep the tracker total at most 524288 bytes.",
   "Do not write to .scratch siblings or any other repository path.",
