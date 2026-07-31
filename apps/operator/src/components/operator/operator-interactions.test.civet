@@ -662,7 +662,7 @@ describe "operator run detail behavior", ->
     expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
 
     invalidStage.unmount()
-    render(<OperatorRunDetail
+    const revisionStage = render(<OperatorRunDetail
       gateway={gatewayWith({
         detail: vi.fn(async () => detail(
           { state: "blocked", blockedReason: "Planning stopped." },
@@ -681,6 +681,43 @@ describe "operator run detail behavior", ->
     expect(screen.queryByText(/Wayfinder is preparing a plan/)).toBeNull()
     expect(screen.getByLabelText("What should change?")).toBeDefined()
     expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
+
+    revisionStage.unmount()
+    const reviewablePlan = detail().implementationPlan
+    const blockedReview = render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { state: "blocked", blockedReason: "Plan review stopped." },
+          {
+            approval: null,
+            implementationPlan: reviewablePlan,
+            canRequestPlanRevision: true,
+          },
+        )),
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText(
+      "Review the conversation and plan. Request changes if the plan is the problem, or retry after you resolve the stated issue.",
+    )).toBeDefined()
+
+    blockedReview.unmount()
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { state: "blocked", blockedReason: "Implementation stopped." },
+          {
+            approval: null,
+            implementationPlan: reviewablePlan,
+            canRequestPlanRevision: false,
+          },
+        )),
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText(
+      "Resolve the stated issue, then retry the run. Plan revision is not available at this stage.",
+    )).toBeDefined()
 
   it "does not invoke approval without a binding", async ->
     const approve = vi.fn(async () => detail())
@@ -989,6 +1026,53 @@ describe "operator run detail behavior", ->
     expect(screen.getByRole("heading", { name: "Mutation result" })).toBeDefined()
     expect(screen.queryByText("Older poll result")).toBeNull()
 
+
+  it "rejects a duplicate action before the busy render commits", async ->
+    const retryRequest = deferred<OperatorRunDetailOutput>()
+    const retry = vi.fn(() => retryRequest.promise)
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({ state: "blocked" })),
+        retry,
+      })}
+      id="run-1"
+    />)
+    const retryButton = await screen.findByRole("button", { name: "Retry run" })
+
+    act(() =>
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    )
+
+    expect(retry).toHaveBeenCalledOnce()
+    await act(async () =>
+      retryRequest.resolve(detail({ state: "planning" }))
+      await retryRequest.promise
+    )
+
+  it "pauses without polling when a busy mutation passes the refresh deadline", async ->
+    vi.useFakeTimers()
+    const clock = { now: 0 }
+    vi.spyOn(performance, "now").mockImplementation(() => clock.now)
+    const mutationResponse = deferred<OperatorRunDetailOutput>()
+    const load = vi.fn(async () => detail({ state: "blocked" }))
+    const retry = vi.fn(() => mutationResponse.promise)
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load, retry })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+    expect(retry).toHaveBeenCalledOnce()
+    clock.now = 300_001
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+
+    expect(load).toHaveBeenCalledOnce()
+    expect(screen.getByText(
+      "Automatic updates are paused. Select Refresh run to start another five-minute session.",
+    )).toBeDefined()
+
   it "announces a transient automatic failure and resumes after a successful retry", async ->
     vi.useFakeTimers()
     const load = vi.fn()
@@ -1010,6 +1094,24 @@ describe "operator run detail behavior", ->
     expect(screen.getByText(
       "Automatic updates are active for five minutes. You can refresh this run at any time.",
     )).toBeDefined()
+
+
+  it "pauses automatic updates when a poll reaches a terminal state", async ->
+    vi.useFakeTimers()
+    const load = vi.fn()
+      .mockResolvedValueOnce(detail({ state: "planning" }))
+      .mockResolvedValueOnce(detail({ state: "completed" }))
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(screen.getByText("This run is complete. Automatic updates are paused."))
+      .toBeDefined()
 
   it "keeps one wall-clock deadline across lifecycle changes and restarts it manually", async ->
     vi.useFakeTimers()
@@ -1050,6 +1152,31 @@ describe "operator run detail behavior", ->
     )).toBeDefined()
     await act(async () => await vi.advanceTimersByTimeAsync(10_000))
     expect(load).toHaveBeenCalledTimes(callsAtDeadline + 2)
+
+  it "ignores a cleared deadline callback from an older refresh session", async ->
+    vi.useFakeTimers()
+    const timeout = vi.spyOn(window, "setTimeout")
+    const load = vi.fn(async () => detail({ state: "planning" }))
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+    const staleDeadline = timeout.mock.calls.find(
+      ([, delay]) => delay === 300_000,
+    )?.[0]
+    if staleDeadline === undefined then throw new Error("missing refresh deadline")
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh run" }))
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+    act(() => staleDeadline())
+
+    expect(screen.getByText(
+      "Automatic updates are active for five minutes. You can refresh this run at any time.",
+    )).toBeDefined()
 
   it "drops queued focus work when unmounted after a successful action", async ->
     const callbacks: Array<() => void> = []

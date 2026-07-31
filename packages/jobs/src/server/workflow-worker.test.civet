@@ -210,7 +210,19 @@ describe("workflow outbox worker", () =>
   )
 
   it("claims V2 before V1 within one total batch", async () =>
-    const v2 = claim({ id: "v2", effectId: "v2", idempotencyKey: "run-1:v2" })
+    const v2 = claim({
+      id: "v2"
+      effectId: "v2"
+      idempotencyKey: "run-1:v2"
+      taskMetadata: {
+        taskId: "task"
+        workspaceId: "workspace-1"
+        taskRevision: 2
+        taskHash: "a".repeat(64)
+        sourceSequence: 3
+        planClarification: "Keep the change bounded."
+      }
+    })
     const v1 = claim({
       id: "v1"
       effectId: "v1"
@@ -224,9 +236,10 @@ describe("workflow outbox worker", () =>
       return available.slice(0, input.limit)
     )
     const repository = outbox([], { claimDueEffects })
+    const omp = adapter()
     const results = await createWorkflowOutboxWorker({
       repository
-      adapter: adapter()
+      adapter: omp
       leaseOwner: "worker-a"
       authorizeRepository
       batchSize: 2
@@ -236,6 +249,11 @@ describe("workflow outbox worker", () =>
       { id: "v2", status: "completed" }
       { id: "v1", status: "completed" }
     ])
+    expect(omp.execute).toHaveBeenCalledWith(expect.objectContaining({
+      instruction: expect.stringContaining(
+        "Requested plan changes: \"Keep the change bounded.\".",
+      )
+    }))
     expect(claimDueEffects).toHaveBeenNthCalledWith(1, {
       handler: WORKFLOW_EFFECT_HANDLER_V2
       leaseOwner: "worker-a"
@@ -277,6 +295,75 @@ describe("workflow outbox worker", () =>
     expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
       id: "effect-1"
     }))
+  )
+
+  it("fails closed when a V2 claim carries invalid plan clarification", async () =>
+    const malformed = claim({
+      taskMetadata: {
+        taskId: "task"
+        workspaceId: "workspace-1"
+        taskRevision: 2
+        taskHash: "a".repeat(64)
+        sourceSequence: 3
+        planClarification: " Keep the change bounded."
+      }
+    })
+    const repository = outbox([[malformed]])
+    const omp = adapter()
+
+    await expect(createWorkflowOutboxWorker({
+      repository
+      adapter: omp
+      leaseOwner: "worker-a"
+      authorizeRepository
+    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
+    expect(repository.failEffect).toHaveBeenCalledWith({
+      id: "effect-1"
+      leaseOwner: "worker-a"
+      fenceToken: 7
+      result: expect.objectContaining({
+        status: "failed"
+        eventType: "EFFECT_FAILED"
+        failureCode: "failed"
+        retryable: false
+      })
+    })
+    expect(omp.execute).not.toHaveBeenCalled()
+  )
+
+  it("fails closed when a non-plan V2 claim carries valid plan clarification", async () =>
+    const misplaced = claim({
+      effectKind: "implement"
+      taskMetadata: {
+        taskId: "task"
+        workspaceId: "workspace-1"
+        taskRevision: 2
+        taskHash: "a".repeat(64)
+        sourceSequence: 3
+        planClarification: "Keep the change bounded."
+      }
+    })
+    const repository = outbox([[misplaced]])
+    const omp = adapter()
+
+    await expect(createWorkflowOutboxWorker({
+      repository
+      adapter: omp
+      leaseOwner: "worker-a"
+      authorizeRepository
+    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
+    expect(repository.failEffect).toHaveBeenCalledWith({
+      id: "effect-1"
+      leaseOwner: "worker-a"
+      fenceToken: 7
+      result: expect.objectContaining({
+        status: "failed"
+        eventType: "EFFECT_FAILED"
+        failureCode: "failed"
+        retryable: false
+      })
+    })
+    expect(omp.execute).not.toHaveBeenCalled()
   )
 
   it("decodes canonical scope and maps its repository to the OMP cwd", async () =>
@@ -1430,6 +1517,37 @@ describe("workflow outbox worker", () =>
     releaseClaims?.()
     await expect(stopping).resolves.toBeUndefined()
     await expect(worker.runOnce()).resolves.toEqual([])
+    expect(omp.execute).not.toHaveBeenCalled()
+  )
+
+  it("stops after the legacy claim completes and before processing it", async () =>
+    let releaseLegacyClaims: (() => void) | undefined
+    const claimDueEffects = vi.fn((
+      input: Parameters<WorkflowOutboxPort["claimDueEffects"]>[0],
+    ) =>
+      if input.handler === WORKFLOW_EFFECT_HANDLER_V2
+        return Promise.resolve([])
+      return new Promise<readonly ClaimedWorkflowEffect[]>((resolve) =>
+        releaseLegacyClaims = () => resolve([
+          claim({ handler: WORKFLOW_EFFECT_HANDLER_V1 }),
+        ])
+      )
+    )
+    const repository = outbox([], { claimDueEffects })
+    const omp = adapter()
+    const worker = createWorkflowOutboxWorker({
+      repository
+      adapter: omp
+      leaseOwner: "worker-a"
+      authorizeRepository
+    })
+
+    await worker.start()
+    await vi.waitFor(() => expect(claimDueEffects).toHaveBeenCalledTimes(2))
+    const stopping = worker.stop()
+    releaseLegacyClaims?.()
+
+    await expect(stopping).resolves.toBeUndefined()
     expect(omp.execute).not.toHaveBeenCalled()
   )
 

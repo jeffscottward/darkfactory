@@ -38,7 +38,10 @@ import {
   operatorServiceErrorMessage,
   type OperatorWorkflowPort,
 } from "./operator-service.civet"
-import { createOperatorWorkflowPort } from "./workflow-runtime.civet"
+import {
+  createOperatorWorkflowPort,
+  projectWorkflowPlanRevisions,
+} from "./workflow-runtime.civet"
 
 const NOW = new Date("2026-07-29T12:00:00.000Z")
 const SCOPE = Object.freeze({
@@ -350,6 +353,43 @@ const portFor = (
     return grants !== undefined && grants.includes(repositoryId)
   now: () => NOW,
 })
+
+const initialProjectionFor = (
+  runId: string,
+  ownerId = "owner-1",
+): WorkflowProjection =>
+  const snapshot = createInitialWorkflowSnapshotV1({ runId, ownerId })
+  return Object.freeze({
+    run: Object.freeze({
+      id: runId,
+      ownerId,
+      machineId: snapshot.machineId,
+      machineVersion: snapshot.machineVersion,
+      state: snapshot.state,
+      headSequence: snapshot.sequence,
+      headHash: snapshot.journalHeadHash,
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+    snapshot: Object.freeze({
+      runId,
+      sequence: snapshot.sequence,
+      machineId: snapshot.machineId,
+      machineVersion: snapshot.machineVersion,
+      state: snapshot.state,
+      context: Object.freeze({
+        ...snapshot.context,
+        scope: null,
+        attempts: Object.freeze({ ...snapshot.context.attempts }),
+        pendingEffect: null,
+      }),
+      journalHeadHash: snapshot.journalHeadHash,
+      effectHash: null,
+      effectScope: null,
+      updatedAt: NOW,
+    }),
+    journal: Object.freeze([]),
+  })
 
 describe("operator workflow submit idempotency", () =>
   it("returns the original deterministic run after a lost response without creating another run", async () =>
@@ -860,6 +900,38 @@ describe "operator Wayfinder plan revision", ->
     }), "CONFLICT")
     expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2)
 
+  it "fails concurrency recovery when the requested revision was not committed", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const run = await awaitingRun(fake, port)
+    const input = {
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      runId: run.submitted.run.id
+      idempotencyKey: "revision-uncommitted-concurrency"
+      requestId: "revision-uncommitted-concurrency"
+      clarification: "Keep the recovery contract bounded."
+    }
+    const requestedEventId = revisionEventIdFor(
+      input.ownerId,
+      input.runId,
+      input.idempotencyKey,
+    )
+    fake.decideApprovalAndAppend.mockRejectedValueOnce(
+      new WorkflowConcurrencyError(),
+    )
+
+    await expectWorkflowPortError(port.revise(input), "CONFLICT")
+
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce()
+    const recovered = await fake.repository.findProjectionByOwner(
+      input.runId,
+      input.ownerId,
+    )
+    expect(recovered?.journal.some(
+      ({ eventId }) => eventId === requestedEventId,
+    )).toBe(false)
+
   it "coalesces concurrent exact revision requests into one journal event", async ->
     const fake = fakeRepository()
     const port = portFor(fake)
@@ -881,6 +953,22 @@ describe "operator Wayfinder plan revision", ->
     expect(second.timeline.filter(
       ({ eventType }) => eventType === "PLAN_REVISION_REQUESTED"
     )).toHaveLength(1)
+
+  it "bounds projected plan revision history at one thousand entries", ->
+    const revisions = projectWorkflowPlanRevisions(Array.from(
+      { length: 1_001 },
+      (_, index) => ({
+        event: {
+          type: "PLAN_REVISION_REQUESTED",
+          clarification: `Revision ${index}.`,
+          occurredAt: NOW.toISOString(),
+        },
+      }),
+    ) as never)
+
+    expect(revisions).toHaveLength(1_000)
+    expect(revisions.at(0)?.message).toBe("Revision 0.")
+    expect(revisions.at(-1)?.message).toBe("Revision 999.")
 
   it "derives revision capability from state and the blocked failure stage", async ->
     const fake = fakeRepository()
@@ -904,14 +992,20 @@ describe "operator Wayfinder plan revision", ->
     })
     expect((await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision)
       .toBe(true)
-    await expect(port.revise({
+    const blockedRevisionInput = {
       ownerId: "owner-1"
       actorUserId: "owner-1"
       runId: submitted.run.id
       idempotencyKey: "blocked-plan-revision"
       requestId: "blocked-plan-revision"
       clarification: "Use a smaller backend slice."
-    })).resolves.toMatchObject({ canRequestPlanRevision: false })
+    }
+    const blockedRevision = await port.revise(blockedRevisionInput)
+    expect(blockedRevision).toMatchObject({ canRequestPlanRevision: false })
+    await expect(port.revise({
+      ...blockedRevisionInput
+      requestId: "blocked-plan-revision-replay"
+    })).resolves.toEqual(blockedRevision)
     expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
 
     const implementingFake = fakeRepository()
@@ -1203,47 +1297,27 @@ describe "operator workflow port projections and actions", ->
     const fake = fakeRepository()
     const port = portFor(fake)
     const runId = "initial-draft-run"
-    const snapshot = createInitialWorkflowSnapshotV1({
-      runId
-      ownerId: "owner-1"
-    })
-    const projection: WorkflowProjection = Object.freeze({
-      run: Object.freeze({
-        id: runId
-        ownerId: "owner-1"
-        machineId: snapshot.machineId
-        machineVersion: snapshot.machineVersion
-        state: snapshot.state
-        headSequence: snapshot.sequence
-        headHash: snapshot.journalHeadHash
-        createdAt: NOW
-        updatedAt: NOW
-      })
-      snapshot: Object.freeze({
-        runId
-        sequence: snapshot.sequence
-        machineId: snapshot.machineId
-        machineVersion: snapshot.machineVersion
-        state: snapshot.state
-        context: Object.freeze({
-          ...snapshot.context
-          scope: null
-          attempts: Object.freeze({ ...snapshot.context.attempts })
-          pendingEffect: null
-        })
-        journalHeadHash: snapshot.journalHeadHash
-        effectHash: null
-        effectScope: null
-        updatedAt: NOW
-      })
-      journal: Object.freeze([])
-    })
+    const projection = initialProjectionFor(runId)
     fake.listRunsByOwner.mockResolvedValueOnce([projection.run])
     fake.listProjectionsByOwner.mockResolvedValueOnce([projection])
 
     const workspace = await port.workspace("owner-1", { limit: 1 })
 
     expect(workspace[0]).not.toHaveProperty("title")
+
+  it "fails closed when detail receives a verified empty-journal initial projection", async ->
+    const fake = fakeRepository()
+    const port = portFor(fake)
+    const runId = "empty-journal-detail-run"
+    const projection = initialProjectionFor(runId)
+    vi.spyOn(fake.repository, "findProjectionByOwner")
+      .mockResolvedValueOnce(projection)
+
+    await expectWorkflowPortError(
+      port.detail("owner-1", runId),
+      "PROJECTION_INVALID",
+    )
+    expect(fake.findEvidenceByOwner).not.toHaveBeenCalled()
 
   it "projects only digest-bound plan evidence through the owner-scoped lookup", async ->
     const fake = fakeRepository()

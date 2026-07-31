@@ -97,10 +97,9 @@ export const OperatorRunDetail = ({ gateway: suppliedGateway, id }: OperatorRunD
     clearAutomaticTimers()
   , [clearAutomaticTimers])
 
-  const pauseAutomaticRefresh = useCallback((session: number): void =>
-    if (automaticGeneration.current !== session) return
+  const pauseAutomaticRefresh = useCallback((_session: number): void =>
     cancelAutomaticRefresh()
-    if (mounted.current) setAutoRefreshStatus("paused")
+    setAutoRefreshStatus("paused")
   , [cancelAutomaticRefresh])
 
   const beginAutomaticRefresh = useCallback((): number =>
@@ -252,7 +251,7 @@ export const OperatorRunDetail = ({ gateway: suppliedGateway, id }: OperatorRunD
     operation: () => Promise<OperatorRunDetailOutput>,
     successMessage: string,
   ): Promise<boolean> =>
-    if (busyActionRef.current !== null || approvalConflict !== null) return false
+    if (busyActionRef.current !== null) return false
     const actionRunId = id
     const revision = requestRevision.current + 1
     requestRevision.current = revision

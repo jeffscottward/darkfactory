@@ -76,7 +76,7 @@ afterEach(async () =>
   filesystemMocks.open = undefined
   filesystemMocks.readlink = undefined
   filesystemMocks.symlink = undefined
-  delete process.env["OPENAI_API_KEY"]
+  vi.unstubAllEnvs()
   await Promise.all([...temporaryRoots].map((root) =>
     rm(root, { recursive: true, force: true })
   ))
@@ -232,7 +232,7 @@ describe("local Wayfinder execution adapter", () =>
     const artifact = await trackerArtifactFor()
     const requests: OmpExecutionRequest[] = []
     const ompResult = resultFor(artifact)
-    process.env["OPENAI_API_KEY"] = "sk-wayfinder-secret-value"
+    vi.stubEnv("OPENAI_API_KEY", "sk-wayfinder-secret-value")
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot
       skillPath
@@ -306,6 +306,64 @@ describe("local Wayfinder execution adapter", () =>
     expect(serialized).not.toContain("sk-wayfinder-secret-value")
   )
 
+  it "includes requested plan changes and forwards explicit redactions through OMP and publication", async ->
+    const planClarification = "Keep the storage route explicit and preserve rollback ordering."
+    const redactions = Object.freeze([
+      "private-plan-token"
+      "second-plan-secret"
+    ])
+    const redactedMap = "# Route\nKeep [REDACTED] outside publication.\n"
+    const redactedIssue = "# Storage\nNever persist [REDACTED].\n"
+    const skillPath = await createSkillPath()
+    const repositoriesRoot = await createRepositoriesRoot()
+    const artifact = await trackerArtifactFor(
+      "# Route\nKeep private-plan-token outside publication.\n"
+      "# Storage\nNever persist second-plan-secret.\n"
+    )
+    const expectedArtifact = await trackerArtifactFor(
+      redactedMap
+      redactedIssue
+    )
+    const requests: OmpExecutionRequest[] = []
+    const adapter = createLocalWayfinderExecutionAdapter({
+      repositoriesRoot
+      skillPath
+      omp: ompAdapter(async (request) =>
+        requests.push(request)
+        return resultFor(artifact)
+      )
+    })
+
+    const result = await adapter.execute({
+      ...executionRequest
+      planClarification
+      redactions
+    })
+    const trackerRoot = join(
+      repositoriesRoot
+      "darkfactory"
+      ".scratch"
+      executionRequest.workspaceId
+    )
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.instruction.split("\n")).toContain(
+      `Requested plan changes: ${JSON.stringify(planClarification)}.`
+    )
+    expect(requests[0]!.redactions).toEqual(redactions)
+    await expect(readFile(join(trackerRoot, "map.md"), "utf8"))
+      .resolves.toBe(redactedMap)
+    await expect(readFile(
+      join(trackerRoot, "issues", "01-storage.md")
+      "utf8"
+    )).resolves.toBe(redactedIssue)
+    expect(result.output).toMatchObject({
+      redacted: true
+      stdout: planReviewFor(expectedArtifact)
+    })
+    for redaction of redactions
+      expect(result.output.stdout).not.toContain(redaction)
+
   it "bounds and redacts tracker plan content before worker persistence", async ->
     const secret = "sk-wayfinder-plan-secret"
     const skillPath = await createSkillPath()
@@ -333,7 +391,7 @@ describe("local Wayfinder execution adapter", () =>
     const secret = "standalone-wayfinder-environment-value"
     const redactedMap = "# Route\nUse [REDACTED] only.\n"
     const redactedIssue = "# Storage\nNever persist [REDACTED].\n"
-    process.env["OPENAI_API_KEY"] = secret
+    vi.stubEnv("OPENAI_API_KEY", secret)
     const skillPath = await createSkillPath()
     const repositoriesRoot = await createRepositoriesRoot()
     const artifact = await trackerArtifactFor(
@@ -377,7 +435,7 @@ describe("local Wayfinder execution adapter", () =>
     })
     expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan))
     expect(JSON.stringify({ result, plan })).not.toContain(secret)
-    delete process.env["OPENAI_API_KEY"]
+    vi.unstubAllEnvs()
     const replayResult = await adapter.execute(executionRequest)
     const replayPlan = createWorkflowPlanEvidenceV1(replayResult.output)
     expect(replayResult.output).toEqual(result.output)
@@ -386,7 +444,7 @@ describe("local Wayfinder execution adapter", () =>
 
   it "rejects an effective environment secret in a tracker path", async ->
     const secret = "standalone-wayfinder-path-value"
-    process.env["OPENAI_API_KEY"] = secret
+    vi.stubEnv("OPENAI_API_KEY", secret)
     const skillPath = await createSkillPath()
     const repositoriesRoot = await createRepositoriesRoot()
     const artifact = await trackerArtifactFor(

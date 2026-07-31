@@ -185,6 +185,19 @@ const canRequestPlanRevision = (
       projection.snapshot.context.failedStage === "planning"
     )
 
+export const projectWorkflowPlanRevisions = (
+  journal: VerifiedWorkflowProjection["journal"],
+): WorkflowOperatorDetail["planRevisions"] =>
+  const revisions: WorkflowOperatorDetail["planRevisions"][number][] = []
+  for entry of journal
+    if (entry.event.type === "PLAN_REVISION_REQUESTED")
+      revisions.push(Object.freeze({
+        message: entry.event.clarification,
+        createdAt: new Date(entry.event.occurredAt),
+      }))
+      if (revisions.length === 1_000) break
+  return Object.freeze(revisions)
+
 export const createOperatorWorkflowPort = (
   options: OperatorWorkflowPortOptions,
 ): OperatorWorkflowPort =>
@@ -230,14 +243,7 @@ export const createOperatorWorkflowPort = (
       throw new WorkflowProjectionVerificationError(
         "missing initial run submission",
       )
-    const planRevisions: WorkflowOperatorDetail["planRevisions"][number][] = []
-    for entry of projection.journal
-      if (entry.event.type === "PLAN_REVISION_REQUESTED")
-        planRevisions.push(Object.freeze({
-          message: entry.event.clarification,
-          createdAt: new Date(entry.event.occurredAt),
-        }))
-        if (planRevisions.length === 1_000) break
+    const planRevisions = projectWorkflowPlanRevisions(projection.journal)
 
     const runId = projection.persistence.run.id
     const ownerId = projection.persistence.run.ownerId

@@ -117,6 +117,7 @@ import {
   OMP_VERIFIER_OUTPUT_TMPFS,
   OMP_VERIFIER_CACHE_TMPFS,
   OMP_VERIFIER_TMP_TMPFS,
+  truncateOmpUtf8,
   type OmpCliAdapterOptions,
   type OmpFilesystemSandboxBackend,
   type DecodedOmpImplementationArtifact,
@@ -915,6 +916,7 @@ describe("OMP CLI adapter", () =>
   it("keeps failed implementation mutations isolated without issuing success evidence", async () =>
     await writeFile(scopedFile, "before")
     trackedPaths.add("packages/jobs/representative.civet")
+    let mutation: Promise<void> | undefined
     callbackWith(
       Object.assign(new Error("timed out"), {
         code: "ETIMEDOUT",
@@ -924,11 +926,13 @@ describe("OMP CLI adapter", () =>
       "",
       "",
       async (cwd) =>
-        await writeFile(join(cwd, "packages", "jobs", "representative.civet"), "partial")
+        mutation = writeFile(join(cwd, "packages", "jobs", "representative.civet"), "partial")
     )
     const adapter = createOmpCliAdapter({ repositoriesRoot, timeoutMs: 1 })
 
     const result = await adapter.execute(requestFor({ effectKind: "implement" }))
+    if mutation === undefined then throw new Error("missing isolated mutation")
+    await mutation
 
     expect(result).toMatchObject({
       status: "timed-out"
@@ -1196,6 +1200,7 @@ describe("OMP CLI adapter", () =>
       requestFor({ redactions: Array.from({ length: MAX_OMP_REDACTIONS + 1 }, () => "x") })
       requestFor({ redactions: [""] })
       requestFor({ redactions: ["x".repeat(4_097)] })
+      requestFor({ redactions: ["é".repeat(2_049)] })
     ]
       await expect(adapter.execute(request)).rejects.toBeInstanceOf(OmpRequestError)
     expect(sandboxCalls()).toHaveLength(0)
@@ -1478,6 +1483,14 @@ describe("OMP CLI adapter", () =>
       "[REDACTED] [REDACTED] password=[REDACTED]",
     )
     expect(redacted.output.redacted).toBe(true)
+  )
+
+  it("preserves UTF-8 output at the exact byte boundary", () =>
+    expect(truncateOmpUtf8("éé", 4)).toEqual({
+      value: "éé"
+      bytes: 4
+      truncated: false
+    })
   )
 
   it("collapses duplicate and nested nonexistent scopes to one sandbox boundary", async () =>

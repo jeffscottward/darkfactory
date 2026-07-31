@@ -1121,6 +1121,7 @@ const validateRedactions = (redactions: readonly string[]): void =>
   for (const redaction of redactions)
     if (redaction.length === 0 || Buffer.byteLength(redaction) > 4_096)
       throw new OmpRequestError("Redaction values must be 1-4096 UTF-8 bytes")
+    else continue
 
 export const redactOmpOutput = (
   value: string,
@@ -1191,14 +1192,15 @@ export const truncateOmpUtf8 = (
   const buffer = Buffer.from(value)
   if (buffer.byteLength <= maximumBytes)
     return Object.freeze({ value, bytes: buffer.byteLength, truncated: false })
+  else
+    const truncated = buffer.subarray(0, maximumBytes).toString("utf8")
+      .replace(/\uFFFD$/u, "")
+    return Object.freeze({
+      value: truncated,
+      bytes: Buffer.byteLength(truncated),
+      truncated: true,
+    })
 
-  const truncated = buffer.subarray(0, maximumBytes).toString("utf8")
-    .replace(/\uFFFD$/u, "")
-  return Object.freeze({
-    value: truncated,
-    bytes: Buffer.byteLength(truncated),
-    truncated: true,
-  })
 
 const sanitizeOutput = (
   stdout: string | Buffer | null | undefined,
@@ -1939,7 +1941,6 @@ const acquireWorkspaceLock = async (
     if (
       recoveryOwnerNonce === undefined ||
       existing.nonce !== recoveryOwnerNonce ||
-      !OWNER_NONCE_PATTERN.test(existing.nonce) ||
       !Number.isSafeInteger(existing.pid) ||
       existing.pid <= 0 ||
       !Number.isSafeInteger(existing.createdAt) ||
@@ -2650,7 +2651,9 @@ const signalOwnedProcessGroup = (
   try
     process.kill(-pid, signal)
   catch error
-    if (error as NodeJS.ErrnoException).code !== "ESRCH" then throw error
+    if (error as NodeJS.ErrnoException).code !== "ESRCH"
+      throw error
+    else return
 
 const terminateOwnedProcessTree = async (
   child: ChildProcess,
@@ -2793,7 +2796,9 @@ const resolveDockerExecutable = async (): Promise<string> =>
     try
       await access(candidate, constants.X_OK)
       const canonical = await realpath(candidate)
-      if (await stat(canonical)).isFile() then return canonical
+      if (await stat(canonical)).isFile()
+        return canonical
+      else continue
     catch
       continue
   throw new OmpConfigurationError("OMP Docker verifier backend is unavailable")
