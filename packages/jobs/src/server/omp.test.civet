@@ -637,6 +637,7 @@ describe("OMP CLI adapter", () =>
     const developerDirectory =
       "/Applications/Xcode-26.0.app/Contents/Developer"
     const gitExecutable = join(developerDirectory, "usr", "bin", "git")
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
     const syntheticPaths = new Set<string>()
     let candidate = gitExecutable
     while candidate !== "/"
@@ -675,6 +676,7 @@ describe("OMP CLI adapter", () =>
       )).toBe(true)
       await result.lifecycle!.finalize("unpersisted")
     finally
+      platform.mockRestore()
       resetWPFilesystemDelegates()
   )
 
@@ -4028,18 +4030,45 @@ describe("OMP CLI adapter", () =>
     finally
       platform.mockRestore()
 
+    const developerDirectory =
+      "/Applications/Xcode-CI.app/Contents/Developer"
+    const gitExecutable = join(developerDirectory, "usr", "bin", "git")
+    const trustedGitPaths = new Set<string>()
+    let trustedGitCandidate = gitExecutable
+    while trustedGitCandidate !== "/"
+      trustedGitPaths.add(trustedGitCandidate)
+      trustedGitCandidate = dirname(trustedGitCandidate)
+    mocks.WP3realpathDelegate = async (actual, path, ...arguments_) =>
+      const value = String(path)
+      if value === "/var/db/xcode_select_link" then return developerDirectory
+      if value === developerDirectory || value === gitExecutable then return value
+      return actual(path, ...arguments_)
     const validExecutableDirectory = join(repositoriesRoot, "wp3-valid-bin")
     const validExecutable = join(validExecutableDirectory, "omp")
     await mkdir(validExecutableDirectory)
     await writeFile(validExecutable, "#!/bin/sh\nexit 0\n")
     await chmod(validExecutable, 0o700)
     mocks.WP3accessDelegate = async (actual, path, mode) =>
-      if String(path) === sandboxExecutable then return
+      const value = String(path)
+      if value === sandboxExecutable || value === gitExecutable then return
       return actual(path, mode)
     mocks.WP3statDelegate = async (actual, path, ...arguments_) =>
-      if String(path) === sandboxExecutable
+      const value = String(path)
+      if value === sandboxExecutable
         return {
           isFile: () => true,
+        } as Awaited<ReturnType<typeof stat>>
+      if trustedGitPaths.has(value)
+        return {
+          uid: 0,
+          gid: value === "/Applications" ? 80 : 0,
+          mode: value === gitExecutable
+            ? 0o100755
+            : value === "/Applications"
+              ? 0o040775
+              : 0o040755,
+          isFile: () => value === gitExecutable,
+          isDirectory: () => value !== gitExecutable,
         } as Awaited<ReturnType<typeof stat>>
       return actual(path, ...arguments_)
     const originalPath = process.env["PATH"]
@@ -4060,6 +4089,7 @@ describe("OMP CLI adapter", () =>
       else process.env["PATH"] = originalPath
       validPlatform.mockRestore()
 
+    mocks.WP3realpathDelegate = undefined
     mocks.WP3accessDelegate = undefined
     mocks.WP3statDelegate = undefined
     const controlExecutable = join(repositoriesRoot, "wp3-omp\ncontrol")
