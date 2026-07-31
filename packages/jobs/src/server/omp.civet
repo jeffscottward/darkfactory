@@ -828,7 +828,13 @@ export const applyOmpImplementationArtifact = async (
 const DEFAULT_ALLOWED_EXECUTABLES = Object.freeze(["omp"])
 const DEFAULT_ALLOWED_COMMANDS = Object.freeze(["print"] as const)
 const SANDBOX_EXECUTABLE = "/usr/bin/sandbox-exec"
-const GIT_EXECUTABLE = "/usr/bin/git"
+const DEFAULT_GIT_EXECUTABLE =
+  "/Library/Developer/CommandLineTools/usr/bin/git"
+const XCODE_SELECT_LINK = "/var/db/xcode_select_link"
+const DEFAULT_APPLE_DEVELOPER_DIRECTORIES = Object.freeze([
+  "/Library/Developer/CommandLineTools"
+  "/Applications/Xcode.app/Contents/Developer"
+])
 const OMP_WORKTREES_DIRECTORY = join(tmpdir(), "darkfactory-omp-worktrees")
 const MAX_GIT_OUTPUT_BYTES = 64 * 1_024
 const DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS = 10_000
@@ -1215,6 +1221,17 @@ const resolveExecutionCwd = async (
 const isSameOrContainedPath = (root: string, candidate: string): boolean =>
   candidate === root || isContainedPath(root, candidate)
 
+const isSensitiveScopePath = (cwd: string, candidate: string): boolean =>
+  const firstSegment = relative(cwd, candidate).split(sep, 1)[0]!.toLowerCase()
+  return (
+    SENSITIVE_SCOPE_SEGMENTS.has(firstSegment) ||
+    firstSegment === ".env" ||
+    firstSegment.startsWith(".env.") ||
+    SENSITIVE_REPOSITORY_PATHS.some((path) =>
+      path.toLowerCase() === firstSegment
+    )
+  )
+
 const resolveScopePath = async (
   cwd: string,
   scopePath: string,
@@ -1236,7 +1253,7 @@ const resolveScopePath = async (
     try
       const canonicalParent = await realpath(existing)
       const canonical = resolve(canonicalParent, relative(existing, candidate))
-      if canonical === cwd
+      if canonical === cwd || isSensitiveScopePath(cwd, canonical)
         throw new OmpRequestError("OMP scope path is sensitive")
       if !isContainedPath(cwd, canonical)
         throw new OmpRequestError("OMP scope path escapes the repository")
@@ -1379,6 +1396,17 @@ const sandboxPathFilters = (
       : [`    (literal ${literal})`]
   ).join("\n")
 
+const sandboxAncestorPathFilters = (paths: readonly string[]): string =>
+  const ancestors = new Set<string>()
+  for path of paths
+    let ancestor = dirname(path)
+    while true
+      ancestors.add(ancestor)
+      const parent = dirname(ancestor)
+      if parent === ancestor then break
+      ancestor = parent
+  return sandboxPathFilters([...ancestors].sort(), false)
+
 const sandboxProfileFor = (
   cwd: string,
   sessionDirectory: string,
@@ -1390,9 +1418,22 @@ const sandboxProfileFor = (
   const repositoryWrites = effectKind === "implement"
     ? sandboxPathFilters(scopePaths, true)
     : ""
-  const wayfinderTrackerAccess = wayfinderTrackerDirectory === undefined
-    ? ""
-    : sandboxPathFilters([wayfinderTrackerDirectory], true)
+  const wayfinderTrackerPaths = wayfinderTrackerDirectory === undefined
+    ? []
+    : [wayfinderTrackerDirectory]
+  const wayfinderTrackerAccess = sandboxPathFilters(
+    wayfinderTrackerPaths,
+    true,
+  )
+  const sandboxPaths = [
+    ...SANDBOX_SYSTEM_READ_DIRECTORIES
+    ...SANDBOX_SYSTEM_READ_FILES
+    executable
+    cwd
+    ...scopePaths
+    sessionDirectory
+    ...wayfinderTrackerPaths
+  ]
   return [
     "(version 1)"
     "(deny default)"
@@ -1407,7 +1448,11 @@ const sandboxProfileFor = (
     "(allow network-outbound)"
     "(allow sysctl-read)"
     "(allow mach-lookup)"
+    "(allow file-read-metadata"
+    sandboxAncestorPathFilters(sandboxPaths)
+    ")"
     "(allow file-read*"
+    `    (literal ${sandboxLiteral("/")})`
     sandboxPathFilters(SANDBOX_SYSTEM_READ_DIRECTORIES, true)
     sandboxPathFilters([executable], false)
     sandboxPathFilters(SANDBOX_SYSTEM_READ_FILES, false)
@@ -1417,6 +1462,7 @@ const sandboxProfileFor = (
     sandboxPathFilters([sessionDirectory], true)
     ")"
     "(allow file-write*"
+    `    (literal ${sandboxLiteral("/dev/null")})`
     sandboxPathFilters([sessionDirectory], true)
     repositoryWrites
     wayfinderTrackerAccess
@@ -1560,88 +1606,175 @@ type GitOperationBoundary = Readonly<{
 type GitExecutionOptions = Readonly<{
   signal?: AbortSignal
   deadlineAtMs?: number
+  allowFork?: boolean
 }>
 
-const gitSandboxProfileFor = (boundary: GitOperationBoundary): string => [
-  "(version 1)"
-  "(deny default)"
-  "(allow process-exec"
-  `    (literal ${sandboxLiteral(GIT_EXECUTABLE)}))`
-  "(allow sysctl-read)"
-  "(allow mach-lookup)"
-  "(allow file-read*"
-  sandboxPathFilters(SANDBOX_SYSTEM_READ_DIRECTORIES, true)
-  sandboxPathFilters([GIT_EXECUTABLE], false)
-  sandboxPathFilters(SANDBOX_SYSTEM_READ_FILES, false)
-  sandboxPathFilters(boundary.readablePaths, true)
-  ")"
-  ...(boundary.writablePaths.length === 0
-    ? []
-    : [
-        "(allow file-write*"
-        sandboxPathFilters(boundary.writablePaths, true)
-        ")"
-      ])
-].filter((line) => line.length > 0).join("\n")
+const isApprovedAppleDeveloperDirectory = (path: string): boolean =>
+  path === DEFAULT_APPLE_DEVELOPER_DIRECTORIES[0] ||
+    /^\/Applications\/[^/]+\.app\/Contents\/Developer$/u.test(path)
 
-const runGit = (
+const isStandardApplicationsDirectory = (
+  path: string,
+  uid: number,
+  gid: number,
+  mode: number,
+): boolean =>
+  path === "/Applications" &&
+    uid === 0 &&
+    gid === 80 &&
+    (mode & 0o777) === 0o775
+
+const isSecureRootOwnedGitPath = async (gitExecutable: string): Promise<boolean> =>
+  let candidate = gitExecutable
+  let executable = true
+  while true
+    const metadata = await stat(candidate)
+    if (
+      metadata.uid !== 0 ||
+      (
+        (metadata.mode & 0o022) !== 0 &&
+        !isStandardApplicationsDirectory(
+          candidate,
+          metadata.uid,
+          metadata.gid,
+          metadata.mode,
+        )
+      ) ||
+      (executable
+        ? !metadata.isFile() || (metadata.mode & 0o111) === 0
+        : !metadata.isDirectory())
+    )
+      return false
+    executable = false
+    const parent = dirname(candidate)
+    if parent === candidate then return true
+    candidate = parent
+
+const resolveGitExecutable = async (): Promise<string> =>
+  if process.platform !== "darwin" then return DEFAULT_GIT_EXECUTABLE
+  const candidates = [...DEFAULT_APPLE_DEVELOPER_DIRECTORIES]
+  try
+    candidates.unshift(await realpath(XCODE_SELECT_LINK))
+  catch
+    void 0
+  for candidate of [...new Set(candidates)]
+    try
+      const developerDirectory = await realpath(candidate)
+      if !isApprovedAppleDeveloperDirectory(developerDirectory) then continue
+      const gitExecutable = await realpath(
+        join(developerDirectory, "usr", "bin", "git"),
+      )
+      if !isContainedPath(developerDirectory, gitExecutable) then continue
+      await access(gitExecutable, constants.X_OK)
+      if await isSecureRootOwnedGitPath(gitExecutable)
+        return gitExecutable
+    catch
+      continue
+  throw new OmpConfigurationError("OMP git executable is unavailable")
+
+const gitSandboxProfileFor = (
+  boundary: GitOperationBoundary,
+  gitExecutable: string,
+  allowFork: boolean,
+): string =>
+  const developerDirectory = dirname(dirname(dirname(gitExecutable)))
+  const sandboxPaths = [
+    ...SANDBOX_SYSTEM_READ_DIRECTORIES
+    ...SANDBOX_SYSTEM_READ_FILES
+    gitExecutable
+    developerDirectory
+    ...boundary.readablePaths
+    ...boundary.writablePaths
+  ]
+  return [
+    "(version 1)"
+    "(deny default)"
+    "(allow process-exec"
+    `    (literal ${sandboxLiteral(gitExecutable)}))`
+    ...(allowFork ? ["(allow process-fork)"] : [])
+    "(allow sysctl-read)"
+    "(allow mach-lookup)"
+    "(allow file-read-metadata"
+    sandboxAncestorPathFilters(sandboxPaths)
+    ")"
+    "(allow file-read*"
+    `    (literal ${sandboxLiteral("/")})`
+    sandboxPathFilters(SANDBOX_SYSTEM_READ_DIRECTORIES, true)
+    sandboxPathFilters([gitExecutable], false)
+    sandboxPathFilters([developerDirectory], true)
+    sandboxPathFilters(SANDBOX_SYSTEM_READ_FILES, false)
+    sandboxPathFilters(boundary.readablePaths, true)
+    ")"
+    "(allow file-write*"
+    `    (literal ${sandboxLiteral("/dev/null")})`
+    sandboxPathFilters(boundary.writablePaths, true)
+    ")"
+  ].filter((line) => line.length > 0).join("\n")
+
+const runGit = async (
   arguments_: readonly string[],
   cwd: string,
   boundary: GitOperationBoundary,
   repositoryConfigOverrides: readonly string[] = [],
   execution: GitExecutionOptions = {},
-): Promise<string> => new Promise((resolveGit, rejectGit) =>
-  const remaining = execution.deadlineAtMs === undefined
-    ? 30_000
-    : execution.deadlineAtMs - Date.now()
-  if execution.signal?.aborted || remaining <= 0
-    rejectGit(new OmpRequestError("OMP git workspace operation aborted"))
-    return
-  const operationTimeoutMs = Math.min(30_000, remaining)
-  const profile = gitSandboxProfileFor(boundary)
-  const gitOptions = {
-    cwd,
-    detached: true,
-    encoding: "utf8",
-    env: {
-      NODE_ENV: "production",
-      GIT_ATTR_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_OPTIONAL_LOCKS: "0",
-      HOME: OMP_WORKTREES_DIRECTORY,
-      LC_ALL: "C",
-      PATH: "/usr/bin:/bin",
-    },
-    killSignal: "SIGTERM",
-    maxBuffer: MAX_GIT_OUTPUT_BYTES,
-    shell: false,
-    ...(execution.signal === undefined ? {} : { signal: execution.signal }),
-    timeout: operationTimeoutMs,
-    windowsHide: true,
-  } as const
-  const child = execFile(SANDBOX_EXECUTABLE, [
-    "-p"
-    profile
-    GIT_EXECUTABLE
-    ...GIT_SAFE_CONFIG_ARGUMENTS
-    ...repositoryConfigOverrides
-    ...arguments_
-  ], gitOptions, (error, stdout) =>
-    if error !== null
-      if child === undefined
-        rejectGit(new OmpRequestError("OMP git workspace operation failed"))
-        return
-      void terminateOwnedProcessTree(
-        child,
-        Math.max(1, Math.min(1_000, operationTimeoutMs)),
-      ).then(
-        () => rejectGit(new OmpRequestError("OMP git workspace operation failed")),
-        rejectGit,
-      )
+): Promise<string> =>
+  const gitExecutable = await resolveGitExecutable()
+  return new Promise((resolveGit, rejectGit) =>
+    const remaining = execution.deadlineAtMs === undefined
+      ? 30_000
+      : execution.deadlineAtMs - Date.now()
+    if execution.signal?.aborted || remaining <= 0
+      rejectGit(new OmpRequestError("OMP git workspace operation aborted"))
       return
-    resolveGit(String(stdout).trim())
-  )
+    const operationTimeoutMs = Math.min(30_000, remaining)
+    const profile = gitSandboxProfileFor(
+      boundary,
+      gitExecutable,
+      execution.allowFork ?? false,
+    )
+    const gitOptions = {
+      cwd,
+      detached: true,
+      encoding: "utf8",
+      env: {
+        NODE_ENV: "production",
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_OPTIONAL_LOCKS: "0",
+        HOME: OMP_WORKTREES_DIRECTORY,
+        LC_ALL: "C",
+        PATH: "/usr/bin:/bin",
+      },
+      killSignal: "SIGTERM",
+      maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      shell: false,
+      ...(execution.signal === undefined ? {} : { signal: execution.signal }),
+      timeout: operationTimeoutMs,
+      windowsHide: true,
+    } as const
+    const child = execFile(SANDBOX_EXECUTABLE, [
+      "-p"
+      profile
+      gitExecutable
+      ...GIT_SAFE_CONFIG_ARGUMENTS
+      ...repositoryConfigOverrides
+      ...arguments_
+    ], gitOptions, (error, stdout) =>
+      if error !== null
+        if child === undefined
+          rejectGit(new OmpRequestError("OMP git workspace operation failed"))
+          return
+        void terminateOwnedProcessTree(
+          child,
+          Math.max(1, Math.min(1_000, operationTimeoutMs)),
+        ).then(
+          () => rejectGit(new OmpRequestError("OMP git workspace operation failed")),
+          rejectGit,
+        )
+        return
+      resolveGit(String(stdout).trim())
+    )
 )
 
 const repositoryProgramConfigOverrides = async (
@@ -1996,7 +2129,6 @@ const prepareWorktree = async (
     /[\u0000-\u001F\u007F]/u.test(workspaceId)
   )
     throw new OmpRequestError("OMP workspace id is invalid")
-  await access(GIT_EXECUTABLE, constants.X_OK)
   await mkdir(OMP_WORKTREES_DIRECTORY, { mode: 0o700, recursive: true })
   const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY)
   const rootStat = await stat(worktreesRoot)
@@ -2083,6 +2215,7 @@ const prepareWorktree = async (
           writablePaths: Object.freeze([sourceGitDirectory, worktreesRoot]),
         }),
         repositoryConfigOverrides,
+        Object.freeze({ allowFork: true }),
       )
     const canonicalWorkspace = await realpath(workspaceCwd)
     if !isContainedPath(worktreesRoot, canonicalWorkspace)
@@ -2230,6 +2363,7 @@ const prepareVerifierWorkspace = async (
         ]),
       }),
       input.repositoryConfigOverrides,
+      Object.freeze({ allowFork: true }),
     )
     await persistOwnershipMarker(
       input.sourceCwd,
@@ -2982,7 +3116,9 @@ export const createOmpCliAdapter = (
       beforeManifest = request.effectKind === "implement"
         ? await implementationBaselineFor(worktree, scopePaths)
         : null
-      sessionDirectory = await mkdtemp(join(tmpdir(), "darkfactory-omp-"))
+      sessionDirectory = await realpath(
+        await mkdtemp(join(tmpdir(), "darkfactory-omp-")),
+      )
     catch error
       try
         await worktree.dispose()

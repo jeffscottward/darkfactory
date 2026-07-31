@@ -181,12 +181,21 @@ let scopedDirectory = ""
 let scopedFile = ""
 let originalProcessPath: string | undefined
 
+const TEST_GIT_EXECUTABLE =
+  "/Library/Developer/CommandLineTools/usr/bin/git"
+const isTestAppleGitExecutable = (value: unknown): value is string =>
+  typeof value === "string" &&
+    (
+      value === TEST_GIT_EXECUTABLE ||
+      /^\/Applications\/[^/]+\.app\/Contents\/Developer\/usr\/bin\/git$/u.test(value)
+    )
+
 const sandboxCalls = () => mocks.spawn.mock.calls
 
 const gitSandboxCalls = () => mocks.execFile.mock.calls
   .filter((call) =>
     call[0] === "/usr/bin/sandbox-exec" &&
-    (call[1] as readonly string[])[2] === "/usr/bin/git"
+    isTestAppleGitExecutable((call[1] as readonly unknown[])[2])
   )
 
 const gitCommandArguments = (arguments_: readonly string[]): readonly string[] =>
@@ -310,7 +319,7 @@ beforeEach(async () =>
   ) =>
     if (
       executable === "/usr/bin/sandbox-exec" &&
-      arguments_[2] === "/usr/bin/git"
+      isTestAppleGitExecutable(arguments_[2])
     )
       const gitArguments = gitCommandArguments(arguments_)
       void (async () =>
@@ -496,13 +505,41 @@ describe("OMP CLI adapter", () =>
     for gitCall of gitSandboxCalls()
       const launcherArguments = gitCall[1] as readonly string[]
       const gitProfile = launcherArguments[1]!
+      const gitExecutable = launcherArguments[2]!
+      expect(isTestAppleGitExecutable(gitExecutable)).toBe(true)
       expect(launcherArguments.slice(0, 3)).toEqual([
         "-p"
         gitProfile
-        "/usr/bin/git"
+        gitExecutable
       ])
       expect(gitProfile).toContain("(deny default)")
-      expect(gitProfile).toContain(`(literal "/usr/bin/git")`)
+      expect(gitProfile).toContain(`(literal "${gitExecutable}")`)
+      const gitMetadataSection = gitProfile.slice(
+        gitProfile.indexOf("(allow file-read-metadata"),
+        gitProfile.indexOf("(allow file-read*"),
+      )
+      let ancestor = dirname(gitExecutable)
+      while true
+        expect(gitMetadataSection).toContain(`(literal "${ancestor}")`)
+        const parent = dirname(ancestor)
+        if parent === ancestor then break
+        ancestor = parent
+      const gitReadSection = gitProfile.slice(
+        gitProfile.indexOf("(allow file-read*"),
+        gitProfile.indexOf("(allow file-write*"),
+      )
+      const developerDirectory = dirname(dirname(dirname(gitExecutable)))
+      expect(gitReadSection).toContain(`(literal "${developerDirectory}")`)
+      expect(gitReadSection).toContain(`(subpath "${developerDirectory}")`)
+      expect(gitReadSection).toContain(`(literal "/")`)
+      const gitWriteSection = gitProfile.slice(
+        gitProfile.indexOf("(allow file-write*"),
+      )
+      expect(gitWriteSection).toContain(`(literal "/dev/null")`)
+      const commandArguments = gitCommandArguments(launcherArguments)
+      expect(gitProfile.includes("(allow process-fork)")).toBe(
+        commandArguments[0] === "worktree" && commandArguments[1] === "add",
+      )
       expect(gitProfile).not.toContain("network")
       expect(launcherArguments).toEqual(expect.arrayContaining([
         "core.hooksPath=/dev/null"
@@ -511,7 +548,6 @@ describe("OMP CLI adapter", () =>
         "diff.external="
         "submodule.recurse=false"
       ]))
-      const commandArguments = gitCommandArguments(launcherArguments)
       if commandArguments[0] !== "config"
         expect(launcherArguments).toEqual(expect.arrayContaining([
           "filter.attacker.clean="
@@ -547,6 +583,12 @@ describe("OMP CLI adapter", () =>
     )
     expect(denySection).toContain(`(subpath "${join(workspaceDirectory, ".git")}")`)
     expect(denySection).toContain(`(subpath "${join(workspaceDirectory, ".env")}")`)
+    const metadataSection = profile.slice(
+      profile.indexOf("(allow file-read-metadata"),
+      profile.indexOf("(allow file-read*"),
+    )
+    expect(metadataSection).not.toContain(`(literal "${join(workspaceDirectory, ".git")}")`)
+    expect(metadataSection).not.toContain(`(literal "${join(workspaceDirectory, ".env")}")`)
     const writeSection = profile.slice(profile.indexOf("(allow file-write*"))
     const readSection = profile.slice(
       profile.indexOf("(allow file-read*"),
@@ -574,6 +616,7 @@ describe("OMP CLI adapter", () =>
       "TMPDIR"
     ]
       expect(options.env[name]).toBe(sessionDirectory)
+    expect(sessionDirectory.startsWith(`${await realpath(tmpdir())}/`)).toBe(true)
     await expect(access(sessionDirectory)).rejects.toThrow()
     await expect(access(workspaceDirectory)).resolves.toBeUndefined()
     await expect(readFile(isolatedScopedFile, "utf8")).resolves.toBe("after")
@@ -588,6 +631,166 @@ describe("OMP CLI adapter", () =>
     })
     expect(JSON.stringify(result)).not.toContain(instruction)
   )
+
+  it("uses the root-owned Git from the selected full Xcode toolchain", async () =>
+    const developerDirectory =
+      "/Applications/Xcode-26.0.app/Contents/Developer"
+    const gitExecutable = join(developerDirectory, "usr", "bin", "git")
+    const syntheticPaths = new Set<string>()
+    let candidate = gitExecutable
+    while candidate !== "/"
+      syntheticPaths.add(candidate)
+      candidate = dirname(candidate)
+    mocks.WP3realpathDelegate = async (actual, path, ...arguments_) =>
+      const value = String(path)
+      if value === "/var/db/xcode_select_link" then return developerDirectory
+      if value === developerDirectory || value === gitExecutable then return value
+      return actual(path, ...arguments_)
+    mocks.WP3accessDelegate = async (actual, path, ...arguments_) =>
+      if String(path) === gitExecutable then return
+      return actual(path, ...arguments_)
+    mocks.WP3statDelegate = async (actual, path, ...arguments_) =>
+      const value = String(path)
+      if syntheticPaths.has(value)
+        return {
+          uid: 0
+          gid: value === "/Applications" ? 80 : 0
+          mode: value === gitExecutable
+            ? 0o100755
+            : value === "/Applications"
+              ? 0o040775
+              : 0o040755
+          isFile: () => value === gitExecutable
+          isDirectory: () => value !== gitExecutable
+        }
+      return actual(path, ...arguments_)
+    try
+      callbackWith(null, "planned through selected Xcode Git")
+      const result = await createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId: "selected-xcode-git" }),
+      )
+      expect(gitSandboxCalls().every((call) =>
+        (call[1] as readonly string[])[2] === gitExecutable
+      )).toBe(true)
+      await result.lifecycle!.finalize("unpersisted")
+    finally
+      resetWPFilesystemDelegates()
+  )
+
+  it("uses the default Git path outside macOS", async () =>
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("linux")
+    try
+      callbackWith(null, "planned through default Git")
+      const result = await createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId: "non-darwin-git" }),
+      )
+      expect(gitSandboxCalls().every((call) =>
+        (call[1] as readonly string[])[2] === TEST_GIT_EXECUTABLE
+      )).toBe(true)
+      await result.lifecycle!.finalize("unpersisted")
+    finally
+      platform.mockRestore()
+  )
+
+  it("fails closed for unavailable or insecure Apple Git candidates", async () =>
+    const developerDirectory =
+      "/Applications/Xcode-Test.app/Contents/Developer"
+    const gitExecutable = join(developerDirectory, "usr", "bin", "git")
+    const syntheticPaths = new Set<string>()
+    let candidate = gitExecutable
+    while candidate !== "/"
+      syntheticPaths.add(candidate)
+      candidate = dirname(candidate)
+    type AppleGitTrustScenario = Readonly<{
+      name: string
+      selected: string | null
+      escape?: boolean
+      path?: string
+      uid?: number
+      gid?: number
+      mode?: number
+      file?: boolean
+      directory?: boolean
+    }>
+
+    const scenarios: readonly AppleGitTrustScenario[] = [
+      { name: "missing selection", selected: null }
+      { name: "unapproved selection", selected: "/opt/Xcode/Developer" }
+      { name: "escaped executable", selected: developerDirectory, escape: true }
+      { name: "non-root executable", selected: developerDirectory, path: gitExecutable, uid: 501 }
+      { name: "writable executable", selected: developerDirectory, path: gitExecutable, mode: 0o100775 }
+      { name: "non-file executable", selected: developerDirectory, path: gitExecutable, file: false }
+      { name: "non-executable file", selected: developerDirectory, path: gitExecutable, mode: 0o100644 }
+      { name: "non-directory ancestor", selected: developerDirectory, path: developerDirectory, directory: false }
+      { name: "wrong Applications group", selected: developerDirectory, path: "/Applications", gid: 81 }
+      { name: "world-writable Applications", selected: developerDirectory, path: "/Applications", mode: 0o040777 }
+    ]
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    try
+      for [index, scenario] of scenarios.entries()
+        resetWPFilesystemDelegates()
+        mocks.WP3realpathDelegate = async (actual, path, ...arguments_) =>
+          const value = String(path)
+          if value === "/var/db/xcode_select_link"
+            if scenario.selected === null
+              throw Object.assign(new Error("selection unavailable"), {
+                code: "ENOENT"
+              })
+            return scenario.selected
+          if value === scenario.selected then return value
+          if value === developerDirectory then return value
+          if value === gitExecutable
+            return scenario.escape === true ? "/tmp/untrusted-git" : value
+          if value.startsWith("/Library/Developer/") ||
+              value.startsWith("/Applications/Xcode.app/")
+            throw Object.assign(new Error("candidate unavailable"), {
+              code: "ENOENT"
+            })
+          return actual(path, ...arguments_)
+        mocks.WP3accessDelegate = async (actual, path, ...arguments_) =>
+          if String(path) === gitExecutable then return
+          return actual(path, ...arguments_)
+        mocks.WP3statDelegate = async (actual, path, ...arguments_) =>
+          const value = String(path)
+          if syntheticPaths.has(value)
+            const isExecutable = value === gitExecutable
+            return {
+              uid: scenario.path === value && scenario.uid !== undefined
+                ? scenario.uid
+                : 0
+              gid: scenario.path === value && scenario.gid !== undefined
+                ? scenario.gid
+                : value === "/Applications"
+                  ? 80
+                  : 0
+              mode: scenario.path === value && scenario.mode !== undefined
+                ? scenario.mode
+                : isExecutable
+                  ? 0o100755
+                  : value === "/Applications"
+                    ? 0o040775
+                    : 0o040755
+              isFile: () =>
+                scenario.path === value && scenario.file !== undefined
+                  ? scenario.file
+                  : isExecutable
+              isDirectory: () =>
+                scenario.path === value && scenario.directory !== undefined
+                  ? scenario.directory
+                  : !isExecutable
+            }
+          return actual(path, ...arguments_)
+        await expect(createOmpCliAdapter({ repositoriesRoot }).execute(
+          requestFor({ workspaceId: `unsafe-apple-git-${index}` }),
+        )).rejects.toMatchObject({
+          name: "OmpConfigurationError"
+          message: "OMP git executable is unavailable"
+        })
+    finally
+      resetWPFilesystemDelegates()
+      platform.mockRestore()
+  )
+
   it("escalates an aborted owned process group before session and lock cleanup", async () =>
     let exited = false
     const signals: NodeJS.Signals[] = []
@@ -845,6 +1048,30 @@ describe("OMP CLI adapter", () =>
       effectKind: "implement"
       scopePaths: ["root-alias"]
     }))).rejects.toBeInstanceOf(OmpRequestError)
+    expect(sandboxCalls()).toHaveLength(0)
+  )
+
+  it("rejects a scope symlink resolving inside sensitive repository state", async () =>
+    const adapter = createOmpCliAdapter({ repositoriesRoot })
+    for [index, sensitiveName] of [
+      ".ENV"
+      ".env.staging"
+      ".github"
+      ".NETRC"
+    ].entries()
+      const alias = `environment-alias-${index}`
+      await writeFile(join(repositoryDirectory, sensitiveName), "SENTINEL=test-only")
+      await symlink(sensitiveName, join(repositoryDirectory, alias))
+      trackedPaths.add(sensitiveName)
+      trackedPaths.add(alias)
+
+      await expect(adapter.execute(requestFor({
+        effectKind: "implement"
+        scopePaths: [alias]
+      }))).rejects.toMatchObject({
+        name: "OmpRequestError"
+        message: "OMP scope path is sensitive"
+      })
     expect(sandboxCalls()).toHaveLength(0)
   )
 
