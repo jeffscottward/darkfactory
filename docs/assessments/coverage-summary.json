@@ -4,8 +4,8 @@
   "projects": ["unit", "contract", "operations"],
   "metrics": {
     "lines": {
-      "total": 16557,
-      "covered": 16557,
+      "total": 16560,
+      "covered": 16560,
       "skipped": 0,
       "pct": 100
     },
@@ -22,8 +22,8 @@
       "pct": 100
     },
     "statements": {
-      "total": 17960,
-      "covered": 17960,
+      "total": 17963,
+      "covered": 17963,
       "skipped": 0,
       "pct": 100
     }

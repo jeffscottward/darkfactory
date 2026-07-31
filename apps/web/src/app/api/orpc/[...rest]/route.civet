@@ -337,8 +337,12 @@ export const handleOrpcRuntimeRequest = async (
           })
           return await handleOrpcRequest(effectiveRequest, context)
         finally
-          await backgroundTasks.finalize()
-          admission.transfer()
+          const finalization = backgroundTasks.finalize()
+          try
+            scheduleBackgroundTask(finalization)
+            admission.transfer()
+          catch
+            await finalization
     )
   )
 
