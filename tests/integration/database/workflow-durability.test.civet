@@ -17,6 +17,10 @@ import {
   users,
   type OutboxEvent,
 } from "@darkfactory/db/schema"
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
+import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime"
+import { WORKFLOW_EFFECT_HANDLER_V2 } from "@darkfactory/jobs/server/workflow-worker"
+import { createOperatorWorkflowPort } from "@darkfactory/operator/server"
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
@@ -805,6 +809,174 @@ describe.sequential "workflow durability on real PostgreSQL", ->
     )
     expect(rows[0]!.dead_at).not.toBeNull()
     expect(rows[0]!.last_error).not.toContain("another-secret")
+
+  it "atomically supersedes a Wayfinder approval and replays concurrent revisions", async ->
+    const ownerId = await createOwner()
+    const scope = {
+      repositoryId: "darkfactory"
+      paths: ["packages/operator"]
+    } as const
+    const plan = createWorkflowPlanEvidenceV1({
+      stdout: "Implement the bounded operator backend revision."
+      stderr: ""
+      stdoutBytes: 48
+      stderrBytes: 0
+      truncated: false
+      redacted: false
+    })
+    const application = createWorkflowApplication(repository)
+    const port = createOperatorWorkflowPort({
+      repository
+      authorizeRepository: (candidateOwnerId, repositoryId) =>
+        candidateOwnerId === ownerId && repositoryId === scope.repositoryId
+    })
+    const submitted = await port.submit({
+      ownerId
+      actorUserId: ownerId
+      idempotencyKey: nextId("wayfinder-submit")
+      title: "Bounded Wayfinder plan"
+      scope
+    })
+    const completeNextPlan = async (leaseOwner: string): Promise<void> =>
+      const claims = await repository.claimDueEffects({
+        handler: WORKFLOW_EFFECT_HANDLER_V2
+        leaseOwner
+        limit: 1
+      })
+      const claim = claims.find(({ aggregateId }) =>
+        aggregateId === submitted.run.id
+      )
+      if (
+        claim === undefined ||
+        claim.leaseOwner === null ||
+        typeof claim.payload["effectId"] !== "string"
+      )
+        throw new Error("Expected one leased Wayfinder plan effect")
+      await application.completeEffect({
+        ownerId
+        runId: submitted.run.id
+        effectId: claim.payload["effectId"]
+        effectKind: "plan"
+        outboxId: claim.id
+        leaseOwner: claim.leaseOwner
+        fence: claim.fence
+        effectScope: scope
+        result: {
+          status: "succeeded"
+          eventType: "PLAN_SUCCEEDED"
+          exitCode: 0
+          durationMs: 17
+          outputBytes: Buffer.byteLength(plan.summary)
+          outputTruncated: false
+          outputRedacted: false
+          changeHash: null
+          changedPaths: []
+          plan
+        }
+      })
+
+    await completeNextPlan("wayfinder-plan-1")
+    const beforeRevision = await port.detail(ownerId, submitted.run.id)
+    expect(beforeRevision).toMatchObject({
+      run: { state: "awaitingApproval" }
+      canRequestPlanRevision: true
+    })
+    const [oldApproval] = await testDatabase.query<{
+      id: string
+      status: string
+    }>(
+      `SELECT id, status FROM workflow_approvals
+       WHERE run_id = $1 AND status = 'pending'`,
+      [submitted.run.id],
+    )
+    expect(oldApproval).toBeDefined()
+
+    const revision = {
+      ownerId
+      actorUserId: ownerId
+      runId: submitted.run.id
+      idempotencyKey: nextId("wayfinder-revision")
+      clarification: "Keep the plan within packages/operator."
+    }
+    const [first, concurrent] = await Promise.all([
+      port.revise({ ...revision, requestId: nextId("revision-request") })
+      port.revise({ ...revision, requestId: nextId("revision-request") })
+    ])
+    const replayed = await port.revise({
+      ...revision
+      requestId: nextId("lost-response-retry")
+    })
+
+    expect([first.run.sequence, concurrent.run.sequence, replayed.run.sequence])
+      .toEqual([3, 3, 3])
+    await expect(port.revise({
+      ...revision
+      requestId: nextId("conflicting-revision")
+      clarification: "Use a different scope."
+    })).rejects.toMatchObject({ code: "CONFLICT" })
+    const [superseded] = await testDatabase.query<{
+      status: string
+      decision_reason: string | null
+    }>(
+      `SELECT status, decision_reason FROM workflow_approvals
+       WHERE id = $1`,
+      [oldApproval!.id],
+    )
+    expect(superseded).toEqual({
+      status: "rejected"
+      decision_reason: "plan-revision-requested"
+    })
+
+    await completeNextPlan("wayfinder-plan-2")
+    const revised = await port.detail(ownerId, submitted.run.id)
+    expect(revised).toMatchObject({
+      run: { state: "awaitingApproval", sequence: 4 }
+      canRequestPlanRevision: true
+    })
+    const [consistent] = await testDatabase.query<{
+      head_sequence: string
+      snapshot_sequence: string
+      journal_count: string
+      revision_count: string
+      evidence_count: string
+      outbox_count: string
+      published_outbox_count: string
+      pending_approval_count: string
+      rejected_approval_count: string
+    }>(
+      `SELECT r.head_sequence, s.sequence AS snapshot_sequence,
+        (SELECT count(*) FROM workflow_journal j
+         WHERE j.run_id = r.id) AS journal_count,
+        (SELECT count(*) FROM workflow_journal j
+         WHERE j.run_id = r.id
+           AND j.event_type = 'PLAN_REVISION_REQUESTED') AS revision_count,
+        (SELECT count(*) FROM workflow_evidence e
+         WHERE e.run_id = r.id) AS evidence_count,
+        (SELECT count(*) FROM outbox_events o
+         WHERE o.aggregate_id = r.id) AS outbox_count,
+        (SELECT count(*) FROM outbox_events o
+         WHERE o.aggregate_id = r.id
+           AND o.published_at IS NOT NULL) AS published_outbox_count,
+        (SELECT count(*) FROM workflow_approvals a
+         WHERE a.run_id = r.id AND a.status = 'pending') AS pending_approval_count,
+        (SELECT count(*) FROM workflow_approvals a
+         WHERE a.run_id = r.id AND a.status = 'rejected') AS rejected_approval_count
+       FROM workflow_runs r
+       JOIN workflow_snapshots s ON s.run_id = r.id
+       WHERE r.id = $1`,
+      [submitted.run.id],
+    )
+    expect(consistent).toEqual({
+      head_sequence: "4"
+      snapshot_sequence: "4"
+      journal_count: "4"
+      revision_count: "1"
+      evidence_count: "2"
+      outbox_count: "2"
+      published_outbox_count: "2"
+      pending_approval_count: "1"
+      rejected_approval_count: "1"
+    })
 
   it "rejects a stale approval after the bound projection advances", async ->
     const ownerId = await createOwner()

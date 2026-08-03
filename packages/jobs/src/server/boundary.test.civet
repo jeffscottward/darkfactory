@@ -33,7 +33,7 @@ describe "inline jobs package boundary", ->
     ])
     expect(manifest.sideEffects).toEqual(["./src/server/unsupported.civet"])
   
-  it "fails closed for browser-only resolution through a dependency-free poison module", async ->
+  it("fails closed for browser-only resolution through a dependency-free poison module", async () =>
     const resolution = resolveInlineWith(["browser"])
     const poisonSource = await readFile(new URL("./unsupported.civet", import.meta.url), "utf8")
 
@@ -47,6 +47,7 @@ describe "inline jobs package boundary", ->
     await expect(import("./unsupported.civet")).rejects.toThrow(
       "@darkfactory/jobs/server/inline is unavailable in browser bundles",
     )
+  , 15_000)
   
   it.each(["workerd", "worker"])(
     "resolves the real inline module for simultaneous %s and browser conditions",

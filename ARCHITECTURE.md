@@ -20,13 +20,18 @@ This distinction prevents a vendor, optional service, or current file layout fro
 ```text
 Bun scripts + pnpm workspace + Turborepo task graph
 │
-├── apps/web
-│   ├── src/app                    public, auth, portal, account, admin, and API routes
-│   ├── src/features               generated feature navigation registry
-│   └── Vite/vinext/Cloudflare     framework and deployment boundaries
+├── apps
+│   ├── web
+│   │   ├── src/app                    product public, auth, portal, account, admin, and API routes
+│   │   ├── src/features               generated product feature navigation registry
+│   │   └── Vite/vinext/Cloudflare     product framework and deployment boundary
+│   └── operator
+│       ├── src/app                    local sign-in, operator UI, auth, and operator API routes
+│       └── Vite/vinext/Portless       local-only development boundary
 │
 ├── packages
-│   ├── api                        oRPC contracts, schemas, handlers, clients, OpenAPI
+│   ├── api                        product oRPC contracts, schemas, handlers, clients, OpenAPI
+│   ├── operator                   operator contracts, clients, services, workflow ports
 │   ├── auth                       Better Auth server/client, auth policy, DB sign-out
 │   ├── db                         Drizzle schema, repositories, migrations, seeds
 │   ├── config                     environment parsing and capability/database profiles
@@ -36,7 +41,8 @@ Bun scripts + pnpm workspace + Turborepo task graph
 │   ├── analytics                  analytics port and PostHog adapter
 │   ├── observability              evlog, redaction, fanout, OpenTelemetry
 │   ├── email / ai                 provider-neutral ports and selected adapters
-│   ├── jobs / storage             optional capability ports and local/test adapters
+│   ├── jobs                       queued workflow execution, worker runtime, and local OMP/Wayfinder adapters
+│   ├── storage                    optional capability ports and local/test adapters
 │   └── testkit                    cross-package PostgreSQL and test infrastructure
 │
 ├── scripts                        lifecycle, doctor, graph, docs, database, and E2E tools
@@ -45,7 +51,7 @@ Bun scripts + pnpm workspace + Turborepo task graph
 └── infra                          local PostgreSQL container infrastructure
 ```
 
-This is the implemented repository topology, not a package wish list. Current page UI and orchestration live under `apps/web/src/app`, `apps/web/src/components`, and `apps/web/src/lib`; `apps/web/src/features` is presently a generated navigation registry rather than the home of feature implementations. `pnpm-workspace.yaml` includes only `apps/*` and `packages/*`; the root coordinates them without publishing an application API. Create another package only when it has a real contract and owner. Empty future-capability packages and speculative infrastructure are prohibited.
+This is the implemented repository topology, not a package wish list. `apps/web` is the deployable end-user product. Its page UI and orchestration live under `apps/web/src/app`, `apps/web/src/components`, and `apps/web/src/lib`; `apps/web/src/features` is presently a generated navigation registry rather than the home of feature implementations. `apps/operator` is a separate, authenticated, local-only development meta-layer. It is not a deployable business capability and it does not add operator routes or runtime to the product application. `pnpm-workspace.yaml` includes `apps/*` and `packages/*`; the root coordinates them without publishing an application API.
 
 ## Dependency direction and feature boundaries
 
@@ -64,14 +70,18 @@ application commands, queries, workflows
 
 Dependencies point inward. Domain code knows no framework, ORM, transport, deployment platform, or provider. Application code coordinates domain behavior through small ports. Infrastructure adapters know Drizzle and external SDKs. Routes translate transport concerns and remain thin.
 
+The product path is `apps/web` → `packages/api`; `packages/api` contains product contracts and services only. The local operator path is `apps/operator` → `packages/operator`, with server composition depending on authentication, database workflow repositories, jobs, and state. `packages/jobs` owns queued execution, the workflow worker, and the local-only OMP and Wayfinder adapters. Neither the operator server surface nor the local execution adapters may enter a browser bundle, a Worker bundle, or `apps/web`.
+
 A feature vertical owns its feature-specific UI, client state, contract client usage, application orchestration, local server code, events, and tests. Shared packages own cross-feature protocols and infrastructure, not miscellaneous convenience code. Features communicate through public contracts/events rather than internal deep imports.
 
 ## Request and data flow
 
+The deployable product request path is:
+
 ```text
 browser or external client
-  → Vite/vinext route
-  → oRPC contract validation and authentication context
+  → apps/web Vite/vinext route
+  → packages/api contract validation and authentication context
   → application command/query
   → domain rule
   → application port
@@ -81,20 +91,34 @@ browser or external client
   → evlog structured event
       ├→ analytics port → PostHog adapter
       └→ OpenTelemetry → configured telemetry backend
-  → typed oRPC result/error
+  → typed product result/error
 ```
 
-The contract is the API source of truth. OpenAPI, clients, and internal API documentation derive from it. Direct feature-to-database, feature-to-provider, and parallel ad hoc API paths are architectural violations.
+The local operator request and execution path is separate:
+
+```text
+authenticated browser
+  → apps/operator route
+  → packages/operator contract/service
+  → authorized workflow repository operation
+  → PostgreSQL journal/outbox
+  → durable queued Wayfinder plan effect
+  → separately started `worker:pilot` claim
+  → packages/jobs local Wayfinder adapter
+  → scoped OMP adapter
+```
+
+The HTTP Wayfinder start operation ends after durable enqueue and returns `queued`; it never runs OMP inside the request. The separately started pilot worker claims the plan effect before dispatch. It creates one scoped OMP adapter, wraps it with the local Wayfinder execution adapter, and injects both into the workflow runtime. The product and operator contracts are their respective API sources of truth. Direct feature-to-database, feature-to-provider, and parallel ad hoc API paths are architectural violations.
 
 ## Current runtime assembly
 
-`apps/web` is the composition root. The Better Auth catch-all route builds a request-scoped database connection, selects the configured email transport, creates the Better Auth instance, delegates to the hardened auth handler, and closes the connection. The strict sign-out endpoint revokes the current database session before expiring the cookie. Portal, account, and administration routes consume authenticated server state rather than reaching into the auth adapter directly.
+The repository has separate composition roots. `apps/web` composes the deployable product. Its Better Auth catch-all route builds a request-scoped database connection, selects the configured email transport, creates the Better Auth instance, delegates to the hardened auth handler, and closes the connection. Its oRPC catch-all route parses the validated server environment, rejects unsafe cross-origin mutations, opens request-scoped repositories and authorization guards, selects product adapters from capability truth, and closes the database connection in `finally`.
 
-The oRPC catch-all route parses the validated server environment, rejects unsafe cross-origin mutations, opens a request-scoped Drizzle connection, creates repositories and authorization guards, selects email and analytics adapters from capability truth, and passes that context to the oRPC handler. Contact submission adds bounded payload and PostgreSQL-backed throttle checks at this boundary. Every request closes its database connection in `finally`; background delivery work is scheduled through the Cloudflare `waitUntil` boundary.
+`apps/operator` composes the authenticated local operator plane at <https://operator.darkfactory.localhost>. It supplies local auth and operator oRPC routes, builds the operator context, connects the database workflow repository to `packages/operator` services, and connects those services to `packages/jobs`. `packages/operator` owns operator contracts, bounded projections, typed safe errors, authorization and repository scope, workflow actions, and Wayfinder status/start services. `packages/api` remains product-only and does not own operator contracts or runtime.
 
-The public API shape is owned by `packages/api`; `apps/web` owns transport composition only. `packages/auth` owns Better Auth policy and session behavior, `packages/db` owns schema/repositories/migrations, and `packages/config` owns environment and capability interpretation. OpenAPI is generated from the same oRPC contracts. This separation is the implemented route → contract → service → repository → schema/adapter path.
+Wayfinder status checks the bounded local manifest at `~/.agents/skills/wayfinder/SKILL.md` and reports only `installed` or `unavailable` with the `local-markdown` tracker. Wayfinder start validates the owner, repository, scope paths, and request, verifies authorization and availability, creates a durable run, and returns its `queued` status. Only the separately started `worker:pilot` processes queued effects: it claims the plan effect, then dispatches the local Wayfinder adapter through the scoped OMP adapter. Leases, grants, redaction, timeouts, aborts, cleanup, journal, outbox, and evidence remain worker concerns. This model does not claim that any particular Wayfinder run or its evidence has completed.
 
-Authentication and application data share portable PostgreSQL durability but retain separate ownership. Better Auth owns its user, account, session, and verification records. DarkFactory repositories own profile, address, preferences, feature, contact, and administration data. Role and status checks are enforced at the auth/oRPC boundary and again where application policy requires them; browser-visible state is never accepted as authorization proof.
+Authentication and application data share portable PostgreSQL durability but retain separate ownership. Better Auth owns its user, account, session, and verification records. DarkFactory repositories own profile, address, preferences, feature, contact, administration, and workflow data. Role and status checks are enforced at the relevant auth/API boundary and again where application policy requires them; browser-visible state is never accepted as authorization proof.
 
 ## Generic feature stub
 
@@ -140,7 +164,7 @@ Create ports only at real external boundaries; do not build a universal abstract
 | AI inference | model-neutral request/result contract | Groq adapter when configured |
 | Email | render/send contract | React Email + Resend; safe local preview without credentials |
 | Storage | object operations | R2/S3-compatible adapter when enabled |
-| Jobs | enqueue/status/cancel contract | PostgreSQL-first implementation; Celery/Flower only as an enabled capability |
+| Jobs | durable enqueue, claim, status, and execution | PostgreSQL workflow runtime; separately started pilot worker with scoped local OMP and Wayfinder adapters |
 | Memory/context | provenance-aware context graph | PostgreSQL-backed Memori capability when enabled |
 
 Provider configuration belongs in infrastructure. Missing optional credentials must disable the capability or select an explicit safe local adapter, never trigger a fake production fallback.
@@ -157,24 +181,25 @@ Provider configuration belongs in infrastructure. Missing optional credentials m
 
 ## Repository lifecycle
 
-The root scripts are the supported operator surface:
+The root scripts provide separate product and operator lifecycles:
 
-- `bun run dev` runs the plain application development task. `bun run dev:https` idempotently inspects PM2 and Portless before starting `portless darkfactory bun run dev` as the stable `darkfactory-web-dev` process; status, logs, stop, and trust commands address the same identity and canonical `https://darkfactory.localhost` URL.
+- `bun run dev` runs only `@darkfactory/web`. `bun run dev:https` manages the stable `darkfactory-web-dev` PM2 process and the canonical <https://darkfactory.localhost> route. The matching product commands are `dev:bindings`, `dev:status`, `dev:logs`, `dev:stop`, and `dev:trust`.
+- `bun run operator:dev` first runs `operator:bindings`, then manages the stable `darkfactory-operator-dev` PM2 process and the <https://operator.darkfactory.localhost> route. The matching commands are `operator:status`, `operator:logs`, `operator:stop`, and `operator:bindings`.
+- `operator:bindings` validates the Varlock environment and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
 - `bun run doctor` independently probes installed Bun 1.3.14 and Node >=22.13 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
-- `bun run typecheck`, `bun run build`, focused tests, lint, formatting, generated-schema checks, docs checks, measured coverage, and Graphify checks compose the lifecycle. `bun run verify` remains complete; the coverage script is the explicit Node exception because Bun lacks the `node:inspector` APIs used by Vitest V8 coverage.
-- Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Deploy scripts own only the official vinext/Cloudflare path.
+- Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Build, test, generated-contract, docs, and Graphify checks remain explicit repository gates. Deploy scripts own only the official `apps/web` vinext/Cloudflare path.
 
 Graphify output is generated context rather than an authored runtime dependency. Repository Graphify commands must use the tracked secure wrapper, and graph evidence is valid only after the current source tree passes build/check/verify.
 
 ## Deployment target
 
-The authored web application is Civet compiled through Vite/vinext and deployed to Cloudflare Workers. The web deployment uses the official `@vinext/cloudflare` adapter exclusively.
+`apps/web` is the only deployable application. It is authored in Civet, compiled through Vite/vinext, and deployed to Cloudflare Workers with the official `@vinext/cloudflare` adapter. `apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are development-only local tooling. They are not included in `deploy:web`, have no operator deployment command, and must not become production business capabilities.
 
 Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly enabled, supported ancillary Cloudflare resources. No ancillary resource is currently enabled, so DarkFactory has no Alchemy dependency, `alchemy.run.ts`, or Alchemy deployment step. Do not put the vinext web application in Alchemy or add an empty program: in the reviewed baseline, `finalize()` can reconcile and delete resources persisted in a reused stage when they are absent from the current program. Re-review the then-current release before enabling a real ancillary resource. Alchemy here is infrastructure tooling, not a blockchain API dependency. pnpm owns dependency installation and the lockfile; Turborepo owns the repository task graph.
 
-Canonical local development uses `https://darkfactory.localhost` through portless, with PM2 owning the stable `darkfactory-web-dev` process. Portless trust is primary for secure cookies, authentication callbacks, secure-context APIs, and production-like assumptions. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
+Canonical local development uses <https://darkfactory.localhost> for the product and <https://operator.darkfactory.localhost> for the operator meta-layer. Portless owns both trusted routes. PM2 owns the separate `darkfactory-web-dev` and `darkfactory-operator-dev` processes. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
 
-GitHub Actions runs the same five verification lanes composed by `bun run ci`, but executes them concurrently with `fail-fast: false` so one environment-heavy lane cannot hide another lane's result. pnpm remains the package/workspace/lockfile owner; CI retains Node, Corepack, and the frozen pnpm install before using Bun-backed scripts. Current CI verifies builds, tests, contracts, coverage non-regression, Graphify freshness, browser journeys, and accessibility; it performs neither a deployment dry run nor a deployment.
+GitHub Actions runs the repository verification lanes but does not deploy or run the local operator worker from a browser. Current documentation makes no claim of a production operator deployment, remote CI operator execution, or completed Wayfinder evidence.
 
 ## Baseline observability
 

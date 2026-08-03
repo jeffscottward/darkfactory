@@ -1,0 +1,238 @@
+"use client"
+
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Label,
+  Textarea,
+} from "@darkfactory/ui"
+import { PencilLine, RefreshCw, ShieldCheck, TriangleAlert, XCircle } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+
+import type {
+  OperatorApprovalBinding,
+  OperatorImplementationPlan,
+} from "./operator-client.civet"
+import {
+  MAX_OPERATOR_REQUEST_BYTES,
+  hasOperatorControlCharacters,
+  trimmedUtf8ByteLength,
+} from "./operator-text-limit.civet"
+
+export interface ApprovalPanelProps {
+  readonly approval: OperatorApprovalBinding | null
+  readonly implementationPlan: OperatorImplementationPlan | null
+  readonly busyAction: "approve" | "reject" | "revise" | null
+  readonly canRequestChanges?: boolean | undefined
+  readonly disabled?: boolean | undefined
+  readonly conflictMessage?: string | undefined
+  readonly onApprove: () => void
+  readonly onReject: () => void
+  readonly onReload: () => void
+  readonly onRequestChanges?: ((message: string) => Promise<boolean>) | undefined
+}
+
+const BindingValue = ({ children }: { readonly children: string | number }) => (
+  <dd className="min-w-0 break-all font-mono text-xs leading-5 text-foreground">
+    {children}
+)
+
+export const ApprovalPanel = ({
+  approval,
+  implementationPlan,
+  busyAction,
+  canRequestChanges = false,
+  disabled = false,
+  conflictMessage,
+  onApprove,
+  onReject,
+  onReload,
+  onRequestChanges,
+}: ApprovalPanelProps) =>
+  const [revisionMessage, setRevisionMessage] = useState("")
+  const conflictRef = useRef<HTMLDivElement>(null)
+  useEffect(() =>
+    if (approval?.stale || conflictMessage !== undefined) conflictRef.current?.focus()
+  , [approval?.stale, conflictMessage])
+  const revisionByteLength = trimmedUtf8ByteLength(revisionMessage)
+  const revisionTooLong = revisionByteLength > MAX_OPERATOR_REQUEST_BYTES
+  const revisionHasControlCharacters = hasOperatorControlCharacters(revisionMessage)
+  const revisionError = revisionHasControlCharacters
+    ? "Use one line without control characters."
+    : revisionTooLong
+      ? `Use ${MAX_OPERATOR_REQUEST_BYTES.toLocaleString("en-US")} UTF-8 bytes or fewer.`
+      : null
+  const mutationDisabled = disabled || busyAction !== null
+  const revisionDisabled = mutationDisabled || approval?.stale === true || conflictMessage !== undefined
+  const submitRevision = async (event: React.FormEvent<HTMLFormElement>): Promise<void> =>
+    event.preventDefault()
+    const message = revisionMessage.trim()
+    if (
+      message.length === 0 ||
+      revisionError !== null ||
+      revisionDisabled ||
+      onRequestChanges === undefined
+    ) return
+    if (await onRequestChanges(message)) setRevisionMessage("")
+
+  return (
+    <Card aria-labelledby="approval-panel-title">
+      <CardHeader>
+        <CardTitle headingLevel={2} id="approval-panel-title">Review plan
+        <CardDescription>
+          Request a clearer plan or approve the latest plan to let work begin.
+      <CardContent className="space-y-5">
+        {implementationPlan === null ? (
+          approval === null ? null : (
+            <div className="border-y border-destructive-border bg-destructive-subtle px-4 py-4" role="alert">
+              <h3 className="font-heading text-base font-semibold text-foreground">
+                Plan unavailable
+              <p className="mt-1 text-sm leading-6 text-destructive">
+                Implementation plan evidence is unavailable. Approval is disabled.
+          )
+        ) : (
+          <section aria-labelledby="implementation-plan-title" className="min-w-0 border-y border-border py-4">
+            <h3 className="font-heading text-base font-semibold text-foreground" id="implementation-plan-title">
+              Latest plan
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Read every step before you choose an action.
+            <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
+              {implementationPlan.summary}
+            {implementationPlan.redacted ? (
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                Sensitive values were redacted.
+            ) : null}
+            {implementationPlan.truncated ? (
+              <p className="mt-2 text-xs leading-5 text-destructive" role="alert">
+                This plan is incomplete and cannot be approved. Regenerate a bounded plan.
+            ) : null}
+        )}
+        {approval === null ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            No plan is waiting for your review.
+        ) : (
+          <>
+            {approval.stale || conflictMessage !== undefined ? (
+              <div
+                className="border-y border-warning-border bg-warning-subtle px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                ref={conflictRef}
+                role="alert"
+                tabIndex={-1}
+              >
+                <div className="flex gap-3">
+                  <TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-warning-foreground" />
+                  <div>
+                    <h3 className="font-heading text-base font-semibold text-foreground">Plan changed
+                    <p className="mt-1 text-sm leading-6 text-warning-foreground">
+                      {conflictMessage ?? "A newer plan or journal entry is available. Reload before you decide."}
+                <Button
+                  className="mt-3"
+                  disabled={mutationDisabled}
+                  onClick={onReload}
+                  size="compact"
+                  variant="secondary"
+                >
+                  <RefreshCw aria-hidden="true" className="size-4" />Reload plan
+            ) : null}
+            <details className="border-y border-border">
+              <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Integrity details
+              <div className="pb-4 pt-2">
+                <p className="mb-4 text-xs leading-5 text-muted-foreground">
+                  These values bind approval to this exact plan and journal version.
+                <dl className="grid min-w-0 gap-x-6 gap-y-4 sm:grid-cols-2">
+                  {implementationPlan === null ? null : (
+                    <div className="min-w-0 sm:col-span-2">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Plan digest
+                      <BindingValue>{implementationPlan.digest}
+                  )}
+                  <div className="min-w-0">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Machine
+                    <BindingValue>{`${approval.machineId} v${approval.machineVersion}`}
+                  <div className="min-w-0">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Event version
+                    <BindingValue>{approval.eventVersion}
+                  <div className="min-w-0">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Snapshot sequence
+                    <BindingValue>{approval.snapshotSequence}
+                  <div className="min-w-0 sm:col-span-2">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Journal head hash
+                    <BindingValue>{approval.journalHeadHash}
+                  <div className="min-w-0 sm:col-span-2">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Effect hash
+                    <BindingValue>{approval.effectHash}
+                  <div className="min-w-0 sm:col-span-2">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Effect scope
+                    <BindingValue>{approval.effectScope}
+            <div className="flex flex-col gap-2 border-t border-border pt-5 sm:flex-row sm:flex-wrap">
+              <Button
+                aria-describedby="approval-confirmation-hint"
+                disabled={
+                  implementationPlan === null ||
+                  implementationPlan.truncated ||
+                  approval.stale ||
+                  conflictMessage !== undefined ||
+                  mutationDisabled
+                }
+                loading={busyAction === "approve"}
+                loadingLabel="Approving this plan"
+                onClick={onApprove}
+              >
+                <ShieldCheck aria-hidden="true" className="size-4" />Approve this plan
+              <Button
+                disabled={approval.stale || conflictMessage !== undefined || mutationDisabled}
+                loading={busyAction === "reject"}
+                loadingLabel="Rejecting plan"
+                onClick={onReject}
+                variant="destructive"
+              >
+                <XCircle aria-hidden="true" className="size-4" />Reject plan
+            <p className="text-xs leading-5 text-muted-foreground" id="approval-confirmation-hint">
+              Approving this button confirms the exact latest plan shown above. You can also focus it with Tab and press Enter or Space.
+        )}
+        {canRequestChanges && onRequestChanges !== undefined ? (
+          <form className="space-y-3 border-t border-border pt-5" onSubmit={submitRevision}>
+            <div className="space-y-2">
+              <Label htmlFor="plan-revision-message">What should change?
+              <Textarea
+                aria-describedby={revisionError === null
+                  ? "plan-revision-hint plan-revision-count"
+                  : "plan-revision-hint plan-revision-count plan-revision-error"
+                }
+                aria-invalid={revisionError !== null || undefined}
+                disabled={revisionDisabled}
+                id="plan-revision-message"
+                onChange={(event) => setRevisionMessage(event.currentTarget.value)}
+                placeholder="Explain what the next plan must clarify or change"
+                required
+                rows={4}
+                value={revisionMessage}
+              />
+              <p className="text-xs leading-5 text-muted-foreground" id="plan-revision-hint">
+                Requesting changes replaces the current plan and approval. Wayfinder will create a new plan for review.
+              <p
+                className={revisionError !== null
+                  ? "text-xs leading-5 text-destructive"
+                  : "text-xs leading-5 text-muted-foreground"
+                }
+                id="plan-revision-count"
+              >
+                {revisionByteLength.toLocaleString("en-US")} / {MAX_OPERATOR_REQUEST_BYTES.toLocaleString("en-US")} bytes
+              {revisionError === null ? null : (
+                <p className="text-sm text-destructive" id="plan-revision-error" role="alert">
+                  {revisionError}
+              )}
+            <Button
+              disabled={revisionByteLength === 0 || revisionError !== null || revisionDisabled}
+              loading={busyAction === "revise"}
+              loadingLabel="Requesting plan changes"
+              type="submit"
+              variant="secondary"
+            >
+              <PencilLine aria-hidden="true" className="size-4" />Request changes
+        ) : null}
+  )

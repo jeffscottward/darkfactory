@@ -65,6 +65,7 @@
       ".wrangler",
       "build",
       "coverage/**",
+      "packages/operator/coverage/coverage-summary.json",
       "dist",
       "graphify-out",
       "node_modules",

@@ -1,0 +1,43 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  auth: { runtime: "operator-auth" },
+  close: vi.fn(async () => undefined),
+  createAuthHandler: vi.fn(),
+  createOperatorAuthRuntime: vi.fn(),
+  delegate: vi.fn(async () => new Response("ok")),
+}))
+
+vi.mock("@darkfactory/auth/server", () => ({
+  createAuthHandler: mocks.createAuthHandler,
+}))
+vi.mock("../../../../server/operator-auth.civet", () => ({
+  createOperatorAuthRuntime: mocks.createOperatorAuthRuntime,
+}))
+
+import { handleOperatorAuthRequest } from "./handler.civet"
+
+describe "operator auth composition", ->
+  beforeEach ->
+    mocks.close.mockClear()
+    mocks.delegate.mockReset().mockResolvedValue(new Response("ok"))
+    mocks.createAuthHandler.mockReset().mockReturnValue(mocks.delegate)
+    mocks.createOperatorAuthRuntime.mockReset().mockResolvedValue({
+      auth: mocks.auth,
+      close: mocks.close,
+    })
+
+  it "delegates to Better Auth and closes the request database", async ->
+    const request = new Request("https://operator.darkfactory.localhost/api/auth/get-session")
+    const response = await handleOperatorAuthRequest(request)
+    expect(response.status).toBe(200)
+    expect(mocks.createAuthHandler).toHaveBeenCalledWith(mocks.auth)
+    expect(mocks.delegate).toHaveBeenCalledWith(request)
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "closes the request database when Better Auth fails", async ->
+    mocks.delegate.mockRejectedValueOnce(new Error("handler failed"))
+    await expect(handleOperatorAuthRequest(
+      new Request("https://operator.darkfactory.localhost/api/auth/get-session"),
+    )).rejects.toThrow("handler failed")
+    expect(mocks.close).toHaveBeenCalledOnce()

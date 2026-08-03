@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from "vitest"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-const { execFileMock } = vi.hoisted(() => ({
+const { execFileMock, readFileMock } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
+  readFileMock: vi.fn(),
 }))
 
 vi.mock("node:child_process", () => ({ execFile: execFileMock }))
+vi.mock("node:fs/promises", async (importOriginal) =>
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  readFileMock.mockImplementation((path, options) => actual.readFile(path, options))
+  return { ...actual, readFile: readFileMock }
+)
 
 import {
   discoverCivetFiles,
@@ -481,6 +487,30 @@ describe "Civet source discovery", ->
       expect.any(Function),
     )
 
+  it "ignores files deleted before the default reader opens them", async ->
+    execFileMock.mockImplementationOnce((_command, _arguments, _options, callback) =>
+      callback(null, { stdout: "deleted.civet\0" })
+    )
+    readFileMock.mockRejectedValueOnce(
+      Object.assign(new Error("file disappeared"), { code: "ENOENT" }),
+    )
+
+    await expect(scanCivetRepository("/repo")).resolves.toEqual({
+      files: [],
+      violations: [],
+    })
+    expect(readFileMock).toHaveBeenLastCalledWith("/repo/deleted.civet", "utf8")
+
+  it "propagates access failures from the default reader", async ->
+    const failure = Object.assign(new Error("permission denied"), { code: "EACCES" })
+    execFileMock.mockImplementationOnce((_command, _arguments, _options, callback) =>
+      callback(null, { stdout: "private.civet\0" })
+    )
+    readFileMock.mockRejectedValueOnce(failure)
+
+    await expect(scanCivetRepository("/repo")).rejects.toBe(failure)
+    expect(readFileMock).toHaveBeenLastCalledWith("/repo/private.civet", "utf8")
+
   it "sorts repository findings by file, line, and message regardless of discovery order", async ->
     const dependencies: CivetStyleDependencies = {
       discoverFiles: async -> ["z.civet", "a.civet"],
@@ -515,6 +545,19 @@ describe "Civet source discovery", ->
       ["/repo", "a.civet"],
       ["/repo", "b.civet"],
     ])
+
+  it "ignores tracked Civet files deleted from the working tree", async ->
+    const readSource = vi.fn(async (_root, file) =>
+      if file === "deleted.civet" then undefined else "const clean = true"
+    )
+    await expect(scanCivetRepository("/repo", {
+      discoverFiles: async -> ["kept.civet", "deleted.civet"],
+      readSource,
+    })).resolves.toEqual({
+      files: ["kept.civet"],
+      violations: [],
+    })
+    expect(readSource).toHaveBeenCalledTimes(2)
 
 describe "Civet style CLI", ->
   const dependencies = (sources: Readonly<Record<string, string>>): CivetStyleDependencies => ({

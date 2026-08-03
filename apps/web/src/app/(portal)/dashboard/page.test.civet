@@ -114,6 +114,28 @@ describe "dashboard summary loader", ->
       loadDashboardSummaryState("better-auth.session_token=opaque", fetcher),
     ).resolves.toEqual({ type: "error" })
 
+  it "keeps request-local oRPC work inside its longer bounded deadline", async ->
+    vi.useFakeTimers()
+    mocks.dispatchInternalOrpcRequest.mockImplementationOnce(
+      async () =>
+        await new Promise<Response>((resolve) =>
+          setTimeout(() => resolve(dashboardResponse()), 3_001)
+        )
+    )
+
+    const resultPromise = DashboardPage()
+    await vi.advanceTimersByTimeAsync(3_001)
+    const result = await resultPromise
+    const content = Children.toArray(result.props.children).find(
+      (child): child is ReactElement ->
+        isValidElement(child) and child.type is DashboardContent
+    )
+
+    expect(content?.props).toMatchObject({
+      summaryState: { type: "ready", summary: dashboardSummary },
+    })
+    expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce()
+
   it "returns a ready state for one bounded oRPC dashboard response", async ->
     const fetcher = vi.fn(async () => dashboardResponse())
 

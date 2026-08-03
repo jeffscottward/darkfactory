@@ -10,7 +10,6 @@ import type {
   ContactDeliveryPort,
   ContactThrottlePort,
 } from "./contact-service.civet"
-import type { OperatorWorkflowPort } from "./operator-service.civet"
 
 export type ApiContext = Readonly<{
   requestId: string
@@ -18,7 +17,6 @@ export type ApiContext = Readonly<{
   capabilities: CapabilityProjection
   requireSession: () => Promise<SafeAuthSession>
   requireRole: (role: UserRole) => Promise<SafeAuthSession>
-  workflowOperator?: OperatorWorkflowPort
   semanticEvents?: SemanticEventPort
   span?: SpanHandle
   waitUntil?: WaitUntil
@@ -37,7 +35,6 @@ export type ApiContextDependencies = Readonly<{
   capabilities: CapabilityProjection
   requireSession: (headers: Headers) => Promise<SafeAuthSession>
   requireRole: (headers: Headers, role: UserRole) => Promise<SafeAuthSession>
-  workflowOperator?: OperatorWorkflowPort
   requestId?: string
   generateRequestId?: () => string
   semanticEvents?: SemanticEventPort
@@ -74,9 +71,6 @@ export const createApiContext = (
   capabilities: dependencies.capabilities,
   requireSession: () => dependencies.requireSession(request.headers),
   requireRole: (role) => dependencies.requireRole(request.headers, role),
-  ...(dependencies.workflowOperator === undefined
-    ? {}
-    : { workflowOperator: dependencies.workflowOperator }),
   ...(dependencies.semanticEvents === undefined
     ? {}
     : { semanticEvents: dependencies.semanticEvents }),

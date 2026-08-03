@@ -1,0 +1,18 @@
+import { describe, expect, it, vi } from "vitest"
+
+const handleOperatorAuthRequest = vi.hoisted(() => vi.fn(async () => new Response("auth")))
+
+vi.mock("./handler.civet", () => ({ handleOperatorAuthRequest }))
+
+import { GET, POST } from "./route.civet"
+
+describe "operator auth route exports", ->
+  it "delegates GET and POST to the bounded auth handler", async ->
+    const getRequest = new Request("https://operator.darkfactory.localhost/api/auth/session")
+    const postRequest = new Request("https://operator.darkfactory.localhost/api/auth/sign-in", {
+      method: "POST",
+    })
+    expect(await (await GET(getRequest)).text()).toBe("auth")
+    expect(await (await POST(postRequest)).text()).toBe("auth")
+    expect(handleOperatorAuthRequest).toHaveBeenNthCalledWith(1, getRequest)
+    expect(handleOperatorAuthRequest).toHaveBeenNthCalledWith(2, postRequest)

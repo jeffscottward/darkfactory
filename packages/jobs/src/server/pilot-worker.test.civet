@@ -5,6 +5,7 @@ import {
   OmpProcessTerminationError,
   type OmpCliAdapter,
 } from "./omp.civet"
+import type { WayfinderExecutionPort } from "./wayfinder.civet"
 import type { WorkflowRuntime } from "./workflow-runtime.civet"
 import { describe, expect, it, vi } from "vitest"
 
@@ -259,12 +260,14 @@ describe("pilot workflow worker", () =>
     const database = { db: {} as DatabaseResource["db"], close }
     const repository = {} as WorkflowRepository
     const adapter = {} as OmpCliAdapter
+    const wayfinderAdapter = {} as WayfinderExecutionPort
     const runOnce = vi.fn(async () => [])
     const stopRuntime = vi.fn(async () => undefined)
     const runtime = { application: {}, runOnce, stop: stopRuntime } as unknown as WorkflowRuntime
     const createDatabase = vi.fn(() => database)
     const createRepository = vi.fn(() => repository)
     const createAdapter = vi.fn(() => adapter)
+    const createWayfinderAdapter = vi.fn(() => wayfinderAdapter)
     const createRuntime = vi.fn((
       _input: Parameters<PilotWorkerDependencies["createRuntime"]>[0],
     ) => runtime)
@@ -273,6 +276,7 @@ describe("pilot workflow worker", () =>
       createDatabase,
       createRepository,
       createAdapter,
+      createWayfinderAdapter,
       createRuntime,
     })
     const running = worker.start()
@@ -288,9 +292,14 @@ describe("pilot workflow worker", () =>
       configuration.verifierId,
       configuration.verifierImageDigest,
     )
+    expect(createWayfinderAdapter).toHaveBeenCalledWith({
+      omp: adapter
+      repositoriesRoot: configuration.repositoriesRoot
+    })
     expect(createRuntime).toHaveBeenCalledWith({
       repository,
       adapter,
+      wayfinderAdapter,
       leaseOwner: configuration.leaseOwner,
       authorizeRepository: expect.any(Function),
     })
@@ -495,6 +504,7 @@ describe("pilot workflow worker", () =>
         throw compositionError
       )
       createAdapter: vi.fn()
+      createWayfinderAdapter: vi.fn()
       createRuntime: vi.fn()
     })).rejects.toBe(compositionError)
     expect(close).toHaveBeenCalledOnce()
@@ -509,6 +519,7 @@ describe("pilot workflow worker", () =>
       createDatabase: vi.fn(() => ({ db: {} as DatabaseResource["db"], close }))
       createRepository: vi.fn(() => ({} as WorkflowRepository))
       createAdapter
+      createWayfinderAdapter: vi.fn(() => ({} as WayfinderExecutionPort))
       createRuntime: vi.fn(() => ({
         application: {}
         runOnce: vi.fn(async () => [])

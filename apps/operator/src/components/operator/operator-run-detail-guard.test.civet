@@ -1,0 +1,81 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { createElement } from "react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const approvalPanel = vi.hoisted(() => ({
+  onApprove: undefined as (() => void) | undefined,
+}))
+
+vi.mock("./approval-panel.civet", () => ({
+  ApprovalPanel: ({ onApprove }: { readonly onApprove: () => void }) =>
+    approvalPanel.onApprove = onApprove
+    return createElement("button", { onClick: onApprove }, "Invoke approval callback")
+}))
+
+import type {
+  OperatorGateway,
+  OperatorRunDetailOutput,
+} from "./operator-client.civet"
+import { OperatorRunDetail } from "./operator-run-detail.civet"
+
+const output: OperatorRunDetailOutput = {
+  run: {
+    id: "run-without-approval",
+    title: "Approval guard",
+    state: "planning",
+    sequence: 1,
+    updatedAt: new Date("2026-07-29T12:00:00.000Z"),
+    headHash: "journal-head",
+    machineId: "darkfactory-pilot",
+    machineVersion: 1,
+  },
+  originalRequest: "Plan the approval guard",
+  planRevisions: [],
+  timeline: [],
+  approval: null,
+  implementationPlan: null,
+  evidence: [],
+  messages: [],
+  canRequestPlanRevision: false,
+}
+
+const gatewayWith = (approve: OperatorGateway["approve"]): OperatorGateway => ({
+  submit: vi.fn(async () => output),
+  workspace: vi.fn(async () => ({ runs: [] })),
+  detail: vi.fn(async () => output),
+  approve,
+  reject: vi.fn(async () => output),
+  cancel: vi.fn(async () => output),
+  retry: vi.fn(async () => output),
+  message: vi.fn(async () => output),
+  revise: vi.fn(async () => output),
+  wayfinderStatus: vi.fn<OperatorGateway["wayfinderStatus"]>(async () => ({
+    availability: "installed",
+    tracker: "local-markdown",
+  })),
+  startWayfinder: vi.fn<OperatorGateway["startWayfinder"]>(async (_request, _scope) => ({
+    runId: "run-wayfinder",
+    status: "queued",
+    tracker: "local-markdown",
+  })),
+})
+
+afterEach(() =>
+  cleanup()
+  approvalPanel.onApprove = undefined
+)
+
+describe("operator run approval guard", () =>
+  it("does not approve when a child callback fires without a binding", async () =>
+    const approve = vi.fn(async () => output)
+    render(<OperatorRunDetail gateway={gatewayWith(approve)} id={output.run.id} />)
+
+    await screen.findByRole("heading", { name: "Approval guard" })
+    fireEvent.click(screen.getByRole("button", { name: "Invoke approval callback" }))
+
+    expect(approvalPanel.onApprove).toBeTypeOf("function")
+    expect(approve).not.toHaveBeenCalled()
+  )
+)

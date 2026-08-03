@@ -1,0 +1,169 @@
+"use client"
+
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Textarea } from "@darkfactory/ui"
+import { Send } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+
+import {
+  createOperatorIdempotencyKeySlot,
+  type OperatorIdempotencyKeySlot,
+  type OperatorImplementationPlan,
+  type OperatorMessage,
+  type OperatorPlanRevision,
+  type OperatorRunDetailOutput,
+} from "./operator-client.civet"
+import { formatOperatorDate } from "./operator-format.civet"
+
+const missingPlanMessage = (
+  runState: OperatorRunDetailOutput["run"]["state"],
+): string => runState === "planning"
+  ? "No plan is available yet. Refresh this run to check again."
+  : runState === "draft"
+    ? "Planning has not started."
+    : runState === "blocked"
+      ? "Planning stopped before a plan was available."
+      : "No plan is available for this run."
+
+export interface ConversationPanelProps {
+  readonly busy: boolean
+  readonly disabled?: boolean | undefined
+  readonly failureMessage?: string | undefined
+  readonly implementationPlan: OperatorImplementationPlan | null
+  readonly messages: readonly OperatorMessage[]
+  readonly planRevisions: readonly OperatorPlanRevision[]
+  readonly onSend: (body: string, idempotencyKey: string) => Promise<boolean>
+  readonly originalRequest: string
+  readonly runState: OperatorRunDetailOutput["run"]["state"]
+}
+
+export const ConversationPanel = ({
+  busy,
+  disabled = false,
+  failureMessage,
+  implementationPlan,
+  messages,
+  planRevisions,
+  onSend,
+  originalRequest,
+  runState,
+}: ConversationPanelProps) =>
+  const [body, setBody] = useState("")
+  const submissionInFlight = useRef(false)
+  const idempotency = useRef<OperatorIdempotencyKeySlot | null>(null)
+  const mounted = useRef(false)
+  const failureRef = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() =>
+    mounted.current = true
+    return () =>
+      mounted.current = false
+      return undefined
+  , [])
+
+  useEffect(() =>
+    if (failureMessage !== undefined) failureRef.current?.focus()
+  , [failureMessage])
+
+  const changeBody = (value: string): void =>
+    idempotency.current?.invalidate()
+    setBody(value)
+
+  const mutationDisabled = disabled || busy
+  const submit = async (event: React.FormEvent<HTMLFormElement>) =>
+    event.preventDefault()
+    const message = body.trim()
+    if (message.length === 0 || mutationDisabled || submissionInFlight.current) return
+    submissionInFlight.current = true
+    try
+      const keySlot = idempotency.current ?? createOperatorIdempotencyKeySlot()
+      idempotency.current = keySlot
+      const sent = await onSend(message, keySlot.key())
+      if (!mounted.current) return
+      if (sent)
+        keySlot.invalidate()
+        setBody("")
+    finally
+      submissionInFlight.current = false
+
+  return (
+    <Card aria-labelledby="conversation-panel-title">
+      <CardHeader>
+        <CardTitle headingLevel={2} id="conversation-panel-title">Conversation
+        <CardDescription>
+          Read the request, requested changes, the latest Wayfinder plan, and operator notes in order.
+      <CardContent className="space-y-6">
+        <ol className="border-y border-border" aria-label="Planning conversation">
+          <li className="py-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your request
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+              {originalRequest}
+          {planRevisions.map((revision, index) => (
+            <li className="border-t border-border py-5" key={`${revision.createdAt.toISOString()}-${index}`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  You requested changes
+                <time className="text-xs text-muted-foreground" dateTime={revision.createdAt.toISOString()}>
+                  {formatOperatorDate(revision.createdAt)}
+              <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                {revision.message}
+          ))}
+          <li className="border-t border-border py-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wayfinder
+              <span className="text-xs text-muted-foreground">Latest plan
+            {implementationPlan === null ? (
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {missingPlanMessage(runState)}
+            ) : (
+              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
+                {implementationPlan.summary}
+            )}
+          <li className="border-t border-border py-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Operator notes
+            {messages.length === 0 ? (
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">No notes have been added.
+            ) : (
+              <ol aria-live="polite" className="mt-3 divide-y divide-border">
+                {messages.map((message) => (
+                  <li className="min-w-0 py-3 first:pt-0 last:pb-0" key={message.id}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="break-words text-sm font-semibold text-foreground">{message.authorLabel}
+                      <time className="text-xs text-muted-foreground" dateTime={message.createdAt.toISOString()}>
+                        {formatOperatorDate(message.createdAt)}
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{message.body}
+                ))}
+            )}
+        <form className="space-y-3" onSubmit={submit}>
+          <div className="space-y-2">
+            <Label htmlFor="operator-message">Add operator message
+            <Textarea
+              aria-describedby={failureMessage === undefined ? "operator-message-hint" : "operator-message-hint operator-message-error"}
+              disabled={mutationDisabled}
+              id="operator-message"
+              maxLength={2_000}
+              onChange={(event) => changeBody(event.currentTarget.value)}
+              placeholder="Add context for the next review"
+              required
+              rows={4}
+              value={body}
+            />
+            <p className="text-xs leading-5 text-muted-foreground" id="operator-message-hint">
+              Notes add context only. They do not start or change work. Do not paste secrets or raw output.
+          {failureMessage === undefined ? null : (
+            <p
+              className="text-sm text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              id="operator-message-error"
+              ref={failureRef}
+              role="alert"
+              tabIndex={-1}
+            >
+              {failureMessage}
+          )}
+          <Button
+            disabled={body.trim().length === 0 || mutationDisabled}
+            loading={busy}
+            loadingLabel="Adding operator note"
+            type="submit"
+          >
+            <Send aria-hidden="true" className="size-4" />Add note
+  )

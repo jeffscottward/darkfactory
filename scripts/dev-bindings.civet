@@ -1,13 +1,24 @@
-import { materializeWorkerBindings } from "./dev/bindings.civet"
+import {
+  materializeWorkerBindings,
+  workerBindingsTargetPath,
+  type WorkerBindingsTarget,
+} from "./dev/bindings.civet"
 
-try
-  await materializeWorkerBindings()
-  process.stdout.write(JSON.stringify({
-    action: "dev:bindings",
-    ok: true,
-    target: "apps/web/.dev.vars",
-    mode: "0600",
-  }) + "\n")
-catch
-  process.stderr.write("Unable to materialize validated Worker bindings safely.\n")
-  process.exitCode = 1
+const [candidate, ...extra] = process.argv.slice(2)
+const isValidTarget = candidate === undefined || candidate === "operator"
+if (!isValidTarget || extra.length > 0)
+  process.stderr.write("Usage: dev-bindings [operator]\n")
+  process.exitCode = 2
+else
+  const target: WorkerBindingsTarget = candidate === "operator" ? "operator" : "web"
+  try
+    await materializeWorkerBindings(process.cwd(), target)
+    process.stdout.write(JSON.stringify({
+      action: target === "operator" ? "operator:bindings" : "dev:bindings",
+      ok: true,
+      target: workerBindingsTargetPath(target),
+      mode: "0600",
+    }) + "\n")
+  catch
+    process.stderr.write("Unable to materialize validated Worker bindings safely.\n")
+    process.exitCode = 1

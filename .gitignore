@@ -26,6 +26,7 @@ graphify-out/
 
 # Local agent recovery artifacts
 .session-recovery/
+/.scratch/
 
 # Environment and local credentials
 .env

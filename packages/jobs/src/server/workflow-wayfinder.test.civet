@@ -1,0 +1,236 @@
+import { describe, expect, it, vi } from "vitest"
+
+import { canonicalJsonV1 } from "@darkfactory/state/workflow"
+
+import {
+  WORKFLOW_EFFECT_HANDLER_V2,
+  createWorkflowOutboxWorker,
+  type ClaimedWorkflowEffect,
+  type WorkflowOutboxPort,
+} from "./workflow-worker.civet"
+import type {
+  OmpCliAdapter,
+  OmpExecutionResult,
+} from "./omp.civet"
+import type { WayfinderExecutionPort } from "./wayfinder.civet"
+
+const wayfinderClaim = (
+  overrides: Partial<ClaimedWorkflowEffect> = {},
+): ClaimedWorkflowEffect => Object.freeze({
+  id: "outbox-1"
+  runId: "run-wayfinder-1"
+  ownerId: "owner-1"
+  handler: WORKFLOW_EFFECT_HANDLER_V2
+  idempotencyKey: "effect-1"
+  effectId: "effect-1"
+  effectKind: "plan"
+  effectScope: canonicalJsonV1({
+    repositoryId: "darkfactory"
+    paths: ["packages/jobs"]
+  })
+  taskMetadata: Object.freeze({
+    taskId: "Chart the operator extraction."
+    workspaceId: "darkfactory"
+    taskRevision: 1
+    taskHash: "a".repeat(64)
+    sourceSequence: 1
+    executionMode: "wayfinder"
+    humanRequest: "Chart the operator extraction."
+  })
+  attemptCount: 0
+  leaseOwner: "worker-1"
+  fenceToken: 1
+  ...overrides
+})
+
+const succeeded = (): OmpExecutionResult => Object.freeze({
+  command: "print"
+  status: "succeeded"
+  exitCode: 0
+  signal: null
+  durationMs: 8
+  output: Object.freeze({
+    stdout: "Wayfinder map created"
+    stderr: ""
+    stdoutBytes: 21
+    stderrBytes: 0
+    truncated: false
+    redacted: false
+  })
+  change: null
+  verification: null
+  implementationArtifact: null
+})
+
+const baseAdapter = (execute = vi.fn(async () => succeeded())): OmpCliAdapter =>
+  Object.freeze({
+    execute
+    cleanupRetainedWorkspace: async () => undefined
+  })
+
+const repositoryFor = (
+  claim: ClaimedWorkflowEffect,
+  failResult: boolean = true,
+): WorkflowOutboxPort & Readonly<{
+  completeEffect: ReturnType<typeof vi.fn>
+  failEffect: ReturnType<typeof vi.fn>
+}> =>
+  const completeEffect = vi.fn(async () => true)
+  const failEffect = vi.fn(async () => failResult)
+  return Object.freeze({
+    claimDueEffects: vi.fn(async () => Object.freeze([claim]))
+    heartbeatEffect: vi.fn(async () => true)
+    completeEffect
+    failEffect
+  })
+
+describe("Wayfinder workflow worker dispatch", () =>
+  it("executes a durably claimed Wayfinder plan through the explicit adapter", async () =>
+    const operations: string[] = []
+    const repository = repositoryFor(wayfinderClaim())
+    repository.completeEffect.mockImplementation(async (input) =>
+      operations.push("complete")
+      expect(JSON.stringify(input)).not.toContain("wayfinderTrackerArtifact")
+      return true
+    )
+    const pilotExecute = vi.fn(async () => succeeded())
+    const wayfinderExecute = vi.fn<WayfinderExecutionPort["execute"]>(async () =>
+      operations.push("publish")
+      return succeeded()
+    )
+    const wayfinder = Object.freeze({
+      status: vi.fn(async () => Object.freeze({
+        availability: "installed" as const
+        tracker: "local-markdown" as const
+      }))
+      execute: wayfinderExecute
+    } satisfies WayfinderExecutionPort)
+    const worker = createWorkflowOutboxWorker({
+      repository
+      adapter: baseAdapter(pilotExecute)
+      wayfinderAdapter: wayfinder
+      leaseOwner: "worker-1"
+      authorizeRepository: (ownerId, repositoryId) =>
+        ownerId === "owner-1" && repositoryId === "darkfactory"
+      heartbeatMilliseconds: 5
+      leaseMilliseconds: 50
+    })
+
+    await expect(worker.runOnce()).resolves.toEqual([
+      { id: "outbox-1", status: "completed" }
+    ])
+    expect(pilotExecute).not.toHaveBeenCalled()
+    expect(wayfinderExecute).toHaveBeenCalledOnce()
+    expect(wayfinderExecute.mock.calls[0]![0]).toMatchObject({
+      command: "print"
+      workspaceId: "run-wayfinder-1"
+      effectKind: "plan"
+      cwd: "darkfactory"
+      scopePaths: ["packages/jobs"]
+      repositoryId: "darkfactory"
+      humanRequest: "Chart the operator extraction."
+    })
+    expect(repository.completeEffect).toHaveBeenCalledOnce()
+    expect(operations).toEqual(["publish", "complete"])
+  )
+
+  it "dispatches a revised plan to a fresh tracker with the original request", async ->
+    const revisedClaim = wayfinderClaim({
+      effectId: "effect-revision-2"
+      idempotencyKey: "effect-revision-2"
+      taskMetadata: {
+        ...wayfinderClaim().taskMetadata!
+        taskRevision: 2
+        sourceSequence: 3
+        planClarification: "Keep the plan within packages/operator."
+      }
+    })
+    const repository = repositoryFor(revisedClaim)
+    const wayfinderExecute = vi.fn<WayfinderExecutionPort["execute"]>(
+      async () => succeeded()
+    )
+    const worker = createWorkflowOutboxWorker({
+      repository
+      adapter: baseAdapter()
+      wayfinderAdapter: {
+        status: async () => ({
+          availability: "installed"
+          tracker: "local-markdown"
+        })
+        execute: wayfinderExecute
+      }
+      leaseOwner: "worker-1"
+      authorizeRepository: () => true
+      heartbeatMilliseconds: 5
+      leaseMilliseconds: 50
+    })
+
+    await worker.runOnce()
+
+    expect(wayfinderExecute).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "effect-revision-2"
+      humanRequest: "Chart the operator extraction."
+      planClarification: "Keep the plan within packages/operator."
+    }))
+
+  it("fails closed without persisting adapter exception details or invoking pilot mode", async () =>
+    const secret = "sk-wayfinder-must-not-persist"
+    const repository = repositoryFor(wayfinderClaim())
+    const pilotExecute = vi.fn(async () => succeeded())
+    const wayfinder = Object.freeze({
+      status: vi.fn(async () => Object.freeze({
+        availability: "installed" as const
+        tracker: "local-markdown" as const
+      }))
+      execute: vi.fn(async () =>
+        throw new Error(`adapter failed with ${secret}`)
+      )
+    } satisfies WayfinderExecutionPort)
+    const worker = createWorkflowOutboxWorker({
+      repository
+      adapter: baseAdapter(pilotExecute)
+      wayfinderAdapter: wayfinder
+      leaseOwner: "worker-1"
+      authorizeRepository: () => true
+      heartbeatMilliseconds: 5
+      leaseMilliseconds: 50
+    })
+
+    await expect(worker.runOnce()).resolves.toEqual([
+      { id: "outbox-1", status: "failed" }
+    ])
+    expect(pilotExecute).not.toHaveBeenCalled()
+    expect(repository.completeEffect).not.toHaveBeenCalled()
+    expect(repository.failEffect).toHaveBeenCalledOnce()
+    expect(JSON.stringify(repository.failEffect.mock.calls[0]![0]))
+      .not.toContain(secret)
+    expect(repository.failEffect.mock.calls[0]![0]).toMatchObject({
+      id: "outbox-1"
+      result: {
+        status: "failed"
+        failureCode: "failed"
+        retryable: false
+        outputBytes: 0
+      }
+    })
+  )
+
+  it("fails safely when a claimed Wayfinder run reaches a worker without the local adapter", async () =>
+    const repository = repositoryFor(wayfinderClaim())
+    const pilotExecute = vi.fn(async () => succeeded())
+    const worker = createWorkflowOutboxWorker({
+      repository
+      adapter: baseAdapter(pilotExecute)
+      leaseOwner: "worker-1"
+      authorizeRepository: () => true
+      heartbeatMilliseconds: 5
+      leaseMilliseconds: 50
+    })
+
+    await expect(worker.runOnce()).resolves.toEqual([
+      { id: "outbox-1", status: "failed" }
+    ])
+    expect(pilotExecute).not.toHaveBeenCalled()
+    expect(repository.failEffect).toHaveBeenCalledOnce()
+  )
+)

@@ -3,9 +3,11 @@ import { createHash, randomUUID } from "node:crypto"
 import { createReadStream, constants } from "node:fs"
 import {
   access,
+  copyFile,
   chmod,
   lstat,
   mkdir,
+  open,
   mkdtemp,
   readdir,
   readFile,
@@ -17,7 +19,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
 import {
@@ -63,10 +65,22 @@ const INJECTED_VERIFIER_MANIFEST_DIGEST = createHash("sha256")
 
 export const OMP_IMPLEMENTATION_ARTIFACT_IDENTITY =
   "workflow-implementation-artifact-v1"
+export const OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY =
+  "wayfinder-local-markdown-v1"
+export const MAX_OMP_WAYFINDER_MAP_BYTES = 128 * 1_024
+export const MAX_OMP_WAYFINDER_ISSUE_BYTES = 64 * 1_024
+export const MAX_OMP_WAYFINDER_ISSUES = 64
+export const MAX_OMP_WAYFINDER_TRACKER_BYTES = 512 * 1_024
+const SAFE_WAYFINDER_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+const SAFE_WAYFINDER_ISSUE_PATH =
+  /^issues\/(?:0[1-9]|[1-9][0-9])-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$/u
+const UNSUPPORTED_WAYFINDER_CONTENT =
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u
 
 
 export type OmpCommand = "print"
 export type OmpEffectKind = "plan" | "implement" | "verify"
+export type OmpSkillProfile = "wayfinder"
 
 export type OmpExecutionRequest = Readonly<{
   command: OmpCommand
@@ -78,6 +92,7 @@ export type OmpExecutionRequest = Readonly<{
   redactions?: readonly string[]
   signal?: AbortSignal
   recovery?: OmpImplementationRecovery
+  skillProfile?: OmpSkillProfile
 }>
 
 export type OmpExecutionStatus =
@@ -150,6 +165,22 @@ export type OmpImplementationArtifact = Readonly<{
   changeHash: string
 }>
 
+export type OmpWayfinderTrackerEntry = Readonly<{
+  path: string
+  bytes: number
+  digest: string
+  content: string
+}>
+
+export type OmpWayfinderTrackerArtifact = Readonly<{
+  identity: typeof OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY
+  repositoryId: string
+  runId: string
+  bytes: number
+  digest: string
+  entries: readonly OmpWayfinderTrackerEntry[]
+}>
+
 export type OmpImplementationRecovery = Readonly<{
   artifact: OmpImplementationArtifact
   changeHash: string
@@ -220,6 +251,7 @@ export type OmpExecutionResult = Readonly<{
   change: OmpScopedChange | null
   verification?: OmpVerificationAttempt | null
   implementationArtifact?: OmpImplementationArtifact | null
+  wayfinderTrackerArtifact?: OmpWayfinderTrackerArtifact
   lifecycle?: OmpExecutionLifecycle
 
 }>
@@ -251,6 +283,7 @@ export type OmpCliAdapterOptions = Readonly<{
 
   now?: () => number
   filesystemSandboxBackend?: OmpFilesystemSandboxBackend
+  wayfinderSkillsRoot?: string
 }>
 
 export class OmpConfigurationError extends Error
@@ -275,6 +308,272 @@ export class OmpWorkspaceBusyError extends OmpRequestError
   constructor()
     super("OMP workspace is still live-owned")
     this.name = "OmpWorkspaceBusyError"
+
+const wayfinderArtifactError = (): never =>
+  throw new OmpRequestError("OMP Wayfinder tracker artifact is invalid")
+
+const requireWayfinderBinding = (repositoryId: unknown, runId: unknown): void =>
+  if (
+    typeof repositoryId !== "string" ||
+    !isWorkflowRelativePathV1(repositoryId) ||
+    repositoryId === "." ||
+    typeof runId !== "string" ||
+    !SAFE_WAYFINDER_RUN_ID.test(runId)
+  )
+    wayfinderArtifactError()
+
+const wayfinderEntryDigestFor = (content: string): string =>
+  createHash("sha256").update(content, "utf8").digest("hex")
+
+const wayfinderArtifactDigestFor = (
+  repositoryId: string,
+  runId: string,
+  entries: readonly OmpWayfinderTrackerEntry[],
+): string => createHash("sha256").update(JSON.stringify({
+  identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
+  repositoryId,
+  runId,
+  entries: entries.map((entry) => ({
+    path: entry.path,
+    bytes: entry.bytes,
+    digest: entry.digest,
+  })),
+})).digest("hex")
+
+const validateWayfinderContent = (
+  path: string,
+  content: unknown,
+): Readonly<{ bytes: number; content: string; digest: string }> =>
+  if typeof content !== "string"
+    wayfinderArtifactError()
+  const validatedContent = content as string
+  if UNSUPPORTED_WAYFINDER_CONTENT.test(validatedContent)
+    wayfinderArtifactError()
+  const bytes = Buffer.byteLength(validatedContent)
+  const maximum = path === "map.md"
+    ? MAX_OMP_WAYFINDER_MAP_BYTES
+    : MAX_OMP_WAYFINDER_ISSUE_BYTES
+  if (bytes <= 0 || bytes > maximum)
+    wayfinderArtifactError()
+  return Object.freeze({
+    bytes
+    content: validatedContent
+    digest: wayfinderEntryDigestFor(validatedContent)
+  })
+
+export const validateOmpWayfinderTrackerArtifact = (
+  artifact: unknown,
+  expected: Readonly<{ repositoryId: string; runId: string }>,
+): OmpWayfinderTrackerArtifact =>
+  requireWayfinderBinding(expected.repositoryId, expected.runId)
+  if (
+    typeof artifact !== "object" ||
+    artifact === null ||
+    Array.isArray(artifact)
+  )
+    wayfinderArtifactError()
+  const record = artifact as Readonly<Record<string, unknown>>
+  if (
+    record["identity"] !== OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY ||
+    record["repositoryId"] !== expected.repositoryId ||
+    record["runId"] !== expected.runId ||
+    !Array.isArray(record["entries"])
+  )
+    wayfinderArtifactError()
+  const rawEntries = record["entries"] as readonly unknown[]
+  if (
+    rawEntries.length <= 0 ||
+    rawEntries.length > MAX_OMP_WAYFINDER_ISSUES + 1
+  )
+    wayfinderArtifactError()
+  const entries: OmpWayfinderTrackerEntry[] = []
+  const paths = new Set<string>()
+  for (const rawEntry of rawEntries)
+    if (
+      typeof rawEntry !== "object" ||
+      rawEntry === null ||
+      Array.isArray(rawEntry)
+    )
+      wayfinderArtifactError()
+    const entry = rawEntry as Readonly<Record<string, unknown>>
+    const path = entry["path"]
+    if typeof path !== "string"
+      wayfinderArtifactError()
+    const validatedPath = path as string
+    if (
+      (validatedPath !== "map.md" &&
+        !SAFE_WAYFINDER_ISSUE_PATH.test(validatedPath)) ||
+      paths.has(validatedPath)
+    )
+      wayfinderArtifactError()
+    paths.add(validatedPath)
+    const validated = validateWayfinderContent(
+      validatedPath,
+      entry["content"],
+    )
+    if (
+      entry["bytes"] !== validated.bytes ||
+      entry["digest"] !== validated.digest
+    )
+      wayfinderArtifactError()
+    entries.push(Object.freeze({
+      path: validatedPath
+      bytes: validated.bytes
+      digest: validated.digest
+      content: validated.content
+    }))
+  const canonicalPaths = [
+    "map.md"
+    ...entries
+      .filter((entry) => entry.path !== "map.md")
+      .map((entry) => entry.path)
+      .sort()
+  ]
+  if (
+    !paths.has("map.md") ||
+    entries.some((entry, index) => entry.path !== canonicalPaths[index])
+  )
+    wayfinderArtifactError()
+  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
+  const digest = wayfinderArtifactDigestFor(
+    expected.repositoryId,
+    expected.runId,
+    entries,
+  )
+  if (
+    bytes > MAX_OMP_WAYFINDER_TRACKER_BYTES ||
+    record["bytes"] !== bytes ||
+    record["digest"] !== digest
+  )
+    wayfinderArtifactError()
+  return Object.freeze({
+    identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY
+    repositoryId: expected.repositoryId
+    runId: expected.runId
+    bytes
+    digest
+    entries: Object.freeze(entries)
+  })
+
+const requireSecureWayfinderDirectory = async (path: string): Promise<void> =>
+  const metadata = await lstat(path)
+  if (
+    !metadata.isDirectory() ||
+    metadata.isSymbolicLink() ||
+    (metadata.mode & 0o022) !== 0 ||
+    (
+      typeof process.getuid === "function" &&
+      metadata.uid !== process.getuid()
+    )
+  )
+    wayfinderArtifactError()
+
+const readSecureWayfinderFile = async (
+  path: string,
+  relativePath: string,
+): Promise<OmpWayfinderTrackerEntry> =>
+  const before = await lstat(path)
+  if (
+    !before.isFile() ||
+    before.isSymbolicLink() ||
+    before.nlink !== 1 ||
+    (before.mode & 0o133) !== 0 ||
+    (
+      typeof process.getuid === "function" &&
+      before.uid !== process.getuid()
+    )
+  )
+    wayfinderArtifactError()
+  const maximum = relativePath === "map.md"
+    ? MAX_OMP_WAYFINDER_MAP_BYTES
+    : MAX_OMP_WAYFINDER_ISSUE_BYTES
+  if (before.size <= 0 || before.size > maximum)
+    wayfinderArtifactError()
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try
+    const opened = await handle.stat()
+    if (
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.nlink !== 1 ||
+      !opened.isFile()
+    )
+      wayfinderArtifactError()
+    const buffer = await handle.readFile()
+    const after = await handle.stat()
+    if (
+      after.dev !== opened.dev ||
+      after.ino !== opened.ino ||
+      after.size !== opened.size ||
+      buffer.byteLength !== opened.size
+    )
+      wayfinderArtifactError()
+    let content: string
+    try
+      content = new TextDecoder("utf-8", { fatal: true }).decode(buffer)
+    catch
+      wayfinderArtifactError()
+    const validated = validateWayfinderContent(relativePath, content!)
+    return Object.freeze({
+      path: relativePath
+      bytes: validated.bytes
+      digest: validated.digest
+      content: validated.content
+    })
+  finally
+    await handle.close()
+
+export const captureOmpWayfinderTrackerArtifact = async (
+  input: Readonly<{
+    trackerDirectory: string
+    repositoryId: string
+    runId: string
+  }>,
+): Promise<OmpWayfinderTrackerArtifact> =>
+  try
+    requireWayfinderBinding(input.repositoryId, input.runId)
+    await requireSecureWayfinderDirectory(input.trackerDirectory)
+    const rootEntries = (await readdir(input.trackerDirectory)).sort()
+    if (
+      rootEntries.some((entry) => entry !== "map.md" && entry !== "issues") ||
+      !rootEntries.includes("map.md")
+    )
+      wayfinderArtifactError()
+    const entries: OmpWayfinderTrackerEntry[] = [
+      await readSecureWayfinderFile(
+        join(input.trackerDirectory, "map.md"),
+        "map.md",
+      )
+    ]
+    if rootEntries.includes("issues")
+      const issuesDirectory = join(input.trackerDirectory, "issues")
+      await requireSecureWayfinderDirectory(issuesDirectory)
+      const issueNames = (await readdir(issuesDirectory)).sort()
+      if (
+        issueNames.length > MAX_OMP_WAYFINDER_ISSUES ||
+        issueNames.some((name) => !SAFE_WAYFINDER_ISSUE_PATH.test(`issues/${name}`))
+      )
+        wayfinderArtifactError()
+      for (const name of issueNames)
+        entries.push(await readSecureWayfinderFile(
+          join(issuesDirectory, name),
+          `issues/${name}`,
+        ))
+    const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
+    return validateOmpWayfinderTrackerArtifact({
+      identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY
+      repositoryId: input.repositoryId
+      runId: input.runId
+      bytes
+      digest: wayfinderArtifactDigestFor(input.repositoryId, input.runId, entries)
+      entries
+    }, {
+      repositoryId: input.repositoryId
+      runId: input.runId
+    })
+  catch error
+    if error instanceof OmpRequestError then throw error
+    wayfinderArtifactError()
 
 const releaseWithoutMaskingProcessTermination = async (
   release: () => Promise<void>,
@@ -529,7 +828,13 @@ export const applyOmpImplementationArtifact = async (
 const DEFAULT_ALLOWED_EXECUTABLES = Object.freeze(["omp"])
 const DEFAULT_ALLOWED_COMMANDS = Object.freeze(["print"] as const)
 const SANDBOX_EXECUTABLE = "/usr/bin/sandbox-exec"
-const GIT_EXECUTABLE = "/usr/bin/git"
+const DEFAULT_GIT_EXECUTABLE =
+  "/Library/Developer/CommandLineTools/usr/bin/git"
+const XCODE_SELECT_LINK = "/var/db/xcode_select_link"
+const DEFAULT_APPLE_DEVELOPER_DIRECTORIES = Object.freeze([
+  "/Library/Developer/CommandLineTools"
+  "/Applications/Xcode.app/Contents/Developer"
+])
 const OMP_WORKTREES_DIRECTORY = join(tmpdir(), "darkfactory-omp-worktrees")
 const MAX_GIT_OUTPUT_BYTES = 64 * 1_024
 const DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS = 10_000
@@ -547,6 +852,27 @@ const OMP_TOOLS_BY_EFFECT = Object.freeze({
   implement: Object.freeze(["read", "grep", "glob", "edit", "write"]),
   verify: Object.freeze(["read", "grep", "glob"]),
 } satisfies Readonly<Record<OmpEffectKind, readonly string[]>>)
+export const OMP_WAYFINDER_SKILLS = Object.freeze([
+  "wayfinder",
+  "setup-matt-pocock-skills",
+  "grilling",
+  "domain-modeling",
+  "prototype",
+  "research",
+  "to-spec",
+  "to-tickets",
+] as const)
+const OMP_WAYFINDER_TOOLS = Object.freeze([
+  "read",
+  "grep",
+  "glob",
+  "edit",
+  "write",
+  "task",
+  "web_search",
+] as const)
+const MAX_OMP_SKILL_BUNDLE_ENTRIES = 512
+const MAX_OMP_SKILL_BUNDLE_BYTES = 2 * 1_024 * 1_024
 const SANDBOX_SYSTEM_READ_DIRECTORIES = Object.freeze([
   "/System",
   "/Library/Apple",
@@ -743,32 +1069,39 @@ const OMP_SECRET_ENVIRONMENT_NAMES = Object.freeze([
   "AWS_SESSION_TOKEN",
 ] as const)
 
-const environmentForOmp = (sessionDirectory: string): NodeJS.ProcessEnv =>
-  const environment: NodeJS.ProcessEnv = {
-    NODE_ENV: "production"
-    NO_COLOR: "1"
-    HOME: sessionDirectory
-    OMP_HOME: sessionDirectory
-    PI_CODING_AGENT_DIR: sessionDirectory
-    XDG_CONFIG_HOME: sessionDirectory
-    XDG_CACHE_HOME: sessionDirectory
-    XDG_DATA_HOME: sessionDirectory
-    TMPDIR: sessionDirectory
-  }
+const captureInheritedOmpEnvironment = (): Readonly<Partial<NodeJS.ProcessEnv>> =>
+  const environment: Partial<NodeJS.ProcessEnv> = {}
   for (const name of [
     ...OMP_NONSECRET_ENVIRONMENT_NAMES,
     ...OMP_SECRET_ENVIRONMENT_NAMES,
   ])
     const value = process.env[name]
     if (value !== undefined) environment[name] = value
-  return environment
+  return Object.freeze(environment)
+
+const environmentForOmp = (
+  sessionDirectory: string,
+  inheritedEnvironment: Readonly<Partial<NodeJS.ProcessEnv>>,
+): NodeJS.ProcessEnv => ({
+  NODE_ENV: "production"
+  NO_COLOR: "1"
+  HOME: sessionDirectory
+  OMP_HOME: sessionDirectory
+  PI_CODING_AGENT_DIR: sessionDirectory
+  XDG_CONFIG_HOME: sessionDirectory
+  XDG_CACHE_HOME: sessionDirectory
+  XDG_DATA_HOME: sessionDirectory
+  TMPDIR: sessionDirectory
+  ...inheritedEnvironment
+})
 
 const effectiveOmpRedactions = (
   explicitRedactions: readonly string[],
+  environment: Readonly<Partial<NodeJS.ProcessEnv>> = captureInheritedOmpEnvironment(),
 ): readonly string[] => Object.freeze([...new Set([
   ...explicitRedactions,
   ...OMP_SECRET_ENVIRONMENT_NAMES
-    .map((name) => process.env[name])
+    .map((name) => environment[name])
     .filter((value): value is string => value !== undefined && value.length > 0),
 ])])
 
@@ -788,6 +1121,7 @@ const validateRedactions = (redactions: readonly string[]): void =>
   for (const redaction of redactions)
     if (redaction.length === 0 || Buffer.byteLength(redaction) > 4_096)
       throw new OmpRequestError("Redaction values must be 1-4096 UTF-8 bytes")
+    else continue
 
 export const redactOmpOutput = (
   value: string,
@@ -808,6 +1142,49 @@ export const redactOmpOutput = (
 
   return Object.freeze({ value: sanitized, redacted: sanitized !== value })
 
+export const redactEffectiveOmpOutput = (
+  value: string,
+  explicitRedactions: readonly string[] = [],
+): Readonly<{ value: string; redacted: boolean }> =>
+  redactOmpOutput(value, effectiveOmpRedactions(explicitRedactions))
+
+export const sanitizeOmpWayfinderTrackerArtifact = (
+  artifact: unknown,
+  expected: Readonly<{ repositoryId: string; runId: string }>,
+  explicitRedactions: readonly string[] = [],
+): OmpWayfinderTrackerArtifact =>
+  const validated = validateOmpWayfinderTrackerArtifact(artifact, expected)
+  const redactions = effectiveOmpRedactions(explicitRedactions)
+  if (
+    validated.entries.some((entry) =>
+      redactions.some((redaction) => entry.path.includes(redaction))
+    )
+  )
+    wayfinderArtifactError()
+  const entries = validated.entries.map((entry) =>
+    const redacted = redactOmpOutput(entry.content, redactions)
+    const content = validateWayfinderContent(entry.path, redacted.value)
+    return Object.freeze({
+      path: entry.path
+      bytes: content.bytes
+      digest: content.digest
+      content: content.content
+    })
+  )
+  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
+  return validateOmpWayfinderTrackerArtifact({
+    identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY
+    repositoryId: validated.repositoryId
+    runId: validated.runId
+    bytes
+    digest: wayfinderArtifactDigestFor(
+      validated.repositoryId,
+      validated.runId,
+      entries,
+    )
+    entries
+  }, expected)
+
 export const truncateOmpUtf8 = (
   value: string,
   maximumBytes: number,
@@ -815,14 +1192,15 @@ export const truncateOmpUtf8 = (
   const buffer = Buffer.from(value)
   if (buffer.byteLength <= maximumBytes)
     return Object.freeze({ value, bytes: buffer.byteLength, truncated: false })
+  else
+    const truncated = buffer.subarray(0, maximumBytes).toString("utf8")
+      .replace(/\uFFFD$/u, "")
+    return Object.freeze({
+      value: truncated,
+      bytes: Buffer.byteLength(truncated),
+      truncated: true,
+    })
 
-  const truncated = buffer.subarray(0, maximumBytes).toString("utf8")
-    .replace(/\uFFFD$/u, "")
-  return Object.freeze({
-    value: truncated,
-    bytes: Buffer.byteLength(truncated),
-    truncated: true,
-  })
 
 const sanitizeOutput = (
   stdout: string | Buffer | null | undefined,
@@ -895,6 +1273,17 @@ const resolveExecutionCwd = async (
 const isSameOrContainedPath = (root: string, candidate: string): boolean =>
   candidate === root || isContainedPath(root, candidate)
 
+const isSensitiveScopePath = (cwd: string, candidate: string): boolean =>
+  const firstSegment = relative(cwd, candidate).split(sep, 1)[0]!.toLowerCase()
+  return (
+    SENSITIVE_SCOPE_SEGMENTS.has(firstSegment) ||
+    firstSegment === ".env" ||
+    firstSegment.startsWith(".env.") ||
+    SENSITIVE_REPOSITORY_PATHS.some((path) =>
+      path.toLowerCase() === firstSegment
+    )
+  )
+
 const resolveScopePath = async (
   cwd: string,
   scopePath: string,
@@ -916,7 +1305,7 @@ const resolveScopePath = async (
     try
       const canonicalParent = await realpath(existing)
       const canonical = resolve(canonicalParent, relative(existing, candidate))
-      if canonical === cwd
+      if canonical === cwd || isSensitiveScopePath(cwd, canonical)
         throw new OmpRequestError("OMP scope path is sensitive")
       if !isContainedPath(cwd, canonical)
         throw new OmpRequestError("OMP scope path escapes the repository")
@@ -943,6 +1332,73 @@ const resolveScopePaths = async (
     if !collapsed.some((parent) => isSameOrContainedPath(parent, scopePath))
       collapsed.push(scopePath)
   return Object.freeze(collapsed)
+
+type OmpSkillBundleBudget = {
+  entries: number
+  bytes: number
+}
+
+const copyOmpSkillEntry = async (
+  source: string,
+  destination: string,
+  budget: OmpSkillBundleBudget,
+  depth: number,
+): Promise<void> =>
+  if (depth > 16)
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+  const metadata = await lstat(source)
+  if (metadata.isSymbolicLink() || (metadata.mode & 0o022) !== 0)
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+  budget.entries += 1
+  if (budget.entries > MAX_OMP_SKILL_BUNDLE_ENTRIES)
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+  if (metadata.isDirectory())
+    await mkdir(destination, { mode: 0o700 })
+    const names = (await readdir(source)).sort()
+    for name of names
+      if (
+        name.length === 0 ||
+        name === "." ||
+        name === ".." ||
+        /[\u0000-\u001F\u007F/\\]/u.test(name)
+      )
+        throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+      await copyOmpSkillEntry(
+        join(source, name),
+        join(destination, name),
+        budget,
+        depth + 1,
+      )
+    return
+  if (!metadata.isFile())
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+  budget.bytes += metadata.size
+  if (budget.bytes > MAX_OMP_SKILL_BUNDLE_BYTES)
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+  await copyFile(source, destination, constants.COPYFILE_EXCL)
+  await chmod(destination, 0o600)
+
+const stageWayfinderSkills = async (
+  skillsRoot: string,
+  sessionDirectory: string,
+): Promise<void> =>
+  try
+    const destinationRoot = join(sessionDirectory, ".agents", "skills")
+    await mkdir(destinationRoot, { recursive: true, mode: 0o700 })
+    const budget: OmpSkillBundleBudget = { entries: 0, bytes: 0 }
+    for skillName of OMP_WAYFINDER_SKILLS
+      const source = join(skillsRoot, skillName)
+      const skillManifest = await lstat(join(source, "SKILL.md"))
+      if (!skillManifest.isFile() || skillManifest.isSymbolicLink())
+        throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+      await copyOmpSkillEntry(
+        source,
+        join(destinationRoot, skillName),
+        budget,
+        0,
+      )
+  catch
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
 
 const resolveOmpExecutable = async (executable: string): Promise<string> =>
   const candidates = isAbsolute(executable)
@@ -992,16 +1448,44 @@ const sandboxPathFilters = (
       : [`    (literal ${literal})`]
   ).join("\n")
 
+const sandboxAncestorPathFilters = (paths: readonly string[]): string =>
+  const ancestors = new Set<string>()
+  for path of paths
+    let ancestor = dirname(path)
+    while true
+      ancestors.add(ancestor)
+      const parent = dirname(ancestor)
+      if parent === ancestor then break
+      ancestor = parent
+  return sandboxPathFilters([...ancestors].sort(), false)
+
 const sandboxProfileFor = (
   cwd: string,
   sessionDirectory: string,
   executable: string,
   effectKind: OmpEffectKind,
   scopePaths: readonly string[],
+  wayfinderTrackerDirectory?: string,
 ): string =>
   const repositoryWrites = effectKind === "implement"
     ? sandboxPathFilters(scopePaths, true)
     : ""
+  const wayfinderTrackerPaths = wayfinderTrackerDirectory === undefined
+    ? []
+    : [wayfinderTrackerDirectory]
+  const wayfinderTrackerAccess = sandboxPathFilters(
+    wayfinderTrackerPaths,
+    true,
+  )
+  const sandboxPaths = [
+    ...SANDBOX_SYSTEM_READ_DIRECTORIES
+    ...SANDBOX_SYSTEM_READ_FILES
+    executable
+    cwd
+    ...scopePaths
+    sessionDirectory
+    ...wayfinderTrackerPaths
+  ]
   return [
     "(version 1)"
     "(deny default)"
@@ -1016,18 +1500,24 @@ const sandboxProfileFor = (
     "(allow network-outbound)"
     "(allow sysctl-read)"
     "(allow mach-lookup)"
+    "(allow file-read-metadata"
+    sandboxAncestorPathFilters(sandboxPaths)
+    ")"
     "(allow file-read*"
+    `    (literal ${sandboxLiteral("/")})`
     sandboxPathFilters(SANDBOX_SYSTEM_READ_DIRECTORIES, true)
     sandboxPathFilters([executable], false)
     sandboxPathFilters(SANDBOX_SYSTEM_READ_FILES, false)
     sandboxPathFilters([cwd], false)
     sandboxPathFilters(scopePaths, true)
+    wayfinderTrackerAccess
     sandboxPathFilters([sessionDirectory], true)
     ")"
     "(allow file-write*"
+    `    (literal ${sandboxLiteral("/dev/null")})`
     sandboxPathFilters([sessionDirectory], true)
-
     repositoryWrites
+    wayfinderTrackerAccess
     ")"
   ].filter((line) => line.length > 0).join("\n")
 
@@ -1168,88 +1658,175 @@ type GitOperationBoundary = Readonly<{
 type GitExecutionOptions = Readonly<{
   signal?: AbortSignal
   deadlineAtMs?: number
+  allowFork?: boolean
 }>
 
-const gitSandboxProfileFor = (boundary: GitOperationBoundary): string => [
-  "(version 1)"
-  "(deny default)"
-  "(allow process-exec"
-  `    (literal ${sandboxLiteral(GIT_EXECUTABLE)}))`
-  "(allow sysctl-read)"
-  "(allow mach-lookup)"
-  "(allow file-read*"
-  sandboxPathFilters(SANDBOX_SYSTEM_READ_DIRECTORIES, true)
-  sandboxPathFilters([GIT_EXECUTABLE], false)
-  sandboxPathFilters(SANDBOX_SYSTEM_READ_FILES, false)
-  sandboxPathFilters(boundary.readablePaths, true)
-  ")"
-  ...(boundary.writablePaths.length === 0
-    ? []
-    : [
-        "(allow file-write*"
-        sandboxPathFilters(boundary.writablePaths, true)
-        ")"
-      ])
-].filter((line) => line.length > 0).join("\n")
+const isApprovedAppleDeveloperDirectory = (path: string): boolean =>
+  path === DEFAULT_APPLE_DEVELOPER_DIRECTORIES[0] ||
+    /^\/Applications\/[^/]+\.app\/Contents\/Developer$/u.test(path)
 
-const runGit = (
+const isStandardApplicationsDirectory = (
+  path: string,
+  uid: number,
+  gid: number,
+  mode: number,
+): boolean =>
+  path === "/Applications" &&
+    uid === 0 &&
+    gid === 80 &&
+    (mode & 0o777) === 0o775
+
+const isSecureRootOwnedGitPath = async (gitExecutable: string): Promise<boolean> =>
+  let candidate = gitExecutable
+  let executable = true
+  while true
+    const metadata = await stat(candidate)
+    if (
+      metadata.uid !== 0 ||
+      (
+        (metadata.mode & 0o022) !== 0 &&
+        !isStandardApplicationsDirectory(
+          candidate,
+          metadata.uid,
+          metadata.gid,
+          metadata.mode,
+        )
+      ) ||
+      (executable
+        ? !metadata.isFile() || (metadata.mode & 0o111) === 0
+        : !metadata.isDirectory())
+    )
+      return false
+    executable = false
+    const parent = dirname(candidate)
+    if parent === candidate then return true
+    candidate = parent
+
+const resolveGitExecutable = async (): Promise<string> =>
+  if process.platform !== "darwin" then return DEFAULT_GIT_EXECUTABLE
+  const candidates = [...DEFAULT_APPLE_DEVELOPER_DIRECTORIES]
+  try
+    candidates.unshift(await realpath(XCODE_SELECT_LINK))
+  catch
+    void 0
+  for candidate of [...new Set(candidates)]
+    try
+      const developerDirectory = await realpath(candidate)
+      if !isApprovedAppleDeveloperDirectory(developerDirectory) then continue
+      const gitExecutable = await realpath(
+        join(developerDirectory, "usr", "bin", "git"),
+      )
+      if !isContainedPath(developerDirectory, gitExecutable) then continue
+      await access(gitExecutable, constants.X_OK)
+      if await isSecureRootOwnedGitPath(gitExecutable)
+        return gitExecutable
+    catch
+      continue
+  throw new OmpConfigurationError("OMP git executable is unavailable")
+
+const gitSandboxProfileFor = (
+  boundary: GitOperationBoundary,
+  gitExecutable: string,
+  allowFork: boolean,
+): string =>
+  const developerDirectory = dirname(dirname(dirname(gitExecutable)))
+  const sandboxPaths = [
+    ...SANDBOX_SYSTEM_READ_DIRECTORIES
+    ...SANDBOX_SYSTEM_READ_FILES
+    gitExecutable
+    developerDirectory
+    ...boundary.readablePaths
+    ...boundary.writablePaths
+  ]
+  return [
+    "(version 1)"
+    "(deny default)"
+    "(allow process-exec"
+    `    (literal ${sandboxLiteral(gitExecutable)}))`
+    ...(allowFork ? ["(allow process-fork)"] : [])
+    "(allow sysctl-read)"
+    "(allow mach-lookup)"
+    "(allow file-read-metadata"
+    sandboxAncestorPathFilters(sandboxPaths)
+    ")"
+    "(allow file-read*"
+    `    (literal ${sandboxLiteral("/")})`
+    sandboxPathFilters(SANDBOX_SYSTEM_READ_DIRECTORIES, true)
+    sandboxPathFilters([gitExecutable], false)
+    sandboxPathFilters([developerDirectory], true)
+    sandboxPathFilters(SANDBOX_SYSTEM_READ_FILES, false)
+    sandboxPathFilters(boundary.readablePaths, true)
+    ")"
+    "(allow file-write*"
+    `    (literal ${sandboxLiteral("/dev/null")})`
+    sandboxPathFilters(boundary.writablePaths, true)
+    ")"
+  ].filter((line) => line.length > 0).join("\n")
+
+const runGit = async (
   arguments_: readonly string[],
   cwd: string,
   boundary: GitOperationBoundary,
   repositoryConfigOverrides: readonly string[] = [],
   execution: GitExecutionOptions = {},
-): Promise<string> => new Promise((resolveGit, rejectGit) =>
-  const remaining = execution.deadlineAtMs === undefined
-    ? 30_000
-    : execution.deadlineAtMs - Date.now()
-  if execution.signal?.aborted || remaining <= 0
-    rejectGit(new OmpRequestError("OMP git workspace operation aborted"))
-    return
-  const operationTimeoutMs = Math.min(30_000, remaining)
-  const profile = gitSandboxProfileFor(boundary)
-  const gitOptions = {
-    cwd,
-    detached: true,
-    encoding: "utf8",
-    env: {
-      NODE_ENV: "production",
-      GIT_ATTR_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_OPTIONAL_LOCKS: "0",
-      HOME: OMP_WORKTREES_DIRECTORY,
-      LC_ALL: "C",
-      PATH: "/usr/bin:/bin",
-    },
-    killSignal: "SIGTERM",
-    maxBuffer: MAX_GIT_OUTPUT_BYTES,
-    shell: false,
-    ...(execution.signal === undefined ? {} : { signal: execution.signal }),
-    timeout: operationTimeoutMs,
-    windowsHide: true,
-  } as const
-  const child = execFile(SANDBOX_EXECUTABLE, [
-    "-p"
-    profile
-    GIT_EXECUTABLE
-    ...GIT_SAFE_CONFIG_ARGUMENTS
-    ...repositoryConfigOverrides
-    ...arguments_
-  ], gitOptions, (error, stdout) =>
-    if error !== null
-      if child === undefined
-        rejectGit(new OmpRequestError("OMP git workspace operation failed"))
-        return
-      void terminateOwnedProcessTree(
-        child,
-        Math.max(1, Math.min(1_000, operationTimeoutMs)),
-      ).then(
-        () => rejectGit(new OmpRequestError("OMP git workspace operation failed")),
-        rejectGit,
-      )
+): Promise<string> =>
+  const gitExecutable = await resolveGitExecutable()
+  return new Promise((resolveGit, rejectGit) =>
+    const remaining = execution.deadlineAtMs === undefined
+      ? 30_000
+      : execution.deadlineAtMs - Date.now()
+    if execution.signal?.aborted || remaining <= 0
+      rejectGit(new OmpRequestError("OMP git workspace operation aborted"))
       return
-    resolveGit(String(stdout).trim())
-  )
+    const operationTimeoutMs = Math.min(30_000, remaining)
+    const profile = gitSandboxProfileFor(
+      boundary,
+      gitExecutable,
+      execution.allowFork ?? false,
+    )
+    const gitOptions = {
+      cwd,
+      detached: true,
+      encoding: "utf8",
+      env: {
+        NODE_ENV: "production",
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_OPTIONAL_LOCKS: "0",
+        HOME: OMP_WORKTREES_DIRECTORY,
+        LC_ALL: "C",
+        PATH: "/usr/bin:/bin",
+      },
+      killSignal: "SIGTERM",
+      maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      shell: false,
+      ...(execution.signal === undefined ? {} : { signal: execution.signal }),
+      timeout: operationTimeoutMs,
+      windowsHide: true,
+    } as const
+    const child = execFile(SANDBOX_EXECUTABLE, [
+      "-p"
+      profile
+      gitExecutable
+      ...GIT_SAFE_CONFIG_ARGUMENTS
+      ...repositoryConfigOverrides
+      ...arguments_
+    ], gitOptions, (error, stdout) =>
+      if error !== null
+        if child === undefined
+          rejectGit(new OmpRequestError("OMP git workspace operation failed"))
+          return
+        void terminateOwnedProcessTree(
+          child,
+          Math.max(1, Math.min(1_000, operationTimeoutMs)),
+        ).then(
+          () => rejectGit(new OmpRequestError("OMP git workspace operation failed")),
+          rejectGit,
+        )
+        return
+      resolveGit(String(stdout).trim())
+    )
 )
 
 const repositoryProgramConfigOverrides = async (
@@ -1364,7 +1941,6 @@ const acquireWorkspaceLock = async (
     if (
       recoveryOwnerNonce === undefined ||
       existing.nonce !== recoveryOwnerNonce ||
-      !OWNER_NONCE_PATTERN.test(existing.nonce) ||
       !Number.isSafeInteger(existing.pid) ||
       existing.pid <= 0 ||
       !Number.isSafeInteger(existing.createdAt) ||
@@ -1604,7 +2180,6 @@ const prepareWorktree = async (
     /[\u0000-\u001F\u007F]/u.test(workspaceId)
   )
     throw new OmpRequestError("OMP workspace id is invalid")
-  await access(GIT_EXECUTABLE, constants.X_OK)
   await mkdir(OMP_WORKTREES_DIRECTORY, { mode: 0o700, recursive: true })
   const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY)
   const rootStat = await stat(worktreesRoot)
@@ -1691,6 +2266,7 @@ const prepareWorktree = async (
           writablePaths: Object.freeze([sourceGitDirectory, worktreesRoot]),
         }),
         repositoryConfigOverrides,
+        Object.freeze({ allowFork: true }),
       )
     const canonicalWorkspace = await realpath(workspaceCwd)
     if !isContainedPath(worktreesRoot, canonicalWorkspace)
@@ -1838,6 +2414,7 @@ const prepareVerifierWorkspace = async (
         ]),
       }),
       input.repositoryConfigOverrides,
+      Object.freeze({ allowFork: true }),
     )
     await persistOwnershipMarker(
       input.sourceCwd,
@@ -2074,7 +2651,9 @@ const signalOwnedProcessGroup = (
   try
     process.kill(-pid, signal)
   catch error
-    if (error as NodeJS.ErrnoException).code !== "ESRCH" then throw error
+    if (error as NodeJS.ErrnoException).code !== "ESRCH"
+      throw error
+    else return
 
 const terminateOwnedProcessTree = async (
   child: ChildProcess,
@@ -2217,7 +2796,9 @@ const resolveDockerExecutable = async (): Promise<string> =>
     try
       await access(candidate, constants.X_OK)
       const canonical = await realpath(candidate)
-      if (await stat(canonical)).isFile() then return canonical
+      if (await stat(canonical)).isFile()
+        return canonical
+      else continue
     catch
       continue
   throw new OmpConfigurationError("OMP Docker verifier backend is unavailable")
@@ -2435,6 +3016,10 @@ export const createOmpCliAdapter = (
     options.repositoriesRoot.includes("\0")
   )
     throw new OmpConfigurationError("OMP repositories root must be absolute")
+  const wayfinderSkillsRoot = options.wayfinderSkillsRoot ??
+    join(homedir(), ".agents", "skills")
+  if (!isAbsolute(wayfinderSkillsRoot) || wayfinderSkillsRoot.includes("\0"))
+    throw new OmpConfigurationError("OMP Wayfinder skills root must be absolute")
   const executable = options.executable ?? "omp"
   const allowedExecutables = options.allowedExecutables ?? DEFAULT_ALLOWED_EXECUTABLES
   const allowedCommands = options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS
@@ -2490,13 +3075,29 @@ export const createOmpCliAdapter = (
       throw new OmpRequestError("OMP command is not allowlisted")
     if (!["plan", "implement", "verify"].includes(request.effectKind))
       throw new OmpRequestError("OMP effect kind is invalid")
+    if (
+      request.skillProfile !== undefined &&
+      request.skillProfile !== "wayfinder"
+    )
+      throw new OmpRequestError("OMP skill profile is invalid")
+    if (request.skillProfile === "wayfinder" && request.effectKind !== "plan")
+      throw new OmpRequestError("OMP Wayfinder profile requires a plan effect")
+    if (
+      request.skillProfile === "wayfinder" &&
+      !SAFE_WAYFINDER_RUN_ID.test(request.workspaceId)
+    )
+      throw new OmpRequestError("OMP Wayfinder run identity is invalid")
     const instructionBytes = Buffer.byteLength(request.instruction)
     if (instructionBytes === 0 || instructionBytes > MAX_OMP_INSTRUCTION_BYTES)
       throw new OmpRequestError("OMP instruction must be 1-32768 UTF-8 bytes")
 
     const explicitRedactions = request.redactions ?? []
     validateRedactions(explicitRedactions)
-    const redactions = effectiveOmpRedactions(explicitRedactions)
+    const inheritedEnvironment = captureInheritedOmpEnvironment()
+    const redactions = effectiveOmpRedactions(
+      explicitRedactions,
+      inheritedEnvironment,
+    )
     if (request.signal?.aborted) return abortedResult(request.command)
 
     const sourceCwd = await resolveExecutionCwd(options.repositoriesRoot, request.cwd)
@@ -2574,7 +3175,9 @@ export const createOmpCliAdapter = (
       beforeManifest = request.effectKind === "implement"
         ? await implementationBaselineFor(worktree, scopePaths)
         : null
-      sessionDirectory = await mkdtemp(join(tmpdir(), "darkfactory-omp-"))
+      sessionDirectory = await realpath(
+        await mkdtemp(join(tmpdir(), "darkfactory-omp-")),
+      )
     catch error
       try
         await worktree.dispose()
@@ -2583,12 +3186,34 @@ export const createOmpCliAdapter = (
       throw error
 
     try
+      let wayfinderTrackerDirectory: string | undefined
+      if request.skillProfile === "wayfinder"
+        await stageWayfinderSkills(wayfinderSkillsRoot, sessionDirectory)
+        const scratchDirectory = join(cwd, ".scratch")
+        const trackerDirectory = join(scratchDirectory, request.workspaceId)
+        try
+          await mkdir(scratchDirectory, { recursive: true, mode: 0o700 })
+          await requireSecureWayfinderDirectory(scratchDirectory)
+          await mkdir(trackerDirectory, { mode: 0o700 })
+          await requireSecureWayfinderDirectory(trackerDirectory)
+          wayfinderTrackerDirectory = await realpath(trackerDirectory)
+          if (!isContainedPath(cwd, wayfinderTrackerDirectory))
+            throw new Error("tracker directory escaped")
+        catch
+          throw new OmpRequestError("OMP Wayfinder tracker path is invalid")
+      const tools = request.skillProfile === "wayfinder"
+        ? OMP_WAYFINDER_TOOLS
+        : OMP_TOOLS_BY_EFFECT[request.effectKind]
+      const skillArgument = request.skillProfile === "wayfinder"
+        ? `--skills=${OMP_WAYFINDER_SKILLS.join(",")}`
+        : "--no-skills"
       const ompArguments = [
         "-p",
         "--mode=text",
-        `--tools=${OMP_TOOLS_BY_EFFECT[request.effectKind].join(",")}`,
+        ...(request.skillProfile === "wayfinder" ? ["--thinking=off"] : []),
+        `--tools=${tools.join(",")}`,
         "--no-extensions",
-        "--no-skills",
+        skillArgument,
         "--no-session",
         `--cwd=${cwd}`,
         `--session-dir=${sessionDirectory}`,
@@ -2600,12 +3225,13 @@ export const createOmpCliAdapter = (
         ompExecutable,
         request.effectKind,
         scopePaths,
+        wayfinderTrackerDirectory,
       )
       const execution = await runOwnedProcess({
         executable: SANDBOX_EXECUTABLE
         arguments: ["-p", profile, ompExecutable, ...ompArguments]
         cwd
-        environment: environmentForOmp(sessionDirectory)
+        environment: environmentForOmp(sessionDirectory, inheritedEnvironment)
         ...(request.signal === undefined ? {} : { signal: request.signal })
         timeoutMs
         shutdownTimeoutMs
@@ -2646,6 +3272,7 @@ export const createOmpCliAdapter = (
           change?: OmpScopedChange | null
           verification?: OmpVerificationAttempt | null
           implementationArtifact?: OmpImplementationArtifact | null
+          wayfinderTrackerArtifact?: OmpWayfinderTrackerArtifact
           retainAfterPersistence?: boolean
         }> = {},
       ): OmpExecutionResult => Object.freeze({
@@ -2658,6 +3285,9 @@ export const createOmpCliAdapter = (
         change: input.change ?? null
         verification: input.verification ?? null
         implementationArtifact: input.implementationArtifact ?? null
+        ...(input.wayfinderTrackerArtifact === undefined
+          ? {}
+          : { wayfinderTrackerArtifact: input.wayfinderTrackerArtifact })
         lifecycle: lifecycleFor(
           input.retainAfterPersistence ?? false,
           status,
@@ -2666,6 +3296,25 @@ export const createOmpCliAdapter = (
 
       if execution.status !== "succeeded"
         return resultFor(execution.status)
+
+      if request.skillProfile === "wayfinder"
+        try
+          return resultFor("succeeded", {
+            wayfinderTrackerArtifact: sanitizeOmpWayfinderTrackerArtifact(
+              await captureOmpWayfinderTrackerArtifact({
+                trackerDirectory: wayfinderTrackerDirectory!
+                repositoryId: request.cwd
+                runId: request.workspaceId
+              }),
+              {
+                repositoryId: request.cwd
+                runId: request.workspaceId
+              },
+              redactions,
+            )
+          })
+        catch
+          return resultFor("failed")
 
       if request.effectKind === "verify"
         if (

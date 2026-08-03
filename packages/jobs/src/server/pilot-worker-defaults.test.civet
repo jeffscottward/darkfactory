@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createNodeDatabase: vi.fn(),
   createWorkflowRepository: vi.fn(),
   createOmpCliAdapter: vi.fn(),
+  createLocalWayfinderExecutionAdapter: vi.fn(),
   createWorkflowRuntime: vi.fn(),
 }))
 
@@ -19,6 +20,10 @@ vi.mock("./omp.civet", () => ({
   OmpProcessTerminationError: class OmpProcessTerminationError extends Error,
   OMP_VERIFIER_COMMAND_IDENTITY: "darkfactory-verify-core-v2",
   createOmpCliAdapter: mocks.createOmpCliAdapter,
+}))
+
+vi.mock("./wayfinder.civet", () => ({
+  createLocalWayfinderExecutionAdapter: mocks.createLocalWayfinderExecutionAdapter,
 }))
 
 vi.mock("./workflow-runtime.civet", () => ({
@@ -36,6 +41,7 @@ describe("pilot worker default dependencies", () =>
     const database = { db: {} as never, close: mocks.close }
     const repository = {} as never
     const adapter = {} as never
+    const wayfinderAdapter = {} as never
     const runtime = {
       application: {} as never
       runOnce: vi.fn(async () => [])
@@ -44,6 +50,7 @@ describe("pilot worker default dependencies", () =>
     mocks.createNodeDatabase.mockReturnValue(database)
     mocks.createWorkflowRepository.mockReturnValue(repository)
     mocks.createOmpCliAdapter.mockReturnValue(adapter)
+    mocks.createLocalWayfinderExecutionAdapter.mockReturnValue(wayfinderAdapter)
     mocks.createWorkflowRuntime.mockReturnValue(runtime)
 
     const worker = await createPilotWorker({
@@ -74,11 +81,17 @@ describe("pilot worker default dependencies", () =>
       verifierId: "darkfactory-verify-core-v2"
       verifierImageDigest: VERIFIER_IMAGE_DIGEST
     })
-    expect(mocks.createWorkflowRuntime).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.createLocalWayfinderExecutionAdapter).toHaveBeenCalledWith({
+      omp: adapter
+      repositoriesRoot: "/srv/repositories"
+    })
+    expect(mocks.createWorkflowRuntime).toHaveBeenCalledWith({
       repository
       adapter
+      wayfinderAdapter
       leaseOwner: "pilot-defaults"
-    }))
+      authorizeRepository: expect.any(Function)
+    })
     expect(mocks.close).toHaveBeenCalledOnce()
   )
 

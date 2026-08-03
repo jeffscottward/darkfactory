@@ -4,7 +4,7 @@ import {
   buildOpenApiDocument,
   serializeOpenApiDocument,
 } from "./openapi.civet"
-import { FeatureItemMetadataSchema } from "./contract.civet"
+import { FeatureItemMetadataSchema, appContract } from "./contract.civet"
 
 const expectedOperations = [
   ["get", "/feature-items", "featureItems.list"],
@@ -21,6 +21,13 @@ const expectedOperations = [
 const expectedErrorStatuses = ["400", "401", "403", "404", "409", "422", "503"]
 
 describe "DF-051/052 oRPC application contract", ->
+  it "does not expose development operator procedures or routes", async ->
+    expect(appContract).not.toHaveProperty("operator")
+    const document = await buildOpenApiDocument()
+    expect(
+      Object.keys(document.paths ?? {}).filter((path) => path.startsWith("/operator")),
+    ).toEqual([])
+
   it "publishes every feature operation and the real admin operation", async ->
     const document = await buildOpenApiDocument()
 

@@ -31,6 +31,8 @@ cp .env.example .env
 
 Keep `.env` ignored. Resolve real values with Varlock and, where available, secret-manager references rather than copying secrets between files. `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `CONTACT_THROTTLE_SECRET` are required; the two secrets must be distinct development-only values of at least 32 characters. Set `DATABASE_PROVIDER=postgres` for the local Compose service. Provider groups remain unavailable until all values needed by that provider are configured. Never expose server variables to client code without adding them to the explicit client allowlist and reviewing the bundle boundary.
 
+`WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use. Before you start the operator app, set it to an absolute directory that contains the repositories the operator may access. The operator API fails closed before it opens a database when this value is missing, empty, or not absolute.
+
 For a local command that needs environment values, use:
 
 ```bash
@@ -95,36 +97,63 @@ The development identities are:
 
 These credentials are public test fixtures. Never enable them in a shared, staging, customer, or production database.
 
-## Trusted HTTPS lifecycle
+## Trusted HTTPS lifecycles
 
-The canonical local address is <https://darkfactory.localhost>. Do not document or bookmark the hidden raw port as the application URL.
+The canonical product address is <https://darkfactory.localhost>. The separate local operator address is <https://operator.darkfactory.localhost>. Do not document or bookmark hidden raw ports as application URLs.
 
-First establish portless trust:
+First establish Portless trust:
 
 ```bash
 bun run dev:trust
 ```
 
-Then materialize the validated values into the ignored Worker binding file and start the long-lived process:
+Start the deployable product:
 
 ```bash
 bun run dev:bindings
 bun run dev:https
+bun run dev:status
 ```
 
-The lifecycle owns exactly one PM2 process, `darkfactory-web-dev`, running `portless darkfactory bun run dev`. Starting again inspects and reuses the expected process instead of creating a duplicate. A process with the same PM2 name but a different executable, working directory, arguments, or environment version is rejected rather than adopted.
+The product lifecycle owns one PM2 process, `darkfactory-web-dev`, and the `darkfactory` Portless route. The Worker runtime reads server bindings from `apps/web/.dev.vars`.
 
-Vinext's Cloudflare Worker runtime reads server bindings from `apps/web/.dev.vars`; the parent PM2 environment is deliberately restricted to non-secret process controls. `bun run dev:bindings` writes a mode-`0600` temporary file and atomically replaces the destination without printing its contents. Regenerate it after `.env` changes and never commit it.
+After you set `WORKFLOW_REPOSITORIES_ROOT`, start the authenticated local operator meta-layer:
 
 ```bash
-bun run dev:status
-bun run dev:logs
-bun run dev:stop
+bun run operator:dev
+bun run operator:status
 ```
 
-- `dev:status` checks PM2 identity, the named portless route, and an HTTPS probe.
-- `dev:logs` reads the last 200 lines without starting a streaming process.
-- `dev:stop` stops the owned PM2 process and saves PM2 state.
+The operator lifecycle owns a separate PM2 process, `darkfactory-operator-dev`, and the `operator.darkfactory` Portless route. `operator:dev` runs `operator:bindings` before startup. The operator runtime reads `apps/operator/.dev.vars`.
+
+Both lifecycle commands inspect and reuse only the expected process. They reject a process with the same PM2 name but a different executable, working directory, arguments, or environment version. Both binding commands use validated Varlock output, create a mode-`0600` same-directory temporary file, and atomically replace only their ignored destination without printing its contents.
+
+Use the matching status, bounded log, and stop commands:
+
+```bash
+bun run dev:logs
+bun run dev:stop
+bun run operator:logs
+bun run operator:stop
+```
+
+Run `dev:bindings` or `operator:bindings` again after relevant `.env` changes. Never commit either `.dev.vars` file.
+
+### Wayfinder queue and worker
+
+The operator app is a development meta-layer, not a deployable business capability. Its Wayfinder status service checks the bounded local manifest at `~/.agents/skills/wayfinder/SKILL.md`. It returns only `installed` or `unavailable` and identifies the tracker as `local-markdown`.
+
+Wayfinder start validates the authenticated owner, repository grant, scope paths, and request. It creates a durable workflow run and returns `queued`. HTTP and browser code do not execute OMP.
+
+Start the worker separately to process queued effects:
+
+```bash
+varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot
+```
+
+The worker command needs Varlock to provide `DATABASE_URL`, absolute `WORKFLOW_REPOSITORIES_ROOT`, `WORKFLOW_REPOSITORY_GRANTS`, `WORKFLOW_VERIFIER_ID=darkfactory-verify-core-v2`, and the pinned `WORKFLOW_VERIFIER_IMAGE_DIGEST`. Lease owner, poll interval, and shutdown timeout remain optional.
+
+The pilot worker creates one scoped OMP adapter, wraps it with the local Wayfinder execution adapter, and injects both into the workflow runtime. It must claim the plan effect before dispatch. The operator and its OMP/Wayfinder adapters are excluded from `deploy:web`. This guide does not claim remote CI worker execution or completed Wayfinder execution or evidence.
 
 ### mkcert fallback
 
@@ -166,6 +195,16 @@ varlock run -- bun run doctor -- --json
 
 If another noncanonical portless proxy is active, stop that proxy before retrying. Do not change DarkFactory to a raw port to work around the conflict.
 
+### Operator route is unhealthy
+
+1. Run `bun run operator:status` and `bun run operator:logs`.
+2. Stop the owned process with `bun run operator:stop`.
+3. Confirm that `WORKFLOW_REPOSITORIES_ROOT` is an absolute directory.
+4. Regenerate bindings with `bun run operator:bindings`, then start with `bun run operator:dev`.
+5. Confirm `portless get operator.darkfactory` returns the operator HTTPS URL.
+
+Do not move operator routes into `apps/web` or use a raw port as a workaround.
+
 ### PostgreSQL is unhealthy
 
 ```bash
@@ -179,6 +218,7 @@ This destroys the disposable local database. After rechecking `APP_ENV` and `DAT
 ### Finish a local session
 
 ```bash
+bun run operator:stop
 bun run dev:stop
 bun run db:test:down
 ```

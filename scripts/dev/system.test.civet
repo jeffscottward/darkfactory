@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   lstat: vi.fn(),
   mkdir: vi.fn(),
   mkdtemp: vi.fn(),
+  readFile: vi.fn(),
+  request: vi.fn(),
   open: vi.fn(),
   randomUUID: vi.fn(() => "fixed-uuid"),
   realpath: vi.fn(async (path: string) =>
@@ -23,12 +25,14 @@ vi.mock("node:child_process", () => ({
   spawn: mocks.spawn,
 }))
 vi.mock("node:crypto", () => ({ randomUUID: mocks.randomUUID }))
+vi.mock("node:https", () => ({ request: mocks.request }))
 vi.mock("node:fs/promises", () => ({
   access: mocks.access,
   lstat: mocks.lstat,
   mkdir: mocks.mkdir,
   mkdtemp: mocks.mkdtemp,
   open: mocks.open,
+  readFile: mocks.readFile,
   realpath: mocks.realpath,
   rename: mocks.rename,
   rm: mocks.rm,
@@ -212,25 +216,127 @@ describe("development Node process adapter", () =>
     })
   )
 
-  it("maps trusted HTTPS status ranges and fetch rejection", async () =>
-    const fetchRequest = vi.fn()
-      .mockResolvedValueOnce({ status: 204 })
-      .mockResolvedValueOnce({ status: 399 })
-      .mockResolvedValueOnce({ status: 199 })
-      .mockResolvedValueOnce({ status: 400 })
-      .mockRejectedValueOnce(new Error("offline"))
-    vi.stubGlobal("fetch", fetchRequest)
+  it("uses a supplied CA for strict local HTTPS HEAD probes only", async () =>
+    vi.stubEnv("NODE_EXTRA_CA_CERTS", "/trusted/portless-ca.pem")
+    const localCa = Buffer.from("trusted local CA")
+    mocks.readFile.mockResolvedValue(localCa)
+    mocks.request.mockImplementation((
+      _url: URL,
+      _options: Record<string, unknown>,
+      respond: (response: { statusCode: number; resume: () => void }) => void,
+    ) =>
+      const request = {
+        end: vi.fn(() => respond({ statusCode: 399, resume: vi.fn() })),
+        once: vi.fn(),
+      }
+      return request
+    )
 
-    await expect(nodeProcessAdapter.probeHttps("https://one.localhost")).resolves.toBe(true)
-    await expect(nodeProcessAdapter.probeHttps("https://two.localhost")).resolves.toBe(true)
-    await expect(nodeProcessAdapter.probeHttps("https://three.localhost")).resolves.toBe(false)
-    await expect(nodeProcessAdapter.probeHttps("https://four.localhost")).resolves.toBe(false)
-    await expect(nodeProcessAdapter.probeHttps("https://offline.localhost")).resolves.toBe(false)
-    expect(fetchRequest).toHaveBeenNthCalledWith(1, "https://one.localhost", {
+    await expect(nodeProcessAdapter.probeHttps("https://operator.localhost")).resolves.toBe(true)
+    expect(mocks.readFile).toHaveBeenCalledWith("/trusted/portless-ca.pem")
+    expect(mocks.request).toHaveBeenCalledWith(
+      new URL("https://operator.localhost"),
+      {
+        ca: localCa,
+        method: "HEAD",
+        rejectUnauthorized: true,
+        signal: expect.any(AbortSignal),
+      },
+      expect.any(Function),
+    )
+
+    mocks.request.mockClear()
+    mocks.readFile.mockClear()
+    await expect(nodeProcessAdapter.probeHttps("https://service.example.com")).resolves.toBe(true)
+    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(mocks.request.mock.calls[0]?.[1]).toEqual({
       method: "HEAD",
-      redirect: "manual",
+      rejectUnauthorized: true,
       signal: expect.any(AbortSignal),
     })
+  )
+
+  it("falls back to the Portless home CA for loopback probes", async () =>
+    vi.stubEnv("NODE_EXTRA_CA_CERTS", "")
+    const localCa = Buffer.from("home Portless CA")
+    mocks.readFile.mockResolvedValue(localCa)
+    mocks.request.mockImplementation((
+      _url: URL,
+      _options: Record<string, unknown>,
+      respond: (response: { statusCode: number; resume: () => void }) => void,
+    ) => ({
+      end: vi.fn(() => respond({ statusCode: 204, resume: vi.fn() })),
+      once: vi.fn(),
+    }))
+
+    for (const url of [
+      "https://localhost",
+      "https://web.localhost",
+      "https://127.0.0.1",
+      "https://[::1]",
+    ])
+      await expect(nodeProcessAdapter.probeHttps(url)).resolves.toBe(true)
+
+    expect(mocks.readFile).toHaveBeenCalledTimes(4)
+    expect(mocks.readFile).toHaveBeenCalledWith("/home/test/.portless/ca.pem")
+    for (const call of mocks.request.mock.calls)
+      expect(call[1]).toMatchObject({ ca: localCa, rejectUnauthorized: true })
+  )
+
+  it("keeps status bounds and rejects unavailable or untrusted HTTPS probes", async () =>
+    mocks.readFile.mockRejectedValue(errno("ENOENT"))
+    const outcomes = [199, 400, "untrusted", "invalid-ca"] as const
+    for (const outcome of outcomes)
+      if (outcome === "invalid-ca")
+        mocks.request.mockImplementationOnce(() =>
+          throw new Error("bad certificate")
+        )
+      else
+        mocks.request.mockImplementationOnce((
+          _url: URL,
+          _options: Record<string, unknown>,
+          respond: (response: { statusCode: number; resume: () => void }) => void,
+        ) =>
+          const listeners = new Map<string, () => void>()
+          return {
+            end: vi.fn(() =>
+              if (outcome === "untrusted") listeners.get("error")?.()
+              else respond({ statusCode: outcome, resume: vi.fn() })
+            ),
+            once: vi.fn((event: string, listener: () => void) =>
+              listeners.set(event, listener)
+            ),
+          }
+        )
+
+    await expect(nodeProcessAdapter.probeHttps("https://one.localhost")).resolves.toBe(false)
+    await expect(nodeProcessAdapter.probeHttps("https://two.localhost")).resolves.toBe(false)
+    await expect(nodeProcessAdapter.probeHttps("https://untrusted.localhost")).resolves.toBe(false)
+    await expect(nodeProcessAdapter.probeHttps("https://invalid.localhost")).resolves.toBe(false)
+  )
+
+  it("rejects non-HTTPS and missing statuses while ignoring late request errors", async () =>
+    const resume = vi.fn()
+    const listeners = new Map<string, () => void>()
+    mocks.request.mockImplementationOnce((
+      _url: URL,
+      _options: Record<string, unknown>,
+      respond: (response: { statusCode?: number; resume: () => void }) => void,
+    ) => ({
+      end: vi.fn(() =>
+        respond({ statusCode: undefined, resume })
+        listeners.get("error")?.()
+      ),
+      once: vi.fn((event: string, listener: () => void) =>
+        listeners.set(event, listener)
+      ),
+    }))
+
+    await expect(nodeProcessAdapter.probeHttps("http://operator.localhost")).resolves.toBe(false)
+    expect(mocks.request).not.toHaveBeenCalled()
+
+    await expect(nodeProcessAdapter.probeHttps("https://operator.localhost")).resolves.toBe(false)
+    expect(resume).toHaveBeenCalledOnce()
   )
 
   it("requires both a live bounded PID and a connected PM2 socket", async () =>

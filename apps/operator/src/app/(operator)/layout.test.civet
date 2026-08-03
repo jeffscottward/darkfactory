@@ -1,0 +1,46 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  getOperatorAdministrator: vi.fn(),
+  redirect: vi.fn(),
+}))
+
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => new Headers({ cookie: "better-auth.session_token=opaque" })),
+}))
+vi.mock("next/navigation", () => ({
+  redirect: (path: string) =>
+    mocks.redirect(path)
+    throw new Error(`REDIRECT:${path}`)
+}))
+vi.mock("../../server/operator-session.civet", () => ({
+  getOperatorAdministrator: mocks.getOperatorAdministrator,
+}))
+vi.mock("../../components/operator-shell.civet", () => ({
+  OperatorShell: ({ children, name }: { readonly children: React.ReactNode; readonly name: string }) => (
+    <main data-operator-name={name}>{children}
+  ),
+}))
+
+import OperatorLayout from "./layout.civet"
+
+describe "operator administrator boundary", ->
+  beforeEach ->
+    mocks.getOperatorAdministrator.mockReset()
+    mocks.redirect.mockClear()
+
+  it "redirects an anonymous or non-administrator request", async ->
+    mocks.getOperatorAdministrator.mockResolvedValueOnce(null)
+    await expect(OperatorLayout({ children: "protected" })).rejects.toThrow(
+      "REDIRECT:/sign-in?callbackURL=%2Foperator",
+    )
+
+  it "renders the standalone shell for the seeded administrator", async ->
+    mocks.getOperatorAdministrator.mockResolvedValueOnce({
+      userId: "admin-1",
+      name: "Development Administrator",
+    })
+    const markup = renderToStaticMarkup(await OperatorLayout({ children: "protected" }))
+    expect(markup).toContain('data-operator-name="Development Administrator"')
+    expect(markup).toContain("protected")

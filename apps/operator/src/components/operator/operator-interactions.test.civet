@@ -1,0 +1,1446 @@
+// @vitest-environment jsdom
+
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+const browserTransport = vi.hoisted(() => ({ createOperatorClient: vi.fn() }))
+
+
+vi.mock("@darkfactory/operator/client", () => ({
+  createOperatorClient: browserTransport.createOperatorClient,
+}))
+
+import { ApprovalPanel } from "./approval-panel.civet"
+import { ConversationPanel } from "./conversation-panel.civet"
+import type {
+  OperatorApprovalBinding,
+  OperatorGateway,
+  OperatorRunDetailOutput,
+  OperatorRunSummary,
+  OperatorWorkspaceOutput,
+} from "./operator-client.civet"
+import { OperatorRunDetail } from "./operator-run-detail.civet"
+import { OperatorWorkspace } from "./operator-workspace.civet"
+
+const approval: OperatorApprovalBinding = {
+  machineId: "darkfactory-pilot",
+  machineVersion: 2,
+  eventVersion: 3,
+  snapshotSequence: 7,
+  journalHeadHash: "journal-head-0123456789abcdef",
+  effectHash: "effect-hash-fedcba9876543210",
+  effectScope: "repository:darkfactory/run:run-1",
+  stale: false,
+}
+const implementationPlan = {
+  summary: "1. Update the bounded worker contract\n2. Verify replay integrity",
+  digest: "d".repeat(64),
+  truncated: false,
+  redacted: true,
+} as const
+
+const summary = (overrides: Partial<OperatorRunSummary> = {}): OperatorRunSummary => ({
+  id: "run-1",
+  title: "Release recovery",
+  state: "awaitingApproval",
+  sequence: 7,
+  updatedAt: new Date("2026-07-29T12:00:00.000Z"),
+  headHash: "journal-head-0123456789abcdef",
+  ...overrides,
+})
+
+const detail = (
+  runOverrides: Partial<OperatorRunSummary> = {},
+  overrides: Partial<OperatorRunDetailOutput> = {},
+): OperatorRunDetailOutput => ({
+  run: {
+    ...summary(runOverrides),
+    machineId: "darkfactory-pilot",
+    machineVersion: 2,
+  },
+  originalRequest: runOverrides.title ?? "Release recovery",
+  planRevisions: [],
+  timeline: [],
+  approval,
+  implementationPlan,
+  evidence: [],
+  messages: [],
+  canRequestPlanRevision:
+    runOverrides.state === undefined || runOverrides.state === "awaitingApproval",
+  ...overrides,
+})
+
+const workspace = (runs: readonly OperatorRunSummary[] = []): OperatorWorkspaceOutput => ({ runs })
+
+const gatewayWith = (overrides: Partial<OperatorGateway> = {}): OperatorGateway => ({
+  submit: vi.fn(async () => detail()),
+  workspace: vi.fn(async () => workspace()),
+  detail: vi.fn(async (id) => detail({ id })),
+  approve: vi.fn(async () => detail()),
+  reject: vi.fn(async () => detail()),
+  cancel: vi.fn(async () => detail()),
+  retry: vi.fn(async () => detail()),
+  message: vi.fn(async () => detail()),
+  revise: vi.fn(async () => detail({ state: "planning" }, {
+    approval: null,
+    implementationPlan: null,
+  })),
+  wayfinderStatus: vi.fn<OperatorGateway["wayfinderStatus"]>(async () => ({
+    availability: "installed",
+    tracker: "local-markdown",
+  })),
+  startWayfinder: vi.fn<OperatorGateway["startWayfinder"]>(async (_request, _scope) => ({
+    runId: "run-wayfinder",
+    status: "queued",
+    tracker: "local-markdown",
+  })),
+  ...overrides,
+})
+
+const deferred = <Value>() =>
+  let resolvePromise = (_value: Value): void =>
+    throw new Error("Deferred promise was not initialized")
+  let rejectPromise = (_reason: unknown): void =>
+    throw new Error("Deferred promise was not initialized")
+  const promise = new Promise<Value>((resolve, reject) =>
+    resolvePromise = resolve
+    rejectPromise = reject
+  )
+  return { promise, reject: rejectPromise, resolve: resolvePromise }
+
+const fillSubmission = async (
+  values = { title: "Pilot run", repositoryId: "DarkFactory", scopePaths: "apps/web" },
+): Promise<HTMLButtonElement> =>
+  const advanced = (await screen.findByText(/Advanced/, { selector: "summary" })).closest("details")
+  if (advanced !== null) advanced.open = true
+  const title = await screen.findByLabelText("Run title")
+  fireEvent.change(title, { target: { value: values.title } })
+  fireEvent.change(screen.getByLabelText("Repository ID"), {
+    target: { value: values.repositoryId },
+  })
+  fireEvent.change(screen.getByLabelText("Relative scope paths, one per line"), {
+    target: { value: values.scopePaths },
+  })
+  return screen.getByRole("button", { name: "Submit run" })
+
+afterEach ->
+  cleanup()
+  browserTransport.createOperatorClient.mockReset()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+
+describe "operator workspace behavior", ->
+  it "renders loading, empty, populated, and retryable error states", async ->
+    const initial = deferred<OperatorWorkspaceOutput>()
+    const load = vi.fn(() => initial.promise)
+    render(<OperatorWorkspace gateway={gatewayWith({ workspace: load })} />)
+
+    expect(screen.getByRole("status", { name: "Loading operator workspace" })).toBeDefined()
+    await act(async () =>
+      initial.resolve(workspace())
+      await Promise.resolve()
+    )
+    expect(await screen.findByText("No planned work yet")).toBeDefined()
+
+    cleanup()
+    const recovered = workspace([summary()])
+    const retryLoad = vi.fn()
+      .mockRejectedValueOnce({ code: "SERVICE_UNAVAILABLE" })
+      .mockResolvedValueOnce(recovered)
+    render(<OperatorWorkspace gateway={gatewayWith({ workspace: retryLoad })} />)
+    expect((await screen.findByRole("alert")).textContent).toContain("Operator data is temporarily unavailable")
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading" }))
+    expect(screen.getByRole("status", { name: "Loading operator workspace" })).toBeDefined()
+    expect(await screen.findByRole("button", { name: "Refresh workspace" })).toBeDefined()
+    expect(await screen.findByRole("link", { name: "Open Release recovery, Review plan" })).toBeDefined()
+    expect(retryLoad).toHaveBeenCalledTimes(2)
+
+  it "refreshes empty and populated boards from their visible controls", async ->
+    const emptyLoad = vi.fn(async () => workspace())
+    const { unmount } = render(<OperatorWorkspace gateway={gatewayWith({ workspace: emptyLoad })} />)
+    expect(await screen.findByText("No planned work yet")).toBeDefined()
+    fireEvent.click(screen.getByRole("button", { name: "Refresh runs" }))
+    expect(await screen.findByText("No planned work yet")).toBeDefined()
+    expect(emptyLoad).toHaveBeenCalledTimes(2)
+
+    unmount()
+    const populated = workspace([summary()])
+    const populatedLoad = vi.fn(async () => populated)
+    render(<OperatorWorkspace gateway={gatewayWith({ workspace: populatedLoad })} />)
+    const refresh = await screen.findByRole("button", { name: "Refresh workspace" })
+    fireEvent.click(refresh)
+    expect(await screen.findByRole("link", { name: "Open Release recovery, Review plan" })).toBeDefined()
+    expect(populatedLoad).toHaveBeenCalledTimes(2)
+
+  it "uses the browser transport when no gateway is supplied", async ->
+    const operator = {
+      submit: vi.fn(async () => detail()),
+      workspace: vi.fn(async () => workspace()),
+      detail: vi.fn(async ({ id }: { id: string }) => detail({ id })),
+      approve: vi.fn(async () => detail()),
+      reject: vi.fn(async () => detail()),
+      cancel: vi.fn(async () => detail()),
+      retry: vi.fn(async () => detail()),
+      message: vi.fn(async () => detail()),
+      wayfinder: {
+        status: vi.fn(async () => ({
+          availability: "installed",
+          tracker: "local-markdown",
+        })),
+        start: vi.fn(async () => ({
+          runId: "run-wayfinder",
+          status: "queued",
+          tracker: "local-markdown",
+        })),
+        revise: vi.fn(async () => detail({ state: "planning" }, {
+          approval: null,
+          implementationPlan: null,
+        })),
+      },
+    }
+    browserTransport.createOperatorClient.mockReturnValue({ operator })
+
+    const { unmount } = render(<OperatorWorkspace />)
+    expect(await screen.findByText("No planned work yet")).toBeDefined()
+    unmount()
+    render(<OperatorRunDetail id="run-1" />)
+    expect(await screen.findByRole("heading", { name: "Release recovery" })).toBeDefined()
+
+    expect(browserTransport.createOperatorClient).toHaveBeenCalledTimes(2)
+    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 })
+    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" })
+
+
+  it "renders the projected long request instead of repeating the short run title", async ->
+    const originalRequest =
+      "Plan the complete operator cutover and preserve every bounded verification requirement."
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { title: "Operator cutover" },
+          { originalRequest },
+        )),
+      })}
+      id="run-1"
+    />)
+
+    expect(await screen.findByRole("heading", { name: "Operator cutover" })).toBeDefined()
+    const conversation = screen.getByRole("list", { name: "Planning conversation" })
+    expect(within(conversation).getByText(originalRequest)).toBeDefined()
+    expect(within(conversation).queryByText("Operator cutover")).toBeNull()
+  it "selects a submitted run and replaces the board after refresh", async ->
+    const selected = detail({ id: "selected", title: "Selected run" })
+    const refreshed = workspace([selected.run])
+    const gateway = gatewayWith({
+      submit: vi.fn(async () => selected),
+      workspace: vi.fn()
+        .mockResolvedValueOnce(workspace())
+        .mockResolvedValueOnce(refreshed),
+      detail: vi.fn(async () => selected),
+    })
+    render(<OperatorWorkspace gateway={gateway} />)
+
+    fireEvent.click(await fillSubmission())
+    const feedback = await screen.findByText("Run “Selected run” was submitted and selected.")
+    await waitFor(() => expect(document.activeElement).toBe(feedback))
+    expect(screen.getByRole("heading", { name: "Run details: Selected run" })).toBeDefined()
+    expect(screen.getByRole("heading", { name: "Selected run" })).toBeDefined()
+    expect(screen.getByRole("link", { name: "Open Selected run, Review plan" })).toBeDefined()
+    expect(gateway.submit).toHaveBeenCalledWith(
+      "Pilot run",
+      { repositoryId: "darkfactory", paths: ["apps/web"] },
+      expect.any(String),
+    )
+
+  it "retains selection and warns when the board refresh fails", async ->
+    const selected = detail({ id: "selected-warning", title: undefined })
+    const gateway = gatewayWith({
+      submit: vi.fn(async () => selected),
+      workspace: vi.fn()
+        .mockResolvedValueOnce(workspace())
+        .mockRejectedValueOnce({ code: "STORAGE_ERROR" }),
+      detail: vi.fn(async () => selected),
+    })
+    render(<OperatorWorkspace gateway={gateway} />)
+
+    fireEvent.click(await fillSubmission())
+    expect(await screen.findByText(/was submitted and selected, but the work monitor could not refresh/)).toBeDefined()
+    expect(screen.getByRole("heading", { name: "Run details: selected-warning" })).toBeDefined()
+    expect(screen.getByText("No planned work yet")).toBeDefined()
+
+  it "blocks duplicate submissions and exposes pending state", async ->
+    const request = deferred<OperatorRunDetailOutput>()
+    const submit = vi.fn(() => request.promise)
+    const selected = detail({ title: "Pilot run" })
+    const gateway = gatewayWith({
+      submit,
+      workspace: vi.fn()
+        .mockResolvedValueOnce(workspace())
+        .mockResolvedValueOnce(workspace([selected.run])),
+      detail: vi.fn(async () => selected),
+    })
+    render(<OperatorWorkspace gateway={gateway} />)
+
+    const submitButton = await fillSubmission()
+    fireEvent.click(submitButton)
+    fireEvent.submit(submitButton.closest("form")!)
+    expect(submit).toHaveBeenCalledOnce()
+    expect((screen.getByRole("button", { name: /Submitting workflow run/ }) as HTMLButtonElement).disabled).toBe(true)
+
+    await act(async () =>
+      request.resolve(selected)
+      await Promise.resolve()
+    )
+    expect(await screen.findByText("Run “Pilot run” was submitted and selected.")).toBeDefined()
+
+  it "reuses a failed retry key, invalidates it after editing, and reports validation safely", async ->
+    const selected = detail({ title: "Retry run" })
+    const submit = vi.fn()
+      .mockRejectedValueOnce({ code: "VALIDATION_ERROR" })
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValueOnce(selected)
+    const gateway = gatewayWith({
+      submit,
+      workspace: vi.fn()
+        .mockResolvedValueOnce(workspace())
+        .mockResolvedValueOnce(workspace([selected.run]))
+        .mockResolvedValueOnce(workspace([selected.run])),
+      detail: vi.fn(async () => selected),
+    })
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce("retry-key")
+      .mockReturnValueOnce("changed-key")
+    vi.stubGlobal("crypto", { randomUUID })
+    render(<OperatorWorkspace gateway={gateway} />)
+
+    fireEvent.click(await fillSubmission({
+      title: "Retry run",
+      repositoryId: "DARKFACTORY",
+      scopePaths: "apps/web",
+    }))
+    expect((await screen.findByRole("alert")).textContent).toContain("Check the run title")
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit run" }))
+    expect(await screen.findByText("Run “Retry run” was submitted and selected.")).toBeDefined()
+    expect(submit.mock.calls[0]?.[2]).toBe("retry-key")
+    expect(submit.mock.calls[1]?.[2]).toBe("retry-key")
+
+    fireEvent.change(screen.getByLabelText("Run title"), { target: { value: "Changed retry" } })
+    fireEvent.click(screen.getByRole("button", { name: "Submit run" }))
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(3))
+    expect(submit.mock.calls[2]?.[2]).toBe("changed-key")
+
+  it "does not apply late workspace responses after unmount", async ->
+    const lateSuccess = deferred<OperatorWorkspaceOutput>()
+    const successLoad = vi.fn(() => lateSuccess.promise)
+    const first = render(<OperatorWorkspace gateway={gatewayWith({ workspace: successLoad })} />)
+    first.unmount()
+    await act(async () =>
+      lateSuccess.resolve(workspace([summary({ title: "Late workspace" })]))
+      await Promise.resolve()
+    )
+    expect(screen.queryByText("Late workspace")).toBeNull()
+
+    const lateFailure = deferred<OperatorWorkspaceOutput>()
+    const second = render(<OperatorWorkspace gateway={gatewayWith({
+      workspace: vi.fn(() => lateFailure.promise),
+    })} />)
+    second.unmount()
+    await act(async () =>
+      lateFailure.reject({ code: "SERVICE_UNAVAILABLE" })
+      await Promise.resolve()
+    )
+    expect(screen.queryByText("Operator workspace unavailable")).toBeNull()
+
+  it "does not publish submission state or schedule focus after unmount", async ->
+    const selected = detail({ title: "Late submission" })
+    const request = deferred<OperatorRunDetailOutput>()
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+    const lookup = vi.spyOn(document, "getElementById")
+    const gateway = gatewayWith({
+      submit: vi.fn(() => request.promise),
+      workspace: vi.fn()
+        .mockResolvedValueOnce(workspace())
+        .mockResolvedValueOnce(workspace([selected.run])),
+    })
+    const mounted = render(<OperatorWorkspace gateway={gateway} />)
+    fireEvent.click(await fillSubmission())
+    mounted.unmount()
+    focus.mockClear()
+    lookup.mockClear()
+
+    await act(async () =>
+      request.resolve(selected)
+      await Promise.resolve()
+    )
+    expect(focus).not.toHaveBeenCalled()
+    expect(lookup).not.toHaveBeenCalledWith("operator-submit-status")
+
+  it "drops a rejected submission after unmount", async ->
+    const request = deferred<OperatorRunDetailOutput>()
+    const lookup = vi.spyOn(document, "getElementById")
+    const gateway = gatewayWith({
+      submit: vi.fn(() => request.promise),
+      workspace: vi.fn(async () => workspace()),
+    })
+    const mounted = render(<OperatorWorkspace gateway={gateway} />)
+    fireEvent.click(await fillSubmission())
+    mounted.unmount()
+    lookup.mockClear()
+
+    await act(async () =>
+      request.reject({ code: "VALIDATION_ERROR" })
+      await Promise.resolve()
+    )
+    expect(lookup).not.toHaveBeenCalledWith("operator-submit-status")
+    expect(screen.queryByText("Check the run title, repository ID, and relative scope paths, then try again.")).toBeNull()
+
+  it "drops a scheduled submission focus after unmount", async ->
+    const selected = detail({ title: "Scheduled focus" })
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+    const gateway = gatewayWith({
+      submit: vi.fn(async () => selected),
+      workspace: vi.fn()
+        .mockResolvedValueOnce(workspace())
+        .mockResolvedValueOnce(workspace([selected.run])),
+      detail: vi.fn(async () => selected),
+    })
+    const mounted = render(<OperatorWorkspace gateway={gateway} />)
+    const submit = await fillSubmission()
+    let scheduled: (() => void) | undefined
+    vi.spyOn(window, "setTimeout").mockImplementation((callback, _delay?) =>
+      scheduled = callback as () => void
+      return 1 as unknown as NodeJS.Timeout
+    )
+    fireEvent.click(submit)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+    expect(scheduled).toBeDefined()
+    mounted.unmount()
+    focus.mockClear()
+    scheduled!()
+    expect(focus).not.toHaveBeenCalled()
+
+describe "operator run detail behavior", ->
+  it "loads a blocked run and enables only valid actions", async ->
+    const output = detail({ state: "blocked" })
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: vi.fn(async () => output) })} id="run-1" />)
+
+    expect(screen.getByRole("status", { name: "Loading workflow run" })).toBeDefined()
+    expect(await screen.findByRole("heading", { name: "Release recovery" })).toBeDefined()
+    expect((screen.getByRole("button", { name: "Retry run" }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole("button", { name: "Cancel run" }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole("button", { name: "Approve this plan" }) as HTMLButtonElement).disabled).toBe(false)
+
+  it "retries a failed load and disables actions at both terminal boundaries", async ->
+    const load = vi.fn()
+      .mockRejectedValueOnce({ code: "NOT_FOUND" })
+      .mockResolvedValueOnce(detail({ state: "completed" }))
+    const { unmount } = render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    expect((await screen.findByRole("alert")).textContent).toContain("no longer available")
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading" }))
+    expect(await screen.findByRole("heading", { name: "Release recovery" })).toBeDefined()
+    expect((screen.getByRole("button", { name: "Retry run" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Cancel run" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText("Completed")).toBeDefined()
+    expect(screen.getByText("This run is complete. Automatic updates are paused.")).toBeDefined()
+    expect((screen.getByLabelText("Add operator message") as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Add note" }) as HTMLButtonElement).disabled).toBe(true)
+
+    unmount()
+    render(<OperatorRunDetail
+      gateway={gatewayWith({ detail: vi.fn(async () => detail({ state: "cancelled" })) })}
+      id="run-1"
+    />)
+    expect(await screen.findByRole("heading", { name: "Release recovery" })).toBeDefined()
+    expect((screen.getByRole("button", { name: "Cancel run" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText("Cancelled")).toBeDefined()
+    expect(screen.getByText("This run was cancelled. Automatic updates are paused.")).toBeDefined()
+    expect((screen.getByLabelText("Add operator message") as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Add note" }) as HTMLButtonElement).disabled).toBe(true)
+
+  it "performs retry and cancel with pending and success feedback", async ->
+    const retryRequest = deferred<OperatorRunDetailOutput>()
+    const cancelRequest = deferred<OperatorRunDetailOutput>()
+    const retry = vi.fn(() => retryRequest.promise)
+    const cancel = vi.fn(() => cancelRequest.promise)
+    const approve = vi.fn(async () => detail())
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({ state: "blocked" })),
+        retry,
+        cancel,
+        approve,
+      })}
+      id="run-1"
+    />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+
+    fireEvent.change(screen.getByLabelText("Add operator message"), {
+      target: { value: "Hold this note" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+    expect((screen.getByRole("button", { name: /Requesting retry/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Cancel run" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Approve this plan" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Reject plan" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByLabelText("Add operator message") as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Add note" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole("button", { name: /Cancelling|Approving|Rejecting|Adding operator note/ })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: /Requesting retry/ }))
+    expect(retry).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole("button", { name: "Approve this plan" }))
+    expect(approve).not.toHaveBeenCalled()
+    await act(async () =>
+      retryRequest.resolve(detail({ state: "planning" }))
+      await Promise.resolve()
+    )
+    const retryFeedback = await screen.findByText("Retry requested.")
+    expect(retryFeedback.getAttribute("aria-live")).toBe("polite")
+    await waitFor(() => expect(document.activeElement).toBe(retryFeedback))
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }))
+    expect((screen.getByRole("button", { name: /Cancelling run/ }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () =>
+      cancelRequest.resolve(detail({ state: "cancelled" }))
+      await Promise.resolve()
+    )
+    const cancelFeedback = await screen.findByText("Cancellation requested.")
+    await waitFor(() => expect(document.activeElement).toBe(cancelFeedback))
+
+  it "approves, rejects, and sends bounded chat actions", async ->
+    const approve = vi.fn(async () => detail())
+    const reject = vi.fn(async () => detail())
+    const message = vi.fn(async () => detail())
+    render(<OperatorRunDetail
+      gateway={gatewayWith({ detail: vi.fn(async () => detail()), approve, reject, message })}
+      id="run-1"
+    />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+
+    expect(screen.getByRole("heading", { name: "Latest plan" })).toBeDefined()
+    const planRegion = screen.getByRole("region", { name: "Latest plan" })
+    const conversation = screen.getByRole("list", { name: "Planning conversation" })
+    const exactPlan = (_content: string, element: Element | null): boolean =>
+      element?.tagName === "PRE" && element.textContent === implementationPlan.summary
+    expect(within(planRegion).getByText(exactPlan)).toBeDefined()
+    expect(within(conversation).getByText(exactPlan)).toBeDefined()
+    expect(screen.getByText("Sensitive values were redacted.")).toBeDefined()
+    expect(screen.queryByText(/incomplete|truncated/i)).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Approve this plan" }))
+    expect(await screen.findByText("Plan approved. Work can start.")).toBeDefined()
+    expect(approve).toHaveBeenCalledWith("run-1", approval)
+
+    fireEvent.click(screen.getByRole("button", { name: "Reject plan" }))
+    expect(await screen.findByText("Plan rejected.")).toBeDefined()
+    expect(reject).toHaveBeenCalledWith("run-1")
+
+    fireEvent.change(screen.getByLabelText("Add operator message"), {
+      target: { value: " Bounded context " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }))
+    expect(await screen.findByText("Operator note added.")).toBeDefined()
+    expect(message).toHaveBeenCalledWith("run-1", "Bounded context", expect.any(String))
+
+  it "requests a bounded plan revision and clears the superseded approval", async ->
+    const revised = detail({ state: "planning" }, {
+      approval: null,
+      implementationPlan: null,
+      planRevisions: [{
+        message: "Show the verification steps before approval."
+        createdAt: new Date("2026-07-29T12:10:00.000Z")
+      }]
+      timeline: [{
+        sequence: 8,
+        eventType: "PLAN_REVISION_REQUESTED",
+        summary: "Operator requested a clearer plan.",
+        hash: "revision-event-hash",
+        createdAt: new Date("2026-07-29T12:10:00.000Z"),
+      }],
+    })
+    const revise = vi.fn(async () => revised)
+    render(<OperatorRunDetail
+      gateway={gatewayWith({ detail: vi.fn(async () => detail()), revise })}
+      id="run-1"
+    />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+
+    const input = screen.getByLabelText("What should change?")
+    expect(input.getAttribute("maxlength")).toBeNull()
+    fireEvent.change(input, {
+      target: { value: " Show the verification steps before approval. " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }))
+
+    expect(await screen.findByText(
+      "Changes requested. A new plan is queued.",
+    )).toBeDefined()
+    expect(revise).toHaveBeenCalledWith(
+      "run-1",
+      "Show the verification steps before approval.",
+      expect.any(String),
+    )
+    expect(screen.getByText("You requested changes")).toBeDefined()
+    expect(screen.getByText(
+      "Show the verification steps before approval.",
+    )).toBeDefined()
+    expect(screen.getByText("No plan is available yet. Refresh this run to check again.")).toBeDefined()
+    expect(screen.getByText("No plan is waiting for your review.")).toBeDefined()
+    expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
+
+  it "reuses a revision key for unchanged retries and rotates it after edits and success", async ->
+    const revise = vi.fn()
+      .mockRejectedValueOnce({ code: "SERVICE_UNAVAILABLE" })
+      .mockRejectedValueOnce({ code: "SERVICE_UNAVAILABLE" })
+      .mockResolvedValueOnce(detail())
+      .mockResolvedValueOnce(detail())
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce("revision-retry-key")
+      .mockReturnValueOnce("revision-changed-key")
+      .mockReturnValueOnce("revision-after-success-key")
+    vi.stubGlobal("crypto", { randomUUID })
+    render(<OperatorRunDetail
+      gateway={gatewayWith({ detail: vi.fn(async () => detail()), revise })}
+      id="run-1"
+    />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    const input = screen.getByLabelText("What should change?")
+
+    fireEvent.change(input, { target: { value: "First revision" } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(revise).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled)
+        .toBe(false)
+    )
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(revise).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled)
+        .toBe(false)
+    )
+
+    fireEvent.change(input, { target: { value: "Changed revision" } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""))
+
+    fireEvent.change(input, { target: { value: "Revision after success" } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(revise).toHaveBeenCalledTimes(4))
+    expect(revise.mock.calls).toEqual([
+      ["run-1", "First revision", "revision-retry-key"],
+      ["run-1", "First revision", "revision-retry-key"],
+      ["run-1", "Changed revision", "revision-changed-key"],
+      ["run-1", "Revision after success", "revision-after-success-key"],
+    ])
+
+  it "uses the revision capability for blocked stages and explains a missing planning result", async ->
+    const invalidStage = render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { state: "blocked", blockedReason: "Implementation stopped." },
+          {
+            approval: null,
+            implementationPlan: null,
+            canRequestPlanRevision: false,
+          },
+        )),
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText(
+      "No plan is available to revise or approve at this stage. Resolve the issue above, then retry the run.",
+    )).toBeDefined()
+    expect(screen.queryByLabelText("What should change?")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
+
+    invalidStage.unmount()
+    const revisionStage = render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { state: "blocked", blockedReason: "Planning stopped." },
+          {
+            approval: null,
+            implementationPlan: null,
+            canRequestPlanRevision: true,
+          },
+        )),
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText(
+      "Planning stopped before Wayfinder produced a plan. Request changes to give Wayfinder clearer direction, or retry after you resolve the stated issue.",
+    )).toBeDefined()
+    expect(screen.queryByText(/Wayfinder is preparing a plan/)).toBeNull()
+    expect(screen.getByLabelText("What should change?")).toBeDefined()
+    expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
+
+    revisionStage.unmount()
+    const reviewablePlan = detail().implementationPlan
+    const blockedReview = render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { state: "blocked", blockedReason: "Plan review stopped." },
+          {
+            approval: null,
+            implementationPlan: reviewablePlan,
+            canRequestPlanRevision: true,
+          },
+        )),
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText(
+      "Review the conversation and plan. Request changes if the plan is the problem, or retry after you resolve the stated issue.",
+    )).toBeDefined()
+
+    blockedReview.unmount()
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail(
+          { state: "blocked", blockedReason: "Implementation stopped." },
+          {
+            approval: null,
+            implementationPlan: reviewablePlan,
+            canRequestPlanRevision: false,
+          },
+        )),
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText(
+      "Resolve the stated issue, then retry the run. Plan revision is not available at this stage.",
+    )).toBeDefined()
+
+  it "does not invoke approval without a binding", async ->
+    const approve = vi.fn(async () => detail())
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({}, { approval: null })),
+        approve,
+      })}
+      id="run-1"
+    />)
+    expect(await screen.findByText("No plan is waiting for your review.")).toBeDefined()
+    expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
+    expect(approve).not.toHaveBeenCalled()
+
+  it "fails closed when an approval binding has no reviewable implementation plan", async ->
+    const approve = vi.fn(async () => detail())
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({}, { implementationPlan: null })),
+        approve,
+      })}
+      id="run-1"
+    />)
+
+    expect(await screen.findByText(
+      "Implementation plan evidence is unavailable. Approval is disabled."
+    )).toBeDefined()
+    const button = screen.getByRole("button", { name: "Approve this plan" })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(button)
+    expect(approve).not.toHaveBeenCalled()
+
+  it "fails closed when implementation plan evidence is truncated", async ->
+    const approve = vi.fn(async () => detail())
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({}, {
+          implementationPlan: { ...implementationPlan, truncated: true },
+        })),
+        approve,
+      })}
+      id="run-1"
+    />)
+
+    expect(await screen.findByText(
+      "This plan is incomplete and cannot be approved. Regenerate a bounded plan."
+    )).toBeDefined()
+    const button = screen.getByRole("button", { name: "Approve this plan" })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(button)
+    expect(approve).not.toHaveBeenCalled()
+
+  it "keeps a stale approval conflict fenced until an authoritative reload succeeds", async ->
+    const reload = deferred<OperatorRunDetailOutput>()
+    const load = vi.fn()
+      .mockResolvedValueOnce(detail())
+      .mockImplementationOnce(() => reload.promise)
+    const message = vi.fn(async () =>
+      throw { code: "FORBIDDEN" }
+    )
+    const staleGateway = gatewayWith({
+      detail: load,
+      approve: vi.fn(async () =>
+        throw { code: "STALE_APPROVAL" }
+      ),
+      message,
+    })
+    render(<OperatorRunDetail gateway={staleGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve this plan" }))
+    const staleAlert = await screen.findByRole("alert")
+    expect(staleAlert.textContent).toContain("The plan changed.")
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(staleAlert))
+
+    const note = screen.getByLabelText("Add operator message") as HTMLTextAreaElement
+    const addNote = screen.getByRole("button", { name: "Add note" }) as HTMLButtonElement
+    expect(note.disabled).toBe(true)
+    expect(addNote.disabled).toBe(true)
+    fireEvent.click(addNote)
+    expect(message).not.toHaveBeenCalled()
+    expect(screen.getByText("Plan changed")).toBeDefined()
+    expect((screen.getByRole("button", { name: "Approve this plan" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Reject plan" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByLabelText("What should change?") as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(true)
+
+    const reloadPlan = screen.getByRole("button", { name: "Reload plan" }) as HTMLButtonElement
+    expect(reloadPlan.disabled).toBe(false)
+    fireEvent.click(reloadPlan)
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole("button", { name: "Approve this plan" })).toBeNull()
+
+    await act(async () =>
+      reload.resolve(detail(
+        { sequence: 8, title: "Reloaded recovery" },
+        {
+          approval: {
+            ...approval,
+            snapshotSequence: 8,
+            journalHeadHash: "reloaded-journal-head",
+          },
+        },
+      ))
+      await Promise.resolve()
+    )
+    await screen.findByRole("heading", { name: "Reloaded recovery" })
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect((screen.getByRole("button", { name: "Approve this plan" }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole("button", { name: "Reject plan" }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByLabelText("Add operator message") as HTMLTextAreaElement).disabled).toBe(false)
+    const revision = screen.getByLabelText("What should change?") as HTMLTextAreaElement
+    expect(revision.disabled).toBe(false)
+    fireEvent.change(revision, { target: { value: "Clarify the rollout" } })
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(false)
+
+
+  it "renders and focuses each mutation failure once without polite feedback duplication", async ->
+    const staleGateway = gatewayWith({
+      detail: vi.fn(async () => detail()),
+      approve: vi.fn(async () =>
+        throw { code: "STALE_APPROVAL" }
+      ),
+      message: vi.fn(async () =>
+        throw { code: "FORBIDDEN" }
+      ),
+    })
+    const stale = render(<OperatorRunDetail gateway={staleGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.click(screen.getByRole("button", { name: "Approve this plan" }))
+    const staleAlert = await screen.findByRole("alert")
+    expect(staleAlert.textContent).toContain("The plan changed.")
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(staleAlert))
+    expect(Array.from(document.querySelectorAll('[aria-live="polite"]')).some(
+      (region) => region.textContent === "The plan changed. Reload the run before you take action.",
+    )).toBe(false)
+
+    stale.unmount()
+    const failureMessage = "You do not have access to this workflow run."
+    const failureGateway = gatewayWith({
+      detail: vi.fn(async () => detail()),
+      cancel: vi.fn(async () =>
+        throw { code: "FORBIDDEN" }
+      ),
+    })
+    const nonMessage = render(<OperatorRunDetail gateway={failureGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }))
+    const globalAlert = await screen.findByRole("alert")
+    expect(globalAlert.textContent).toBe(failureMessage)
+    expect(screen.getAllByText(failureMessage)).toHaveLength(1)
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(globalAlert))
+    expect(Array.from(document.querySelectorAll('[aria-live="polite"]')).some(
+      (region) => region.textContent === failureMessage,
+    )).toBe(false)
+    expect(screen.getByLabelText("Add operator message").getAttribute("aria-describedby"))
+      .toBe("operator-message-hint")
+
+    nonMessage.unmount()
+    const messageGateway = gatewayWith({
+      detail: vi.fn(async () => detail()),
+      message: vi.fn(async () =>
+        throw { code: "FORBIDDEN" }
+      ),
+    })
+    render(<OperatorRunDetail gateway={messageGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.change(screen.getByLabelText("Add operator message"), {
+      target: { value: "Bounded context" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }))
+    const inlineAlert = await screen.findByRole("alert")
+    expect(inlineAlert.textContent).toBe(failureMessage)
+    expect(screen.getAllByText(failureMessage)).toHaveLength(1)
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(inlineAlert))
+    expect(Array.from(document.querySelectorAll('[aria-live="polite"]')).some(
+      (region) => region.textContent === failureMessage,
+    )).toBe(false)
+
+  it "routes generic conflicts to the single alert owned by the failed action", async ->
+    const conflictMessage = "The plan changed. Reload the run before you take action."
+    const retryGateway = gatewayWith({
+      detail: vi.fn(async () => detail(
+        { state: "blocked" },
+        {
+          approval: null,
+          implementationPlan: null,
+          canRequestPlanRevision: false,
+        },
+      )),
+      retry: vi.fn(async () =>
+        throw { code: "CONFLICT" }
+      ),
+    })
+    const retryView = render(<OperatorRunDetail gateway={retryGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+    const retryAlert = await screen.findByRole("alert")
+    expect(retryAlert.textContent).toBe(conflictMessage)
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(retryAlert))
+
+    retryView.unmount()
+    const messageGateway = gatewayWith({
+      detail: vi.fn(async () => detail()),
+      message: vi.fn(async () =>
+        throw { code: "CONFLICT" }
+      ),
+    })
+    const messageView = render(<OperatorRunDetail gateway={messageGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.change(screen.getByLabelText("Add operator message"), {
+      target: { value: "Resolve the conflict" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }))
+    const messageAlert = await screen.findByRole("alert")
+    expect(messageAlert.id).toBe("operator-message-error")
+    expect(messageAlert.textContent).toBe(conflictMessage)
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(messageAlert))
+
+    messageView.unmount()
+    const revisionGateway = gatewayWith({
+      detail: vi.fn(async () => detail(
+        { state: "blocked" },
+        {
+          approval: null,
+          implementationPlan: null,
+          canRequestPlanRevision: true,
+        },
+      )),
+      revise: vi.fn(async () =>
+        throw { code: "CONFLICT" }
+      ),
+    })
+    render(<OperatorRunDetail gateway={revisionGateway} id="run-1" />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.change(screen.getByLabelText("What should change?"), {
+      target: { value: "Clarify the stopped plan" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }))
+    const revisionAlert = await screen.findByRole("alert")
+    expect(revisionAlert.textContent).toBe(conflictMessage)
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(revisionAlert))
+
+  it "fences a late run A action from run B by id and request generation", async ->
+    const retryRequest = deferred<OperatorRunDetailOutput>()
+    const runA = detail({ id: "run-a", title: "Run A", state: "blocked" })
+    const runB = detail({ id: "run-b", title: "Run B", state: "completed" })
+    const gateway = gatewayWith({
+      detail: vi.fn(async (id) => id === "run-a" ? runA : runB),
+      retry: vi.fn(() => retryRequest.promise),
+    })
+    const mounted = render(<OperatorRunDetail gateway={gateway} id="run-a" />)
+    expect(await screen.findByRole("heading", { name: "Run A" })).toBeDefined()
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+
+    mounted.rerender(<OperatorRunDetail gateway={gateway} id="run-b" />)
+    expect(await screen.findByRole("heading", { name: "Run B" })).toBeDefined()
+    await act(async () =>
+      retryRequest.resolve(detail({ id: "run-a", title: "Stale action result", state: "planning" }))
+      await Promise.resolve()
+    )
+
+    expect(screen.getByRole("heading", { name: "Run B" })).toBeDefined()
+    expect(screen.queryByText("Stale action result")).toBeNull()
+    expect(screen.queryByText("Retry requested.")).toBeNull()
+    expect((screen.getByRole("button", { name: "Cancel run" }) as HTMLButtonElement).disabled).toBe(true)
+
+
+  it "serializes automatic reads and ignores a poll superseded by a mutation", async ->
+    vi.useFakeTimers()
+    const pollResponse = deferred<OperatorRunDetailOutput>()
+    const mutationResponse = deferred<OperatorRunDetailOutput>()
+    const load = vi.fn()
+      .mockResolvedValueOnce(detail({ state: "blocked" }))
+      .mockImplementationOnce(() => pollResponse.promise)
+    const retry = vi.fn(() => mutationResponse.promise)
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load, retry })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+    expect(load).toHaveBeenCalledTimes(2)
+    await act(async () => await vi.advanceTimersByTimeAsync(20_000))
+    expect(load).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+    await act(async () =>
+      mutationResponse.resolve(detail({ title: "Mutation result", state: "planning" }))
+      await Promise.resolve()
+    )
+    expect(screen.getByRole("heading", { name: "Mutation result" })).toBeDefined()
+
+    await act(async () =>
+      pollResponse.resolve(detail({ title: "Older poll result", state: "blocked" }))
+      await Promise.resolve()
+    )
+    expect(screen.getByRole("heading", { name: "Mutation result" })).toBeDefined()
+    expect(screen.queryByText("Older poll result")).toBeNull()
+
+
+  it "rejects a duplicate action before the busy render commits", async ->
+    const retryRequest = deferred<OperatorRunDetailOutput>()
+    const retry = vi.fn(() => retryRequest.promise)
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({ state: "blocked" })),
+        retry,
+      })}
+      id="run-1"
+    />)
+    const retryButton = await screen.findByRole("button", { name: "Retry run" })
+
+    act(() =>
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    )
+
+    expect(retry).toHaveBeenCalledOnce()
+    await act(async () =>
+      retryRequest.resolve(detail({ state: "planning" }))
+      await retryRequest.promise
+    )
+
+  it "pauses without polling when a busy mutation passes the refresh deadline", async ->
+    vi.useFakeTimers()
+    const clock = { now: 0 }
+    vi.spyOn(performance, "now").mockImplementation(() => clock.now)
+    const mutationResponse = deferred<OperatorRunDetailOutput>()
+    const load = vi.fn(async () => detail({ state: "blocked" }))
+    const retry = vi.fn(() => mutationResponse.promise)
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load, retry })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+    expect(retry).toHaveBeenCalledOnce()
+    clock.now = 300_001
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+
+    expect(load).toHaveBeenCalledOnce()
+    expect(screen.getByText(
+      "Automatic updates are paused. Select Refresh run to start another five-minute session.",
+    )).toBeDefined()
+
+  it "announces a transient automatic failure and resumes after a successful retry", async ->
+    vi.useFakeTimers()
+    const load = vi.fn()
+      .mockResolvedValueOnce(detail({ state: "planning" }))
+      .mockRejectedValueOnce(new Error("temporary detail failure"))
+      .mockResolvedValue(detail({ title: "Recovered update", state: "implementing" }))
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+    expect(screen.getByText(
+      "An automatic update failed. Retrying until this update session ends.",
+    )).toBeDefined()
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+    expect(screen.getByRole("heading", { name: "Recovered update" })).toBeDefined()
+    expect(screen.getByText(
+      "Automatic updates are active for five minutes. You can refresh this run at any time.",
+    )).toBeDefined()
+
+
+  it "pauses automatic updates when a poll reaches a terminal state", async ->
+    vi.useFakeTimers()
+    const load = vi.fn()
+      .mockResolvedValueOnce(detail({ state: "planning" }))
+      .mockResolvedValueOnce(detail({ state: "completed" }))
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(screen.getByText("This run is complete. Automatic updates are paused."))
+      .toBeDefined()
+
+  it "keeps one wall-clock deadline across lifecycle changes and restarts it manually", async ->
+    vi.useFakeTimers()
+    const blockedOutput = detail(
+      { state: "blocked", blockedReason: "Implementation stopped." },
+      { approval: null, implementationPlan: null, canRequestPlanRevision: false },
+    )
+    const load = vi.fn()
+      .mockResolvedValueOnce(detail(
+        { state: "planning" },
+        { approval: null, implementationPlan: null, canRequestPlanRevision: false },
+      ))
+      .mockResolvedValueOnce(blockedOutput)
+      .mockImplementation(async () => blockedOutput)
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+    await act(async () => await vi.advanceTimersByTimeAsync(290_000))
+    expect(screen.getByText(
+      "Automatic updates are paused. Select Refresh run to start another five-minute session.",
+    )).toBeDefined()
+    const callsAtDeadline = load.mock.calls.length
+    await act(async () => await vi.advanceTimersByTimeAsync(20_000))
+    expect(load).toHaveBeenCalledTimes(callsAtDeadline)
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh run" }))
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+    expect(load).toHaveBeenCalledTimes(callsAtDeadline + 1)
+    expect(screen.getByText(
+      "Automatic updates are active for five minutes. You can refresh this run at any time.",
+    )).toBeDefined()
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000))
+    expect(load).toHaveBeenCalledTimes(callsAtDeadline + 2)
+
+  it "ignores a cleared deadline callback from an older refresh session", async ->
+    vi.useFakeTimers()
+    const timeout = vi.spyOn(window, "setTimeout")
+    const load = vi.fn(async () => detail({ state: "planning" }))
+    render(<OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />)
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+    const staleDeadline = timeout.mock.calls.find(
+      ([, delay]) => delay === 300_000,
+    )?.[0]
+    if staleDeadline === undefined then throw new Error("missing refresh deadline")
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh run" }))
+    await act(async () =>
+      await Promise.resolve()
+      await Promise.resolve()
+    )
+    act(() => staleDeadline())
+
+    expect(screen.getByText(
+      "Automatic updates are active for five minutes. You can refresh this run at any time.",
+    )).toBeDefined()
+
+  it "drops queued focus work when unmounted after a successful action", async ->
+    const callbacks: Array<() => void> = []
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+    render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail({ state: "blocked" })),
+        retry: vi.fn(async () => detail({ state: "planning" })),
+      })}
+      id="run-1"
+    />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    vi.stubGlobal("queueMicrotask", vi.fn((callback: () => void) =>
+      callbacks.push(callback)
+    ))
+    fireEvent.click(screen.getByRole("button", { name: "Retry run" }))
+    expect(await screen.findByText("Retry requested.")).toBeDefined()
+    cleanup()
+    focus.mockClear()
+
+    for (const callback of callbacks) callback()
+    expect(focus).not.toHaveBeenCalled()
+
+  it "drops late action errors and focus work after unmount", async ->
+    const messageRequest = deferred<OperatorRunDetailOutput>()
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+    const mounted = render(<OperatorRunDetail
+      gateway={gatewayWith({
+        detail: vi.fn(async () => detail()),
+        message: vi.fn(() => messageRequest.promise),
+      })}
+      id="run-1"
+    />)
+    await screen.findByRole("heading", { name: "Release recovery" })
+    fireEvent.change(screen.getByLabelText("Add operator message"), {
+      target: { value: "Late message" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }))
+    mounted.unmount()
+    focus.mockClear()
+
+    await act(async () =>
+      messageRequest.reject({ code: "FORBIDDEN" })
+      await Promise.resolve()
+    )
+    expect(focus).not.toHaveBeenCalled()
+    expect(screen.queryByText("You do not have access to this workflow run.")).toBeNull()
+
+  it "ignores successful and failed detail loads after unmount", async ->
+    const lateSuccess = deferred<OperatorRunDetailOutput>()
+    const first = render(<OperatorRunDetail
+      gateway={gatewayWith({ detail: vi.fn(() => lateSuccess.promise) })}
+      id="run-1"
+    />)
+    first.unmount()
+    await act(async () =>
+      lateSuccess.resolve(detail({ title: "Late detail" }))
+      await Promise.resolve()
+    )
+    expect(screen.queryByText("Late detail")).toBeNull()
+
+    const lateFailure = deferred<OperatorRunDetailOutput>()
+    const second = render(<OperatorRunDetail
+      gateway={gatewayWith({ detail: vi.fn(() => lateFailure.promise) })}
+      id="run-1"
+    />)
+    second.unmount()
+    await act(async () =>
+      lateFailure.reject({ code: "NOT_FOUND" })
+      await Promise.resolve()
+    )
+    expect(screen.queryByText("Workflow run unavailable")).toBeNull()
+
+describe "approval panel behavior", ->
+  it "forwards fresh decisions and restricts stale conflicts to reload", ->
+    const onApprove = vi.fn()
+    const onReject = vi.fn()
+    const onReload = vi.fn()
+    const onRequestChanges = vi.fn(async () => true)
+    const mounted = render(<ApprovalPanel
+      approval={approval}
+      implementationPlan={implementationPlan}
+      busyAction={null}
+      canRequestChanges
+      onApprove={onApprove}
+      onReject={onReject}
+      onReload={onReload}
+      onRequestChanges={onRequestChanges}
+    />)
+    fireEvent.click(screen.getByRole("button", { name: "Approve this plan" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reject plan" }))
+    expect(onApprove).toHaveBeenCalledOnce()
+    expect(onReject).toHaveBeenCalledOnce()
+    fireEvent.change(screen.getByLabelText("What should change?"), {
+      target: { value: "Clarify the rollout" },
+    })
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(false)
+
+    mounted.rerender(<ApprovalPanel
+      approval={{ ...approval, stale: true }}
+      implementationPlan={implementationPlan}
+      busyAction={null}
+      canRequestChanges
+      onApprove={onApprove}
+      onReject={onReject}
+      onReload={onReload}
+      onRequestChanges={onRequestChanges}
+    />)
+    expect((screen.getByRole("button", { name: "Approve this plan" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Reject plan" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "Reload plan" }))
+    expect(onReload).toHaveBeenCalledOnce()
+
+  it "rejects a revision above the UTF-8 byte limit before the request callback", ->
+    const onRequestChanges = vi.fn(async () => true)
+    render(<ApprovalPanel
+      approval={approval}
+      implementationPlan={implementationPlan}
+      busyAction={null}
+      canRequestChanges
+      onApprove={vi.fn()}
+      onReject={vi.fn()}
+      onReload={vi.fn()}
+      onRequestChanges={onRequestChanges}
+    />)
+    const input = screen.getByLabelText("What should change?")
+    fireEvent.change(input, { target: { value: "é".repeat(600) } })
+
+    expect(input.getAttribute("maxlength")).toBeNull()
+    expect(screen.getByText("1,200 / 1,024 bytes")).toBeDefined()
+    expect(screen.getByRole("alert").textContent).toContain("1,024 UTF-8 bytes or fewer")
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.submit(input.closest("form")!)
+    expect(onRequestChanges).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: "é".repeat(512) } })
+    expect(screen.getByText("1,024 / 1,024 bytes")).toBeDefined()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.submit(input.closest("form")!)
+    expect(onRequestChanges).toHaveBeenCalledWith("é".repeat(512))
+
+  it "rejects a multiline revision before the request callback", ->
+    const onRequestChanges = vi.fn(async () => true)
+    render(<ApprovalPanel
+      approval={approval}
+      implementationPlan={implementationPlan}
+      busyAction={null}
+      canRequestChanges
+      onApprove={vi.fn()}
+      onReject={vi.fn()}
+      onReload={vi.fn()}
+      onRequestChanges={onRequestChanges}
+    />)
+    const input = screen.getByLabelText("What should change?")
+    fireEvent.change(input, { target: { value: "Clarify the bounded\nrelease" } })
+
+    expect(input.getAttribute("aria-invalid")).toBe("true")
+    expect(input.getAttribute("aria-describedby")).toContain("plan-revision-error")
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Use one line without control characters.",
+    )
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.submit(input.closest("form")!)
+    expect(onRequestChanges).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: " Clarify safely\n" } })
+    expect(input.getAttribute("aria-invalid")).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect((screen.getByRole("button", { name: "Request changes" }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.submit(input.closest("form")!)
+    expect(onRequestChanges).toHaveBeenCalledWith("Clarify safely")
+
+
+describe "operator conversation behavior", ->
+  it "renders empty, populated, busy, and failure states", ->
+    const mounted = render(<ConversationPanel busy={false} implementationPlan={null} messages={[]} onSend={vi.fn(async () => true)} originalRequest="Plan safely" planRevisions={[]} runState="draft" />)
+    expect(screen.getByText(/No notes have been added/)).toBeDefined()
+    expect((screen.getByRole("button", { name: "Add note" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByLabelText("Add operator message").getAttribute("maxlength")).toBe("2000")
+    expect(screen.getByLabelText("Add operator message").getAttribute("aria-describedby")).toBe("operator-message-hint")
+
+    mounted.rerender(<ConversationPanel
+      busy
+      failureMessage="Message could not be stored."
+      implementationPlan={implementationPlan}
+      runState="awaitingApproval"
+      planRevisions={[]}
+      messages={[{
+        id: "message-1",
+        authorLabel: "Operator Jane",
+        body: "Bounded\ncontext",
+        createdAt: new Date("2026-07-29T12:30:00.000Z"),
+      }]}
+      onSend={vi.fn(async () => true)}
+      originalRequest="Plan safely"
+    />)
+    expect(screen.getByText("Operator Jane")).toBeDefined()
+    expect(screen.getByText(/Bounded/).textContent?.replace(/\s+/gu, " ")).toContain("Bounded context")
+    expect(screen.getByRole("alert").textContent).toContain("Message could not be stored.")
+    expect((screen.getByRole("button", { name: /Adding operator note/ }) as HTMLButtonElement).disabled).toBe(true)
+
+  it "ignores whitespace and busy submissions and prevents an in-flight duplicate", async ->
+    const request = deferred<boolean>()
+    const onSend = vi.fn(() => request.promise)
+    const mounted = render(<ConversationPanel busy={false} implementationPlan={null} messages={[]} onSend={onSend} originalRequest="Plan safely" planRevisions={[]} runState="planning" />)
+    const input = screen.getByLabelText("Add operator message")
+    fireEvent.change(input, { target: { value: "   " } })
+    fireEvent.submit(input.closest("form")!)
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: "  Context  " } })
+    fireEvent.submit(input.closest("form")!)
+    fireEvent.submit(input.closest("form")!)
+    expect(onSend).toHaveBeenCalledOnce()
+    await act(async () =>
+      request.resolve(false)
+      await Promise.resolve()
+    )
+    expect((input as HTMLTextAreaElement).value).toBe("  Context  ")
+
+    mounted.rerender(<ConversationPanel busy implementationPlan={null} messages={[]} onSend={onSend} originalRequest="Plan safely" planRevisions={[]} runState="planning" />)
+    fireEvent.submit(input.closest("form")!)
+    expect(onSend).toHaveBeenCalledOnce()
+
+  it "reuses a failed-send key, rotates it after editing, and clears successful text", async ->
+    const onSend = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce("message-retry-key")
+      .mockReturnValueOnce("message-changed-key")
+    vi.stubGlobal("crypto", { randomUUID })
+    render(<ConversationPanel busy={false} implementationPlan={null} messages={[]} onSend={onSend} originalRequest="Plan safely" planRevisions={[]} runState="planning" />)
+    const input = screen.getByLabelText("Add operator message")
+
+    fireEvent.change(input, { target: { value: " First message " } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1))
+    expect((input as HTMLTextAreaElement).value).toBe(" First message ")
+
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""))
+    expect(onSend.mock.calls[0]).toEqual(["First message", "message-retry-key"])
+    expect(onSend.mock.calls[1]).toEqual(["First message", "message-retry-key"])
+
+    fireEvent.change(input, { target: { value: "Changed payload" } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(3))
+    expect(onSend.mock.calls[2]).toEqual(["Changed payload", "message-changed-key"])
+
+
+  it "does not clear a late successful message after unmount", async ->
+    const request = deferred<boolean>()
+    const onSend = vi.fn(() => request.promise)
+    const mounted = render(<ConversationPanel busy={false} implementationPlan={null} messages={[]} onSend={onSend} originalRequest="Plan safely" planRevisions={[]} runState="planning" />)
+    const input = screen.getByLabelText("Add operator message")
+    fireEvent.change(input, { target: { value: "Late success" } })
+    fireEvent.submit(input.closest("form")!)
+    mounted.unmount()
+
+    await act(async () =>
+      request.resolve(true)
+      await Promise.resolve()
+    )
+    expect(onSend).toHaveBeenCalledWith("Late success", expect.any(String))
+    expect(screen.queryByDisplayValue("Late success")).toBeNull()

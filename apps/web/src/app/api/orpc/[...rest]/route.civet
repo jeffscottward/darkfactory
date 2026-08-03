@@ -3,7 +3,6 @@ import { waitUntil } from "cloudflare:workers"
 import { CONTACT_ERRORS } from "@darkfactory/api"
 import {
   createApiContext,
-  createOperatorWorkflowPort,
   resolveApiRequestId,
 } from "@darkfactory/api/server"
 import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog"
@@ -22,7 +21,6 @@ import {
   REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
   RequestDatabaseCapacityError,
   createRequestDatabase,
-  createWorkflowRepository,
   createContactThrottleRepository,
 } from "@darkfactory/db/server"
 import { selectEmailPort } from "@darkfactory/email/server"
@@ -34,10 +32,6 @@ import {
 import { createSemanticEventFanout } from "@darkfactory/observability/server/fanout"
 import { initializeTelemetry } from "@darkfactory/observability/server/otel"
 
-import {
-  isWorkflowRepositoryGranted,
-  parseWorkflowRepositoryGrants,
-} from "@darkfactory/state/workflow"
 import {
   createBackgroundTaskLifecycle,
   type BackgroundTaskScheduler,
@@ -111,9 +105,6 @@ export const ORPC_REQUEST_MAX_BYTES = 1024 * 1024
 export const ORPC_DATABASE_CONCURRENCY_LIMIT =
   REQUEST_DATABASE_POOL_MAX_CONNECTIONS
 const ORPC_DATABASE_RETRY_AFTER_SECONDS = 1
-const EMPTY_WORKFLOW_REPOSITORY_GRANTS: ReturnType<
-  typeof parseWorkflowRepositoryGrants
-> = Object.freeze([])
 
 let activeDatabaseRequests = 0
 
@@ -198,10 +189,6 @@ export const handleOrpcRuntimeRequest = async (
   scheduleBackgroundTask: BackgroundTaskScheduler,
 ): Promise<Response> =>
   const env = parseServerEnv(process.env)
-  const workflowRepositoryGrants =
-    env.WORKFLOW_REPOSITORY_GRANTS === undefined
-      ? EMPTY_WORKFLOW_REPOSITORY_GRANTS
-      : parseWorkflowRepositoryGrants(env.WORKFLOW_REPOSITORY_GRANTS)
   const method = request.method.toUpperCase()
   if (!SUPPORTED_ORPC_METHODS.includes(method)) return methodNotAllowedResponse()
   const previewOptions = resolveE2eEmailPreviewOptions()
@@ -333,24 +320,9 @@ export const handleOrpcRuntimeRequest = async (
             resolveConsent: () => resolveAnalyticsConsent(request),
           })
           const repositories = createRepositories(database.db)
-          const authorizeRepository = (
-            ownerId: string,
-            repositoryId: string,
-          ): boolean =>
-            isWorkflowRepositoryGranted(
-              workflowRepositoryGrants,
-              ownerId,
-              repositoryId,
-            )
-          const workflowOperator = createOperatorWorkflowPort({
-            repository:
-              repositories.workflows ?? createWorkflowRepository(database.db),
-            authorizeRepository,
-          })
           const context = createApiContext(effectiveRequest, {
             repositories,
             capabilities: getProviderCapabilities(env),
-            workflowOperator,
             requireSession: (headers) => requireSession(auth, headers),
             requireRole: (headers, role) => requireRole(auth, headers, role),
             requestId,
@@ -365,8 +337,12 @@ export const handleOrpcRuntimeRequest = async (
           })
           return await handleOrpcRequest(effectiveRequest, context)
         finally
-          await backgroundTasks.finalize()
-          admission.transfer()
+          const finalization = backgroundTasks.finalize()
+          try
+            scheduleBackgroundTask(finalization)
+            admission.transfer()
+          catch
+            await finalization
     )
   )
 

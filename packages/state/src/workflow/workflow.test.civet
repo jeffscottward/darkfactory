@@ -59,7 +59,7 @@ const submit = (): Extract<WorkflowEventV1, { readonly type: "RUN_SUBMITTED" }> 
   taskHash: H
   scope
 })
-const plan = (): WorkflowEventV1 => ({
+const plan = (): Extract<WorkflowEventV1, { readonly type: "PLAN_SUCCEEDED" }> => ({
   ...base("plan")
   type: "PLAN_SUCCEEDED"
   planEvidenceId: "plan-evidence"
@@ -204,6 +204,93 @@ describe "workflow v1 contract", ->
     })
     expect(result.snapshot.state).toBe("cancelled")
     expect(result.effects).toEqual([])
+
+
+  it "requests a bounded plan revision and invalidates the stale approval binding", ->
+    const submitted = live(initial(), submit())
+    const awaiting = live(submitted.snapshot, plan()).snapshot
+    const staleApproval = approve(awaiting)
+    const revised = live(awaiting, {
+      ...base("revise-plan")
+      type: "PLAN_REVISION_REQUESTED"
+      clarification: "Keep the plan to the operator backend only."
+    })
+
+    expect(revised.snapshot).toMatchObject({
+      state: "planning"
+      context: {
+        taskRevision: 2
+        planEvidenceId: null
+        planHash: null
+        approvalId: null
+        approvalHash: null
+        failedStage: null
+        lastErrorCode: null
+      }
+    })
+    expect(revised.effects).toHaveLength(1)
+    expect(revised.effects[0]).toMatchObject({
+      kind: "plan"
+      attempt: 1
+      payload: {
+        planClarification: "Keep the plan to the operator backend only."
+        evidenceIds: []
+      }
+    })
+    expect(revised.effects[0]?.idempotencyKey)
+      .not.toBe(submitted.effects[0]?.idempotencyKey)
+    expect(() => live(revised.snapshot, staleApproval)).toThrow(
+      "not accepted from planning"
+    )
+
+    const replanned = live(revised.snapshot, {
+      ...plan()
+      eventId: "revised-plan"
+      planEvidenceId: "revised-plan-evidence"
+      planHash: H2
+    })
+    expect(() => live(replanned.snapshot, staleApproval)).toThrow(
+      "Stale workflow approval"
+    )
+
+  it "accepts plan revision only while awaiting approval or blocked in planning", ->
+    const planningBlocked = live(planning(), {
+      ...base("failed-plan-before-revision")
+      type: "EFFECT_FAILED"
+      effectKind: "plan"
+      failure
+    }).snapshot
+    expect(live(planningBlocked, {
+      ...base("revise-blocked-plan")
+      type: "PLAN_REVISION_REQUESTED"
+      clarification: "Use a smaller backend slice."
+    }).snapshot.state).toBe("planning")
+
+    const implementationBlocked = live(implementing(), {
+      ...base("failed-implementation-before-revision")
+      type: "EFFECT_FAILED"
+      effectKind: "implement"
+      failure
+    }).snapshot
+    for snapshot of [initial(), planning(), implementing(), verifying(), implementationBlocked]
+      expect(() => live(snapshot, {
+        ...base(`invalid-revision-${snapshot.state}`)
+        type: "PLAN_REVISION_REQUESTED"
+        clarification: "Revise this plan."
+      })).toThrow()
+
+  it "rejects empty, control-bearing, and oversized plan clarifications", ->
+    for clarification of [
+      ""
+      "   "
+      "line one\nline two"
+      "é".repeat(513)
+    ]
+      expect(() => live(awaitingApproval(), {
+        ...base("invalid-plan-clarification")
+        type: "PLAN_REVISION_REQUESTED"
+        clarification
+      })).toThrow("Invalid workflow event")
 
   it.each([
     ["planning", "plan", planning]
@@ -768,6 +855,11 @@ describe "workflow invariant guards", ->
     })).toBe(false)
 
   it "rejects malformed failure evidence and every event-specific missing field", ->
+    const revisionRequested: WorkflowEventV1 = {
+      ...base("revision")
+      type: "PLAN_REVISION_REQUESTED"
+      clarification: "Keep the plan bounded."
+    }
     const rejected: WorkflowEventV1 = {
       ...base("rejected")
       type: "APPROVAL_REJECTED"
@@ -803,6 +895,7 @@ describe "workflow invariant guards", ->
     const events: readonly WorkflowEventV1[] = [
       submit()
       plan()
+      revisionRequested
       approve(awaitingApproval())
       rejected
       implementation()
@@ -816,7 +909,7 @@ describe "workflow invariant guards", ->
     for event of events
       expect(isWorkflowEventV1(event)).toBe(true)
     expect(isWorkflowEventV1({
-      ...events[6]
+      ...events[7]
       failure: { code: "", retryable: "yes", evidenceId: "" }
     })).toBe(false)
     expect(isWorkflowEventV1({
@@ -834,9 +927,9 @@ describe "workflow invariant guards", ->
         }
       }
     })).toBe(false)
-    expect(isWorkflowEventV1({ ...events[7], effectKind: "unknown" })).toBe(false)
-    expect(isWorkflowEventV1({ ...events[8], reasonCode: "" })).toBe(false)
-    expect(isWorkflowEventV1({ ...events[10], messageId: "" })).toBe(false)
+    expect(isWorkflowEventV1({ ...events[8], effectKind: "unknown" })).toBe(false)
+    expect(isWorkflowEventV1({ ...events[9], reasonCode: "" })).toBe(false)
+    expect(isWorkflowEventV1({ ...events[11], messageId: "" })).toBe(false)
     for invalid of [
       null
       { ...submit(), eventId: "" }

@@ -50,6 +50,11 @@
     "lint:staged",
     "openapi:check",
     "openapi:generate",
+    "operator:bindings",
+    "operator:dev",
+    "operator:logs",
+    "operator:status",
+    "operator:stop",
     "prepare",
     "test",
     "test:a11y",
@@ -106,9 +111,7 @@
       "workspaceDependencies": [
         "@darkfactory/auth",
         "@darkfactory/db",
-        "@darkfactory/jobs",
-        "@darkfactory/observability",
-        "@darkfactory/state"
+        "@darkfactory/observability"
       ]
     },
     {
@@ -174,6 +177,7 @@
         "./server/omp",
         "./server/pilot-worker",
         "./server/plan-evidence",
+        "./server/wayfinder",
         "./server/workflow-runtime",
         "./server/workflow-worker",
         "./test"
@@ -197,6 +201,38 @@
         "./test"
       ],
       "workspaceDependencies": []
+    },
+    {
+      "name": "@darkfactory/operator",
+      "version": "0.2.1",
+      "directory": "packages/operator",
+      "publicExports": [
+        ".",
+        "./client",
+        "./contract",
+        "./server"
+      ],
+      "workspaceDependencies": [
+        "@darkfactory/auth",
+        "@darkfactory/db",
+        "@darkfactory/jobs",
+        "@darkfactory/state"
+      ]
+    },
+    {
+      "name": "@darkfactory/operator-app",
+      "version": "0.2.1",
+      "directory": "apps/operator",
+      "publicExports": [],
+      "workspaceDependencies": [
+        "@darkfactory/auth",
+        "@darkfactory/config",
+        "@darkfactory/db",
+        "@darkfactory/email",
+        "@darkfactory/operator",
+        "@darkfactory/state",
+        "@darkfactory/ui"
+      ]
     },
     {
       "name": "@darkfactory/root",

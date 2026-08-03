@@ -6,11 +6,34 @@ import {
   readdir,
   rename,
   rm,
+  realpath,
   type FileHandle,
 } from "node:fs/promises"
-import { join } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 const MAX_BINDING_BYTES = 128 * 1024
+export type WorkerBindingsTarget = "web" | "operator"
+
+export const workerBindingsTargetPath = (target: WorkerBindingsTarget): string =>
+  target === "operator" ? "apps/operator/.dev.vars" : "apps/web/.dev.vars"
+
+const resolveWorkerBindingsTarget = async (
+  repositoryPath: string,
+  target: WorkerBindingsTarget,
+): Promise<string> =>
+  try
+    const repositoryRoot = await realpath(repositoryPath)
+    const requestedTarget = join(repositoryPath, workerBindingsTargetPath(target))
+    const requestedParent = dirname(requestedTarget)
+    const parentMetadata = await lstat(requestedParent)
+    if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink())
+      throw new Error("unsafe parent")
+    const parent = await realpath(requestedParent)
+    if (relative(repositoryRoot, parent) !== join("apps", target))
+      throw new Error("escaped parent")
+    return join(parent, ".dev.vars")
+  catch
+    throw new Error("Worker bindings directory is unsafe")
 const REQUIRED_BINDINGS = [
   "DATABASE_URL",
   "BETTER_AUTH_SECRET",
@@ -64,7 +87,9 @@ export const writeWorkerBindings = async (
 
 export const materializeWorkerBindings = async (
   repositoryPath = process.cwd(),
+  target: WorkerBindingsTarget = "web",
 ): Promise<void> =>
+  const targetPath = await resolveWorkerBindingsTarget(repositoryPath, target)
   const result = spawnSync(
     "varlock",
     ["load", "--format", "env", "--compact"],
@@ -78,10 +103,7 @@ export const materializeWorkerBindings = async (
   )
   if (result.status !== 0 || result.error !== undefined)
     throw new Error("Unable to resolve validated Worker bindings")
-  await writeWorkerBindings(
-    join(repositoryPath, "apps/web/.dev.vars"),
-    result.stdout,
-  )
+  await writeWorkerBindings(targetPath, result.stdout)
 
 export const listTemporaryBindingFiles = async (
   directory: string,

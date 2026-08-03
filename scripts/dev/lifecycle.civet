@@ -1,10 +1,66 @@
-export const PROCESS_NAME = "darkfactory-web-dev"
-export const ROUTE_NAME = "darkfactory"
-export const CANONICAL_URL = "https://darkfactory.localhost"
+export type DevelopmentProfile = Readonly<{
+  processName: string
+  routeName: string
+  canonicalUrl: string
+  command: Readonly<{
+    executable: string
+    arguments: readonly string[]
+  }>
+}>
+
+export const WEB_DEVELOPMENT_PROFILE: DevelopmentProfile = Object.freeze({
+  processName: "darkfactory-web-dev",
+  routeName: "darkfactory",
+  canonicalUrl: "https://darkfactory.localhost",
+  command: Object.freeze({
+    executable: "bun",
+    arguments: Object.freeze(["run", "dev"]),
+  }),
+})
+export const OPERATOR_DEVELOPMENT_PROFILE: DevelopmentProfile = Object.freeze({
+  processName: "darkfactory-operator-dev",
+  routeName: "operator.darkfactory",
+  canonicalUrl: "https://operator.darkfactory.localhost",
+  command: Object.freeze({
+    executable: "bunx",
+    arguments: Object.freeze([
+      "--no-install",
+      "turbo",
+      "run",
+      "dev",
+      "--filter=@darkfactory/operator-app",
+    ]),
+  }),
+})
+
+export const PROCESS_NAME = WEB_DEVELOPMENT_PROFILE.processName
+export const ROUTE_NAME = WEB_DEVELOPMENT_PROFILE.routeName
+export const CANONICAL_URL = WEB_DEVELOPMENT_PROFILE.canonicalUrl
 export const MAX_COMMAND_OUTPUT_BYTES = 1_048_576
-export const PM2_ENVIRONMENT_VERSION = "2"
+export const PM2_ENVIRONMENT_VERSION = "3"
+export const POST_START_READINESS_RETRY_DELAY_MS = 250
+export const POST_START_READINESS_MAX_RETRIES = 80
 
 export const PM2_ENVIRONMENT_VERSION_KEY = "DARKFACTORY_PM2_ENVIRONMENT_VERSION"
+export const SAFE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "__CF_USER_TEXT_ENCODING",
+  "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS",
+  "PM2_HOME",
+  "COREPACK_HOME",
+] as const)
+const PM2_PERSISTED_ENVIRONMENT_KEYS = Object.freeze([
+  "PM2_USAGE",
+  "NODE_APP_INSTANCE",
+  "unique_id",
+] as const)
 const SENSITIVE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
   "DATABASE_URL",
   "BETTER_AUTH_SECRET",
@@ -95,9 +151,24 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? value as Record<string, unknown>
     : null
 
+const hasUnexpectedPersistedEnvironment = (
+  environment: Record<string, unknown> | null,
+  profile: DevelopmentProfile,
+): boolean =>
+  const persisted = asRecord(environment?.["env"])
+  if (persisted === null) return false
+  return Object.keys(persisted).some((key) =>
+    key !== "PORTLESS_PORT" &&
+    key !== PM2_ENVIRONMENT_VERSION_KEY &&
+    key !== profile.processName &&
+    !SAFE_PROCESS_ENVIRONMENT_KEYS.some((allowed) => allowed === key) &&
+    !PM2_PERSISTED_ENVIRONMENT_KEYS.some((allowed) => allowed === key)
+  )
+
 export const parsePm2ProcessList = (
   source: string,
   expectedWorkingDirectory: string,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
 ): Readonly<{ status: ProcessStatus; processId?: number }> =>
   if (Buffer.byteLength(source, "utf8") > MAX_COMMAND_OUTPUT_BYTES)
     throw new Error("PM2 status output is too large")
@@ -109,8 +180,9 @@ export const parsePm2ProcessList = (
     throw new Error("PM2 status output is malformed")
   if (!Array.isArray(parsed)) throw new Error("PM2 status output must be a process list")
 
-  const matches = parsed.filter((entry) => asRecord(entry)?.["name"] === PROCESS_NAME)
-  if (matches.length > 1) throw new Error(`PM2 has duplicate ${PROCESS_NAME} processes`)
+  const matches = parsed.filter((entry) => asRecord(entry)?.["name"] === profile.processName)
+  if (matches.length > 1)
+    throw new Error(`PM2 has duplicate ${profile.processName} processes`)
   if (matches.length === 0) return Object.freeze({ status: "absent" })
 
   const process = asRecord(matches[0])
@@ -122,23 +194,26 @@ export const parsePm2ProcessList = (
   const executableName = typeof executable === "string"
     ? executable.replaceAll("\\", "/").split("/").at(-1)
     : undefined
+  const expectedArguments = [
+    profile.routeName,
+    profile.command.executable,
+    ...profile.command.arguments,
+  ]
   const validArguments = Array.isArray(arguments_) &&
-    arguments_.length === 4 &&
-    arguments_[0] === ROUTE_NAME &&
-    arguments_[1] === "bun" &&
-    arguments_[2] === "run" &&
-    arguments_[3] === "dev"
+    arguments_.length === expectedArguments.length &&
+    arguments_.every((argument, index) => argument === expectedArguments[index])
   if (
     !Number.isSafeInteger(processId) ||
     Number(processId) < 0 ||
     executableName !== "portless" ||
     workingDirectory !== expectedWorkingDirectory ||
     !validArguments
-  ) throw new Error(`${PROCESS_NAME} is owned by an unexpected command`)
+  ) throw new Error(`${profile.processName} is owned by an unexpected command`)
 
   if (
     environment?.[PM2_ENVIRONMENT_VERSION_KEY] !== PM2_ENVIRONMENT_VERSION ||
-    SENSITIVE_PROCESS_ENVIRONMENT_KEYS.some((key) => Object.hasOwn(environment, key))
+    SENSITIVE_PROCESS_ENVIRONMENT_KEYS.some((key) => Object.hasOwn(environment, key)) ||
+    hasUnexpectedPersistedEnvironment(environment, profile)
   )
     return Object.freeze({ status: "stale", processId: processId as number })
   const status = environment?.["status"]
@@ -146,12 +221,15 @@ export const parsePm2ProcessList = (
     return Object.freeze({ status, processId: processId as number })
   return Object.freeze({ status: "unknown", processId: processId as number })
 
-const containsExactCanonicalUrl = (source: string): boolean =>
+const containsExactCanonicalUrl = (
+  source: string,
+  profile: DevelopmentProfile,
+): boolean =>
   source.split(/\s+/).some((value) =>
     try
       const route = new URL(value)
       return route.protocol === "https:" &&
-        route.hostname === `${ROUTE_NAME}.localhost` &&
+        route.hostname === `${profile.routeName}.localhost` &&
         route.port === "" &&
         route.pathname === "/" &&
         route.search === "" &&
@@ -162,11 +240,15 @@ const containsExactCanonicalUrl = (source: string): boolean =>
       return false
   )
 
-export const isCanonicalRouteOutput = (result: CommandResult): boolean =>
-  result.exitCode === 0 && containsExactCanonicalUrl(result.stdout)
+export const isCanonicalRouteOutput = (
+  result: CommandResult,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
+): boolean =>
+  result.exitCode === 0 && containsExactCanonicalUrl(result.stdout, profile)
 
 export const inspectDevelopmentState = async (
   process: ProcessAdapter,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
 ): Promise<DevelopmentReport> =>
   if (!await process.pm2DaemonAvailable())
     return Object.freeze({
@@ -175,8 +257,8 @@ export const inspectDevelopmentState = async (
       changed: false,
       processStatus: "absent",
       routeHealthy: false,
-      canonicalUrl: CANONICAL_URL,
-      reason: `${PROCESS_NAME} is absent`,
+      canonicalUrl: profile.canonicalUrl,
+      reason: `${profile.processName} is absent`,
     })
 
   const pm2 = await process.run("pm2", ["jlist"], {
@@ -193,7 +275,7 @@ export const inspectDevelopmentState = async (
 
   let parsed: Readonly<{ status: ProcessStatus; processId?: number }>
   try
-    parsed = parsePm2ProcessList(pm2.stdout, process.workingDirectory)
+    parsed = parsePm2ProcessList(pm2.stdout, process.workingDirectory, profile)
   catch (error)
     return Object.freeze({
       action: "status",
@@ -210,17 +292,17 @@ export const inspectDevelopmentState = async (
       processStatus: parsed.status,
       ...(parsed.processId === undefined ? {} : { processId: parsed.processId }),
       routeHealthy: false,
-      canonicalUrl: CANONICAL_URL,
+      canonicalUrl: profile.canonicalUrl,
       reason: parsed.status === "absent"
-        ? `${PROCESS_NAME} is absent`
-        : `${PROCESS_NAME} is ${parsed.status}`,
+        ? `${profile.processName} is absent`
+        : `${profile.processName} is ${parsed.status}`,
     })
 
   const routes = await process.run("portless", ["list"], commandOptions)
-  const route = await process.run("portless", ["get", ROUTE_NAME], commandOptions)
-  const healthy = isCanonicalRouteOutput(routes) &&
-    isCanonicalRouteOutput(route) &&
-    await process.probeHttps(CANONICAL_URL).catch(() => false)
+  const route = await process.run("portless", ["get", profile.routeName], commandOptions)
+  const healthy = isCanonicalRouteOutput(routes, profile) &&
+    isCanonicalRouteOutput(route, profile) &&
+    await process.probeHttps(profile.canonicalUrl).catch(() => false)
   return Object.freeze({
     action: "status",
     ok: healthy,
@@ -228,10 +310,10 @@ export const inspectDevelopmentState = async (
     processStatus: parsed.status,
     processId: parsed.processId!,
     routeHealthy: healthy,
-    canonicalUrl: CANONICAL_URL,
+    canonicalUrl: profile.canonicalUrl,
     reason: healthy
-      ? `${PROCESS_NAME} is online at ${CANONICAL_URL}`
-      : `${PROCESS_NAME} is online but its portless route is unhealthy`,
+      ? `${profile.processName} is online at ${profile.canonicalUrl}`
+      : `${profile.processName} is online but its portless route is unhealthy`,
   })
 
 const runSimpleAction = async (
@@ -263,8 +345,30 @@ const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | n
     ? null
     : "Canonical HTTPS proxy failed; run bun run dev:trust and retry"
 
-const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> =>
-  let initial = await inspectDevelopmentState(process)
+const inspectPostStartReadiness = async (
+  process: ProcessAdapter,
+  profile: DevelopmentProfile,
+): Promise<DevelopmentReport> =>
+  let current = await inspectDevelopmentState(process, profile)
+  let retriesRemaining = POST_START_READINESS_MAX_RETRIES
+  while (
+    !current.ok &&
+    current.processStatus === "online" &&
+    current.routeHealthy === false &&
+    retriesRemaining > 0
+  )
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, POST_START_READINESS_RETRY_DELAY_MS)
+    )
+    current = await inspectDevelopmentState(process, profile)
+    retriesRemaining -= 1
+  return current
+
+const startDevelopment = async (
+  process: ProcessAdapter,
+  profile: DevelopmentProfile,
+): Promise<DevelopmentReport> =>
+  let initial = await inspectDevelopmentState(process, profile)
   let replacedStaleProcess = false
   if (initial.processStatus === "stale" && initial.processId !== undefined)
     const deleted = await process.run(
@@ -276,7 +380,7 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       return Object.freeze({
         ...initial,
         action: "start",
-        reason: `PM2 could not remove stale ${PROCESS_NAME}`,
+        reason: `PM2 could not remove stale ${profile.processName}`,
       })
     const cleaned = await process.run("pm2", ["save"], commandOptions)
     if (cleaned.exitCode !== 0)
@@ -284,7 +388,7 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
         ...initial,
         action: "start",
         changed: true,
-        reason: `PM2 removed stale ${PROCESS_NAME} but could not save its process list`,
+        reason: `PM2 removed stale ${profile.processName} but could not save its process list`,
       })
     replacedStaleProcess = true
     initial = Object.freeze({
@@ -293,8 +397,8 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       changed: true,
       processStatus: "absent",
       routeHealthy: false,
-      canonicalUrl: CANONICAL_URL,
-      reason: `${PROCESS_NAME} stale process environment was removed`,
+      canonicalUrl: profile.canonicalUrl,
+      reason: `${profile.processName} stale process environment was removed`,
     })
   if (initial.processStatus === "online")
     return Object.freeze({ ...initial, action: "start" })
@@ -309,12 +413,23 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       changed: replacedStaleProcess,
       processStatus: initial.processStatus,
       routeHealthy: false,
-      canonicalUrl: CANONICAL_URL,
+      canonicalUrl: profile.canonicalUrl,
       reason: proxyFailure,
     })
 
   const startArguments = initial.processStatus === "absent"
-    ? ["start", "portless", "--name", PROCESS_NAME, "--", ROUTE_NAME, "bun", "run", "dev"]
+    ? [
+      "start",
+      "portless",
+      "--interpreter",
+      "none",
+      "--name",
+      profile.processName,
+      "--",
+      profile.routeName,
+      profile.command.executable,
+      ...profile.command.arguments,
+    ]
     : ["start", String(initial.processId)]
   const started = await process.run("pm2", startArguments, {
     ...commandOptions,
@@ -331,8 +446,8 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       changed: replacedStaleProcess,
       processStatus: initial.processStatus,
       routeHealthy: false,
-      canonicalUrl: CANONICAL_URL,
-      reason: `PM2 could not start ${PROCESS_NAME}`,
+      canonicalUrl: profile.canonicalUrl,
+      reason: `PM2 could not start ${profile.processName}`,
     })
 
   const saved = await process.run("pm2", ["save"], commandOptions)
@@ -344,11 +459,14 @@ const startDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRep
       reason: "PM2 started the process but could not save its process list",
     })
 
-  const current = await inspectDevelopmentState(process)
+  const current = await inspectPostStartReadiness(process, profile)
   return Object.freeze({ ...current, action: "start", changed: true })
 
-const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentReport> =>
-  const current = await inspectDevelopmentState(process)
+const stopDevelopment = async (
+  process: ProcessAdapter,
+  profile: DevelopmentProfile,
+): Promise<DevelopmentReport> =>
+  const current = await inspectDevelopmentState(process, profile)
   if (current.processStatus === "stale" && current.processId !== undefined)
     const deleted = await process.run(
       "pm2",
@@ -359,7 +477,7 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
       return Object.freeze({
         ...current,
         action: "stop",
-        reason: `PM2 could not remove stale ${PROCESS_NAME}`,
+        reason: `PM2 could not remove stale ${profile.processName}`,
       })
     const saved = await process.run("pm2", ["save"], commandOptions)
     return Object.freeze({
@@ -368,8 +486,8 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
       changed: true,
       processStatus: "absent",
       reason: saved.exitCode === 0
-        ? `${PROCESS_NAME} stale process environment removed and PM2 state saved`
-        : `${PROCESS_NAME} stale process environment removed but PM2 state could not be saved`,
+        ? `${profile.processName} stale process environment removed and PM2 state saved`
+        : `${profile.processName} stale process environment removed but PM2 state could not be saved`,
     })
   if (current.processStatus === "absent" || current.processStatus === "stopped")
     return Object.freeze({
@@ -377,7 +495,7 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
       ok: true,
       changed: false,
       processStatus: current.processStatus,
-      reason: `${PROCESS_NAME} is already stopped`,
+      reason: `${profile.processName} is already stopped`,
     })
   if (current.processStatus !== "online" || current.processId === undefined)
     return Object.freeze({ ...current, action: "stop" })
@@ -387,7 +505,7 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
       action: "stop",
       ok: false,
       changed: false,
-      reason: `${PROCESS_NAME} could not be stopped`,
+      reason: `${profile.processName} could not be stopped`,
     })
   const saved = await process.run("pm2", ["save"], commandOptions)
   return Object.freeze({
@@ -395,12 +513,15 @@ const stopDevelopment = async (process: ProcessAdapter): Promise<DevelopmentRepo
     ok: saved.exitCode === 0,
     changed: true,
     reason: saved.exitCode === 0
-      ? `${PROCESS_NAME} stopped and PM2 state saved`
-      : `${PROCESS_NAME} stopped but PM2 state could not be saved`,
+      ? `${profile.processName} stopped and PM2 state saved`
+      : `${profile.processName} stopped but PM2 state could not be saved`,
   })
 
-const readDevelopmentLogs = async (process: ProcessAdapter): Promise<DevelopmentReport> =>
-  const current = await inspectDevelopmentState(process)
+const readDevelopmentLogs = async (
+  process: ProcessAdapter,
+  profile: DevelopmentProfile,
+): Promise<DevelopmentReport> =>
+  const current = await inspectDevelopmentState(process, profile)
   if (current.processStatus !== "online" || current.processId === undefined)
     return Object.freeze({ ...current, action: "logs" })
   const logs = await process.run(
@@ -415,18 +536,19 @@ const readDevelopmentLogs = async (process: ProcessAdapter): Promise<Development
     processStatus: current.processStatus,
     processId: current.processId,
     ...(logs.exitCode === 0 ? { output: logs.stdout } : {}),
-    reason: logs.exitCode === 0 ? `Read logs for ${PROCESS_NAME}` : "logs failed",
+    reason: logs.exitCode === 0 ? `Read logs for ${profile.processName}` : "logs failed",
   })
 
 export const runDevelopmentAction = async (
   action: DevelopmentAction,
   process: ProcessAdapter,
   files?: LifecycleFileSystem,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
 ): Promise<DevelopmentReport> =>
-  if (action === "start") return startDevelopment(process)
-  if (action === "status") return inspectDevelopmentState(process)
-  if (action === "stop") return stopDevelopment(process)
-  if (action === "logs") return readDevelopmentLogs(process)
+  if (action === "start") return startDevelopment(process, profile)
+  if (action === "status") return inspectDevelopmentState(process, profile)
+  if (action === "stop") return stopDevelopment(process, profile)
+  if (action === "logs") return readDevelopmentLogs(process, profile)
   if (action === "trust")
     return runSimpleAction(
       action,

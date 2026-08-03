@@ -15,36 +15,45 @@ The badges above are either live pointers to authoritative sources or versioned 
 
 ## Architecture
 
-A normal application request follows one owned path:
+DarkFactory has two separate application composition roots:
 
 ```text
-browser or external client
-  -> Vite/vinext route on Cloudflare-compatible runtime
-  -> oRPC contract validation + Better Auth context
-  -> application command or query
-  -> domain rule + application port
-  -> Drizzle repository/adapter
-  -> PostgreSQL
-  -> semantic event -> evlog / analytics port / OpenTelemetry
-  -> typed oRPC result or error
+deployable product
+  browser or external client
+    -> apps/web
+    -> packages/api product contract/service
+    -> domain port
+    -> Drizzle repository
+    -> PostgreSQL
+
+local development meta-layer
+  authenticated local browser
+    -> apps/operator
+    -> packages/operator contract/service
+    -> PostgreSQL workflow journal/outbox
+    -> durable queued Wayfinder plan effect
+    -> separately started packages/jobs pilot worker
+    -> local Wayfinder adapter -> scoped OMP adapter
 ```
 
-The oRPC contract is the API source of truth. OpenAPI is generated from it. Features do not call PostgreSQL, analytics, or provider SDKs directly.
+`apps/web` is the deployable end-user product. `apps/operator` is a separate, authenticated, local-only development meta-layer at <https://operator.darkfactory.localhost>. It is not a deployable business capability. `packages/api` owns product contracts only. `packages/operator` owns operator contracts and services. `packages/jobs` owns queued workflow execution and the local OMP and Wayfinder adapters. Browser code and the product Worker do not import the local execution surface.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for decision boundaries and [CONVENTIONS.md](CONVENTIONS.md) for implementation rules.
 
 ## Implemented surfaces
 
-The current route tree contains:
+The `apps/web` product route tree contains:
 
 - Public: `/`, `/about`, `/features`, `/solutions`, `/resources`, `/privacy`, `/terms`, `/legal/privacy`, and `/legal/terms`.
 - Authentication: `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password`, and `/verify-email`.
 - Portal: `/dashboard`, `/feature-items`, `/feature-items/new`, and `/feature-items/[id]`.
 - Account: `/account`, `/account/profile`, `/account/address`, `/account/preferences`, and `/account/security`.
 - Administration: `/admin` and `/admin/users`.
-- Runtime endpoints: Better Auth under `/api/auth/[...all]`, oRPC under `/api/orpc/[...rest]`, and `/theme-bootstrap.js`.
+- Runtime endpoints: Better Auth under `/api/auth/[...all]`, product oRPC under `/api/orpc/[...rest]`, and `/theme-bootstrap.js`.
 
-The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/openapi.json) currently covers account profiles and addresses, preferences and themes, dashboard summaries, feature-item operations, and admin listings. Route existence does not by itself certify an end-to-end flow; use the evidence guide and CI results for verification.
+The separate `apps/operator` route tree contains local sign-in, the `/operator` dashboard, `/operator/runs/[id]`, Better Auth, and the operator oRPC endpoint. It requires an authenticated session and applies owner, repository, and scope authorization in the operator service. It is not part of the product route tree.
+
+The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/openapi.json) covers the product API only. Operator contracts are published by `packages/operator`, not added to product OpenAPI. Route existence does not by itself certify an end-to-end flow; use the evidence guide and CI results for verification.
 
 ## Stack
 
@@ -57,6 +66,8 @@ The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/ope
 | Authentication | Better Auth 1.6.24 with its Drizzle adapter |
 | Data | PostgreSQL 17.6 local image, Drizzle ORM 0.45.2, `pg` 8.22.0 |
 | State | XState 5.32.5 for explicit lifecycles; Zustand 5.0.14 for ephemeral local UI state |
+| Local operator | Separate `apps/operator` vinext app with `packages/operator` contracts/services; local-only and excluded from product deployment |
+| Workflow execution | PostgreSQL journal/outbox in `packages/jobs`; separately started pilot worker with scoped local OMP and Wayfinder adapters |
 | Providers | Groq, React Email/Resend, PostHog, evlog, and OpenTelemetry behind ports or runtime selection |
 | Quality | Biome/Ultracite, Vitest 4.1.10, Playwright 1.61.1, Husky, Graphify |
 
@@ -94,6 +105,8 @@ Treat [`.env.schema`](.env.schema) as the public variable contract and [`.env.ex
 
 Before startup, set `DATABASE_PROVIDER=postgres` and provide distinct development-only values of at least 32 characters for both `BETTER_AUTH_SECRET` and `CONTACT_THROTTLE_SECRET`. All three are required; never reuse either secret outside this disposable environment.
 
+`WORKFLOW_REPOSITORIES_ROOT` is optional when you run only the product. Before you use the operator app, set it to an absolute directory that contains the repositories the operator may access. The operator API rejects repository operations before it opens a database when this value is missing or invalid.
+
 For the repository's disposable local application database, set `DATABASE_URL` in the ignored environment to:
 
 ```text
@@ -122,28 +135,39 @@ varlock run -- bun run db:reset -- --confirm-environment=development
 
 ## Canonical local HTTPS and PM2
 
-The only canonical human-facing local URL is <https://darkfactory.localhost>. Portless owns the hidden port and trusted HTTPS route. PM2 owns one stable process named `darkfactory-web-dev`.
+The product URL is <https://darkfactory.localhost>. The local operator URL is <https://operator.darkfactory.localhost>. Portless owns both hidden ports and trusted HTTPS routes. PM2 owns separate `darkfactory-web-dev` and `darkfactory-operator-dev` processes.
+
+Start the product:
 
 ```bash
 bun run dev:trust
 bun run dev:bindings
 bun run dev:https
 bun run dev:status
-bun run dev:logs
-bun run dev:stop
 ```
 
-`bun run dev:https` is idempotent and starts `portless darkfactory bun run dev` through PM2. Run `bun run dev:trust` first. Use `bun run certs:install` and `bun run certs:generate` only as the documented mkcert fallback when portless trust cannot work; generated certificates and keys stay ignored.
-
-The Cloudflare Worker runtime reads server bindings from the ignored `apps/web/.dev.vars` file rather than inheriting them from PM2. `bun run dev:bindings` validates `.env`, writes a same-directory temporary file with mode `0600`, and atomically replaces the binding file without printing its contents. Regenerate it after changing `.env`; never commit it.
-
-After PostgreSQL, environment values, trust, and the PM2 route are ready, inspect the complete prerequisite report:
+After you set `WORKFLOW_REPOSITORIES_ROOT`, start the local operator meta-layer:
 
 ```bash
-varlock run -- bun run doctor
+bun run operator:dev
+bun run operator:status
 ```
 
-See [Local development](docs/local-development.md) for installation details, lifecycle recovery, and cleanup.
+`operator:dev` runs `operator:bindings` before it starts the process. Use `bun run operator:logs` and `bun run operator:stop` for the same process. Use `bun run operator:bindings` directly when you only need to refresh `apps/operator/.dev.vars`.
+
+The product Worker reads `apps/web/.dev.vars`. The operator app reads `apps/operator/.dev.vars`. Each binding command validates the Varlock environment, writes a same-directory mode-`0600` temporary file, and atomically replaces only its ignored destination without printing values. Regenerate the applicable file after `.env` changes; never commit either file.
+
+The operator Wayfinder status reports `installed` only when the bounded local manifest at `~/.agents/skills/wayfinder/SKILL.md` is a valid Wayfinder manifest; otherwise it reports `unavailable`. Start validates and durably enqueues a bounded request, then returns `queued`. It does not run OMP in the HTTP request or in the browser.
+
+Start the jobs worker separately to process queued effects:
+
+```bash
+varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot
+```
+
+The pilot worker claims the plan effect before it dispatches the local Wayfinder adapter through one scoped OMP adapter. This documentation does not claim that any particular Wayfinder run or its evidence has completed.
+
+Use `bun run certs:install` and `bun run certs:generate` only as the documented mkcert fallback when Portless trust cannot work; generated certificates and keys stay ignored. See [Local development](docs/local-development.md) for installation details, lifecycle recovery, and cleanup.
 
 ## Feature generator
 
@@ -160,8 +184,8 @@ The generator accepts one feature name plus optional `--dry-run` and `--json` fl
 
 | Purpose | Commands |
 | --- | --- |
-| Development | `bun run dev`, `bun run dev:https`, `bun run dev:status`, `bun run dev:logs`, `bun run dev:stop`, `bun run dev:trust` |
-| Certificate fallback | `bun run certs:install`, `bun run certs:generate` |
+| Product development | `bun run dev`, `bun run dev:https`, `bun run dev:status`, `bun run dev:logs`, `bun run dev:stop`, `bun run dev:trust`, `bun run dev:bindings` |
+| Local operator | `bun run operator:dev`, `bun run operator:status`, `bun run operator:logs`, `bun run operator:stop`, `bun run operator:bindings` |
 | Database | `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run db:seed`, `bun run db:reset`, `bun run db:test:up`, `bun run db:test:down` |
 | Build and types | `bun run build`, `bun run types`, `bun run types:check`, `bun run typecheck` |
 | Static checks | `bun run lint`, `bun run lint:markdown`, `bun run format:check` |
@@ -169,7 +193,7 @@ The generator accepts one feature name plus optional `--dry-run` and `--json` fl
 | Tests | `bun run test:unit`, `bun run test:integration`, `bun run test:e2e`, `bun run test` |
 | Full gates | `bun run verify`, `bun run ci` |
 | Graphify | `bun run graph:build`, `bun run graph:update`, `bun run graph:check`, `bun run graph:verify` |
-| Operations | `bun run doctor`, `bun run generate:feature` |
+| Operations | `bun run doctor`, `bun run generate:feature`, `varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot` |
 | Explicit web deployment | `bun run deploy:web:check`, `bun run deploy:web:preview`, `bun run deploy:web` |
 
 Vitest and Vinext's development, build, and deployment CLIs deliberately run through package-local binaries under Node. These are narrow measured compatibility exceptions: Bun 1.3.14 misloads Vitest's Vite `zod` dependency, its V8 coverage path lacks the `node:inspector` APIs required by `@vitest/coverage-v8`, Vite's development server requires WebSocket events that Bun does not implement, and a Bun-generated Vinext production bundle can report success while returning 404 for authored routes. Bun and Turbo still orchestrate compatible lifecycle and package tasks; pnpm remains the sole package and lockfile owner.
@@ -211,7 +235,9 @@ bun run graph:verify
 
 ## Capabilities and deployment boundary
 
-The web application builds and deploys only through the official `@vinext/cloudflare` adapter. The package `start` command uses Vite's Cloudflare-faithful production preview rather than Vinext's generic Node wrapper. Stop the canonical development process, regenerate Worker bindings, build, and run `corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start` to preview the built Worker at the configured canonical HTTPS origin. Filesystem email previews are disabled in a production bundle; a real production environment must use its validated Resend configuration. `bun run deploy:web:check` validates adapter setup in dry-run mode without building or deploying. The explicit `bun run deploy:web:preview` and `bun run deploy:web` commands are credentialed Cloudflare operations; no automatic deployment workflow or proof of a completed deployment is claimed here.
+`apps/web` is the only deployable application. It builds and deploys through the official `@vinext/cloudflare` adapter. The package `start` command uses Vite's Cloudflare-faithful production preview rather than Vinext's generic Node wrapper. Stop the canonical product development process, regenerate product Worker bindings, build, and run `corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start` to preview the built Worker at the configured product HTTPS origin.
+
+`apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are local development tooling. `deploy:web:check`, `deploy:web:preview`, and `deploy:web` target only `@darkfactory/web`; there is no operator deploy command. Filesystem email previews are disabled in a production bundle; a real production environment must use its validated Resend configuration. `bun run deploy:web:check` validates adapter setup in dry-run mode without building or deploying. The explicit preview and deploy commands are credentialed Cloudflare operations; no automatic deployment workflow or proof of a completed deployment is claimed here.
 
 Alchemy is reserved only for a real, explicitly enabled ancillary Cloudflare resource. No ancillary resource is enabled, so there is intentionally no `alchemy.run.ts` and no Alchemy deployment step. Alchemy 0.93.12 is a source-reviewed compatibility baseline, not an installed or active deployment layer. See [Capabilities and deployment](docs/capabilities-and-deployment.md) and [ADR 0001](docs/adr/0001-vinext-alchemy-boundary.md).
 

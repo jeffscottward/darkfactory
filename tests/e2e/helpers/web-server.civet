@@ -76,9 +76,15 @@ type E2EServerInvocation = Readonly<{
   arguments: readonly string[]
   workerBindingsDirectory: string
 }>
-export const createE2EServerInvocation = (
+type E2EServerConfiguration = Readonly<{
+  nodeExecutable: string
+  pnpmScript: string
+  webScript: "dev" | "start"
+  workerBindingsDirectory: string
+}>
+const resolveE2EServerConfiguration = (
   source: Readonly<NodeJS.ProcessEnv>,
-): E2EServerInvocation =>
+): E2EServerConfiguration =>
   const nodeExecutable = source[E2E_NODE_EXECUTABLE_KEY]
   const pnpmScript = source[E2E_PNPM_SCRIPT_KEY]
   const requestedWebScript = source[E2E_WEB_SCRIPT_KEY]
@@ -94,6 +100,30 @@ export const createE2EServerInvocation = (
     !isAbsolute(pnpmScript)
   ) throw new Error("E2E server executable targets are unavailable")
   return Object.freeze({
+    nodeExecutable,
+    pnpmScript,
+    webScript,
+    workerBindingsDirectory: webScript === "start"
+      ? join(WEB_DIRECTORY, "dist", "server")
+      : WEB_DIRECTORY,
+  })
+
+export const createE2EServerInvocation = (
+  source: Readonly<NodeJS.ProcessEnv>,
+  appPort: number,
+): E2EServerInvocation =>
+  if (
+    !Number.isSafeInteger(appPort) ||
+    appPort < 1 ||
+    appPort > 65_535
+  ) throw new Error("E2E app port is invalid")
+  const {
+    nodeExecutable,
+    pnpmScript,
+    webScript,
+    workerBindingsDirectory,
+  } = resolveE2EServerConfiguration(source)
+  return Object.freeze({
     command: nodeExecutable,
     arguments: Object.freeze([
       pnpmScript,
@@ -107,10 +137,12 @@ export const createE2EServerInvocation = (
       "run",
       webScript,
       ...(webScript === "start" ? ["--logLevel", "warn"] : []),
+      "--port",
+      appPort.toString(),
+      webScript === "start" ? "--host" : "--hostname",
+      "127.0.0.1",
     ]),
-    workerBindingsDirectory: webScript === "start"
-      ? join(WEB_DIRECTORY, "dist", "server")
-      : WEB_DIRECTORY,
+    workerBindingsDirectory,
   })
 
 
@@ -242,7 +274,7 @@ const enterLifecycleStage = async (
     await lifecycleStateWriter.write({ version: 1, status: "starting", stage })
 
 const start = async (control: LifecycleControl): Promise<void> =>
-  const serverInvocation = createE2EServerInvocation(process.env)
+  const serverConfiguration = resolveE2EServerConfiguration(process.env)
   if (process.env["APP_ENV"] !== "test")
     throw new Error("E2E lifecycle requires APP_ENV=test")
   const maintenanceDatabaseUrl = process.env["DATABASE_URL"]
@@ -357,10 +389,11 @@ const start = async (control: LifecycleControl): Promise<void> =>
   workerBindings = await acquireOwnedDevVars({
     bindingNames: E2E_WORKER_BINDING_KEYS,
     environment,
-    webDirectory: serverInvocation.workerBindingsDirectory,
+    webDirectory: serverConfiguration.workerBindingsDirectory,
   })
   control.checkpoint()
   const appPort = await allocateE2EServerPort()
+  const serverInvocation = createE2EServerInvocation(process.env, appPort)
   control.checkpoint()
   const serverEnvironment = {
     ...environment,

@@ -5,7 +5,6 @@ import {
   CircleUserRound,
   FileText,
   Gauge,
-  GitBranch,
   House,
   Info,
   LayoutList,
@@ -55,7 +54,6 @@ export const AUTH_NAVIGATION: readonly NavigationItem[] = Object.freeze([
 
 export const PORTAL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   { label: "Overview", href: "/dashboard", icon: Gauge },
-  { label: "Operator", href: "/operator", icon: GitBranch },
   { label: "Feature items", href: "/feature-items", icon: LayoutList },
   ...GENERATED_FEATURE_NAVIGATION.map((item) => ({ ...item, icon: LayoutList })),
   { label: "Account", href: "/account", icon: CircleUserRound },
@@ -86,7 +84,6 @@ export const EXPOSED_ROUTE_PATHS = Object.freeze([
   "/forgot-password",
   "/reset-password",
   "/dashboard",
-  "/operator",
   "/feature-items",
   "/account",
   "/account/profile",
@@ -111,7 +108,6 @@ export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
   "/forgot-password": "(auth)/forgot-password/page.civet",
   "/reset-password": "(auth)/reset-password/page.civet",
   "/dashboard": "(portal)/dashboard/page.civet",
-  "/operator": "(portal)/operator/page.civet",
   "/feature-items": "(portal)/feature-items/page.civet",
   "/account": "(portal)/account/page.civet",
   "/account/profile": "(portal)/account/profile/page.civet",

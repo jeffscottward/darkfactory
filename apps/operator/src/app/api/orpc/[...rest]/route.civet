@@ -1,0 +1,4 @@
+import { handleOperatorOrpcRequest } from "./handler.civet"
+
+export const GET = handleOperatorOrpcRequest
+export const POST = handleOperatorOrpcRequest

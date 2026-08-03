@@ -1,0 +1,68 @@
+import type { SafeAuthSession } from "@darkfactory/auth/types"
+import { ORPCError } from "@orpc/client"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  createOperatorWayfinderService: vi.fn()
+}))
+
+vi.mock("./wayfinder-service.civet", async (importOriginal) =>
+  const actual = await importOriginal<
+    typeof import("./wayfinder-service.civet")
+  >()
+  return {
+    ...actual
+    createOperatorWayfinderService: mocks.createOperatorWayfinderService
+  }
+)
+
+import { createOperatorClient } from "../client.civet"
+import type { OperatorContext } from "./context.civet"
+import { handleOperatorRequest } from "./handler.civet"
+import { OperatorServiceError } from "./operator-service.civet"
+
+const session = {
+  principal: { userId: "owner-1", role: "member", status: "active" }
+} as SafeAuthSession
+
+const client = () => createOperatorClient({
+  baseUrl: "https://operator.darkfactory.localhost"
+  fetch: (request) => handleOperatorRequest(request, {
+    requestId: "request-router-mapping-1"
+    requireSession: async () => session
+  } satisfies OperatorContext)
+})
+
+const captureError = async (
+  operation: () => Promise<unknown>,
+) =>
+  const error = await Promise.resolve()
+    .then(operation)
+    .catch((failure: unknown) => failure)
+  if (!(error instanceof ORPCError)) throw error
+  return error
+
+describe "operator router error mapping", ->
+  beforeEach ->
+    mocks.createOperatorWayfinderService.mockReset()
+
+  it "maps a typed service failure through the public contract", async ->
+    mocks.createOperatorWayfinderService.mockReturnValue({
+      status: async () =>
+        throw new OperatorServiceError("STORAGE_ERROR", "safe fixed error")
+    })
+    expect(await captureError(() => client().operator.wayfinder.status({})))
+      .toMatchObject({ code: "STORAGE_ERROR", status: 503, defined: true })
+
+  it "preserves an unexpected service failure as a redacted internal error", async ->
+    const privateDetail = "wayfinder service token=private-router"
+    mocks.createOperatorWayfinderService.mockReturnValue({
+      status: async () => throw new Error(privateDetail)
+    })
+    const error = await captureError(() => client().operator.wayfinder.status({}))
+    expect(error).toMatchObject({
+      code: "INTERNAL_SERVER_ERROR"
+      status: 500
+      defined: false
+    })
+    expect(`${error.message}\n${JSON.stringify(error)}`).not.toContain(privateDetail)

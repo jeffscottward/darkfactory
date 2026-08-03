@@ -1,0 +1,145 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  auth: { runtime: "better-auth" },
+  close: vi.fn(async () => undefined),
+  composeDatabaseProfile: vi.fn(),
+  createAuth: vi.fn(),
+  createRequestDatabase: vi.fn(),
+  database: { runtime: "database" },
+  email: { runtime: "preview-email" },
+  parseServerEnv: vi.fn(),
+  selectEmailPort: vi.fn(),
+}))
+
+vi.mock("@darkfactory/auth/server", () => ({ createAuth: mocks.createAuth }))
+vi.mock("@darkfactory/config/database", () => ({
+  composeDatabaseProfile: mocks.composeDatabaseProfile,
+}))
+vi.mock("@darkfactory/config/server", () => ({
+  parseServerEnv: mocks.parseServerEnv,
+}))
+vi.mock("@darkfactory/db/server", () => ({
+  createRequestDatabase: mocks.createRequestDatabase,
+}))
+vi.mock("@darkfactory/email/server", () => ({ selectEmailPort: mocks.selectEmailPort }))
+
+import {
+  createOperatorAuthForDatabase,
+  createOperatorAuthRuntime,
+  withOperatorAuth,
+} from "./operator-auth.civet"
+import { OPERATOR_APP_ORIGIN } from "./operator-environment.civet"
+
+describe "operator Better Auth policy", ->
+  beforeEach ->
+    vi.clearAllMocks()
+    mocks.createAuth.mockReturnValue(mocks.auth)
+    mocks.selectEmailPort.mockReturnValue(mocks.email)
+    mocks.close.mockClear()
+    mocks.composeDatabaseProfile.mockReset().mockReturnValue({
+      connection: { connectionString: "postgres://operator.test/database" },
+    })
+    mocks.createRequestDatabase.mockReset().mockResolvedValue({
+      db: mocks.database,
+      close: mocks.close,
+    })
+    mocks.parseServerEnv.mockReset().mockReturnValue({
+      APP_ENV: "development",
+      EMAIL_TRANSPORT: "preview",
+      RESEND_API_KEY: undefined,
+      EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+      BETTER_AUTH_SECRET: "development-secret-with-at-least-thirty-two-characters",
+    })
+
+  it "binds Better Auth and email links to the explicit local operator origin", ->
+    const database = { runtime: "database" }
+    const scheduleBackgroundTask = vi.fn()
+    const env = {
+      APP_ENV: "development",
+      EMAIL_TRANSPORT: "preview",
+      RESEND_API_KEY: undefined,
+      EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+      BETTER_AUTH_SECRET: "development-secret-with-at-least-thirty-two-characters",
+    }
+    expect(createOperatorAuthForDatabase(
+      database as never,
+      env as never,
+      scheduleBackgroundTask,
+    )).toBe(mocks.auth)
+    expect(mocks.selectEmailPort).toHaveBeenCalledWith(expect.objectContaining({
+      environment: "development",
+      trustedAppOrigin: OPERATOR_APP_ORIGIN,
+    }))
+    expect(mocks.createAuth).toHaveBeenCalledWith(expect.objectContaining({
+      database,
+      baseURL: OPERATOR_APP_ORIGIN,
+      trustedOrigins: [OPERATOR_APP_ORIGIN],
+      scheduleBackgroundTask,
+    }))
+
+  it "rejects production before selecting an authentication adapter", ->
+    expect(() => createOperatorAuthForDatabase(
+      {} as never,
+      { APP_ENV: "production" } as never,
+    )).toThrow("Operator app is development-only")
+    expect(mocks.selectEmailPort).not.toHaveBeenCalled()
+
+  it "uses the test rate-limit policy and the default background scheduler", ->
+    mocks.createAuth.mockImplementationOnce((options) =>
+      options.scheduleBackgroundTask(Promise.resolve())
+      return mocks.auth
+    )
+    expect(createOperatorAuthForDatabase(
+      mocks.database as never,
+      {
+        APP_ENV: "test",
+        EMAIL_TRANSPORT: "preview",
+        RESEND_API_KEY: undefined,
+        EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+        BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters",
+      } as never,
+    )).toBe(mocks.auth)
+    expect(mocks.createAuth).toHaveBeenCalledWith(expect.objectContaining({
+      rateLimitEnabled: false,
+    }))
+
+  it "composes and closes a request-scoped authentication runtime", async ->
+    const runtime = await createOperatorAuthRuntime()
+    expect(mocks.parseServerEnv).toHaveBeenCalledWith(process.env)
+    expect(mocks.createRequestDatabase).toHaveBeenCalledWith({
+      connectionString: "postgres://operator.test/database",
+    })
+    expect(runtime.auth).toBe(mocks.auth)
+    await runtime.close()
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "settles rejected background work before closing its database", async ->
+    let rejectTask: ((error: Error) => void) | undefined
+    const task = new Promise<never>((_resolve, reject) =>
+      rejectTask = reject
+    )
+    mocks.createAuth.mockImplementationOnce((options) =>
+      options.scheduleBackgroundTask(task)
+      return mocks.auth
+    )
+    const runtime = await createOperatorAuthRuntime()
+    const closePromise = runtime.close()
+    expect(mocks.close).not.toHaveBeenCalled()
+    rejectTask?.(new Error("email task failed"))
+    await closePromise
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+  it "runs an operation with request-scoped auth and always closes", async ->
+    const operation = vi.fn(async (auth) =>
+      expect(auth).toBe(mocks.auth)
+      return "complete"
+    )
+    await expect(withOperatorAuth(operation)).resolves.toBe("complete")
+    expect(mocks.close).toHaveBeenCalledOnce()
+
+    mocks.close.mockClear()
+    await expect(withOperatorAuth(async () =>
+      throw new Error("operation failed")
+    )).rejects.toThrow("operation failed")
+    expect(mocks.close).toHaveBeenCalledOnce()

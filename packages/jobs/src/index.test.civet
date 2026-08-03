@@ -328,6 +328,7 @@ describe "jobs dependency inventory", ->
       "."
       "./server/inline"
       "./server/omp"
+      "./server/wayfinder"
       "./server/workflow-worker"
       "./server/workflow-runtime"
       "./server/plan-evidence"

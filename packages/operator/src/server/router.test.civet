@@ -1,0 +1,566 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  type SafeAuthSession,
+} from "@darkfactory/auth/server"
+import type { WorkflowRepository } from "@darkfactory/db/server"
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
+import { ORPCError } from "@orpc/client"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  OPERATOR_ERRORS,
+  type OperatorApprovalBindingInput,
+} from "../contract.civet"
+import { createOperatorClient } from "../client.civet"
+import { createOperatorContext } from "./context.civet"
+import { handleOperatorRequest } from "./handler.civet"
+import {
+  OperatorWorkflowPortError,
+  type OperatorWorkflowPort,
+  type WorkflowOperatorDetail,
+} from "./operator-service.civet"
+import { createOperatorWorkflowPort } from "./workflow-runtime.civet"
+import type { OperatorWayfinderPort } from "./wayfinder-service.civet"
+
+const NOW = new Date("2026-07-29T12:00:00.000Z")
+const PLAN = createWorkflowPlanEvidenceV1({
+  stdout: "Review the exact implementation steps",
+  stderr: "",
+  stdoutBytes: 37,
+  stderrBytes: 0,
+  truncated: false,
+  redacted: false,
+})
+const memberSession = (userId: string): SafeAuthSession => ({
+  user: {
+    id: userId, name: userId, email: `${userId}@example.test`, emailVerified: true,
+    image: null, createdAt: NOW, updatedAt: NOW, role: "member", status: "active",
+  },
+  session: {
+    id: `session-${userId}`, userId,
+    expiresAt: new Date("2026-08-29T12:00:00.000Z"),
+    createdAt: NOW, updatedAt: NOW, ipAddress: null, userAgent: null,
+  },
+  principal: { userId, role: "member", status: "active" },
+})
+
+const detail = (
+  overrides: Partial<WorkflowOperatorDetail> = {},
+): WorkflowOperatorDetail => ({
+  ownerId: "owner-1",
+  integrity: "verified",
+  canRequestPlanRevision: true,
+  originalRequest: "Plan the bounded pilot run",
+  planRevisions: [],
+  run: {
+    id: "run-1", ownerId: "owner-1", title: "Pilot run",
+    state: "awaitingApproval", sequence: 2, updatedAt: NOW,
+    headHash: "a".repeat(64), machineId: "darkfactory-pilot", machineVersion: 1,
+  },
+  timeline: [{
+    sequence: 1, eventType: "RUN_SUBMITTED", summary: "Run submitted",
+    hash: "b".repeat(64), createdAt: NOW,
+  }],
+  approval: {
+    machineId: "darkfactory-pilot", machineVersion: 1, eventVersion: 1,
+    snapshotSequence: 2, journalHeadHash: "a".repeat(64),
+    effectHash: "c".repeat(64),
+    effectScope: '{"paths":["."],"repositoryId":"darkfactory"}',
+    stale: false,
+  },
+  implementationPlan: PLAN,
+  evidence: [],
+  messages: [],
+  ...overrides,
+})
+
+const approvalInput = (): OperatorApprovalBindingInput =>
+  const approval = detail().approval!
+  return {
+    machineId: approval.machineId
+    machineVersion: approval.machineVersion
+    eventVersion: approval.eventVersion
+    snapshotSequence: approval.snapshotSequence
+    journalHeadHash: approval.journalHeadHash
+    effectHash: approval.effectHash
+    effectScope: approval.effectScope
+  }
+
+const workflowPort = (
+  storedDetail = detail(),
+  overrides: Partial<OperatorWorkflowPort> = {},
+): OperatorWorkflowPort => ({
+  submit: vi.fn(async () => storedDetail),
+  workspace: vi.fn(async (ownerId) =>
+    ownerId === storedDetail.ownerId ? [storedDetail.run] : []
+  ),
+  list: vi.fn(async (ownerId) => ({
+    runs: ownerId === storedDetail.ownerId ? [storedDetail.run] : [],
+    nextCursor: null,
+  })),
+  detail: vi.fn(async (ownerId, id) =>
+    ownerId === storedDetail.ownerId && id === storedDetail.run.id
+      ? storedDetail
+      : null
+  ),
+  approve: vi.fn(async () => storedDetail),
+  reject: vi.fn(async () => storedDetail),
+  cancel: vi.fn(async () => storedDetail),
+  retry: vi.fn(async () => storedDetail),
+  revise: vi.fn(async () => storedDetail),
+  message: vi.fn(async () => storedDetail),
+  ...overrides,
+})
+
+const runtimePortWithWorkspaceFailure = (failure: Error): OperatorWorkflowPort =>
+  createOperatorWorkflowPort({
+    repository: {
+      listRunsByOwner: vi.fn(async () => throw failure),
+    } as unknown as WorkflowRepository,
+    authorizeRepository: () => false,
+  })
+const wayfinderWorkflow = (
+  overrides: Partial<OperatorWayfinderPort> = {},
+): OperatorWayfinderPort => ({
+  status: vi.fn<OperatorWayfinderPort["status"]>(async () => ({
+    availability: "installed",
+    tracker: "local-markdown",
+  })),
+  start: vi.fn<OperatorWayfinderPort["start"]>(async (_input) => ({
+    runId: "run-wayfinder-1",
+    status: "queued",
+    tracker: "local-markdown",
+  })),
+  ...overrides,
+})
+
+
+const clientFor = (
+  session: SafeAuthSession | Error | null,
+  workflow: OperatorWorkflowPort | undefined,
+  wayfinder: OperatorWayfinderPort | null = wayfinderWorkflow(),
+) =>
+  const fetch = async (request: Request): Promise<Response> =>
+    const context = createOperatorContext(request, {
+      ...(workflow === undefined ? {} : { workflowOperator: workflow }),
+      ...(wayfinder === null ? {} : { wayfinder }),
+      requestId: "request-operator-1",
+      requireSession: async () =>
+        if (session === null)
+          throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED, 401)
+        if (session instanceof Error) throw session
+        return session
+    })
+    return handleOperatorRequest(request, context)
+  return createOperatorClient({
+    baseUrl: "https://operator.darkfactory.localhost",
+    fetch,
+  })
+
+
+const expectError = async (promise: Promise<unknown>, code: string, status: number) =>
+  try
+    await promise
+    throw new Error("Expected operator request to fail")
+  catch (error)
+    expect(error).toBeInstanceOf(ORPCError)
+    expect(error).toMatchObject({ code, status, defined: true })
+
+const expectSafeError = async (
+  promise: Promise<unknown>,
+  code: string,
+  status: number,
+  message: string,
+  forbidden: readonly string[],
+) =>
+  try
+    await promise
+    throw new Error("Expected operator request to fail")
+  catch (error)
+    if (!(error instanceof ORPCError)) throw error
+    expect(error).toMatchObject({ code, status, defined: true, message })
+    const responseText = `${error.message}\n${JSON.stringify(error)}`
+    for (const value of forbidden)
+      expect(responseText).not.toContain(value)
+    return undefined
+
+const expectInternalError = async (
+  promise: Promise<unknown>,
+  forbidden: readonly string[],
+) =>
+  try
+    await promise
+    throw new Error("Expected operator request to fail")
+  catch (error)
+    if (!(error instanceof ORPCError)) throw error
+    expect(error).toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      status: 500,
+      defined: false,
+    })
+    const responseText = `${error.message}\n${JSON.stringify(error)}`
+    for (const value of forbidden)
+      expect(responseText).not.toContain(value)
+
+describe("operator API", () =>
+  it("requires authentication for operator projections", async () =>
+    const client = clientFor(null, workflowPort())
+    await expectError(
+      client.operator.submit({
+        idempotencyKey: "submit-attempt-1",
+        title: "Pilot run",
+        scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
+      }),
+      "UNAUTHORIZED",
+      401,
+    )
+    await expectError(client.operator.workspace({ limit: 100 }), "UNAUTHORIZED", 401)
+    await expectError(client.operator.list({ limit: 100 }), "UNAUTHORIZED", 401)
+    await expectError(client.operator.detail({ id: "run-1" }), "UNAUTHORIZED", 401)
+    await expectError(client.operator.wayfinder.status({}), "UNAUTHORIZED", 401)
+    await expectError(
+      client.operator.wayfinder.start({
+        scope: { repositoryId: "darkfactory", paths: ["packages/operator"] },
+        request: "Map the operator package",
+      }),
+      "UNAUTHORIZED",
+      401,
+    )
+    await expectError(
+      client.operator.wayfinder.revise({
+        runId: "run-wayfinder-1"
+        idempotencyKey: "revision-attempt-unauthorized"
+        message: "Keep the backend slice smaller."
+      }),
+      "UNAUTHORIZED",
+      401,
+    )
+  )
+
+  it "maps forbidden sessions and preserves unexpected authentication failures", async ->
+    await expectError(
+      clientFor(
+        new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.FORBIDDEN, 403)
+        workflowPort()
+      ).operator.workspace({ limit: 100 })
+      "FORBIDDEN"
+      403
+    )
+    await expectInternalError(
+      clientFor(
+        new Error("session provider token=private-auth")
+        workflowPort()
+      ).operator.workspace({ limit: 100 })
+      ["session provider", "private-auth"]
+    )
+
+  it("submits a bounded run in the authenticated owner and idempotency scope", async () =>
+    const workflow = workflowPort()
+    await expect(clientFor(memberSession("owner-1"), workflow).operator.submit({
+      idempotencyKey: "submit-attempt-1",
+      title: "  Pilot run  ",
+      scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
+    })).resolves.toMatchObject({ run: { id: "run-1" } })
+    expect(workflow.submit).toHaveBeenCalledWith({
+      ownerId: "owner-1",
+      actorUserId: "owner-1",
+      idempotencyKey: "submit-attempt-1",
+      title: "Pilot run",
+      scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
+    })
+  )
+
+  it "maps every unavailable runtime action without invoking a missing port", async ->
+    const client = clientFor(memberSession("owner-1"), undefined, null)
+    await expectError(client.operator.submit({
+      idempotencyKey: "submit-attempt-1"
+      title: "Pilot run"
+      scope: { repositoryId: "darkfactory", paths: ["packages/state"] }
+    }), "SERVICE_UNAVAILABLE", 503)
+    await expectError(client.operator.list({ limit: 100 }), "SERVICE_UNAVAILABLE", 503)
+    await expectError(
+      client.operator.reject({ id: "run-1", reason: "Needs revision" })
+      "SERVICE_UNAVAILABLE"
+      503
+    )
+    await expectError(
+      client.operator.cancel({ id: "run-1" })
+      "SERVICE_UNAVAILABLE"
+      503
+    )
+    await expectError(
+      client.operator.retry({ id: "run-1" })
+      "SERVICE_UNAVAILABLE"
+      503
+    )
+    await expectError(client.operator.message({
+      id: "run-1"
+      idempotencyKey: "message-attempt-1"
+      body: "Check package boundary"
+    }), "SERVICE_UNAVAILABLE", 503)
+    await expect(client.operator.wayfinder.status({})).resolves.toEqual({
+      availability: "unavailable"
+      tracker: "local-markdown"
+    })
+    await expectError(client.operator.wayfinder.start({
+      scope: { repositoryId: "darkfactory", paths: ["packages/operator"] }
+      request: "Map the operator package"
+    }), "SERVICE_UNAVAILABLE", 503)
+    await expectError(client.operator.wayfinder.revise({
+      runId: "run-wayfinder-1"
+      idempotencyKey: "revision-attempt-unavailable"
+      message: "Keep the backend slice smaller."
+    }), "SERVICE_UNAVAILABLE", 503)
+
+
+  it.each(["", "../submit", "a".repeat(129)])(
+    "rejects unsafe or oversized submit idempotency key %s",
+    async (idempotencyKey) =>
+      const workflow = workflowPort()
+      await expectError(
+        clientFor(memberSession("owner-1"), workflow).operator.submit({
+          idempotencyKey,
+          title: "Pilot run",
+          scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
+        } as never),
+        "BAD_REQUEST",
+        400,
+      )
+      expect(workflow.submit).not.toHaveBeenCalled()
+  )
+
+  it.each(["", "../revision", "a".repeat(129)])(
+    "rejects unsafe or oversized revision idempotency key %s",
+    async (idempotencyKey) =>
+      const workflow = workflowPort()
+      await expectError(
+        clientFor(memberSession("owner-1"), workflow).operator.wayfinder.revise({
+          runId: "run-1",
+          idempotencyKey,
+          message: "Keep the plan bounded.",
+        } as never),
+        "BAD_REQUEST",
+        400,
+      )
+      expect(workflow.revise).not.toHaveBeenCalled()
+  )
+
+  it("rejects a non-canonical submit scope before calling the workflow port", async () =>
+    const workflow = workflowPort()
+    await expectError(
+      clientFor(memberSession("owner-1"), workflow).operator.submit({
+        idempotencyKey: "submit-attempt-1",
+        title: "Pilot run",
+        scope: {
+          repositoryId: "../darkfactory",
+          paths: ["packages/../state"],
+        },
+      } as never),
+      "BAD_REQUEST",
+      400,
+    )
+    expect(workflow.submit).not.toHaveBeenCalled()
+  )
+
+  it("always scopes reads to the authenticated owner", async () =>
+    const workflow = workflowPort()
+    await expect(clientFor(memberSession("owner-1"), workflow).operator.detail({ id: "run-1" }))
+      .resolves.toMatchObject({
+        run: { id: "run-1" },
+        canRequestPlanRevision: true,
+        implementationPlan: {
+          summary: PLAN.summary,
+          digest: PLAN.digest,
+          truncated: false,
+          redacted: false,
+        },
+      })
+    await expectError(
+      clientFor(memberSession("owner-2"), workflow).operator.detail({ id: "run-1" }),
+      "NOT_FOUND", 404,
+    )
+    expect(workflow.detail).toHaveBeenNthCalledWith(1, "owner-1", "run-1")
+    expect(workflow.detail).toHaveBeenNthCalledWith(2, "owner-2", "run-1")
+  )
+
+  it("fails closed when projection integrity is not verified", async () =>
+    const corrupt = detail({ integrity: "invalid" })
+    await expectError(
+      clientFor(memberSession("owner-1"), workflowPort(corrupt)).operator.detail({ id: "run-1" }),
+      "PROJECTION_INVALID", 409,
+    )
+  )
+
+  it("maps a stale approval binding to typed 409", async () =>
+    const workflow = workflowPort(detail(), {
+      approve: vi.fn(async () =>
+        throw new OperatorWorkflowPortError("STALE_APPROVAL")
+      ),
+    })
+    await expectError(
+      clientFor(memberSession("owner-1"), workflow).operator.approve({
+        id: "run-1", approval: approvalInput(),
+      }),
+      "STALE_APPROVAL", 409,
+    )
+  )
+
+  it.each([
+    {
+      kind: "SQL and constraint",
+      failure: new Error(
+        "duplicate key violates unique constraint workflow_runs_owner_id_key; password=sql-secret",
+      ),
+      forbidden: ["workflow_runs_owner_id_key", "sql-secret"],
+    },
+    {
+      kind: "driver host",
+      failure: new Error(
+        "connect ECONNREFUSED postgres.internal:5432; access_token=driver-secret",
+      ),
+      forbidden: ["postgres.internal", "driver-secret"],
+    },
+    {
+      kind: "secret-bearing runtime",
+      failure: new Error(
+        "OMP runtime failed with api_key=sk-private-runtime-token",
+      ),
+      forbidden: ["OMP runtime", "sk-private-runtime-token"],
+    },
+  ])("maps unknown $kind failures to the fixed storage contract", async ({
+    failure,
+    forbidden,
+  }) =>
+    const client = clientFor(
+      memberSession("owner-1"),
+      runtimePortWithWorkspaceFailure(failure),
+    )
+    await expectSafeError(
+      client.operator.workspace({ limit: 100 }),
+      "STORAGE_ERROR",
+      503,
+      OPERATOR_ERRORS.STORAGE_ERROR.message,
+      forbidden,
+    )
+  )
+
+  it("maps an unknown port exception to the fixed storage contract", async () =>
+    const raw = "relation workflow_runs missing; password=repository-secret"
+    const workflow = workflowPort(detail(), {
+      workspace: vi.fn(async () => throw new Error(raw)),
+    })
+    await expectSafeError(
+      clientFor(memberSession("owner-1"), workflow)
+        .operator.workspace({ limit: 100 }),
+      "STORAGE_ERROR",
+      503,
+      OPERATOR_ERRORS.STORAGE_ERROR.message,
+      ["workflow_runs", "repository-secret"],
+    )
+  )
+
+  it("does not forward an arbitrary typed port error message", async () =>
+    const raw = "violates constraint approvals_pkey; token=port-secret"
+    const workflow = workflowPort(detail(), {
+      approve: vi.fn(async () =>
+        throw new OperatorWorkflowPortError("STALE_APPROVAL", raw)
+      ),
+    })
+    await expectSafeError(
+      clientFor(memberSession("owner-1"), workflow).operator.approve({
+        id: "run-1",
+        approval: approvalInput(),
+      }),
+      "STALE_APPROVAL",
+      409,
+      OPERATOR_ERRORS.STALE_APPROVAL.message,
+      ["approvals_pkey", "port-secret"],
+    )
+  )
+
+  it("reports Wayfinder status and queues a bounded owner-scoped request", async () =>
+    const wayfinder = wayfinderWorkflow()
+    const client = clientFor(memberSession("owner-1"), workflowPort(), wayfinder)
+
+    await expect(client.operator.wayfinder.status({})).resolves.toEqual({
+      availability: "installed",
+      tracker: "local-markdown",
+    })
+    await expect(client.operator.wayfinder.start({
+      scope: {
+        repositoryId: "darkfactory",
+        paths: ["packages/operator"],
+      },
+      request: "  Map the operator package  ",
+    })).resolves.toEqual({
+      runId: "run-wayfinder-1",
+      status: "queued",
+      tracker: "local-markdown",
+    })
+    expect(wayfinder.start).toHaveBeenCalledWith({
+      ownerId: "owner-1",
+      repositoryId: "darkfactory",
+      paths: ["packages/operator"],
+      request: "Map the operator package",
+    })
+  )
+
+  it("routes every action with owner and request context", async () =>
+    const workflow = workflowPort()
+    const client = clientFor(memberSession("owner-1"), workflow)
+    await client.operator.list({ limit: 100 })
+    await client.operator.approve({ id: "run-1", approval: approvalInput() })
+    await client.operator.reject({ id: "run-1", reason: "Needs revision" })
+    await client.operator.cancel({ id: "run-1" })
+    await client.operator.retry({ id: "run-1" })
+    await client.operator.wayfinder.revise({
+      runId: "run-1"
+      idempotencyKey: "revision-attempt-1"
+      message: "  Keep the backend slice smaller.  "
+    })
+    await client.operator.message({
+      id: "run-1",
+      idempotencyKey: "message-attempt-1",
+      body: "Check package boundary",
+    })
+    expect(workflow.list).toHaveBeenCalledWith("owner-1", { limit: 100 })
+    expect(workflow.approve).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "owner-1", actorUserId: "owner-1",
+      requestId: "request-operator-1", runId: "run-1",
+    }))
+    expect(workflow.reject).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "owner-1", reason: "Needs revision",
+    }))
+    expect(workflow.cancel).toHaveBeenCalledWith(expect.objectContaining({ ownerId: "owner-1" }))
+    expect(workflow.retry).toHaveBeenCalledWith(expect.objectContaining({ ownerId: "owner-1" }))
+    expect(workflow.revise).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "owner-1"
+      actorUserId: "owner-1"
+      requestId: "request-operator-1"
+      runId: "run-1"
+      idempotencyKey: "revision-attempt-1"
+      clarification: "Keep the backend slice smaller."
+    }))
+    expect(workflow.message).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: "owner-1", idempotencyKey: "message-attempt-1",
+      body: "Check package boundary",
+    }))
+  )
+
+  it("redacts and caps evidence before returning it", async () =>
+    const secret = "sk-private-evidence-token"
+    const stored = detail({ evidence: [{
+      id: "evidence-1", kind: "verification", label: "CLI output",
+      content: `api_key=${secret} ${"x".repeat(8_000)}`,
+      redacted: false, createdAt: NOW,
+    }] })
+    const output = await clientFor(memberSession("owner-1"), workflowPort(stored))
+      .operator.detail({ id: "run-1" })
+    expect(output.evidence[0]?.redacted).toBe(true)
+    expect(output.evidence[0]?.redactedContent).toContain("[REDACTED]")
+    expect(output.evidence[0]?.redactedContent).not.toContain(secret)
+    expect(Buffer.byteLength(output.evidence[0]?.redactedContent ?? ""))
+      .toBeLessThanOrEqual(4_096)
+  )
+)
