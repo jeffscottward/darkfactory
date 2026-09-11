@@ -1,0 +1,205 @@
+import { execFile } from "node:child_process"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
+import { describe, expect, it } from "vitest"
+
+const execFileAsync = promisify(execFile)
+const readYaml = async (path: string): Promise<unknown> =>
+  const { stdout } = await execFileAsync("bun", [
+    "-e",
+    "console.log(JSON.stringify(Bun.YAML.parse(await Bun.file(process.argv[1]).text())))",
+    fileURLToPath(new URL(path, import.meta.url)),
+  ], { timeout: 10_000, maxBuffer: 1024 * 1024 })
+  return JSON.parse(stdout)
+
+type Trigger = { branches?: string[]; types?: string[] }
+type Step = {
+  name: string
+  uses?: string
+  run?: string
+  if?: string
+  "continue-on-error"?: boolean
+  with?: Record<string, unknown>
+}
+type Workflow = {
+  name: string
+  on: Record<string, Trigger | null>
+  concurrency: { group: string; "cancel-in-progress": string }
+  permissions: Record<string, string>
+  jobs: Record<string, {
+    name: string
+    if?: string
+    needs?: unknown
+    permissions?: Record<string, string>
+    "continue-on-error"?: boolean
+    "timeout-minutes": number
+    strategy: {
+      "fail-fast": boolean
+      "max-parallel"?: number
+      matrix: { lane: string[]; include?: unknown; exclude?: unknown }
+    }
+    steps: Step[]
+  }>
+}
+type Update = {
+  "package-ecosystem": string
+  directory: string
+  schedule: { interval: string }
+  "open-pull-requests-limit": number
+  groups: Record<string, { patterns: string[] }>
+}
+const [workflow, dependabot] = await Promise.all([
+  readYaml("../../.github/workflows/ci.yml"),
+  readYaml("../../.github/dependabot.yml"),
+]) as [Workflow, { version: number; updates: Update[] }]
+
+type Event = {
+  event_name: string
+  ref: string
+  action?: string
+  base?: string
+  actor?: string
+  fork?: boolean
+  paths?: string[]
+  number?: number
+  sha?: string
+  run_id: number
+  workflow: string
+}
+const event = (changes: Partial<Event> = {}): Event => ({
+  event_name: "pull_request", ref: "refs/pull/17/merge", action: "synchronize",
+  number: 17, sha: "first", run_id: 100, workflow: workflow.name, ...changes,
+})
+const selected = (policy: Workflow, input: Event): boolean =>
+  if (!Object.hasOwn(policy.on, input.event_name)) return false
+  const trigger = policy.on[input.event_name]
+  if (input.event_name === "push")
+    return input.ref.startsWith("refs/heads/") && (trigger?.branches?.includes(input.ref.slice(11)) ?? true)
+  if (input.event_name === "pull_request")
+    return (trigger?.types ?? ["opened", "synchronize", "reopened"]).includes(input.action ?? "") &&
+      (trigger?.branches?.includes(input.base ?? "main") ?? true)
+  return input.event_name === "workflow_dispatch"
+
+// Interpret only the checked-in concurrency subset; unknown syntax fails closed.
+const evaluate = (source: string, input: Event): string | number | boolean | undefined =>
+  const expression = source.trim()
+  if (expression.includes("||"))
+    let value: ReturnType<typeof evaluate>
+    for (const part of expression.split("||"))
+      value = evaluate(part, input)
+      if (value) return value
+    return value
+  if (expression.includes("&&"))
+    let value: ReturnType<typeof evaluate>
+    for (const part of expression.split("&&"))
+      value = evaluate(part, input)
+      if (!value) return value
+    return value
+  const comparison = /^github\.event_name\s*(==|!=)\s*'([a-z_]+)'$/.exec(expression)
+  if (comparison)
+    const equal = input.event_name.toLowerCase() === comparison[2]!.toLowerCase()
+    return comparison[1] === "==" ? equal : !equal
+  const formatted = /^format\('([^']*)',\s*github\.run_id\)$/.exec(expression)
+  if (formatted) return formatted[1]!.replace("{0}", String(input.run_id))
+  switch (expression)
+    case "github.workflow": return input.workflow
+    case "github.event.pull_request.number": return input.number
+    case "github.ref": return input.ref
+    case "github.run_id": return input.run_id
+    case "github.sha": return input.sha
+    case "github.event_name": return input.event_name
+    default: throw new Error(`Unsupported concurrency expression: ${expression}`)
+const group = (input: Event): string =>
+  return workflow.concurrency.group.replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) => String(evaluate(expression, input)))
+const cancels = (input: Event): boolean =>
+  const expression = /^\$\{\{(.*?)\}\}$/.exec(workflow.concurrency["cancel-in-progress"])
+  expect(expression).not.toBeNull()
+  return Boolean(evaluate(expression![1]!, input))
+
+describe("CI event policy", () =>
+  it("validates all PR targets, main pushes and manual runs without duplicate branch pushes", () =>
+    expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push", "workflow_dispatch"])
+    expect(workflow.on.pull_request ?? {}).toEqual({})
+    expect(workflow.on.push).toEqual({ branches: ["main"] })
+    expect(workflow.on.workflow_dispatch ?? {}).toEqual({})
+    for (const action of ["opened", "synchronize", "reopened"])
+      expect(selected(workflow, event({ action, base: "release", fork: true, actor: "contributor", paths: ["README.md"] }))).toBe(true)
+      expect(selected(workflow, event({ action, actor: "dependabot[bot]" }))).toBe(true)
+    expect(selected(workflow, event({ action: "closed" }))).toBe(false)
+    expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/main" }))).toBe(true)
+    expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/dependabot/actions", number: undefined }))).toBe(false)
+    expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/feature", number: undefined }))).toBe(false)
+    expect(selected(workflow, event({ event_name: "push", ref: "refs/tags/main" }))).toBe(false)
+    expect(selected(workflow, event({ event_name: "workflow_dispatch", ref: "refs/heads/feature", number: undefined }))).toBe(true)
+    const renamed = structuredClone(workflow)
+    renamed.on.push = { branches: ["trunk"] }
+    expect(selected(renamed, event({ event_name: "push", ref: "refs/heads/trunk" }))).toBe(true)
+    expect(selected(renamed, event({ event_name: "push", ref: "refs/heads/main" }))).toBe(false)
+  )
+
+  it("cancels superseded validation while isolating PRs, full refs, workflows and manual runs", () =>
+    const first = event()
+    const next = event({ sha: "second", run_id: 101, action: "reopened" })
+    expect(group(first)).toBe(group(next))
+    expect(cancels(next)).toBe(true)
+    expect(group(first)).not.toBe(group(event({ number: 18 })))
+    expect(group(first)).not.toBe(group(event({ workflow: "Deploy" })))
+    const main = event({ event_name: "push", ref: "refs/heads/main", number: undefined })
+    expect(group(main)).toBe(group({ ...main, sha: "merged", run_id: 102 }))
+    expect(cancels(main)).toBe(true)
+    expect(group(main)).not.toBe(group({ ...main, ref: "refs/heads/release" }))
+    expect(group(main)).not.toBe(group({ ...main, ref: "refs/tags/main" }))
+    expect(group(main)).not.toBe(group(first))
+    const manual = { ...main, event_name: "workflow_dispatch" }
+    expect(cancels(manual)).toBe(false)
+    expect(group(manual)).not.toBe(group(main))
+    expect(group(manual)).not.toBe(group(first))
+    expect(group(manual)).not.toBe(group({ ...manual, run_id: 103 }))
+  )
+
+  it("keeps all five mandatory lanes parallel, fail-closed and unprivileged", () =>
+    expect(Object.keys(workflow.jobs)).toEqual(["verification"])
+    const job = workflow.jobs.verification!
+    expect(job.name).toBe("Verification (${{ matrix.lane }})")
+    expect(job.strategy.matrix).toEqual({ lane: ["core", "coverage", "integration", "graph", "browser"] })
+    expect(job.strategy["fail-fast"]).toBe(false)
+    expect(job.strategy["max-parallel"]).toBeUndefined()
+    expect(job["timeout-minutes"]).toBe(30)
+    expect(job.if).toBeUndefined()
+    expect(job.needs).toBeUndefined()
+    expect(job["continue-on-error"]).toBeUndefined()
+    expect(workflow.permissions).toEqual({ contents: "read" })
+    expect(job.permissions).toBeUndefined()
+    const verification = job.steps.filter((step) => step.run === 'bun run "verify:${{ matrix.lane }}"')
+    expect(verification).toHaveLength(1)
+    expect(verification[0]!.if).toBeUndefined()
+    for (const step of job.steps)
+      expect(step["continue-on-error"]).toBeUndefined()
+      expect(step.if ?? "").not.toMatch(/github\.(actor|event|ref)|paths/i)
+      if (step.uses) expect(step.uses).toMatch(/^[\w-]+\/[\w./-]+@[0-9a-f]{40}$/i)
+    const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    expect(checkout?.with?.["persist-credentials"]).toBe(false)
+  )
+
+  it("groups every weekly Actions version update, including the atomic CodeQL family", () =>
+    expect(dependabot.version).toBe(2)
+    expect(dependabot.updates).toHaveLength(1)
+    const update = dependabot.updates[0]!
+    expect(update["package-ecosystem"]).toBe("github-actions")
+    expect(update.directory).toBe("/")
+    expect(update.schedule.interval).toBe("weekly")
+    expect(update["open-pull-requests-limit"]).toBe(1)
+    expect(Object.keys(update).sort()).toEqual(["directory", "groups", "open-pull-requests-limit", "package-ecosystem", "schedule"])
+    const groups = Object.entries(update.groups)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]![1]).toEqual({ patterns: ["*"] })
+    const family = ["github/codeql-action/init", "github/codeql-action/analyze", "github/codeql-action/upload-sarif"]
+    const memberships = family.map((dependency) =>
+      const matchingGroups = groups.filter(([, config]) =>
+        config.patterns.some((pattern) => pattern === "*" || pattern === dependency)
+      )
+      return matchingGroups.map(([name]) => name)
+    )
+    expect(memberships).toEqual(family.map(() => [groups[0]![0]]))
+  )
+)

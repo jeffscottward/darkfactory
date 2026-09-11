@@ -68,6 +68,55 @@ A capability change is a complete vertical change, not a manifest toggle. Before
 
 If safe removal would require rewriting the domain, the boundary is wrong or the feature is Core rather than a Capability.
 
+## Hosted security capabilities
+
+GitHub-hosted analyzers are hosting selections, separate from application capabilities in `capabilities.yaml` and provider environment variables. Verify them once locally during bootstrap or migration, before deploying guarded workflows. Do not add a hosted preflight job, per-run API discovery, polling, a JSON capability engine, or an automation CLI.
+
+Eligible public repositories retain CodeQL, Dependency Review, and applicable Scorecard protection by default, even when repository opt-in variables are unset or false. New private factories start **Unknown** and stop bootstrap until an administrator establishes support, configuration, and a deliberate selection for each analyzer independently. CodeQL entitlement does not establish private Scorecard applicability.
+
+Use only these repository Actions variables, with literal lowercase `true` or `false` values:
+
+| Variable | Private `true` authorizes |
+| --- | --- |
+| `DF_CODEQL_ENABLED` | Verified/configured CodeQL analysis and mandatory code-scanning ingestion. |
+| `DF_DEPENDENCY_REVIEW_ENABLED` | Verified/configured Dependency Review, including dependency graph and repository support. |
+| `DF_SCORECARD_ENABLED` | Independently verified private Scorecard analysis and mandatory ingestion, never public publication. |
+
+The variables select deployment behavior; they do not discover entitlement or prove availability. Apply the following direct guard to the existing CodeQL job, substituting each other analyzer's own variable on its existing job:
+
+```yaml
+if: ${{ toJSON(github.event.repository.private) == 'false' || (toJSON(github.event.repository.private) == 'true' && vars.DF_CODEQL_ENABLED == 'true') }}
+```
+
+Job-level guards decide before runner allocation. The trusted event's boolean visibility is serialized with `toJSON` so missing/null visibility cannot coerce to public. Compare with `'true'`, not variable truthiness. Actions string equality is case-insensitive; local bootstrap must reject uppercase or other invalid values. A defensive private skip for an unset variable is configuration drift, not an approved unsupported decision or a successful scan.
+
+### Administrator bootstrap and rollout transaction
+
+1. Identify the exact repository, visibility, actual default branch, and explicit publication destination. Do not infer the destination from a checkout directory or a remote named `origin`.
+2. Collect administrator-backed support/entitlement evidence, feature settings, dependency-graph state, and effective workflow permissions for each analyzer separately. Distinguish verified unsupported service from supported-but-disabled/misconfigured service; “not enabled,” missing/null settings, or an API 401/403/404 is not proof of no entitlement.
+3. Inventory legacy branch protection, effective repository/organization rulesets and each referenced ruleset's details, required check names/app IDs, merge queues, deployment event dependencies, and fork approval policy. Inaccessible or ambiguous inherited rules are **Unknown**, not an empty ruleset. Stop if a merge queue or a required nondefault-branch push/deployment obligation is not handled by the proposed event policy.
+4. Bound every needed read-only API call to one attempt and a 15-second execution deadline. Missing credentials, denied permissions, missing/ambiguous fields, timeout, rate limit, unexpected response, or 5xx stops rollout with an owner and next action. Do not retry automatically, dispatch Actions, mutate settings, buy a license, or escalate privileges to bypass the stop.
+5. Record repository, capability, evidence reference, verifying administrator, date, support/configuration state, explicit selection, and compatible ruleset decision without tokens or private result bodies. Preserve all five mandatory contexts: `Verification (core)`, `Verification (coverage)`, `Verification (integration)`, `Verification (graph)`, and `Verification (browser)`, plus any other mandatory checks. An optional analyzer becoming non-applicable needs an explicitly approved compatible ruleset decision first; never synthesize a success check or remove mandatory verification.
+6. Treat approved optional-only ruleset changes, all three explicit private variable selections, and workflow activation as one ordered rollout transaction. With administrator authorization, configure the approved ruleset/variables on the exact target and read them back **before the job guards land**. Missing/invalid variables or unresolved evidence stops activation; partial configuration is not a completed migration. Keep prior settings and selections for coherent rollback.
+7. Review upstream public behavior first, then inherit only reviewed changes into the independently verified private target. Retain private publication/ingestion safeguards rather than replacing workflows wholesale. Record the resulting run URL, exact SHA, attempt, and each analyzer's actual conclusion. An approved false selection should skip without a runner; call it non-applicable or deliberately Disabled, never “security passed.” If a licensed private path cannot be exercised, record it as unverified.
+
+Apply this local decision table independently to every private analyzer:
+
+| Verified support | Configuration | Explicit selection | Bootstrap decision |
+| --- | --- | --- | --- |
+| Supported | Complete, including required permissions | `true` | Approve enabled analysis with mandatory ingestion and failure propagation. |
+| Unsupported | Not applicable | `false` | Approve only with compatible optional-check rules; record the coverage gap. |
+| Supported | Complete | `false` | Deliberately Disabled, not Unsupported; requires an explicit optional-check policy decision. |
+| Supported | Disabled, incomplete, or missing permissions | Any | STOP: fix entitled-but-misconfigured state; do not disguise it with false. |
+| Unknown, absent, or ambiguous | Any | Any | STOP: obtain administrator evidence and configuration truth. |
+| Any | Any | Missing, null, or invalid | STOP: incomplete private bootstrap. |
+
+Unknown visibility also stops bootstrap. Newly generated factories use the same direct guarded-workflow contract; do not add a second omission mechanism or entitlement service. Public defaults cannot be disabled by these private opt-in variables. Private Scorecard must always keep `publish_results: false`, including when opted in.
+
+Enabled CodeQL and Scorecard must ingest SARIF successfully; artifact retention alone is not code-scanning ingestion. Preserve the private companion's explicit ingestion after CodeQL `upload: never`, seven-day retention, and `if-no-files-found: error`. Analysis, authorization, configuration, and upload failures remain failures: no `continue-on-error`, success wrappers, or bypassing upload conditions.
+
+Revalidate locally after visibility/default-branch, entitlement, feature configuration, dependency-graph, permissions, ruleset, action-version, or variable changes. Roll back reviewed workflow changes together with compatible variable/ruleset snapshots; never leave a required analyzer skipped or remove a mandatory gate. See [Security](security.md) for the coverage gaps and complementary controls.
+
 ## Web deployment
 
 The authored web application has one deployer: official `@vinext/cloudflare`.

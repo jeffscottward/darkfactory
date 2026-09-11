@@ -69,6 +69,20 @@ The web deployer is official `@vinext/cloudflare`. The repository does not curre
 
 Deployment credentials must never be available to untrusted pull requests. An authorized deployment needs exact-SHA CI evidence, least privilege, environment approval, secret ownership, runtime verification, and rollback evidence.
 
+## Hosted analyzer coverage
+
+Follow the [hosted security bootstrap and rollout transaction](capabilities-and-deployment.md#hosted-security-capabilities) before changing analyzer optionality. Eligibility, configuration, and explicit enablement are distinct facts. Public eligible CodeQL/Dependency Review and applicable public Scorecard remain enabled by default. Private `DF_CODEQL_ENABLED`, `DF_DEPENDENCY_REVIEW_ENABLED`, and `DF_SCORECARD_ENABLED` selections require independent administrator evidence; all three must be explicitly configured and read back with compatible rulesets before guarded workflows land. Missing/unknown state stops rollout locally, not in a recurring hosted preflight.
+
+Verified non-applicability leaves real gaps:
+
+- Without CodeQL, there is no hosted CodeQL analysis or code-scanning ingestion for its configured languages. The upstream language matrix covers repository JavaScript/TypeScript and Actions, not authored Civet; do not imply broader source coverage even when it succeeds.
+- Without Dependency Review, the hosted pull-request dependency-change review and high-severity blocking policy are absent. Dependency graph support and entitlement must be verified separately from the CodeQL selection.
+- Without Scorecard, its supply-chain/security-posture assessment and corresponding ingestion are absent. Code-scanning support alone does not prove private Scorecard applicability. Never publish private repository metadata to the public Scorecard service; private `publish_results` remains false even when analysis is enabled.
+
+The authorization, validation, database, cookie/origin, redaction, and fail-closed production checks below remain mandatory complementary controls. They are not equivalent substitutes for CodeQL, Dependency Review, or Scorecard. An intentionally skipped analyzer is not a successful security scan; a skip caused by missing configuration is drift and blocks rollout. Record evidence, owner, rationale, exact run/SHA/attempt/conclusion, and the coverage gap without exposing private results.
+
+Enabled analysis and SARIF ingestion remain fail-closed. Preserve analyzer names/matrices, query/category behavior, high-severity dependency threshold, timeouts, least-privilege permissions, and compatible immutable action pins. Keep CodeQL `init`, `analyze`, and `upload-sarif` on one reviewed release family. Public CodeQL retains enabled upload; private workflows retain mandatory explicit ingestion after `upload: never`, seven-day SARIF artifacts, and missing-artifact failures. Artifact-only output is not ingestion. Do not use `continue-on-error`, success wrappers, or conditional upload bypasses to hide failed analysis, permission/configuration drift, or rejected SARIF.
+
 ## Security evidence
 
 Security evidence should cover observable denial and redaction, not source-text assertions alone:
