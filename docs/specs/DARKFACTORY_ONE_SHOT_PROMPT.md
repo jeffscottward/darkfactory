@@ -1159,7 +1159,54 @@ Keep `turbo.json` simple:
 
 ### GitHub Actions
 
-Use least-privilege permissions and pinned major actions. CI must:
+Use least-privilege permissions and reviewed action releases pinned to immutable full 40-hex commit SHAs, never mutable major tags. Semantic setup tests must accept another valid reviewed pin while rejecting missing, mutable, or malformed pins and broken setup behavior; do not snapshot a release hash as a lifecycle requirement. Preserve Bun's `.bun-version` input, the declared pnpm version, `id: pnpm`, `run_install: false`, required setup order, frozen install, and browser consumption of pnpm setup output.
+
+Generate the CI event policy from the target repository's verified default branch:
+
+| Event | Full verification |
+| --- | --- |
+| `pull_request` | All PR targets and actors, including forks and docs-only changes. |
+| `push` | Only the actual default branch, including after merge. |
+| `workflow_dispatch` | Explicit full validation, isolated from automatic cancellation. |
+| Other branch push without a PR | No automatic CI; full manual validation remains available. |
+
+For a repository whose verified default branch is `main`, generate:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+```
+
+Substitute the actual default branch as a literal at generation time; event filters cannot use a runtime default-branch expression. Synchronize filters when that branch is renamed. Inspect effective protections/rulesets, merge-queue requirements, deployment event dependencies, and fork approval policy before applying the policy. Unknown obligations or requirements for removed events stop rollout rather than silently weakening checks.
+
+Do not add path filters, actor exclusions, docs-only skips, conditional lane omissions, or `pull_request_target`. Preserve read-only tokens, `persist-credentials: false`, secret isolation, and approval boundaries for fork PRs. Keep the stable required contexts `Verification (core)`, `Verification (coverage)`, `Verification (integration)`, `Verification (graph)`, and `Verification (browser)`, with all five lanes concurrent and `fail-fast: false`; no serial matrix limit. Validation concurrency groups use workflow plus PR number or full ref, not SHA/run ID/event name except the isolated manual run-ID branch above. Distinct PRs/refs remain independent. This is validation-only cancellation, never deployment policy.
+
+Superseded/cancelled validation is not passed validation: merge eligibility requires the latest revision's complete successful required-check set. Cancellation must not hide a known failure. Fix deterministic failures; for a single verified transient failure at unchanged SHA, rerun only failed jobs and necessary dependencies, not successful independent lanes. Waiting approval, blocked, unknown, and skipped checks are not green.
+
+Keep Dependabot limited to the existing `github-actions` ecosystem, weekly, with `open-pull-requests-limit: 1` and one `github-actions` group matching `["*"]`. Review all full-SHA updates; do not auto-merge major changes. Keep CodeQL `init`, `analyze`, and `upload-sarif` in the same atomic version-update group and on one compatible reviewed release family without exclusions or major/minor splits. Grouping bounds ordinary version-update PRs, not security-update batching, and does not retroactively close existing proposals. Do not enable unverified npm/pnpm updater support.
+
+Before generating or activating hosted analyzer guards, complete the local administrator procedure in `docs/capabilities-and-deployment.md`: independently verify support/configuration for CodeQL, Dependency Review plus dependency graph, and private Scorecard; inventory effective required checks; record evidence/owner/date; and configure all three private repository Actions variables as one rollout transaction before the guards land. Use literal lowercase `true`/`false` values for `DF_CODEQL_ENABLED`, `DF_DEPENDENCY_REVIEW_ENABLED`, and `DF_SCORECARD_ENABLED`, then read back the approved selections and compatible rulesets on the exact target.
+
+New private factories begin Unknown. Missing credentials/permissions, absent/null settings or variables, ambiguous 401/403/404, timeout, rate limit, unexpected response, or 5xx stops local bootstrap with an owner and next action. Give each needed read-only discovery call one attempt and a 15-second execution deadline; no automatic retry, setting mutation, hosted preflight, per-run API polling, JSON capability engine, or automation CLI. Unsupported requires administrator evidence plus a compatible optional-check decision; supported-but-misconfigured stops rather than being relabeled Unsupported. A supported/configured deliberate false selection is Disabled and needs an explicit optional-check policy decision. Never remove the five mandatory verification contexts or manufacture a success check for a skipped analyzer.
+
+Use the same direct guard at each existing analyzer's job level, substituting its own variable:
+
+```yaml
+if: ${{ toJSON(github.event.repository.private) == 'false' || (toJSON(github.event.repository.private) == 'true' && vars.DF_CODEQL_ENABLED == 'true') }}
+```
+
+Public eligible CodeQL/Dependency Review and applicable Scorecard remain on even with missing/false opt-in variables. A verified private analyzer runs only with its explicit true selection. `toJSON` prevents missing/null visibility coercion to public; unknown visibility blocks bootstrap. Actions equality is case-insensitive, so local bootstrap rejects case drift. Defensive private skips for unset values are not approved non-applicability. Private Scorecard publication stays off independently of licensing or other opt-ins. Do not introduce a second workflow-omission mechanism.
+
+Preserve enabled analysis and mandatory SARIF ingestion, analyzer names/matrices/categories/timeouts, high-severity dependency review, and least privilege. Public CodeQL uploads stay enabled; inherit private explicit mandatory ingestion after `upload: never`, seven-day artifact retention and missing-artifact errors without wholesale workflow replacement. Artifacts alone are not ingestion. No `continue-on-error`, success wrappers, or bypassed uploads. Record unsupported coverage gaps and complementary local checks without claiming equivalence; revalidate on visibility, entitlement, configuration, permissions, ruleset, action-version, or variable changes.
+
+CI must:
 
 1. Check out code.
 2. Install the declared Node/pnpm versions and use the sole pnpm lockfile with frozen install.
@@ -1214,7 +1261,7 @@ deployment only after green
 
 The order may be optimized for fast failure locally, but no gate is omitted from the full `verify`/`ci` contract. Run focused gates during development and the full affected-phase gate before committing. **Never accumulate the whole build into one unreviewable final commit. Never push red work just to let CI diagnose it.**
 
-After a push:
+After an eligible validation event (PR, default-branch push, or explicit manual run), follow its checks. A feature-branch push without a PR has no expected automatic CI: do not wait for nonexistent checks or label their absence green. For eligible events:
 
 ```text
 inspect checks

@@ -57,6 +57,49 @@ const agentFriendlyAssessment = JSON.parse(
 }
 const projectRoot = fileURLToPath(new URL("../..", import.meta.url))
 const execFileAsync = promisify(execFile)
+type SetupStep = {
+  name: string
+  id?: string
+  uses?: string
+  run?: string
+  if?: string
+  with?: Record<string, unknown>
+  env?: Record<string, string>
+}
+const parsedWorkflow = JSON.parse((await execFileAsync("bun", [
+  "-e",
+  "console.log(JSON.stringify(Bun.YAML.parse(await Bun.file(process.argv[1]).text())))",
+  fileURLToPath(new URL("../../.github/workflows/ci.yml", import.meta.url)),
+], { timeout: 10_000, maxBuffer: 1024 * 1024 })).stdout) as {
+  jobs: { verification: { steps: SetupStep[] } }
+}
+const expectSetupContract = (steps: SetupStep[]): void =>
+  const action = (name: string): SetupStep =>
+    const matching = steps.filter((step) => step.uses?.split("@")[0] === name)
+    expect(matching).toHaveLength(1)
+    const step = matching[0]!
+    expect(step.uses?.split("@")).toHaveLength(2)
+    expect(step.uses?.split("@")[1]).toMatch(/^[0-9a-f]{40}$/i)
+    expect(step.if).toBeUndefined()
+    return step
+  const pnpm = action("pnpm/action-setup")
+  const node = action("actions/setup-node")
+  const bun = action("oven-sh/setup-bun")
+  const pnpmVersion = rootPackage.packageManager.split("@")[1]!.split("+")[0]
+  expect(pnpm.id).toBe("pnpm")
+  expect(pnpm.with?.version).toBe(pnpmVersion)
+  expect(pnpm.with?.run_install).toBe(false)
+  expect(bun.with?.["bun-version-file"]).toBe(".bun-version")
+  expect(node.with?.cache).toBe("pnpm")
+  expect(node.with?.["cache-dependency-path"]).toBe("pnpm-lock.yaml")
+  expect(steps.indexOf(pnpm)).toBeLessThan(steps.indexOf(node))
+  const install = steps.findIndex((step) => step.run === "corepack pnpm install --frozen-lockfile")
+  expect(install).toBeGreaterThan(steps.indexOf(node))
+  expect(install).toBeGreaterThan(steps.indexOf(bun))
+  const browser = steps.findIndex((step) => step.env?.PNPM_ACTION_BIN_DEST !== undefined)
+  expect(browser).toBeGreaterThan(install)
+  expect(steps[browser]!.env?.PNPM_ACTION_BIN_DEST).toBe("${{ steps.pnpm.outputs.bin_dest }}")
+  expect(steps[browser]!.env?.PNPM_EXPECTED_VERSION).toBe(pnpmVersion)
 const isIgnored = async (path: string): Promise<boolean> =>
   try
     await execFileAsync("git", ["check-ignore", "--no-index", "--quiet", path], {
@@ -311,6 +354,28 @@ describe("DF-101/106 lifecycle contract", () =>
     )
   )
 
+  it("accepts reviewed action pin updates without relaxing executable setup contracts", () =>
+    const steps = parsedWorkflow.jobs.verification.steps
+    expectSetupContract(steps)
+    const updated = structuredClone(steps)
+    for (const step of updated)
+      if (step.uses?.startsWith("pnpm/action-setup@") || step.uses?.startsWith("oven-sh/setup-bun@"))
+        step.uses = `${step.uses.split("@")[0]}@${"a".repeat(40)}`
+    expectSetupContract(updated)
+    for (const invalidPin of ["v6", "a".repeat(39), "g".repeat(40), ""])
+      const malformed = structuredClone(updated)
+      malformed.find((step) => step.id === "pnpm")!.uses = `pnpm/action-setup@${invalidPin}`
+      expect(() => expectSetupContract(malformed)).toThrow()
+    const missing = updated.filter((step) => step.uses?.split("@")[0] !== "oven-sh/setup-bun")
+    expect(() => expectSetupContract(missing)).toThrow()
+    const installsDuringSetup = structuredClone(updated)
+    installsDuringSetup.find((step) => step.id === "pnpm")!.with!.run_install = true
+    expect(() => expectSetupContract(installsDuringSetup)).toThrow()
+    const renamedOutput = structuredClone(updated)
+    renamedOutput.find((step) => step.id === "pnpm")!.id = "package-manager"
+    expect(() => expectSetupContract(renamedOutput)).toThrow()
+  )
+
   it("runs isolated CI lanes concurrently while preserving only verified browser evidence", () =>
     const workflowStep = (name: string): string =>
       const header = `      - name: ${name}\n`
@@ -363,16 +428,10 @@ describe("DF-101/106 lifecycle contract", () =>
     expect(workflow).toContain("lane: [core, coverage, integration, graph, browser]")
     expect(workflow).toContain("fail-fast: false")
     expect(workflow).toContain('bun run "verify:${{ matrix.lane }}"')
-    expect(workflow).toContain(
-      "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
-    )
-    expect(workflow).toContain("bun-version-file: .bun-version")
+    expectSetupContract(parsedWorkflow.jobs.verification.steps)
     expect(workflow).toContain("corepack pnpm install --frozen-lockfile")
     expect(workflow).toContain(
       "bunx --bun --no-install playwright install --with-deps chromium",
-    )
-    expect(workflow).toMatch(
-      /Set up pnpm\n\s+id: pnpm\n\s+uses: pnpm\/action-setup@0ebf47130e4866e96fce0953f49152a61190b271/,
     )
     expect(browserToolchain).toContain("if: matrix.lane == 'browser'")
     expect(browserToolchain).toContain(

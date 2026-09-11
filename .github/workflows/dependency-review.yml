@@ -9,6 +9,7 @@ permissions: {}
 jobs:
   dependency-review:
     name: Dependency Review
+    if: ${{ toJSON(github.event.repository.private) == 'false' || (toJSON(github.event.repository.private) == 'true' && vars.DF_DEPENDENCY_REVIEW_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
