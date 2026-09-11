@@ -75,7 +75,7 @@ catalog:
   ultracite: 6.5.1
   vinext: 1.0.0-beta.3
   vite: 8.1.5
-  vitest: 4.1.10
+  vitest: 4.1.11
   wrangler: 4.114.0
   xstate: 5.32.5
   yaml: 2.9.0
