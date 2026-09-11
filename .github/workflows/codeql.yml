@@ -49,14 +49,14 @@ jobs:
 
       - name: Initialize CodeQL
         if: steps.security-policy.outputs.codeql_enabled == 'true'
-        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
 
       - name: Analyze repository
         id: analysis
         if: steps.security-policy.outputs.codeql_enabled == 'true'
-        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: "/language:${{ matrix.language }}"
           upload: never
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload SARIF to code scanning
         if: ${{ !cancelled() && steps.security-policy.outcome == 'success' && steps.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
-        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: sarif-results
           category: "/language:${{ matrix.language }}"
