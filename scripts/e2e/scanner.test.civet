@@ -1274,6 +1274,7 @@ describe("external E2E artifact scanner", () =>
     const { root, runId, proof, paths } = await fixture("hung_tool")
     await writeRequiredReports(root, runId)
     await writeFile(join(root, paths[0], "trace.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    vi.spyOn(Date, "now").mockImplementation(() => 1_000)
     let settled = false
     const dependencies = await createArtifactScannerDependencies(
       root,
@@ -1281,8 +1282,10 @@ describe("external E2E artifact scanner", () =>
       async (_file, _arguments, _maxBuffer, _timeoutMs, signal) =>
         return await new Promise<never>((_resolve, reject) =>
           signal?.addEventListener("abort", () =>
-            settled = true
-            reject(new Error("archive tool aborted"))
+            setImmediate(() =>
+              settled = true
+              reject(new Error("archive tool aborted"))
+            )
           , { once: true })
         )
       ,
