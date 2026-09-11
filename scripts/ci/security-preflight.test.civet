@@ -711,6 +711,7 @@ describe("local preflight and CLI outcomes", () =>
       expect(command).toBe("gh")
       expect(args.slice(0, 6)).toEqual(["api", "--hostname", "github.com", "--method", "GET", "--include"])
       expect(options.shell).toBe(false)
+    return
   )
 
   it.each([
