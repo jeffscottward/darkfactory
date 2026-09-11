@@ -221,7 +221,7 @@ describe "Wayfinder first-time planning journey", ->
       "The operator request could not be completed. Try again.",
     )
     expect(failureAlert.getAttribute("tabindex")).toBe("-1")
-    expect(document.activeElement).toBe(failureAlert)
+    await waitFor(() => expect(document.activeElement).toBe(failureAlert))
 
     fireEvent.click(screen.getByRole("button", { name: "Start planning" }))
     const runLink = await screen.findByRole("link", {
