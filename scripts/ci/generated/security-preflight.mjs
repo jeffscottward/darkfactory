@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url"
 
 
 
+
 export const LIMITS = Object.freeze({ timeout: 20_000, maxBuffer: 1_048_576, pages: 10, pageSize: 100, deadline: 120_000 })
 const FLAGS = Object.freeze({ codeql_enabled: "DF_CODEQL_ENABLED", upload_enabled: "DF_CODE_SCANNING_UPLOAD_ENABLED", dependency_review_enabled: "DF_DEPENDENCY_REVIEW_ENABLED" })
 const FLAG_NAMES = Object.freeze(Object.values(FLAGS))
@@ -176,8 +177,11 @@ export function readRepositoryVariables(api, repository) {
   const seen = new Set()
   let expected
   let count = 0
+  let page = 0
+  let complete = false
   // Stable total_count <= 1000 and full intermediate pages bound this loop to ten requests.
-  const results=[];for (let page = 1; true; page += 1) {
+  while (!complete) {
+    page += 1
     const data = api(`repos/${repository}/actions/variables?per_page=${LIMITS.pageSize}&page=${page}`)
     if (!record(data) || typeof data["total_count"] !== "number" || !Number.isSafeInteger(data["total_count"]) || data["total_count"] < 0 || data["total_count"] > LIMITS.pages * LIMITS.pageSize || !Array.isArray(data["variables"]) || data["variables"].length > LIMITS.pageSize) {
       fail("variables")
@@ -197,12 +201,13 @@ export function readRepositoryVariables(api, repository) {
     }
     count += data["variables"].length
     if (count === expected) {
-      return variables
+      complete = true
     }
-    if (count > expected || data["variables"].length !== LIMITS.pageSize) {
-      results.push(fail("variables"))
-    } else {results.push(void 0)}
-  };return results;
+    else if (count > expected || data["variables"].length !== LIMITS.pageSize) {
+      fail("variables")
+    }
+  }
+  return variables
 }
 
 export function verifyCapabilities(api, repository, metadata, outputs) {

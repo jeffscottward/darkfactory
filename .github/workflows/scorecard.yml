@@ -51,6 +51,7 @@ jobs:
           name: scorecard-sarif
           path: results.sarif
           if-no-files-found: error
+          retention-days: 7
 
       - name: Upload SARIF to code scanning
         if: ${{ !cancelled() && steps.security-policy.outcome == 'success' && steps.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}

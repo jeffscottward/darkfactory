@@ -43,6 +43,20 @@ workflow bootstrap and uses Node built-ins only; it is not the primary local
 entry point. Change the canonical Civet source and regenerate the artifact;
 never hand-edit the generated Node artifact.
 
+Trusted hosted helper and adoption order
+
+On pull requests, execute the generated Node helper from the exact trusted PR
+base SHA, never the pull request's helper code. A missing trusted base artifact
+is a hard failure, not permission to fall back to the PR copy.
+
+Before adopting successor workflows in a repository whose base lacks the helper,
+merge a helper-only bootstrap PR containing the canonical source and generated
+Node artifact under unchanged baseline workflows and protections. Base the
+successor-adoption PR on that merged commit. Do not weaken required checks or
+use an administrative bypass to break this dependency. Preserve all five
+Verification contexts and protected CodeQL Actions/JavaScript and Dependency
+Review checks throughout adoption.
+
 Prerequisites and credentials
 
 Authenticate gh for github.com before using the local check. The active account
@@ -162,9 +176,10 @@ raw repository metadata, or raw API response bodies.
 
 Scorecard behavior
 
-Scorecard analysis still runs when its capability step fails. Preserve its
-result artifact when analysis produces one, and leave the capability step red;
-running analysis is not permission to hide a failed security check.
+Free Scorecard analysis always runs, including on private repositories and when
+its capability step fails. Preserve its result artifact when analysis produces
+one, and leave the capability step red; running analysis is not permission to
+hide a failed security check. Scorecard analysis has no private opt-in variable.
 
 Only a verified public repository may set publish_results=true and publish
 Scorecard results. Private repositories remain analysis-and-artifact-only for
@@ -177,6 +192,15 @@ Fork pull requests commonly have restricted write tokens. Successful metadata
 and feature reads do not remove those restrictions. A later upload that fails
 because the token lacks write permission must still propagate that failure;
 the preflight does not suppress it or claim upload success in advance.
+
+Analysis and artifact retention
+
+CodeQL analysis uses upload: never; a separate step ingests SARIF only when
+upload_enabled is true. Disabled ingestion does not disable otherwise authorized
+analysis or authorize private CodeQL use. Every authorized upload must succeed.
+Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days;
+artifact upload failures block. An artifact is evidence of output, not
+successful ingestion.
 
 Read-only resource bounds
 
@@ -220,6 +244,13 @@ Authoritative references:
   https://docs.github.com/en/code-security/codeql-cli/getting-started-with-the-codeql-cli/about-the-codeql-cli
 
 Local CI remains independent
+
+The pre-push hook binds Git's actual destination and every non-deletion pushed
+ref to clean, unchanged HEAD. It runs immutable verify:core, verify:coverage,
+verify:integration, verify:graph, and verify:browser sequentially, checking
+source/ref stability throughout. Missing prerequisites, stale generated
+evidence, source/ref mutation, or any lane failure blocks publication. There is
+no core-only path, environment-heavy deferral, or bypass.
 
 All local CI lanes still run independently of the security-preflight outcome.
 A failed or not-configured security check must not prevent unrelated local

@@ -14,6 +14,7 @@ type Visibility = "public" | "private"
 type JsonRecord = Record<string, unknown>
 type Metadata = { full_name: string; private: boolean; visibility: Visibility; default_branch?: unknown }
 type InspectedPolicy = Policy & { visibility: Visibility }
+type Environment = Readonly<Record<string, string | undefined>>
 
 export const LIMITS = Object.freeze({ timeout: 20_000, maxBuffer: 1_048_576, pages: 10, pageSize: 100, deadline: 120_000 })
 const FLAGS = Object.freeze({ codeql_enabled: "DF_CODEQL_ENABLED", upload_enabled: "DF_CODE_SCANNING_UPLOAD_ENABLED", dependency_review_enabled: "DF_DEPENDENCY_REVIEW_ENABLED" })
@@ -140,8 +141,11 @@ export function readRepositoryVariables(api: Api, repository: string): Record<st
   const seen = new Set<string>()
   let expected: number | undefined
   let count = 0
+  let page = 0
+  let complete = false
   // Stable total_count <= 1000 and full intermediate pages bound this loop to ten requests.
-  for (let page = 1; true; page += 1)
+  while (!complete)
+    page += 1
     const data = api(`repos/${repository}/actions/variables?per_page=${LIMITS.pageSize}&page=${page}`)
     if (!record(data) || typeof data["total_count"] !== "number" || !Number.isSafeInteger(data["total_count"]) || data["total_count"] < 0 || data["total_count"] > LIMITS.pages * LIMITS.pageSize || !Array.isArray(data["variables"]) || data["variables"].length > LIMITS.pageSize)
       fail("variables")
@@ -156,9 +160,10 @@ export function readRepositoryVariables(api: Api, repository: string): Record<st
         variables[variable["name"]] = variable["value"]
     count += data["variables"].length
     if (count === expected)
-      return variables
-    if (count > expected || data["variables"].length !== LIMITS.pageSize)
+      complete = true
+    else if (count > expected || data["variables"].length !== LIMITS.pageSize)
       fail("variables")
+  return variables
 
 export function verifyCapabilities(api: Api, repository: string, metadata: Metadata, outputs: Outputs): void
   if (outputs.codeql_enabled || outputs.upload_enabled)
@@ -216,7 +221,7 @@ function outputDescriptor(path: unknown, root: string): number
     fail("output")
   return fd
 
-export function writeWorkflowResult(env: NodeJS.ProcessEnv, outputs: Outputs, reasons: string[]): void
+export function writeWorkflowResult(env: Environment, outputs: Outputs, reasons: string[]): void
   if (!record(outputs) || Object.keys(outputs).length !== OUTPUT_KEYS.length || OUTPUT_KEYS.some((key) => typeof outputs[key] !== "boolean") || !Array.isArray(reasons) || reasons.some((reason) => typeof reason !== "string" || reason.length > 1024 || /[\r\n\u0000]/u.test(reason)))
     fail("output")
   let output: number | undefined
@@ -247,7 +252,7 @@ export function writeWorkflowResult(env: NodeJS.ProcessEnv, outputs: Outputs, re
     catch
       fail("output")
 
-export function runCli(args: string[], env: NodeJS.ProcessEnv = process.env): number
+export function runCli(args: string[], env: Environment = process.env): number
   if (args.length === 5 && args[0] === "local" && args[1] === "--remote-name" && args[3] === "--remote-url")
     return runSecurityPreflight({ remoteName: args[2]!, remoteUrl: args[4]! })
   const scope = args[2]

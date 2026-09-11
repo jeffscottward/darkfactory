@@ -46,7 +46,7 @@ const pages = (start: number, length: number) => Array.from({ length }, (_, inde
 const requested = (overrides: Partial<Outputs>): Outputs => ({ ...disabled, ...overrides })
 const capturedDiagnostics = () => [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls].flat().join("\n")
 const directories: string[] = []
-const workflowFiles = (): NodeJS.ProcessEnv =>
+const workflowFiles = (): Record<string, string> =>
   const directory = mkdtempSync(join(tmpdir(), "security-preflight-"))
   directories.push(directory)
   const root = join(directory, "runner")
@@ -56,7 +56,7 @@ const workflowFiles = (): NodeJS.ProcessEnv =>
   writeFileSync(output, "")
   writeFileSync(summary, "")
   return { RUNNER_TEMP: root, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, GITHUB_REPOSITORY: repository }
-const fileContents = (env: NodeJS.ProcessEnv, key: string): string => readFileSync(env[key]!, "utf8")
+const fileContents = (env: Readonly<Record<string, string | undefined>>, key: string): string => readFileSync(env[key]!, "utf8")
 const serve = (routes: Record<string, unknown>): void =>
   mocks.spawnSync.mockImplementation((_command, args) =>
     const endpoint = args.at(-1) as string
@@ -176,6 +176,7 @@ describe("exact metadata and independently scoped policy", () =>
   it.each(["TRUE", " true", "true\n", "False", "1", "yes", true, false, 1, null, [], {}].map((value) => ({ value })))("rejects malformed scoped value $value even for public repositories", ({ value }) =>
     for (const visibility of ["public", "private"])
       expectFailure(() => evaluatePolicy(visibility, { DF_CODEQL_ENABLED: value }, "codeql"), "flags")
+    return
   )
 
   it("ignores malformed variables belonging exclusively to another workflow", () =>

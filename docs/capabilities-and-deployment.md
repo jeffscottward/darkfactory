@@ -68,6 +68,37 @@ A capability change is a complete vertical change, not a manifest toggle. Before
 
 If safe removal would require rewriting the domain, the boundary is wrong or the feature is Core rather than a Capability.
 
+## Hosted security capabilities
+
+GitHub-hosted security capabilities are separate from application capabilities in `capabilities.yaml` and provider environment variables. The canonical read-only preflight runs locally against the actual push destination and as a scoped step within existing hosted analyzer jobs. It verifies repository visibility and positively probes each requested GitHub feature; configuration alone is not proof of availability. See [security-preflight.txt](security-preflight.txt) for entry points, outputs, and bounded API behavior.
+
+Public active CodeQL, Dependency Review, code-scanning ingestion, and free Scorecard analysis cannot opt out. For private repositories, use independent repository Actions variables:
+
+| Variable | Exact lowercase `true` requests |
+| --- | --- |
+| `DF_CODEQL_ENABLED` | Licensed CodeQL analysis, subject to a positive code-scanning feature probe. |
+| `DF_DEPENDENCY_REVIEW_ENABLED` | Dependency Review, subject to a positive dependency feature probe. |
+| `DF_CODE_SCANNING_UPLOAD_ENABLED` | SARIF ingestion, independently of analysis and subject to a positive code-scanning feature probe. |
+
+False, missing, or empty private selections mean **NOT CONFIGURED / NOT RUN**, not successful scans. Other spellings, including uppercase, fail the relevant check. Requested capabilities that are unavailable, unauthorized, unreachable, or unknown block; a failed API read is not evidence of an unconfigured feature. Public false/unset selections do not disable active checks. Use the helper's explicit authorized outputs for operation-level conditions, not job-level variable guards or Actions' case-insensitive comparison of raw variables.
+
+Free Scorecard analysis always runs, including on private repositories and after a capability-step failure; keep that failure blocking. Only positively verified public visibility authorizes Scorecard public publication. Private and unknown repositories never public-publish, regardless of upload authorization. Code-scanning ingestion is a separate operation: CodeQL analyzes with `upload: never`, then an authorized upload step ingests SARIF. A disabled upload does not authorize private CodeQL analysis. Artifacts alone are not ingestion.
+
+### Administrator bootstrap and rollout transaction
+
+1. Identify the exact repository, verified visibility, actual default branch, and explicit push destination; never infer the target from a checkout directory or `origin`. Confirm private CodeQL licensing and permitted use separately from technical availability.
+2. Inventory effective branch protections, repository/organization rulesets, required check names/app IDs, merge queues, deployment event dependencies, and fork approval policy. Unknown or incompatible event obligations stop adoption. Preserve all five `Verification (core/coverage/integration/graph/browser)` contexts and protected CodeQL Actions/JavaScript and Dependency Review checks; do not remove checks or synthesize scan success.
+3. Establish the trusted helper before activating workflows that consume it. If the PR base lacks the canonical helper and its generated Node artifact, first merge a helper-only bootstrap PR under unchanged baseline workflows and protections. Then base the successor-adoption PR on that merged commit. Hosted PR preflight executes the generated Node helper from the exact trusted PR base SHA, never PR-controlled helper code. A missing base helper is a hard failure, not a reason to fall back to the PR copy, weaken checks, or use an administrative bypass.
+4. Record independent capability selections, licensing/configuration evidence, owner, and date. With administrator authorization, configure intended private repository variables and read them back on the exact target. Unconfigured private licensed capabilities may remain explicitly **NOT CONFIGURED / NOT RUN**; they must not be relabeled authorized, unsupported, or passed. No subscription purchase, trial activation, settings mutation, or privilege escalation is part of preflight.
+5. Run destination-scoped local preflight and retain each capability's actual result. Enabled capabilities require successful bounded read-only probes; authentication, permission, 404, network, malformed-response, and unknown-metadata failures block. Do not turn discovery failures into optional skips. Hosted jobs repeat only their relevant scoped probes using the workflow token and explicit variable environment.
+6. Adopt successor workflows only after the bootstrap merge, without changing the five-lane CI event/protection contract. Record exact run URL, SHA, attempt, analysis conclusions, ingestion outcome, and any not-run coverage gaps. An unexercised licensed private path remains unverified, not passed.
+
+Pre-push binds Git's actual destination and every non-deletion pushed ref to a clean, unchanged HEAD. Run immutable `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser` sequentially, checking source/ref stability throughout. Missing prerequisites, stale evidence, source mutation, or any lane failure blocks publication. All lanes produce independent results even when security preflight fails; aggregate failures rather than letting local success erase a security failure. Hosted CI still repeats all five lanes in clean runners.
+
+Preserve analyzer matrices/categories, high-severity Dependency Review, timeouts, least privilege, and compatible immutable action pins. Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days; artifact upload failures block. Every authorized ingestion must succeed; no `continue-on-error`, unconditional success wrappers, or suppressed upload failures.
+
+Reassess visibility/default-branch, licensing, feature configuration, permissions, ruleset, action-version, and variable changes. Rollback must preserve the trusted-helper dependency and required checks, never bypass protections. Local evidence cannot guarantee future hosted service availability or upload permissions. See [Security](security.md) for coverage limits and complementary controls.
+
 ## Web deployment
 
 The authored web application has one deployer: official `@vinext/cloudflare`.

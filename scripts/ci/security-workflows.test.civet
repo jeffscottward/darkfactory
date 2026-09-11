@@ -153,11 +153,12 @@ describe("security workflow safety contracts", () =>
         "always()", `hashFiles('${artifactGlob}') != ''`,
       ].sort())
       expect(scalar(artifact, "if-no-files-found")).toBe("error")
+      expect(scalar(artifact, "retention-days")).toBe("7")
       expect(allSteps.indexOf(analysis)).toBeLessThan(allSteps.indexOf(artifact))
       expect(allSteps.indexOf(artifact)).toBeLessThan(allSteps.indexOf(upload))
       expect(conjuncts(scalar(upload, "if"))).toEqual(uploadConditions)
       // Repository-owned artifacts must not opt into another destination or a
-      // public artifact service; ordinary retention customization is allowed.
+      // public artifact service, and expire after the seven-day evidence window.
       expect(artifact).not.toMatch(/^ +(?:repository|github-token|public|publish|publish_results):/m)
   )
 

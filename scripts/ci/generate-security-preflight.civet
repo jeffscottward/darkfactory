@@ -58,7 +58,7 @@ export const readPreflightFile = async (
       const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length)
       if (bytesRead === 0) break
       length += bytesRead
-    if (length > stats.size)
+    if (length !== stats.size)
       throw new Error(`Preflight file changed while reading: ${relativePath}`)
     await assertDirectoryChain(ancestors)
     return buffer.subarray(0, length)

@@ -69,6 +69,21 @@ The web deployer is official `@vinext/cloudflare`. The repository does not curre
 
 Deployment credentials must never be available to untrusted pull requests. An authorized deployment needs exact-SHA CI evidence, least privilege, environment approval, secret ownership, runtime verification, and rollback evidence.
 
+## Hosted analyzer coverage
+
+Follow the [hosted security bootstrap and rollout transaction](capabilities-and-deployment.md#hosted-security-capabilities). Public active checks cannot opt out. Private CodeQL and Dependency Review require their own exact lowercase `true` repository variables and positive GitHub feature API probes; CodeQL also requires administrator-confirmed licensing. False, missing, or empty private selections are **NOT CONFIGURED / NOT RUN**, never passing scan evidence. Configured-but-unavailable capabilities, invalid values, authentication/network failures, and unknown visibility block the affected check.
+
+Analysis, ingestion, and public publication are separate:
+
+- CodeQL covers repository JavaScript/TypeScript and Actions, not authored Civet. Without configured CodeQL, that hosted analysis is absent.
+- Dependency Review enforces the high-severity pull-request dependency-change policy when active; its feature/dependency-graph support must be established independently of CodeQL.
+- Free Scorecard analysis always runs, including for private repositories and after a capability-step failure; that failure remains blocking. Only positively verified public repositories may publish Scorecard results. Private or unknown repositories never publish to the public Scorecard service.
+- `DF_CODE_SCANNING_UPLOAD_ENABLED` independently requests private SARIF ingestion and requires a positive feature probe. Public ingestion stays active. Disabled ingestion does not authorize private CodeQL analysis, and successful analysis or retained artifacts do not prove ingestion.
+
+The authorization, validation, database, cookie/origin, redaction, and fail-closed production checks below remain mandatory complementary controls, not substitutes for missing hosted coverage. Record each operation's actual state, coverage gap, owner, and exact run/SHA/attempt/conclusion without exposing private results.
+
+Preserve all five verification contexts and protected CodeQL Actions/JavaScript and Dependency Review checks, analyzer matrices/categories, the high-severity threshold, timeouts, least privilege, and compatible immutable action pins. Keep CodeQL `init`, `analyze`, and `upload-sarif` on one reviewed release family. Use `upload: never` for CodeQL analysis and a separate authorized ingestion step. Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days; artifact upload failures block. Enabled analysis and ingestion fail closed: no `continue-on-error`, success wrappers, or suppressed upload errors. Hosted PR preflight executes only the trusted base's generated helper; merge the helper-only bootstrap under baseline workflows before adopting successor workflows, never through a protection bypass.
+
 ## Security evidence
 
 Security evidence should cover observable denial and redaction, not source-text assertions alone:

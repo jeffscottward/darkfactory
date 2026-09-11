@@ -52,7 +52,7 @@ const putArtifact = (root: string, content: string): void =>
 type Compiler = typeof compile
 type OpenFile = typeof open
 const compilerReturning = (output: string): Compiler => (() => output) as unknown as Compiler
-const openWith = (prepare: (handle: FileHandle, path: string) => void | Promise<void>): OpenFile =>
+const openWith = (prepare: (handle: FileHandle, path: string) => unknown): OpenFile =>
   async (path, flags, mode) =>
     const handle = await open(path, flags, mode)
     await prepare(handle, String(path))
@@ -341,6 +341,27 @@ describe("preflight read and close failures", () =>
       ) as FileHandle["stat"])
     )
     await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile)).rejects.toThrow()
+    expect(opened?.fd).toBe(-1)
+  )
+
+  it.each([SECURITY_PREFLIGHT_SOURCE, SECURITY_PREFLIGHT_ARTIFACT])("rejects concurrent truncation of %s without publishing", async (relativePath) =>
+    const root = createFixture()
+    putArtifact(root, compileSecurityPreflight(source))
+    let opened: FileHandle | undefined
+    const openFile = openWith((handle, path) =>
+      if (path !== join(root, relativePath)) return
+      opened = handle
+      const stat = handle.stat.bind(handle)
+      vi.spyOn(handle, "stat").mockImplementation((async () =>
+        const original = await stat()
+        truncateSync(path, 0)
+        return original
+      ) as FileHandle["stat"])
+    )
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { open: openFile, write }))
+      .rejects.toThrow("Preflight file changed while reading")
+    expect(write).not.toHaveBeenCalled()
     expect(opened?.fd).toBe(-1)
   )
 

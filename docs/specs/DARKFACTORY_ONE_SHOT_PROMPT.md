@@ -1153,13 +1153,56 @@ Keep `turbo.json` simple:
 ### Husky
 
 - `pre-commit`: operate on the focused staged scope; run the authoritative staged formatting/lint path plus the smallest relevant type/unit checks. It may modify staged files only through an explicit, documented flow.
-- `pre-push`: run the broad deterministic core lane. Integration, Graphify, and browser/a11y remain mandatory isolated CI lanes rather than local push blockers. Do not bypass either the local hook or any CI lane for normal work.
+- `pre-push`: bind Git's actual destination and every non-deletion pushed ref to clean, unchanged HEAD; perform destination-scoped security preflight and run immutable `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser` sequentially. Check source/ref stability throughout. Missing prerequisites, stale evidence, source mutation, or any lane failure blocks publication. All lanes produce independent results even if preflight fails; aggregate failures without erasing security failures. Do not defer environment-heavy lanes to CI or bypass the hook.
 - Hooks call package scripts; they do not duplicate command logic.
 - CI remains authoritative and reruns clean-room checks.
 
 ### GitHub Actions
 
-Use least-privilege permissions and pinned major actions. CI must:
+Use least-privilege permissions and reviewed action releases pinned to immutable full 40-hex commit SHAs, never mutable major tags. Semantic setup tests must accept another valid reviewed pin while rejecting missing, mutable, or malformed pins and broken setup behavior; do not snapshot a release hash as a lifecycle requirement. Preserve Bun's `.bun-version` input, the declared pnpm version, `id: pnpm`, `run_install: false`, required setup order, frozen install, and browser consumption of pnpm setup output.
+
+Generate the CI event policy from the target repository's verified default branch:
+
+| Event | Full verification |
+| --- | --- |
+| `pull_request` | All PR targets and actors, including forks and docs-only changes. |
+| `push` | Only the actual default branch, including after merge. |
+| `workflow_dispatch` | Explicit full validation, isolated from automatic cancellation. |
+| Other branch push without a PR | No automatic CI; full manual validation remains available. |
+
+For a repository whose verified default branch is `main`, generate:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+```
+
+Substitute the actual default branch as a literal at generation time; event filters cannot use a runtime default-branch expression. Synchronize filters when that branch is renamed. Inspect effective protections/rulesets, merge-queue requirements, deployment event dependencies, and fork approval policy before applying the policy. Unknown obligations or requirements for removed events stop rollout rather than silently weakening checks.
+
+Do not add path filters, actor exclusions, docs-only skips, conditional lane omissions, or `pull_request_target`. Preserve read-only tokens, `persist-credentials: false`, secret isolation, and approval boundaries for fork PRs. Keep the stable required contexts `Verification (core)`, `Verification (coverage)`, `Verification (integration)`, `Verification (graph)`, and `Verification (browser)`, with all five lanes concurrent and `fail-fast: false`; no serial matrix limit. Validation concurrency groups use workflow plus PR number or full ref, not SHA/run ID/event name except the isolated manual run-ID branch above. Distinct PRs/refs remain independent. This is validation-only cancellation, never deployment policy.
+
+Superseded/cancelled validation is not passed validation: merge eligibility requires the latest revision's complete successful required-check set. Cancellation must not hide a known failure. Fix deterministic failures; for a single verified transient failure at unchanged SHA, rerun only failed jobs and necessary dependencies, not successful independent lanes. Waiting approval, blocked, unknown, and skipped checks are not green.
+
+Keep Dependabot limited to the existing `github-actions` ecosystem, weekly, with `open-pull-requests-limit: 1` and one `github-actions` group matching `["*"]`. Review all full-SHA updates; do not auto-merge major changes. Keep CodeQL `init`, `analyze`, and `upload-sarif` in the same atomic version-update group and on one compatible reviewed release family without exclusions or major/minor splits. Grouping bounds ordinary version-update PRs, not security-update batching, and does not retroactively close existing proposals. Do not enable unverified npm/pnpm updater support.
+
+Follow `docs/capabilities-and-deployment.md` and `docs/security-preflight.txt` for hosted security activation. Preserve the five mandatory verification contexts and protected CodeQL Actions/JavaScript and Dependency Review checks. Hosted PR preflight executes the generated Node helper from the exact trusted PR base SHA, never PR-controlled helper code. If the base lacks it, first merge a helper-only bootstrap PR under unchanged baseline workflows and protections, then open successor adoption from that merged base. Missing trusted helper blocks; no PR-copy fallback, required-check weakening, or administrative bypass.
+
+Use independent repository Actions variables `DF_CODEQL_ENABLED`, `DF_DEPENDENCY_REVIEW_ENABLED`, and `DF_CODE_SCANNING_UPLOAD_ENABLED`. Private capabilities require exact lowercase `true` plus positive GitHub feature API probes; CodeQL additionally requires administrator-confirmed licensing and permitted use. False, missing, or empty private values mean **NOT CONFIGURED / NOT RUN**, never successful scans. Public active checks cannot opt out, even with false/unset variables. Invalid values, unknown visibility, configured-but-unavailable features, authentication/permission errors, 404, network failures, or malformed responses block the affected check rather than becoming optional skips.
+
+Run scoped read-only preflight within the existing hosted analyzer jobs, using the workflow token and explicit variable environment. Gate individual licensed operations on the helper's literal authorized outputs, not raw-variable job guards. Keep the canonical bounded probes and failure propagation; do not mutate settings, activate trials, purchase subscriptions, escalate privileges, or manufacture passing scan evidence.
+
+Free Scorecard analysis always runs, including privately and after a capability-step failure; retain that failure as blocking. Only positively verified public visibility authorizes Scorecard public publication. Private and unknown repositories never public-publish. `DF_CODE_SCANNING_UPLOAD_ENABLED` independently gates private SARIF ingestion; public ingestion remains active. Disabling ingestion does not authorize private CodeQL analysis. CodeQL analyzes with `upload: never`, followed by a separate authorized ingestion step. Successful analysis and retained artifacts are not proof of ingestion.
+
+Preserve analyzer names/matrices/categories/timeouts, high-severity Dependency Review, least privilege, and compatible immutable action pins. Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days; artifact upload failures block. Authorized analysis and uploads fail closed: no `continue-on-error`, success wrappers, or suppressed upload failures. Record exact run/SHA/attempt/conclusions and not-run coverage gaps without claiming complementary local checks are equivalent. Reassess visibility, licensing, configuration, permissions, ruleset, action-version, or variable changes; local preflight cannot guarantee future hosted availability or upload permissions.
+
+CI must:
 
 1. Check out code.
 2. Install the declared Node/pnpm versions and use the sole pnpm lockfile with frozen install.
@@ -1214,7 +1257,7 @@ deployment only after green
 
 The order may be optimized for fast failure locally, but no gate is omitted from the full `verify`/`ci` contract. Run focused gates during development and the full affected-phase gate before committing. **Never accumulate the whole build into one unreviewable final commit. Never push red work just to let CI diagnose it.**
 
-After a push:
+After an eligible validation event (PR, default-branch push, or explicit manual run), follow its checks. A feature-branch push without a PR has no expected automatic CI: do not wait for nonexistent checks or label their absence green. For eligible events:
 
 ```text
 inspect checks
