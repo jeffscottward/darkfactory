@@ -1153,7 +1153,7 @@ Keep `turbo.json` simple:
 ### Husky
 
 - `pre-commit`: operate on the focused staged scope; run the authoritative staged formatting/lint path plus the smallest relevant type/unit checks. It may modify staged files only through an explicit, documented flow.
-- `pre-push`: bind Git's actual destination and every non-deletion pushed ref to clean, unchanged HEAD; perform destination-scoped security preflight and run immutable `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser` sequentially. Check source/ref stability throughout. Missing prerequisites, stale evidence, source mutation, or any lane failure blocks publication. All lanes produce independent results even if preflight fails; aggregate failures without erasing security failures. Do not defer environment-heavy lanes to CI or bypass the hook.
+- `pre-push`: bind Git's actual destination and every non-deletion pushed ref to current HEAD; require clean source before destination-scoped security preflight. After preflight passes, run immutable `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser` sequentially, stopping at the first failure. Success requires all five lanes to pass and a final clean-source and unchanged-HEAD check. Missing prerequisites, stale evidence, detected source mutation, or any failed preflight or lane blocks publication. Remaining lanes are not run after a failure. Do not defer environment-heavy lanes to CI or bypass the hook.
 - Hooks call package scripts; they do not duplicate command logic.
 - CI remains authoritative and reruns clean-room checks.
 

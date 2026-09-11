@@ -243,19 +243,21 @@ Authoritative references:
   About the CodeQL CLI:
   https://docs.github.com/en/code-security/codeql-cli/getting-started-with-the-codeql-cli/about-the-codeql-cli
 
-Local CI remains independent
+Local CI and preflight gating
 
 The pre-push hook binds Git's actual destination and every non-deletion pushed
-ref to clean, unchanged HEAD. It runs immutable verify:core, verify:coverage,
-verify:integration, verify:graph, and verify:browser sequentially, checking
-source/ref stability throughout. Missing prerequisites, stale generated
-evidence, source/ref mutation, or any lane failure blocks publication. There is
-no core-only path, environment-heavy deferral, or bypass.
+ref to current HEAD and requires clean source before destination-scoped
+security preflight. After preflight passes, it runs immutable verify:core,
+verify:coverage, verify:integration, verify:graph, and verify:browser
+sequentially. The first failed preflight or lane blocks publication without
+running the remaining lanes. Success requires all five lanes to pass and a
+final check that HEAD is unchanged and source is still clean. Missing
+prerequisites, stale generated evidence, or detected source mutation blocks
+publication. There is no core-only path, environment-heavy deferral, or bypass.
 
-All local CI lanes still run independently of the security-preflight outcome.
-A failed or not-configured security check must not prevent unrelated local
-lanes from producing their own results, and their success must not erase a
-security failure from the final gate outcome.
+An explicitly unconfigured private licensed capability is reported as not
+configured/not run and is not treated as successful analysis. Any actual
+security-preflight failure blocks the push; local lane results cannot erase it.
 
 Local execution cannot reproduce hosted GitHub Actions exactly: event context,
 runner environment, repository settings, credentials, and token permissions

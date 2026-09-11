@@ -78,6 +78,8 @@ varlock run -- bun run ci
 
 Before pushing, install the locked dependencies and pinned Graphify/Chromium prerequisites, and provide the validated local test environment and Docker/PostgreSQL access needed by integration and browser lanes. Run `varlock run -- git push <remote> <ref>` when the Git process needs that environment. A missing prerequisite, stale graph/coverage artifact, failed capability preflight, or failed local lane blocks publication. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
 
+The hook checks clean source before destination-scoped preflight, then runs the five lanes sequentially only after preflight passes. It stops at the first failure; remaining lanes are not run. A successful push requires all five lane results plus a final clean-source and unchanged-HEAD check. An explicitly unconfigured private licensed capability is reported as not configured/not run, not successful analysis.
+
 `bun run ci:preflight -- --remote-name <name> --remote-url <GitHub-URL>` inspects the intended repository's hosted security policy independently. See [security-preflight.txt](security-preflight.txt) for public/private capability states and opt-ins. It does not run licensed analysis or certify a hosted upload locally. After pushing, still follow every hosted lane to a terminal result: runner differences, GitHub outages and changed permissions cannot be guaranteed away before the push.
 
 Stop the local database after the evidence is captured:
