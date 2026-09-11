@@ -52,7 +52,7 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The broad deterministic pre-push lifecycle is:
+The pre-push hook first requires the executing Bun runtime and the `bun` resolved from `PATH` to match the exact `.bun-version` pin, then runs the broad deterministic core lifecycle:
 
 ```bash
 bun run verify:core

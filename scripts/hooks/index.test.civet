@@ -1,14 +1,19 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ spawnSync: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  readFileSync: vi.fn(),
+  spawnSync: vi.fn(),
+}))
 
 vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
+vi.mock("node:fs", () => ({ readFileSync: mocks.readFileSync }))
 
 import {
   PRE_PUSH_SCRIPTS,
   runPreCommit,
   runPrePush,
 } from "./index.civet"
+const BUN_VERSION = "1.3.14"
 
 const spawnResult = (
   status: number | null,
@@ -23,8 +28,34 @@ const spawnResult = (
   ...(error === undefined ? {} : { error }),
 })
 
+type SpawnCall = [executable: string, arguments_: string[], options?: unknown]
+
+const spawnCalls = (): SpawnCall[] =>
+  const spawnMock = Reflect.get(mocks, "spawnSync") as object
+  const mockState = Reflect.get(spawnMock, "mock") as object
+  Reflect.get(mockState, "calls") as SpawnCall[]
+
+const preCommitCalls = () =>
+  spawnCalls().filter(([executable, arguments_]) =>
+    !(executable === "bun" &&
+      arguments_.length === 1 &&
+      arguments_[0] === "--version")
+  )
+beforeEach(() =>
+  vi.stubGlobal("Bun", { version: BUN_VERSION })
+  mocks.readFileSync.mockReturnValue(`${BUN_VERSION}\n`)
+  mocks.spawnSync.mockImplementation((executable, arguments_) =>
+    executable === "bun" && arguments_[0] === "--version"
+      ? spawnResult(0, `${BUN_VERSION}\n`)
+      : spawnResult(0)
+  )
+  undefined
+)
+
 afterEach(() =>
+  mocks.readFileSync.mockReset()
   mocks.spawnSync.mockReset()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 )
 
@@ -38,7 +69,7 @@ describe("repository hooks", () =>
       .mockReturnValue(spawnResult(0))
 
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync.mock.calls).toEqual([
+    expect(preCommitCalls()).toEqual([
       ["git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], {
         encoding: "utf8",
         shell: false,
@@ -62,7 +93,7 @@ describe("repository hooks", () =>
   it("leaves an exclusively generated security bootstrap to its exact-byte checker", () =>
     mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "scripts/ci/generated/security-preflight.mjs\0"))
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+    expect(preCommitCalls()).toHaveLength(1)
   )
 
   it("still checks neighboring modules when a generated bootstrap is staged", () =>
@@ -70,7 +101,7 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(0, "scripts/ci/generated/security-preflight.mjs\0scripts/ci/security-preflight.mjs\0scripts/ci/generated/another.mjs\0"))
       .mockReturnValue(spawnResult(0))
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync.mock.calls.slice(1).map(([, arguments_]) => arguments_)).toEqual([
+    expect(preCommitCalls().slice(1).map(([, arguments_]) => arguments_)).toEqual([
       ["run", "format:staged", "--", "./scripts/ci/security-preflight.mjs", "./scripts/ci/generated/another.mjs"],
       ["run", "lint:staged", "--", "./scripts/ci/security-preflight.mjs", "./scripts/ci/generated/another.mjs"],
     ])
@@ -82,7 +113,7 @@ describe("repository hooks", () =>
 
     expect(runPreCommit()).toBe(0)
     expect(errorOutput).toHaveBeenCalledWith(expect.stringMatching(/Civet validation is deferred/))
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+    expect(preCommitCalls()).toHaveLength(1)
 
     mocks.spawnSync.mockReset()
     errorOutput.mockClear()
@@ -90,7 +121,7 @@ describe("repository hooks", () =>
 
     expect(runPreCommit()).toBe(0)
     expect(errorOutput).not.toHaveBeenCalled()
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+    expect(preCommitCalls()).toHaveLength(1)
   )
 
   it("maps a failed staged-path lookup without hiding spawn errors or null statuses", () =>
@@ -116,7 +147,7 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(0, "src/index.ts\0README.md\0"))
       .mockReturnValueOnce(spawnResult(4))
     expect(runPreCommit()).toBe(4)
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
+    expect(preCommitCalls()).toHaveLength(2)
     expect(errorOutput).toHaveBeenLastCalledWith(
       "[hook] failed (4): \"bun\" \"run\" \"format:staged\" \"--\" \"./src/index.ts\"",
     )
@@ -128,7 +159,7 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(0))
       .mockReturnValueOnce(spawnResult(5))
     expect(runPreCommit()).toBe(5)
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(3)
+    expect(preCommitCalls()).toHaveLength(3)
     expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:staged"))
 
     mocks.spawnSync.mockReset()
@@ -137,7 +168,7 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(0, "README.md\0"))
       .mockReturnValueOnce(spawnResult(6))
     expect(runPreCommit()).toBe(6)
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
+    expect(preCommitCalls()).toHaveLength(2)
     expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:markdown:staged"))
   )
 
@@ -147,9 +178,9 @@ describe("repository hooks", () =>
       .mockReturnValue(spawnResult(0))
 
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(3)
+    expect(preCommitCalls()).toHaveLength(3)
     expect(
-      mocks.spawnSync.mock.calls.slice(1).map(([, arguments_]) => arguments_[1]),
+      preCommitCalls().slice(1).map(([, arguments_]) => arguments_[1]),
     ).toEqual(["format:staged", "lint:staged"])
   )
 
@@ -159,12 +190,73 @@ describe("repository hooks", () =>
     expect(injected).toHaveBeenCalledWith(["verify:core"])
     expect(Object.isFrozen(PRE_PUSH_SCRIPTS)).toBe(true)
 
-    mocks.spawnSync.mockReturnValueOnce(spawnResult(0))
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, `${BUN_VERSION}\n`))
+      .mockReturnValueOnce(spawnResult(0))
     expect(runPrePush()).toBe(0)
     expect(mocks.spawnSync).toHaveBeenCalledWith(
       "bun",
       ["run", "verify:core"],
       { shell: false, stdio: "inherit" },
+    )
+  )
+
+  it.each([
+    ["missing", () => mocks.readFileSync.mockImplementation(() => { throw new Error("missing") })],
+    ["malformed", () => mocks.readFileSync.mockReturnValue("not-semver\n")],
+    ["wrong", () => mocks.readFileSync.mockReturnValue("9.9.9\n")],
+  ] as const)("blocks a %s Bun pin before the core lane", (_name, arrange) =>
+    const runner = vi.fn(() => 0)
+    arrange()
+    expect(runPrePush(runner)).toBe(1)
+    expect(runner).not.toHaveBeenCalled()
+  )
+
+  it.each([
+    ["nonzero exit", spawnResult(9), 9],
+    ["spawn error", spawnResult(0, "", new Error("bun unavailable")), 1],
+    ["termination signal", { ...spawnResult(null), signal: "SIGTERM" }, 1],
+  ] as const)("blocks a PATH-resolved bun %s before the core lane", (_name, result, expected) =>
+    const runner = vi.fn(() => 0)
+    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    mocks.spawnSync.mockReturnValueOnce(result)
+    expect(runPrePush(runner)).toBe(expected)
+    expect(runner).not.toHaveBeenCalled()
+    expect(errorOutput).toHaveBeenCalled()
+  )
+
+  it("blocks a mismatched PATH-resolved bun before the core lane", () =>
+    const runner = vi.fn(() => 0)
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "9.9.9\n"))
+    expect(runPrePush(runner)).toBe(1)
+    expect(runner).not.toHaveBeenCalled()
+  )
+
+  it("blocks a mismatched executing Bun before the core lane", () =>
+    const runner = vi.fn(() => 0)
+    vi.stubGlobal("Bun", { version: "9.9.9" })
+    expect(runPrePush(runner)).toBe(1)
+    expect(runner).not.toHaveBeenCalled()
+  )
+
+
+  it("blocks a missing executing Bun version before the core lane", () =>
+    const runner = vi.fn(() => 0)
+    vi.stubGlobal("Bun", {})
+    expect(runPrePush(runner)).toBe(1)
+    expect(runner).not.toHaveBeenCalled()
+  )
+
+  it("normalizes non-Error runtime inspection failures", () =>
+    const runner = vi.fn(() => 0)
+    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    mocks.readFileSync.mockImplementation(() =>
+      throw "missing pin"
+    )
+    expect(runPrePush(runner)).toBe(1)
+    expect(runner).not.toHaveBeenCalled()
+    expect(errorOutput).toHaveBeenCalledWith(
+      "[hook] Bun runtime prerequisite failed: missing pin",
     )
   )
 
@@ -182,8 +274,9 @@ describe("repository hooks", () =>
       )
 
       mocks.spawnSync.mockClear()
-      mocks.spawnSync.mockReturnValueOnce(spawnResult(9))
-      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      mocks.spawnSync
+        .mockReturnValueOnce(spawnResult(0, `${BUN_VERSION}\n`))
+        .mockReturnValueOnce(spawnResult(9))
       await import("./pre-push.civet")
       expect(process.exitCode).toBe(9)
       expect(mocks.spawnSync).toHaveBeenCalledWith(

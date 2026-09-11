@@ -68,6 +68,7 @@
     "test:operations",
     "test:unit",
     "typecheck",
+    "typecheck:ci",
     "typecheck:database-integration",
     "types",
     "types:check",

@@ -34,6 +34,16 @@ const { stdout } = await execFileAsync("bun", [
 ], { timeout: 10_000, maxBuffer: 1024 * 1024 })
 const workflows = JSON.parse(stdout) as Workflow[]
 
+const workflowAt = (index: number): Workflow =>
+  const workflow = workflows[index]
+  throw new Error(`workflow index ${index} is missing`) unless workflow?
+  workflow
+
+const jobAt = (workflowIndex: number, jobName: string): Job =>
+  const job = workflowAt(workflowIndex).jobs[jobName]
+  throw new Error(`workflow ${workflowIndex} job ${jobName} is missing`) unless job?
+  job
+
 // Evaluate only the comparisons and boolean operators used by these real guards.
 // Actions compares strings case-insensitively; absent context properties are null.
 const selected = (
@@ -42,9 +52,9 @@ const selected = (
   variables: Record<string, unknown>,
 ): boolean =>
   if (typeof expression !== "string") throw new Error("Missing job-level capability expression")
-  const wrapped = expression.match(/^\$\{\{([\s\S]*)\}\}$/)
-  if (!wrapped) throw new Error("Expected an Actions expression")
-  const reduced = wrapped[1].replace(
+  const source = expression.match(/^\$\{\{\s*(.*?)\s*\}\}$/)?.[1]
+  throw new Error "expression did not expose a wrapped condition" unless source?
+  const reduced = source.replace(
     /(toJSON\(github\.event\.repository\.private\)|vars\.(DF_[A-Z_]+))\s*==\s*'(true|false)'/g,
     (_match, operand: string, variable: string | undefined, expected: string) =>
       const value = operand.startsWith("toJSON(")
@@ -57,9 +67,11 @@ const selected = (
   return Function(`"use strict"; return (${reduced});`)() as boolean
 
 const actionStep = (job: Job, action: string): Step =>
-  const matches = job.steps.filter((step) => step.uses?.startsWith(`${action}@`))
-  expect(matches).toHaveLength(1)
-  return matches[0]
+  const matches = job.steps.filter (step) => step.uses?.startsWith(`${action}@`)
+  expect(matches, `${action} appears exactly once`).toHaveLength 1
+  const [match] = matches
+  throw new Error(`${action} match is missing`) unless match?
+  match
 
 const requireFailurePropagation = (value: Job | Step): void =>
   expect([undefined, false]).toContain(value["continue-on-error"])
@@ -90,51 +102,58 @@ describe("hosted security capability policy", () =>
     ["string public visibility", "false", "true", false],
     ["string private visibility", "true", "true", false],
     ["numeric visibility", 0, "true", false],
-  ])("guard truth table: %s", (_name, visibility, selection, expected) =>
+  ])("%s", (_label, visibility, configured, expected) =>
     policies.forEach((policy, index) =>
-      const variables = selection === undefined ? {} : { [policy.variable]: selection }
-      expect(selected(workflows[index].jobs[policy.job].if, visibility, variables)).toBe(expected)
+      const variables = { [policy.variable]: configured }
+      expect(selected(jobAt(index, policy.job).if, visibility, variables)).toBe(expected)
     )
   )
 
-  it("selects each private analyzer independently before any matrix is expanded", () =>
-    policies.forEach((enabled) =>
-      const variables = { [enabled.variable]: "true" }
-      policies.forEach((policy, index) =>
-        // A job-level guard is evaluated before strategy.matrix by Actions.
-        const workflow = workflows[index]
-        expect(Object.keys(workflow.jobs)).toEqual([policy.job])
-        expect(selected(workflow.jobs[policy.job].if, true, variables)).toBe(policy === enabled)
-      )
+  it.each(policies)("keeps $file capability ownership independent", (enabled) =>
+    const variables: Record<string, unknown> = {}
+    policies.forEach((policy) =>
+      variables[policy.variable] = policy == enabled ? "true" : "false"
     )
-    expect(workflows[0].jobs.analyze.strategy).toEqual({
+    policies.forEach((policy, index) =>
+      const workflow = workflowAt(index)
+      expect(Object.keys(workflow.jobs)).toEqual([policy.job])
+      expect(selected(jobAt(index, policy.job).if, true, variables)).toBe(policy == enabled)
+    )
+  )
+
+  it("keeps the CodeQL language matrix exact", () =>
+    expect(jobAt(0, "analyze").strategy).toEqual({
       "fail-fast": false,
       matrix: { language: ["javascript-typescript", "actions"] },
     })
   )
 
-  it("allows Scorecard publication only for known public repositories", () =>
-    const scorecard = workflows[2].jobs.scorecard
-    const publication = actionStep(scorecard, "ossf/scorecard-action").with?.publish_results
-    expect(selected(publication, false, {})).toBe(true)
-    for (const visibility of [true, null, undefined, "false"])
-      expect(selected(publication, visibility, { DF_SCORECARD_ENABLED: "true" })).toBe(false)
+  it("keeps Scorecard publication conditional for private repositories", () =>
+    const scorecard = jobAt(2, "scorecard")
+    const publication = actionStep(scorecard, "ossf/scorecard-action").with?.["publish_results"]
+    expect(publication).toBe("\${{ toJSON(github.event.repository.private) == 'false' }}")
   )
 
   it("keeps every action immutable and the CodeQL sub-actions on one release", () =>
+    const actionRefs: [string, string][] = []
     const codeqlRefs: string[] = []
     const codeqlActions: string[] = []
     workflows.forEach((workflow) =>
       Object.values(workflow.jobs).forEach((job) =>
         job.steps.forEach((step) =>
           if (!step.uses) return
-          expect(step.uses).toMatch(/^[\w.-]+\/[\w./-]+@[a-f\d]{40}$/i)
-          if (step.uses.startsWith("github/codeql-action/"))
-            const [action, ref] = step.uses.split("@")
+          expect(step.uses).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/)
+          const [action, ref] = step.uses.split("@")
+          throw new Error(`Malformed action reference ${step.uses}`) unless action? and ref?
+          actionRefs.push([action, ref])
+          if (action.startsWith("github/codeql-action/"))
             codeqlActions.push(action)
             codeqlRefs.push(ref)
         )
       )
+    )
+    actionRefs.forEach(([action, ref]) =>
+      expect(ref, action).toMatch(/^[0-9a-f]{40}$/)
     )
     expect(new Set(codeqlActions)).toEqual(new Set([
       "github/codeql-action/init",
@@ -144,37 +163,41 @@ describe("hosted security capability policy", () =>
     expect(new Set(codeqlRefs).size).toBe(1)
   )
 
-  it("preserves enabled analyzer failures, high-severity rejection and required SARIF ingestion", () =>
-    workflows.forEach((workflow) =>
-      Object.values(workflow.jobs).forEach((job) =>
-        requireFailurePropagation(job)
-        job.steps.forEach(requireFailurePropagation)
-        expect(job.permissions.contents).toBe("read")
-        expect(actionStep(job, "actions/checkout").with?.["persist-credentials"]).toBe(false)
-      )
+  it("keeps the mandated action-specific fail-closed settings", () =>
+    policies.forEach((policy, index) =>
+      const job = jobAt(index, policy.job)
+      expect(job.permissions["contents"]).toBe("read")
+      requireFailurePropagation(job)
+      job.steps.forEach(requireFailurePropagation)
+      const checkout = actionStep(job, "actions/checkout")
+      expect(checkout.with?.["persist-credentials"]).toBe(false)
     )
-    const codeql = workflows[0].jobs.analyze
-    const dependencyReview = workflows[1].jobs["dependency-review"]
-    const scorecard = workflows[2].jobs.scorecard
+
+    const codeql = jobAt(0, "analyze")
+    const dependencyReview = jobAt(1, "dependency-review")
+    const scorecard = jobAt(2, "scorecard")
     for (const job of [codeql, scorecard])
       expect(job.permissions["security-events"]).toBe("write")
+
     const init = actionStep(codeql, "github/codeql-action/init")
     const analyze = actionStep(codeql, "github/codeql-action/analyze")
     requireUnconditional(init)
     requireUnconditional(analyze)
-    expect(init.with?.languages).toBe("${{ matrix.language }}")
-    expect(analyze.with?.category).toBe("/language:${{ matrix.language }}")
-    expect([undefined, "always"]).toContain(analyze.with?.upload)
+    expect(init.with?.["languages"]).toBe("\${{ matrix.language }}")
+    expect(analyze.with?.["category"]).toBe("/language:\${{ matrix.language }}")
+    expect([undefined, "always"]).toContain(analyze.with?.["upload"])
+
     const review = actionStep(dependencyReview, "actions/dependency-review-action")
     requireUnconditional(review)
     expect(review.with?.["fail-on-severity"]).toBe("high")
-    expect([undefined, false]).toContain(review.with?.["warn-only"])
+    expect([undefined, false, "false"]).toContain(review.with?.["warn-only"])
+
     const scan = actionStep(scorecard, "ossf/scorecard-action")
     const upload = actionStep(scorecard, "github/codeql-action/upload-sarif")
     requireUnconditional(scan)
     requireUnconditional(upload)
-    expect(scan.with?.results_format).toBe("sarif")
-    expect(scan.with?.results_file).toBe("results.sarif")
-    expect(upload.with?.sarif_file).toBe(scan.with?.results_file)
+    expect(scan.with?.["results_format"]).toBe("sarif")
+    expect(scan.with?.["results_file"]).toBe("results.sarif")
+    expect(upload.with?.["sarif_file"]).toBe(scan.with?.["results_file"])
   )
 )

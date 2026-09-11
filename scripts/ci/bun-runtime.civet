@@ -1,0 +1,52 @@
+export type BunCommandResult = Readonly<{
+  exitCode: number
+  stdout: string
+}>
+
+export type BunRuntimeInspection = Readonly<{
+  ok: boolean
+  expectedVersion?: string
+  detail: string
+}>
+
+const EXACT_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u
+
+const exactVersionLine = (source: string): string | undefined =>
+  const value = source.endsWith("\r\n")
+    ? source.slice(0, -2)
+    : source.endsWith("\n")
+      ? source.slice(0, -1)
+      : source
+  return EXACT_VERSION.test(value) ? value : undefined
+
+export const inspectBunRuntime = (
+  pinSource: string,
+  executingVersion: string,
+  pathResolved: BunCommandResult,
+): BunRuntimeInspection =>
+  const expectedVersion = exactVersionLine(pinSource)
+  if (expectedVersion === undefined)
+    return Object.freeze({ ok: false, detail: ".bun-version is missing or malformed" })
+
+  if (!EXACT_VERSION.test(executingVersion) || executingVersion !== expectedVersion)
+    return Object.freeze({
+      ok: false,
+      expectedVersion,
+      detail: `Executing Bun must exactly match .bun-version (${expectedVersion})`,
+    })
+
+  const pathVersion = pathResolved.exitCode === 0
+    ? exactVersionLine(pathResolved.stdout)
+    : undefined
+  if (pathVersion !== expectedVersion)
+    return Object.freeze({
+      ok: false,
+      expectedVersion,
+      detail: `PATH-resolved bun must exactly match .bun-version (${expectedVersion})`,
+    })
+
+  return Object.freeze({
+    ok: true,
+    expectedVersion,
+    detail: `Executing Bun and PATH-resolved bun match .bun-version (${expectedVersion})`,
+  })
