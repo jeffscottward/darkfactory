@@ -59,6 +59,23 @@ describe("repository hooks", () =>
     ])
   )
 
+  it("leaves an exclusively generated security bootstrap to its exact-byte checker", () =>
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "scripts/ci/generated/security-preflight.mjs\0"))
+    expect(runPreCommit()).toBe(0)
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+  )
+
+  it("still checks neighboring modules when a generated bootstrap is staged", () =>
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, "scripts/ci/generated/security-preflight.mjs\0scripts/ci/security-preflight.mjs\0scripts/ci/generated/another.mjs\0"))
+      .mockReturnValue(spawnResult(0))
+    expect(runPreCommit()).toBe(0)
+    expect(mocks.spawnSync.mock.calls.slice(1).map(([, arguments_]) => arguments_)).toEqual([
+      ["run", "format:staged", "--", "./scripts/ci/security-preflight.mjs", "./scripts/ci/generated/another.mjs"],
+      ["run", "lint:staged", "--", "./scripts/ci/security-preflight.mjs", "./scripts/ci/generated/another.mjs"],
+    ])
+  )
+
   it("defers Civet-only changes and silently accepts other irrelevant or empty path records", () =>
     const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
     mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "src/worker.CIVET\0"))

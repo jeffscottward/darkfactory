@@ -1402,6 +1402,8 @@ describe("local Wayfinder execution adapter", () =>
 
     const insecureRoot = await createRepositoriesRoot()
     await mkdir(join(insecureRoot, "darkfactory", ".scratch"), { mode: 0o755 })
+    // mkdir applies the caller's umask; explicitly create the insecure fixture.
+    await chmod(join(insecureRoot, "darkfactory", ".scratch"), 0o755)
     await expect(persistLocalWayfinderTrackerArtifact({
       repositoriesRoot: insecureRoot
       repositoryId: "darkfactory"

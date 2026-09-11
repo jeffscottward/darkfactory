@@ -138,6 +138,7 @@ const EXPECTED_LANES = {
   "verify:core": [
     "format:check",
     "lint",
+    "ci:preflight:check",
     "auth:schema:check",
     "openapi:check",
     "civet:style:check",

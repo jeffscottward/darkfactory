@@ -64,7 +64,7 @@ function isCivetPath(path)
 
 function selectBiomePaths(paths)
   return paths.filter((path) =>
-    BIOME_EXTENSIONS.has(extname(path).toLowerCase())
+    path !== "scripts/ci/generated/security-preflight.mjs" && BIOME_EXTENSIONS.has(extname(path).toLowerCase())
   )
 
 function selectMarkdownPaths(paths)
