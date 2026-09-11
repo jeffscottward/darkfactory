@@ -13,6 +13,7 @@ permissions: {}
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    if: ${{ toJSON(github.event.repository.private) == 'false' || (toJSON(github.event.repository.private) == 'true' && vars.DF_CODEQL_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
