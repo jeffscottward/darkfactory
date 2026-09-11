@@ -1,0 +1,121 @@
+import { compile } from "@danielx/civet"
+import { constants } from "node:fs"
+import { open, realpath } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+import { guardedWrite } from "../docs/filesystem-guard.civet"
+import {
+  assertDirectoryChain,
+  assertNoSymlinkPath,
+  captureDirectoryChain,
+} from "../generate-feature/path-safety.civet"
+
+export const SECURITY_PREFLIGHT_SOURCE = "scripts/ci/security-preflight.civet"
+export const SECURITY_PREFLIGHT_ARTIFACT = "scripts/ci/generated/security-preflight.mjs"
+export const MAX_SOURCE_BYTES = 1024 * 1024
+export const MAX_ARTIFACT_BYTES = 4 * 1024 * 1024
+const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url))
+type GeneratorMode = "generate" | "check"
+type GeneratorResult = "generated" | "unchanged" | "current"
+export type SecurityPreflightGeneratorDependencies = Readonly<{
+  compile?: typeof compile
+  write?: typeof guardedWrite
+  open?: typeof open
+}>
+
+export const compileSecurityPreflight = (
+  source: string,
+  compiler: typeof compile = compile,
+): string =>
+  const compiled = compiler(source, {
+    filename: SECURITY_PREFLIGHT_SOURCE,
+    js: true,
+    sync: true,
+  })
+  return `// Generated from ${SECURITY_PREFLIGHT_SOURCE}; do not edit.\n${compiled.trimEnd()}\n`
+
+export const readPreflightFile = async (
+  root: string,
+  relativePath: string,
+  maxBytes: number,
+  openFile: typeof open = open,
+): Promise<Buffer> =>
+  await assertNoSymlinkPath(root, relativePath)
+  const ancestors = await captureDirectoryChain(root, dirname(relativePath))
+  const handle = await openFile(
+    join(root, relativePath),
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  )
+  try
+    const stats = await handle.stat()
+    if (!stats.isFile() || stats.nlink !== 1 || stats.size > maxBytes)
+      throw new Error(`Preflight file is not a bounded regular file: ${relativePath}`)
+    // One extra byte detects growth without ever performing an unbounded read.
+    const buffer = Buffer.alloc(stats.size + 1)
+    let length = 0
+    while (length < buffer.length)
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length)
+      if (bytesRead === 0) break
+      length += bytesRead
+    if (length !== stats.size)
+      throw new Error(`Preflight file changed while reading: ${relativePath}`)
+    await assertDirectoryChain(ancestors)
+    return buffer.subarray(0, length)
+  finally
+    await handle.close()
+
+export const generateSecurityPreflight = async (
+  mode: GeneratorMode,
+  repositoryPath = REPOSITORY_ROOT,
+  dependencies: SecurityPreflightGeneratorDependencies = {},
+): Promise<GeneratorResult> =>
+  const root = await realpath(repositoryPath)
+  const source = await readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, dependencies.open)
+  const expected = compileSecurityPreflight(source.toString("utf8"), dependencies.compile)
+  let existing: Buffer | undefined
+  const expectedBytes = Buffer.from(expected, "utf8")
+  if (expectedBytes.length > MAX_ARTIFACT_BYTES)
+    throw new Error("Compiled security preflight exceeds the artifact size limit")
+  try
+    existing = await readPreflightFile(root, SECURITY_PREFLIGHT_ARTIFACT, MAX_ARTIFACT_BYTES, dependencies.open)
+  catch (error)
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  if (existing?.equals(expectedBytes))
+    return mode === "check" ? "current" : "unchanged"
+  if (mode === "check")
+    throw new Error("Generated security preflight is missing or stale; run bun run ci:preflight:generate")
+  await (dependencies.write ?? guardedWrite)(root, SECURITY_PREFLIGHT_ARTIFACT, expected, "upsert")
+  return "generated"
+
+export const runSecurityPreflightGeneratorCli = async (
+  argv: readonly string[],
+  options: Readonly<{
+    root?: string
+    writeOutput?: (text: string) => unknown
+    writeError?: (text: string) => unknown
+    dependencies?: SecurityPreflightGeneratorDependencies
+  }> = {},
+): Promise<number> =>
+  const writeOutput = options.writeOutput ?? ((text: string) => process.stdout.write(text))
+  const writeError = options.writeError ?? ((text: string) => process.stderr.write(text))
+  const [mode] = argv
+  if (argv.length !== 1 || (mode !== "generate" && mode !== "check"))
+    writeError("Usage: generate-security-preflight <generate|check>\n")
+    return 2
+  try
+    const result = await generateSecurityPreflight(mode, options.root, options.dependencies)
+    writeOutput(`Security preflight ${result}: ${SECURITY_PREFLIGHT_ARTIFACT}\n`)
+    return 0
+  catch
+    writeError("Security preflight generation/check failed. Check source and filesystem safety; run bun run ci:preflight:generate to update a stale artifact.\n")
+    return 1
+
+export const isSecurityPreflightGeneratorEntrypoint = (
+  moduleUrl: string,
+  argvPath: string | undefined,
+): boolean =>
+  argvPath !== undefined && moduleUrl === pathToFileURL(resolve(argvPath)).href
+
+if (isSecurityPreflightGeneratorEntrypoint(import.meta.url, process.argv[1]))
+  process.exitCode = await runSecurityPreflightGeneratorCli(process.argv.slice(2))

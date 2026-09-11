@@ -1,0 +1,282 @@
+import { spawnSync } from "node:child_process"
+import { appendFileSync, closeSync, constants, fstatSync, lstatSync, openSync, realpathSync } from "node:fs"
+import { isAbsolute, relative, sep } from "node:path"
+import { pathToFileURL } from "node:url"
+
+export type Target = { remoteName: string; remoteUrl: string }
+export type Scope = "local" | "codeql" | "scorecard" | "dependency-review"
+export type Outputs = { codeql_enabled: boolean; upload_enabled: boolean; dependency_review_enabled: boolean; publish_results: boolean }
+export type Policy = { outputs: Outputs; reasons: string[] }
+export type Api = (endpoint: string) => unknown
+
+type OutputKey = Exclude<keyof Outputs, "publish_results">
+type Visibility = "public" | "private"
+type JsonRecord = Record<string, unknown>
+type Metadata = { full_name: string; private: boolean; visibility: Visibility; default_branch?: unknown }
+type InspectedPolicy = Policy & { visibility: Visibility }
+type Environment = Readonly<Record<string, string | undefined>>
+
+export const LIMITS = Object.freeze({ timeout: 20_000, maxBuffer: 1_048_576, pages: 10, pageSize: 100, deadline: 120_000 })
+const FLAGS = Object.freeze({ codeql_enabled: "DF_CODEQL_ENABLED", upload_enabled: "DF_CODE_SCANNING_UPLOAD_ENABLED", dependency_review_enabled: "DF_DEPENDENCY_REVIEW_ENABLED" })
+const FLAG_NAMES: readonly string[] = Object.freeze(Object.values(FLAGS))
+const SCOPES: Readonly<Record<Scope, readonly OutputKey[]>> = Object.freeze({ local: ["codeql_enabled", "upload_enabled", "dependency_review_enabled"], codeql: ["codeql_enabled", "upload_enabled"], scorecard: ["upload_enabled"], "dependency-review": ["dependency_review_enabled"] })
+const OUTPUT_KEYS: readonly (keyof Outputs)[] = ["codeql_enabled", "upload_enabled", "dependency_review_enabled", "publish_results"]
+const SAFE_MESSAGES = Object.freeze({
+  destination: "Invalid GitHub.com destination; supply an explicit SSH or HTTPS remote without credentials or extra URL components.",
+  metadata: "Repository metadata does not positively identify the exact destination and visibility.",
+  flags: "Repository policy variables must be exactly true, false, or unset.",
+  variables: "Repository variables response is malformed, inconsistent, or exceeds the pagination limit.",
+  authentication: "GitHub authentication failed; authenticate gh for github.com with access to the destination.",
+  permission: "GitHub denied this read; verify token permissions and repository access (not evidence of an unavailable feature).",
+  inaccessible: "GitHub returned 404; resource may be hidden, inaccessible, or unsupported. Capability is not verified.",
+  unavailable: "GitHub explicitly reports the requested security capability disabled or unavailable; configure authorized access or remove the private opt-in.",
+  transport: "GitHub request failed, timed out, or exceeded its bounded output; no capability was verified.",
+  response: "GitHub returned an unexpected or malformed API response; no capability was verified.",
+  deadline: "Security preflight exceeded its total request deadline.",
+  output: "GitHub workflow output paths must be distinct regular files inside RUNNER_TEMP.",
+  arguments: "Use local --remote-name NAME --remote-url URL, or workflow --workflow codeql|scorecard|dependency-review.",
+})
+type ErrorCode = keyof typeof SAFE_MESSAGES
+
+export class PreflightError extends Error
+  code: ErrorCode
+
+  constructor(code: ErrorCode)
+    super(SAFE_MESSAGES[code])
+    this.name = "PreflightError"
+    this.code = code
+
+function fail(code: ErrorCode): never
+  throw new PreflightError(code)
+
+function record(value: unknown): value is JsonRecord
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+
+function bounded(value: unknown, max: number): value is string
+  return typeof value === "string" && value.length > 0 && value.length <= max && !/[\u0000-\u0020\u007f-\u009f]/u.test(value)
+
+export function parseRepository(value: unknown): string
+  if (!bounded(value, 140))
+    fail("destination")
+  const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]{1,100})$/u.exec(value)
+  const name = match?.[2]
+  if (!name || name === "." || name === ".." || name.includes(".."))
+    fail("destination")
+  return value
+
+export function parseDestination(target: unknown): string
+  if (!record(target) || !bounded(target["remoteName"], 256) || target["remoteName"].startsWith("-") || !bounded(target["remoteUrl"], 512))
+    fail("destination")
+  const match = /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/)([^/?#:@%\\]+\/[^/?#:@%\\]+)$/u.exec(target["remoteUrl"])
+  const repository = match?.[1]
+  if (!repository)
+    fail("destination")
+  return parseRepository(repository.replace(/\.git$/u, ""))
+
+export function validateMetadata(repository: string, metadata: unknown): Visibility
+  parseRepository(repository)
+  if (!record(metadata) || metadata["full_name"] !== repository || typeof metadata["private"] !== "boolean" || (metadata["visibility"] !== "public" && metadata["visibility"] !== "private") || metadata["private"] !== (metadata["visibility"] === "private"))
+    fail("metadata")
+  return metadata["visibility"]
+
+export function evaluatePolicy(visibility: unknown, variables: unknown, scope: Scope = "local"): Policy
+  if (visibility !== "public" && visibility !== "private")
+    fail("metadata")
+  if (!Object.hasOwn(SCOPES, scope))
+    fail("arguments")
+  if (!record(variables))
+    fail("variables")
+  const outputs: Outputs = { codeql_enabled: false, upload_enabled: false, dependency_review_enabled: false, publish_results: visibility === "public" && (scope === "local" || scope === "scorecard") }
+  const reasons: string[] = []
+  for (const key of SCOPES[scope])
+    const value = variables[FLAGS[key]]
+    if (value !== undefined && value !== "" && value !== "true" && value !== "false")
+      fail("flags")
+    outputs[key] = visibility === "public" || value === "true"
+    reasons.push(`${FLAGS[key]}: ${outputs[key] ? "AUTHORIZED by policy; required capability reads must succeed" : "NOT CONFIGURED; analysis/ingestion not run, not scan evidence"}`)
+  return { outputs, reasons }
+
+// Read-only, explicitly github.com, with captured output never emitted to logs.
+export function createGitHubClient(run: typeof spawnSync = spawnSync, now: () => number = Date.now): Api
+  const started = now()
+  return (endpoint: string): unknown =>
+    if (!/^repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/|\?|$)/u.test(endpoint) || endpoint.length > 1024 || /[\u0000-\u0020\u007f]/u.test(endpoint))
+      fail("response")
+    const remaining = LIMITS.deadline - (now() - started)
+    if (remaining <= 0)
+      fail("deadline")
+    let result: ReturnType<typeof spawnSync>
+    try
+      result = run("gh", ["api", "--hostname", "github.com", "--method", "GET", "--include", "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28", endpoint], { encoding: "utf8", shell: false, stdio: ["ignore", "pipe", "pipe"], timeout: Math.min(LIMITS.timeout, remaining), killSignal: "SIGKILL", maxBuffer: LIMITS.maxBuffer })
+    catch
+      fail("transport")
+    if (now() - started >= LIMITS.deadline)
+      fail("deadline")
+    if (!result || result.error || result.signal || typeof result.stdout !== "string" || Buffer.byteLength(result.stdout) > LIMITS.maxBuffer || (typeof result.stderr === "string" && Buffer.byteLength(result.stderr) > LIMITS.maxBuffer))
+      fail("transport")
+    const response = /^HTTP\/\S+ (\d{3})[^\r\n]*\r?\n[\s\S]*?\r?\n\r?\n([\s\S]*)$/u.exec(result.stdout)
+    if (!response)
+      fail(result.status === 0 ? "response" : "transport")
+    const status = Number(response[1])
+    if (status === 401)
+      fail("authentication")
+    if (status === 404)
+      fail("inaccessible")
+    let data: unknown
+    try
+      data = JSON.parse(response[2]!)
+    catch
+      fail("response")
+    if (status === 403)
+      const message = record(data) && typeof data["message"] === "string" ? data["message"] : ""
+      if (/^(?:Code scanning is not enabled|Advanced Security must be enabled|GitHub Advanced Security is not enabled|Dependency graph is not enabled|Dependency review is not supported)/iu.test(message))
+        fail("unavailable")
+      fail("permission")
+    if (status !== 200 || result.status !== 0)
+      fail("response")
+    return data
+
+export function readRepositoryVariables(api: Api, repository: string): Record<string, string>
+  const variables: Record<string, string> = {}
+  const seen = new Set<string>()
+  let expected: number | undefined
+  let count = 0
+  let page = 0
+  let complete = false
+  // Stable total_count <= 1000 and full intermediate pages bound this loop to ten requests.
+  while (!complete)
+    page += 1
+    const data = api(`repos/${repository}/actions/variables?per_page=${LIMITS.pageSize}&page=${page}`)
+    if (!record(data) || typeof data["total_count"] !== "number" || !Number.isSafeInteger(data["total_count"]) || data["total_count"] < 0 || data["total_count"] > LIMITS.pages * LIMITS.pageSize || !Array.isArray(data["variables"]) || data["variables"].length > LIMITS.pageSize)
+      fail("variables")
+    if (expected !== undefined && expected !== data["total_count"])
+      fail("variables")
+    expected = data["total_count"]
+    for (const variable of data["variables"])
+      if (!record(variable) || typeof variable["name"] !== "string" || !/^[A-Za-z_][A-Za-z0-9_]{0,255}$/u.test(variable["name"]) || typeof variable["value"] !== "string" || seen.has(variable["name"]))
+        fail("variables")
+      seen.add(variable["name"])
+      if (FLAG_NAMES.includes(variable["name"]))
+        variables[variable["name"]] = variable["value"]
+    count += data["variables"].length
+    if (count === expected)
+      complete = true
+    else if (count > expected || data["variables"].length !== LIMITS.pageSize)
+      fail("variables")
+  return variables
+
+export function verifyCapabilities(api: Api, repository: string, metadata: Metadata, outputs: Outputs): void
+  if (outputs.codeql_enabled || outputs.upload_enabled)
+    // Empty successful lists prove API availability; no prior analysis is required.
+    if (!Array.isArray(api(`repos/${repository}/code-scanning/alerts?per_page=1`)))
+      fail("response")
+  if (outputs.dependency_review_enabled)
+    const branch = metadata.default_branch
+    if (!bounded(branch, 255) || /[~^:?*\[\\]/u.test(branch) || branch.includes("..") || branch.startsWith("/") || branch.endsWith("/"))
+      fail("metadata")
+    const commit = api(`repos/${repository}/commits/${encodeURIComponent(branch)}`)
+    if (!record(commit) || typeof commit["sha"] !== "string" || !/^[a-f0-9]{40}$/u.test(commit["sha"]))
+      fail("response")
+    const comparison = api(`repos/${repository}/dependency-graph/compare/${commit["sha"]}...${commit["sha"]}?per_page=1`)
+    if (!Array.isArray(comparison))
+      fail("response")
+
+export function inspectRepository(repository: string, scope: Scope, variables: unknown, api: Api): InspectedPolicy
+  parseRepository(repository)
+  const metadata = api(`repos/${repository}`)
+  const visibility = validateMetadata(repository, metadata)
+  const actualVariables = scope === "local" ? readRepositoryVariables(api, repository) : variables
+  const result = evaluatePolicy(visibility, actualVariables, scope)
+  verifyCapabilities(api, repository, metadata as Metadata, result.outputs)
+  return { ...result, visibility }
+
+function safeFailure(error: unknown): string
+  return error instanceof PreflightError ? error.message : "Unexpected preflight failure; no security capability was verified."
+
+export function runSecurityPreflight(target: Target): number
+  try
+    const result = inspectRepository(parseDestination(target), "local", {}, createGitHubClient())
+    for (const reason of result.reasons)
+      console.log(`[security preflight] ${reason}`)
+    console.log("[security preflight] Capability policy verified; this is not hosted analysis or scan evidence.")
+    return 0
+  catch (error)
+    console.error(`[security preflight] FAILED: ${safeFailure(error)}`)
+    return 1
+
+function outputDescriptor(path: unknown, root: string): number
+  if (!bounded(path, 4096) || !isAbsolute(path))
+    fail("output")
+  const actual = realpathSync(path)
+  const inside = relative(root, actual)
+  if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || !lstatSync(path).isFile())
+    fail("output")
+  const fd = openSync(path, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW)
+  try
+    const stat = fstatSync(fd)
+    if (!stat.isFile() || stat.size > LIMITS.maxBuffer)
+      fail("output")
+  catch
+    closeSync(fd)
+    fail("output")
+  return fd
+
+export function writeWorkflowResult(env: Environment, outputs: Outputs, reasons: string[]): void
+  if (!record(outputs) || Object.keys(outputs).length !== OUTPUT_KEYS.length || OUTPUT_KEYS.some((key) => typeof outputs[key] !== "boolean") || !Array.isArray(reasons) || reasons.some((reason) => typeof reason !== "string" || reason.length > 1024 || /[\r\n\u0000]/u.test(reason)))
+    fail("output")
+  let output: number | undefined
+  let summary: number | undefined
+  try
+    const runnerTemp = env["RUNNER_TEMP"]
+    if (!bounded(runnerTemp, 4096) || !isAbsolute(runnerTemp) || env["GITHUB_OUTPUT"] === env["GITHUB_STEP_SUMMARY"])
+      fail("output")
+    const root = realpathSync(runnerTemp)
+    output = outputDescriptor(env["GITHUB_OUTPUT"], root)
+    summary = outputDescriptor(env["GITHUB_STEP_SUMMARY"], root)
+    const outputStat = fstatSync(output)
+    const summaryStat = fstatSync(summary)
+    if (outputStat.dev === summaryStat.dev && outputStat.ino === summaryStat.ino)
+      fail("output")
+    appendFileSync(output, OUTPUT_KEYS.map((key) => `${key}=${outputs[key]}\n`).join(""))
+    appendFileSync(summary, `Security capability preflight (not scan evidence)\n\n${reasons.join("\n")}\n`)
+  catch
+    fail("output")
+  finally
+    try
+      try
+        if (output !== undefined)
+          closeSync(output)
+      finally
+        if (summary !== undefined)
+          closeSync(summary)
+    catch
+      fail("output")
+
+export function runCli(args: string[], env: Environment = process.env): number
+  if (args.length === 5 && args[0] === "local" && args[1] === "--remote-name" && args[3] === "--remote-url")
+    return runSecurityPreflight({ remoteName: args[2]!, remoteUrl: args[4]! })
+  const scope = args[2]
+  if (args.length !== 3 || args[0] !== "workflow" || args[1] !== "--workflow" || (scope !== "codeql" && scope !== "scorecard" && scope !== "dependency-review"))
+    console.error(`[security preflight] FAILED: ${SAFE_MESSAGES.arguments}`)
+    return 1
+  let outputs: Outputs = { codeql_enabled: false, upload_enabled: false, dependency_review_enabled: false, publish_results: false }
+  let reasons: string[]
+  let status = 0
+  try
+    const result = inspectRepository(parseRepository(env["GITHUB_REPOSITORY"]), scope, env, createGitHubClient())
+    outputs = result.outputs
+    reasons = result.reasons
+  catch (error)
+    reasons = [`FAILED: ${safeFailure(error)}`]
+    status = 1
+  try
+    writeWorkflowResult(env, outputs, reasons)
+  catch (error)
+    console.error(`[security preflight] FAILED: ${safeFailure(error)}`)
+    return 1
+  for (const reason of reasons)
+    console.log(`[security preflight] ${reason}`)
+  return status
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  process.exitCode = runCli(process.argv.slice(2))

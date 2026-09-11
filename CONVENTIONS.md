@@ -37,6 +37,7 @@ Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication 
 
 - Register `@danielx/civet/vite` in the Vite compatibility configuration and include `civet` in vinext/Next route `pageExtensions`; vinext does not discover `.civet` routes by default.
 - Pin and verify Bun, Node compatibility, Vite, React/RSC, vinext, and Civet together. Bun runs scripts and TypeScript; root Civet entrypoints use `bun --preload @danielx/civet/bun-civet`; compatible local CLIs use `bunx --bun --no-install`. pnpm owns installation, workspace selection, and the sole lockfile. Package-local CLIs run from their owning package context. Explicit Node execution requires a measured incompatibility: Vitest uses Node for V8 coverage; `vinext dev` uses Node because Bun 1.3.14 does not implement the WebSocket events required by Vite's development server; and Vinext build/deploy CLIs use Node because their Bun-generated production bundle omits authored routes despite reporting success.
+- The hosted security-policy bootstrap is a separate trust-boundary exception: Node executes only `scripts/ci/generated/security-preflight.mjs`, compiled from canonical Civet using the pinned compiler, before candidate dependencies are installed. Local preflight remains Bun/Civet. Never author behavior in the generated file; use `ci:preflight:generate` and require the non-mutating `ci:preflight:check` in core verification.
 
 Never:
 
@@ -112,6 +113,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 
 - Civet owns parsing and type checks for authored `.civet` source.
 - `packages/api/openapi.json` is generated deterministically by `@darkfactory/api`; the stale check owns its exact bytes.
+- `scripts/ci/generated/security-preflight.mjs` is byte-owned by the pinned Civet compiler. Biome and staged formatting exclude only that bootstrap artifact; `ci:preflight:check` rejects missing or stale bytes without rewriting them. Canonical source and generator tests remain subject to Civet style, type, and coverage gates.
 - `useLiteralKeys` is disabled only for the listed files that intentionally inspect validated dynamic records and `ProcessEnv`; TypeScript's `noPropertyAccessFromIndexSignature` requires bracket access.
 - `useTopLevelRegex` is disabled only for bounded security parsers and one-shot tests that keep regexes beside the invariant they prove; none execute in an unbounded hot path.
 - `noBitwiseOperators` is disabled only where file modes, inode identities, checksums, and PNG bytes require exact bitwise operations; ordinary application code remains checked.

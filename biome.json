@@ -12,6 +12,7 @@
       "!!**/*.civet",
       "!!.markdownlint-cli2.jsonc",
       "!!packages/api/openapi.json",
+      "!!scripts/ci/generated/security-preflight.mjs",
       "!!**/node_modules",
       "!!**/.turbo",
       "!!**/dist",
