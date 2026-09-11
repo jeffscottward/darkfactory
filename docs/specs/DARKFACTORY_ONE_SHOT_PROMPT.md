@@ -1134,11 +1134,19 @@ bun run certs:generate
 bun run capability:add
 bun run generate:feature <name>
 bun run doctor
+bun run verify:static
+bun run verify:core
+bun run verify:core:ci
+bun run test:e2e-helpers
+bun run verify:coverage
+bun run verify:integration
+bun run verify:graph
+bun run verify:browser
 bun run verify
 bun run ci
 ```
 
-`bun run verify` is the complete local lifecycle and `bun run ci` invokes the same composition. GitHub Actions installs the frozen pnpm workspace, then executes Bun/Turbo-orchestrated lanes concurrently. Vitest alone runs through the package-local `corepack pnpm exec` path under Node because Bun 1.3.14 misloads Vitest's Vite `zod` dependency and lacks the V8 `node:inspector` coverage APIs.
+`bun run verify` is the complete local lifecycle and `bun run ci` invokes the same composition. Local `verify:core` remains `verify:static` plus unit, contract, and operations tests, including local E2E helpers. Full `verify` and CI instead compose `verify:core:ci` (static plus `test:e2e-helpers`) with coverage, integration, graph, and browser. Unit/contract/operations execute once under coverage with all four 100% thresholds unchanged; the CI-only helper command positively selects `tests/e2e/helpers`, while coverage's unit project owns the separate root `playwright.config.test.ts`. GitHub Actions installs the frozen pnpm workspace, then executes Bun/Turbo-orchestrated lanes concurrently. Vitest alone runs through the package-local `corepack pnpm exec` path under Node because Bun 1.3.14 misloads Vitest's Vite `zod` dependency and lacks the V8 `node:inspector` coverage APIs.
 
 Keep `turbo.json` simple:
 
@@ -1153,7 +1161,7 @@ Keep `turbo.json` simple:
 ### Husky
 
 - `pre-commit`: operate on the focused staged scope; run the authoritative staged formatting/lint path plus the smallest relevant type/unit checks. It may modify staged files only through an explicit, documented flow.
-- `pre-push`: run the broad deterministic core lane. Integration, Graphify, and browser/a11y remain mandatory isolated CI lanes rather than local push blockers. Do not bypass either the local hook or any CI lane for normal work.
+- `pre-push`: run `verify:core`, the full deterministic local gate. Coverage, integration, Graphify, and browser/a11y remain mandatory isolated CI lanes rather than a five-lane sequential local push blocker. Do not bypass either the local hook or any CI lane for normal work.
 - Hooks call package scripts; they do not duplicate command logic.
 - CI remains authoritative and reruns clean-room checks.
 
@@ -1190,6 +1198,8 @@ Do not add path filters, actor exclusions, docs-only skips, conditional lane omi
 
 Superseded/cancelled validation is not passed validation: merge eligibility requires the latest revision's complete successful required-check set. Cancellation must not hide a known failure. Fix deterministic failures; for a single verified transient failure at unchanged SHA, rerun only failed jobs and necessary dependencies, not successful independent lanes. Waiting approval, blocked, unknown, and skipped checks are not green.
 
+Follow the approved solo-maintainer policy in `AGENTS.md`: `required_approving_review_count: 0`, `require_last_push_approval: false`, documented exact-head technical review, and actual verification. Preserve every effective required check identity/app, strict up-to-date checks, and other protection. Read effective repository/organization rules and read back any explicitly authorized changes; prose does not prove live settings. Require independent approval only when configured by effective rules. Never invent approval, use admin bypass, grant access, or silently change policy. Review the complete security helper/generator/generated-artifact boundary, not just a corrective diff. The runtime helper is not consumed by hosted workflows; its bytes establish neither approval nor scan/ingestion evidence.
+
 Keep Dependabot limited to the existing `github-actions` ecosystem, weekly, with `open-pull-requests-limit: 1` and one `github-actions` group matching `["*"]`. Review all full-SHA updates; do not auto-merge major changes. Keep CodeQL `init`, `analyze`, and `upload-sarif` in the same atomic version-update group and on one compatible reviewed release family without exclusions or major/minor splits. Grouping bounds ordinary version-update PRs, not security-update batching, and does not retroactively close existing proposals. Do not enable unverified npm/pnpm updater support.
 
 Before generating or activating hosted analyzer guards, complete the local administrator procedure in `docs/capabilities-and-deployment.md`: independently verify support/configuration for CodeQL, Dependency Review plus dependency graph, and private Scorecard; inventory effective required checks; record evidence/owner/date; and configure all three private repository Actions variables as one rollout transaction before the guards land. Use literal lowercase `true`/`false` values for `DF_CODEQL_ENABLED`, `DF_DEPENDENCY_REVIEW_ENABLED`, and `DF_SCORECARD_ENABLED`, then read back the approved selections and compatible rulesets on the exact target.
@@ -1214,7 +1224,7 @@ CI must:
 4. Start isolated Postgres.
 5. Validate environment using CI-safe values.
 6. Apply migrations and seed only the isolated test environment.
-7. Run format check, lint, typecheck, build, unit, contract, deterministic coverage generation/byte-staleness, integration, OpenAPI staleness, Graphify staleness/policy, docs checks, and Playwright e2e/a11y in deterministic lane-local order, with the five lanes executing concurrently.
+7. Run format check, lint, typecheck, build, deterministic unit/contract/operations coverage generation and byte-staleness, E2E helpers, integration, OpenAPI staleness, docs checks, and Playwright e2e/a11y in deterministic lane-local order, with the five lanes executing concurrently. The graph lane freshly builds current source, then runs canonical `graph:check` and semantic `graph:verify`; do not compare committed source-fingerprint bookkeeping as an acceptance gate for unrelated edits. Local stale-source detection remains required.
 8. Preserve Playwright traces/screenshots/videos only after the repository scanner completes successfully; never upload unverified, contaminated, or indeterminate failure material.
 9. Never print secrets.
 10. Make deployment a separately protected job dependent on all green verification; do not deploy from untrusted pull-request secrets.

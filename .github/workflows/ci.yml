@@ -528,75 +528,9 @@ jobs:
 
           printf '%s\n' "$toolchain" >> "$GITHUB_PATH"
 
-      - name: Capture committed Graphify manifest identity
+      - name: Build fresh Graphify output
         if: matrix.lane == 'graph'
-        run: |
-          set -euo pipefail
-          umask 077
-          timeout --signal=TERM --kill-after=2s 10s bun -e '
-            import { execFileSync } from "node:child_process";
-            import { writeFileSync } from "node:fs";
-            const githubSha = process.env.GITHUB_SHA;
-            if (typeof githubSha !== "string" || !/^[0-9a-fA-F]{40}$/.test(githubSha)) {
-              throw new Error("GITHUB_SHA must be an exact 40-character hexadecimal commit ID");
-            }
-            const identityFields = ["graphifyVersion", "configDigest", "sourceFingerprint", "sourceFileCount"];
-            const manifest = JSON.parse(
-              execFileSync(
-                "git",
-                ["show", `${githubSha}:.graphify/manifest.json`],
-                {
-                  encoding: "utf8",
-                  timeout: 5_000,
-                  maxBuffer: 65_536,
-                },
-              ),
-            );
-            const identity = Object.fromEntries(
-              identityFields.map((field) => [field, manifest[field]]),
-            );
-            const stringFields = ["graphifyVersion", "configDigest", "sourceFingerprint"];
-            const identityIsValid =
-              Object.keys(identity).length === identityFields.length &&
-              identityFields.every((field) => Object.hasOwn(identity, field)) &&
-              stringFields.every(
-                (field) => typeof identity[field] === "string" && identity[field].trim().length > 0,
-              ) &&
-              Number.isInteger(identity.sourceFileCount) &&
-              identity.sourceFileCount > 0;
-            if (!identityIsValid) {
-              throw new Error("Committed Graphify manifest identity is invalid");
-            }
-            writeFileSync(
-              `${process.env.RUNNER_TEMP}/graphify-committed-identity.json`,
-              `${JSON.stringify(identity)}\n`,
-              { flag: "wx", mode: 0o600 },
-            );
-          '
-
-      - name: Build Graphify output and compare committed identity
-        if: matrix.lane == 'graph'
-        run: |
-          set -euo pipefail
-          bun run graph:build
-          timeout --signal=TERM --kill-after=2s 10s bun -e '
-            import { readFileSync } from "node:fs";
-            import { isDeepStrictEqual } from "node:util";
-            const identityFields = ["graphifyVersion", "configDigest", "sourceFingerprint", "sourceFileCount"];
-            const identityPath = `${process.env.RUNNER_TEMP}/graphify-committed-identity.json`;
-            const committedIdentity = JSON.parse(readFileSync(identityPath, "utf8"));
-            const rebuiltManifest = JSON.parse(
-              readFileSync(".graphify/manifest.json", "utf8"),
-            );
-            const rebuiltIdentity = Object.fromEntries(
-              identityFields.map((field) => [field, rebuiltManifest[field]]),
-            );
-            if (!isDeepStrictEqual(rebuiltIdentity, committedIdentity)) {
-              throw new Error(
-                `Graphify identity drifted: expected ${JSON.stringify(committedIdentity)}, received ${JSON.stringify(rebuiltIdentity)}`,
-              );
-            }
-          '
+        run: bun run graph:build
 
       - name: Build production browser server
         if: matrix.lane == 'browser'
@@ -606,7 +540,7 @@ jobs:
           printf '%s\n' '_DARKFACTORY_E2E_WEB_SCRIPT=start' >>"$GITHUB_ENV"
 
       - name: Run verification lane
-        run: bun run "verify:${{ matrix.lane }}"
+        run: bun run "verify:${{ matrix.lane }}${{ matrix.lane == 'core' && ':ci' || '' }}"
 
       - name: Preserve externally scanned Playwright evidence
         if: matrix.lane == 'browser' && success()

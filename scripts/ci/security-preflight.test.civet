@@ -737,6 +737,8 @@ describe("local preflight and CLI outcomes", () =>
     ])
     expect(fileContents(env, "GITHUB_OUTPUT")).toBe("codeql_enabled=false\nupload_enabled=false\ndependency_review_enabled=false\npublish_results=false\n")
     expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("FAILED:")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("GitHub denied this read")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).not.toContain("GitHub explicitly reports")
     expect(fileContents(env, "GITHUB_STEP_SUMMARY")).not.toContain(sentinel)
     expect(capturedDiagnostics()).not.toContain(sentinel)
   )

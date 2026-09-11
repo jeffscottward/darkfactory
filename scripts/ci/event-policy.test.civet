@@ -176,7 +176,7 @@ describe("CI event policy", () =>
     expect(job["continue-on-error"]).toBeUndefined()
     expect(workflow.permissions).toEqual({ contents: "read" })
     expect(job.permissions).toBeUndefined()
-    const verification = job.steps.filter((step) => step.run === 'bun run "verify:${{ matrix.lane }}"')
+    const verification = job.steps.filter((step) => step.run === `bun run "verify:\${{ matrix.lane }}\${{ matrix.lane == 'core' && ':ci' || '' }}"`)
     expect(verification).toHaveLength(1)
     expect(verification[0]!.if).toBeUndefined()
     for (const step of job.steps)
