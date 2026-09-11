@@ -202,7 +202,11 @@ describe("repository hooks", () =>
   )
 
   it.each([
-    ["missing", () => mocks.readFileSync.mockImplementation(() => { throw new Error("missing") })],
+    ["missing", () =>
+      mocks.readFileSync.mockImplementation(() =>
+        throw new Error("missing")
+      )
+    ],
     ["malformed", () => mocks.readFileSync.mockReturnValue("not-semver\n")],
     ["wrong", () => mocks.readFileSync.mockReturnValue("9.9.9\n")],
   ] as const)("blocks a %s Bun pin before the core lane", (_name, arrange) =>
