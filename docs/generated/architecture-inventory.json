@@ -64,6 +64,7 @@
     "test:contract",
     "test:coverage",
     "test:e2e",
+    "test:e2e-helpers",
     "test:integration",
     "test:operations",
     "test:unit",
@@ -76,9 +77,11 @@
     "verify",
     "verify:browser",
     "verify:core",
+    "verify:core:ci",
     "verify:coverage",
     "verify:graph",
-    "verify:integration"
+    "verify:integration",
+    "verify:static"
   ],
   "packages": [
     {
