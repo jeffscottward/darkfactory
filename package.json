@@ -51,7 +51,7 @@
     "api:openapi:generate": "corepack pnpm --filter @darkfactory/api exec bun run openapi:generate",
     "api:openapi:check": "corepack pnpm --filter @darkfactory/api exec bun run openapi:check",
     "test": "bun run test:unit && bun run test:contract && bun run test:operations && bun run test:integration && bun run test:e2e && bun run test:a11y",
-    "test:unit": "bunx --no-install turbo run test:unit --concurrency=50%",
+    "test:unit": "bunx --no-install turbo run test:unit --concurrency=50% -- --maxWorkers=1",
     "test:contract": "corepack pnpm exec vitest run --config vitest.config.ts --project contract",
     "test:operations": "corepack pnpm exec vitest run --config vitest.config.ts --project operations --project e2e-helpers --maxWorkers=1 --no-file-parallelism",
     "test:e2e-helpers": "corepack pnpm exec vitest run --config vitest.config.ts --project e2e-helpers tests/e2e/helpers --maxWorkers=1 --no-file-parallelism",

@@ -322,7 +322,7 @@ describe("DF-101/106 lifecycle contract", () =>
     expect(turboConfig.globalDependencies).toContain("package.json")
     expect(runScriptNames(rootPackage.scripts.verify)).toEqual(laneNames)
     expect(rootPackage.scripts["test:unit"]).toBe(
-      "bunx --no-install turbo run test:unit --concurrency=50%",
+      "bunx --no-install turbo run test:unit --concurrency=50% -- --maxWorkers=1",
     )
     for (const scriptName of ["dev", "build", "types", "typecheck", "test:unit"])
       expect(rootPackage.scripts[scriptName]).not.toContain("bunx --bun --no-install turbo")
