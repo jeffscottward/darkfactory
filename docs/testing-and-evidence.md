@@ -52,7 +52,7 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The broad deterministic pre-push lifecycle is:
+The broad deterministic pre-push lifecycle remains `verify:static` (static checks, lint, typecheck, builds, docs, and generated-artifact freshness) plus unit, contract, and operations tests. Local operations also includes the E2E-helper tests:
 
 ```bash
 bun run verify:core
@@ -74,7 +74,9 @@ varlock run -- bun run verify
 varlock run -- bun run ci
 ```
 
-`verify` composes all five lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; coverage enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. pnpm remains limited to installation/workspace selection and the measured Node coverage exception.
+`verify` composes all five lanes without weakening any gate. Its core entry point is `verify:core:ci`, which runs `verify:static` plus `test:e2e-helpers`, not the local pre-push `verify:core`. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, docs, and E2E helpers; coverage runs unit/contract/operations once and enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build, builds the current source graph, then runs canonical `graph:check` and `graph:verify`; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. All five `Verification (core/coverage/integration/graph/browser)` checks remain mandatory, and the four coverage thresholds remain 100%. This does not add a five-lane local pre-push sequence. pnpm remains limited to installation/workspace selection and the measured Node compatibility exceptions.
+
+Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. `test:e2e-helpers` positively selects the helper directory with `--project e2e-helpers tests/e2e/helpers`; coverage's unit project owns the separate root `playwright.config.test.ts`. The local `test:operations` path still includes all E2E helpers, including that configuration test; the local pre-push contract is unchanged.
 
 Stop the local database after the evidence is captured:
 
@@ -136,6 +138,8 @@ bun run graph:verify
 Both refresh commands clear only Graphify's known generated graph, cache, analysis, and tool-manifest entries before extraction. This prevents absolute snapshot roots from mixing stale and current node identities while preserving unrelated files. A failed refresh leaves freshness and query gates closed.
 
 Record the Graphify version, graph digest/manifest, source fingerprint, source file count, and representative query output. At minimum, the final evidence should trace a route or oRPC procedure through contract, service, repository, schema, and adapter. Query before broad exploration when the graph exists.
+
+Local `graph:check` still detects stale source fingerprints and requires a refresh before using stale graph evidence. CI instead freshly builds and semantically verifies the current source. Comparing committed source-fingerprint bookkeeping with a fresh build is not an acceptance gate for unrelated edits; a matching fingerprint alone never proves graph correctness.
 
 ## Generated artifact evidence
 

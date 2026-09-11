@@ -21,7 +21,7 @@ const lifecycleStages = (command: string): string[][] =>
   command.split(/\s*&&\s*/u).map(tokenize)
 
 describe("root lifecycle orchestration", () =>
-  it("bounds the canonical unit stage without skip or timeout overrides", async () =>
+  it("bounds local unit execution while full verification uses the coverage lane", async () =>
     const { scripts } = await readRootManifest()
     const canonicalUnitInvocation = ["bun", "run", "test:unit"]
 
@@ -35,6 +35,16 @@ describe("root lifecycle orchestration", () =>
     ])
     expect(lifecycleStages(scripts["verify:core"])).toContainEqual(canonicalUnitInvocation)
     expect(lifecycleStages(scripts.verify)).toContainEqual([
+      "bun",
+      "run",
+      "verify:core:ci",
+    ])
+    expect(lifecycleStages(scripts.verify)).toContainEqual([
+      "bun",
+      "run",
+      "verify:coverage",
+    ])
+    expect(lifecycleStages(scripts.verify)).not.toContainEqual([
       "bun",
       "run",
       "verify:core",
