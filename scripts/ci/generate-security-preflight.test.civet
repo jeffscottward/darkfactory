@@ -1,0 +1,496 @@
+import { compile } from "@danielx/civet"
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  truncateSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs"
+import { open, type FileHandle } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join, relative } from "node:path"
+import { pathToFileURL } from "node:url"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { guardedWrite } from "../docs/filesystem-guard.civet"
+import {
+  MAX_ARTIFACT_BYTES,
+  MAX_SOURCE_BYTES,
+  SECURITY_PREFLIGHT_ARTIFACT,
+  SECURITY_PREFLIGHT_SOURCE,
+  compileSecurityPreflight,
+  generateSecurityPreflight,
+  isSecurityPreflightGeneratorEntrypoint,
+  readPreflightFile,
+  runSecurityPreflightGeneratorCli,
+} from "./generate-security-preflight.civet"
+
+const roots: string[] = []
+const source = "export const increment = (value: number): number => value + 1\n"
+const notice = "// Generated from scripts/ci/security-preflight.civet; do not edit.\n"
+const sentinel = "PRIVATE_GENERATOR_FIXTURE_DO_NOT_DISCLOSE"
+// Match the Civet Vite plugin's virtual module identity for direct-import tests.
+const generatorPath = join(process.cwd(), "scripts/ci/generate-security-preflight.civet.tsx")
+const createFixture = (): string =>
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "security-preflight-generator-")))
+  roots.push(root)
+  mkdirSync(join(root, dirname(SECURITY_PREFLIGHT_SOURCE)), { recursive: true })
+  writeFileSync(join(root, SECURITY_PREFLIGHT_SOURCE), source)
+  return root
+const putArtifact = (root: string, content: string): void =>
+  mkdirSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)), { recursive: true })
+  writeFileSync(join(root, SECURITY_PREFLIGHT_ARTIFACT), content)
+type Compiler = typeof compile
+type OpenFile = typeof open
+const compilerReturning = (output: string): Compiler => (() => output) as unknown as Compiler
+const openWith = (prepare: (handle: FileHandle, path: string) => void | Promise<void>): OpenFile =>
+  async (path, flags, mode) =>
+    const handle = await open(path, flags, mode)
+    await prepare(handle, String(path))
+    return handle
+
+afterEach(() =>
+  vi.restoreAllMocks()
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+)
+
+describe("deterministic security preflight compilation", () =>
+  it("normalizes only trailing compiler whitespace and adds the stable notice", () =>
+    const compiled = "export const value = 7;\n \t\n"
+    expect(compileSecurityPreflight("ignored", compilerReturning(compiled)))
+      .toBe(`${notice}export const value = 7;\n`)
+  )
+
+  it("creates an importable standalone JavaScript module from typed Civet in isolated roots", async () =>
+    const first = createFixture()
+    const second = createFixture()
+    await expect(generateSecurityPreflight("generate", first)).resolves.toBe("generated")
+    await expect(generateSecurityPreflight("generate", second)).resolves.toBe("generated")
+    const artifact = readFileSync(join(first, SECURITY_PREFLIGHT_ARTIFACT))
+    expect(artifact).toEqual(readFileSync(join(second, SECURITY_PREFLIGHT_ARTIFACT)))
+    expect(artifact.toString("utf8")).toBe(compileSecurityPreflight(source))
+    expect(artifact.toString("utf8")).not.toMatch(/sourceMappingURL|sourceURL/)
+    const moduleUrl = pathToFileURL(join(first, SECURITY_PREFLIGHT_ARTIFACT)).href
+    const generated = await import(/* @vite-ignore */ moduleUrl)
+    expect(generated.increment(41)).toBe(42)
+    expect(readFileSync(join(first, SECURITY_PREFLIGHT_SOURCE), "utf8")).toBe(source)
+    expect(readdirSync(join(first, dirname(SECURITY_PREFLIGHT_ARTIFACT))))
+      .toEqual(["security-preflight.mjs"])
+    expect(existsSync(join(first, ".darkfactory-operations.lock"))).toBe(false)
+  )
+
+  it("propagates actual Civet syntax errors without creating an artifact directory", async () =>
+    const root = createFixture()
+    writeFileSync(join(root, SECURITY_PREFLIGHT_SOURCE), "export const broken = (\n")
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+  )
+
+  it("preserves an existing artifact when compilation fails", async () =>
+    const root = createFixture()
+    putArtifact(root, "previous artifact\n")
+    const failure = new Error(sentinel)
+    const compiler: Compiler = () =>
+      throw failure
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { compile: compiler, write })).rejects.toBe(failure)
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(join(root, SECURITY_PREFLIGHT_ARTIFACT), "utf8")).toBe("previous artifact\n")
+  )
+
+  it("rejects compiled output over the byte limit before publishing", async () =>
+    const root = createFixture()
+    const write = vi.fn(guardedWrite)
+    const compiled = "é".repeat(Math.floor(MAX_ARTIFACT_BYTES / 2))
+    await expect(generateSecurityPreflight("generate", root, { compile: compilerReturning(compiled), write }))
+      .rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+  )
+)
+
+describe("exact artifact freshness and publication", () =>
+  it("checks exact bytes without writing and leaves repeated generation metadata unchanged", async () =>
+    const root = createFixture()
+    await generateSecurityPreflight("generate", root)
+    const artifactPath = join(root, SECURITY_PREFLIGHT_ARTIFACT)
+    const fixedTime = new Date("2001-02-03T04:05:06.000Z")
+    utimesSync(artifactPath, fixedTime, fixedTime)
+    const before = statSync(artifactPath, { bigint: true })
+    const expected = readFileSync(artifactPath)
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("check", root, { write })).resolves.toBe("current")
+    await expect(generateSecurityPreflight("generate", root, { write })).resolves.toBe("unchanged")
+    const after = statSync(artifactPath, { bigint: true })
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(artifactPath)).toEqual(expected)
+    expect(after.ino).toBe(before.ino)
+    expect(after.mtimeNs).toBe(before.mtimeNs)
+    expect(after.ctimeNs).toBe(before.ctimeNs)
+  )
+
+  it.each(["missing directory", "missing file", "same-size difference", "extra newline"])(
+    "rejects a %s during check without changing the filesystem",
+    async (state) =>
+      const root = createFixture()
+      const expected = compileSecurityPreflight(source)
+      const artifactPath = join(root, SECURITY_PREFLIGHT_ARTIFACT)
+      const artifactDirectory = dirname(artifactPath)
+      if (state === "missing file") mkdirSync(artifactDirectory)
+      if (state === "same-size difference") putArtifact(root, `${expected.slice(0, -1)} `)
+      if (state === "extra newline") putArtifact(root, `${expected}\n`)
+      const before = existsSync(artifactPath) ? readFileSync(artifactPath) : undefined
+      const write = vi.fn(guardedWrite)
+      await expect(generateSecurityPreflight("check", root, { write })).rejects.toThrow()
+      expect(write).not.toHaveBeenCalled()
+      if (before !== undefined)
+        expect(readFileSync(artifactPath)).toEqual(before)
+      else
+        expect(existsSync(artifactPath)).toBe(false)
+      expect(existsSync(artifactDirectory)).toBe(state !== "missing directory")
+      expect(existsSync(join(root, ".darkfactory-operations.lock"))).toBe(false)
+  )
+
+  it("replaces stale output through the real guarded writer", async () =>
+    const root = createFixture()
+    putArtifact(root, "stale\n")
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).resolves.toBe("generated")
+    expect(readFileSync(join(root, SECURITY_PREFLIGHT_ARTIFACT), "utf8")).toBe(compileSecurityPreflight(source))
+    await expect(generateSecurityPreflight("check", root)).resolves.toBe("current")
+    expect(readdirSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT))))
+      .toEqual(["security-preflight.mjs"])
+  )
+
+  it("propagates publication errors and preserves the previous artifact", async () =>
+    const root = createFixture()
+    putArtifact(root, "previous\n")
+    const failure = new Error(sentinel)
+    const write: typeof guardedWrite = async (repositoryPath, path, content, mode) =>
+      guardedWrite(repositoryPath, path, content, mode, {
+        afterPublish: async () =>
+          throw failure
+      })
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toBe(failure)
+    expect(readFileSync(join(root, SECURITY_PREFLIGHT_ARTIFACT), "utf8")).toBe("previous\n")
+    expect(readdirSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT))))
+      .toEqual(["security-preflight.mjs"])
+    expect(existsSync(join(root, ".darkfactory-operations.lock"))).toBe(false)
+  )
+
+  it("rejects a missing source rather than generating from an empty input", async () =>
+    const root = createFixture()
+    rmSync(join(root, SECURITY_PREFLIGHT_SOURCE))
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toMatchObject({ code: "ENOENT" })
+    expect(write).not.toHaveBeenCalled()
+    expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+  )
+)
+
+describe("bounded regular preflight files", () =>
+  it.each([
+    { path: SECURITY_PREFLIGHT_SOURCE, maximum: MAX_SOURCE_BYTES },
+    { path: SECURITY_PREFLIGHT_ARTIFACT, maximum: MAX_ARTIFACT_BYTES },
+  ])("accepts empty and exactly bounded files at $path", async ({ path, maximum }) =>
+    const root = createFixture()
+    mkdirSync(join(root, dirname(path)), { recursive: true })
+    writeFileSync(join(root, path), "")
+    await expect(readPreflightFile(root, path, maximum)).resolves.toEqual(Buffer.alloc(0))
+    truncateSync(join(root, path), maximum)
+    const bounded = await readPreflightFile(root, path, maximum)
+    expect(bounded.length).toBe(maximum)
+    expect(bounded.equals(Buffer.alloc(maximum))).toBe(true)
+  )
+
+  it.each([
+    { path: SECURITY_PREFLIGHT_SOURCE, maximum: MAX_SOURCE_BYTES },
+    { path: SECURITY_PREFLIGHT_ARTIFACT, maximum: MAX_ARTIFACT_BYTES },
+  ])("rejects oversized $path without publishing", async ({ path, maximum }) =>
+    const root = createFixture()
+    putArtifact(root, "original\n")
+    truncateSync(join(root, path), maximum + 1)
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(statSync(join(root, path)).size).toBe(maximum + 1)
+  )
+
+  it.each([SECURITY_PREFLIGHT_SOURCE, SECURITY_PREFLIGHT_ARTIFACT])("rejects a directory at %s", async (path) =>
+    const root = createFixture()
+    putArtifact(root, "original\n")
+    rmSync(join(root, path))
+    mkdirSync(join(root, path))
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(statSync(join(root, path)).isDirectory()).toBe(true)
+  )
+
+  it.each([SECURITY_PREFLIGHT_SOURCE, SECURITY_PREFLIGHT_ARTIFACT])("rejects a hardlinked %s", async (path) =>
+    const root = createFixture()
+    putArtifact(root, "original\n")
+    const otherName = join(root, "hardlink-target")
+    linkSync(join(root, path), otherName)
+    const before = readFileSync(otherName)
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(otherName)).toEqual(before)
+  )
+
+  it.each([SECURITY_PREFLIGHT_SOURCE, SECURITY_PREFLIGHT_ARTIFACT])("rejects symbolic links at %s without changing their targets", async (path) =>
+    const root = createFixture()
+    const outside = createFixture()
+    putArtifact(root, "original\n")
+    const target = join(outside, SECURITY_PREFLIGHT_SOURCE)
+    rmSync(join(root, path))
+    symlinkSync(target, join(root, path))
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(target, "utf8")).toBe(source)
+  )
+
+  it.each([dirname(SECURITY_PREFLIGHT_SOURCE), dirname(SECURITY_PREFLIGHT_ARTIFACT)])("rejects a symbolic-link ancestor at %s", async (path) =>
+    const root = createFixture()
+    putArtifact(root, "original\n")
+    const moved = join(root, "moved-directory")
+    renameSync(join(root, path), moved)
+    symlinkSync(moved, join(root, path))
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(join(root, SECURITY_PREFLIGHT_ARTIFACT), "utf8")).toBe("original\n")
+  )
+
+  it("rejects a non-directory output ancestor instead of treating it as a missing artifact", async () =>
+    const root = createFixture()
+    writeFileSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)), "not a directory")
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { write })).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)), "utf8")).toBe("not a directory")
+  )
+
+  it("refuses a leaf swapped to a symlink immediately before open", async () =>
+    const root = createFixture()
+    const outside = createFixture()
+    const openFile: typeof open = async (path, flags, mode) =>
+      rmSync(String(path))
+      symlinkSync(join(outside, SECURITY_PREFLIGHT_SOURCE), String(path))
+      return open(path, flags, mode)
+    await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile))
+      .rejects.toMatchObject({ code: "ELOOP" })
+    expect(readFileSync(join(outside, SECURITY_PREFLIGHT_SOURCE), "utf8")).toBe(source)
+  )
+
+  it("rejects an ancestor replacement during reading and releases the opened descriptor", async () =>
+    const root = createFixture()
+    let opened: FileHandle | undefined
+    const openFile = openWith((handle, path) =>
+      opened = handle
+      renameSync(dirname(path), join(root, "previous-ci"))
+      mkdirSync(dirname(path))
+      writeFileSync(path, "replacement\n")
+    )
+    await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile))
+      .rejects.toMatchObject({ code: "ANCESTOR_CHANGED" })
+    expect(opened?.fd).toBe(-1)
+    expect(readFileSync(join(root, SECURITY_PREFLIGHT_SOURCE), "utf8")).toBe("replacement\n")
+  )
+)
+
+describe("preflight read and close failures", () =>
+  it("assembles short reads until EOF without losing bytes", async () =>
+    const root = createFixture()
+    let opened: FileHandle | undefined
+    const openFile = openWith((handle) =>
+      opened = handle
+      const read = handle.read.bind(handle)
+      const shortRead = async (buffer: Buffer, offset: number, length: number, position: number) =>
+        read(buffer, offset, Math.min(length, 2), position)
+      vi.spyOn(handle, "read").mockImplementation(shortRead as FileHandle["read"])
+    )
+    await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile))
+      .resolves.toEqual(Buffer.from(source))
+    expect(opened?.fd).toBe(-1)
+  )
+
+  it("rejects file growth after stat and closes the descriptor", async () =>
+    const root = createFixture()
+    let opened: FileHandle | undefined
+    const openFile = openWith((handle, path) =>
+      opened = handle
+      const stat = handle.stat.bind(handle)
+      vi.spyOn(handle, "stat").mockImplementation((async () =>
+        const original = await stat()
+        writeFileSync(path, `${source}unexpected growth`)
+        return original
+      ) as FileHandle["stat"])
+    )
+    await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile)).rejects.toThrow()
+    expect(opened?.fd).toBe(-1)
+  )
+
+  it.each(["stat", "read"] as const)("propagates %s failure and closes the descriptor", async (method) =>
+    const root = createFixture()
+    const failure = new Error(sentinel)
+    let opened: FileHandle | undefined
+    const openFile = openWith((handle) =>
+      opened = handle
+      if (method === "stat") vi.spyOn(handle, "stat").mockRejectedValue(failure)
+      else vi.spyOn(handle, "read").mockRejectedValue(failure)
+    )
+    await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile)).rejects.toBe(failure)
+    expect(opened?.fd).toBe(-1)
+  )
+
+  it("fails rather than returning successfully read bytes when close fails", async () =>
+    const root = createFixture()
+    const failure = new Error(sentinel)
+    const openFile = openWith((handle) =>
+      const close = handle.close.bind(handle)
+      vi.spyOn(handle, "close").mockImplementation(async () =>
+        await close()
+        throw failure
+      )
+    )
+    await expect(readPreflightFile(root, SECURITY_PREFLIGHT_SOURCE, MAX_SOURCE_BYTES, openFile)).rejects.toBe(failure)
+  )
+
+  it.each([SECURITY_PREFLIGHT_SOURCE, SECURITY_PREFLIGHT_ARTIFACT])("propagates non-missing open errors at %s without publishing", async (path) =>
+    const root = createFixture()
+    putArtifact(root, "previous\n")
+    const failure = Object.assign(new Error(sentinel), { code: "EACCES" })
+    const openFile: typeof open = async (target, flags, mode) =>
+      if (String(target) === join(root, path)) throw failure
+      return open(target, flags, mode)
+    const write = vi.fn(guardedWrite)
+    await expect(generateSecurityPreflight("generate", root, { open: openFile, write })).rejects.toBe(failure)
+    expect(write).not.toHaveBeenCalled()
+    expect(readFileSync(join(root, SECURITY_PREFLIGHT_ARTIFACT), "utf8")).toBe("previous\n")
+  )
+)
+
+describe("security preflight generator CLI and import boundaries", () =>
+  it.each([
+    [], ["--check"], ["CHECK"], ["unknown"], ["generate", "check"], ["check", "extra"], ["generate", ""],
+  ].map((argv) => ({ argv })))("rejects invalid arguments $argv before touching the filesystem", async ({ argv }) =>
+    const root = createFixture()
+    const writeOutput = vi.fn()
+    const writeError = vi.fn()
+    const openFile = vi.fn(open)
+    const write = vi.fn(guardedWrite)
+    expect(await runSecurityPreflightGeneratorCli(argv, { root, writeOutput, writeError, dependencies: { open: openFile, write } })).toBe(2)
+    expect(writeOutput).not.toHaveBeenCalled()
+    expect(writeError).toHaveBeenCalledOnce()
+    expect(openFile).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+    expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+  )
+
+  it("reports generated, unchanged, and current results with successful exit codes", async () =>
+    const root = createFixture()
+    const writeOutput = vi.fn()
+    const writeError = vi.fn()
+    for (const [mode, result] of [["generate", "generated"], ["generate", "unchanged"], ["check", "current"]])
+      expect(await runSecurityPreflightGeneratorCli([mode!], { root, writeOutput, writeError })).toBe(0)
+      expect(writeOutput).toHaveBeenLastCalledWith(`Security preflight ${result}: ${SECURITY_PREFLIGHT_ARTIFACT}\n`)
+    expect(writeError).not.toHaveBeenCalled()
+  )
+
+  it.each([new Error(sentinel), { privateDetail: sentinel }, sentinel, null])("reports failures safely without exposing thrown values", async (failure) =>
+    const root = createFixture()
+    const writeOutput = vi.fn()
+    const writeError = vi.fn()
+    const compiler: Compiler = () =>
+      throw failure
+    expect(await runSecurityPreflightGeneratorCli(["generate"], { root, writeOutput, writeError, dependencies: { compile: compiler } })).toBe(1)
+    expect(writeOutput).not.toHaveBeenCalled()
+    expect(writeError).toHaveBeenCalledOnce()
+    const diagnostic = writeError.mock.calls.flat().join("")
+    expect(diagnostic).not.toContain(sentinel)
+    expect(diagnostic).not.toContain(root)
+    expect(diagnostic).not.toMatch(/\n\s+at /)
+    expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+  )
+
+  it("reports a missing artifact as failure without creating it", async () =>
+    const root = createFixture()
+    const writeOutput = vi.fn()
+    const writeError = vi.fn()
+    expect(await runSecurityPreflightGeneratorCli(["check"], { root, writeOutput, writeError })).toBe(1)
+    expect(writeOutput).not.toHaveBeenCalled()
+    expect(writeError).toHaveBeenCalledOnce()
+    expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+  )
+
+  it("uses the process streams when output callbacks are omitted", async () =>
+    const root = createFixture()
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true)
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    expect(await runSecurityPreflightGeneratorCli(["generate"], { root })).toBe(0)
+    expect(stdout).toHaveBeenCalledWith(`Security preflight generated: ${SECURITY_PREFLIGHT_ARTIFACT}\n`)
+    expect(await runSecurityPreflightGeneratorCli([])).toBe(2)
+    expect(stderr).toHaveBeenCalledOnce()
+  )
+
+  it("recognizes only the resolved file URL of the invoked module", () =>
+    const root = createFixture()
+    const path = join(root, "entry with space.civet")
+    const moduleUrl = pathToFileURL(path).href
+    expect(isSecurityPreflightGeneratorEntrypoint(moduleUrl, path)).toBe(true)
+    expect(isSecurityPreflightGeneratorEntrypoint(moduleUrl, relative(process.cwd(), path))).toBe(true)
+    expect(isSecurityPreflightGeneratorEntrypoint(moduleUrl, undefined)).toBe(false)
+    expect(isSecurityPreflightGeneratorEntrypoint(moduleUrl, join(root, "other.civet"))).toBe(false)
+    expect(isSecurityPreflightGeneratorEntrypoint(`${moduleUrl}?imported`, path)).toBe(false)
+  )
+
+  it("does not execute the CLI when imported by another entrypoint", async () =>
+    const root = createFixture()
+    const originalArgv = process.argv
+    const originalExitCode = process.exitCode
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true)
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try
+      process.argv = [process.execPath, join(root, "consumer.civet"), "generate"]
+      vi.resetModules()
+      await import("./generate-security-preflight.civet")
+      expect(process.exitCode).toBe(originalExitCode)
+      expect(stdout).not.toHaveBeenCalled()
+      expect(stderr).not.toHaveBeenCalled()
+      expect(existsSync(join(root, dirname(SECURITY_PREFLIGHT_ARTIFACT)))).toBe(false)
+    finally
+      process.argv = originalArgv
+      process.exitCode = originalExitCode
+  )
+
+  it("sets usage status when executed directly with invalid arguments without opening repository files", async () =>
+    const originalArgv = process.argv
+    const originalExitCode = process.exitCode
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true)
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try
+      process.argv = [process.execPath, generatorPath, "invalid-mode"]
+      vi.resetModules()
+      await import("./generate-security-preflight.civet")
+      expect(process.exitCode).toBe(2)
+      expect(stdout).not.toHaveBeenCalled()
+      expect(stderr).toHaveBeenCalledOnce()
+    finally
+      process.argv = originalArgv
+      process.exitCode = originalExitCode
+  )
+)

@@ -52,13 +52,13 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The broad deterministic pre-push lifecycle is:
+The pre-push requirement is destination-aware security capability preflight followed by the complete five-lane local lifecycle. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects dirty or mismatched source rather than verifying one checkout while publishing another.
 
 ```bash
-bun run verify:core
+varlock run -- bun run verify
 ```
 
-Environment-heavy verification remains explicit:
+Each required lane remains independently runnable for diagnosis; environment-heavy checks are not deferred to CI:
 
 ```bash
 bun run verify:coverage
@@ -75,6 +75,10 @@ varlock run -- bun run ci
 ```
 
 `verify` composes all five lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; coverage enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. pnpm remains limited to installation/workspace selection and the measured Node coverage exception.
+
+Before pushing, install the locked dependencies and pinned Graphify/Chromium prerequisites, and provide the validated local test environment and Docker/PostgreSQL access needed by integration and browser lanes. Run `varlock run -- git push <remote> <ref>` when the Git process needs that environment. A missing prerequisite, stale graph/coverage artifact, failed capability preflight, or failed local lane blocks publication. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
+
+`bun run ci:preflight -- --remote-name <name> --remote-url <GitHub-URL>` inspects the intended repository's hosted security policy independently. See [security-preflight.txt](security-preflight.txt) for public/private capability states and opt-ins. It does not run licensed analysis or certify a hosted upload locally. After pushing, still follow every hosted lane to a terminal result: runner differences, GitHub outages and changed permissions cannot be guaranteed away before the push.
 
 Stop the local database after the evidence is captured:
 

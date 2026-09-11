@@ -21,18 +21,39 @@ jobs:
 
     steps:
       - name: Check out repository
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      - name: Check security capabilities
+        id: security-policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
+          DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
+          DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
+        run: node scripts/ci/generated/security-preflight.mjs workflow --workflow scorecard
+
       - name: Run Scorecard analysis
+        id: analysis
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: ${{ steps.security-policy.outcome == 'success' && steps.security-policy.outputs.publish_results == 'true' }}
+
+      - name: Retain Scorecard SARIF artifact
+        if: ${{ always() && hashFiles('results.sarif') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          if-no-files-found: error
 
       - name: Upload SARIF to code scanning
+        if: ${{ !cancelled() && steps.security-policy.outcome == 'success' && steps.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: results.sarif

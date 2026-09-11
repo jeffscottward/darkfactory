@@ -15,12 +15,23 @@ jobs:
       contents: read
 
     steps:
-      - name: Check out repository
+      - name: Check out trusted security policy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
+      - name: Check security capabilities
+        id: security-policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
+          DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
+          DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
+        run: node scripts/ci/generated/security-preflight.mjs workflow --workflow dependency-review
+
       - name: Review dependency changes
+        if: steps.security-policy.outputs.dependency_review_enabled == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high

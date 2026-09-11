@@ -1,0 +1,804 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+const mocks = vi.hoisted(() => ({
+  spawnSync: vi.fn(),
+  appendFileSync: vi.fn(),
+  closeSync: vi.fn(),
+  fstatSync: vi.fn(),
+  lstatSync: vi.fn(),
+  openSync: vi.fn(),
+  realpathSync: vi.fn(),
+}))
+
+vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
+vi.mock("node:fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:fs")>(),
+  appendFileSync: mocks.appendFileSync,
+  closeSync: mocks.closeSync,
+  fstatSync: mocks.fstatSync,
+  lstatSync: mocks.lstatSync,
+  openSync: mocks.openSync,
+  realpathSync: mocks.realpathSync,
+}))
+
+import { LIMITS, PreflightError, createGitHubClient, evaluatePolicy, inspectRepository, parseDestination, parseRepository, readRepositoryVariables, runCli, runSecurityPreflight, validateMetadata, verifyCapabilities, writeWorkflowResult, type Outputs, type Scope } from "./security-preflight.civet"
+
+const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+const repository = "example-owner/destination"
+const target = { remoteName: "review", remoteUrl: `git@github.com:${repository}.git` }
+const sha = "a".repeat(40)
+const sentinel = "PRIVATE_FIXTURE_DO_NOT_DISCLOSE"
+const disabled: Outputs = { codeql_enabled: false, upload_enabled: false, dependency_review_enabled: false, publish_results: false }
+const flagKeys = ["DF_CODEQL_ENABLED", "DF_CODE_SCANNING_UPLOAD_ENABLED", "DF_DEPENDENCY_REVIEW_ENABLED"]
+const metadata = (visibility: "public" | "private" = "private") => ({ full_name: repository, private: visibility === "private", visibility, default_branch: "main" })
+const response = (data: unknown, status = 200, exitStatus: number | null = status === 200 ? 0 : 1) => ({
+  status: exitStatus,
+  stdout: `HTTP/2.0 ${status} Fixture\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(data)}`,
+  stderr: "",
+  signal: null,
+})
+const expectFailure = (action: () => unknown, code: string): void =>
+  expect(action).toThrow(expect.objectContaining({ name: "PreflightError", code }))
+const pages = (start: number, length: number) => Array.from({ length }, (_, index) => ({ name: `UNRELATED_${start + index}`, value: "ignored" }))
+const requested = (overrides: Partial<Outputs>): Outputs => ({ ...disabled, ...overrides })
+const capturedDiagnostics = () => [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls].flat().join("\n")
+const directories: string[] = []
+const workflowFiles = (): NodeJS.ProcessEnv =>
+  const directory = mkdtempSync(join(tmpdir(), "security-preflight-"))
+  directories.push(directory)
+  const root = join(directory, "runner")
+  mkdirSync(root)
+  const output = join(root, "output")
+  const summary = join(root, "summary")
+  writeFileSync(output, "")
+  writeFileSync(summary, "")
+  return { RUNNER_TEMP: root, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, GITHUB_REPOSITORY: repository }
+const fileContents = (env: NodeJS.ProcessEnv, key: string): string => readFileSync(env[key]!, "utf8")
+const serve = (routes: Record<string, unknown>): void =>
+  mocks.spawnSync.mockImplementation((_command, args) =>
+    const endpoint = args.at(-1) as string
+    if (!Object.hasOwn(routes, endpoint)) throw new Error(`Unexpected request: ${endpoint}`)
+    return response(routes[endpoint])
+  )
+
+beforeEach(() =>
+  mocks.spawnSync.mockReset()
+  mocks.appendFileSync.mockReset().mockImplementation(actualFs.appendFileSync)
+  mocks.closeSync.mockReset().mockImplementation(actualFs.closeSync)
+  mocks.fstatSync.mockReset().mockImplementation(actualFs.fstatSync)
+  mocks.lstatSync.mockReset().mockImplementation(actualFs.lstatSync)
+  mocks.openSync.mockReset().mockImplementation(actualFs.openSync)
+  mocks.realpathSync.mockReset().mockImplementation(actualFs.realpathSync)
+  vi.spyOn(console, "log").mockImplementation(() => undefined)
+  vi.spyOn(console, "error").mockImplementation(() => undefined)
+)
+
+afterEach(() =>
+  vi.restoreAllMocks()
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+)
+
+describe("explicit GitHub push destinations", () =>
+  it.each(["git@github.com:", "ssh://git@github.com/", "https://github.com/"])("accepts %s without changing repository identity", (prefix) =>
+    expect(parseDestination({ remoteName: "fork", remoteUrl: `${prefix}${repository}.git` })).toBe(repository)
+    expect(parseDestination({ remoteName: "fork", remoteUrl: `${prefix}${repository}` })).toBe(repository)
+  )
+
+  it("accepts owner, repository, and remote-name boundaries", () =>
+    const maximum = `${"a".repeat(39)}/${"r".repeat(100)}`
+    expect(parseRepository(maximum)).toBe(maximum)
+    expect(parseRepository("x/.hidden_repo-1")).toBe("x/.hidden_repo-1")
+    expect(parseDestination({ remoteName: "r".repeat(256), remoteUrl: `https://github.com/${maximum}.git` })).toBe(maximum)
+  )
+
+  it.each([
+    { label: "non-record", value: null },
+    { label: "array", value: [] },
+    { label: "missing URL", value: { remoteName: "origin" } },
+    { label: "empty remote", value: { ...target, remoteName: "" } },
+    { label: "option remote", value: { ...target, remoteName: "--upload-pack=bad" } },
+    { label: "remote control", value: { ...target, remoteName: "review\u0085" } },
+    { label: "long remote", value: { ...target, remoteName: "r".repeat(257) } },
+    { label: "long URL", value: { ...target, remoteUrl: "x".repeat(513) } },
+  ])("rejects $label", ({ value }) =>
+    expectFailure(() => parseDestination(value), "destination")
+  )
+
+  it.each([
+    "", "/tmp/repository.git", "../repository", "file:///repository", "http://github.com/o/r", "git://github.com/o/r",
+    "https://github.example/o/r", "https://github.com.evil.test/o/r", "git@evil.test:o/r", "ssh://user@github.com/o/r",
+    "https://user:password@github.com/o/r", "https://token@github.com/o/r", "ssh://git@github.com:22/o/r",
+    "https://github.com/o/r?token=fixture", "https://github.com/o/r#fragment", "https://github.com/o/r/", "https://github.com/o/r/extra",
+    "https://github.com/o/../r", "https://github.com/o/%2e%2e", "https://github.com/o/r%2fextra", "https://github.com/o/r\\extra",
+    "https://github.com/o/r\n", "https://github.com/o/r\0", "https://github.com/o/r\u007f", "https://github.com/o/r\u0085", " https://github.com/o/r",
+  ])("rejects unsupported or ambiguous remote %j", (remoteUrl) =>
+    expectFailure(() => parseDestination({ ...target, remoteUrl }), "destination")
+  )
+
+  it.each([
+    undefined, null, true, 42, {}, [], "", "owner", "owner/repo/extra", "-owner/repo", "owner-/repo", "ow_ner/repo",
+    "owner/.", "owner/..", "owner/re..po", "owner/repo name", "owner/repo\u009f", "owner/r?x", "owner/r#x",
+    `${"o".repeat(40)}/r`, `o/${"r".repeat(101)}`, "o".repeat(141),
+  ].map((value) => ({ value })))("rejects malformed repository identity $value", ({ value }) =>
+    expectFailure(() => parseRepository(value), "destination")
+  )
+)
+
+describe("exact metadata and independently scoped policy", () =>
+  it.each(["public", "private"] as const)("requires matching %s visibility metadata", (visibility) =>
+    expect(validateMetadata(repository, metadata(visibility))).toBe(visibility)
+  )
+
+  it.each([
+    null, [], {}, { ...metadata(), full_name: "example-owner/other" }, { ...metadata(), full_name: repository.toUpperCase() },
+    { ...metadata(), private: "true" }, { ...metadata(), private: undefined }, { ...metadata(), visibility: "internal" },
+    { ...metadata(), visibility: "public" }, { ...metadata("public"), private: true },
+  ].map((value) => ({ value })))("fails closed for contradictory or incomplete metadata $value", ({ value }) =>
+    expectFailure(() => validateMetadata(repository, value), "metadata")
+  )
+
+  it("validates the requested identity before trusting metadata", () =>
+    expectFailure(() => validateMetadata("../destination", metadata()), "destination")
+  )
+
+  it("keeps every public local capability on even with explicit false variables", () =>
+    const variables = Object.fromEntries(flagKeys.map((key) => [key, "false"]))
+    expect(evaluatePolicy("public", variables).outputs).toEqual({ codeql_enabled: true, upload_enabled: true, dependency_review_enabled: true, publish_results: true })
+    expect(evaluatePolicy("public", {}).outputs).toEqual(evaluatePolicy("public", variables).outputs)
+  )
+
+  it.each([undefined, "", "false"])("leaves private capabilities and publishing off for %j", (value) =>
+    expect(evaluatePolicy("private", Object.fromEntries(flagKeys.map((key) => [key, value]))).outputs).toEqual(disabled)
+  )
+
+  it.each([
+    { flag: "DF_CODEQL_ENABLED", output: "codeql_enabled" },
+    { flag: "DF_CODE_SCANNING_UPLOAD_ENABLED", output: "upload_enabled" },
+    { flag: "DF_DEPENDENCY_REVIEW_ENABLED", output: "dependency_review_enabled" },
+  ])("authorizes only the private $flag opt-in", ({ flag, output }) =>
+    expect(evaluatePolicy("private", { [flag]: "true" }).outputs).toEqual({ ...disabled, [output]: true })
+  )
+
+  it.each([
+    { scope: "codeql" as Scope, keys: ["codeql_enabled", "upload_enabled"], publish: false },
+    { scope: "scorecard" as Scope, keys: ["upload_enabled"], publish: true },
+    { scope: "dependency-review" as Scope, keys: ["dependency_review_enabled"], publish: false },
+  ])("limits $scope to its own flags", ({ scope, keys, publish }) =>
+    const enabled = Object.fromEntries(flagKeys.map((key) => [key, "true"]))
+    const expected = { ...disabled, ...Object.fromEntries(keys.map((key) => [key, true])) }
+    expect(evaluatePolicy("private", enabled, scope).outputs).toEqual(expected)
+    expect(evaluatePolicy("public", {}, scope).outputs).toEqual({ ...expected, publish_results: publish })
+  )
+
+  it.each(["TRUE", " true", "true\n", "False", "1", "yes", true, false, 1, null, [], {}].map((value) => ({ value })))("rejects malformed scoped value $value even for public repositories", ({ value }) =>
+    for (const visibility of ["public", "private"])
+      expectFailure(() => evaluatePolicy(visibility, { DF_CODEQL_ENABLED: value }, "codeql"), "flags")
+  )
+
+  it("ignores malformed variables belonging exclusively to another workflow", () =>
+    expect(evaluatePolicy("private", { DF_CODEQL_ENABLED: sentinel, DF_DEPENDENCY_REVIEW_ENABLED: sentinel, DF_CODE_SCANNING_UPLOAD_ENABLED: "true" }, "scorecard").outputs).toEqual(requested({ upload_enabled: true }))
+    expectFailure(() => evaluatePolicy("private", { DF_CODEQL_ENABLED: sentinel }, "local"), "flags")
+  )
+
+  it.each(["internal", "PUBLIC", undefined, null])("rejects unknown visibility %j", (visibility) =>
+    expectFailure(() => evaluatePolicy(visibility, {}), "metadata")
+  )
+
+  it.each(["unknown", "toString", "__proto__"])("rejects unrecognized or inherited scope %s", (scope) =>
+    expectFailure(() => evaluatePolicy("private", {}, scope as Scope), "arguments")
+  )
+
+  it.each([null, [], "true"].map((variables) => ({ variables })))("rejects non-record variables $variables", ({ variables }) =>
+    expectFailure(() => evaluatePolicy("private", variables), "variables")
+  )
+)
+
+describe("bounded read-only gh API transport", () =>
+  it("pins the host and GET method, never invokes a shell or writes repository settings", () =>
+    mocks.spawnSync.mockReturnValue(response([]))
+    const api = createGitHubClient(mocks.spawnSync, () => 0)
+    const endpoint = `repos/${repository}/code-scanning/alerts?per_page=1`
+    expect(api(endpoint)).toEqual([])
+    expect(mocks.spawnSync).toHaveBeenCalledWith("gh", ["api", "--hostname", "github.com", "--method", "GET", "--include", "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28", endpoint], expect.objectContaining({ shell: false, encoding: "utf8", timeout: LIMITS.timeout, maxBuffer: LIMITS.maxBuffer, killSignal: "SIGKILL", stdio: ["ignore", "pipe", "pipe"] }))
+  )
+
+  it.each(["--method=POST", "https://evil.test/repos/o/r", "user", "repos/o/r\n--method=PATCH", "repos/o/r\0", "repos/o/r\u007f", `repos/o/r/${"x".repeat(1024)}`])("rejects unsafe endpoint %j before execution", (endpoint) =>
+    expectFailure(() => createGitHubClient(mocks.spawnSync)(endpoint), "response")
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+  )
+
+  it("parses LF headers and JSON rather than treating headers as data", () =>
+    mocks.spawnSync.mockReturnValue({ ...response(null), stdout: "HTTP/1.1 200 OK\nX-Fixture: yes\n\n{\"ok\":true}\n" })
+    expect(createGitHubClient(mocks.spawnSync)(`repos/${repository}`)).toEqual({ ok: true })
+  )
+
+  it.each([
+    { status: 401, body: { message: sentinel }, code: "authentication" },
+    { status: 404, body: { message: sentinel }, code: "inaccessible" },
+    { status: 403, body: { message: `Resource not accessible by integration ${sentinel}` }, code: "permission" },
+    { status: 403, body: { message: `API rate limit exceeded ${sentinel}` }, code: "permission" },
+    { status: 403, body: { message: 1 }, code: "permission" },
+    { status: 403, body: null, code: "permission" },
+    { status: 403, body: [], code: "permission" },
+    { status: 429, body: { message: sentinel }, code: "response" },
+    { status: 500, body: { message: sentinel }, code: "response" },
+    { status: 201, body: {}, code: "response" },
+  ])("classifies HTTP $status as $code without disclosing server data", ({ status, body, code }) =>
+    mocks.spawnSync.mockReturnValue({ ...response(body, status), stderr: sentinel })
+    const action = () => createGitHubClient(mocks.spawnSync)(`repos/${repository}`)
+    expectFailure(action, code)
+    expect(action).not.toThrow(sentinel)
+  )
+
+  it.each([
+    "Code scanning is not enabled", "Advanced Security must be enabled", "GitHub Advanced Security is not enabled",
+    "Dependency graph is not enabled", "Dependency review is not supported",
+  ])("recognizes only an explicit unavailable feature response: %s", (message) =>
+    mocks.spawnSync.mockReturnValue(response({ message: `${message}. ${sentinel}` }, 403))
+    expectFailure(() => createGitHubClient(mocks.spawnSync)(`repos/${repository}`), "unavailable")
+    mocks.spawnSync.mockReturnValue(response({ message: `Permission denied; ${message}` }, 403))
+    expectFailure(() => createGitHubClient(mocks.spawnSync)(`repos/${repository}`), "permission")
+  )
+
+  it.each([401, 404])("preserves decisive HTTP %s even when its body is not JSON", (status) =>
+    mocks.spawnSync.mockReturnValue({ ...response(null, status), stdout: `HTTP/2 ${status} Fixture\r\nX: y\r\n\r\n${sentinel}` })
+    expectFailure(() => createGitHubClient(mocks.spawnSync)(`repos/${repository}`), status === 401 ? "authentication" : "inaccessible")
+  )
+
+  it.each([
+    { label: "missing process result", result: undefined },
+    { label: "spawn error", result: { ...response({}), error: new Error(sentinel) } },
+    { label: "timeout", result: { ...response({}), error: { code: "ETIMEDOUT", message: sentinel } } },
+    { label: "max-buffer error", result: { ...response({}), error: { code: "ENOBUFS" } } },
+    { label: "killed process", result: { ...response({}), signal: "SIGKILL" } },
+    { label: "non-string stdout", result: { ...response({}), stdout: Buffer.from("{}") } },
+    { label: "oversized stdout", result: { ...response({}), stdout: "x".repeat(LIMITS.maxBuffer + 1) } },
+    { label: "multibyte stdout", result: { ...response({}), stdout: "é".repeat(LIMITS.maxBuffer / 2 + 1) } },
+    { label: "oversized stderr", result: { ...response({}), stderr: "x".repeat(LIMITS.maxBuffer + 1) } },
+    { label: "no HTTP response on failure", result: { ...response({}), status: 1, stdout: sentinel } },
+  ])("fails closed on $label", ({ result }) =>
+    mocks.spawnSync.mockReturnValue(result)
+    expectFailure(() => createGitHubClient(mocks.spawnSync)(`repos/${repository}`), "transport")
+  )
+
+  it("redacts exceptions thrown by the subprocess adapter", () =>
+    mocks.spawnSync.mockImplementation(() =>
+      throw new Error(sentinel)
+    )
+    const action = () => createGitHubClient(mocks.spawnSync)(`repos/${repository}`)
+    expectFailure(action, "transport")
+    expect(action).not.toThrow(sentinel)
+  )
+
+  it.each([
+    { label: "missing headers", result: { ...response({}), stdout: "{}" } },
+    { label: "invalid JSON", result: { ...response({}), stdout: "HTTP/2 200 OK\r\nX: y\r\n\r\nnot-json" } },
+    { label: "nonzero exit despite HTTP success", result: response({}, 200, 1) },
+    { label: "unknown exit status", result: response({}, 200, null) },
+    { label: "malformed forbidden response", result: { ...response({}, 403), stdout: "HTTP/2 403 Forbidden\nX: y\n\nnot-json" } },
+  ])("rejects $label", ({ result }) =>
+    mocks.spawnSync.mockReturnValue(result)
+    expectFailure(() => createGitHubClient(mocks.spawnSync)(`repos/${repository}`), "response")
+  )
+
+  it("allows exactly bounded UTF-8 output and stderr", () =>
+    const prefix = "HTTP/2 200 OK\nX: y\n\n"
+    const body = `"${"x".repeat(LIMITS.maxBuffer - prefix.length - 2)}"`
+    mocks.spawnSync.mockReturnValue({ ...response(null), stdout: prefix + body, stderr: "x".repeat(LIMITS.maxBuffer) })
+    expect(createGitHubClient(mocks.spawnSync)(`repos/${repository}`)).toBe(JSON.parse(body))
+    mocks.spawnSync.mockReturnValue({ ...response([]), stderr: undefined })
+    expect(createGitHubClient(mocks.spawnSync)(`repos/${repository}`)).toEqual([])
+  )
+
+  it("shares one total deadline across requests and shortens the final timeout", () =>
+    let time = 0
+    mocks.spawnSync.mockReturnValue(response([]))
+    const api = createGitHubClient(mocks.spawnSync, () => time)
+    api(`repos/${repository}`)
+    time = LIMITS.deadline - 7
+    api(`repos/${repository}`)
+    expect(mocks.spawnSync.mock.calls[1]?.[2].timeout).toBe(7)
+    time = LIMITS.deadline
+    expectFailure(() => api(`repos/${repository}`), "deadline")
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
+  )
+
+  it("rejects a successful response arriving at the total deadline", () =>
+    let time = 0
+    mocks.spawnSync.mockImplementation(() =>
+      time = LIMITS.deadline
+      return response([])
+    )
+    const api = createGitHubClient(mocks.spawnSync, () => time)
+    expectFailure(() => api(`repos/${repository}`), "deadline")
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+  )
+)
+
+describe("repository variable pagination", () =>
+  it("accepts an empty variable list as all private capabilities unconfigured", () =>
+    const api = vi.fn(() => ({ total_count: 0, variables: [] }))
+    expect(readRepositoryVariables(api, repository)).toEqual({})
+    expect(api).toHaveBeenCalledTimes(1)
+  )
+
+  it("reads subsequent pages and retains only exact policy variable names", () =>
+    const api = vi.fn()
+      .mockReturnValueOnce({ total_count: 102, variables: [...pages(0, 99), { name: "DF_CODEQL_ENABLED", value: "true" }] })
+      .mockReturnValueOnce({ total_count: 102, variables: [{ name: "DF_CODE_SCANNING_UPLOAD_ENABLED", value: "false" }, { name: "DF_DEPENDENCY_REVIEW_ENABLED", value: "" }] })
+    expect(readRepositoryVariables(api, repository)).toEqual({ DF_CODEQL_ENABLED: "true", DF_CODE_SCANNING_UPLOAD_ENABLED: "false", DF_DEPENDENCY_REVIEW_ENABLED: "" })
+    expect(api.mock.calls).toEqual([[`repos/${repository}/actions/variables?per_page=100&page=1`], [`repos/${repository}/actions/variables?per_page=100&page=2`]])
+  )
+
+  it("accepts the final permitted page without requesting an eleventh", () =>
+    let page = 0
+    const api = vi.fn(() =>
+      const variables = pages(page * LIMITS.pageSize, LIMITS.pageSize)
+      page += 1
+      return { total_count: LIMITS.pages * LIMITS.pageSize, variables }
+    )
+    expect(readRepositoryVariables(api, repository)).toEqual({})
+    expect(api).toHaveBeenCalledTimes(LIMITS.pages)
+  )
+
+  it.each([
+    null, [], {}, { total_count: "0", variables: [] }, { total_count: -1, variables: [] }, { total_count: 0.5, variables: [] },
+    { total_count: Number.MAX_SAFE_INTEGER + 1, variables: [] }, { total_count: 1001, variables: [] },
+    { total_count: 0, variables: {} }, { total_count: 101, variables: pages(0, 101) },
+    { total_count: 0, variables: pages(0, 1) }, { total_count: 2, variables: pages(0, 1) }, { total_count: 1, variables: [] },
+  ].map((data) => ({ data })))("rejects malformed, oversized, or incomplete page $data", ({ data }) =>
+    expectFailure(() => readRepositoryVariables(() => data, repository), "variables")
+  )
+
+  it.each([null, [], {}, { name: 1, value: "true" }, { name: "", value: "true" }, { name: "1BAD", value: "true" }, { name: "BAD-NAME", value: "true" }, { name: "BAD\nNAME", value: "true" }, { name: "x".repeat(257), value: "true" }, { name: "DF_CODEQL_ENABLED", value: true }].map((variable) => ({ variable })))("rejects malformed variable $variable", ({ variable }) =>
+    expectFailure(() => readRepositoryVariables(() => ({ total_count: 1, variables: [variable] }), repository), "variables")
+  )
+
+  it("accepts the variable name length boundary without treating unrelated data as policy", () =>
+    expect(readRepositoryVariables(() => ({ total_count: 1, variables: [{ name: "_".repeat(256), value: sentinel }] }), repository)).toEqual({})
+  )
+
+  it("rejects changing total_count across pages", () =>
+    const api = vi.fn().mockReturnValueOnce({ total_count: 101, variables: pages(0, 100) }).mockReturnValueOnce({ total_count: 102, variables: pages(100, 2) })
+    expectFailure(() => readRepositoryVariables(api, repository), "variables")
+  )
+
+  it("rejects duplicate names within and across pages, including irrelevant names", () =>
+    expectFailure(() => readRepositoryVariables(() => ({ total_count: 2, variables: [{ name: "DF_CODEQL_ENABLED", value: "true" }, { name: "DF_CODEQL_ENABLED", value: "false" }] }), repository), "variables")
+    const api = vi.fn().mockReturnValueOnce({ total_count: 101, variables: pages(0, 100) }).mockReturnValueOnce({ total_count: 101, variables: pages(0, 1) })
+    expectFailure(() => readRepositoryVariables(api, repository), "variables")
+  )
+
+  it("propagates permission failure instead of converting unavailable variables to opt-outs", () =>
+    const api = () =>
+      throw new PreflightError("permission")
+    expectFailure(() => readRepositoryVariables(api, repository), "permission")
+  )
+)
+
+describe("capability verification", () =>
+  it("does not probe unconfigured private capabilities", () =>
+    const api = vi.fn()
+    verifyCapabilities(api, repository, metadata(), disabled)
+    expect(api).not.toHaveBeenCalled()
+  )
+
+  it("verifies all public capabilities with empty successful lists", () =>
+    const api = vi.fn().mockReturnValueOnce([]).mockReturnValueOnce({ sha }).mockReturnValueOnce([])
+    const policy = evaluatePolicy("public", {})
+    verifyCapabilities(api, repository, metadata("public"), policy.outputs)
+    expect(api.mock.calls).toEqual([[`repos/${repository}/code-scanning/alerts?per_page=1`], [`repos/${repository}/commits/main`], [`repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]])
+    expect(policy.outputs).toEqual({ codeql_enabled: true, upload_enabled: true, dependency_review_enabled: true, publish_results: true })
+  )
+
+  it.each([{ codeql_enabled: true }, { upload_enabled: true }, { codeql_enabled: true, upload_enabled: true }])("accepts an empty alerts array for requested code-scanning availability %j", (flags) =>
+    const api = vi.fn(() => [])
+    verifyCapabilities(api, repository, metadata(), requested(flags))
+    expect(api.mock.calls).toEqual([[`repos/${repository}/code-scanning/alerts?per_page=1`]])
+  )
+
+  it.each([null, {}, { message: "not enabled" }, "[]"])("rejects non-array alerts response %j", (data) =>
+    expectFailure(() => verifyCapabilities(() => data, repository, metadata(), requested({ upload_enabled: true })), "response")
+  )
+
+  it("uses an encoded default branch only to obtain a known SHA for dependency comparison", () =>
+    const api = vi.fn().mockReturnValueOnce({ sha }).mockReturnValueOnce([])
+    verifyCapabilities(api, repository, { ...metadata(), default_branch: "release/stable#1" }, requested({ dependency_review_enabled: true }))
+    expect(api.mock.calls).toEqual([[`repos/${repository}/commits/release%2Fstable%231`], [`repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]])
+  )
+
+  it("probes shared code scanning once before the independent dependency capability", () =>
+    const api = vi.fn().mockReturnValueOnce([]).mockReturnValueOnce({ sha }).mockReturnValueOnce([])
+    verifyCapabilities(api, repository, metadata(), requested({ codeql_enabled: true, upload_enabled: true, dependency_review_enabled: true }))
+    expect(api.mock.calls).toEqual([[`repos/${repository}/code-scanning/alerts?per_page=1`], [`repos/${repository}/commits/main`], [`repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]])
+  )
+
+  it.each([undefined, "", "x".repeat(256), "bad name", "bad\0name", "main~1", "main^", "main:other", "main?", "main*", "main[0]", "main\\other", "main..other", "/main", "main/"])("rejects unsafe default branch %j before a request", (branch) =>
+    const api = vi.fn()
+    expectFailure(() => verifyCapabilities(api, repository, { ...metadata(), default_branch: branch }, requested({ dependency_review_enabled: true })), "metadata")
+    expect(api).not.toHaveBeenCalled()
+  )
+
+  it.each([null, [], {}, { sha: 1 }, { sha: "main" }, { sha: "a".repeat(39) }, { sha: "a".repeat(41) }, { sha: "A".repeat(40) }, { sha: `${sha}\n` }].map((commit) => ({ commit })))("rejects unknown commit identity $commit without comparing", ({ commit }) =>
+    const api = vi.fn(() => commit)
+    expectFailure(() => verifyCapabilities(api, repository, metadata(), requested({ dependency_review_enabled: true })), "response")
+    expect(api).toHaveBeenCalledTimes(1)
+  )
+
+  it.each([null, {}, "[]"])("rejects non-array dependency comparison %j", (comparison) =>
+    const api = vi.fn().mockReturnValueOnce({ sha }).mockReturnValueOnce(comparison)
+    expectFailure(() => verifyCapabilities(api, repository, metadata(), requested({ dependency_review_enabled: true })), "response")
+  )
+
+  it("does not proceed to unrelated probes after a requested feature fails", () =>
+    const api = vi.fn(() =>
+      throw new PreflightError("inaccessible")
+    )
+    expectFailure(() => verifyCapabilities(api, repository, metadata(), requested({ codeql_enabled: true, dependency_review_enabled: true })), "inaccessible")
+    expect(api).toHaveBeenCalledTimes(1)
+  )
+
+  it("uses local repository variables rather than workflow environment and probes only their opt-ins", () =>
+    const api = vi.fn().mockReturnValueOnce(metadata()).mockReturnValueOnce({ total_count: 1, variables: [{ name: "DF_CODE_SCANNING_UPLOAD_ENABLED", value: "true" }] }).mockReturnValueOnce([])
+    const result = inspectRepository(repository, "local", { DF_DEPENDENCY_REVIEW_ENABLED: "true" }, api)
+    expect(result.outputs).toEqual(requested({ upload_enabled: true }))
+    expect(result.visibility).toBe("private")
+    expect(api.mock.calls).toEqual([[`repos/${repository}`], [`repos/${repository}/actions/variables?per_page=100&page=1`], [`repos/${repository}/code-scanning/alerts?per_page=1`]])
+  )
+
+  it("uses workflow inputs without reading repository variables or unrelated capabilities", () =>
+    const api = vi.fn().mockReturnValueOnce(metadata()).mockReturnValueOnce([])
+    const result = inspectRepository(repository, "scorecard", { DF_CODE_SCANNING_UPLOAD_ENABLED: "true", DF_DEPENDENCY_REVIEW_ENABLED: "true" }, api)
+    expect(result.outputs).toEqual(requested({ upload_enabled: true }))
+    expect(api.mock.calls).toEqual([[`repos/${repository}`], [`repos/${repository}/code-scanning/alerts?per_page=1`]])
+  )
+
+  it("rejects destination metadata before reading policy variables", () =>
+    const api = vi.fn(() => ({ ...metadata(), full_name: "other/repository" }))
+    expectFailure(() => inspectRepository(repository, "local", {}, api), "metadata")
+    expect(api).toHaveBeenCalledTimes(1)
+  )
+)
+
+describe("safe workflow files", () =>
+  it("appends boolean outputs and human-readable non-scan evidence to distinct files", () =>
+    const env = workflowFiles()
+    writeFileSync(env["GITHUB_OUTPUT"]!, "existing=value\n")
+    writeFileSync(env["GITHUB_STEP_SUMMARY"]!, "Existing summary\n")
+    const result = evaluatePolicy("public", {}, "scorecard")
+    writeWorkflowResult(env, result.outputs, result.reasons)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("existing=value\ncodeql_enabled=false\nupload_enabled=true\ndependency_review_enabled=false\npublish_results=true\n")
+    const summary = fileContents(env, "GITHUB_STEP_SUMMARY")
+    expect(summary).toContain("Existing summary\n")
+    expect(summary).toContain("not scan evidence")
+    expect(summary).toContain(result.reasons[0])
+    expect(mocks.closeSync).toHaveBeenCalledTimes(2)
+  )
+
+  it.each([
+    { label: "missing boolean", outputs: { codeql_enabled: false } },
+    { label: "string boolean", outputs: { ...disabled, upload_enabled: "true" } },
+    { label: "extra output", outputs: { ...disabled, injected: true } },
+    { label: "null outputs", outputs: null },
+    { label: "array outputs", outputs: [] },
+  ])("rejects $label before touching workflow files", ({ outputs }) =>
+    expectFailure(() => writeWorkflowResult({}, outputs as Outputs, []), "output")
+    expect(mocks.openSync).not.toHaveBeenCalled()
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it.each([null, "reason", [1], ["line\nINJECTED=true"], ["line\rINJECTED=true"], ["nul\0value"], ["x".repeat(1025)]].map((reasons) => ({ reasons })))("rejects unsafe summary reasons $reasons", ({ reasons }) =>
+    expectFailure(() => writeWorkflowResult({}, disabled, reasons as string[]), "output")
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("accepts the summary reason length boundary", () =>
+    const env = workflowFiles()
+    writeWorkflowResult(env, disabled, ["r".repeat(1024)])
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("r".repeat(1024))
+  )
+
+  it.each([
+    { key: "RUNNER_TEMP", value: undefined }, { key: "RUNNER_TEMP", value: "relative" }, { key: "RUNNER_TEMP", value: "/x\n" }, { key: "RUNNER_TEMP", value: `/${"x".repeat(4096)}` },
+    { key: "GITHUB_OUTPUT", value: undefined }, { key: "GITHUB_OUTPUT", value: "relative" }, { key: "GITHUB_OUTPUT", value: "/x\0" }, { key: "GITHUB_OUTPUT", value: `/${"x".repeat(4096)}` },
+    { key: "GITHUB_STEP_SUMMARY", value: "relative" },
+  ])("rejects invalid $key path $value without appending", ({ key, value }) =>
+    const env = workflowFiles()
+    expectFailure(() => writeWorkflowResult({ ...env, [key]: value }, disabled, []), "output")
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("rejects missing output files and closes an already-open output on summary failure", () =>
+    const env = workflowFiles()
+    expectFailure(() => writeWorkflowResult({ ...env, GITHUB_STEP_SUMMARY: join(env["RUNNER_TEMP"]!, "missing") }, disabled, []), "output")
+    expect(mocks.closeSync).toHaveBeenCalledTimes(1)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("")
+  )
+
+  it("rejects the same path and hard-linked aliases before either file changes", () =>
+    const env = workflowFiles()
+    expectFailure(() => writeWorkflowResult({ ...env, GITHUB_STEP_SUMMARY: env["GITHUB_OUTPUT"] }, disabled, []), "output")
+    const alias = join(env["RUNNER_TEMP"]!, "alias")
+    linkSync(env["GITHUB_OUTPUT"]!, alias)
+    expectFailure(() => writeWorkflowResult({ ...env, GITHUB_STEP_SUMMARY: alias }, disabled, []), "output")
+    expect(mocks.closeSync).toHaveBeenCalledTimes(2)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("")
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("rejects symlinks, directories, runner root, and outside sibling-prefix paths", () =>
+    const env = workflowFiles()
+    const root = env["RUNNER_TEMP"]!
+    const alias = join(root, "symlink")
+    symlinkSync(env["GITHUB_OUTPUT"]!, alias)
+    const sibling = `${root}-outside`
+    mkdirSync(sibling)
+    const outside = join(sibling, "output")
+    writeFileSync(outside, "outside")
+    const parentFile = join(root, "..", "outside")
+    writeFileSync(parentFile, "outside")
+    for (const path of [alias, root, sibling, outside, parentFile, join(root, "..")])
+      expectFailure(() => writeWorkflowResult({ ...env, GITHUB_OUTPUT: path }, disabled, []), "output")
+    expect(readFileSync(outside, "utf8")).toBe("outside")
+    expect(readFileSync(parentFile, "utf8")).toBe("outside")
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("rejects a file changed to a non-regular descriptor between checks", () =>
+    const env = workflowFiles()
+    mocks.fstatSync.mockReturnValueOnce({ isFile: () => false, size: 0 })
+    expectFailure(() => writeWorkflowResult(env, disabled, []), "output")
+    expect(mocks.closeSync).toHaveBeenCalledTimes(1)
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("closes an opened descriptor if its metadata cannot be read", () =>
+    const env = workflowFiles()
+    mocks.fstatSync.mockImplementationOnce(() =>
+      throw new Error(sentinel)
+    )
+    expectFailure(() => writeWorkflowResult(env, disabled, []), "output")
+    const descriptor = mocks.openSync.mock.results[0]?.value as number
+    expect(() => actualFs.fstatSync(descriptor)).toThrow(expect.objectContaining({ code: "EBADF" }))
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("rejects existing output over the size limit and closes its descriptor", () =>
+    const env = workflowFiles()
+    truncateSync(env["GITHUB_OUTPUT"]!, LIMITS.maxBuffer + 1)
+    expectFailure(() => writeWorkflowResult(env, disabled, []), "output")
+    expect(mocks.closeSync).toHaveBeenCalledTimes(1)
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it("allows a regular output exactly at the existing-file bound", () =>
+    const env = workflowFiles()
+    truncateSync(env["GITHUB_OUTPUT"]!, LIMITS.maxBuffer)
+    writeWorkflowResult(env, disabled, [])
+    expect(fileContents(env, "GITHUB_OUTPUT").endsWith("publish_results=false\n")).toBe(true)
+  )
+
+  it("closes both descriptors and redacts a write failure", () =>
+    const env = workflowFiles()
+    mocks.appendFileSync.mockImplementationOnce(() =>
+      throw new Error(sentinel)
+    )
+    expectFailure(() => writeWorkflowResult(env, disabled, []), "output")
+    expect(mocks.closeSync).toHaveBeenCalledTimes(2)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toBe("")
+  )
+
+  it("still closes the summary and redacts an output-descriptor close failure", () =>
+    const env = workflowFiles()
+    mocks.closeSync.mockImplementationOnce((descriptor: number) =>
+      actualFs.closeSync(descriptor)
+      throw new Error(sentinel)
+    )
+    let failure: unknown
+    try
+      writeWorkflowResult(env, disabled, [])
+    catch (error)
+      failure = error
+    expect(failure).toMatchObject({ name: "PreflightError", code: "output" })
+    expect(String(failure)).not.toContain(sentinel)
+    const descriptors = mocks.openSync.mock.results.map((result) => result.value as number)
+    expect(mocks.closeSync.mock.calls).toEqual(descriptors.map((descriptor) => [descriptor]))
+    for (const descriptor of descriptors)
+      expect(() => actualFs.fstatSync(descriptor)).toThrow(expect.objectContaining({ code: "EBADF" }))
+  )
+)
+
+describe("local preflight and CLI outcomes", () =>
+  it("returns success for verified private opt-outs", () =>
+    serve({ [`repos/${repository}`]: metadata(), [`repos/${repository}/actions/variables?per_page=100&page=1`]: { total_count: 0, variables: [] } })
+    expect(runSecurityPreflight(target)).toBe(0)
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
+    expect(capturedDiagnostics()).toContain("not hosted analysis or scan evidence")
+    expect(console.error).not.toHaveBeenCalled()
+  )
+
+  it("reports private absent configuration as not-run rather than scan evidence", () =>
+    serve({ [`repos/${repository}`]: metadata(), [`repos/${repository}/actions/variables?per_page=100&page=1`]: { total_count: 0, variables: [] } })
+    expect(runCli(["local", "--remote-name", target.remoteName, "--remote-url", target.remoteUrl])).toBe(0)
+    expect(capturedDiagnostics()).toContain("NOT CONFIGURED")
+    expect(capturedDiagnostics()).toContain("not scan evidence")
+  )
+
+  it("fails local preflight safely on authentication errors", () =>
+    mocks.spawnSync.mockReturnValue({ ...response({ message: sentinel }, 401), stderr: sentinel })
+    expect(runSecurityPreflight(target)).toBe(1)
+    expect(capturedDiagnostics()).not.toContain(sentinel)
+    expect(console.log).not.toHaveBeenCalled()
+  )
+
+  it("rejects an invalid destination before invoking gh or logging the input", () =>
+    expect(runSecurityPreflight({ ...target, remoteUrl: `https://${sentinel}@github.com/o/r` })).toBe(1)
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+    expect(capturedDiagnostics()).not.toContain(sentinel)
+  )
+
+  it("redacts unexpected exceptions rather than emitting internal stack data", () =>
+    vi.spyOn(Date, "now").mockImplementation(() =>
+      throw new Error(sentinel)
+    )
+    expect(runSecurityPreflight(target)).toBe(1)
+    expect(capturedDiagnostics()).toContain("Unexpected preflight failure")
+    expect(capturedDiagnostics()).not.toContain(sentinel)
+  )
+
+  it.each([
+    { args: [] }, { args: ["local"] }, { args: ["workflow"] }, { args: ["workflow", "--workflow", "local"] },
+    { args: ["workflow", "--workflow", "toString"] }, { args: ["workflow", "--scope", "codeql"] },
+    { args: ["workflow", "--workflow", "codeql", "extra"] }, { args: ["local", "--remote-url", target.remoteUrl, "--remote-name", "origin"] },
+    { args: ["local", "--remote-name", "origin", "--remote-url", target.remoteUrl, "extra"] },
+  ])("returns failure for invalid arguments $args without network or file writes", ({ args }) =>
+    expect(runCli(args, {})).toBe(1)
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+    expect(mocks.appendFileSync).not.toHaveBeenCalled()
+  )
+
+  it.each([
+    { scope: "codeql", expected: "codeql_enabled=true\nupload_enabled=true\ndependency_review_enabled=false\npublish_results=false\n" },
+    { scope: "scorecard", expected: "codeql_enabled=false\nupload_enabled=true\ndependency_review_enabled=false\npublish_results=true\n" },
+    { scope: "dependency-review", expected: "codeql_enabled=false\nupload_enabled=false\ndependency_review_enabled=true\npublish_results=false\n" },
+  ])("writes public $scope outputs after scoped probes despite explicit false inputs", ({ scope, expected }) =>
+    const env = { ...workflowFiles(), ...Object.fromEntries(flagKeys.map((key) => [key, "false"])) }
+    serve({
+      [`repos/${repository}`]: metadata("public"),
+      [`repos/${repository}/code-scanning/alerts?per_page=1`]: [],
+      [`repos/${repository}/commits/main`]: { sha },
+      [`repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]: [],
+    })
+    expect(runCli(["workflow", "--workflow", scope], env)).toBe(0)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe(expected)
+    const probes = scope === "dependency-review"
+      ? [`repos/${repository}/commits/main`, `repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]
+      : [`repos/${repository}/code-scanning/alerts?per_page=1`]
+    expect(mocks.spawnSync.mock.calls.map(([, args]) => args.at(-1))).toEqual([`repos/${repository}`, ...probes])
+  )
+
+  it.each([403, 404])("blocks public publication after a capability HTTP %s failure", (status) =>
+    const env = workflowFiles()
+    mocks.spawnSync.mockReturnValueOnce(response(metadata("public"))).mockReturnValueOnce(response({ message: `Code scanning is not enabled ${sentinel}` }, status))
+    expect(runCli(["workflow", "--workflow", "scorecard"], env)).toBe(1)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("codeql_enabled=false\nupload_enabled=false\ndependency_review_enabled=false\npublish_results=false\n")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("FAILED:")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).not.toContain(sentinel)
+    expect(capturedDiagnostics()).not.toContain(sentinel)
+  )
+
+  it("verifies every public local capability regardless of false repository variables", () =>
+    serve({
+      [`repos/${repository}`]: metadata("public"),
+      [`repos/${repository}/actions/variables?per_page=100&page=1`]: { total_count: 3, variables: flagKeys.map((name) => ({ name, value: "false" })) },
+      [`repos/${repository}/code-scanning/alerts?per_page=1`]: [],
+      [`repos/${repository}/commits/main`]: { sha },
+      [`repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]: [],
+    })
+    expect(runSecurityPreflight(target)).toBe(0)
+    expect(mocks.spawnSync.mock.calls.map(([, args]) => args.at(-1))).toEqual([
+      `repos/${repository}`,
+      `repos/${repository}/actions/variables?per_page=100&page=1`,
+      `repos/${repository}/code-scanning/alerts?per_page=1`,
+      `repos/${repository}/commits/main`,
+      `repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`,
+    ])
+  )
+
+  it("writes private no-opt-in outputs without probing or publishing", () =>
+    const env = workflowFiles()
+    serve({ [`repos/${repository}`]: metadata() })
+    expect(runCli(["workflow", "--workflow", "scorecard"], env)).toBe(0)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("codeql_enabled=false\nupload_enabled=false\ndependency_review_enabled=false\npublish_results=false\n")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("NOT CONFIGURED")
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+  )
+
+  it("writes private opted-in outputs only after the requested probe succeeds", () =>
+    const env = { ...workflowFiles(), DF_CODE_SCANNING_UPLOAD_ENABLED: "true" }
+    serve({ [`repos/${repository}`]: metadata(), [`repos/${repository}/code-scanning/alerts?per_page=1`]: [] })
+    expect(runCli(["workflow", "--workflow", "scorecard"], env)).toBe(0)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toContain("upload_enabled=true\n")
+    expect(fileContents(env, "GITHUB_OUTPUT")).toContain("publish_results=false\n")
+  )
+
+  it("writes every output false if any requested private capability cannot be verified", () =>
+    const env = { ...workflowFiles(), DF_CODEQL_ENABLED: "true", DF_CODE_SCANNING_UPLOAD_ENABLED: "true" }
+    mocks.spawnSync.mockReturnValueOnce(response(metadata())).mockReturnValueOnce(response({ message: sentinel }, 404))
+    expect(runCli(["workflow", "--workflow", "codeql"], env)).toBe(1)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("codeql_enabled=false\nupload_enabled=false\ndependency_review_enabled=false\npublish_results=false\n")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("FAILED:")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).not.toContain(sentinel)
+    expect(capturedDiagnostics()).not.toContain(sentinel)
+  )
+
+  it("rejects malformed public scoped variables without reporting authorization", () =>
+    const env = { ...workflowFiles(), DF_CODEQL_ENABLED: sentinel }
+    serve({ [`repos/${repository}`]: metadata("public") })
+    expect(runCli(["workflow", "--workflow", "codeql"], env)).toBe(1)
+    expect(fileContents(env, "GITHUB_OUTPUT")).not.toContain("=true")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).not.toContain(sentinel)
+  )
+
+  it("fails a workflow with a missing repository identity without calling gh", () =>
+    const env = { ...workflowFiles(), GITHUB_REPOSITORY: undefined }
+    expect(runCli(["workflow", "--workflow", "scorecard"], env)).toBe(1)
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+    expect(fileContents(env, "GITHUB_OUTPUT")).not.toContain("=true")
+  )
+
+  it("redacts unexpected workflow errors and still emits fail-closed outputs", () =>
+    const env = workflowFiles()
+    vi.spyOn(Date, "now").mockImplementation(() =>
+      throw new Error(sentinel)
+    )
+    expect(runCli(["workflow", "--workflow", "scorecard"], env)).toBe(1)
+    expect(fileContents(env, "GITHUB_OUTPUT")).not.toContain("=true")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).toContain("Unexpected preflight failure")
+    expect(fileContents(env, "GITHUB_STEP_SUMMARY")).not.toContain(sentinel)
+  )
+
+  it("returns failure when reporting paths are unsafe despite a successful policy check", () =>
+    const env = workflowFiles()
+    serve({ [`repos/${repository}`]: metadata("public"), [`repos/${repository}/code-scanning/alerts?per_page=1`]: [] })
+    expect(runCli(["workflow", "--workflow", "codeql"], { ...env, GITHUB_STEP_SUMMARY: env["GITHUB_OUTPUT"] })).toBe(1)
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe("")
+    expect(console.error).toHaveBeenCalled()
+    expect(console.log).not.toHaveBeenCalled()
+  )
+
+  it("does not execute the CLI when imported without a process entrypoint", async () =>
+    const argv = process.argv
+    const exitCode = process.exitCode
+    try
+      process.argv = []
+      vi.resetModules()
+      await import("./security-preflight.civet")
+      expect(process.exitCode).toBe(exitCode)
+      expect(mocks.spawnSync).not.toHaveBeenCalled()
+      expect(console.error).not.toHaveBeenCalled()
+      expect(console.log).not.toHaveBeenCalled()
+    finally
+      process.argv = argv
+      process.exitCode = exitCode
+  )
+
+  it("sets the executable entrypoint exit status without launching a process", async () =>
+    const argv = process.argv
+    const exitCode = process.exitCode
+    try
+      // The Civet Vite plugin gives this imported module a virtual .tsx identity.
+      process.argv = [process.execPath, join(process.cwd(), "scripts/ci/security-preflight.civet.tsx"), "invalid"]
+      vi.resetModules()
+      await import("./security-preflight.civet")
+      expect(process.exitCode).toBe(1)
+      expect(mocks.spawnSync).not.toHaveBeenCalled()
+    finally
+      process.argv = argv
+      process.exitCode = exitCode
+  )
+)

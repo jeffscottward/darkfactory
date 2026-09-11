@@ -1,0 +1,328 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+it("preserves destination argv through the executable shell hook", async () =>
+  const directory = mkdtempSync(join(tmpdir(), "pre-push-argv-"))
+  const executable = join(directory, "bun")
+  const childProcess = await vi.importActual<typeof import("node:child_process")>("node:child_process")
+  try
+    writeFileSync(executable, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+    chmodSync(executable, 0o755)
+    const destination = "/tmp/repository with spaces.git"
+    const invocation = childProcess.spawnSync("/bin/sh", [".husky/pre-push", "review", destination], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: directory },
+      shell: false,
+    })
+    expect(invocation.status).toBe(0)
+    expect(invocation.stdout.trimEnd().split("\n")).toEqual([
+      "--preload", "@danielx/civet/bun-civet", "scripts/hooks/pre-push.civet", "review", destination,
+    ])
+  finally
+    rmSync(directory, { recursive: true, force: true })
+)
+
+const mocks = vi.hoisted(() => ({
+  spawnSync: vi.fn(),
+  readSync: vi.fn(),
+  securityPreflight: vi.fn(),
+}))
+
+vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
+vi.mock("node:fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:fs")>(),
+  readSync: mocks.readSync,
+}))
+vi.mock("../ci/security-preflight.civet", () => ({ runSecurityPreflight: mocks.securityPreflight }))
+
+import { PRE_PUSH_SCRIPTS, runPrePush } from "./index.civet"
+
+const HEAD = "a".repeat(40)
+const OTHER = "b".repeat(40)
+const TAG = "c".repeat(40)
+const ZERO = "0".repeat(40)
+const target = ["review", "ssh://git@code.example/team/destination.git"]
+const lanes = ["verify:core", "verify:coverage", "verify:integration", "verify:graph", "verify:browser"]
+const update = (id = HEAD, ref = "refs/heads/main") => `HEAD ${id} ${ref} ${ZERO}\n`
+const deletion = `(delete) ${ZERO} refs/heads/old ${OTHER}\n`
+const result = (status: number | null = 0, stdout = "", extra = {}) => ({
+  status, stdout, stderr: "", signal: null, ...extra,
+})
+const gitSuccess = (executable, arguments_) =>
+  if (executable === "git" && arguments_[1] === "rev-parse")
+    return result(0, `${HEAD}\n`)
+  return result()
+const run = (input = update(), dependencies = {}) => runPrePush(target, {
+  readInput: () => input,
+  ...dependencies,
+})
+const invokedLanes = () => mocks.spawnSync.mock.calls
+  .filter(([executable]) => executable === "bun")
+  .map(([, arguments_]) => arguments_[1])
+
+beforeEach(() =>
+  mocks.spawnSync.mockImplementation(gitSuccess)
+  mocks.securityPreflight.mockReturnValue(0)
+  vi.spyOn(console, "error").mockImplementation(() => undefined)
+)
+
+afterEach(() =>
+  mocks.spawnSync.mockReset()
+  mocks.readSync.mockReset()
+  mocks.securityPreflight.mockReset()
+  vi.restoreAllMocks()
+)
+
+describe("source-bound pre-push", () =>
+  it("assesses the actual non-origin destination before all five lanes in order", () =>
+    const events: string[] = []
+    mocks.securityPreflight.mockImplementation((destination) =>
+      expect(destination).toEqual({ remoteName: target[0], remoteUrl: target[1] })
+      events.push("security")
+      return 0
+    )
+    const runScripts = vi.fn((scripts) =>
+      events.push(...scripts)
+      return 0
+    )
+    expect(run(update(), { runScripts })).toBe(0)
+    expect(events).toEqual(["security", ...lanes])
+    expect(mocks.spawnSync.mock.calls.some(([, arguments_]) => arguments_.includes("origin"))).toBe(false)
+  )
+
+  it("runs every default local lane without a shell", () =>
+    expect(run()).toBe(0)
+    expect(invokedLanes()).toEqual(lanes)
+    expect(mocks.spawnSync.mock.calls.every(([, , options]) => options.shell === false)).toBe(true)
+  )
+
+  it.each(lanes)("blocks at a failed %s without running later lanes", (failed) =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (executable === "bun" && arguments_[1] === failed)
+        return result(23)
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run()).toBe(23)
+    expect(invokedLanes()).toEqual(lanes.slice(0, lanes.indexOf(failed) + 1))
+  )
+
+  it("blocks stale graph evidence before the browser lane or push", () =>
+    const runScripts = vi.fn((scripts) => scripts[0] === "verify:graph" ? 7 : 0)
+    expect(run(update(), { runScripts })).toBe(7)
+    expect(runScripts.mock.calls.flatMap(([scripts]) => scripts)).toEqual(lanes.slice(0, 4))
+  )
+
+  it("does not let consumers mutate the mandatory lanes", () =>
+    expect(() => (PRE_PUSH_SCRIPTS as string[]).push("skip")).toThrow()
+    expect(run()).toBe(0)
+    expect(invokedLanes()).toEqual(lanes)
+  )
+
+  it("blocks failed security capability preflight before local lanes", () =>
+    mocks.securityPreflight.mockReturnValue(11)
+    expect(run()).toBe(11)
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("preserves injected security assessment without changing required lanes", () =>
+    const securityPreflight = vi.fn(() => 0)
+    expect(run(update(), { securityPreflight })).toBe(0)
+    expect(securityPreflight).toHaveBeenCalledWith({ remoteName: target[0], remoteUrl: target[1] })
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual(lanes)
+  )
+
+  it.each([
+    [], ["review"], [...target, "HEAD"], ["", target[1]], ["review", ""], ["review", "bad\nurl"],
+  ])("rejects malformed Git argv %j before reading STDIN", (...argv) =>
+    const readInput = vi.fn(() => update())
+    expect(runPrePush(argv, { readInput })).toBe(1)
+    expect(readInput).not.toHaveBeenCalled()
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+  )
+
+  it.each([
+    ["empty", ""],
+    ["extra field", `HEAD ${HEAD} refs/heads/main ${ZERO} extra\n`],
+    ["blank record", `${update()}\n`],
+    ["control byte", `HE\0AD ${HEAD} refs/heads/main ${ZERO}\n`],
+    ["abbreviated ID", `HEAD aaaa refs/heads/main ${ZERO}\n`],
+    ["mixed ID length", `HEAD ${HEAD} refs/heads/main ${"0".repeat(64)}\n`],
+    ["mixed object formats", `${update()}HEAD ${"a".repeat(64)} refs/heads/second ${"0".repeat(64)}\n`],
+    ["unsupported namespace", update(HEAD, "refs/notes/review")],
+    ["duplicate destination", update() + update()],
+    ["missing deletion marker", update(ZERO)],
+    ["false deletion marker", `(delete) ${HEAD} refs/heads/main ${ZERO}\n`],
+    ["deleting absent ref", `(delete) ${ZERO} refs/heads/main ${ZERO}\n`],
+    ["option-like source", `--all ${HEAD} refs/heads/main ${ZERO}\n`],
+    ["oversized input", "x".repeat(65537)],
+    ["too many refs", Array.from({ length: 257 }, (_, index) => update(HEAD, `refs/heads/b${index}`)).join("")],
+  ])("rejects %s ref input before any assessment", (_, input) =>
+    expect(run(input)).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("accepts whitespace-separated SHA-256 records without substituting HEAD for their source", () =>
+    const sha256 = "d".repeat(64)
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (executable === "git" && arguments_[1] === "rev-parse")
+        return result(0, sha256)
+      return result()
+    )
+    expect(run(` HEAD\t${sha256}\trefs/heads/main ${"0".repeat(64)} `)).toBe(0)
+    expect(mocks.spawnSync).toHaveBeenCalledWith("git", ["--no-replace-objects", "rev-parse", "--verify", "--end-of-options", `${sha256}^{commit}`], expect.any(Object))
+  )
+
+  it("peels annotated tags and validates multiple sources at HEAD", () =>
+    expect(run(update() + `refs/tags/release ${TAG} refs/tags/release ${ZERO}\n`)).toBe(0)
+    expect(mocks.spawnSync).toHaveBeenCalledWith("git", ["--no-replace-objects", "rev-parse", "--verify", "--end-of-options", `${TAG}^{commit}`], expect.any(Object))
+    expect(invokedLanes()).toEqual(lanes)
+  )
+
+  it("rejects a source commit other than HEAD even alongside a valid source", () =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes(`${OTHER}^{commit}`))
+        return result(0, OTHER)
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run(update() + update(OTHER, "refs/heads/other"))).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("explicitly accepts deletion-only pushes without source verification", () =>
+    expect(run(deletion)).toBe(0)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+    expect(mocks.spawnSync.mock.calls.some(([, arguments_]) => arguments_.includes("rev-parse"))).toBe(false)
+  )
+
+  it("does not let a deletion bypass verification of another source", () =>
+    expect(run(deletion + update())).toBe(0)
+    expect(invokedLanes()).toEqual(lanes)
+  )
+
+  it.each([" M src/index.civet\0", "M  src/index.civet\0", "?? src/new.civet\0"])("rejects dirty source %j before preflight", (dirty) =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes("status"))
+        return result(0, dirty)
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run()).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("rejects source files modified by a successful verification lane", () =>
+    let dirty = false
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes("status") && dirty)
+        return result(0, " M src/index.civet\0")
+      return gitSuccess(executable, arguments_)
+    )
+    const runScripts = () =>
+      dirty = true
+      return 0
+    expect(run(update(), { runScripts })).toBe(1)
+  )
+
+  it("rejects HEAD changing during verification", () =>
+    let moved = false
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes("HEAD^{commit}") && moved)
+        return result(0, OTHER)
+      return gitSuccess(executable, arguments_)
+    )
+    const runScripts = () =>
+      moved = true
+      return 0
+    expect(run(update(), { runScripts })).toBe(1)
+  )
+
+  it.each(["check-ref-format", "rev-parse", "status"])("propagates failed Git prerequisite %s", (failed) =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes(failed))
+        return result(19)
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run()).toBe(19)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("rejects non-commit tag objects rather than silently using HEAD", () =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes(`${TAG}^{commit}`))
+        return result(128)
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run(update(TAG, "refs/tags/blob"))).toBe(128)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+  )
+
+  it("rejects malformed Git commit output", () =>
+    mocks.spawnSync.mockReturnValue(result(0, "not-a-commit"))
+    expect(run()).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+  )
+
+  it.each(["git", "bun"])("blocks %s spawn errors and signals", (failed) =>
+    const spawnError = new Error("executable unavailable")
+    for (const failure of [result(null, "", { error: spawnError }), result(null, "", { signal: "SIGTERM" }), result(null)])
+      mocks.spawnSync.mockImplementation((executable, arguments_) =>
+        return executable === failed ? failure : gitSuccess(executable, arguments_)
+      )
+      expect(run()).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(spawnError.message)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("SIGTERM"))
+  )
+
+  it.each(["readInput", "securityPreflight", "runScripts"])("blocks thrown %s errors", (dependency) =>
+    const failure = new Error("unavailable prerequisite")
+    const throwFailure = () =>
+      throw failure
+    expect(run(update(), { [dependency]: throwFailure })).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(failure.message))
+  )
+
+  it.each(["securityPreflight", "runScripts"])("rejects invalid %s status", (dependency) =>
+    expect(run(update(), { [dependency]: () => undefined })).toBe(1)
+  )
+
+  it("bounds STDIN reads rather than reading unlimited push input", () =>
+    mocks.readSync.mockImplementation((_, buffer, offset, length) =>
+      buffer.fill(120, offset, offset + length)
+      return length
+    )
+    expect(runPrePush(target)).toBe(1)
+    expect(mocks.readSync).toHaveBeenCalledTimes(1)
+    expect(mocks.readSync.mock.calls[0][3]).toBe(65537)
+    expect(mocks.spawnSync).not.toHaveBeenCalled()
+  )
+
+  it("forwards only Git argv and reads four-field updates from STDIN in the executable entrypoint", async () =>
+    const originalArgv = process.argv
+    const originalExitCode = process.exitCode
+    const input = Buffer.from(update())
+    let offset = 0
+    mocks.readSync.mockImplementation((_, buffer, start, length) =>
+      const count = Math.min(length, input.length - offset, 17)
+      input.copy(buffer, start, offset, offset + count)
+      offset += count
+      return count
+    )
+    try
+      process.argv = ["bun", "scripts/hooks/pre-push.civet", ...target]
+      mocks.securityPreflight.mockReturnValue(13)
+      await import("./pre-push.civet")
+      expect(process.exitCode).toBe(13)
+      expect(mocks.securityPreflight).toHaveBeenCalledWith({ remoteName: target[0], remoteUrl: target[1] })
+      expect(invokedLanes()).toEqual([])
+    finally
+      process.argv = originalArgv
+      process.exitCode = originalExitCode
+  )
+)

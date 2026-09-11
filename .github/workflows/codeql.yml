@@ -26,17 +26,53 @@ jobs:
         language: [javascript-typescript, actions]
 
     steps:
-      - name: Check out repository
+      - name: Check out trusted security policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check security capabilities
+        id: security-policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
+          DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
+          DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
+        run: node scripts/ci/generated/security-preflight.mjs workflow --workflow codeql
+
+      - name: Check out repository for analysis
+        if: steps.security-policy.outputs.codeql_enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Initialize CodeQL
+        if: steps.security-policy.outputs.codeql_enabled == 'true'
         uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           languages: ${{ matrix.language }}
 
       - name: Analyze repository
+        id: analysis
+        if: steps.security-policy.outputs.codeql_enabled == 'true'
         uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
+          category: "/language:${{ matrix.language }}"
+          upload: never
+          output: sarif-results
+
+      - name: Retain CodeQL SARIF artifact
+        if: ${{ always() && hashFiles('sarif-results/**/*.sarif') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results
+          if-no-files-found: error
+
+      - name: Upload SARIF to code scanning
+        if: ${{ !cancelled() && steps.security-policy.outcome == 'success' && steps.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        with:
+          sarif_file: sarif-results
           category: "/language:${{ matrix.language }}"

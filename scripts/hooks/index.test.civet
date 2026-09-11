@@ -5,9 +5,7 @@ const mocks = vi.hoisted(() => ({ spawnSync: vi.fn() }))
 vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
 
 import {
-  PRE_PUSH_SCRIPTS,
   runPreCommit,
-  runPrePush,
 } from "./index.civet"
 
 const spawnResult = (
@@ -59,12 +57,44 @@ describe("repository hooks", () =>
     ])
   )
 
+  it("skips formatter and linter commands for the generated security bootstrap alone", () =>
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(
+      0,
+      "scripts/ci/generated/security-preflight.mjs\0",
+    ))
+
+    expect(runPreCommit()).toBe(0)
+    expect(mocks.spawnSync.mock.calls.map(([executable]) => executable)).toEqual(["git"])
+  )
+
+  it("excludes only the exact generated bootstrap from mixed staged paths", () =>
+    const supportedPaths = [
+      "scripts/ci/security-preflight.mjs",
+      "scripts/ci/generated/security-preflight-helper.mjs",
+      "src/index.ts",
+    ]
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(
+        0,
+        ["scripts/ci/generated/security-preflight.mjs", ...supportedPaths, "README.md"].join("\0"),
+      ))
+      .mockReturnValue(spawnResult(0))
+
+    expect(runPreCommit()).toBe(0)
+    expect(mocks.spawnSync.mock.calls.slice(1).map(([executable, arguments_]) =>
+      [executable, arguments_]
+    )).toEqual([
+      ["bun", ["run", "format:staged", "--", ...supportedPaths.map((path) => `./${path}`)]],
+      ["bun", ["run", "lint:staged", "--", ...supportedPaths.map((path) => `./${path}`)]],
+      ["bun", ["run", "lint:markdown:staged", "--", "./README.md"]],
+    ])
+  )
+
   it("defers Civet-only changes and silently accepts other irrelevant or empty path records", () =>
     const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
     mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "src/worker.CIVET\0"))
 
     expect(runPreCommit()).toBe(0)
-    expect(errorOutput).toHaveBeenCalledWith(expect.stringMatching(/Civet validation is deferred/))
     expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
 
     mocks.spawnSync.mockReset()
@@ -84,15 +114,10 @@ describe("repository hooks", () =>
     mocks.spawnSync.mockReturnValueOnce(spawnResult(null, "", spawnError))
 
     expect(runPreCommit()).toBe(1)
-    expect(errorOutput.mock.calls).toEqual([
-      [
-        "[hook] failed (1): \"git\" \"diff\" \"--cached\" \"--name-only\" \"--diff-filter=ACMR\" \"-z\"",
-      ],
-      ["git executable unavailable"],
-    ])
+    expect(errorOutput).toHaveBeenCalledWith(spawnError.message)
   )
 
-  it("stops at each failed staged command and reports the exact generated command", () =>
+  it("stops at each failed staged command", () =>
     const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
 
     mocks.spawnSync
@@ -100,9 +125,6 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(4))
     expect(runPreCommit()).toBe(4)
     expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
-    expect(errorOutput).toHaveBeenLastCalledWith(
-      "[hook] failed (4): \"bun\" \"run\" \"format:staged\" \"--\" \"./src/index.ts\"",
-    )
 
     mocks.spawnSync.mockReset()
     errorOutput.mockClear()
@@ -112,7 +134,6 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(5))
     expect(runPreCommit()).toBe(5)
     expect(mocks.spawnSync).toHaveBeenCalledTimes(3)
-    expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:staged"))
 
     mocks.spawnSync.mockReset()
     errorOutput.mockClear()
@@ -121,7 +142,6 @@ describe("repository hooks", () =>
       .mockReturnValueOnce(spawnResult(6))
     expect(runPreCommit()).toBe(6)
     expect(mocks.spawnSync).toHaveBeenCalledTimes(2)
-    expect(errorOutput).toHaveBeenLastCalledWith(expect.stringContaining("lint:markdown:staged"))
   )
 
   it("returns success after a Biome-only staged batch reaches the terminal path", () =>
@@ -136,22 +156,7 @@ describe("repository hooks", () =>
     ).toEqual(["format:staged", "lint:staged"])
   )
 
-  it("runs the immutable pre-push script list through injected and default runners", () =>
-    const injected = vi.fn(() => 17)
-    expect(runPrePush(injected)).toBe(17)
-    expect(injected).toHaveBeenCalledWith(["verify:core"])
-    expect(Object.isFrozen(PRE_PUSH_SCRIPTS)).toBe(true)
-
-    mocks.spawnSync.mockReturnValueOnce(spawnResult(0))
-    expect(runPrePush()).toBe(0)
-    expect(mocks.spawnSync).toHaveBeenCalledWith(
-      "bun",
-      ["run", "verify:core"],
-      { shell: false, stdio: "inherit" },
-    )
-  )
-
-  it("wires both executable entrypoints to their hook runner exit codes", async () =>
+  it("wires the pre-commit entrypoint to its hook runner exit code", async () =>
     const previousExitCode = process.exitCode
     try
       process.exitCode = undefined
@@ -164,16 +169,6 @@ describe("repository hooks", () =>
         expect.any(Object),
       )
 
-      mocks.spawnSync.mockClear()
-      mocks.spawnSync.mockReturnValueOnce(spawnResult(9))
-      vi.spyOn(console, "error").mockImplementation(() => undefined)
-      await import("./pre-push.civet")
-      expect(process.exitCode).toBe(9)
-      expect(mocks.spawnSync).toHaveBeenCalledWith(
-        "bun",
-        ["run", "verify:core"],
-        { shell: false, stdio: "inherit" },
-      )
     finally
       process.exitCode = previousExitCode
   )

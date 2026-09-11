@@ -3,7 +3,7 @@ import { access, readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
-import { PRE_PUSH_SCRIPTS, runPrePush } from "../hooks/index.civet"
+import { PRE_PUSH_SCRIPTS } from "../hooks/index.civet"
 
 const rootPackage = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
   packageManager: string
@@ -13,6 +13,11 @@ const rootPackage = JSON.parse(await readFile(new URL("../../package.json", impo
 }
 const workspace = await readFile(new URL("../../pnpm-workspace.yaml", import.meta.url), "utf8")
 const workflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
+const securityWorkflows = Object.fromEntries(await Promise.all(
+  ["codeql", "scorecard", "dependency-review"].map(async (scope) =>
+    [scope, await readFile(new URL(`../../.github/workflows/${scope}.yml`, import.meta.url), "utf8")] as const
+  ),
+)) as Record<string, string>
 const ignoreRules = await readFile(new URL("../../.gitignore", import.meta.url), "utf8")
 const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8")
 const bunVersion = await readFile(new URL("../../.bun-version", import.meta.url), "utf8")
@@ -95,6 +100,7 @@ const EXPECTED_LANES = {
   "verify:core": [
     "format:check",
     "lint",
+    "ci:preflight:check",
     "auth:schema:check",
     "openapi:check",
     "civet:style:check",
@@ -110,6 +116,26 @@ const EXPECTED_LANES = {
   "verify:graph": ["graph:check", "graph:verify"],
   "verify:browser": ["test:e2e", "test:a11y"],
 } as const
+
+const ACTION_PINS: Record<string, string> = {
+  "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+  "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020",
+  "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
+  "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  "actions/dependency-review-action": "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
+  "github/codeql-action/init": "e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81",
+  "github/codeql-action/analyze": "e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81",
+  "github/codeql-action/upload-sarif": "e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81",
+  "ossf/scorecard-action": "2d1146689b8cda280b9bc96326124645441f03bc",
+  "oven-sh/setup-bun": "0c5077e51419868618aeaa5fe8019c62421857d6",
+  "pnpm/action-setup": "0ebf47130e4866e96fce0953f49152a61190b271",
+}
+
+const securityAction = (scope: string, action: string): string =>
+  const matches = securityWorkflows[scope].split(/^ {6}- /m)
+    .filter((step) => step.includes(`uses: ${action}@`))
+  expect(matches).toHaveLength(1)
+  matches[0]!
 
 describe("DF-101/106 lifecycle contract", () =>
   it("keeps Claude policy byte-identical to the canonical agent policy", async () =>
@@ -213,6 +239,7 @@ describe("DF-101/106 lifecycle contract", () =>
     expect(preCommitHook).toContain(`${hookCommand}pre-commit.civet`)
     expect(prePushHook).toContain(`${hookCommand}pre-push.civet`)
     expect(makefile).toMatch(/setup:\n\tsh scripts\/install-prerequisites\.sh/u)
+    expect(prePushHook).toContain('pre-push.civet "$@"')
   )
 
   it("exposes every required root command while preserving API aliases", () =>
@@ -276,6 +303,62 @@ describe("DF-101/106 lifecycle contract", () =>
     expect(rootPackage.scripts["test:a11y"]).toBe(
       "bun --preload @danielx/civet/bun-civet scripts/e2e/run.civet a11y",
     )
+  )
+
+  it("checks generated security policy in core while using canonical Civet locally", () =>
+    expect(rootPackage.scripts["ci:preflight"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/ci/security-preflight.civet local",
+    )
+    expect(rootPackage.scripts["ci:preflight:check"]).toBe(
+      "bun --preload @danielx/civet/bun-civet scripts/ci/generate-security-preflight.civet check",
+    )
+    for (const [scope, securityWorkflow] of Object.entries(securityWorkflows))
+      const runCommands = [...securityWorkflow.matchAll(/^ +run: (.+)$/gm)]
+        .map((match) => match[1])
+      expect(runCommands).toEqual([
+        `node scripts/ci/generated/security-preflight.mjs workflow --workflow ${scope}`,
+      ])
+      expect(securityWorkflow).not.toMatch(/^ +continue-on-error:/m)
+  )
+
+  it("pins every lifecycle action and limits each workflow token to its required permissions", () =>
+    const observedActions = new Set<string>()
+    for (const source of [workflow, ...Object.values(securityWorkflows)])
+      const actions = [...source.matchAll(/^ +uses: ([^@\s]+)@([^\s#]+)(?: .*)?$/gm)]
+      expect(actions.length).toBeGreaterThan(0)
+      expect(source.match(/^ +uses:/gm)).toHaveLength(actions.length)
+      for (const [, action, revision] of actions)
+        expect(revision).toMatch(/^[0-9a-f]{40}$/)
+        expect(revision).toBe(ACTION_PINS[action])
+        observedActions.add(action)
+    expect([...observedActions].sort()).toEqual(Object.keys(ACTION_PINS).sort())
+
+    expect(workflow.match(/^ *permissions:(?:[^\n]*\n)(?: +[\w-]+: (?:read|write)\n)*/gm))
+      .toEqual(["permissions:\n  contents: read\n"])
+    const jobPermissions: Record<string, string[]> = {
+      codeql: ["contents: read", "security-events: write"],
+      scorecard: ["contents: read", "id-token: write", "security-events: write"],
+      "dependency-review": ["contents: read"],
+    }
+    for (const [scope, securityWorkflow] of Object.entries(securityWorkflows))
+      const permissions = securityWorkflow.match(/^ *permissions:(?:[^\n]*\n)(?: +[\w-]+: (?:read|write)\n)*/gm)
+      expect(permissions?.map((block) => block.trim().split("\n").map((line) => line.trim())))
+        .toEqual([["permissions: {}"], ["permissions:", ...jobPermissions[scope]]])
+  )
+
+  it("retains security evidence without unconditional ingestion or private Scorecard publication", () =>
+    const review = securityAction("dependency-review", "actions/dependency-review-action")
+    expect(review).toMatch(/^ +fail-on-severity: high$/m)
+    expect(review).not.toMatch(/^ +(?:warn-only|allow-ghsas):/m)
+    const scorecard = securityAction("scorecard", "ossf/scorecard-action")
+    expect(scorecard).toMatch(/^ +results_file: results\.sarif$/m)
+    expect(scorecard).toMatch(/^ +publish_results:.*steps\.security-policy\.outcome == 'success' && steps\.security-policy\.outputs\.publish_results == 'true'/m)
+    expect(securityAction("scorecard", "actions/upload-artifact")).toMatch(/^ +path: results\.sarif$/m)
+    expect(securityAction("codeql", "github/codeql-action/analyze")).toMatch(/^ +upload: never$/m)
+    for (const scope of ["codeql", "scorecard"])
+      const upload = securityAction(scope, "github/codeql-action/upload-sarif")
+      expect(upload).toMatch(/^ +if:.*steps\.security-policy\.outputs\.upload_enabled == 'true'/m)
+      expect(upload).toMatch(/^ +if:.*steps\.analysis\.outcome == 'success'/m)
   )
 
   it("allowlists exactly the authored coverage sources while ignoring generated output", async () =>
@@ -802,8 +885,6 @@ describe("DF-101/106 lifecycle contract", () =>
     expect(workflow).toMatch(/Stop PostgreSQL integration service\n\s+if: \(matrix\.lane == 'integration' \|\| matrix\.lane == 'browser'\) && always\(\)/)
     expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1)
     expect(workflow).toContain("persist-credentials: false")
-    for (const action of workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g))
-      expect(action[1]).toMatch(/^[0-9a-f]{40}$/)
   )
 
   it("presents the exact health badge set without a separate Scorecard score", () =>
@@ -855,15 +936,13 @@ describe("DF-101/106 lifecycle contract", () =>
     })
   )
 
-  it("executes the exact core lane through the pre-push runner", () =>
-    const calls: string[][] = []
-    const exitCode = runPrePush((scripts) =>
-      calls.push([...scripts])
-      return 17
-    )
-
-    expect(exitCode).toBe(17)
-    expect(PRE_PUSH_SCRIPTS).toEqual(["verify:core"])
-    expect(calls).toEqual([["verify:core"]])
+  it("requires the same immutable five lanes for local pre-push and hosted CI", () =>
+    const lanes = Object.keys(EXPECTED_LANES)
+    const hostedLanes = workflow.match(/^ +lane: \[([^\]]+)\]$/m)?.[1]
+      ?.split(",").map((lane) => `verify:${lane.trim()}`)
+    expect(PRE_PUSH_SCRIPTS).toEqual(lanes)
+    expect(Object.isFrozen(PRE_PUSH_SCRIPTS)).toBe(true)
+    expect(runScriptNames(rootPackage.scripts.verify)).toEqual(PRE_PUSH_SCRIPTS)
+    expect(hostedLanes).toEqual(PRE_PUSH_SCRIPTS)
   )
 )

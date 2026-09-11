@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process"
+import { readSync } from "node:fs"
 import { extname } from "node:path"
+import { runSecurityPreflight } from "../ci/security-preflight.civet"
 
 const BIOME_EXTENSIONS = new Set([
   ".cjs",
@@ -31,13 +33,16 @@ function formatCommand(executable, arguments_)
     .join(" ")
 
 function failureExitCode(executable, arguments_, result)
-  const exitCode = result.status ?? 1
+  const exitCode = Number.isInteger(result.status) && result.status > 0 ? result.status : 1
   console.error(
     `[hook] failed (${exitCode}): ${formatCommand(executable, arguments_)}`,
   )
 
   if (result.error)
     console.error(result.error.message)
+
+  if (result.signal)
+    console.error(`[hook] terminated by ${result.signal}`)
 
   return exitCode
 
@@ -64,6 +69,8 @@ function isCivetPath(path)
 
 function selectBiomePaths(paths)
   return paths.filter((path) =>
+    // Generator freshness owns this exact artifact's bytes, not Biome.
+    path !== "scripts/ci/generated/security-preflight.mjs" &&
     BIOME_EXTENSIONS.has(extname(path).toLowerCase())
   )
 
@@ -87,7 +94,7 @@ function runBunScripts(scripts: readonly string[], paths: readonly string[] = []
       stdio: "inherit",
     })
 
-    if (result.status !== 0)
+    if (result.error || result.signal || result.status !== 0)
       return failureExitCode("bun", arguments_, result)
 
   return 0
@@ -104,7 +111,7 @@ export function runPreCommit()
   if (biomePaths.length === 0 && markdownPaths.length === 0)
     if (staged.paths.some(isCivetPath))
       console.error(
-        "[hook] staged Civet validation is deferred to mandatory bun run verify:core before push.",
+        "[hook] staged Civet validation is deferred to all five mandatory local CI lanes before push.",
       )
 
     return 0
@@ -123,7 +130,135 @@ export function runPreCommit()
 
   return 0
 
-export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
+export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze([
+  "verify:core",
+  "verify:coverage",
+  "verify:integration",
+  "verify:graph",
+  "verify:browser",
+])
 
-export function runPrePush(runScripts: BunScriptRunner = runBunScripts)
-  return runScripts(PRE_PUSH_SCRIPTS)
+const MAX_PUSH_INPUT_BYTES = 64 * 1024
+const MAX_PUSH_REFS = 256
+const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
+const ZERO_ID = /^0+$/
+
+type PushTarget = { remoteName: string; remoteUrl: string }
+type PushDependencies = {
+  readInput?: () => string
+  runScripts?: BunScriptRunner
+  securityPreflight?: (target: PushTarget) => number
+}
+
+function readPushInput(): string
+  const buffer = Buffer.alloc(MAX_PUSH_INPUT_BYTES + 1)
+  let length = 0
+  while (length < buffer.length)
+    const count = readSync(0, buffer, length, buffer.length - length, null)
+    if (count === 0)
+      return buffer.toString("utf8", 0, length)
+    length += count
+  throw new Error("pre-push STDIN exceeds 64 KiB")
+
+function parsePushInput(input: string)
+  if (Buffer.byteLength(input, "utf8") > MAX_PUSH_INPUT_BYTES)
+    throw new Error("pre-push STDIN exceeds 64 KiB")
+  const lines = input.endsWith("\n") ? input.slice(0, -1).split("\n") : input.split("\n")
+  if (lines.length > MAX_PUSH_REFS)
+    throw new Error("pre-push exceeds 256 ref updates")
+  const destinations = new Set<string>()
+  let objectIdLength = 0
+  return lines.map((line) =>
+    const fields = line.trim().split(/[ \t]+/)
+    if (fields.length !== 4 || /[\0-\x08\x0b-\x1f\x7f]/.test(line))
+      throw new Error("expected four fields per pre-push STDIN line")
+    const [localRef, localId, remoteRef, remoteId] = fields
+    if (!OBJECT_ID.test(localId) || !OBJECT_ID.test(remoteId) || localId.length !== remoteId.length)
+      throw new Error("pre-push object IDs must be full, matching SHA-1 or SHA-256 IDs")
+    if (objectIdLength !== 0 && objectIdLength !== localId.length)
+      throw new Error("pre-push cannot mix object ID formats")
+    objectIdLength = localId.length
+    if (!/^refs\/(?:heads|tags)\/.+/.test(remoteRef) || destinations.has(remoteRef))
+      throw new Error("pre-push requires distinct branch or tag destinations")
+    destinations.add(remoteRef)
+    const deletion = ZERO_ID.test(localId)
+    if (deletion ? localRef !== "(delete)" || ZERO_ID.test(remoteId) : localRef === "(delete)" || localRef.startsWith("-"))
+      throw new Error("inconsistent pre-push source or deletion record")
+    return { localId, remoteRef, deletion }
+  )
+
+function runPushGit(arguments_: string[])
+  const result = spawnSync("git", ["--no-replace-objects", ...arguments_], {
+    encoding: "utf8",
+    shell: false,
+    stdio: ["ignore", "pipe", "inherit"],
+    maxBuffer: 1024 * 1024,
+    timeout: 30000,
+  })
+  if (result.error || result.signal || result.status !== 0)
+    return { exitCode: failureExitCode("git", arguments_, result), stdout: "" }
+  return { exitCode: 0, stdout: result.stdout }
+
+function readPushCommit(revision: string)
+  const result = runPushGit(["rev-parse", "--verify", "--end-of-options", `${revision}^{commit}`])
+  if (result.exitCode === 0 && !OBJECT_ID.test(result.stdout.trim()))
+    throw new Error("git did not resolve a full commit ID")
+  return { exitCode: result.exitCode, commit: result.stdout.trim() }
+
+function checkPushCheckout(expectedHead: string)
+  const current = readPushCommit("HEAD")
+  if (current.exitCode !== 0)
+    return current.exitCode
+  if (current.commit !== expectedHead)
+    throw new Error("HEAD changed during pre-push; retry from the pushed commit")
+  const status = runPushGit(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"])
+  if (status.exitCode !== 0)
+    return status.exitCode
+  if (status.stdout.length > 0)
+    throw new Error("pre-push requires a clean checkout: commit or remove tracked, staged, and unignored untracked changes")
+  return 0
+
+export function runPrePush(
+  argv: readonly string[] = process.argv.slice(2),
+  dependencies: PushDependencies = {},
+): number
+  try
+    if (argv.length !== 2 || argv.some((value) => value.trim().length === 0 || /[\0-\x1f\x7f]/.test(value)))
+      throw new Error("pre-push requires exactly Git's remote name and destination URL arguments")
+    const updates = parsePushInput((dependencies.readInput ?? readPushInput)())
+    for (const update of updates)
+      const checked = runPushGit(["check-ref-format", update.remoteRef])
+      if (checked.exitCode !== 0)
+        return checked.exitCode
+    const sources = updates.filter((update) => !update.deletion)
+    if (sources.length === 0)
+      console.error("[hook] deletion-only push: no source to verify; local CI and security preflight not run")
+      return 0
+    const head = readPushCommit("HEAD")
+    if (head.exitCode !== 0)
+      return head.exitCode
+    for (const source of sources)
+      const pushed = readPushCommit(source.localId)
+      if (pushed.exitCode !== 0)
+        return pushed.exitCode
+      if (pushed.commit !== head.commit)
+        throw new Error("every pushed source must resolve to current HEAD; check out and verify each different commit separately")
+    const checkoutStatus = checkPushCheckout(head.commit)
+    if (checkoutStatus !== 0)
+      return checkoutStatus
+    const securityStatus = (dependencies.securityPreflight ?? runSecurityPreflight)({
+      remoteName: argv[0],
+      remoteUrl: argv[1],
+    })
+    if (securityStatus !== 0)
+      console.error("[hook] destination security preflight failed")
+      return Number.isInteger(securityStatus) && securityStatus > 0 ? securityStatus : 1
+    for (const script of PRE_PUSH_SCRIPTS)
+      const status = (dependencies.runScripts ?? runBunScripts)([script])
+      if (status !== 0)
+        console.error(`[hook] mandatory local lane failed: ${script}`)
+        return Number.isInteger(status) && status > 0 ? status : 1
+    return checkPushCheckout(head.commit)
+  catch (error)
+    console.error(`[hook] pre-push blocked: ${error instanceof Error ? error.message : String(error)}`)
+    return 1

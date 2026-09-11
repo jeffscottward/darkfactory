@@ -211,6 +211,10 @@ varlock run -- bun run verify
 bun run db:test:down
 ```
 
+Every source push must pass the destination-aware hosted security capability preflight, then `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser`, sequentially. Security capability never skips a local lane. The hook uses Git's actual destination URL, not `origin`, and blocks on any prerequisite or gate failure. Install the pinned prerequisites above, keep Docker running with the isolated test database available, configure the test environment, and have Graphify, Chromium, and authenticated GitHub CLI access to the destination ready.
+
+Push from a clean checkout with every pushed branch or tag resolving to current `HEAD` (annotated tags are peeled); tracked, staged, and unignored untracked changes block verification. Different source commits must be checked out and pushed separately. Deletion-only pushes contain no source and explicitly skip verification. Local success cannot guarantee hosted network, service, runner, or permission behavior; hosted CI remains required.
+
 No command is considered successful without its observed exit result. Do not infer a green repository from this README or from a narrower check. See [Testing and evidence](docs/testing-and-evidence.md) and the draft [DF evidence map](docs/evidence-map.md).
 
 ## Graphify
