@@ -67,11 +67,13 @@ A disabled capability must not expose a route, dependency, credential, schema, s
 
 The web deployer is official `@vinext/cloudflare`. The repository does not currently claim an automatic or completed deployment. Alchemy is absent while no ancillary resource is enabled; an empty `finalize()` program is unsafe because it can reconcile/delete prior stage state. See [ADR 0001](adr/0001-vinext-alchemy-boundary.md).
 
-Deployment credentials must never be available to untrusted pull requests. An authorized deployment needs exact-SHA CI evidence, least privilege, environment approval, secret ownership, runtime verification, and rollback evidence.
+Deployment credentials must never be available to untrusted pull requests. An authorized deployment needs exact-SHA CI evidence, least privilege, environment approval, secret ownership, runtime verification, and rollback evidence. Before actual deployment, explicitly dispatch full CI on a branch or tag resolving to the intended SHA, verify the observed run's `head_sha` matches it, and require all five lanes to succeed. A successful PR with an identical merged tree is merge evidence, not deployment-SHA execution evidence. This prerequisite is operator policy; the current deploy CLI has no automated GitHub CI/SHA gate.
 
 ## Hosted analyzer coverage
 
 Follow the [hosted security bootstrap and rollout transaction](capabilities-and-deployment.md#hosted-security-capabilities) before changing analyzer optionality. Eligibility, configuration, and explicit enablement are distinct facts. Public eligible CodeQL/Dependency Review and applicable public Scorecard remain enabled by default. Private `DF_CODEQL_ENABLED`, `DF_DEPENDENCY_REVIEW_ENABLED`, and `DF_SCORECARD_ENABLED` selections require independent administrator evidence; all three must be explicitly configured and read back with compatible rulesets before guarded workflows land. Missing/unknown state stops rollout locally, not in a recurring hosted preflight.
+
+The heavy verification workflow's PR/manual-only scheduling does not change security workflow events, guards, uploads, or applicable default-branch and scheduled scans. Required PR checks remain mandatory and strict. No automatic heavy main rerun is expected; its absence is not a successful or skipped security scan.
 
 Verified non-applicability leaves real gaps:
 
