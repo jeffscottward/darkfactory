@@ -1,5 +1,8 @@
 import { spawnSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { extname } from "node:path"
+
+import { inspectBunRuntime } from "../ci/bun-runtime.civet"
 
 const BIOME_EXTENSIONS = new Set([
   ".cjs",
@@ -92,6 +95,31 @@ function runBunScripts(scripts: readonly string[], paths: readonly string[] = []
 
   return 0
 
+function checkBunRuntime(): number
+  try
+    const arguments_ = ["--version"]
+    const pathResolved = spawnSync("bun", arguments_, {
+      encoding: "utf8",
+      shell: false,
+      stdio: ["ignore", "pipe", "inherit"],
+      timeout: 10_000,
+    })
+    if (pathResolved.error || pathResolved.signal || pathResolved.status !== 0)
+      const exitCode = failureExitCode("bun", arguments_, pathResolved)
+      return Number.isInteger(exitCode) && exitCode > 0 ? exitCode : 1
+    const inspection = inspectBunRuntime(
+      readFileSync(".bun-version", "utf8"),
+      (globalThis as typeof globalThis & { Bun?: { version?: string } }).Bun?.version ?? "",
+      { exitCode: pathResolved.status, stdout: pathResolved.stdout },
+    )
+    if (!inspection.ok)
+      console.error(`[hook] Bun runtime prerequisite failed: ${inspection.detail}`)
+      return 1
+    return 0
+  catch (error)
+    console.error(`[hook] Bun runtime prerequisite failed: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
+
 export function runPreCommit()
   const staged = readStagedPaths()
 
@@ -126,4 +154,6 @@ export function runPreCommit()
 export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
 
 export function runPrePush(runScripts: BunScriptRunner = runBunScripts)
+  const runtimeStatus = checkBunRuntime()
+  if (runtimeStatus !== 0) return runtimeStatus
   return runScripts(PRE_PUSH_SCRIPTS)

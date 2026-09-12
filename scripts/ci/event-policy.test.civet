@@ -66,10 +66,16 @@ type Event = {
   run_id: number
   workflow: string
 }
-const event = (changes: Partial<Event> = {}): Event => ({
-  event_name: "pull_request", ref: "refs/pull/17/merge", action: "synchronize",
-  number: 17, sha: "first", run_id: 100, workflow: workflow.name, ...changes,
-})
+type EventChanges = Omit<Partial<Event>, "number"> & { number?: number | undefined }
+const event = (changes: EventChanges = {}): Event =>
+  const explicitNumber = Object.prototype.hasOwnProperty.call(changes, "number")
+  const { number = 17, ...rest } = changes
+  const value: Event = {
+    event_name: "pull_request", ref: "refs/pull/17/merge", action: "synchronize",
+    number, sha: "first", run_id: 100, workflow: workflow.name, ...rest,
+  }
+  delete value.number if explicitNumber and changes.number is undefined
+  value
 const selected = (policy: Workflow, input: Event): boolean =>
   if (!Object.hasOwn(policy.on, input.event_name)) return false
   const trigger = policy.on[input.event_name]
@@ -119,8 +125,8 @@ const cancels = (input: Event): boolean =>
 describe("CI event policy", () =>
   it("validates all PR targets and explicit manual runs without automatic push runs", () =>
     expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "workflow_dispatch"])
-    expect(workflow.on.pull_request ?? {}).toEqual({})
-    expect(workflow.on.workflow_dispatch ?? {}).toEqual({})
+    expect(workflow.on["pull_request"] ?? {}).toEqual({})
+    expect(workflow.on["workflow_dispatch"] ?? {}).toEqual({})
     for (const action of ["opened", "synchronize", "reopened"])
       expect(selected(workflow, event({ action, base: "release", fork: true, actor: "contributor", paths: ["README.md"] }))).toBe(true)
       expect(selected(workflow, event({ action, actor: "dependabot[bot]" }))).toBe(true)
@@ -148,7 +154,7 @@ describe("CI event policy", () =>
 
   it("keeps all five mandatory lanes parallel, fail-closed and unprivileged", () =>
     expect(Object.keys(workflow.jobs)).toEqual(["verification"])
-    const job = workflow.jobs.verification!
+    const job = workflow.jobs["verification"]!
     expect(job.name).toBe("Verification (${{ matrix.lane }})")
     expect(job.strategy.matrix).toEqual({ lane: ["core", "coverage", "integration", "graph", "browser"] })
     expect(job.strategy["fail-fast"]).toBe(false)

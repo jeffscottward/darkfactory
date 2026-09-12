@@ -52,7 +52,7 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The broad deterministic pre-push lifecycle remains `verify:static` (static checks, lint, typecheck, builds, docs, and generated-artifact freshness) plus unit, contract, and operations tests. Local operations also includes the E2E-helper tests:
+The pre-push hook first requires the executing Bun runtime and the `bun` resolved from `PATH` to match the exact `.bun-version` pin, then runs the broad deterministic core lifecycle: `verify:static` (static checks, lint, typecheck, builds, docs, and generated-artifact freshness) plus unit, contract, and operations tests. Local operations also includes the E2E-helper tests:
 
 ```bash
 bun run verify:core

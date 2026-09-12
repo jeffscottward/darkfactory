@@ -72,6 +72,7 @@ export const createEvlogSink = (
     })
 
     try
+      if (snapshot.outcome === "failure") logger.setLevel("error")
       await logger.emit({
         event: {
           id: snapshot.eventId,

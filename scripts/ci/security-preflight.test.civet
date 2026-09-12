@@ -682,10 +682,53 @@ describe("local preflight and CLI outcomes", () =>
     expect(mocks.spawnSync.mock.calls.map(([, args]) => args.at(-1))).toEqual([`repos/${repository}`, ...probes])
   )
 
-  it("fails closed on a permission-denied capability without treating it as unavailable", () =>
-    const env = workflowFiles()
+  // GitHub downgrades fork/Dependabot write permissions to read. The documented
+  // security-events: read and contents: read permissions authorize these GETs.
+  // These fixtures verify request/output behavior, not a live restricted token.
+  it.each([
+    { actor: "fork-contributor", scope: "codeql" },
+    { actor: "dependabot[bot]", scope: "codeql" },
+    { actor: "fork-contributor", scope: "dependency-review" },
+    { actor: "dependabot[bot]", scope: "dependency-review" },
+  ])("keeps $actor pull-request $scope preflight read-only and success-probed", ({ actor, scope }) =>
+    const env = { ...workflowFiles(), GITHUB_EVENT_NAME: "pull_request", GITHUB_ACTOR: actor }
+    serve({
+      [`repos/${repository}`]: metadata("public"),
+      [`repos/${repository}/code-scanning/alerts?per_page=1`]: [],
+      [`repos/${repository}/commits/main`]: { sha },
+      [`repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]: [],
+    })
+    expect(runCli(["workflow", "--workflow", scope], env)).toBe(0)
+    const expected = scope === "codeql"
+      ? "codeql_enabled=true\nupload_enabled=true\ndependency_review_enabled=false\npublish_results=false\n"
+      : "codeql_enabled=false\nupload_enabled=false\ndependency_review_enabled=true\npublish_results=false\n"
+    expect(fileContents(env, "GITHUB_OUTPUT")).toBe(expected)
+    const probes = scope === "codeql"
+      ? [`repos/${repository}/code-scanning/alerts?per_page=1`]
+      : [`repos/${repository}/commits/main`, `repos/${repository}/dependency-graph/compare/${sha}...${sha}?per_page=1`]
+    expect(mocks.spawnSync.mock.calls.map(([, args]) => args.at(-1))).toEqual([`repos/${repository}`, ...probes])
+    for (const [command, args, options] of mocks.spawnSync.mock.calls)
+      expect(command).toBe("gh")
+      expect(args.slice(0, 6)).toEqual(["api", "--hostname", "github.com", "--method", "GET", "--include"])
+      expect(options.shell).toBe(false)
+    return
+  )
+
+  it.each([
+    { actor: "fork-contributor", visibility: "public" },
+    { actor: "dependabot[bot]", visibility: "public" },
+    { actor: "fork-contributor", visibility: "private" },
+    { actor: "dependabot[bot]", visibility: "private" },
+  ] as const)("keeps denied $visibility CodeQL capabilities blocking for $actor pull requests", ({ actor, visibility }) =>
+    const env = {
+      ...workflowFiles(),
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_ACTOR: actor,
+      DF_CODEQL_ENABLED: "true",
+      DF_CODE_SCANNING_UPLOAD_ENABLED: "true",
+    }
     mocks.spawnSync
-      .mockReturnValueOnce(response(metadata("public")))
+      .mockReturnValueOnce(response(metadata(visibility)))
       .mockReturnValueOnce(response({ message: `Resource not accessible by integration ${sentinel}` }, 403))
     expect(runCli(["workflow", "--workflow", "codeql"], env)).toBe(1)
     expect(mocks.spawnSync.mock.calls.map(([, args]) => args.at(-1))).toEqual([

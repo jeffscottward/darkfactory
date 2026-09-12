@@ -22,6 +22,7 @@ import {
   nodeDoctorProcess,
   probeTrustedHttps,
 } from "./system.civet"
+const INJECTED_BUN_VERSION = "1.3.14"
 
 const errno = (code: string, message = code): NodeJS.ErrnoException =>
   Object.assign(new Error(message), { code })
@@ -199,9 +200,10 @@ describe("doctor dependency discovery", () =>
     vi.stubEnv("SPACE_DOCTOR_VALUE", " ")
     const dependencies = nodeDoctorDependencies({
       cwd: () => "/workspace/darkfactory",
-      versions: { node: "26.3.1" },
+      versions: { node: "26.3.1", bun: INJECTED_BUN_VERSION },
     })
 
+    expect(dependencies.bunVersion).toBe(INJECTED_BUN_VERSION)
     expect(dependencies.nodeVersion).toBe("26.3.1")
     expect(dependencies.workingDirectory).toBe("/workspace/darkfactory")
     expect(dependencies.environmentHas("MISSING_DOCTOR_VALUE")).toBe(false)
