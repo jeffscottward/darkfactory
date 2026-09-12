@@ -139,7 +139,11 @@ bun run deploy:web
 
 The repository's current GitHub Actions workflow verifies code and uploads Playwright failure artifacts; it does not contain an automatic deployment job. Therefore this repository does not claim that preview or production deployment has occurred. Deployment evidence remains pending until an operator records the target, SHA, command/run URL, output, runtime probe, and rollback result in [the evidence map](evidence-map.md).
 
-Untrusted pull requests must never receive deployment credentials. A future deployment workflow must use least-privilege permissions, an environment approval boundary, exact SHA promotion, and a dependency on the successful verification workflow.
+Heavy CI runs only for PRs and explicit manual dispatch, so a merge to `main` does not automatically produce a new verification run. Merge acceptance uses successful latest reviewed PR checks plus exact merged-tree identity; that receipt does not satisfy deployment's exact-SHA requirement. Before any actual staging, preview, or production deployment, dispatch the full `ci.yml` workflow on a branch or tag resolving to the intended deployment SHA. Verify the observed run's `head_sha` equals that SHA and all five lanes succeed; a dispatch request alone is not evidence. Keep applicable default-branch security scans and their results separate.
+
+This exact-SHA prerequisite is an operator acceptance policy, not an automated enforcement gate in the current deployment CLI. The CLI's production database checks do not query GitHub or authorize deployment. An unexpected direct-main change also needs explicit manual full validation at its exact SHA before acceptance; do not infer success from the absence of an automatic run.
+
+Untrusted pull requests must never receive deployment credentials. A future deployment workflow must use least-privilege permissions, an environment approval boundary, exact SHA promotion, and a dependency on successful full verification of that same SHA. It must not assume an automatic post-merge CI event or inherit PR-validation cancellation.
 
 ## Alchemy ancillary-resource decision
 
@@ -161,7 +165,7 @@ The full source record and consequences are in [ADR 0001](adr/0001-vinext-alchem
 Do not mark a deployment complete until all applicable fields are observed:
 
 - Exact source SHA and clean generated-artifact checks.
-- Terminal CI run URL for that SHA.
+- Explicit manual full-CI run URL and attempt, observed `head_sha` equal to the deployment SHA, and successful conclusions for all five lanes.
 - Authorized operator and approved Cloudflare account/environment.
 - Deployer and exact version.
 - Redacted command/run record and target identifier.

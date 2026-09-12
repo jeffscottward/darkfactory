@@ -42,7 +42,7 @@ If `graphify-out/graph.json` exists, query Graphify before broad file exploratio
 7. Use narrow, inspectable tools. Do not grant production, deploy, secret, destructive database, or broad network access by default.
 8. After each meaningful change, run the narrowest relevant check and record the observed result. Do not infer success.
 9. At dependency boundaries, integrate in order, update generated artifacts/Graphify/docs, run the affected complete gate, and checkpoint recovery state.
-10. After every push, follow the exact GitHub Actions run to a terminal state. Reproduce and fix repository-owned failures. Pending, skipped, cancelled, timed-out, blocked, and unobserved are not green.
+10. Follow eligible PR/manual CI runs and independently triggered security workflows to a terminal state. Heavy CI runs only on `pull_request` and explicit `workflow_dispatch`, not on ordinary pushes or post-merge `main`. Reproduce and fix repository-owned failures. Pending, skipped, cancelled, timed-out, blocked, and unobserved results are not green; intentional absence of a heavy main rerun is not a check result.
 11. Never bypass hooks, weaken tests, delete snapshots/evidence, suppress a real failure, or change the requirement to obtain green.
 12. Do not commit, push, deploy, or take public/account action unless the execution request explicitly authorizes it.
 
@@ -333,7 +333,7 @@ The web application deploys only through official `@vinext/cloudflare`.
 - `bun run deploy:web:check` performs the adapter's non-building, non-deploying dry-run setup validation.
 - `bun run deploy:web:preview` and `bun run deploy:web` are explicit credentialed Cloudflare operations.
 - The current CI workflow is verification-only unless the live workflow proves otherwise.
-- A deployment claim requires an authorized target, exact SHA, terminal prerequisite CI, deploy output, runtime probe, secret boundary, and rollback evidence.
+- A deployment claim requires an authorized target, exact SHA, successful full manual CI with observed `head_sha` equal to that SHA, deploy output, runtime probe, secret boundary, and rollback evidence. Dispatch on a branch/tag resolving to the intended SHA; this prerequisite remains operator policy, not an automated deploy-CLI gate.
 
 Alchemy is reserved for a real explicitly enabled supported ancillary Cloudflare resource. With no ancillary resource enabled, there must be no Alchemy dependency, `alchemy.run.ts`, or Alchemy deployment step. Alchemy 0.93.12 is a source-reviewed compatibility baseline only, not an active version promise. Its empty `finalize()` reconciliation can delete persisted resources absent from a reused stage. Re-review the then-current official release and use an isolated stage/state store when an approved ancillary resource creates a real need. Never put the vinext web application inside Alchemy.
 
@@ -505,7 +505,7 @@ Each owner delivers schema/contract/service/repository/UI/events/tests/docs as o
 - Check generated artifacts and Graphify freshness.
 - Run official adapter dry-run; perform preview/deployment only if authorized and required.
 - Resolve every repository-owned failure and rerun affected/full gates.
-- Finalize every evidence-map row at one exact SHA and follow CI to terminal state.
+- Finalize every evidence-map row at the verified PR/manual revision and follow its checks to terminal state. For merge closeout, separately record exact reviewed-PR/merged-tree identity; do not invent a merge-SHA CI result.
 
 **Gate:** All normative acceptance criteria are observed and documented. No unresolved product, CI, browser, security, data, graph, generated-artifact, or documentation blocker is mislabeled green.
 
@@ -563,15 +563,15 @@ DarkFactory is done only when all applicable statements are true for one exact r
 - Live manifests, lockfile, route discovery, Civet/TypeScript boundaries, build, exports, doctor, local HTTPS/PM2, database scripts, generator, and Graphify are reproducible.
 - Unit, contract, integration, E2E, accessibility, security smoke, build/runtime, generator, generated-artifact, graph, and docs gates pass as required.
 - Hooks and `bun run ci` remain authoritative and unweakened.
-- CI is terminal green for the exact final SHA, or the system is explicitly not done.
-- Deployment is evidenced if required/authorized; otherwise it is explicitly marked not executed/pending and no deployment claim is made.
+- All five CI lanes and every effective required check succeed for the latest reviewed PR revision, with strict up-to-date protection and exact-head review intact. Merge acceptance additionally records exact PR-head/merged-tree identity, not an invented merge-SHA CI result. Do not rerun an identical merged tree solely for closeout. Unexpected direct-main changes require explicit exact-SHA manual full validation before acceptance.
+- Before required/authorized deployment, dispatch full CI on a branch or tag resolving to the intended deployment SHA, verify the observed run's `head_sha` matches it, and require all five lanes to succeed. Preserve independent default-branch security scans and deployment authorization, secret isolation, environment approval, runtime, and rollback evidence. This is operator policy, not an automated deploy-CLI gate. Otherwise deployment is explicitly marked not executed/pending and no deployment claim is made.
 - Every DF item has implementation, verification, runtime/external evidence, reviewer, and terminal status.
 
 ## Exact stop conditions
 
-Continue through implementation, review, integration, repair, documentation, evidence, and terminal CI. A phase boundary, generated scaffold, narrow passing test, local build, pushed commit, or pending CI is not a stop condition.
+Continue through implementation, review, integration, repair, documentation, evidence, and terminal checks for eligible PR/manual and independent security events. A phase boundary, generated scaffold, narrow passing test, local build, pushed commit, or pending required CI is not a stop condition.
 
-Stop successfully only when the definition of done and every normative DF acceptance criterion are satisfied with inspectable evidence at the same exact revision.
+Stop successfully only when the definition of done and every normative DF acceptance criterion are satisfied with inspectable evidence at the verified revision. For merge closeout, retain the successful latest reviewed PR checks plus exact merged-tree identity; no automatic heavy main rerun is expected. Actual deployment separately requires successful manually dispatched full CI at the exact deployment SHA.
 
 Stop as blocked only when the missing prerequisite is genuinely external or requires prohibited human authority. Before stopping:
 
