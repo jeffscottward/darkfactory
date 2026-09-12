@@ -130,7 +130,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 - End-to-end tests cover critical user journeys through the rendered application, including authentication and the generic feature flow.
 - Keep tests deterministic, isolated, parallel-safe, and independent of production credentials or live providers. Use explicit test/local adapters, never silent mocks in production code.
 - A regression test must fail if the plausible bug returns. Test names describe behavior and outcome.
-- Run the narrow test while iterating, then the applicable root lifecycle. `bun run ci` and GitHub Actions must remain equivalent. pnpm remains the package/workspace owner, and package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
+- Run the narrow test while iterating, then the applicable root lifecycle. Local pre-push keeps `verify:core` (static plus unit/contract/operations). Full `verify`/`ci` and GitHub Actions use `verify:core:ci` (static plus `test:e2e-helpers`), with unit/contract/operations owned once by coverage; integration and browser own their separate suites. All five mandatory lanes and all four 100% coverage thresholds remain. pnpm remains the package/workspace owner, and package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
 - Never skip, weaken, snapshot-away, or delete a failing test to obtain green status.
 
 ## UI and accessibility

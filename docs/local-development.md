@@ -175,7 +175,7 @@ Run the doctor only after dependencies, environment, PostgreSQL, trust, route, a
 varlock run -- bun run doctor
 ```
 
-It checks the capability manifest, the installed Node and Bun versions independently, Corepack/pnpm, the pinned toolchain, vinext, Docker and PostgreSQL, Wrangler and Cloudflare configuration, required/provider environment status, Portless, HTTPS trust, PM2, Graphify, Varlock, uv, enabled development tools, and mkcert only when the fallback flag is selected. A reported failure is a prerequisite to repair, not a reason to weaken the check.
+It treats the exact version in `.bun-version` as the Bun authority and requires both the executing Bun runtime and the `bun` resolved from `PATH` to match it. It also checks the installed Node version, capability manifest, Corepack/pnpm, the pinned toolchain, vinext, Docker and PostgreSQL, Wrangler and Cloudflare configuration, required/provider environment status, Portless, HTTPS trust, PM2, Graphify, Varlock, uv, enabled development tools, and mkcert only when the fallback flag is selected. A reported failure is a prerequisite to repair, not a reason to weaken the check.
 
 Machine-readable output is available with:
 

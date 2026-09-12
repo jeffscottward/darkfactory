@@ -24,6 +24,7 @@ const FEATURE_ITEM_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const FEATURE_ITEMS_URL_PATTERN = /\/feature-items$/u;
 const OVERVIEW_CURRENT_PAGE_NAME_PATTERN = /^Overview\s*, current page$/u;
+const DASHBOARD_TOTAL_PATTERN = /^([0-9]+) feature items?$/u;
 
 interface CreatedItemEvidence {
   id: string;
@@ -166,12 +167,53 @@ const expectDashboardCounts = async (
   await expect(
     page.getByRole("heading", { level: 1, name: "Dashboard" })
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      `${counts.total} feature ${counts.total === 1 ? "item" : "items"}`,
-      { exact: true }
-    )
-  ).toBeVisible();
+  try {
+    await expect(
+      page.getByText(
+        `${counts.total} feature ${counts.total === 1 ? "item" : "items"}`,
+        { exact: true }
+      )
+    ).toBeVisible();
+  } catch (error) {
+    try {
+      const diagnostic = await page.evaluate((totalPatternSource: string) => {
+        const visible = (element: Element): boolean =>
+          element.getClientRects().length > 0;
+        const paragraphs = Array.from(document.querySelectorAll("p"));
+        const totalPattern = new RegExp(totalPatternSource, "u");
+        const total = paragraphs
+          .filter(visible)
+          .map((element) =>
+            totalPattern.exec(element.textContent?.trim() ?? "")
+          )
+          .find((match) => match !== null);
+        const unavailable = paragraphs.some(
+          (element) =>
+            visible(element) &&
+            element.textContent?.trim() === "Feature data unavailable"
+        );
+        let state = "unknown";
+        if (unavailable) {
+          state = "unavailable";
+        } else if (total) {
+          state = "ready";
+        }
+        return {
+          state,
+          visibleTotal: total ? Number(total[1]) : null,
+        };
+      }, DASHBOARD_TOTAL_PATTERN.source);
+      process.stdout.write(
+        `${JSON.stringify({
+          event: "portal.dashboard-count-assertion-failed",
+          ...diagnostic,
+        })}\n`
+      );
+    } catch {
+      // Diagnosis must never replace the original assertion failure.
+    }
+    throw error;
+  }
 
   const section = page.locator(
     'section[aria-labelledby="feature-status-counts-title"]'

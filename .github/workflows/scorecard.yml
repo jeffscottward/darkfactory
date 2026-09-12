@@ -10,8 +10,37 @@ on:
 permissions: {}
 
 jobs:
+  security-policy:
+    name: Scorecard policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: read
+    outputs:
+      publish_results: ${{ steps.security-policy.outputs.publish_results }}
+      upload_enabled: ${{ steps.security-policy.outputs.upload_enabled }}
+
+    steps:
+      - name: Check out trusted security policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check security capabilities
+        id: security-policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
+          DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
+          DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
+        run: node scripts/ci/generated/security-preflight.mjs workflow --workflow scorecard
+
   scorecard:
     name: Scorecard analysis
+    needs: security-policy
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -26,15 +55,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check security capabilities
-        id: security-policy
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
-          DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
-          DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
-        run: node scripts/ci/generated/security-preflight.mjs workflow --workflow scorecard
-
       - name: Run Scorecard analysis
         id: analysis
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
@@ -42,7 +62,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: ${{ steps.security-policy.outcome == 'success' && steps.security-policy.outputs.publish_results == 'true' }}
+          publish_results: ${{ needs.security-policy.result == 'success' && needs.security-policy.outputs.publish_results == 'true' }}
 
       - name: Retain Scorecard SARIF artifact
         if: ${{ always() && hashFiles('results.sarif') != '' }}
@@ -54,7 +74,7 @@ jobs:
           retention-days: 7
 
       - name: Upload SARIF to code scanning
-        if: ${{ !cancelled() && steps.security-policy.outcome == 'success' && steps.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
+        if: ${{ !cancelled() && needs.security-policy.result == 'success' && needs.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
         uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: results.sarif

@@ -93,7 +93,9 @@ Free Scorecard analysis always runs, including on private repositories and after
 5. Run destination-scoped local preflight and retain each capability's actual result. Enabled capabilities require successful bounded read-only probes; authentication, permission, 404, network, malformed-response, and unknown-metadata failures block. Do not turn discovery failures into optional skips. Hosted jobs repeat only their relevant scoped probes using the workflow token and explicit variable environment.
 6. Adopt successor workflows only after the bootstrap merge, without changing the five-lane CI event/protection contract. Record exact run URL, SHA, attempt, analysis conclusions, ingestion outcome, and any not-run coverage gaps. An unexercised licensed private path remains unverified, not passed.
 
-Pre-push binds Git's actual destination and every non-deletion pushed ref to the current HEAD and checks that source is clean before validation. Destination-scoped security preflight must pass before immutable `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser` run sequentially. The first failed preflight or lane blocks publication without running the remaining lanes. Success requires all five lanes to pass and a final check that HEAD is unchanged and source is still clean. Missing prerequisites, stale evidence, or detected source mutation blocks publication. Hosted CI still repeats all five lanes in clean runners.
+Every adoption requires documented exact-head technical review of the complete helper/generator/generated-artifact trust boundary and hosted consumers, resolved findings, and real current required-check evidence. Independent GitHub approval is required only where effective repository/organization rules require it, and must qualify for the final head. Unknown or incompatible rules block acceptance; local agent review, earlier-head approval, admin bypass, and a successful merge response cannot replace required approval. Preserve check names/app identities and strict up-to-date checks. Do not grant access or change settings merely to obtain a merge. Successor publication remains held until the public follow-up is accepted.
+
+Pre-push binds Git's actual destination and every non-deletion pushed ref to current HEAD and checks clean source before validation. It requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before destination-scoped security preflight. After preflight passes, only immutable `verify:core` runs: static checks plus unit, contract, and operations tests. Runtime, preflight, core, or final clean-source/unchanged-HEAD failures block the push. Full `verify`/`ci` and hosted CI retain all five lanes, using `verify:core:ci` for static checks and scoped E2E helpers, coverage for unit/contract/operations once with unchanged 100% thresholds, plus integration, fresh graph verification, and browser. Environment-heavy prerequisites belong to explicit full verification and hosted CI, not every pre-push.
 
 Preserve analyzer matrices/categories, high-severity Dependency Review, timeouts, least privilege, and compatible immutable action pins. Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days; artifact upload failures block. Every authorized ingestion must succeed; no `continue-on-error`, unconditional success wrappers, or suppressed upload failures.
 
@@ -119,7 +121,11 @@ bun run deploy:web
 
 The repository's current GitHub Actions workflow verifies code and uploads Playwright failure artifacts; it does not contain an automatic deployment job. Therefore this repository does not claim that preview or production deployment has occurred. Deployment evidence remains pending until an operator records the target, SHA, command/run URL, output, runtime probe, and rollback result in [the evidence map](evidence-map.md).
 
-Untrusted pull requests must never receive deployment credentials. A future deployment workflow must use least-privilege permissions, an environment approval boundary, exact SHA promotion, and a dependency on the successful verification workflow.
+Heavy CI runs only for PRs and explicit manual dispatch, so a merge to `main` does not automatically produce a new verification run. Merge acceptance uses successful latest reviewed PR checks plus exact merged-tree identity; that receipt does not satisfy deployment's exact-SHA requirement. Before any actual staging, preview, or production deployment, dispatch the full `ci.yml` workflow on a branch or tag resolving to the intended deployment SHA. Verify the observed run's `head_sha` equals that SHA and all five lanes succeed; a dispatch request alone is not evidence. Keep applicable default-branch security scans and their results separate.
+
+This exact-SHA prerequisite is an operator acceptance policy, not an automated enforcement gate in the current deployment CLI. The CLI's production database checks do not query GitHub or authorize deployment. An unexpected direct-main change also needs explicit manual full validation at its exact SHA before acceptance; do not infer success from the absence of an automatic run.
+
+Untrusted pull requests must never receive deployment credentials. A future deployment workflow must use least-privilege permissions, an environment approval boundary, exact SHA promotion, and a dependency on successful full verification of that same SHA. It must not assume an automatic post-merge CI event or inherit PR-validation cancellation.
 
 ## Alchemy ancillary-resource decision
 
@@ -141,7 +147,7 @@ The full source record and consequences are in [ADR 0001](adr/0001-vinext-alchem
 Do not mark a deployment complete until all applicable fields are observed:
 
 - Exact source SHA and clean generated-artifact checks.
-- Terminal CI run URL for that SHA.
+- Explicit manual full-CI run URL and attempt, observed `head_sha` equal to the deployment SHA, and successful conclusions for all five lanes.
 - Authorized operator and approved Cloudflare account/environment.
 - Deployer and exact version.
 - Redacted command/run record and target identifier.

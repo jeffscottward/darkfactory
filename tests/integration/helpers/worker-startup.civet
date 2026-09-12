@@ -1,0 +1,39 @@
+import type { OwnedProcess } from "../../../scripts/e2e/owned-process-tree.civet"
+
+export class WorkerExitedBeforeReadinessError extends Error
+  constructor(message: string)
+    super(message)
+
+type WorkerStartupOptions = Readonly<{
+  allocatePort: () => Promise<number>
+  start: (port: number) => OwnedProcess
+  waitForReady: (deadline: number) => Promise<void>
+  stop: (server: OwnedProcess) => Promise<void>
+  output: () => string
+  deadline: number
+}>
+
+export const startWorkerWithRetry = async (
+  options: WorkerStartupOptions,
+): Promise<void> =>
+  for (let attempt = 1; attempt <= 3; attempt += 1)
+    const port = await options.allocatePort()
+    const server = options.start(port)
+    try
+      await options.waitForReady(options.deadline)
+      return
+    catch (error)
+      const failedExit = server.exitCode !== null && server.exitCode !== 0 && server.signalCode === null
+      // Cleanup also drains the failed child's output before classifying it.
+      await options.stop(server)
+      if (!(error instanceof WorkerExitedBeforeReadinessError) || !failedExit)
+        throw error
+      const bindFailure = options.output().replace(/\u001b\[[0-9;]*m/g, "")
+        .split(/\r?\n/)
+        .includes(`Error: Port ${port} is already in use`)
+      if (
+        !bindFailure ||
+        attempt === 3 ||
+        Date.now() >= options.deadline
+      )
+        throw error

@@ -11,19 +11,16 @@ on:
 permissions: {}
 
 jobs:
-  analyze:
-    name: Analyze (${{ matrix.language }})
+  security-policy:
+    name: CodeQL policy
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       contents: read
-      security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        # CodeQL does not scan authored Civet (.civet) source. These entries cover
-        # only repository JavaScript/TypeScript and GitHub Actions workflows.
-        language: [javascript-typescript, actions]
+      security-events: read
+    outputs:
+      codeql_enabled: ${{ steps.security-policy.outputs.codeql_enabled }}
+      upload_enabled: ${{ steps.security-policy.outputs.upload_enabled }}
 
     steps:
       - name: Check out trusted security policy
@@ -41,21 +38,40 @@ jobs:
           DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
         run: node scripts/ci/generated/security-preflight.mjs workflow --workflow codeql
 
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    needs: security-policy
+    if: ${{ !cancelled() && (needs.security-policy.result != 'success' || needs.security-policy.outputs.codeql_enabled == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # CodeQL does not scan authored Civet (.civet) source. These entries cover
+        # only repository JavaScript/TypeScript and GitHub Actions workflows.
+        language: [javascript-typescript, actions]
+
+    steps:
+      - name: Fail when security policy did not succeed
+        id: policy-failure
+        if: ${{ !cancelled() && needs.security-policy.result != 'success' }}
+        run: echo "Security policy did not succeed."; exit 1
+
       - name: Check out repository for analysis
-        if: steps.security-policy.outputs.codeql_enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        if: steps.security-policy.outputs.codeql_enabled == 'true'
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
 
       - name: Analyze repository
         id: analysis
-        if: steps.security-policy.outputs.codeql_enabled == 'true'
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: "/language:${{ matrix.language }}"
@@ -72,7 +88,7 @@ jobs:
           retention-days: 7
 
       - name: Upload SARIF to code scanning
-        if: ${{ !cancelled() && steps.security-policy.outcome == 'success' && steps.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
+        if: ${{ !cancelled() && needs.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
         uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: sarif-results

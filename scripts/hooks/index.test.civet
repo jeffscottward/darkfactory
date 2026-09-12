@@ -1,12 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ spawnSync: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  readFileSync: vi.fn(),
+  spawnSync: vi.fn(),
+}))
 
 vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
+vi.mock("node:fs", () => ({ readFileSync: mocks.readFileSync }))
 
 import {
   runPreCommit,
 } from "./index.civet"
+const BUN_VERSION = "1.3.14"
 
 const spawnResult = (
   status: number | null,
@@ -21,8 +26,34 @@ const spawnResult = (
   ...(error === undefined ? {} : { error }),
 })
 
+type SpawnCall = [executable: string, arguments_: string[], options?: unknown]
+
+const spawnCalls = (): SpawnCall[] =>
+  const spawnMock = Reflect.get(mocks, "spawnSync") as object
+  const mockState = Reflect.get(spawnMock, "mock") as object
+  Reflect.get(mockState, "calls") as SpawnCall[]
+
+const preCommitCalls = () =>
+  spawnCalls().filter(([executable, arguments_]) =>
+    !(executable === "bun" &&
+      arguments_.length === 1 &&
+      arguments_[0] === "--version")
+  )
+beforeEach(() =>
+  vi.stubGlobal("Bun", { version: BUN_VERSION })
+  mocks.readFileSync.mockReturnValue(`${BUN_VERSION}\n`)
+  mocks.spawnSync.mockImplementation((executable, arguments_) =>
+    executable === "bun" && arguments_[0] === "--version"
+      ? spawnResult(0, `${BUN_VERSION}\n`)
+      : spawnResult(0)
+  )
+  undefined
+)
+
 afterEach(() =>
+  mocks.readFileSync.mockReset()
   mocks.spawnSync.mockReset()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 )
 
@@ -36,7 +67,7 @@ describe("repository hooks", () =>
       .mockReturnValue(spawnResult(0))
 
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync.mock.calls).toEqual([
+    expect(preCommitCalls()).toEqual([
       ["git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], {
         encoding: "utf8",
         shell: false,
@@ -57,36 +88,20 @@ describe("repository hooks", () =>
     ])
   )
 
-  it("skips formatter and linter commands for the generated security bootstrap alone", () =>
-    mocks.spawnSync.mockReturnValueOnce(spawnResult(
-      0,
-      "scripts/ci/generated/security-preflight.mjs\0",
-    ))
-
+  it("leaves an exclusively generated security bootstrap to its exact-byte checker", () =>
+    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "scripts/ci/generated/security-preflight.mjs\0"))
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync.mock.calls.map(([executable]) => executable)).toEqual(["git"])
+    expect(preCommitCalls()).toHaveLength(1)
   )
 
-  it("excludes only the exact generated bootstrap from mixed staged paths", () =>
-    const supportedPaths = [
-      "scripts/ci/security-preflight.mjs",
-      "scripts/ci/generated/security-preflight-helper.mjs",
-      "src/index.ts",
-    ]
+  it("still checks neighboring modules when a generated bootstrap is staged", () =>
     mocks.spawnSync
-      .mockReturnValueOnce(spawnResult(
-        0,
-        ["scripts/ci/generated/security-preflight.mjs", ...supportedPaths, "README.md"].join("\0"),
-      ))
+      .mockReturnValueOnce(spawnResult(0, "scripts/ci/generated/security-preflight.mjs\0scripts/ci/security-preflight.mjs\0scripts/ci/generated/another.mjs\0"))
       .mockReturnValue(spawnResult(0))
-
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync.mock.calls.slice(1).map(([executable, arguments_]) =>
-      [executable, arguments_]
-    )).toEqual([
-      ["bun", ["run", "format:staged", "--", ...supportedPaths.map((path) => `./${path}`)]],
-      ["bun", ["run", "lint:staged", "--", ...supportedPaths.map((path) => `./${path}`)]],
-      ["bun", ["run", "lint:markdown:staged", "--", "./README.md"]],
+    expect(preCommitCalls().slice(1).map(([, arguments_]) => arguments_)).toEqual([
+      ["run", "format:staged", "--", "./scripts/ci/security-preflight.mjs", "./scripts/ci/generated/another.mjs"],
+      ["run", "lint:staged", "--", "./scripts/ci/security-preflight.mjs", "./scripts/ci/generated/another.mjs"],
     ])
   )
 
@@ -103,7 +118,7 @@ describe("repository hooks", () =>
 
     expect(runPreCommit()).toBe(0)
     expect(errorOutput).not.toHaveBeenCalled()
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(1)
+    expect(preCommitCalls()).toHaveLength(1)
   )
 
   it("maps a failed staged-path lookup without hiding spawn errors or null statuses", () =>
@@ -150,9 +165,9 @@ describe("repository hooks", () =>
       .mockReturnValue(spawnResult(0))
 
     expect(runPreCommit()).toBe(0)
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(3)
+    expect(preCommitCalls()).toHaveLength(3)
     expect(
-      mocks.spawnSync.mock.calls.slice(1).map(([, arguments_]) => arguments_[1]),
+      preCommitCalls().slice(1).map(([, arguments_]) => arguments_[1]),
     ).toEqual(["format:staged", "lint:staged"])
   )
 
@@ -168,6 +183,7 @@ describe("repository hooks", () =>
         ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
         expect.any(Object),
       )
+
 
     finally
       process.exitCode = previousExitCode

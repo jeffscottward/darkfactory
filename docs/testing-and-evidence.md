@@ -52,13 +52,13 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The pre-push requirement is destination-aware security capability preflight followed by the complete five-lane local lifecycle. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects dirty or mismatched source rather than verifying one checkout while publishing another.
+The pre-push requirement is destination-aware security capability preflight followed by only the deterministic `verify:core` lifecycle. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects dirty or mismatched source rather than verifying one checkout while publishing another.
 
 ```bash
-varlock run -- bun run verify
+varlock run -- bun run verify:core
 ```
 
-Each required lane remains independently runnable for diagnosis; environment-heavy checks are not deferred to CI:
+Environment-heavy verification remains explicit and independently runnable for diagnosis; it is mandatory in hosted CI, not in the per-push hook:
 
 ```bash
 bun run verify:coverage
@@ -74,13 +74,19 @@ varlock run -- bun run verify
 varlock run -- bun run ci
 ```
 
-`verify` composes all five lanes without weakening any gate. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, unit/contract/operations tests, and docs; coverage enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build and proves tracked metadata freshness; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. pnpm remains limited to installation/workspace selection and the measured Node coverage exception.
+`verify` composes all five lanes without weakening any gate. Its core entry point is `verify:core:ci`, which runs `verify:static` plus `test:e2e-helpers`, not the local pre-push `verify:core`. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, docs, and E2E helpers; coverage runs unit/contract/operations once and enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; graph installs the pinned Graphify build, builds the current source graph, then runs canonical `graph:check` and `graph:verify`; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. All five `Verification (core/coverage/integration/graph/browser)` checks remain mandatory, and the four coverage thresholds remain 100%. This does not add a five-lane local pre-push sequence. pnpm remains limited to installation/workspace selection and the measured Node compatibility exceptions.
 
-Before pushing, install the locked dependencies and pinned Graphify/Chromium prerequisites, and provide the validated local test environment and Docker/PostgreSQL access needed by integration and browser lanes. Run `varlock run -- git push <remote> <ref>` when the Git process needs that environment. A missing prerequisite, stale graph/coverage artifact, failed capability preflight, or failed local lane blocks publication. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
+Heavy `ci.yml` selects only `pull_request` and explicit `workflow_dispatch`; every eligible PR gets all five lanes regardless of actor, target branch, or changed paths. Pushes, including merges to `main`, intentionally do not schedule another heavy matrix. CodeQL, Scorecard, and Dependency Review retain their independent event/guard/upload policies, including applicable default-branch security scans.
 
-The hook checks clean source before destination-scoped preflight, then runs the five lanes sequentially only after preflight passes. It stops at the first failure; remaining lanes are not run. A successful push requires all five lane results plus a final clean-source and unchanged-HEAD check. An explicitly unconfigured private licensed capability is reported as not configured/not run, not successful analysis.
+Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. `test:e2e-helpers` positively selects the helper directory with `--project e2e-helpers tests/e2e/helpers`; coverage's unit project owns the separate root `playwright.config.test.ts`. The local `test:operations` path still includes all E2E helpers, including that configuration test; the local pre-push contract is unchanged.
+
+Before pushing, install locked dependencies and provide destination-authenticated GitHub CLI access. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Run `varlock run -- git push <remote> <ref>` when Git needs that environment. Missing core prerequisites, stale artifacts checked by core, failed preflight, or failed core block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
+
+The hook checks clean source and requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before destination-scoped preflight. Only after preflight passes does it run immutable `verify:core`; any failure stops the push. Success also requires a final clean-source and unchanged-HEAD check. Coverage, integration, graph, and browser remain full-lifecycle/hosted gates, not hook stages. An explicitly unconfigured private licensed capability is reported as not configured/not run, not successful analysis.
 
 `bun run ci:preflight -- --remote-name <name> --remote-url <GitHub-URL>` inspects the intended repository's hosted security policy independently. See [security-preflight.txt](security-preflight.txt) for public/private capability states and opt-ins. It does not run licensed analysis or certify a hosted upload locally. After pushing, still follow every hosted lane to a terminal result: runner differences, GitHub outages and changed permissions cannot be guaranteed away before the push.
+
+Before merge, record exact-head technical review of the full relevant source boundary, resolved findings, actual current required-check results, and limitations. Independent GitHub approval is required only by effective repository/organization rules; unknown or incompatible rules block acceptance. Preserve required check names/app identities and strict up-to-date checks. Never use self-approval, an admin bypass, or access/settings changes to manufacture acceptance. Successor publication remains held until the public follow-up is accepted.
 
 Stop the local database after the evidence is captured:
 
@@ -143,6 +149,8 @@ Both refresh commands clear only Graphify's known generated graph, cache, analys
 
 Record the Graphify version, graph digest/manifest, source fingerprint, source file count, and representative query output. At minimum, the final evidence should trace a route or oRPC procedure through contract, service, repository, schema, and adapter. Query before broad exploration when the graph exists.
 
+Local `graph:check` still detects stale source fingerprints and requires a refresh before using stale graph evidence. CI instead freshly builds and semantically verifies the current source. Comparing committed source-fingerprint bookkeeping with a fresh build is not an acceptance gate for unrelated edits; a matching fingerprint alone never proves graph correctness.
+
 ## Generated artifact evidence
 
 Generated artifacts are checked against their sources rather than hand-edited:
@@ -166,9 +174,13 @@ For the final bundle, record:
 
 ## CI and deployment truth
 
-The CI badge is a pointer to GitHub Actions, not durable evidence by itself. Final evidence needs the workflow run URL, commit SHA, attempt number, terminal conclusion, and artifact URLs or an explicit statement that no artifact was produced.
+The PR-verification badge points to pull-request runs in GitHub Actions, not current-main freshness or durable evidence by itself. Final evidence needs the workflow run URL, commit SHA, attempt number, terminal conclusion, and artifact URLs or an explicit statement that no artifact was produced.
 
 The current workflow verifies the repository but does not deploy it. `bun run deploy:web:preview` and `bun run deploy:web` are explicit credentialed Cloudflare operations. Do not run them as a documentation check, and do not mark deployment green without an authorized target plus observed deployment output and runtime probe.
+
+Merge acceptance requires successful current required checks on the latest reviewed PR head under strict up-to-date protection, plus an exact comparison of that head's Git tree with the resulting merged tree. Record both commit SHAs and the shared tree identity. This receipt proves the merged content matches the verified PR; it does not claim that CI executed on the merge SHA. The absence of an automatic heavy main run is intentional, not a green, missing, or skipped check. Unexpected direct-main changes require explicit full manual validation at their exact SHA before acceptance.
+
+Before actual deployment, explicitly dispatch `ci.yml` on a branch or tag that resolves to the intended deployment SHA, then verify the observed run's `head_sha` equals that SHA and all five lanes succeed. A dispatch request or same-tree PR receipt is insufficient. Record the exact run/attempt and independently required security evidence. This is operator policy: the current deploy CLI does not enforce a GitHub CI/SHA gate.
 
 External or flaky blockers remain failures or blockers. Record the URL/log, owner, rerun count, next action, and stop condition. Never relabel a pending, skipped, cancelled, timed-out, infrastructure-owned, or unobserved result as green.
 

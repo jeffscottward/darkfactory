@@ -246,14 +246,31 @@ Authoritative references:
 Local CI and preflight gating
 
 The pre-push hook binds Git's actual destination and every non-deletion pushed
-ref to current HEAD and requires clean source before destination-scoped
-security preflight. After preflight passes, it runs immutable verify:core,
-verify:coverage, verify:integration, verify:graph, and verify:browser
-sequentially. The first failed preflight or lane blocks publication without
-running the remaining lanes. Success requires all five lanes to pass and a
-final check that HEAD is unchanged and source is still clean. Missing
-prerequisites, stale generated evidence, or detected source mutation blocks
-publication. There is no core-only path, environment-heavy deferral, or bypass.
+ref to current HEAD and requires clean source. It then requires the executing
+Bun runtime and the bun resolved from PATH to match the exact .bun-version pin
+before destination-scoped security preflight or any local lane. After runtime
+validation and preflight pass, it runs only immutable verify:core: static
+checks plus unit, contract, and operations tests. A failed prerequisite,
+preflight, core gate, or final unchanged-HEAD/clean-source check blocks the
+push. Missing core prerequisites, stale artifacts checked by core, or source
+mutation must be fixed without bypassing the hook.
+
+Full verify/ci and hosted CI retain all five lanes. CI-specific core runs
+static checks plus scoped E2E helpers; coverage runs unit/contract/operations
+once with all four 100% thresholds unchanged. Integration, graph, and browser
+remain mandatory hosted checks and explicit full-verification lanes. Hosted
+graph builds fresh output before verification. Environment-heavy prerequisites
+are not required for every pre-push.
+
+Acceptance requires documented exact-head technical review of the full
+helper/generator/generated-artifact trust boundary and hosted consumers, plus
+real successful current required checks. Independent GitHub approval is
+required only when effective repository/organization rules require it and
+must qualify for the final head. Unknown or incompatible rules block
+acceptance. Preserve required check names/app identities and strict
+up-to-date checks; never invent approval, bypass protections, or grant access
+or change settings to obtain a merge. Successor publication remains held
+until the public follow-up is accepted.
 
 An explicitly unconfigured private licensed capability is reported as not
 configured/not run and is not treated as successful analysis. Any actual
@@ -264,3 +281,20 @@ runner environment, repository settings, credentials, and token permissions
 can differ or change after the check. The preflight verifies only the bounded,
 read-only facts available at check time. It cannot guarantee a later hosted
 analysis, publication, or code-scanning upload will succeed.
+
+Fork and Dependabot pull-request tokens
+
+GitHub's write-to-read token downgrade preserves the read permissions needed
+by preflight: security-events: read permits listing code-scanning alerts, and
+contents: read permits dependency comparison. The helper uses GET only. An
+actual 401/403 remains a blocking failure; neither actor nor event converts it
+to a successful probe or not-configured state.
+
+Native CodeQL upload has a separate pull_request authorization exception for
+read-only tokens. Keep real upload failures blocking and retain private license
+and capability gates. Do not grant fork write tokens or use pull_request_target.
+
+Permission reference:
+https://raw.githubusercontent.com/github/docs/main/data/reusables/actions/github-token-scope-descriptions.md
+Upload reference:
+https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible

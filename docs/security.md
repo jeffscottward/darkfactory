@@ -67,7 +67,7 @@ A disabled capability must not expose a route, dependency, credential, schema, s
 
 The web deployer is official `@vinext/cloudflare`. The repository does not currently claim an automatic or completed deployment. Alchemy is absent while no ancillary resource is enabled; an empty `finalize()` program is unsafe because it can reconcile/delete prior stage state. See [ADR 0001](adr/0001-vinext-alchemy-boundary.md).
 
-Deployment credentials must never be available to untrusted pull requests. An authorized deployment needs exact-SHA CI evidence, least privilege, environment approval, secret ownership, runtime verification, and rollback evidence.
+Deployment credentials must never be available to untrusted pull requests. An authorized deployment needs exact-SHA CI evidence, least privilege, environment approval, secret ownership, runtime verification, and rollback evidence. Before actual deployment, explicitly dispatch full CI on a branch or tag resolving to the intended SHA, verify the observed run's `head_sha` matches it, and require all five lanes to succeed. A successful PR with an identical merged tree is merge evidence, not deployment-SHA execution evidence. This prerequisite is operator policy; the current deploy CLI has no automated GitHub CI/SHA gate.
 
 ## Hosted analyzer coverage
 
@@ -83,6 +83,12 @@ Analysis, ingestion, and public publication are separate:
 The authorization, validation, database, cookie/origin, redaction, and fail-closed production checks below remain mandatory complementary controls, not substitutes for missing hosted coverage. Record each operation's actual state, coverage gap, owner, and exact run/SHA/attempt/conclusion without exposing private results.
 
 Preserve all five verification contexts and protected CodeQL Actions/JavaScript and Dependency Review checks, analyzer matrices/categories, the high-severity threshold, timeouts, least privilege, and compatible immutable action pins. Keep CodeQL `init`, `analyze`, and `upload-sarif` on one reviewed release family. Use `upload: never` for CodeQL analysis and a separate authorized ingestion step. Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days; artifact upload failures block. Enabled analysis and ingestion fail closed: no `continue-on-error`, success wrappers, or suppressed upload errors. Hosted PR preflight executes only the trusted base's generated helper; merge the helper-only bootstrap under baseline workflows before adopting successor workflows, never through a protection bypass.
+
+### Restricted pull-request tokens
+
+Fork and Dependabot pull-request tokens can be read-only without making read-only preflight unavailable. GitHub documents that [`security-events: read` permits listing code-scanning alerts](https://raw.githubusercontent.com/github/docs/main/data/reusables/actions/github-token-scope-descriptions.md); the [dependency comparison endpoint requires `contents: read`](https://docs.github.com/en/rest/dependency-graph/dependency-review#compare-two-commits). Preserve those declared permissions and the helper's GET-only transport. An actual denied read still blocks: never convert a 401/403 into a successful probe or an actor-specific skip.
+
+GitHub separately [permits CodeQL uploads from `pull_request` workflows with read-only tokens](https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible). Use the native upload action and keep its failures blocking. This exception is not private CodeQL licensing or a reason to grant fork write tokens, expose secrets, or use `pull_request_target`.
 
 ## Security evidence
 

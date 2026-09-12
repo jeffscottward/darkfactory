@@ -5,6 +5,7 @@ import {
   isCanonicalRouteOutput,
   parsePm2ProcessList,
 } from "../dev/lifecycle.civet"
+import { inspectBunRuntime } from "../ci/bun-runtime.civet"
 import { parseCapabilityManifest, type CapabilityClassification } from "./manifest.civet"
 
 const MAX_OUTPUT_BYTES = 1_048_576
@@ -42,6 +43,7 @@ export type HttpsProbeResult = Readonly<{
 }>
 
 export type DoctorDependencies = Readonly<{
+  bunVersion: string
   workingDirectory: string
   pm2DaemonAvailable: () => Promise<boolean>
   environmentHas: (name: string) => boolean
@@ -116,6 +118,15 @@ const parsedVersion = (value: string): string | undefined =>
 
 const exactVersion = (expected: string) => (value: string): boolean =>
   parsedVersion(value) === expected
+
+const inspectBun = async (dependencies: DoctorDependencies): Promise<DoctorCheck> =>
+  try
+    const pinSource = await dependencies.files.readText(".bun-version", 64)
+    const pathResolved = await safeRun(dependencies, "bun", ["--version"])
+    const inspection = inspectBunRuntime(pinSource, dependencies.bunVersion, pathResolved)
+    return check("Bun", inspection.ok ? "pass" : "fail", inspection.detail)
+  catch
+    return check("Bun", "fail", ".bun-version is missing or malformed")
 
 const inspectManifest = async (
   dependencies: DoctorDependencies,
@@ -267,13 +278,7 @@ export const runDoctor = async (
       return version !== undefined && supportedNode(version)
     ,
   ))
-  checks.push(await toolCheck(
-    dependencies,
-    "Bun",
-    "bun",
-    ["--version"],
-    exactVersion("1.3.14"),
-  ))
+  checks.push(await inspectBun(dependencies))
   checks.push(await toolCheck(
     dependencies,
     "Corepack",

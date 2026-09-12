@@ -5,13 +5,15 @@
 
 | Category | Status |
 | --- | --- |
-| Verification | [![CI](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml) [![CodeQL](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml) |
+| Verification | [![PR verification](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml?query=event%3Apull_request) [![CodeQL](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml) |
 | Project health | [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjeffscottward%2Fdarkfactory%2Fmain%2Fdocs%2Fassessments%2Fcoverage-badge.json)](docs/assessments/coverage-summary.json) [![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-0acd6c2.json) [![Latest release](https://img.shields.io/github/v/release/jeffscottward/darkfactory?display_name=tag&sort=semver)](https://github.com/jeffscottward/darkfactory/releases/latest) [![MIT license](https://img.shields.io/github/license/jeffscottward/darkfactory)](LICENSE) <br> [![OpenSSF Best Practices 100%](https://img.shields.io/badge/OpenSSF%20Best%20Practices-100%25-2ea44f)](https://www.bestpractices.dev/projects/13782) |
 | Community and runtime | [![PRs welcome](https://img.shields.io/badge/PRs-welcome-2ea44f)](CONTRIBUTING.md) [![Open issues](https://img.shields.io/github/issues/jeffscottward/darkfactory?label=open%20issues)](https://github.com/jeffscottward/darkfactory/issues) [![Open pull requests](https://img.shields.io/github/issues-pr/jeffscottward/darkfactory?label=open%20pull%20requests)](https://github.com/jeffscottward/darkfactory/pulls) <br> [![Bun 1.3.14](https://img.shields.io/badge/Bun-1.3.14-fbf0df)](https://bun.sh/) [![pnpm 11.16](https://img.shields.io/badge/pnpm-11.16.0-F69220?logo=pnpm&logoColor=white)](package.json) |
 
 DarkFactory is a domain-neutral, Postgres-first application foundation for building AI-assisted products without making an AI provider, business vertical, or optional service part of the core architecture. It combines a public site, authenticated portal, contract-first API, portable PostgreSQL data layer, provider adapters, and an inspectable engineering lifecycle.
 
 The badges above are either live pointers to authoritative sources or versioned assessment results linked to their exact evidence; they are not a production-readiness, deployment, coverage-completeness, or security certification. See [Testing and evidence](docs/testing-and-evidence.md) for the limits and reproducibility contract behind repository claims.
+
+Heavy CI runs all five required lanes for every eligible PR and explicit manual dispatch, not automatically after merge or other pushes. The PR-verification badge is not a claim of current-main validation. Merge evidence pairs successful latest reviewed PR checks with exact merged-tree identity; default-branch security scans remain independent. Before actual deployment, an operator must dispatch full CI on a branch/tag resolving to the intended SHA, verify the run's `head_sha`, and require all five lanes to succeed. See [Capabilities and deployment](docs/capabilities-and-deployment.md) for this operator policy and its separate authorization and runtime-evidence requirements.
 
 ## Architecture
 
@@ -191,6 +193,7 @@ The generator accepts one feature name plus optional `--dry-run` and `--json` fl
 | Static checks | `bun run lint`, `bun run lint:markdown`, `bun run format:check` |
 | Generated contracts | `bun run auth:schema:check`, `bun run api:openapi:generate`, `bun run api:openapi:check` |
 | Tests | `bun run test:unit`, `bun run test:integration`, `bun run test:e2e`, `bun run test` |
+| Deterministic gates | `bun run verify:static`, `bun run verify:core`, `bun run verify:core:ci` |
 | Full gates | `bun run verify`, `bun run ci` |
 | Graphify | `bun run graph:build`, `bun run graph:update`, `bun run graph:check`, `bun run graph:verify` |
 | Operations | `bun run doctor`, `bun run generate:feature`, `varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot` |
@@ -211,9 +214,11 @@ varlock run -- bun run verify
 bun run db:test:down
 ```
 
-Every source push must pass the destination-aware hosted security capability preflight, then `verify:core`, `verify:coverage`, `verify:integration`, `verify:graph`, and `verify:browser`, sequentially. Security capability never skips a local lane. The hook uses Git's actual destination URL, not `origin`, and blocks on any prerequisite or gate failure. Install the pinned prerequisites above, keep Docker running with the isolated test database available, configure the test environment, and have Graphify, Chromium, and authenticated GitHub CLI access to the destination ready.
+Every source push must pass the destination-aware hosted security capability preflight, then only `verify:core` (static checks, build/docs, unit, contract, and operations tests). The hook uses Git's actual destination URL, not `origin`, and requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before preflight. Any runtime, preflight, or core failure blocks the push. Install locked dependencies and provide authenticated GitHub CLI access to the destination. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
 
 Push from a clean checkout with every pushed branch or tag resolving to current `HEAD` (annotated tags are peeled); tracked, staged, and unignored untracked changes block verification. Different source commits must be checked out and pushed separately. Deletion-only pushes contain no source and explicitly skip verification. Local success cannot guarantee hosted network, service, runner, or permission behavior; hosted CI remains required.
+
+Full `verify`/`ci` and hosted CI retain all five lanes: CI-specific core runs static checks plus scoped E2E helpers, while coverage runs unit/contract/operations once with all four 100% thresholds unchanged. Integration and browser exercise their real infrastructure; graph builds fresh output before hosted verification. Merge requires exact-head technical review, real current required checks, and independent GitHub approval only where effective repository rules require it. Successor publication remains held until the public follow-up is accepted.
 
 No command is considered successful without its observed exit result. Do not infer a green repository from this README or from a narrower check. See [Testing and evidence](docs/testing-and-evidence.md) and the draft [DF evidence map](docs/evidence-map.md).
 

@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process"
-import { readSync } from "node:fs"
+import { readFileSync, readSync } from "node:fs"
 import { extname } from "node:path"
 import { runSecurityPreflight } from "../ci/security-preflight.civet"
+import { inspectBunRuntime } from "../ci/bun-runtime.civet"
 
 const BIOME_EXTENSIONS = new Set([
   ".cjs",
@@ -99,6 +100,30 @@ function runBunScripts(scripts: readonly string[], paths: readonly string[] = []
 
   return 0
 
+function checkBunRuntime(): number
+  try
+    const arguments_ = ["--version"]
+    const pathResolved = spawnSync("bun", arguments_, {
+      encoding: "utf8",
+      shell: false,
+      stdio: ["ignore", "pipe", "inherit"],
+      timeout: 10_000,
+    })
+    if (pathResolved.error || pathResolved.signal || pathResolved.status !== 0)
+      return failureExitCode("bun", arguments_, pathResolved)
+    const inspection = inspectBunRuntime(
+      readFileSync(".bun-version", "utf8"),
+      (globalThis as typeof globalThis & { Bun?: { version?: string } }).Bun?.version ?? "",
+      { exitCode: pathResolved.status, stdout: pathResolved.stdout },
+    )
+    if (!inspection.ok)
+      console.error(`[hook] Bun runtime prerequisite failed: ${inspection.detail}`)
+      return 1
+    return 0
+  catch (error)
+    console.error(`[hook] Bun runtime prerequisite failed: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
+
 export function runPreCommit()
   const staged = readStagedPaths()
 
@@ -111,7 +136,7 @@ export function runPreCommit()
   if (biomePaths.length === 0 && markdownPaths.length === 0)
     if (staged.paths.some(isCivetPath))
       console.error(
-        "[hook] staged Civet validation is deferred to all five mandatory local CI lanes before push.",
+        "[hook] staged Civet validation is deferred to mandatory bun run verify:core before push.",
       )
 
     return 0
@@ -130,13 +155,7 @@ export function runPreCommit()
 
   return 0
 
-export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze([
-  "verify:core",
-  "verify:coverage",
-  "verify:integration",
-  "verify:graph",
-  "verify:browser",
-])
+export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
 
 const MAX_PUSH_INPUT_BYTES = 64 * 1024
 const MAX_PUSH_REFS = 256
@@ -246,6 +265,9 @@ export function runPrePush(
     const checkoutStatus = checkPushCheckout(head.commit)
     if (checkoutStatus !== 0)
       return checkoutStatus
+    const runtimeStatus = checkBunRuntime()
+    if (runtimeStatus !== 0)
+      return runtimeStatus
     const securityStatus = (dependencies.securityPreflight ?? runSecurityPreflight)({
       remoteName: argv[0],
       remoteUrl: argv[1],

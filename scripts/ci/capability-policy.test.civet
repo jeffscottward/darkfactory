@@ -15,9 +15,18 @@ type Job = {
 type Workflow = { jobs: Record<string, Job> }
 
 const policies = [
-  { file: "codeql", job: "analyze", name: "Analyze (${{ matrix.language }})" },
-  { file: "dependency-review", job: "dependency-review", name: "Dependency Review" },
-  { file: "scorecard", job: "scorecard", name: "Scorecard analysis" },
+  {
+    file: "codeql", job: "analyze", name: "Analyze (${{ matrix.language }})",
+    jobs: ["security-policy", "analyze"],
+  },
+  {
+    file: "dependency-review", job: "dependency-review", name: "Dependency Review",
+    jobs: ["security-policy", "dependency-review"],
+  },
+  {
+    file: "scorecard", job: "scorecard", name: "Scorecard analysis",
+    jobs: ["security-policy", "scorecard"],
+  },
 ]
 const sources = await Promise.all(policies.map(({ file }) =>
   readFile(new URL(`../../.github/workflows/${file}.yml`, import.meta.url), "utf8")
@@ -30,33 +39,52 @@ const { stdout } = await execFileAsync("bun", [
 ], { timeout: 10_000, maxBuffer: 1024 * 1024 })
 const workflows = JSON.parse(stdout) as Workflow[]
 
+const workflowAt = (index: number): Workflow =>
+  const workflow = workflows[index]
+  throw new Error(`workflow index ${index} is missing`) unless workflow?
+  workflow
+
+const jobAt = (workflowIndex: number, jobName: string): Job =>
+  const job = workflowAt(workflowIndex).jobs[jobName]
+  throw new Error(`workflow ${workflowIndex} job ${jobName} is missing`) unless job?
+  job
+
+const parseAction = (value: string): readonly [string, string] =>
+  expect(value).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/)
+  const [action, ref] = value.split("@")
+  throw new Error(`malformed action reference ${value}`) unless action? and ref?
+  [action, ref]
+
 // Canonical security-preflight tests own exact opt-ins, positive probes and
 // honest not-run outcomes; security-workflows tests own the helper's execution
 // and publication gates. Do not emulate weaker Actions string comparisons here.
 describe("hosted security capability policy", () =>
   it("preserves security check identities and both independent CodeQL languages", () =>
     policies.forEach((policy, index) =>
-      const workflow = workflows[index]!
-      expect(Object.keys(workflow.jobs)).toEqual([policy.job])
-      expect(workflow.jobs[policy.job]!.name).toBe(policy.name)
+      const workflow = workflowAt(index)
+      expect(Object.keys(workflow.jobs)).toEqual(policy.jobs)
+      expect(jobAt(index, policy.job).name).toBe(policy.name)
     )
-    const codeql = workflows[0]!.jobs.analyze!
+    const codeql = jobAt(0, "analyze")
     expect(codeql.strategy).toEqual({
       "fail-fast": false,
       matrix: { language: ["javascript-typescript", "actions"] },
     })
     const init = codeql.steps.find((step) => step.uses?.startsWith("github/codeql-action/init@"))
     const analyze = codeql.steps.find((step) => step.uses?.startsWith("github/codeql-action/analyze@"))
-    expect(init?.with?.languages).toBe("${{ matrix.language }}")
-    expect(analyze?.with?.category).toBe("/language:${{ matrix.language }}")
+    expect(init?.with?.["languages"]).toBe("${{ matrix.language }}")
+    expect(analyze?.with?.["category"]).toBe("/language:${{ matrix.language }}")
   )
 
   it("keeps CodeQL analysis and ingestion on the same immutable action release", () =>
     const codeqlActions = workflows.flatMap((workflow) =>
       Object.values(workflow.jobs).flatMap((job) =>
-        job.steps.flatMap((step) => step.uses?.startsWith("github/codeql-action/") ? [step.uses] : [])
+        job.steps.flatMap((step): string[] =>
+          const uses = step.uses
+          uses ? [uses] : []
+        )
       )
-    ).map((action) => action.split("@"))
+    ).map(parseAction).filter(([action]) => action.startsWith("github/codeql-action/"))
     expect(new Set(codeqlActions.map(([action]) => action))).toEqual(new Set([
       "github/codeql-action/init",
       "github/codeql-action/analyze",
@@ -64,6 +92,8 @@ describe("hosted security capability policy", () =>
     ]))
     const refs = [...new Set(codeqlActions.map(([, ref]) => ref))]
     expect(refs).toHaveLength(1)
-    expect(refs[0]).toMatch(/^[a-f\d]{40}$/i)
+    const [ref] = refs
+    throw new Error "CodeQL action release is missing" unless ref?
+    expect(ref).toMatch(/^[a-f\d]{40}$/i)
   )
 )

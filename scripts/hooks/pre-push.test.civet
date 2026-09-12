@@ -26,6 +26,7 @@ it("preserves destination argv through the executable shell hook", async () =>
 
 const mocks = vi.hoisted(() => ({
   spawnSync: vi.fn(),
+  readFileSync: vi.fn(),
   readSync: vi.fn(),
   securityPreflight: vi.fn(),
 }))
@@ -33,24 +34,28 @@ const mocks = vi.hoisted(() => ({
 vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }))
 vi.mock("node:fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs")>(),
+  readFileSync: mocks.readFileSync,
   readSync: mocks.readSync,
 }))
 vi.mock("../ci/security-preflight.civet", () => ({ runSecurityPreflight: mocks.securityPreflight }))
 
 import { PRE_PUSH_SCRIPTS, runPrePush } from "./index.civet"
+const BUN_VERSION = "1.3.14"
 
 const HEAD = "a".repeat(40)
 const OTHER = "b".repeat(40)
 const TAG = "c".repeat(40)
 const ZERO = "0".repeat(40)
 const target = ["review", "ssh://git@code.example/team/destination.git"]
-const lanes = ["verify:core", "verify:coverage", "verify:integration", "verify:graph", "verify:browser"]
+const lanes = ["verify:core"]
 const update = (id = HEAD, ref = "refs/heads/main") => `HEAD ${id} ${ref} ${ZERO}\n`
 const deletion = `(delete) ${ZERO} refs/heads/old ${OTHER}\n`
 const result = (status: number | null = 0, stdout = "", extra = {}) => ({
   status, stdout, stderr: "", signal: null, ...extra,
 })
 const gitSuccess = (executable, arguments_) =>
+  if (executable === "bun" && arguments_[0] === "--version")
+    return result(0, `${BUN_VERSION}\n`)
   if (executable === "git" && arguments_[1] === "rev-parse")
     return result(0, `${HEAD}\n`)
   return result()
@@ -59,25 +64,35 @@ const run = (input = update(), dependencies = {}) => runPrePush(target, {
   ...dependencies,
 })
 const invokedLanes = () => mocks.spawnSync.mock.calls
-  .filter(([executable]) => executable === "bun")
+  .filter(([executable, arguments_]) => executable === "bun" && arguments_[0] === "run")
   .map(([, arguments_]) => arguments_[1])
 
 beforeEach(() =>
+  vi.stubGlobal("Bun", { version: BUN_VERSION })
+  mocks.readFileSync.mockReturnValue(`${BUN_VERSION}\n`)
   mocks.spawnSync.mockImplementation(gitSuccess)
   mocks.securityPreflight.mockReturnValue(0)
   vi.spyOn(console, "error").mockImplementation(() => undefined)
+  undefined
 )
 
 afterEach(() =>
+  mocks.readFileSync.mockReset()
   mocks.spawnSync.mockReset()
   mocks.readSync.mockReset()
   mocks.securityPreflight.mockReset()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 )
 
 describe("source-bound pre-push", () =>
-  it("assesses the actual non-origin destination before all five lanes in order", () =>
+  it("validates the pinned Bun runtime before assessing the actual destination and core", () =>
     const events: string[] = []
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (executable === "bun" && arguments_[0] === "--version")
+        events.push("runtime")
+      return gitSuccess(executable, arguments_)
+    )
     mocks.securityPreflight.mockImplementation((destination) =>
       expect(destination).toEqual({ remoteName: target[0], remoteUrl: target[1] })
       events.push("security")
@@ -88,30 +103,24 @@ describe("source-bound pre-push", () =>
       return 0
     )
     expect(run(update(), { runScripts })).toBe(0)
-    expect(events).toEqual(["security", ...lanes])
+    expect(events).toEqual(["runtime", "security", ...lanes])
     expect(mocks.spawnSync.mock.calls.some(([, arguments_]) => arguments_.includes("origin"))).toBe(false)
   )
 
-  it("runs every default local lane without a shell", () =>
+  it("runs only the deterministic core lane without a shell", () =>
     expect(run()).toBe(0)
     expect(invokedLanes()).toEqual(lanes)
     expect(mocks.spawnSync.mock.calls.every(([, , options]) => options.shell === false)).toBe(true)
   )
 
-  it.each(lanes)("blocks at a failed %s without running later lanes", (failed) =>
+  it("blocks publication when core fails", () =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
-      if (executable === "bun" && arguments_[1] === failed)
+      if (executable === "bun" && arguments_[1] === "verify:core")
         return result(23)
       return gitSuccess(executable, arguments_)
     )
     expect(run()).toBe(23)
-    expect(invokedLanes()).toEqual(lanes.slice(0, lanes.indexOf(failed) + 1))
-  )
-
-  it("blocks stale graph evidence before the browser lane or push", () =>
-    const runScripts = vi.fn((scripts) => scripts[0] === "verify:graph" ? 7 : 0)
-    expect(run(update(), { runScripts })).toBe(7)
-    expect(runScripts.mock.calls.flatMap(([scripts]) => scripts)).toEqual(lanes.slice(0, 4))
+    expect(invokedLanes()).toEqual(["verify:core"])
   )
 
   it("does not let consumers mutate the mandatory lanes", () =>
@@ -119,6 +128,72 @@ describe("source-bound pre-push", () =>
     expect(run()).toBe(0)
     expect(invokedLanes()).toEqual(lanes)
   )
+
+  it.each([
+    ["missing", () =>
+      mocks.readFileSync.mockImplementation(() =>
+        throw new Error("missing")
+      )
+    ],
+    ["malformed", () => mocks.readFileSync.mockReturnValue("not-semver\n")],
+    ["wrong", () => mocks.readFileSync.mockReturnValue("9.9.9\n")],
+  ] as const)("blocks a %s Bun pin before destination preflight or local lanes", (_name, arrange) =>
+    arrange()
+    expect(run()).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+  it.each([
+    ["nonzero exit", result(9), 9],
+    ["spawn error", result(0, "", { error: new Error("bun unavailable") }), 1],
+    ["termination signal", result(null, "", { signal: "SIGTERM" }), 1],
+  ] as const)("blocks a PATH-resolved bun %s before destination preflight or local lanes", (_name, failedResult, expected) =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (executable === "bun" && arguments_[0] === "--version")
+        return failedResult
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run()).toBe(expected)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+
+  it("blocks a mismatched PATH-resolved bun before destination preflight or local lanes", () =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (executable === "bun" && arguments_[0] === "--version")
+        return result(0, "9.9.9\n")
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run()).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("blocks a mismatched executing Bun before destination preflight or local lanes", () =>
+    vi.stubGlobal("Bun", { version: "9.9.9" })
+    expect(run()).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("blocks a missing executing Bun even when PATH bun matches the pin", () =>
+    vi.stubGlobal("Bun", undefined)
+    expect(run()).toBe(1)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("blocks non-Error failures reading the Bun pin before preflight or local lanes", () =>
+    mocks.readFileSync.mockImplementation(() =>
+      throw "Bun pin unavailable"
+    )
+    expect(run()).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Bun pin unavailable"))
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
 
   it("blocks failed security capability preflight before local lanes", () =>
     mocks.securityPreflight.mockReturnValue(11)
@@ -170,7 +245,7 @@ describe("source-bound pre-push", () =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
       if (executable === "git" && arguments_[1] === "rev-parse")
         return result(0, sha256)
-      return result()
+      return gitSuccess(executable, arguments_)
     )
     expect(run(` HEAD\t${sha256}\trefs/heads/main ${"0".repeat(64)} `)).toBe(0)
     expect(mocks.spawnSync).toHaveBeenCalledWith("git", ["--no-replace-objects", "rev-parse", "--verify", "--end-of-options", `${sha256}^{commit}`], expect.any(Object))
@@ -242,6 +317,36 @@ describe("source-bound pre-push", () =>
     expect(run(update(), { runScripts })).toBe(1)
   )
 
+  it("propagates a failed HEAD recheck before preflight or local lanes", () =>
+    let headReads = 0
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes("HEAD^{commit}"))
+        headReads += 1
+        if (headReads === 2)
+          return result(19)
+      return gitSuccess(executable, arguments_)
+    )
+    expect(run()).toBe(19)
+    expect(mocks.securityPreflight).not.toHaveBeenCalled()
+    expect(invokedLanes()).toEqual([])
+  )
+
+  it("propagates a failed HEAD recheck after successful verification", () =>
+    let verified = false
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      if (arguments_.includes("HEAD^{commit}") && verified)
+        return result(19)
+      return gitSuccess(executable, arguments_)
+    )
+    const runScripts = vi.fn(() =>
+      verified = true
+      return 0
+    )
+    expect(run(update(), { runScripts })).toBe(19)
+    expect(mocks.securityPreflight).toHaveBeenCalledWith({ remoteName: target[0], remoteUrl: target[1] })
+    expect(runScripts).toHaveBeenCalledExactlyOnceWith(lanes)
+  )
+
   it.each(["check-ref-format", "rev-parse", "status"])("propagates failed Git prerequisite %s", (failed) =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
       if (arguments_.includes(failed))
@@ -286,6 +391,14 @@ describe("source-bound pre-push", () =>
       throw failure
     expect(run(update(), { [dependency]: throwFailure })).toBe(1)
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining(failure.message))
+  )
+
+  it("blocks non-Error security assessment failures before local verification", () =>
+    const securityPreflight = () =>
+      throw "destination assessment unavailable"
+    expect(run(update(), { securityPreflight })).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("destination assessment unavailable"))
+    expect(invokedLanes()).toEqual([])
   )
 
   it.each(["securityPreflight", "runScripts"])("rejects invalid %s status", (dependency) =>

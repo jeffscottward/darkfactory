@@ -7,12 +7,14 @@ on:
 permissions: {}
 
 jobs:
-  dependency-review:
-    name: Dependency Review
+  security-policy:
+    name: Dependency Review policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+    outputs:
+      dependency_review_enabled: ${{ steps.security-policy.outputs.dependency_review_enabled }}
 
     steps:
       - name: Check out trusted security policy
@@ -30,8 +32,22 @@ jobs:
           DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
         run: node scripts/ci/generated/security-preflight.mjs workflow --workflow dependency-review
 
+  dependency-review:
+    name: Dependency Review
+    needs: security-policy
+    if: ${{ !cancelled() && (needs.security-policy.result != 'success' || needs.security-policy.outputs.dependency_review_enabled == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Fail when security policy did not succeed
+        id: policy-failure
+        if: ${{ !cancelled() && needs.security-policy.result != 'success' }}
+        run: echo "Security policy did not succeed."; exit 1
+
       - name: Review dependency changes
-        if: steps.security-policy.outputs.dependency_review_enabled == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
