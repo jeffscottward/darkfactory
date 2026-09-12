@@ -1,4 +1,9 @@
 import { createApiClient } from "@darkfactory/api"
+import { parseServerEnv } from "@darkfactory/config/server"
+import {
+  createEvlogSink,
+  initializeEvlog,
+} from "@darkfactory/observability/server/evlog"
 import { PageHeader } from "@darkfactory/ui"
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
@@ -19,6 +24,62 @@ import {
 
 export const metadata = { title: "Dashboard" }
 const INTERNAL_DASHBOARD_TIMEOUT_MS = 10_000
+
+const SUMMARY_ERROR_STATUSES: Readonly<Record<string, number>> = Object.freeze({
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  VALIDATION_ERROR: 422,
+  STORAGE_ERROR: 503,
+})
+
+const ownErrorData = (error: object, key: string): unknown =>
+  const descriptor = Object.getOwnPropertyDescriptor(error, key)
+  return descriptor !== undefined && Object.hasOwn(descriptor, "value")
+    ? descriptor.value
+    : undefined
+
+const summaryFailureCategory = (error: unknown): string =>
+  if (typeof error !== "object" || error === null) return "unknown"
+  const code = ownErrorData(error, "code")
+  if (ownErrorData(error, "defined") === true && typeof code === "string"
+    && Object.hasOwn(SUMMARY_ERROR_STATUSES, code)
+    && ownErrorData(error, "status") === SUMMARY_ERROR_STATUSES[code])
+    return `orpc.${code}.${SUMMARY_ERROR_STATUSES[code]}`
+  if (error instanceof Error)
+    const name = ownErrorData(error, "name")
+    const message = ownErrorData(error, "message")
+    if (name === "TimeoutError" || message === "Dashboard request exceeded the safe deadline")
+      return "timeout"
+    if (name === "AbortError" || message === "Dashboard request was cancelled")
+      return "abort"
+  return "unknown"
+
+const reportSummaryFailure = async (error: unknown): Promise<void> =>
+  try
+    const env = parseServerEnv(process.env)
+    const sink = createEvlogSink({
+      runtime: initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME }),
+      request: new Request(new URL("/dashboard", env.APP_URL)),
+    })
+    await sink.emit({
+      eventId: crypto.randomUUID(),
+      name: "dashboard.summary-failed",
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        requestId: crypto.randomUUID(),
+        route: "/dashboard",
+        procedure: "dashboard.summary",
+      },
+      outcome: "failure",
+      source: "web",
+      errorCategory: summaryFailureCategory(error),
+    })
+  catch
+    // Diagnostic emission must not change the original summary outcome.
+    return
 
 const isDefinedUnauthorized = (error: unknown): boolean =>
   if (typeof error !== "object" || error === null) return false
@@ -43,9 +104,11 @@ export const loadDashboardSummaryState = async (
     })
     return { type: "ready", summary: await client.dashboard.summary({}) }
   catch error
-    return isDefinedUnauthorized(error)
+    const state: DashboardSummaryState = isDefinedUnauthorized(error)
       ? { type: "unauthorized" }
       : { type: "error" }
+    await reportSummaryFailure(error)
+    return state
 
 export default async function DashboardPage()
   const requestHeaders = await headers()

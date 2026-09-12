@@ -1,8 +1,17 @@
 import { Children, isValidElement, type ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  createEvlogSink,
+  initializeEvlog,
+} from "@darkfactory/observability/server/evlog"
 
 const mocks = vi.hoisted(() => ({
   dispatchInternalOrpcRequest: vi.fn(),
+  emit: vi.fn(async () => undefined),
+  parseServerEnv: vi.fn(() => ({
+    APP_URL: "https://darkfactory.localhost",
+    OTEL_SERVICE_NAME: "darkfactory-web",
+  })),
   headers: vi.fn(),
   portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Fdashboard"),
   redirect: vi.fn((href: string): never =>
@@ -14,6 +23,13 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("next/headers", () => ({ headers: mocks.headers }))
+vi.mock("@darkfactory/config/server", () => ({
+  parseServerEnv: mocks.parseServerEnv,
+}))
+vi.mock("@darkfactory/observability/server/evlog", () => ({
+  initializeEvlog: vi.fn(() => ({})),
+  createEvlogSink: vi.fn(() => ({ emit: mocks.emit })),
+}))
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }))
 vi.mock("../../../lib/server-session.civet", () => ({
   portalSignInHref: mocks.portalSignInHref,
@@ -98,6 +114,10 @@ describe "dashboard summary loader", ->
     await vi.advanceTimersByTimeAsync(6)
 
     await expect(result).resolves.toEqual({ type: "error" })
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      name: "dashboard.summary-failed",
+      errorCategory: "timeout",
+    }))
 
   it "fails closed to an unavailable state when a chunked oRPC response exceeds the byte cap", async ->
     const oversized = new ReadableStream<Uint8Array>({
@@ -144,6 +164,7 @@ describe "dashboard summary loader", ->
       fetcher,
     )).resolves.toEqual({ type: "ready", summary: dashboardSummary })
     expect(fetcher).toHaveBeenCalledOnce()
+    expect(mocks.emit).not.toHaveBeenCalled()
 
   it "classifies only an exact defined oRPC 401 as unauthorized", async ->
     await expect(loadDashboardSummaryState(
@@ -174,6 +195,181 @@ describe "dashboard summary loader", ->
         "better-auth.session_token=opaque",
         async -> throw failure,
       )).resolves.toEqual({ type: "error" })
+
+  it.each([
+    ["BAD_REQUEST", 400],
+    ["UNAUTHORIZED", 401],
+    ["FORBIDDEN", 403],
+    ["NOT_FOUND", 404],
+    ["CONFLICT", 409],
+    ["VALIDATION_ERROR", 422],
+    ["STORAGE_ERROR", 503],
+  ] as const)("reports only the defined %s status without private error data", async (code, status) ->
+    await loadDashboardSummaryState(
+      "better-auth.session_token=private-cookie",
+      async () => dashboardErrorResponse({
+        defined: true,
+        code,
+        status,
+        message: "private-error-message",
+        data: { token: "private-token", user: "private-user" },
+      }, status),
+    )
+
+    expect(mocks.emit).toHaveBeenCalledWith({
+      eventId: expect.any(String),
+      name: "dashboard.summary-failed",
+      occurredAt: expect.any(String),
+      correlation: {
+        requestId: expect.any(String),
+        route: "/dashboard",
+        procedure: "dashboard.summary",
+      },
+      outcome: "failure",
+      source: "web",
+      errorCategory: `orpc.${code}.${status}`,
+    })
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
+  )
+
+  it.each([
+    [null, "unknown"],
+    ["private-error-message", "unknown"],
+    [{ defined: true, code: 401, status: 401 }, "unknown"],
+    [{ defined: true, code: "private-token", status: 503 }, "unknown"],
+    [{ defined: true, code: "toString", status: 503 }, "unknown"],
+    [{ defined: false, code: "UNAUTHORIZED", status: 401 }, "unknown"],
+    [{ defined: true, code: "UNAUTHORIZED", status: 403 }, "unknown"],
+    [new Error("private-error-message"), "unknown"],
+    [Object.assign(new Error("private-error-message"), { name: "TimeoutError" }), "timeout"],
+    [Object.assign(new Error("private-error-message"), { name: "AbortError" }), "abort"],
+    [new DOMException("private-error-message", "TimeoutError"), "unknown"],
+    [new DOMException("private-error-message", "AbortError"), "unknown"],
+    [new Error("Dashboard request was cancelled"), "abort"],
+  ] as const)("bounds transport failure classification %# without forwarding its contents", async (failure, category) ->
+    await expect(loadDashboardSummaryState(
+      "better-auth.session_token=private-cookie",
+      async () => throw failure,
+    )).resolves.toEqual({ type: "error" })
+
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      name: "dashboard.summary-failed",
+      errorCategory: category,
+    }))
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
+  )
+
+  it.each(["own", "inherited"])("preserves the original authorization decision with %s accessors", async (location) ->
+    const reads = { defined: 0, code: 0, status: 0 }
+    const properties = {
+      defined: { get: () =>
+        reads.defined += 1
+        return true
+      },
+      code: { get: () =>
+        reads.code += 1
+        if (reads.code > 1) throw new Error("private-second-read")
+        return "UNAUTHORIZED"
+      },
+      status: { get: () =>
+        reads.status += 1
+        return 401
+      },
+    }
+    const accessors = Object.defineProperties({}, properties)
+    const failure = location === "own" ? accessors : Object.create(accessors)
+
+    await expect(loadDashboardSummaryState(
+      null,
+      async () => throw failure,
+    )).resolves.toEqual({ type: "unauthorized" })
+    expect(reads).toEqual({ defined: 1, code: 1, status: 1 })
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      errorCategory: "unknown",
+    }))
+  )
+
+  it "ignores inherited data and diagnostic-only getters", async ->
+    const inherited = Object.create({
+      defined: true,
+      code: "UNAUTHORIZED",
+      status: 401,
+    })
+    await expect(loadDashboardSummaryState(
+      null,
+      async () => throw inherited,
+    )).resolves.toEqual({ type: "unauthorized" })
+    expect(mocks.emit).toHaveBeenLastCalledWith(expect.objectContaining({
+      errorCategory: "unknown",
+    }))
+
+    const getter = vi.fn(() => throw new Error("private-accessor"))
+    const failure = new Error()
+    Object.defineProperties(failure, {
+      defined: { value: false },
+      code: { get: getter },
+      status: { get: getter },
+      name: { get: getter },
+      message: { get: getter },
+    })
+    await expect(loadDashboardSummaryState(
+      null,
+      async () => throw failure,
+    )).resolves.toEqual({ type: "error" })
+    expect(getter).not.toHaveBeenCalled()
+    expect(mocks.emit).toHaveBeenLastCalledWith(expect.objectContaining({
+      errorCategory: "unknown",
+    }))
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
+
+  it "creates a header-free fixed-route diagnostic request", async ->
+    await loadDashboardSummaryState(
+      "better-auth.session_token=private-cookie",
+      async () => throw new Error("private-error-message"),
+    )
+
+    const request = vi.mocked(createEvlogSink).mock.calls[0]?.[0].request
+    expect(request?.url).toBe("https://darkfactory.localhost/dashboard")
+    expect(request?.method).toBe("GET")
+    expect(Array.from(request?.headers.entries() ?? [])).toEqual([])
+    expect(request?.body).toBeNull()
+
+  it.each(["runtime", "sink"])("preserves the original decision when diagnostic %s creation fails", async (stage) ->
+    const failure = () => throw new Error("private-diagnostic-setup")
+    if (stage === "runtime")
+      vi.mocked(initializeEvlog).mockImplementationOnce(failure)
+    else
+      vi.mocked(createEvlogSink).mockImplementationOnce(failure)
+
+    await expect(loadDashboardSummaryState(
+      null,
+      async () => dashboardErrorResponse({
+        defined: true,
+        code: "UNAUTHORIZED",
+        status: 401,
+      }, 401),
+    )).resolves.toEqual({ type: "unauthorized" })
+    expect(mocks.emit).not.toHaveBeenCalled()
+  )
+
+  it "preserves the summary failure when diagnostic configuration or emission fails", async ->
+    mocks.parseServerEnv.mockImplementationOnce(() => throw new Error("private-configuration"))
+    await expect(loadDashboardSummaryState(
+      null,
+      async () => throw new Error("private-transport"),
+    )).resolves.toEqual({ type: "error" })
+    expect(mocks.emit).not.toHaveBeenCalled()
+
+    mocks.emit.mockRejectedValueOnce(new Error("private-emission"))
+    await expect(loadDashboardSummaryState(
+      null,
+      async () => dashboardErrorResponse({
+        defined: true,
+        code: "UNAUTHORIZED",
+        status: 401,
+      }, 401),
+    )).resolves.toEqual({ type: "unauthorized" })
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
 
   it "redirects only an exact defined unauthorized summary response", async ->
     mocks.dispatchInternalOrpcRequest.mockResolvedValueOnce(
