@@ -89,6 +89,11 @@ const dashboardErrorResponse = (
   json: { message: "Dashboard request failed", ...error },
 }, { status: responseStatus })
 
+const dashboardCapacityResponse = (): Response => Response.json(
+  { error: "Service Unavailable" },
+  { status: 503, headers: { "retry-after": "1" } },
+)
+
 beforeEach ->
   vi.clearAllMocks()
   mocks.headers.mockResolvedValue(new Headers({
@@ -166,6 +171,206 @@ describe "dashboard summary loader", ->
     expect(fetcher).toHaveBeenCalledOnce()
     expect(mocks.emit).not.toHaveBeenCalled()
 
+  it "honors capacity backpressure and serializes a fresh authenticated summary request for each attempt", async ->
+    vi.useFakeTimers()
+    const requests: Request[] = []
+    const bodies: unknown[] = []
+    const fetcher = vi.fn(async (request: Request) =>
+      requests.push(request)
+      bodies.push(await request.json())
+      return requests.length === 1 ? dashboardCapacityResponse() : dashboardResponse()
+    )
+    const result = loadDashboardSummaryState("better-auth.session_token=opaque", fetcher)
+
+    await vi.advanceTimersByTimeAsync(999)
+    expect(fetcher).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(result).resolves.toEqual({ type: "ready", summary: dashboardSummary })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(requests[0]).not.toBe(requests[1])
+    expect(bodies).toEqual([{ json: {} }, { json: {} }])
+    for request of requests
+      expect(request.bodyUsed).toBe(true)
+      expect(request.method).toBe("POST")
+      expect(new URL(request.url).pathname).toBe("/api/orpc/dashboard/summary")
+      expect(request.headers.get("cookie")).toBe("better-auth.session_token=opaque")
+    expect(mocks.emit).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "stops persistent capacity backpressure after exactly three attempts and diagnoses only the final failure", async ->
+    vi.useFakeTimers()
+    const fetcher = vi.fn(async () => dashboardCapacityResponse())
+    const result = loadDashboardSummaryState(null, fetcher)
+
+    await vi.advanceTimersByTimeAsync(999)
+    expect(fetcher).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(result).resolves.toEqual({ type: "error" })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(mocks.emit).toHaveBeenCalledOnce()
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      errorCategory: "orpc.undeclared.SERVICE_UNAVAILABLE.503",
+    }))
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "does not dispatch when the original deadline has already elapsed during request construction", async ->
+    vi.useFakeTimers()
+    const fetcher = vi.fn(async () => dashboardResponse())
+
+    await expect(loadDashboardSummaryState(null, fetcher, 0)).resolves.toEqual({ type: "error" })
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "spends the original default deadline across the request and capacity wait without starting another request", async ->
+    vi.useFakeTimers()
+    const fetcher = vi.fn(async () =>
+      await new Promise<void>((resolve) => setTimeout(resolve, 2_500))
+      return dashboardCapacityResponse()
+    )
+    const result = loadDashboardSummaryState(null, fetcher)
+
+    await vi.advanceTimersByTimeAsync(2_999)
+    expect(fetcher).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(result).resolves.toEqual({ type: "error" })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "keeps a later attempt inside the original request deadline rather than resetting its transport budget", async ->
+    vi.useFakeTimers()
+    const fetcher = vi.fn()
+      .mockImplementationOnce(async () => dashboardCapacityResponse())
+      .mockImplementationOnce((request: Request) => new Promise<Response>((resolve) =>
+        request.signal.addEventListener("abort", () => resolve(new Response(null, { status: 504 })), { once: true })
+      ))
+    const result = loadDashboardSummaryState(null, fetcher, 1_500)
+
+    await vi.advanceTimersByTimeAsync(1_499)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(result).resolves.toEqual({ type: "error" })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "cancels the capacity wait immediately without any later summary request", async ->
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const fetcher = vi.fn(async () => dashboardCapacityResponse())
+    const result = loadDashboardSummaryState(null, fetcher, undefined, controller.signal)
+
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetcher).toHaveBeenCalledOnce()
+    controller.abort()
+    await expect(result).resolves.toEqual({ type: "error" })
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "does not dispatch when the caller has already cancelled", async ->
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    controller.abort()
+    const fetcher = vi.fn(async () => dashboardResponse())
+
+    await expect(loadDashboardSummaryState(null, fetcher, undefined, controller.signal))
+      .resolves.toEqual({ type: "error" })
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "never retries noncapacity errors or a missing, malformed, or different Retry-After", async ->
+    vi.useFakeTimers()
+    const responses = [
+      dashboardErrorResponse({ defined: true, code: "STORAGE_ERROR", status: 503 }, 503),
+      dashboardErrorResponse({ defined: true, code: "SERVICE_UNAVAILABLE", status: 503 }, 503),
+      dashboardErrorResponse({ defined: false, code: "INTERNAL_SERVER_ERROR", status: 503 }, 503),
+      dashboardErrorResponse({ defined: false, code: "SERVICE_UNAVAILABLE", status: 500 }, 503),
+      dashboardErrorResponse({ defined: false, code: "SERVICE_UNAVAILABLE", status: 503 }, 500),
+      dashboardErrorResponse({ defined: true, code: "FORBIDDEN", status: 403 }, 403),
+      dashboardErrorResponse({ defined: true, code: "VALIDATION_ERROR", status: 400 }, 400),
+      dashboardErrorResponse({ defined: true, code: "INTERNAL_SERVER_ERROR", status: 500 }, 500),
+      dashboardErrorResponse({ defined: false, code: "UNAUTHORIZED", status: 401 }, 401),
+    ]
+    for response of responses
+      response.headers.set("retry-after", "1")
+    for retryAfter of [null, "", "invalid", "0", "2", "1.0", "Thu, 01 Jan 2030 00:00:00 GMT"]
+      const response = dashboardCapacityResponse()
+      if retryAfter === null
+        response.headers.delete("retry-after")
+      else
+        response.headers.set("retry-after", retryAfter)
+      responses.push(response)
+    for response of responses
+      const fetcher = vi.fn(async () => response)
+      await expect(loadDashboardSummaryState(null, fetcher)).resolves.toEqual({ type: "error" })
+      expect(fetcher).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+
+  it "immediately honors authentication invalidation after an initial capacity response", async ->
+    vi.useFakeTimers()
+    const unauthorized = dashboardErrorResponse({ defined: true, code: "UNAUTHORIZED", status: 401 }, 401)
+    unauthorized.headers.set("retry-after", "1")
+    const fetcher = vi.fn()
+      .mockImplementationOnce(async () => dashboardCapacityResponse())
+      .mockResolvedValueOnce(unauthorized)
+    const result = loadDashboardSummaryState(null, fetcher)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(result).resolves.toEqual({ type: "unauthorized" })
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(mocks.emit).toHaveBeenCalledOnce()
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      errorCategory: "orpc.UNAUTHORIZED.401",
+    }))
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "does not reuse an earlier capacity response when the next dispatch fails", async ->
+    vi.useFakeTimers()
+    const fetcher = vi.fn()
+      .mockImplementationOnce(async () => dashboardCapacityResponse())
+      .mockImplementationOnce(async () =>
+        throw { defined: false, code: "SERVICE_UNAVAILABLE", status: 503 }
+      )
+    const result = loadDashboardSummaryState(null, fetcher)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(result).resolves.toEqual({ type: "error" })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(mocks.emit).toHaveBeenCalledOnce()
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      errorCategory: "orpc.undeclared.SERVICE_UNAVAILABLE.503",
+    }))
+    expect(vi.getTimerCount()).toBe(0)
+
+  it "rejects a capacity body failure with hostile descriptor traps without retrying or leaking it", async ->
+    vi.useFakeTimers()
+    const failure = new Proxy({
+      defined: false,
+      code: "SERVICE_UNAVAILABLE",
+      status: 503,
+    }, {
+      getOwnPropertyDescriptor: () => throw new Error("private-descriptor-trap"),
+    })
+    const fetcher = vi.fn(async () => new Response(new ReadableStream({
+      start: (controller) => controller.error(failure),
+    }), {
+      status: 503,
+      headers: { "retry-after": "1" },
+    }))
+
+    await expect(loadDashboardSummaryState(null, fetcher)).resolves.toEqual({ type: "error" })
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({
+      errorCategory: "unknown",
+    }))
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
+    expect(vi.getTimerCount()).toBe(0)
+
   it "classifies only an exact defined oRPC 401 as unauthorized", async ->
     await expect(loadDashboardSummaryState(
       null,
@@ -232,6 +437,39 @@ describe "dashboard summary loader", ->
     expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
   )
 
+  it "distinguishes raw capacity responses from decoded undeclared server failures", async ->
+    for (const [response, category] of [
+      [
+        Response.json({ error: "Service Unavailable" }, {
+          status: 503,
+          headers: { "retry-after": "1" },
+        }),
+        "orpc.undeclared.SERVICE_UNAVAILABLE.503",
+      ],
+      [
+        new Response("private-capacity-body", { status: 503 }),
+        "orpc.undeclared.SERVICE_UNAVAILABLE.503",
+      ],
+      [
+        dashboardErrorResponse({
+          defined: false,
+          code: "INTERNAL_SERVER_ERROR",
+          status: 500,
+          message: "private-server-error",
+          data: { token: "private-token" },
+        }, 500),
+        "orpc.undeclared.INTERNAL_SERVER_ERROR.500",
+      ],
+    ] as const)
+      await expect(loadDashboardSummaryState(
+        "better-auth.session_token=private-cookie",
+        async () => response,
+      )).resolves.toEqual({ type: "error" })
+      expect(mocks.emit).toHaveBeenLastCalledWith(expect.objectContaining({
+        errorCategory: category,
+      }))
+    expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private-")
+
   it.each([
     [null, "unknown"],
     ["private-error-message", "unknown"],
@@ -240,6 +478,11 @@ describe "dashboard summary loader", ->
     [{ defined: true, code: "toString", status: 503 }, "unknown"],
     [{ defined: false, code: "UNAUTHORIZED", status: 401 }, "unknown"],
     [{ defined: true, code: "UNAUTHORIZED", status: 403 }, "unknown"],
+    [{ defined: true, code: "SERVICE_UNAVAILABLE", status: 503 }, "unknown"],
+    [{ defined: true, code: "INTERNAL_SERVER_ERROR", status: 500 }, "unknown"],
+    [{ defined: false, code: "SERVICE_UNAVAILABLE", status: 500 }, "unknown"],
+    [{ defined: false, code: "INTERNAL_SERVER_ERROR", status: 503 }, "unknown"],
+    [Object.create({ defined: false, code: "SERVICE_UNAVAILABLE", status: 503 }), "unknown"],
     [new Error("private-error-message"), "unknown"],
     [Object.assign(new Error("private-error-message"), { name: "TimeoutError" }), "timeout"],
     [Object.assign(new Error("private-error-message"), { name: "AbortError" }), "abort"],

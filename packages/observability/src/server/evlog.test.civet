@@ -4,10 +4,12 @@ import type { SemanticEvent } from "../port.civet"
 
 const workers = vi.hoisted(->
   const emit = vi.fn()
+  const setLevel = vi.fn()
   return {
     emit,
+    setLevel,
     initWorkersLogger: vi.fn(),
-    createWorkersLogger: vi.fn(-> ({ emit })),
+    createWorkersLogger: vi.fn(-> ({ emit, setLevel })),
   }
 )
 
@@ -19,9 +21,10 @@ vi.mock("evlog/workers", -> ({
 beforeEach ->
   vi.resetModules()
   workers.emit.mockReset()
+  workers.setLevel.mockReset()
   workers.initWorkersLogger.mockReset()
   workers.createWorkersLogger.mockReset()
-  workers.createWorkersLogger.mockImplementation(-> ({ emit: workers.emit }))
+  workers.createWorkersLogger.mockImplementation(-> ({ emit: workers.emit, setLevel: workers.setLevel }))
 
 const rawEvent = (requestId: string): SemanticEvent => ({
   eventId: `event_${requestId}`,
@@ -104,6 +107,7 @@ describe "evlog Worker runtime", ->
       })
     )
     expect(JSON.stringify(workers.emit.mock.calls)).not.toContain("raw-password")
+    expect(workers.setLevel).not.toHaveBeenCalled()
 
   it "rejects conflicting global initialization without changing the active runtime", async ->
     const { initializeEvlog } = await import("./evlog.civet")
@@ -219,6 +223,11 @@ describe "evlog Worker runtime", ->
     await sink.emit(fullEvent)
     await sink.emit(minimalEvent)
 
+    expect(workers.setLevel).toHaveBeenCalledExactlyOnceWith("error")
+    expect(workers.setLevel.mock.invocationCallOrder[0]).toBeLessThan(
+      workers.emit.mock.invocationCallOrder[0] ?? 0,
+    )
+
     expect(workers.emit).toHaveBeenNthCalledWith(1, {
       event: {
         id: "event_request_full",
@@ -267,3 +276,60 @@ describe "evlog Worker runtime", ->
     await expect(
       sink.emit(rawEvent("request_async_recovery"))
     ).resolves.toBeUndefined()
+
+  it "normalizes level-setting failures without emitting private provider details", async ->
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+    const runtime = initializeEvlog({ serviceName: "darkfactory-test", silent: true })
+    const sink = createEvlogSink({
+      runtime,
+      request: new Request("https://darkfactory.localhost/dashboard"),
+    })
+    workers.setLevel.mockImplementationOnce(() =>
+      throw new Error("private-provider-payload password=hidden")
+    )
+
+    await expect(sink.emit({
+      ...rawEvent("request_level_failure"),
+      outcome: "failure",
+    })).rejects.toEqual(new Error("Structured event emission failed"))
+    expect(workers.emit).not.toHaveBeenCalled()
+
+  it "emits semantic failures through the real evlog error console transport", async ->
+    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const infoOutput = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const logOutput = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    vi.doUnmock("evlog/workers")
+    vi.resetModules()
+    try
+      const { createEvlogSink, initializeEvlog } = await import("./evlog.civet")
+      const sink = createEvlogSink({
+        runtime: initializeEvlog({ serviceName: "darkfactory-test" }),
+        request: new Request("https://darkfactory.localhost/dashboard"),
+      })
+      await sink.emit({
+        ...rawEvent("request_real_failure"),
+        name: "dashboard.summary-failed",
+        outcome: "failure",
+        errorCategory: "timeout",
+      })
+
+      expect(errorOutput).toHaveBeenCalledOnce()
+      expect(errorOutput).toHaveBeenCalledWith(expect.objectContaining({
+        level: "error",
+        outcome: "failure",
+        errorCategory: "timeout",
+        event: expect.objectContaining({ name: "dashboard.summary-failed" }),
+        attributes: { password: "[REDACTED]", safe: "kept" },
+      }))
+      expect(JSON.stringify(errorOutput.mock.calls)).not.toContain("raw-password")
+      expect(infoOutput).not.toHaveBeenCalled()
+      expect(logOutput).not.toHaveBeenCalled()
+    finally
+      vi.doMock("evlog/workers", () => ({
+        initWorkersLogger: workers.initWorkersLogger,
+        createWorkersLogger: workers.createWorkersLogger,
+      }))
+      vi.resetModules()
+      errorOutput.mockRestore()
+      infoOutput.mockRestore()
+      logOutput.mockRestore()
