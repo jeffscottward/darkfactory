@@ -193,6 +193,7 @@ The generator accepts one feature name plus optional `--dry-run` and `--json` fl
 | Static checks | `bun run lint`, `bun run lint:markdown`, `bun run format:check` |
 | Generated contracts | `bun run auth:schema:check`, `bun run api:openapi:generate`, `bun run api:openapi:check` |
 | Tests | `bun run test:unit`, `bun run test:integration`, `bun run test:e2e`, `bun run test` |
+| Deterministic gates | `bun run verify:static`, `bun run verify:core`, `bun run verify:core:ci` |
 | Full gates | `bun run verify`, `bun run ci` |
 | Graphify | `bun run graph:build`, `bun run graph:update`, `bun run graph:check`, `bun run graph:verify` |
 | Operations | `bun run doctor`, `bun run generate:feature`, `varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot` |
@@ -212,6 +213,12 @@ varlock run -- bun run test:e2e
 varlock run -- bun run verify
 bun run db:test:down
 ```
+
+Every source push must pass the destination-aware hosted security capability preflight, then only `verify:core` (static checks, build/docs, unit, contract, and operations tests). The hook uses Git's actual destination URL, not `origin`, and requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before preflight. Any runtime, preflight, or core failure blocks the push. Install locked dependencies and provide authenticated GitHub CLI access to the destination. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
+
+Push from a clean checkout with every pushed branch or tag resolving to current `HEAD` (annotated tags are peeled); tracked, staged, and unignored untracked changes block verification. Different source commits must be checked out and pushed separately. Deletion-only pushes contain no source and explicitly skip verification. Local success cannot guarantee hosted network, service, runner, or permission behavior; hosted CI remains required.
+
+Full `verify`/`ci` and hosted CI retain all five lanes: CI-specific core runs static checks plus scoped E2E helpers, while coverage runs unit/contract/operations once with all four 100% thresholds unchanged. Integration and browser exercise their real infrastructure; graph builds fresh output before hosted verification. Merge requires exact-head technical review, real current required checks, and independent GitHub approval only where effective repository rules require it. Successor publication remains held until the public follow-up is accepted.
 
 No command is considered successful without its observed exit result. Do not infer a green repository from this README or from a narrower check. See [Testing and evidence](docs/testing-and-evidence.md) and the draft [DF evidence map](docs/evidence-map.md).
 

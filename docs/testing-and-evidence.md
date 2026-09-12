@@ -52,13 +52,13 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The pre-push hook first requires the executing Bun runtime and the `bun` resolved from `PATH` to match the exact `.bun-version` pin, then runs the broad deterministic core lifecycle: `verify:static` (static checks, lint, typecheck, builds, docs, and generated-artifact freshness) plus unit, contract, and operations tests. Local operations also includes the E2E-helper tests:
+The pre-push requirement is destination-aware security capability preflight followed by only the deterministic `verify:core` lifecycle. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects dirty or mismatched source rather than verifying one checkout while publishing another.
 
 ```bash
-bun run verify:core
+varlock run -- bun run verify:core
 ```
 
-Environment-heavy verification remains explicit:
+Environment-heavy verification remains explicit and independently runnable for diagnosis; it is mandatory in hosted CI, not in the per-push hook:
 
 ```bash
 bun run verify:coverage
@@ -79,6 +79,14 @@ varlock run -- bun run ci
 Heavy `ci.yml` selects only `pull_request` and explicit `workflow_dispatch`; every eligible PR gets all five lanes regardless of actor, target branch, or changed paths. Pushes, including merges to `main`, intentionally do not schedule another heavy matrix. CodeQL, Scorecard, and Dependency Review retain their independent event/guard/upload policies, including applicable default-branch security scans.
 
 Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. `test:e2e-helpers` positively selects the helper directory with `--project e2e-helpers tests/e2e/helpers`; coverage's unit project owns the separate root `playwright.config.test.ts`. The local `test:operations` path still includes all E2E helpers, including that configuration test; the local pre-push contract is unchanged.
+
+Before pushing, install locked dependencies and provide destination-authenticated GitHub CLI access. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Run `varlock run -- git push <remote> <ref>` when Git needs that environment. Missing core prerequisites, stale artifacts checked by core, failed preflight, or failed core block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
+
+The hook checks clean source and requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before destination-scoped preflight. Only after preflight passes does it run immutable `verify:core`; any failure stops the push. Success also requires a final clean-source and unchanged-HEAD check. Coverage, integration, graph, and browser remain full-lifecycle/hosted gates, not hook stages. An explicitly unconfigured private licensed capability is reported as not configured/not run, not successful analysis.
+
+`bun run ci:preflight -- --remote-name <name> --remote-url <GitHub-URL>` inspects the intended repository's hosted security policy independently. See [security-preflight.txt](security-preflight.txt) for public/private capability states and opt-ins. It does not run licensed analysis or certify a hosted upload locally. After pushing, still follow every hosted lane to a terminal result: runner differences, GitHub outages and changed permissions cannot be guaranteed away before the push.
+
+Before merge, record exact-head technical review of the full relevant source boundary, resolved findings, actual current required-check results, and limitations. Independent GitHub approval is required only by effective repository/organization rules; unknown or incompatible rules block acceptance. Preserve required check names/app identities and strict up-to-date checks. Never use self-approval, an admin bypass, or access/settings changes to manufacture acceptance. Successor publication remains held until the public follow-up is accepted.
 
 Stop the local database after the evidence is captured:
 

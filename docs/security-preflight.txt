@@ -1,0 +1,300 @@
+SECURITY PREFLIGHT OPERATIONS
+
+Purpose and limits
+
+Security preflight makes an explicit, read-only authorization and capability
+check before repository-dependent security work. It distinguishes a requested
+and verified capability from a capability that is not configured, and from a
+failed check. It does not treat a skipped security scan as a passing scan.
+
+This policy supports GitHub.com only. A local check requires the actual push
+destination, supplied explicitly. It never infers a destination from origin,
+the current directory, or whichever remote happens to exist. Unsupported or
+ambiguous destinations fail closed. In GitHub Actions, GITHUB_REPOSITORY is the
+automatic repository context; no Git remote inference is needed.
+
+Entry points
+
+Local, through the package command:
+
+  bun run ci:preflight -- --remote-name NAME --remote-url URL
+
+The local package command executes the canonical Civet source through Bun:
+
+  bun --preload @danielx/civet/bun-civet scripts/ci/security-preflight.civet local --remote-name NAME --remote-url URL
+
+Replace NAME and URL with the actual Git push remote name and destination URL.
+The pre-push hook supplies Git's remote-name and destination-URL arguments to
+the local adapter. Do not substitute origin merely because it exists.
+
+Hosted workflows use one of these explicit scopes:
+
+  node scripts/ci/generated/security-preflight.mjs workflow --workflow codeql
+  node scripts/ci/generated/security-preflight.mjs workflow --workflow scorecard
+  node scripts/ci/generated/security-preflight.mjs workflow --workflow dependency-review
+
+Local execution needs Bun and the project's Civet dependency; authenticated
+local API checks also require the GitHub CLI (gh). The local hook uses the
+canonical typed source at scripts/ci/security-preflight.civet.
+
+Only GitHub Actions executes scripts/ci/generated/security-preflight.mjs. This
+generated Node artifact is a compatibility exception for dependency-free
+workflow bootstrap and uses Node built-ins only; it is not the primary local
+entry point. Change the canonical Civet source and regenerate the artifact;
+never hand-edit the generated Node artifact.
+
+Trusted hosted helper and adoption order
+
+On pull requests, execute the generated Node helper from the exact trusted PR
+base SHA, never the pull request's helper code. A missing trusted base artifact
+is a hard failure, not permission to fall back to the PR copy.
+
+Before adopting successor workflows in a repository whose base lacks the helper,
+merge a helper-only bootstrap PR containing the canonical source and generated
+Node artifact under unchanged baseline workflows and protections. Base the
+successor-adoption PR on that merged commit. Do not weaken required checks or
+use an administrative bypass to break this dependency. Preserve all five
+Verification contexts and protected CodeQL Actions/JavaScript and Dependency
+Review checks throughout adoption.
+
+Prerequisites and credentials
+
+Authenticate gh for github.com before using the local check. The active account
+or token must be able to read the destination repository's metadata, the
+requested security capabilities, and the repository's Actions variables. Local
+policy variables are read from that destination repository through gh, not
+inferred from local environment values or from a different remote. A successful
+gh login alone does not prove that these repository reads are permitted. Grant
+only the read access needed for the checks; the preflight needs no settings
+write access and never asks for secrets values.
+
+In each hosted workflow, pass the workflow token and all three policy values
+explicitly through the step environment:
+
+  GH_TOKEN: ${{ github.token }}
+  DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
+  DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
+  DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
+
+GITHUB_REPOSITORY is supplied automatically by GitHub Actions. Workflow policy
+values come from the vars context; do not put them in secrets or fetch Actions
+variables using the workflow token. The token still needs the read permissions
+for the metadata and requested feature probes. Any later SARIF upload needs its
+own applicable token permissions; a successful read-only preflight cannot
+promise those permissions.
+
+Policy variables and truth table
+
+The only policy variables are:
+
+  DF_CODEQL_ENABLED
+    Requests CodeQL analysis.
+
+  DF_CODE_SCANNING_UPLOAD_ENABLED
+    Requests upload of code-scanning results, independently of CodeQL analysis.
+
+  DF_DEPENDENCY_REVIEW_ENABLED
+    Requests dependency review.
+
+Values are exact, lowercase strings: true or false. A missing variable and an
+empty string mean unset. Other values are invalid and fail the relevant check;
+there is no case folding or truthiness conversion. Each workflow validates only
+the variables relevant to its scope.
+
+For EACH applicable capability:
+
+  Verified visibility   Variable value      Policy decision
+  -------------------   -----------------   ---------------------------------
+  Public                missing or empty    Enabled; verify capability
+  Public                true                Enabled; verify capability
+  Public                false               Enabled; verify capability
+  Private               true                Enabled; verify capability
+  Private               false               NOT CONFIGURED; do not run
+  Private               missing or empty    NOT CONFIGURED; do not run
+  Either                any other value     FAILED; block
+  Unknown/unverified    any value           FAILED; never publish
+
+Public repositories always retain the enabled security defaults, including
+when a policy variable is false. The variables are private-repository opt-ins,
+not a way to disable public protections. Every private capability must have its
+own explicit true value; opting into one does not opt into another.
+
+An enabled policy decision is a request, not proof of authorization. Requested
+capabilities must pass their probes. In particular, private CodeQL requires
+verified capability/entitlement even when code-scanning upload is disabled.
+Disabling upload does not authorize private CodeQL analysis.
+
+Public and private repositories use the same scoped capability probes for
+enabled checks: code-scanning reads and dependency comparison against a known
+commit SHA, as applicable. Public visibility is not a shortcut around those
+reads. A successful HTTP 200 response containing an empty result array is valid;
+prior analysis results are not required. Authentication, permission, 404,
+network, and malformed-response failures still block.
+
+Scopes and outputs
+
+The codeql workflow checks CodeQL and code-scanning upload only. The scorecard
+workflow checks code-scanning upload only. The dependency-review workflow checks
+dependency review only. A flag or feature belonging solely to another scope
+must not disable or block an unrelated workflow.
+
+The workflow interface always emits safe boolean strings for these outputs:
+
+  codeql_enabled
+  upload_enabled
+  dependency_review_enabled
+  publish_results
+
+Only the literal string true enables a corresponding downstream operation.
+Unused or unverified outputs do not grant authorization. In workflow conditions,
+compare enabled outputs explicitly with == 'true'; do not rely on string
+truthiness. In particular, an empty publish_results output after an interrupted
+or failed step must not cause publication.
+
+Status and failure handling
+
+AUTHORIZED means the capability was requested by policy and its read-only
+capability check succeeded. It is not legal advice, a completed security scan,
+or a guarantee that a later upload will succeed.
+
+NOT CONFIGURED means a private capability has no explicit true opt-in. It is
+not run. This is an intentional policy state, not an authorization failure and
+not a passing security result. Summaries must keep that distinction visible.
+
+FAILED means the check could not establish a safe result or a requested
+capability was unavailable. Unknown repository metadata, authentication or
+permission errors, HTTP 404 responses, other API errors, network failures,
+malformed responses or flag values, and exceeded request or pagination limits
+block the affected check and produce a nonzero exit. A 404 is not evidence of a
+private repository, an unset variable, or a harmless optional feature. Do not
+convert API errors to NOT CONFIGURED or assume unknown visibility is public.
+
+Do not mask failures with continue-on-error, unconditional success fallbacks,
+or shell commands that discard the failing exit status. Diagnose access or
+configuration through the explicit summary without printing tokens, secrets,
+raw repository metadata, or raw API response bodies.
+
+Scorecard behavior
+
+Free Scorecard analysis always runs, including on private repositories and when
+its capability step fails. Preserve its result artifact when analysis produces
+one, and leave the capability step red; running analysis is not permission to
+hide a failed security check. Scorecard analysis has no private opt-in variable.
+
+Only a verified public repository may set publish_results=true and publish
+Scorecard results. Private repositories remain analysis-and-artifact-only for
+Scorecard publication, even if a private upload capability is authorized.
+Unknown metadata never enables publication. Code-scanning SARIF upload is a
+separate operation gated by upload_enabled; do not confuse it with Scorecard
+public result publication.
+
+Fork pull requests commonly have restricted write tokens. Successful metadata
+and feature reads do not remove those restrictions. A later upload that fails
+because the token lacks write permission must still propagate that failure;
+the preflight does not suppress it or claim upload success in advance.
+
+Analysis and artifact retention
+
+CodeQL analysis uses upload: never; a separate step ingests SARIF only when
+upload_enabled is true. Disabled ingestion does not disable otherwise authorized
+analysis or authorize private CodeQL use. Every authorized upload must succeed.
+Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days;
+artifact upload failures block. An artifact is evidence of output, not
+successful ingestion.
+
+Read-only resource bounds
+
+The checks are bounded, not open-ended discovery:
+
+  Per request timeout:                    20 seconds
+  Per request response limit:             1 MiB
+  Local Actions variable page size:       100
+  Maximum local variable pages:           10
+  Overall preflight deadline:             120 seconds
+
+An incomplete or truncated response is not authorization. Pagination is bounded
+to 1,000 variables; inability to establish a complete result within the limits
+fails rather than silently treating unseen variables as unset. The overall
+deadline applies even if individual requests have time remaining.
+
+These checks only read metadata, variables, and feature availability. They do
+not purchase a subscription, start a trial, enable a feature, change repository
+settings or visibility, or modify permissions. Any such administrative choice
+requires a separate, deliberate action by an authorized operator.
+
+CodeQL licensing
+
+Public visibility and a feature probe are not substitutes for reading the
+CodeQL license. The standard CodeQL terms describe permitted uses, including
+conditions for Open Source Codebases and automated analysis. Private CodeQL
+analysis requires appropriate paid customer authorization; an opt-in variable,
+a reachable API, or upload=false does not supply that authorization.
+
+Repository administrators must confirm the applicable paid customer license
+and permitted use before opting private code into CodeQL. A feature probe can
+check technical availability; it cannot interpret a contract or establish all
+legal rights. This preflight is not legal advice.
+
+Authoritative references:
+
+  GitHub CodeQL Terms and Conditions:
+  https://raw.githubusercontent.com/github/codeql-cli-binaries/main/LICENSE.md
+
+  About the CodeQL CLI:
+  https://docs.github.com/en/code-security/codeql-cli/getting-started-with-the-codeql-cli/about-the-codeql-cli
+
+Local CI and preflight gating
+
+The pre-push hook binds Git's actual destination and every non-deletion pushed
+ref to current HEAD and requires clean source. It then requires the executing
+Bun runtime and the bun resolved from PATH to match the exact .bun-version pin
+before destination-scoped security preflight or any local lane. After runtime
+validation and preflight pass, it runs only immutable verify:core: static
+checks plus unit, contract, and operations tests. A failed prerequisite,
+preflight, core gate, or final unchanged-HEAD/clean-source check blocks the
+push. Missing core prerequisites, stale artifacts checked by core, or source
+mutation must be fixed without bypassing the hook.
+
+Full verify/ci and hosted CI retain all five lanes. CI-specific core runs
+static checks plus scoped E2E helpers; coverage runs unit/contract/operations
+once with all four 100% thresholds unchanged. Integration, graph, and browser
+remain mandatory hosted checks and explicit full-verification lanes. Hosted
+graph builds fresh output before verification. Environment-heavy prerequisites
+are not required for every pre-push.
+
+Acceptance requires documented exact-head technical review of the full
+helper/generator/generated-artifact trust boundary and hosted consumers, plus
+real successful current required checks. Independent GitHub approval is
+required only when effective repository/organization rules require it and
+must qualify for the final head. Unknown or incompatible rules block
+acceptance. Preserve required check names/app identities and strict
+up-to-date checks; never invent approval, bypass protections, or grant access
+or change settings to obtain a merge. Successor publication remains held
+until the public follow-up is accepted.
+
+An explicitly unconfigured private licensed capability is reported as not
+configured/not run and is not treated as successful analysis. Any actual
+security-preflight failure blocks the push; local lane results cannot erase it.
+
+Local execution cannot reproduce hosted GitHub Actions exactly: event context,
+runner environment, repository settings, credentials, and token permissions
+can differ or change after the check. The preflight verifies only the bounded,
+read-only facts available at check time. It cannot guarantee a later hosted
+analysis, publication, or code-scanning upload will succeed.
+
+Fork and Dependabot pull-request tokens
+
+GitHub's write-to-read token downgrade preserves the read permissions needed
+by preflight: security-events: read permits listing code-scanning alerts, and
+contents: read permits dependency comparison. The helper uses GET only. An
+actual 401/403 remains a blocking failure; neither actor nor event converts it
+to a successful probe or not-configured state.
+
+Native CodeQL upload has a separate pull_request authorization exception for
+read-only tokens. Keep real upload failures blocking and retain private license
+and capability gates. Do not grant fork write tokens or use pull_request_target.
+
+Permission reference:
+https://raw.githubusercontent.com/github/docs/main/data/reusables/actions/github-token-scope-descriptions.md
+Upload reference:
+https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible

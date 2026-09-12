@@ -5,23 +5,28 @@ import { describe, expect, it } from "vitest"
 
 type Step = {
   uses?: string
-  if?: string
   with?: Record<string, unknown>
-  "continue-on-error"?: boolean | string
 }
 type Job = {
-  if?: string
-  permissions: Record<string, string>
+  name: string
   strategy?: { "fail-fast": boolean; matrix: { language: string[] } }
   steps: Step[]
-  "continue-on-error"?: boolean | string
 }
 type Workflow = { jobs: Record<string, Job> }
 
 const policies = [
-  { file: "codeql", job: "analyze", variable: "DF_CODEQL_ENABLED" },
-  { file: "dependency-review", job: "dependency-review", variable: "DF_DEPENDENCY_REVIEW_ENABLED" },
-  { file: "scorecard", job: "scorecard", variable: "DF_SCORECARD_ENABLED" },
+  {
+    file: "codeql", job: "analyze", name: "Analyze (${{ matrix.language }})",
+    jobs: ["security-policy", "analyze"],
+  },
+  {
+    file: "dependency-review", job: "dependency-review", name: "Dependency Review",
+    jobs: ["security-policy", "dependency-review"],
+  },
+  {
+    file: "scorecard", job: "scorecard", name: "Scorecard analysis",
+    jobs: ["security-policy", "scorecard"],
+  },
 ]
 const sources = await Promise.all(policies.map(({ file }) =>
   readFile(new URL(`../../.github/workflows/${file}.yml`, import.meta.url), "utf8")
@@ -44,160 +49,51 @@ const jobAt = (workflowIndex: number, jobName: string): Job =>
   throw new Error(`workflow ${workflowIndex} job ${jobName} is missing`) unless job?
   job
 
-// Evaluate only the comparisons and boolean operators used by these real guards.
-// Actions compares strings case-insensitively; absent context properties are null.
-const selected = (
-  expression: unknown,
-  visibility: unknown,
-  variables: Record<string, unknown>,
-): boolean =>
-  if (typeof expression !== "string") throw new Error("Missing job-level capability expression")
-  const source = expression.match(/^\$\{\{\s*(.*?)\s*\}\}$/)?.[1]
-  throw new Error "expression did not expose a wrapped condition" unless source?
-  const reduced = source.replace(
-    /(toJSON\(github\.event\.repository\.private\)|vars\.(DF_[A-Z_]+))\s*==\s*'(true|false)'/g,
-    (_match, operand: string, variable: string | undefined, expected: string) =>
-      const value = operand.startsWith("toJSON(")
-        ? JSON.stringify(visibility ?? null)
-        : variables[variable ?? ""]
-      return String(typeof value === "string" && value.toLowerCase() === expected)
-  )
-  if (!/^(?:true|false|\s|&&|\|\||[()])+$/.test(reduced))
-    throw new Error("Unsupported capability expression syntax")
-  return Function(`"use strict"; return (${reduced});`)() as boolean
+const parseAction = (value: string): readonly [string, string] =>
+  expect(value).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/)
+  const [action, ref] = value.split("@")
+  throw new Error(`malformed action reference ${value}`) unless action? and ref?
+  [action, ref]
 
-const actionStep = (job: Job, action: string): Step =>
-  const matches = job.steps.filter (step) => step.uses?.startsWith(`${action}@`)
-  expect(matches, `${action} appears exactly once`).toHaveLength 1
-  const [match] = matches
-  throw new Error(`${action} match is missing`) unless match?
-  match
-
-const requireFailurePropagation = (value: Job | Step): void =>
-  expect([undefined, false]).toContain(value["continue-on-error"])
-
-const requireUnconditional = (step: Step): void =>
-  expect(step.if).toBeUndefined()
-  requireFailurePropagation(step)
-
+// Canonical security-preflight tests own exact opt-ins, positive probes and
+// honest not-run outcomes; security-workflows tests own the helper's execution
+// and publication gates. Do not emulate weaker Actions string comparisons here.
 describe("hosted security capability policy", () =>
-  it.each([
-    ["public, enabled selection", false, "true", true],
-    ["public, disabled selection", false, "false", true],
-    ["public, missing selection", false, undefined, true],
-    ["public, null selection", false, null, true],
-    ["public, malformed selection", false, "yes", true],
-    ["private, explicit opt-in", true, "true", true],
-    ["private, explicit opt-out", true, "false", false],
-    ["private, missing selection", true, undefined, false],
-    ["private, null selection", true, null, false],
-    ["private, empty selection", true, "", false],
-    ["private, unrecognized selection", true, "yes", false],
-    ["private, padded selection", true, " true ", false],
-    ["private, boolean instead of variable string", true, true, false],
-    // Bootstrap rejects casing drift separately; the Actions guard cannot do so.
-    ["private, Actions case-insensitive comparison", true, "TRUE", true],
-    ["null visibility", null, "true", false],
-    ["missing visibility", undefined, "true", false],
-    ["string public visibility", "false", "true", false],
-    ["string private visibility", "true", "true", false],
-    ["numeric visibility", 0, "true", false],
-  ])("%s", (_label, visibility, configured, expected) =>
-    policies.forEach((policy, index) =>
-      const variables = { [policy.variable]: configured }
-      expect(selected(jobAt(index, policy.job).if, visibility, variables)).toBe(expected)
-    )
-  )
-
-  it.each(policies)("keeps $file capability ownership independent", (enabled) =>
-    const variables: Record<string, unknown> = {}
-    policies.forEach((policy) =>
-      variables[policy.variable] = policy == enabled ? "true" : "false"
-    )
+  it("preserves security check identities and both independent CodeQL languages", () =>
     policies.forEach((policy, index) =>
       const workflow = workflowAt(index)
-      expect(Object.keys(workflow.jobs)).toEqual([policy.job])
-      expect(selected(jobAt(index, policy.job).if, true, variables)).toBe(policy == enabled)
+      expect(Object.keys(workflow.jobs)).toEqual(policy.jobs)
+      expect(jobAt(index, policy.job).name).toBe(policy.name)
     )
-  )
-
-  it("keeps the CodeQL language matrix exact", () =>
-    expect(jobAt(0, "analyze").strategy).toEqual({
+    const codeql = jobAt(0, "analyze")
+    expect(codeql.strategy).toEqual({
       "fail-fast": false,
       matrix: { language: ["javascript-typescript", "actions"] },
     })
+    const init = codeql.steps.find((step) => step.uses?.startsWith("github/codeql-action/init@"))
+    const analyze = codeql.steps.find((step) => step.uses?.startsWith("github/codeql-action/analyze@"))
+    expect(init?.with?.["languages"]).toBe("${{ matrix.language }}")
+    expect(analyze?.with?.["category"]).toBe("/language:${{ matrix.language }}")
   )
 
-  it("keeps Scorecard publication conditional for private repositories", () =>
-    const scorecard = jobAt(2, "scorecard")
-    const publication = actionStep(scorecard, "ossf/scorecard-action").with?.["publish_results"]
-    expect(publication).toBe("\${{ toJSON(github.event.repository.private) == 'false' }}")
-  )
-
-  it("keeps every action immutable and the CodeQL sub-actions on one release", () =>
-    const actionRefs: [string, string][] = []
-    const codeqlRefs: string[] = []
-    const codeqlActions: string[] = []
-    workflows.forEach((workflow) =>
-      Object.values(workflow.jobs).forEach((job) =>
-        job.steps.forEach((step) =>
-          if (!step.uses) return
-          expect(step.uses).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/)
-          const [action, ref] = step.uses.split("@")
-          throw new Error(`Malformed action reference ${step.uses}`) unless action? and ref?
-          actionRefs.push([action, ref])
-          if (action.startsWith("github/codeql-action/"))
-            codeqlActions.push(action)
-            codeqlRefs.push(ref)
+  it("keeps CodeQL analysis and ingestion on the same immutable action release", () =>
+    const codeqlActions = workflows.flatMap((workflow) =>
+      Object.values(workflow.jobs).flatMap((job) =>
+        job.steps.flatMap((step): string[] =>
+          const uses = step.uses
+          uses ? [uses] : []
         )
       )
-    )
-    actionRefs.forEach(([action, ref]) =>
-      expect(ref, action).toMatch(/^[0-9a-f]{40}$/)
-    )
-    expect(new Set(codeqlActions)).toEqual(new Set([
+    ).map(parseAction).filter(([action]) => action.startsWith("github/codeql-action/"))
+    expect(new Set(codeqlActions.map(([action]) => action))).toEqual(new Set([
       "github/codeql-action/init",
       "github/codeql-action/analyze",
       "github/codeql-action/upload-sarif",
     ]))
-    expect(new Set(codeqlRefs).size).toBe(1)
-  )
-
-  it("keeps the mandated action-specific fail-closed settings", () =>
-    policies.forEach((policy, index) =>
-      const job = jobAt(index, policy.job)
-      expect(job.permissions["contents"]).toBe("read")
-      requireFailurePropagation(job)
-      job.steps.forEach(requireFailurePropagation)
-      const checkout = actionStep(job, "actions/checkout")
-      expect(checkout.with?.["persist-credentials"]).toBe(false)
-    )
-
-    const codeql = jobAt(0, "analyze")
-    const dependencyReview = jobAt(1, "dependency-review")
-    const scorecard = jobAt(2, "scorecard")
-    for (const job of [codeql, scorecard])
-      expect(job.permissions["security-events"]).toBe("write")
-
-    const init = actionStep(codeql, "github/codeql-action/init")
-    const analyze = actionStep(codeql, "github/codeql-action/analyze")
-    requireUnconditional(init)
-    requireUnconditional(analyze)
-    expect(init.with?.["languages"]).toBe("\${{ matrix.language }}")
-    expect(analyze.with?.["category"]).toBe("/language:\${{ matrix.language }}")
-    expect([undefined, "always"]).toContain(analyze.with?.["upload"])
-
-    const review = actionStep(dependencyReview, "actions/dependency-review-action")
-    requireUnconditional(review)
-    expect(review.with?.["fail-on-severity"]).toBe("high")
-    expect([undefined, false, "false"]).toContain(review.with?.["warn-only"])
-
-    const scan = actionStep(scorecard, "ossf/scorecard-action")
-    const upload = actionStep(scorecard, "github/codeql-action/upload-sarif")
-    requireUnconditional(scan)
-    requireUnconditional(upload)
-    expect(scan.with?.["results_format"]).toBe("sarif")
-    expect(scan.with?.["results_file"]).toBe("results.sarif")
-    expect(upload.with?.["sarif_file"]).toBe(scan.with?.["results_file"])
+    const refs = [...new Set(codeqlActions.map(([, ref]) => ref))]
+    expect(refs).toHaveLength(1)
+    const [ref] = refs
+    throw new Error "CodeQL action release is missing" unless ref?
+    expect(ref).toMatch(/^[a-f\d]{40}$/i)
   )
 )

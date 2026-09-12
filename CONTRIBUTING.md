@@ -77,6 +77,8 @@ Complete the pull request template with:
 - risks, limitations, and follow-up work that affect review; and
 - documentation or generated-artifact updates required by the change.
 
+Before merge, document technical review of the exact final head and the full relevant source boundary, resolved findings, actual current required-check results, and limitations. Independent GitHub approval is required only where effective repository/organization rules require it; unknown or incompatible rules block acceptance. Preserve required check names/app identities and strict up-to-date checks. Do not use admin bypass, fabricated approval, access grants, or settings changes to manufacture acceptance. Security-bootstrap review includes the complete helper/generator/generated-artifact boundary and hosted consumers. Successor publication remains held until the public follow-up is accepted.
+
 Do not include credentials, tokens, private keys, session data, personal data, or unredacted environment and provider output in commits, issues, logs, or pull request artifacts.
 
 By submitting a contribution, you agree that it may be distributed under the repository's [MIT License](LICENSE).

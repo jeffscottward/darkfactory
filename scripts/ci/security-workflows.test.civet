@@ -1,0 +1,275 @@
+import { readFile } from "node:fs/promises"
+import { describe, expect, it } from "vitest"
+
+const scopes = ["codeql", "scorecard", "dependency-review"] as const
+const workflows = Object.fromEntries(await Promise.all(scopes.map(async (scope) =>
+  [scope, await readFile(new URL(`../../.github/workflows/${scope}.yml`, import.meta.url), "utf8")] as const
+))) as Record<typeof scopes[number], string>
+
+// Follow the lifecycle contract's step-block extraction without depending on
+// an undeclared YAML parser. Select by action/id, not presentation labels.
+const steps = (workflow: string): string[] =>
+  workflow.split(/^ {6}- /m).slice(1).map((step) =>
+    const nextJob = step.search(/^ {2}[A-Za-z0-9_-]+:\s*$/m)
+    if nextJob === -1 then step else step.slice(0, nextJob)
+  )
+
+const stepMatching = (workflow: string, pattern: RegExp): string =>
+  const matches = steps(workflow).filter((step) => pattern.test(step))
+  expect(matches).toHaveLength(1)
+  matches[0]!
+
+const actionStep = (workflow: string, action: string): string =>
+  const matches = steps(workflow).filter((step) => step.includes(`uses: ${action}@`))
+  expect(matches).toHaveLength(1)
+  matches[0]!
+
+const jobMatching = (workflow: string, id: string): string =>
+  const jobs = workflow.split(/^jobs:\s*$/m)[1]!
+  const matches = jobs.split(/^ {2}(?=[A-Za-z0-9_-]+:\s*$)/m)
+    .filter((job) => job.startsWith(`${id}:\n`))
+  expect(matches).toHaveLength(1)
+  matches[0]!
+
+const jobScalar = (job: string, key: string): string =>
+  const values = [...job.matchAll(new RegExp(`^ {4}${key}: ([^\\n]+)$`, "gm"))]
+  expect(values).toHaveLength(1)
+  values[0]![1]!.trim()
+
+const scalar = (step: string, key: string): string =>
+  const values = [...step.matchAll(new RegExp(`^ +${key}: ([^\\n]+)$`, "gm"))]
+  expect(values).toHaveLength(1)
+  values[0]![1]!.trim()
+
+const expression = (value: string): string =>
+  value.replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "").trim()
+
+const jobConditions = (workflow: string): string[] =>
+  [...workflow.matchAll(/^ {4}if: ([^\n]+)$/gm)]
+    .map((match) => expression(match[1]!.trim()))
+
+const codeqlJobGuard = "!cancelled() && (needs.security-policy.result != 'success' || needs.security-policy.outputs.codeql_enabled == 'true')"
+const dependencyReviewJobGuard = "!cancelled() && (needs.security-policy.result != 'success' || needs.security-policy.outputs.dependency_review_enabled == 'true')"
+const expectedJobConditions = (scope: typeof scopes[number]): string[] =>
+  if scope === "codeql"
+    [codeqlJobGuard]
+  else if scope === "dependency-review"
+    [dependencyReviewJobGuard]
+  else
+    ["!cancelled()"]
+const forbiddenJobSkip = /\b(?:github\.actor|github\.repository_visibility|github\.event\.repository\.(?:private|visibility)|github\.event\.pull_request\.head\.repo\.fork|dependabot)\b/i
+
+const conjuncts = (value: string): string[] =>
+  expression(value).split(/\s*&&\s*/).map((part) => part.trim()).sort()
+
+const policyStep = (workflow: string): string =>
+  stepMatching(workflow, /^ {8}id: security-policy$/m)
+
+const policyFailureStep = (workflow: string): string =>
+  stepMatching(workflow, /^ {8}id: policy-failure$/m)
+
+const uploadConditions = (scope: "codeql" | "scorecard"): string[] => [
+  "!cancelled()",
+  "needs.security-policy.outputs.upload_enabled == 'true'",
+  ...(scope === "codeql" ? [] : ["needs.security-policy.result == 'success'"]),
+  "steps.analysis.outcome == 'success'",
+].sort()
+
+describe("security workflow safety contracts", () =>
+  it.each(scopes)("runs the scoped helper without masking policy failure in %s", (scope) =>
+    const workflow = workflows[scope]
+    const policy = policyStep(workflow)
+    expect(scalar(policy, "run").split(/\s+/)).toEqual([
+      "node", "scripts/ci/generated/security-preflight.mjs", "workflow", "--workflow", scope,
+    ])
+    expect(expression(scalar(policy, "GH_TOKEN"))).toBe("github.token")
+    for (const flag of [
+      "DF_CODEQL_ENABLED",
+      "DF_CODE_SCANNING_UPLOAD_ENABLED",
+      "DF_DEPENDENCY_REVIEW_ENABLED",
+    ])
+      expect(expression(scalar(policy, flag))).toBe(`vars.${flag}`)
+    expect(policy).not.toMatch(/^ +if:/m)
+    expect(workflow).not.toMatch(/^ +continue-on-error:/m)
+    expect(workflow).not.toMatch(/\|\|\s*(?:true|:)|\bexit\s+0\b|\bset\s+\+e\b/)
+    // Outside cancellation, only a successful trusted policy without exact
+    // enabled output may skip analysis jobs; policy errors must fail the
+    // protected checks. Actor and visibility bypasses are forbidden.
+    const conditions = jobConditions(workflow)
+    expect(conditions).toEqual(expectedJobConditions(scope))
+    for (const condition of conditions)
+      expect(condition).not.toMatch(forbiddenJobSkip)
+    expect(workflow).toMatch(/^permissions: \{\}$/m)
+  )
+
+  it.each(["codeql", "dependency-review"] as const)(
+    "executes trusted base policy before any PR analysis in %s",
+    (scope) =>
+      const workflow = workflows[scope]
+      const allSteps = steps(workflow)
+      const policy = policyStep(workflow)
+      const trustedCheckout = allSteps[0]!
+      expect(trustedCheckout).toContain("uses: actions/checkout@")
+      const ref = expression(scalar(trustedCheckout, "ref"))
+      expect(ref.split(/\s*\|\|\s*/)).toEqual(
+        scope === "codeql"
+          ? ["github.event.pull_request.base.sha", "github.sha"]
+          : ["github.event.pull_request.base.sha"],
+      )
+      expect(allSteps.indexOf(trustedCheckout)).toBeLessThan(allSteps.indexOf(policy))
+      for (const checkout of allSteps.filter((step) => step.includes("uses: actions/checkout@")))
+        expect(scalar(checkout, "persist-credentials")).toBe("false")
+      expect(workflow).toMatch(/^ {2}pull_request:/m)
+      expect(workflow).not.toMatch(/^ {2}pull_request_target:/m)
+  )
+
+  it.each(["codeql", "dependency-review"] as const)(
+    "fails the protected consumer before any operation when policy does not succeed in %s",
+    (scope) =>
+      const workflow = workflows[scope]
+      const consumer = jobMatching(workflow, scope === "codeql" ? "analyze" : "dependency-review")
+      const failure = policyFailureStep(workflow)
+      expect(steps(consumer)[0]).toBe(failure)
+      expect(conjuncts(scalar(failure, "if"))).toEqual([
+        "!cancelled()", "needs.security-policy.result != 'success'",
+      ].sort())
+      // Permit only a literal diagnostic and a failing exit, not another
+      // executable or interpolated data that could bypass the failure.
+      expect(scalar(failure, "run")).toMatch(/^echo "[A-Za-z .]+"; exit 1$/)
+  )
+
+  it("gates the CodeQL matrix on trusted policy without masking analysis failures", () =>
+    const workflow = workflows.codeql
+    const allSteps = steps(workflow)
+    const policy = policyStep(workflow)
+    const policyJob = jobMatching(workflow, "security-policy")
+    const analyzeJob = jobMatching(workflow, "analyze")
+    const analysisCheckout = allSteps.filter((step) => step.includes("uses: actions/checkout@"))[1]!
+    const initialize = actionStep(workflow, "github/codeql-action/init")
+    const analyze = actionStep(workflow, "github/codeql-action/analyze")
+    expect(expression(scalar(policyJob, "codeql_enabled"))).toBe(
+      "steps.security-policy.outputs.codeql_enabled",
+    )
+    expect(expression(scalar(policyJob, "upload_enabled"))).toBe(
+      "steps.security-policy.outputs.upload_enabled",
+    )
+    expect(jobScalar(analyzeJob, "needs")).toBe("security-policy")
+    expect(expression(jobScalar(analyzeJob, "if"))).toBe(codeqlJobGuard)
+    expect(analysisCheckout).toBeDefined()
+    // Restore the event's normal checkout only after evaluating trusted policy.
+    expect(analysisCheckout).not.toMatch(/^ +ref:/m)
+    for (const step of [analysisCheckout, initialize, analyze])
+      expect(step).not.toMatch(/^ +if:/m)
+      expect(allSteps.indexOf(step)).toBeGreaterThan(allSteps.indexOf(policy))
+    expect(allSteps.indexOf(analysisCheckout)).toBeLessThan(allSteps.indexOf(initialize))
+    expect(allSteps.indexOf(initialize)).toBeLessThan(allSteps.indexOf(analyze))
+    expect(scalar(analyze, "upload")).toBe("never")
+    expect(scalar(analyze, "id")).toBe("analysis")
+    const artifact = actionStep(workflow, "actions/upload-artifact")
+    const upload = actionStep(workflow, "github/codeql-action/upload-sarif")
+    expect(scalar(artifact, "path")).toBe(scalar(analyze, "output"))
+    expect(scalar(upload, "sarif_file")).toBe(scalar(analyze, "output"))
+    expect(scalar(upload, "category")).toBe(scalar(analyze, "category"))
+  )
+
+  it("runs Scorecard after policy failure without publishing private or unverified results", () =>
+    const workflow = workflows.scorecard
+    const allSteps = steps(workflow)
+    const policyJob = jobMatching(workflow, "security-policy")
+    const scorecardJob = jobMatching(workflow, "scorecard")
+    const trustedCheckout = actionStep(policyJob, "actions/checkout")
+    const checkout = actionStep(scorecardJob, "actions/checkout")
+    const policy = policyStep(workflow)
+    const analysis = actionStep(workflow, "ossf/scorecard-action")
+    expect(jobScalar(scorecardJob, "needs")).toBe("security-policy")
+    expect(expression(jobScalar(scorecardJob, "if"))).toBe("!cancelled()")
+    expect(expression(scalar(trustedCheckout, "ref"))).toBe("github.sha")
+    expect(scalar(trustedCheckout, "persist-credentials")).toBe("false")
+    expect(allSteps.indexOf(trustedCheckout)).toBeLessThan(allSteps.indexOf(policy))
+    for (const output of ["publish_results", "upload_enabled"])
+      expect(expression(scalar(policyJob, output))).toBe(`steps.security-policy.outputs.${output}`)
+    // Publishing verifies the whole action job: even a skipped run-only step
+    // invalidates it. Keep the trusted helper outside this approved-actions job.
+    for (const step of steps(scorecardJob))
+      expect(step).toMatch(/^ +uses:/m)
+      expect(step).not.toMatch(/^ +run:/m)
+    expect(scalar(checkout, "id")).toBe("checkout")
+    expect(scalar(checkout, "persist-credentials")).toBe("false")
+    expect(allSteps.indexOf(policy)).toBeLessThan(allSteps.indexOf(checkout))
+    expect(allSteps.indexOf(policy)).toBeLessThan(allSteps.indexOf(analysis))
+    // A status function bypasses Actions' implicit success() after helper failure;
+    // no continue-on-error above means the original policy error stays red.
+    expect(conjuncts(scalar(analysis, "if"))).toEqual([
+      "!cancelled()",
+      "steps.checkout.outcome == 'success'",
+    ].sort())
+    expect(conjuncts(scalar(analysis, "publish_results"))).toEqual([
+      "needs.security-policy.result == 'success'",
+      "needs.security-policy.outputs.publish_results == 'true'",
+    ].sort())
+    expect(scalar(analysis, "id")).toBe("analysis")
+    expect(scalar(analysis, "results_format")).toBe("sarif")
+    const artifact = actionStep(workflow, "actions/upload-artifact")
+    const upload = actionStep(workflow, "github/codeql-action/upload-sarif")
+    expect(scalar(artifact, "path")).toBe(scalar(analysis, "results_file"))
+    expect(scalar(upload, "sarif_file")).toBe(scalar(analysis, "results_file"))
+  )
+
+  it.each(["codeql", "scorecard"] as const)(
+    "retains generated SARIF before independently gated ingestion in %s",
+    (scope) =>
+      const workflow = workflows[scope]
+      const allSteps = steps(workflow)
+      const artifact = actionStep(workflow, "actions/upload-artifact")
+      const upload = actionStep(workflow, "github/codeql-action/upload-sarif")
+      const analysis = stepMatching(workflow, /^ {8}id: analysis$/m)
+      const sarifPath = scalar(artifact, "path")
+      const artifactGlob = scope === "codeql" ? `${sarifPath}/**/*.sarif` : sarifPath
+      expect(conjuncts(scalar(artifact, "if"))).toEqual([
+        "always()", `hashFiles('${artifactGlob}') != ''`,
+      ].sort())
+      expect(scalar(artifact, "if-no-files-found")).toBe("error")
+      expect(scalar(artifact, "retention-days")).toBe("7")
+      expect(allSteps.indexOf(analysis)).toBeLessThan(allSteps.indexOf(artifact))
+      expect(allSteps.indexOf(artifact)).toBeLessThan(allSteps.indexOf(upload))
+      expect(conjuncts(scalar(upload, "if"))).toEqual(uploadConditions(scope))
+      // Repository-owned artifacts must not opt into another destination or a
+      // public artifact service, and expire after the seven-day evidence window.
+      expect(artifact).not.toMatch(/^ +(?:repository|github-token|public|publish|publish_results):/m)
+  )
+
+  it("gates Dependency Review on trusted policy and propagates analysis failures", () =>
+    const workflow = workflows["dependency-review"]
+    const policy = policyStep(workflow)
+    const policyJob = jobMatching(workflow, "security-policy")
+    const reviewJob = jobMatching(workflow, "dependency-review")
+    const review = actionStep(workflow, "actions/dependency-review-action")
+    expect(expression(scalar(policyJob, "dependency_review_enabled"))).toBe(
+      "steps.security-policy.outputs.dependency_review_enabled",
+    )
+    expect(jobScalar(reviewJob, "needs")).toBe("security-policy")
+    expect(expression(jobScalar(reviewJob, "if"))).toBe(dependencyReviewJobGuard)
+    expect(review).not.toMatch(/^ +if:/m)
+    expect(steps(workflow).indexOf(policy)).toBeLessThan(steps(workflow).indexOf(review))
+    expect(scalar(review, "fail-on-severity")).toBe("high")
+    expect(review).not.toMatch(/^ +(?:allow-ghsas|warn-only):/m)
+  )
+
+  it.each(scopes)("keeps %s publication inside the reviewed security destinations", (scope) =>
+    const workflow = workflows[scope]
+    const actions = steps(workflow).filter((step) => /^ +uses:/m.test(step))
+      .map((step) => scalar(step, "uses").split("@")[0])
+    const allowed = scope === "codeql"
+      ? ["actions/checkout", "actions/checkout", "github/codeql-action/init", "github/codeql-action/analyze", "actions/upload-artifact", "github/codeql-action/upload-sarif"]
+      : scope === "scorecard"
+        ? ["actions/checkout", "actions/checkout", "ossf/scorecard-action", "actions/upload-artifact", "github/codeql-action/upload-sarif"]
+        : ["actions/checkout", "actions/dependency-review-action"]
+    expect(actions).toEqual(allowed)
+    // Only the trusted policy helper and bounded failure diagnostic may run
+    // shell commands; SARIF cannot be sent to an unreviewed destination.
+    const allowedRunSteps = scope === "scorecard"
+      ? [policyStep(workflow)]
+      : [policyStep(workflow), policyFailureStep(workflow)]
+    expect(steps(workflow).filter((step) => /^ +run:/m.test(step))).toEqual(allowedRunSteps)
+  )
+)
