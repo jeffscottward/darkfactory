@@ -1,6 +1,8 @@
 import type { OwnedProcess } from "../../../scripts/e2e/owned-process-tree.civet"
 
-export class WorkerExitedBeforeReadinessError extends Error {}
+export class WorkerExitedBeforeReadinessError extends Error
+  constructor(message: string)
+    super(message)
 
 type WorkerStartupOptions = Readonly<{
   allocatePort: () => Promise<number>
