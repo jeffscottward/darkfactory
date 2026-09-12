@@ -1,0 +1,236 @@
+import { createServer } from "node:net"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  ownedProcessTreeExists,
+  spawnOwnedProcess,
+  terminateOwnedProcessTree,
+  type OwnedProcess,
+} from "../../../scripts/e2e/owned-process-tree.civet"
+import {
+  startWorkerWithRetry,
+  WorkerExitedBeforeReadinessError,
+} from "./worker-startup.civet"
+
+const exitedProcess = (exitCode: number | null = 1, signalCode: NodeJS.Signals | null = null): OwnedProcess =>
+  ({ exitCode, signalCode }) as OwnedProcess
+
+const bindError = (port: number): string => `Error: Port ${port} is already in use`
+
+const listen = async (server: ReturnType<typeof createServer>): Promise<number> =>
+  await new Promise<void>((resolve, reject) =>
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  )
+  const address = server.address()
+  if (address === null || typeof address === "string")
+    throw new Error("Missing contender address")
+  return address.port
+
+const close = async (server: ReturnType<typeof createServer>): Promise<void> =>
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve())
+  )
+
+const bindScript = `
+  import { createServer } from "node:net";
+  const port = Number(process.argv[1]);
+  const server = createServer();
+  server.once("error", (error) => {
+    console.error(error.code === "EADDRINUSE"
+      ? "Error: Port " + port + " is already in use"
+      : String(error));
+    process.exitCode = 1;
+  });
+  server.listen(port, "127.0.0.1", () => console.log("ready"));
+`
+
+describe("Worker startup bind retries", () =>
+  it("releases only the failed owned child before starting on another port", async () =>
+    const contender = createServer()
+    const heldPort = await listen(contender)
+    const children: OwnedProcess[] = []
+    const ports: number[] = []
+    let output = ""
+    let ready: Promise<void> = Promise.resolve()
+    try
+      await startWorkerWithRetry({
+        deadline: Date.now() + 10_000,
+        allocatePort: (async () =>
+          if (children.length === 0) return heldPort
+          expect(ownedProcessTreeExists(children[0]!)).toBe(false)
+          expect(contender.listening).toBe(true)
+          const reservation = createServer()
+          const port = await listen(reservation)
+          await close(reservation)
+          return port
+        ),
+        start: ((port) =>
+          output = ""
+          ports.push(port)
+          const child = spawnOwnedProcess(process.execPath, [
+            "--input-type=module", "--eval", bindScript, String(port),
+          ])
+          children.push(child)
+          ready = new Promise<void>((resolve, reject) =>
+            const timeout = setTimeout(() => reject(new Error("Bind fixture timed out")), 5_000)
+            child.stdout.on("data", (chunk: Buffer) =>
+              output += chunk.toString()
+              if (output.includes("ready\n"))
+                clearTimeout(timeout)
+                resolve()
+            )
+            child.stderr.on("data", (chunk: Buffer) => output += chunk.toString())
+            child.once("error", (error) =>
+              clearTimeout(timeout)
+              reject(error)
+            )
+            child.once("exit", () =>
+              clearTimeout(timeout)
+              reject(new WorkerExitedBeforeReadinessError("Worker exited"))
+            )
+          )
+          return child
+        ),
+        waitForReady: async () => await ready,
+        stop: async (child) => await terminateOwnedProcessTree(child),
+        output: () => output,
+      })
+      expect(ports).toHaveLength(2)
+      expect(ports[0]).toBe(heldPort)
+      expect(ports[1]).not.toBe(heldPort)
+      expect(ownedProcessTreeExists(children[0]!)).toBe(false)
+      expect(ownedProcessTreeExists(children[1]!)).toBe(true)
+      expect(contender.listening).toBe(true)
+    finally
+      try
+        await Promise.all(children.map((child) => terminateOwnedProcessTree(child)))
+      finally
+        await close(contender)
+  , 15_000)
+
+  it("awaits cleanup and its final ANSI output before allocating again", async () =>
+    const first = exitedProcess()
+    const second = exitedProcess(null)
+    let output = ""
+    let finishCleanup: () => void = () => undefined
+    let cleanupStarted: () => void = () => undefined
+    const cleaning = new Promise<void>((resolve) => cleanupStarted = resolve)
+    const allocatePort = vi.fn().mockResolvedValueOnce(41001).mockResolvedValueOnce(41002)
+    const start = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const waitForReady = vi.fn()
+      .mockRejectedValueOnce(new WorkerExitedBeforeReadinessError("exited"))
+      .mockResolvedValueOnce(undefined)
+    const stop = vi.fn(async () =>
+      cleanupStarted()
+      await new Promise<void>((resolve) => finishCleanup = resolve)
+      output = `\u001b[31m${bindError(41001)}\u001b[0m\r\n`
+      return undefined
+    )
+    const startup = startWorkerWithRetry({
+      allocatePort, start, waitForReady, stop,
+      output: () => output,
+      deadline: Date.now() + 150_000,
+    })
+    await cleaning
+    expect(allocatePort).toHaveBeenCalledTimes(1)
+    finishCleanup()
+    await startup
+    expect(start.mock.calls).toEqual([[41001], [41002]])
+    expect(stop.mock.calls).toEqual([[first]])
+  )
+
+  it.each([
+    ["ordinary runtime failure", new Error("route returned 500"), 1, null, bindError(41001)],
+    ["wrong port", new WorkerExitedBeforeReadinessError("exited"), 1, null, bindError(41002)],
+    ["unrelated exit", new WorkerExitedBeforeReadinessError("exited"), 1, null, "missing dependency"],
+    ["embedded message", new WorkerExitedBeforeReadinessError("exited"), 1, null, `warning: ${bindError(41001)}`],
+    ["suffixed message", new WorkerExitedBeforeReadinessError("exited"), 1, null, `${bindError(41001)} elsewhere`],
+    ["clean exit", new WorkerExitedBeforeReadinessError("exited"), 0, null, bindError(41001)],
+    ["signal exit", new WorkerExitedBeforeReadinessError("exited"), null, "SIGTERM", bindError(41001)],
+    ["live child", new WorkerExitedBeforeReadinessError("exited"), null, null, bindError(41001)],
+  ] as const)("does not retry %s", async (_label, error, exitCode, signalCode, output) =>
+    const child = exitedProcess(exitCode, signalCode)
+    const allocatePort = vi.fn(async () => 41001)
+    const stop = vi.fn(async () => undefined)
+    await expect(startWorkerWithRetry({
+      allocatePort,
+      start: () => child,
+      waitForReady: (async () =>
+        throw error
+      ),
+      stop,
+      output: () => output,
+      deadline: Date.now() + 150_000,
+    })).rejects.toBe(error)
+    expect(allocatePort).toHaveBeenCalledTimes(1)
+    expect(stop.mock.calls).toEqual([[child]])
+  )
+
+  it("propagates cleanup failure without allocating another child", async () =>
+    const error = new Error("owned descendants remain")
+    const allocatePort = vi.fn(async () => 41001)
+    await expect(startWorkerWithRetry({
+      allocatePort,
+      start: () => exitedProcess(),
+      waitForReady: (async () =>
+        throw new WorkerExitedBeforeReadinessError("exited")
+      ),
+      stop: (async () =>
+        throw error
+      ),
+      output: () => bindError(41001),
+      deadline: Date.now() + 150_000,
+    })).rejects.toBe(error)
+    expect(allocatePort).toHaveBeenCalledTimes(1)
+  )
+
+  it("stops after three bind failures and preserves the final error", async () =>
+    const errors = [1, 2, 3].map((attempt) => new WorkerExitedBeforeReadinessError(`exit ${attempt}`))
+    const allocatePort = vi.fn(async () => 41001)
+    const stop = vi.fn(async () => undefined)
+    let attempt = 0
+    await expect(startWorkerWithRetry({
+      allocatePort,
+      start: () => exitedProcess(),
+      waitForReady: (async () =>
+        throw errors[attempt++]!
+      ),
+      stop,
+      output: () => bindError(41001),
+      deadline: Date.now() + 150_000,
+    })).rejects.toBe(errors[2])
+    expect(allocatePort).toHaveBeenCalledTimes(3)
+    expect(stop).toHaveBeenCalledTimes(3)
+  )
+
+  it("shares one absolute deadline and counts cleanup against its budget", async () =>
+    vi.useFakeTimers()
+    try
+      vi.setSystemTime(0)
+      const error = new WorkerExitedBeforeReadinessError("exited")
+      const deadlines: number[] = []
+      const allocatePort = vi.fn(async () => 41001)
+      let attempt = 0
+      await expect(startWorkerWithRetry({
+        allocatePort,
+        start: () => exitedProcess(),
+        waitForReady: (async (deadline) =>
+          deadlines.push(deadline)
+          vi.setSystemTime(++attempt * 40)
+          throw error
+        ),
+        stop: (async () =>
+          vi.setSystemTime(Date.now() + 20)
+          return undefined
+        ),
+        output: () => bindError(41001),
+        deadline: 100,
+      })).rejects.toBe(error)
+      expect(deadlines).toEqual([100, 100])
+      expect(allocatePort).toHaveBeenCalledTimes(2)
+      expect(Date.now()).toBe(100)
+    finally
+      vi.useRealTimers()
+  )
+)

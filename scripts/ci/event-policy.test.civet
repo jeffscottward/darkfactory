@@ -123,42 +123,31 @@ const cancels = (input: Event): boolean =>
   return Boolean(evaluate(expression![1]!, input))
 
 describe("CI event policy", () =>
-  it("validates all PR targets, main pushes and manual runs without duplicate branch pushes", () =>
-    expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push", "workflow_dispatch"])
+  it("validates all PR targets and explicit manual runs without automatic push runs", () =>
+    expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "workflow_dispatch"])
     expect(workflow.on["pull_request"] ?? {}).toEqual({})
-    expect(workflow.on["push"]).toEqual({ branches: ["main"] })
     expect(workflow.on["workflow_dispatch"] ?? {}).toEqual({})
     for (const action of ["opened", "synchronize", "reopened"])
       expect(selected(workflow, event({ action, base: "release", fork: true, actor: "contributor", paths: ["README.md"] }))).toBe(true)
       expect(selected(workflow, event({ action, actor: "dependabot[bot]" }))).toBe(true)
     expect(selected(workflow, event({ action: "closed" }))).toBe(false)
-    expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/main" }))).toBe(true)
+    expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/main", number: undefined }))).toBe(false)
     expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/dependabot/actions", number: undefined }))).toBe(false)
     expect(selected(workflow, event({ event_name: "push", ref: "refs/heads/feature", number: undefined }))).toBe(false)
     expect(selected(workflow, event({ event_name: "push", ref: "refs/tags/main" }))).toBe(false)
     expect(selected(workflow, event({ event_name: "workflow_dispatch", ref: "refs/heads/feature", number: undefined }))).toBe(true)
-    const renamed = structuredClone(workflow)
-    renamed.on["push"] = { branches: ["trunk"] }
-    expect(selected(renamed, event({ event_name: "push", ref: "refs/heads/trunk" }))).toBe(true)
-    expect(selected(renamed, event({ event_name: "push", ref: "refs/heads/main" }))).toBe(false)
+    expect(selected(workflow, event({ event_name: "workflow_dispatch", ref: "refs/tags/release", number: undefined }))).toBe(true)
   )
 
-  it("cancels superseded validation while isolating PRs, full refs, workflows and manual runs", () =>
+  it("cancels superseded PR validation while isolating PRs, workflows and manual runs", () =>
     const first = event()
     const next = event({ sha: "second", run_id: 101, action: "reopened" })
     expect(group(first)).toBe(group(next))
     expect(cancels(next)).toBe(true)
     expect(group(first)).not.toBe(group(event({ number: 18 })))
     expect(group(first)).not.toBe(group(event({ workflow: "Deploy" })))
-    const main = event({ event_name: "push", ref: "refs/heads/main", number: undefined })
-    expect(group(main)).toBe(group({ ...main, sha: "merged", run_id: 102 }))
-    expect(cancels(main)).toBe(true)
-    expect(group(main)).not.toBe(group({ ...main, ref: "refs/heads/release" }))
-    expect(group(main)).not.toBe(group({ ...main, ref: "refs/tags/main" }))
-    expect(group(main)).not.toBe(group(first))
-    const manual = { ...main, event_name: "workflow_dispatch" }
+    const manual = event({ event_name: "workflow_dispatch", ref: "refs/heads/main", number: undefined })
     expect(cancels(manual)).toBe(false)
-    expect(group(manual)).not.toBe(group(main))
     expect(group(manual)).not.toBe(group(first))
     expect(group(manual)).not.toBe(group({ ...manual, run_id: 103 }))
   )

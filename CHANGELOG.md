@@ -8,6 +8,8 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 - Project the safe active-session identity and owner-scoped dashboard summary from one authenticated oRPC context, removing `DashboardPage`'s separate session lookup.
 - Reuse identical portal and nested-administration session checks within one React server request.
+- Run the full five-lane CI matrix for PRs and explicit manual dispatch only, removing duplicate automatic post-merge runs while preserving strict required PR checks, 100% coverage, and independent default-branch security scans.
+- Distinguish merge acceptance through verified PR checks and exact merged-tree identity from operator-required manual full CI at the exact SHA before actual deployment.
 
 ### Security
 

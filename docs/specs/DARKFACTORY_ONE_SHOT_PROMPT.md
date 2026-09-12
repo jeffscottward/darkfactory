@@ -25,7 +25,7 @@ Do not stop at scaffolding. Continue until the working application, database, au
 5. Delegate independent phases to focused agents when the harness supports it. Give each agent exclusive file ownership and explicit dependencies.
 6. Keep commits small, focused, and reviewable.
 7. **Commit and push continuously, but only after the affected phase's green gate passes. Never push a known-red commit.**
-8. After every push, inspect GitHub Actions. Diagnose and repair repository-owned failures, push the focused fix only after its local gate is green, and repeat until CI is green.
+8. Follow every eligible PR/manual CI run and independently triggered security workflow to a terminal state. Diagnose and repair repository-owned failures, push the focused fix only after its local gate is green, and repeat until the latest required checks succeed. Heavy CI has no automatic push/post-merge run; do not create one solely for closeout or label intentional absence a check result.
 9. Never add a new service, datastore, provider SDK, abstraction, dependency, or optional capability merely because it is familiar.
 10. Do not leave stubs, no-ops, fake success paths, `TODO: implement`, disabled tests, or placeholder APIs in any v0.1 core behavior.
 11. Placeholder prose and imagery are allowed only for generic public-page content. Use `https://placehold.co/` for generic imagery and fake avatars/favicons where an original asset is unnecessary.
@@ -1169,22 +1169,19 @@ Keep `turbo.json` simple:
 
 Use least-privilege permissions and reviewed action releases pinned to immutable full 40-hex commit SHAs, never mutable major tags. Semantic setup tests must accept another valid reviewed pin while rejecting missing, mutable, or malformed pins and broken setup behavior; do not snapshot a release hash as a lifecycle requirement. Preserve Bun's `.bun-version` input, the declared pnpm version, `id: pnpm`, `run_install: false`, required setup order, frozen install, and browser consumption of pnpm setup output.
 
-Generate the CI event policy from the target repository's verified default branch:
+Generate the heavy CI event policy for PRs and explicit manual validation only:
 
 | Event | Full verification |
 | --- | --- |
 | `pull_request` | All PR targets and actors, including forks and docs-only changes. |
-| `push` | Only the actual default branch, including after merge. |
-| `workflow_dispatch` | Explicit full validation, isolated from automatic cancellation. |
-| Other branch push without a PR | No automatic CI; full manual validation remains available. |
+| `push` | No automatic heavy CI on any branch or tag, including after merge. An open PR receives its own `pull_request` validation. |
+| `workflow_dispatch` | Explicit full validation, isolated from automatic cancellation; required at the exact SHA before actual deployment. |
 
-For a repository whose verified default branch is `main`, generate:
+Generate this header regardless of the repository's default-branch name:
 
 ```yaml
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -1192,11 +1189,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 ```
 
-Substitute the actual default branch as a literal at generation time; event filters cannot use a runtime default-branch expression. Synchronize filters when that branch is renamed. Inspect effective protections/rulesets, merge-queue requirements, deployment event dependencies, and fork approval policy before applying the policy. Unknown obligations or requirements for removed events stop rollout rather than silently weakening checks.
+Inspect effective protections/rulesets, merge-queue requirements, deployment event dependencies, and fork approval policy before applying the policy. Unknown obligations or requirements for removed events stop rollout rather than silently weakening checks. Do not generate a heavy-CI default-branch push filter. Security workflows retain their independent events, including applicable default-branch and scheduled scans; do not change their guards or uploads as part of heavy-CI scheduling.
 
 Do not add path filters, actor exclusions, docs-only skips, conditional lane omissions, or `pull_request_target`. Preserve read-only tokens, `persist-credentials: false`, secret isolation, and approval boundaries for fork PRs. Keep the stable required contexts `Verification (core)`, `Verification (coverage)`, `Verification (integration)`, `Verification (graph)`, and `Verification (browser)`, with all five lanes concurrent and `fail-fast: false`; no serial matrix limit. Validation concurrency groups use workflow plus PR number or full ref, not SHA/run ID/event name except the isolated manual run-ID branch above. Distinct PRs/refs remain independent. This is validation-only cancellation, never deployment policy.
 
 Superseded/cancelled validation is not passed validation: merge eligibility requires the latest revision's complete successful required-check set. Cancellation must not hide a known failure. Fix deterministic failures; for a single verified transient failure at unchanged SHA, rerun only failed jobs and necessary dependencies, not successful independent lanes. Waiting approval, blocked, unknown, and skipped checks are not green.
+
+Merge acceptance records the latest reviewed PR head's successful required checks and exact identity between its Git tree and the resulting merged tree. Record both commit SHAs and the shared tree identity, never an invented merge-SHA run. The absent automatic main matrix is intentional, not a green, missing, or skipped check. Unexpected direct-main changes require explicit full manual validation at their exact SHA before acceptance.
+
+Before actual deployment, explicitly dispatch full `ci.yml` on a branch or tag resolving to the intended deployment SHA. Verify the observed run's `head_sha` equals that SHA and all five lanes succeed. Do not assume a dispatch accepts an arbitrary commit SHA or treat the request itself as evidence. This is operator policy, not a gate in the current deployment CLI; preserve authorization, least privilege, environment approval, untrusted-PR secret isolation, runtime probes, and rollback evidence. Any future deployment workflow must enforce successful exact-SHA verification without depending on an automatic post-merge event.
 
 Follow the approved solo-maintainer policy in `AGENTS.md`: `required_approving_review_count: 0`, `require_last_push_approval: false`, documented exact-head technical review, and actual verification. Preserve every effective required check identity/app, strict up-to-date checks, and other protection. Read effective repository/organization rules and read back any explicitly authorized changes; prose does not prove live settings. Require independent approval only when configured by effective rules. Never invent approval, use admin bypass, grant access, or silently change policy. Review the complete security helper/generator/generated-artifact boundary, not just a corrective diff. The runtime helper is not consumed by hosted workflows; its bytes establish neither approval nor scan/ingestion evidence.
 
@@ -1264,14 +1265,18 @@ pre-push validation
 ↓
 push
 ↓
-GitHub CI follow-through
+PR CI follow-through and exact-head review
 ↓
-deployment only after green
+merge and exact merged-tree identity receipt
+↓
+explicit full manual CI at intended deployment SHA
+↓
+authorized deployment only after all five lanes succeed
 ```
 
 The order may be optimized for fast failure locally, but no gate is omitted from the full `verify`/`ci` contract. Run focused gates during development and the full affected-phase gate before committing. **Never accumulate the whole build into one unreviewable final commit. Never push red work just to let CI diagnose it.**
 
-After an eligible validation event (PR, default-branch push, or explicit manual run), follow its checks. A feature-branch push without a PR has no expected automatic CI: do not wait for nonexistent checks or label their absence green. For eligible events:
+After an eligible validation event (PR or explicit manual run), follow its checks. Ordinary pushes, including default-branch merges, have no expected automatic heavy CI: do not wait for nonexistent runs, call absence green/missing/skipped, or manufacture a second matrix solely for merge closeout. Follow independently triggered security checks under their unchanged policy. For eligible heavy-CI events:
 
 ```text
 inspect checks
@@ -1409,7 +1414,7 @@ Acceptance:
 - CI invokes the same scripts as local `bun run ci`.
 - Disabled capabilities are truthful and dependencies are absent.
 
-Commit/push only after this gate is green; follow CI to green.
+Commit/push only after this gate is green; follow the PR's required checks to success under the event policy above.
 
 ### Phase 2 — Database, contracts, auth, and core ports
 
@@ -1443,7 +1448,7 @@ Acceptance:
 - oRPC contract and OpenAPI are generated and consumable.
 - Analytics/OTel/evlog/email/AI adapters obey ports, redact data, and have deterministic tests.
 
-Make focused commits per integrated owner after its dependent green gate; push and follow CI each time.
+Make focused commits per integrated owner after its dependent green gate; push to the PR and follow its required checks each time.
 
 ### Phase 3 — Shared UI, themes, public site, and portal shell
 
@@ -1477,7 +1482,7 @@ Browser acceptance:
 - Verify portal sidebar/header, sign-in/out, role-aware navigation, forms, empty/error/loading states.
 - Verify light/dark/system and ten schemes persist with no hydration flash.
 
-Commit by coherent surface only after green; push and follow CI.
+Commit by coherent surface only after green; push to the PR and follow its required checks.
 
 ### Phase 4 — Feature stub and generators
 
@@ -1511,7 +1516,7 @@ Acceptance:
 - Generator plans, generates, verifies, updates graph/contracts/docs, and refuses overwrite without partial damage.
 - Feature stub is domain-neutral and removable by documented steps.
 
-Commit/push only after green; follow CI.
+Commit/push only after green; follow the PR's required checks.
 
 ### Phase 5 — Local HTTPS, Graphify, capability workflow, docs
 
@@ -1541,7 +1546,7 @@ Browser/smoke acceptance:
 - Verify manifest/docs say optional services are disabled and not installed.
 - Verify `AGENTS.md` continually references `https://ui.shadcn.com/blocks` and includes the complete constitution.
 
-Commit/push only after green; follow CI.
+Commit/push only after green; follow the PR's required checks.
 
 ### Phase 6 — Full-system hardening and release evidence
 
@@ -1566,7 +1571,7 @@ Acceptance:
 - No console errors, failed network requests, certificate warnings, hydration errors, or accessibility blockers in exercised paths.
 - All generated files are current.
 - `bun run ci` matches GitHub Actions.
-- Latest pushed commit has green CI.
+- Latest reviewed PR head has successful required checks; merge closeout additionally records exact merged-tree identity, not an automatic main-CI result.
 - Evidence bundle and definition-of-done checklist are complete.
 
 Only then create/tag the v0.1 release candidate according to repository policy. Do not deploy to production or make a public release without the required repository/user authorization.
@@ -1588,7 +1593,7 @@ Produce an inspectable implementation report containing:
 - Screenshots of representative public and portal routes across responsive widths, light/dark, and representative schemes; record the complete ten-scheme automated matrix.
 - HTTPS URL, SAN/trust verification, and secure-cookie observation without private key output.
 - Example correlated OTel/evlog/analytics events with identifiers/PII redacted.
-- CI run URL and terminal green conclusion.
+- PR/manual CI run URLs, exact verified SHAs, attempts, and successful lane conclusions; for merge acceptance, both commit SHAs and exact shared tree identity; for actual deployment, separate full manual CI with observed `head_sha` equal to the intended deployment SHA.
 - Any unverified external deployment prerequisite explicitly marked; never turn it into a fabricated success claim.
 
 ## 23. Definition of done
@@ -1628,7 +1633,7 @@ DarkFactory v0.1 is done only when all statements are true:
 - [ ] Browser verification found no unresolved console/network/hydration/certificate/accessibility blocker.
 - [ ] No secrets, private keys, generated alternate lockfiles, debug artifacts, placeholders in core behavior, or fake fallbacks are committed.
 - [ ] Changes were committed in focused increments only after green gates.
-- [ ] Every pushed increment's repository-owned CI failures were followed through; final CI is green.
+- [ ] Every eligible PR/manual run's repository-owned failures were followed through; the latest reviewed PR's required checks succeed, with exact merged-tree identity recorded after merge. Independent security obligations remain satisfied; any actual deployment has separate successful full manual exact-SHA CI.
 - [ ] Evidence is inspectable and claims match observations.
 
 ## 24. Post-build Shannon and continuing SDLC TODOs
@@ -1647,7 +1652,7 @@ Create a post-build TODO with:
 - Inputs: repository/source access, target URL, allowed routes, seeded admin/member credentials supplied securely, explicit authorization/scope, rate/concurrency limits, exploitation boundaries, and stop conditions.
 - Safety: isolated database, disposable seed data, no real Resend/Groq/PostHog production credentials, no destructive external integrations, and preserved logs/artifacts.
 - Evidence: tool version/commit, configuration, start/end time, findings, reproduction steps, severity, false-positive disposition, and report location.
-- Remediation loop: fix P0/P1 and exploitable auth/authorization/secret/injection findings before release; add regression tests; rerun focused and full security checks; push only after normal green gates; follow CI to green; rerun Shannon to prove closure where safe.
+- Remediation loop: fix P0/P1 and exploitable auth/authorization/secret/injection findings before release; add regression tests; rerun focused and full security checks; push only after normal green gates; follow eligible PR/manual CI and independent security checks to success; rerun Shannon to prove closure where safe.
 - Ownership and stop condition: named owner; complete only when findings are triaged, accepted risk is explicitly documented, fixes have regression coverage, and the authorized rerun is recorded.
 
 Do not mark Shannon complete merely because it launched. Do not weaken controls to make the scanner pass.
@@ -1659,7 +1664,7 @@ Use `https://www.youtube.com/watch?v=VQy50fuxI34` as the explicit source for the
 Create durable TODOs with owner, trigger, command, evidence, and stop condition for:
 
 1. A continuing agentic software-factory loop derived from `https://www.youtube.com/watch?v=VQy50fuxI34`, translated into concrete DarkFactory triggers, agent ownership, executable scripts, evidence, escalation rules, and stop conditions.
-2. Repeat the standard loop for every change: focused TDD → affected gates → Graphify/OpenAPI/docs freshness → focused commit → pre-push → push → CI follow-through.
+2. Repeat the standard loop for every change: focused TDD → affected gates → Graphify/OpenAPI/docs freshness → focused commit → pre-push → PR checks and review → merge/tree receipt. Require separate full manual exact-SHA CI before actual deployment, not an automatic post-merge rerun.
 3. Periodic dependency/provider compatibility review, especially vinext/Vite/Cloudflare/Alchemy/Civet, without automatic architecture churn.
 4. Periodic database extension/provider capability review before enabling any Postgres extension.
 5. Authorized security review and Shannon rerun after material auth/API/storage/admin/deployment changes.
@@ -1667,10 +1672,10 @@ Create durable TODOs with owner, trigger, command, evidence, and stop condition 
 7. Seed and production-guard verification before releases.
 8. Optional capability activation only through a decision record, manifest change, environment validation, working adapter, tests, docs, and measurable justification.
 9. Graphify refresh after features, symbols, contracts, relationships, or architecture change.
-10. CI/deployment watcher with an explicit green/no-checks/blocker stop condition after each push to an open PR.
+10. Follow each open PR revision's required checks with an explicit success/blocker stop condition; missing required checks block acceptance. Track independent security events separately. Intentional absence of heavy main CI is not a check result; actual deployment requires successful full manual CI at the intended SHA.
 
 A TODO is not evidence. Include it only after v0.1 is demonstrably working, and never use it to defer a requirement in the definition of done.
 
 ## Final execution instruction
 
-Begin with reconnaissance and the classified checklist. Then implement in dependency order, using parallel agents only with exclusive ownership. At each phase, run the observable acceptance commands and browser scenarios, commit a focused green increment, push it, and follow GitHub CI until green. Continue through the full-system gate, evidence report, definition-of-done audit, and post-build TODO creation. Stop only when DarkFactory v0.1 is complete end to end or when a genuinely external prerequisite is proven unreachable; if blocked, finish every independent requirement and report the exact missing prerequisite, attempted evidence, and safe next action.
+Begin with reconnaissance and the classified checklist. Then implement in dependency order, using parallel agents only with exclusive ownership. At each phase, run the observable acceptance commands and browser scenarios, commit a focused green increment, push it to the PR, and follow its required checks until successful. Continue through the full-system gate, evidence report, definition-of-done audit, and post-build TODO creation. Merge closeout uses exact merged-tree identity with the latest reviewed PR evidence, not duplicate automatic heavy CI; actual deployment needs separate manual exact-SHA full validation. Stop only when DarkFactory v0.1 is complete end to end or when a genuinely external prerequisite is proven unreachable; if blocked, finish every independent requirement and report the exact missing prerequisite, attempted evidence, and safe next action.
