@@ -85,6 +85,9 @@ for (const viewport of viewportCases) {
       await expect(
         page.getByRole("navigation", { name: "Mobile navigation" })
       ).toBeHidden();
+      // Radix restores focus to the trigger after the close settles; wait for
+      // it so that late restoration cannot steal focus from the theme menu.
+      await expect(navigationTrigger).toBeFocused();
     } else {
       await expect(navigationTrigger).toHaveCount(0);
       await expect(
