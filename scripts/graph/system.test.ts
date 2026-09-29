@@ -2253,7 +2253,7 @@ describe("Graphify configured source corpus", () => {
       isGraphSourceExcluded("coverage/coverage-summary.json", excludes)
     ).toBe(true);
     expect(
-      isGraphSourceExcluded("scripts/coverage/coverage.civet", excludes)
+      isGraphSourceExcluded("scripts/coverage/coverage.ts", excludes)
     ).toBe(false);
     expect(
       isGraphSourceExcluded(

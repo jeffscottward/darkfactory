@@ -182,9 +182,7 @@ describe("DF-069 live feature registration", () => {
       return liveFiles(plan).find((file) => file.path === path)!.content;
     };
     const migration = contentOf("packages/db/migrations/0000_order_items.sql");
-    const schema = contentOf(
-      "packages/db/src/generated/order-item/schema.civet"
-    );
+    const schema = contentOf("packages/db/src/generated/order-item/schema.ts");
 
     expect(AUTH_USER_IDENTITY).toMatchObject({
       table: "user",

@@ -21,13 +21,9 @@ const BASE_URL = "https://darkfactory.localhost";
 const AUTH_SECRET = "lifecycle-integration-secret-at-least-32-characters";
 const PROJECT_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const execFileAsync = promisify(execFile);
-const CIVET_REGISTER_DEPRECATION =
-  /\(node:\d+\) \[DEP0205\] DeprecationWarning: `module\.register\(\)` is deprecated\. Use `module\.registerHooks\(\)` instead\.\n(?:\(Use `node --trace-deprecation \.\.\.` to show where the warning was created\)\n)?/g;
 
 const expectNoUnexpectedStderr = (stderr: string): void => {
-  const unexpected = stderr
-    .replace(CIVET_REGISTER_DEPRECATION, "")
-    .replace(/\s/gu, "");
+  const unexpected = stderr.replace(/\s/gu, "");
   expect(JSON.stringify(unexpected)).toBe('""');
 };
 const TABLES = [

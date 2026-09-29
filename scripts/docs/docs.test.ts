@@ -35,8 +35,8 @@ const manifests = new Map([
       name: "@darkfactory/api",
       version: "0.1.0",
       exports: {
-        ".": "./src/index.civet",
-        "./server": "./src/server/index.civet",
+        ".": "./src/index.ts",
+        "./server": "./src/server/index.ts",
       },
       dependencies: { "@darkfactory/db": "workspace:*", zod: "catalog:" },
     }),

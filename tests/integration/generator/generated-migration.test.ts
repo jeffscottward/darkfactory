@@ -244,7 +244,7 @@ describe("generated feature migration on real Postgres", () => {
   it("matches drizzle-kit output for the generated Drizzle schema", async () => {
     const drizzleKit = await loadDrizzleKit();
     const schema = (await import(
-      generatedPath(`packages/db/src/generated/${FEATURE}/schema.civet`)
+      generatedPath(`packages/db/src/generated/${FEATURE}/schema.ts`)
     )) as Readonly<Record<string, unknown>>;
     const previous = drizzleKit.generateDrizzleJson({ users });
     const current = drizzleKit.generateDrizzleJson(
@@ -262,7 +262,7 @@ describe("generated feature migration on real Postgres", () => {
 
   it("stores rows for a real user through the generated repository", async () => {
     const module = (await import(
-      generatedPath(`packages/db/src/generated/${FEATURE}/repository.civet`)
+      generatedPath(`packages/db/src/generated/${FEATURE}/repository.ts`)
     )) as Readonly<{
       createOrderItemRepository: (
         database: DatabaseExecutor

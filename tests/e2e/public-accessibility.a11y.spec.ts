@@ -106,7 +106,7 @@ const installExpectedErrorConsoleNormalization = async (
         typeof first === "string" &&
         first.startsWith("The above error occurred in a React component:") &&
         (first.includes("at RecoverableErrorFixture") ||
-          first.includes("/recoverable-error-fixture.civet-"));
+          first.includes("/recoverable-error-fixture-"));
       if (isFixtureComponentError) {
         fixtureFollowupPending = false;
         console.error = reportConsoleError;
