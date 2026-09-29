@@ -4,6 +4,10 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
+### Changed
+
+- vinext and `@vinext/cloudflare` 1.0.0 (stable), up from 1.0.0-beta.13 and beta.11. `bun run doctor` expects the new versions, and an invariant test keeps its expected versions equal to the pnpm catalog.
+
 ## [0.3.1] - 2026-09-29
 
 Security fix release. Covers [#40](https://github.com/jeffscottward/darkfactory/pull/40), [#43](https://github.com/jeffscottward/darkfactory/pull/43), [#46](https://github.com/jeffscottward/darkfactory/pull/46), [#47](https://github.com/jeffscottward/darkfactory/pull/47) and [#48](https://github.com/jeffscottward/darkfactory/pull/48). If you built the operator verifier image with 0.3.0 or earlier, follow the rebuild steps under Security.

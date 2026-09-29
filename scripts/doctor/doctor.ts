@@ -480,13 +480,15 @@ const environmentChecks = (
   return Object.freeze(checks);
 };
 
-const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
+// Expected installed versions; toolchain-invariants.test.ts keeps them equal
+// to the pnpm-workspace.yaml catalog.
+export const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
   ["node_modules/typescript/package.json", "7.0.2"],
   ["node_modules/turbo/package.json", "2.11.5"],
   ["node_modules/vitest/package.json", "5.0.2"],
   ["node_modules/@playwright/test/package.json", "1.63.0"],
-  ["apps/web/node_modules/vinext/package.json", "1.0.0-beta.13"],
-  ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0-beta.11"],
+  ["apps/web/node_modules/vinext/package.json", "1.0.0"],
+  ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0"],
   ["apps/web/node_modules/vite/package.json", "8.3.1"],
 ];
 
