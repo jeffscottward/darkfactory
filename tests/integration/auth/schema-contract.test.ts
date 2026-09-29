@@ -89,7 +89,7 @@ const compareRequiredContract = (
   }
 };
 
-describe("Better Auth 1.6.24 generated schema contract", () => {
+describe("Better Auth generated schema contract", () => {
   it("matches required physical tables, columns, constraints, defaults, hooks, FKs, and indexes", () => {
     compareRequiredContract(generatedUser, users);
     compareRequiredContract(generatedSession, sessions);

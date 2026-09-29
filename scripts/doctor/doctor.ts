@@ -429,7 +429,7 @@ const PROBE_CHECKS: Readonly<
       "portless",
       "bunx",
       ["--bun", "--no-install", "portless", "--version"],
-      exactVersion("0.13.0")
+      exactVersion("0.15.6")
     ),
     await inspectPortlessRoute(dependencies),
     // Route and trust pass only while `bun run dev` is serving; see
@@ -491,12 +491,12 @@ const environmentChecks = (
 
 const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
   ["node_modules/typescript/package.json", "6.0.2"],
-  ["node_modules/turbo/package.json", "2.10.6"],
-  ["node_modules/vitest/package.json", "4.1.10"],
-  ["node_modules/@playwright/test/package.json", "1.61.1"],
+  ["node_modules/turbo/package.json", "2.11.5"],
+  ["node_modules/vitest/package.json", "4.1.11"],
+  ["node_modules/@playwright/test/package.json", "1.63.0"],
   ["apps/web/node_modules/vinext/package.json", "1.0.0-beta.3"],
   ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0-beta.3"],
-  ["apps/web/node_modules/vite/package.json", "8.1.5"],
+  ["apps/web/node_modules/vite/package.json", "8.3.1"],
 ];
 
 const inspectPinnedToolchain = async (
