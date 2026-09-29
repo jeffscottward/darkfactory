@@ -91,13 +91,11 @@ describe("operator development lifecycle", () => {
       [WEB_DEVELOPMENT_PROFILE.processName, 7],
       [OPERATOR_DEVELOPMENT_PROFILE.processName, 19],
     ]);
-    const calls: Array<
-      Readonly<{
-        command: string;
-        arguments: readonly string[];
-        options?: CommandOptions | undefined;
-      }>
-    > = [];
+    const calls: Readonly<{
+      command: string;
+      arguments: readonly string[];
+      options?: CommandOptions | undefined;
+    }>[] = [];
 
     const processList = (): string =>
       JSON.stringify([
@@ -278,12 +276,10 @@ describe("operator development lifecycle", () => {
   it("waits for the canonical route to become healthy after a new PM2 start", async () => {
     let online = false;
     let routeProbes = 0;
-    const calls: Array<
-      Readonly<{
-        command: string;
-        arguments: readonly string[];
-      }>
-    > = [];
+    const calls: Readonly<{
+      command: string;
+      arguments: readonly string[];
+    }>[] = [];
     const respond = async (
       command: string,
       arguments_: readonly string[]

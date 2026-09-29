@@ -154,7 +154,7 @@ export const synchronizeRetainedFeatureItem = async (
   ) {
     return retainedItem;
   }
-  return gateway.update(retainedItem.id, {
+  return await gateway.update(retainedItem.id, {
     name,
     description: input.description,
   });

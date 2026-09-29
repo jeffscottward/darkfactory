@@ -27,12 +27,13 @@ const consentCookie = (
     if (name !== "analytics_consent") continue;
     values.push(segment.slice(separator + 1));
   }
-  if (values.length === 0) return { present: false, malformed: false };
-  if (values.length !== 1) {
+  const [cookieValue, ...duplicateValues] = values;
+  if (cookieValue === undefined) return { present: false, malformed: false };
+  if (duplicateValues.length > 0) {
     return { present: true, malformed: true };
   }
 
-  const value = canonicalConsent(values[0]!);
+  const value = canonicalConsent(cookieValue);
   return value === undefined
     ? { present: true, malformed: true }
     : { present: true, value, malformed: false };
@@ -68,6 +69,18 @@ export const configuredOtlpAllowedHosts = (
   }
 };
 
+const scheduleTelemetryFlush = (
+  telemetry: TelemetryRuntime,
+  waitUntil: WaitUntil
+): void => {
+  try {
+    waitUntil(telemetry.forceFlush().catch(() => undefined));
+  } catch (error) {
+    if (typeof error !== "object" || error === null) throw error;
+    // Request completion and domain results never depend on provider flushing.
+  }
+};
+
 export const runWithRequestTelemetry = async <T>(
   telemetry: TelemetryRuntime,
   input: SpanInput,
@@ -96,11 +109,6 @@ export const runWithRequestTelemetry = async <T>(
     }
     return await operation;
   } finally {
-    try {
-      waitUntil(telemetry.forceFlush().catch(() => undefined));
-    } catch (error) {
-      if (typeof error !== "object" || error === null) throw error;
-      // Request completion and domain results never depend on provider flushing.
-    }
+    scheduleTelemetryFlush(telemetry, waitUntil);
   }
 };

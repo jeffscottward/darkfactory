@@ -8,7 +8,9 @@ const utf8Encoder = new TextEncoder();
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonArray = readonly JsonValue[];
-export type JsonObject = { readonly [key: string]: JsonValue };
+export interface JsonObject {
+  readonly [key: string]: JsonValue;
+}
 export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
 
 export type JsonCompatible<Value> = Value extends JsonPrimitive
@@ -30,10 +32,10 @@ export type JobPayloadSnapshot =
   | Readonly<{ status: "valid"; payload: JsonObject }>
   | Readonly<{ status: "invalid" }>;
 
-type SnapshotState = {
+interface SnapshotState {
   bytes: number;
   ancestors: Set<object>;
-};
+}
 
 const addBytes = (state: SnapshotState, bytes: number): void => {
   state.bytes += bytes;

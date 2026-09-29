@@ -154,8 +154,9 @@ export const createRecordingTelemetry = (
     },
     withSpan,
     forceFlush: async () => undefined,
-    dispose: async () => {
+    dispose: () => {
       disposed = true;
+      return Promise.resolve();
     },
   };
 };

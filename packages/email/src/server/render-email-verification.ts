@@ -58,6 +58,7 @@ const assertTrustedVerificationUrl = (
   const queryKeys = [...verificationUrl.searchParams.keys()];
   const tokens = verificationUrl.searchParams.getAll("token");
   const callbackValues = verificationUrl.searchParams.getAll("callbackURL");
+  const [callbackValue] = callbackValues;
   if (
     verificationUrl.origin !== trustedUrl.origin ||
     verificationUrl.username !== "" ||
@@ -69,14 +70,15 @@ const assertTrustedVerificationUrl = (
     queryKeys[1] !== "callbackURL" ||
     tokens.length !== 1 ||
     !VERIFICATION_TOKEN_PATTERN.test(tokens[0] ?? "") ||
-    callbackValues.length !== 1
+    callbackValues.length !== 1 ||
+    callbackValue === undefined
   ) {
     throw trustedVerificationUrlError();
   }
 
   let callbackUrl: URL;
   try {
-    callbackUrl = new URL(callbackValues[0]!, trustedUrl);
+    callbackUrl = new URL(callbackValue, trustedUrl);
   } catch {
     throw trustedVerificationUrlError();
   }
@@ -110,6 +112,7 @@ const assertValidVerificationInput = (
   );
 };
 
+// biome-ignore lint/suspicious/useAwait: async keeps the promise contract so synchronous validation failures reject instead of throwing.
 export const renderEmailVerificationEmail = async (
   input: EmailVerificationEmailInput,
   options: RenderEmailVerificationEmailOptions = {}

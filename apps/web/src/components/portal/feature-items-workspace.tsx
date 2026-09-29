@@ -222,12 +222,13 @@ export const FeatureItemsWorkspace = ({
       {archiveFailure === null ? null : (
         <FeatureRecoveryAction
           kind={archiveFailure.kind}
-          onRetry={() => setArchiveCandidate(failedArchiveItem!)}
+          onRetry={() => setArchiveCandidate(failedArchiveItem)}
           returnHref="/feature-items"
         />
       )}
 
       {archiveCandidate === null ? null : (
+        // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Escape handling for key events that bubble from the confirmation buttons.
         <section
           aria-describedby="archive-confirmation-description"
           aria-labelledby="archive-confirmation-title"

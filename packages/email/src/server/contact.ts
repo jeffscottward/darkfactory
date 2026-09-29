@@ -263,6 +263,3 @@ export const selectContactEmailPort = (
     contactFailure("disabled", "CONTACT_DELIVERY_DISABLED")
   );
 };
-
-export { createPreviewContactEmailPort, renderContactEmail };
-export type { PreviewContactEmailPortOptions, RenderedContactEmail };

@@ -19,7 +19,7 @@ export const createRecordingAiPort = (
     get requests(): readonly AiRequest[] {
       return requests;
     },
-    generateText: async (request: AiRequest): Promise<AiResult> => {
+    generateText: (request: AiRequest): Promise<AiResult> => {
       requests.push(
         Object.freeze(
           request.signal === undefined
@@ -27,7 +27,7 @@ export const createRecordingAiPort = (
             : { prompt: request.prompt, signal: request.signal }
         )
       );
-      return result;
+      return Promise.resolve(result);
     },
   });
 };

@@ -1,19 +1,19 @@
 import type { FeatureItemOutput } from "@darkfactory/api";
-import type { ReactElement } from "react";
+import type { EffectCallback, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const hookRuntime = vi.hoisted(() => {
-  type Effect = () => void | (() => void);
-  type EffectSlot = {
+  type Effect = EffectCallback;
+  interface EffectSlot {
     cleanup?: (() => void) | undefined;
     deps: readonly unknown[] | undefined;
-  };
-  type PendingEffect = {
+  }
+  interface PendingEffect {
     deps: readonly unknown[] | undefined;
     effect: Effect;
     index: number;
-  };
+  }
 
   const stateSlots: Array<{ value: unknown }> = [];
   const refSlots: Array<{ current: unknown }> = [];
@@ -52,7 +52,7 @@ const hookRuntime = vi.hoisted(() => {
       for (const child of node) {
         visitElements(child, visit, seen);
       }
-      return undefined;
+      return;
     }
     if (typeof node !== "object" || node === null || seen.has(node)) return;
     seen.add(node);
@@ -92,23 +92,17 @@ const hookRuntime = vi.hoisted(() => {
     },
     commit: (tree: unknown) => {
       assignRefs(tree);
-      const results = [];
       for (const pending of pendingEffects.splice(0)) {
         effectSlots[pending.index]?.cleanup?.();
         const cleanup = pending.effect();
-        results.push(
-          (effectSlots[pending.index] = {
-            cleanup: typeof cleanup === "function" ? cleanup : undefined,
-            deps: pending.deps,
-          })
-        );
+        effectSlots[pending.index] = {
+          cleanup: typeof cleanup === "function" ? cleanup : undefined,
+          deps: pending.deps,
+        };
       }
-      return results;
     },
     unmount: () => {
-      const results1 = [];
-      for (const slot of effectSlots) results1.push(slot.cleanup?.());
-      return results1;
+      for (const slot of effectSlots) slot.cleanup?.();
     },
     lastFocus: (): string | undefined => focusHistory.at(-1),
     reset: () => {

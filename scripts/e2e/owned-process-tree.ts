@@ -17,12 +17,12 @@ export type TerminateOwnedProcessOptions = Readonly<{
   platform?: NodeJS.Platform;
 }>;
 const terminationPromises = new WeakMap<ChildProcess, Promise<void>>();
-type OwnedProcessState = {
+interface OwnedProcessState {
   readonly closeWaiters: Set<() => void>;
   closed: boolean;
   groupAbsent: boolean;
   readonly pid: number | undefined;
-};
+}
 const ownedProcessStates = new WeakMap<ChildProcess, OwnedProcessState>();
 const MAX_TIMEOUT_MILLISECONDS = 2_147_483_647;
 

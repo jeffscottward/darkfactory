@@ -921,7 +921,6 @@ describe("OMP CLI adapter", () => {
       .spyOn(process, "platform", "get")
       .mockReturnValue("darwin");
     try {
-      const results = [];
       for (const [index, scenario] of scenarios.entries()) {
         resetWPFilesystemDelegates();
         mocks.WP3realpathDelegate = async (actual, path, ...arguments_) => {
@@ -991,18 +990,15 @@ describe("OMP CLI adapter", () => {
           }
           return actual(path, ...arguments_);
         };
-        results.push(
-          await expect(
-            createOmpCliAdapter({ repositoriesRoot }).execute(
-              requestFor({ workspaceId: `unsafe-apple-git-${index}` })
-            )
-          ).rejects.toMatchObject({
-            name: "OmpConfigurationError",
-            message: "OMP git executable is unavailable",
-          })
-        );
+        await expect(
+          createOmpCliAdapter({ repositoriesRoot }).execute(
+            requestFor({ workspaceId: `unsafe-apple-git-${index}` })
+          )
+        ).rejects.toMatchObject({
+          name: "OmpConfigurationError",
+          message: "OMP git executable is unavailable",
+        });
       }
-      return results;
     } finally {
       resetWPFilesystemDelegates();
       platform.mockRestore();
@@ -3763,7 +3759,7 @@ describe("OMP CLI adapter", () => {
     });
     const processKill = vi
       .spyOn(process, "kill")
-      .mockImplementation((_pid: number, signal?: string | number) => {
+      .mockImplementation((_pid: number, _signal?: string | number) => {
         const error = new Error("gone") as NodeJS.ErrnoException;
         error.code = "ESRCH";
         throw error;

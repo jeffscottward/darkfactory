@@ -101,7 +101,6 @@ export const inspectAndCloseOwnedMarker = async (
       before.uid !== owner.uid ||
       before.gid !== owner.gid ||
       before.nlink !== 1 ||
-      // biome-ignore lint/suspicious/noBitwiseOperators: verifies POSIX permission bits.
       (before.mode & 0o777) !== 0o600
     ) {
       throw invalidMarker();
@@ -135,7 +134,6 @@ export const assertStableOwnedLifecycleRoot = async (
   try {
     await assertDirectory(path);
     const rootFlags =
-      // biome-ignore lint/suspicious/noBitwiseOperators: combines POSIX file flags.
       constants.O_RDONLY |
       requireFileFlag(constants.O_DIRECTORY) |
       requireFileFlag(constants.O_NOFOLLOW);
@@ -143,7 +141,6 @@ export const assertStableOwnedLifecycleRoot = async (
     const rootBefore = await root.stat();
     if (
       !rootBefore.isDirectory() ||
-      // biome-ignore lint/suspicious/noBitwiseOperators: verifies the private root mode.
       (rootBefore.mode & 0o777) !== 0o700 ||
       expected.root.dev !== rootBefore.dev ||
       expected.root.ino !== rootBefore.ino
@@ -155,7 +152,6 @@ export const assertStableOwnedLifecycleRoot = async (
     // and marker identities are pinned and checked again below.
     const marker = await open(
       join(path, ownerFile),
-      // biome-ignore lint/suspicious/noBitwiseOperators: combines POSIX file flags.
       constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW)
     );
     await inspectAndCloseOwnedMarker(

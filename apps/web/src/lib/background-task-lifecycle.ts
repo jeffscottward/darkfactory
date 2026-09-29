@@ -39,7 +39,8 @@ export const createBackgroundTaskLifecycle = (
   };
 
   const finalize = (): Promise<void> => {
-    return (finalization ??= drainAndClose());
+    finalization ??= drainAndClose();
+    return finalization;
   };
 
   return Object.freeze({ schedule, finalize });

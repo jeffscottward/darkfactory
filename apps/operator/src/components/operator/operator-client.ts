@@ -280,7 +280,8 @@ export const createOperatorIdempotencyKeySlot = (
     currentKey = null;
   };
   const key = (): string => {
-    return (currentKey ??= createKey());
+    currentKey ??= createKey();
+    return currentKey;
   };
   return Object.freeze({ invalidate, key });
 };

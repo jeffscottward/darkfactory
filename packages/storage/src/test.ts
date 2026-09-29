@@ -23,6 +23,7 @@ export interface RecordingStoragePort extends StoragePort {
 const ByteArray = Uint8Array;
 const apply = Reflect.apply;
 const typedArrayPrototype = Object.getPrototypeOf(ByteArray.prototype);
+// biome-ignore lint/style/noNonNullAssertion: ECMAScript defines %TypedArray%.prototype.byteLength as an accessor property.
 const byteLengthGetter = Object.getOwnPropertyDescriptor(
   typedArrayPrototype,
   "byteLength"
@@ -58,7 +59,7 @@ export const createRecordingStoragePort = (
     operations.push(Object.freeze({ operation, key }));
   };
 
-  const put = async (
+  const put = (
     input: PutObjectInput
   ): Promise<StorageResult<ObjectMetadata>> => {
     const key = input.key;
@@ -81,22 +82,22 @@ export const createRecordingStoragePort = (
       body: copyBytes(body),
     });
 
-    return { status: "ok", value: copyMetadata(metadata) };
+    return Promise.resolve({ status: "ok", value: copyMetadata(metadata) });
   };
 
-  const get = async (key: string): Promise<StorageResult<StoredObject>> => {
+  const get = (key: string): Promise<StorageResult<StoredObject>> => {
     record("get", key);
     const object = objects.get(key);
-    if (!object) return { status: "not-found" };
+    if (!object) return Promise.resolve({ status: "not-found" });
 
-    return { status: "ok", value: copyStoredObject(object) };
+    return Promise.resolve({ status: "ok", value: copyStoredObject(object) });
   };
 
-  const remove = async (key: string): Promise<StorageResult<DeletedObject>> => {
+  const remove = (key: string): Promise<StorageResult<DeletedObject>> => {
     record("delete", key);
-    if (!objects.delete(key)) return { status: "not-found" };
+    if (!objects.delete(key)) return Promise.resolve({ status: "not-found" });
 
-    return { status: "ok", value: { deleted: true } };
+    return Promise.resolve({ status: "ok", value: { deleted: true } });
   };
 
   const getOperations = (): readonly StorageOperation[] => {

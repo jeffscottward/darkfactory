@@ -1,3 +1,5 @@
+import { required } from "../lib/required.ts";
+
 export type CapabilityClassification = Readonly<{
   required: readonly string[];
   optional: readonly string[];
@@ -36,7 +38,7 @@ export const parseCapabilityManifest = (
 
     const match = rawLine.trim().match(/^([A-Za-z0-9_]+):(?:\s*(.*))?$/);
     if (!match) throw manifestError(`has invalid syntax on line ${index + 1}`);
-    const key = match[1]!;
+    const key = required(match[1], "manifest key");
     const rawValue = match[2] ?? "";
     const depth = indentation / 2;
     if (depth > stack.length)
@@ -53,7 +55,10 @@ export const parseCapabilityManifest = (
       /^\{\s*enabled:\s*(true|false|development)\s*\}$/
     );
     if (inlineEnabled) {
-      values[`${path}.enabled`] = inlineEnabled[1]!;
+      values[`${path}.enabled`] = required(
+        inlineEnabled[1],
+        "manifest enabled value"
+      );
     } else values[path] = parseScalar(rawValue);
   }
 
@@ -88,7 +93,7 @@ export const parseCapabilityManifest = (
   for (const [path, value] of Object.entries(values)) {
     if (!path.endsWith(".enabled")) continue;
     if (path.startsWith("developer_tools.") && value === "development") {
-      optional.add(path.split(".")[1]!);
+      optional.add(required(path.split(".")[1], "developer tool name"));
     }
     if (path.startsWith("capabilities.") && value === "false") {
       disabled.add(path.slice("capabilities.".length, -".enabled".length));

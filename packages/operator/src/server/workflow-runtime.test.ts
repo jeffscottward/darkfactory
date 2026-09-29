@@ -328,14 +328,10 @@ const fakeRepository = (): FakeRepository => {
         nextCursor: null,
       }),
     listMessagesByOwner: async (runId: string, ownerId: string) => {
-      const ownedMessages = [];
-      for (const candidate of messages.values()) {
-        if (
-          candidate.runId === runId &&
-          runs.get(runId)?.run.ownerId === ownerId
-        )
-          ownedMessages.push(candidate);
-      }
+      const ownedMessages = [...messages.values()].filter(
+        (candidate) =>
+          candidate.runId === runId && runs.get(runId)?.run.ownerId === ownerId
+      );
       return Object.freeze({
         items: Object.freeze(ownedMessages),
         nextCursor: null,
@@ -398,7 +394,7 @@ const portFor = (
     repository: fake.repository,
     authorizeRepository: (ownerId, repositoryId) => {
       const grants = repositoryGrants.get(ownerId);
-      return grants !== undefined && grants.includes(repositoryId);
+      return grants?.includes(repositoryId) ?? false;
     },
     now: () => NOW,
   });

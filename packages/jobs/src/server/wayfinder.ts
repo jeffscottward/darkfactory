@@ -33,6 +33,7 @@ import {
   truncateOmpUtf8,
 } from "./omp.ts";
 import { MAX_WORKFLOW_PLAN_SUMMARY_BYTES } from "./plan-evidence.ts";
+import { required } from "./required.ts";
 
 export const WAYFINDER_TRACKER = "local-markdown" as const;
 export const WAYFINDER_SKILL_PATH = join(
@@ -605,7 +606,10 @@ const canonicalWayfinderResult = (
   const trackerHasRedaction = artifact.entries.some((entry) =>
     entry.content.includes("[REDACTED]")
   );
-  const map = artifact.entries.find((entry) => entry.path === "map.md")!;
+  const map = required(
+    artifact.entries.find((entry) => entry.path === "map.md"),
+    "Wayfinder map entry"
+  );
   const review = [
     "# Wayfinder plan",
     map.content.trim(),

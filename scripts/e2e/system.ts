@@ -260,7 +260,9 @@ const trustedArchiveExecutable = async (
         const canonical = await realpath(candidate);
         await access(canonical, constants.X_OK);
         return canonical;
-      } catch {}
+      } catch {
+        // Untrusted candidate: continue with the next trusted location.
+      }
     }
     throw new Error(`Trusted ${name} executable is unavailable`);
   })();
@@ -1186,6 +1188,14 @@ const removeQuarantinedRoot = async (
   await rm(owned.quarantine, { force: true, recursive: true });
 };
 
+const removeArchiveSnapshot = async (directory: string): Promise<void> => {
+  try {
+    await rm(directory, { force: true, recursive: true });
+  } catch {
+    throw new ArtifactScannerCleanupError();
+  }
+};
+
 export const createArtifactScannerDependencies = async (
   repositoryPath: string,
   proof: OwnedRunProof,
@@ -1289,11 +1299,7 @@ export const createArtifactScannerDependencies = async (
           reserve
         );
       } finally {
-        try {
-          await rm(snapshot.directory, { force: true, recursive: true });
-        } catch {
-          throw new ArtifactScannerCleanupError();
-        }
+        await removeArchiveSnapshot(snapshot.directory);
       }
     }
     return [artifactEntry(relative(root, path), content)];
@@ -1302,7 +1308,7 @@ export const createArtifactScannerDependencies = async (
   const walk = async (path: string): Promise<readonly ArtifactEntry[]> => {
     if (Date.now() >= deadline)
       throw new Error("Artifact scan deadline exceeded");
-    let stats;
+    let stats: Awaited<ReturnType<typeof lstat>>;
     try {
       stats = await lstat(path);
     } catch (error) {

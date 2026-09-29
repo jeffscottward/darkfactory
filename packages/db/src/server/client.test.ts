@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const driver = vi.hoisted(() => {
   type DatabaseErrorListener = (error: unknown) => void;
-  type ClientDouble = {
+  interface ClientDouble {
     options: unknown;
     connect: ReturnType<typeof vi.fn<() => Promise<void>>>;
     emitError: (error: unknown) => void;
     on: ReturnType<typeof vi.fn>;
     end: ReturnType<typeof vi.fn>;
-  };
+  }
   const clients: ClientDouble[] = [];
   const pools: Array<{
     options: unknown;

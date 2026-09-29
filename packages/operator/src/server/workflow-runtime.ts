@@ -456,10 +456,7 @@ export const createOperatorWorkflowPort = (
       const existingIndex = projection.journal.findIndex(
         (entry) => entry.event.eventId === eventId
       );
-      const existing =
-        existingIndex === -1
-          ? undefined
-          : projection.journal[existingIndex]!.event;
+      const existing = projection.journal[existingIndex]?.event;
       if (
         existing !== undefined &&
         (existing.type !== "PLAN_REVISION_REQUESTED" ||
@@ -470,20 +467,19 @@ export const createOperatorWorkflowPort = (
 
       const event =
         existing?.type === "PLAN_REVISION_REQUESTED" ? existing : proposedEvent;
-      let ref;
+      let decisionSnapshot: typeof projection.snapshot;
       if (existingIndex === -1) {
-        ref = projection.snapshot;
+        decisionSnapshot = projection.snapshot;
       } else {
         const initial = createInitialWorkflowSnapshotV1({
           runId: input.runId,
           ownerId: input.ownerId,
         });
-        ref = replayWorkflowV1(
+        decisionSnapshot = replayWorkflowV1(
           initial,
           projection.journal.slice(0, existingIndex).map((entry) => entry.event)
         ).snapshot;
       }
-      const decisionSnapshot = ref;
 
       if (
         !(
@@ -572,13 +568,14 @@ export const createOperatorWorkflowPort = (
             "Workflow run not found"
           );
         }
+        const lastPageRow = pageRows.at(-1);
         return Object.freeze({
           runs: Object.freeze(projections.map(summaryFor)),
           nextCursor:
-            rows.length > limit
+            rows.length > limit && lastPageRow !== undefined
               ? encodeWorkflowRunsCursor({
-                  id: pageRows.at(-1)!.id,
-                  updatedAt: pageRows.at(-1)!.updatedAt,
+                  id: lastPageRow.id,
+                  updatedAt: lastPageRow.updatedAt,
                   ...(input.state === undefined ? {} : { state: input.state }),
                 })
               : null,

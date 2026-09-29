@@ -248,23 +248,25 @@ export const createPilotPollingWorker = (
   };
 
   const closeOnce = (): Promise<void> => {
-    return (closing ??= runWithTimeout(
+    closing ??= runWithTimeout(
       options.close,
       remainingShutdownMilliseconds(),
       "Pilot database close deadline exceeded"
-    ));
+    );
+    return closing;
   };
 
   const stopRuntimeOnce = (): Promise<void> => {
-    return (runtimeStopping ??= runWithTimeout(
+    runtimeStopping ??= runWithTimeout(
       options.stopRuntime,
       Math.max(1, Math.floor(remainingShutdownMilliseconds() / 2)),
       "Pilot shutdown deadline exceeded"
-    ));
+    );
+    return runtimeStopping;
   };
 
   const finishShutdownOnce = (): Promise<void> => {
-    return (shutdownFinishing ??= (async () => {
+    shutdownFinishing ??= (async () => {
       let runtimeError: unknown;
       let closeError: unknown;
       try {
@@ -286,7 +288,8 @@ export const createPilotPollingWorker = (
       if (runtimeError !== undefined) throw runtimeError;
       if (closeError !== undefined) throw closeError;
       return;
-    })());
+    })();
+    return shutdownFinishing;
   };
 
   const waitForPoll = (): Promise<void> =>
@@ -296,15 +299,15 @@ export const createPilotPollingWorker = (
         resolve();
       };
       const timer = setTimeout(complete, options.pollIntervalMs);
-      return (wakePoll = () => {
+      wakePoll = () => {
         clearTimeout(timer);
         return complete();
-      });
+      };
     });
 
   const start = (): Promise<void> => {
     if (loopPromise !== undefined) return loopPromise;
-    loopPromise = (async () => {
+    const loop = (async () => {
       try {
         while (!stopping) {
           void (await options.runOnce());
@@ -315,7 +318,8 @@ export const createPilotPollingWorker = (
         await finishShutdownOnce();
       }
     })();
-    return loopPromise!;
+    loopPromise = loop;
+    return loop;
   };
 
   const stop = (): Promise<void> => {

@@ -62,7 +62,7 @@ type DatabaseIdentity = Readonly<{
   databaseOid: number;
   ownerOid: number;
 }>;
-type TestDatabaseState = {
+interface TestDatabaseState {
   cleanupPromise?: Promise<void>;
   client: Client;
   databaseName: string;
@@ -71,7 +71,7 @@ type TestDatabaseState = {
   isolatedConfig: ClientConfig;
   maintenanceConfig: ClientConfig;
   pendingOpens: Set<Promise<void>>;
-};
+}
 
 const activeDatabases = new WeakMap<PostgresTestDatabase, TestDatabaseState>();
 const cleanupPromises = new WeakMap<PostgresTestDatabase, Promise<void>>();
@@ -312,10 +312,10 @@ const runBeforeDeadline = async <Result>(
     const result = await Promise.race([
       Promise.resolve().then(operation),
       new Promise<never>((_resolve, reject) => {
-        return (timeout = setTimeout(
+        timeout = setTimeout(
           () => reject(cleanupDeadlineError()),
           remainingMillis
-        ));
+        );
       }),
     ]);
     if (performance.now() >= deadline) throw cleanupDeadlineError();
@@ -951,7 +951,7 @@ export const createPostgresTestDatabase = async (
       let targetConnectStarted = false;
       let resolveTermination!: (error: Error) => void;
       const termination = new Promise<Error>((resolve) => {
-        return (resolveTermination = resolve);
+        resolveTermination = resolve;
       });
       const closed = new Promise<void>((resolve) => {
         return client.once("end", resolve);
@@ -1051,7 +1051,7 @@ export const createPostgresTestDatabase = async (
       })();
       let resolveOpeningSettled!: () => void;
       const openingSettled = new Promise<void>((resolve) => {
-        return (resolveOpeningSettled = resolve);
+        resolveOpeningSettled = resolve;
       });
       state.pendingOpens.add(openingSettled);
       try {
@@ -1224,10 +1224,9 @@ export const dropPostgresTestDatabase = (
   }
 
   state.generation += 1;
-  let cleanupPromise!: Promise<void>;
-  cleanupPromise = dropOwnedPostgresTestDatabase(database, state)
+  const cleanupPromise = dropOwnedPostgresTestDatabase(database, state)
     .catch((error) => {
-      delete state.cleanupPromise;
+      Reflect.deleteProperty(state, "cleanupPromise");
       throw error;
     })
     .finally(() => {

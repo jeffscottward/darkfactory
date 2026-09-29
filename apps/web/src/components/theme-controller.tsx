@@ -53,6 +53,7 @@ const persistThemeState = (store: UiStore, authority: ThemeAuthority): void => {
     }
   }
   try {
+    // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is unavailable in supported Firefox/Safari versions; this mirror is best effort.
     document.cookie = serializeThemeCookie(preference);
   } catch (error) {
     if (typeof error !== "object" || error === null) throw error;
@@ -138,7 +139,7 @@ const ThemeEffects = ({
       bootstrapConsumption.current,
       window.__DARKFACTORY_THEME__
     );
-    delete window.__DARKFACTORY_THEME__;
+    Reflect.deleteProperty(window, "__DARKFACTORY_THEME__");
     const previousAuthority = reconciledAuthorityRef.current;
     reconcileThemeAuthorityTransition({
       authority: themeAuthority,
@@ -146,7 +147,7 @@ const ThemeEffects = ({
       initialPreference,
       onAuthorityChange: (authority) => {
         authorityRef.current = authority;
-        return (reconciledAuthorityRef.current = authority);
+        reconciledAuthorityRef.current = authority;
       },
       previousAuthority,
       store,

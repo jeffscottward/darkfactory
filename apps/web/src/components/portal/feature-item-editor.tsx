@@ -58,7 +58,7 @@ export const createEditorMutationGuard = (): EditorMutationGuard => {
     },
     isLocked: () => locked,
     release: () => {
-      return (locked = false);
+      locked = false;
     },
   };
 };
@@ -466,6 +466,7 @@ export const FeatureItemEditor = ({
 
         <div className="border-border border-t pt-6">
           {confirmArchive ? (
+            // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Escape handling for key events that bubble from the confirmation buttons.
             <section
               aria-describedby="editor-archive-description"
               aria-labelledby="editor-archive-title"

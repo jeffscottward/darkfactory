@@ -7,14 +7,14 @@ import {
   DEVELOPMENT_PREFERENCES,
 } from "./preferences.ts";
 
-type QueryRows = ReadonlyArray<Record<string, unknown>>;
-type QueryOperation = {
+type QueryRows = readonly Record<string, unknown>[];
+interface QueryOperation {
   kind: "select" | "insert";
   table?: string;
   value?: Record<string, unknown>;
   conflict?: unknown;
-};
-type QueryBuilder = {
+}
+interface QueryBuilder {
   from: (table: unknown) => QueryBuilder;
   where: (condition: unknown) => QueryBuilder;
   limit: (value: number) => QueryBuilder;
@@ -25,7 +25,7 @@ type QueryBuilder = {
     onFulfilled: (rows: QueryRows) => unknown,
     onRejected?: (error: unknown) => unknown
   ) => Promise<unknown>;
-};
+}
 
 const createPreferenceSeedDatabase = (selectOutcomes: QueryRows[]) => {
   const operations: QueryOperation[] = [];

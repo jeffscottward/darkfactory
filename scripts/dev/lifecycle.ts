@@ -1,3 +1,5 @@
+import { required } from "../lib/required.ts";
+
 export type DevelopmentProfile = Readonly<{
   processName: string;
   routeName: string;
@@ -355,7 +357,7 @@ export const inspectDevelopmentState = async (
     ok: healthy,
     changed: false,
     processStatus: parsed.status,
-    processId: parsed.processId!,
+    processId: required(parsed.processId, "development process id"),
     routeHealthy: healthy,
     canonicalUrl: profile.canonicalUrl,
     reason: healthy

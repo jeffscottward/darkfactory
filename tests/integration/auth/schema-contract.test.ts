@@ -84,11 +84,9 @@ const compareRequiredContract = (
   for (const timestamp of production.timestamps) {
     expect(timestamp.withTimezone).toBe(true);
   }
-  const results = [];
   for (const timestamp of generated.timestamps) {
-    results.push(expect(timestamp.withTimezone).toBe(false));
+    expect(timestamp.withTimezone).toBe(false);
   }
-  return results;
 };
 
 describe("Better Auth 1.6.24 generated schema contract", () => {

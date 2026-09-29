@@ -126,7 +126,7 @@ export const createPreviewContactEmailPort = (
     sendContact: async (
       input: ContactEmailInput
     ): Promise<ContactEmailDeliveryResult> => {
-      let rendered;
+      let rendered: Awaited<ReturnType<typeof renderContactEmail>>;
       try {
         rendered = await renderContactEmail(input);
       } catch {

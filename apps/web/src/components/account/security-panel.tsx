@@ -156,6 +156,7 @@ export const SecurityPanel = ({
         ))}
       </div>
       {isConfirmingRevoke ? (
+        // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Escape handling for key events that bubble from the confirmation buttons.
         <div
           aria-busy={isRevoking}
           aria-label="Confirm signing out other sessions"

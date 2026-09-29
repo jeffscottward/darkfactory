@@ -68,7 +68,7 @@ const source = new Map([
 const GRAPH = '{"nodes":[{"id":"route"}],"links":[]}';
 
 const manifestFor = (sourceFiles = source, graphContent = GRAPH) =>
-  JSON.stringify(
+  `${JSON.stringify(
     {
       version: 1,
       graphifyVersion: "2.4.0",
@@ -79,7 +79,7 @@ const manifestFor = (sourceFiles = source, graphContent = GRAPH) =>
     },
     null,
     2
-  ) + "\n";
+  )}\n`;
 
 const fixture = (
   options: {
@@ -99,9 +99,10 @@ const fixture = (
   if (options.manifest) files.set(".graphify/manifest.json", options.manifest);
   const writes: Array<readonly [string, string]> = [];
   const calls: Array<readonly [string, readonly string[]]> = [];
-  const processCalls: Array<
-    Readonly<{ arguments_: readonly string[]; options?: unknown }>
-  > = [];
+  const processCalls: Readonly<{
+    arguments_: readonly string[];
+    options?: unknown;
+  }>[] = [];
   const resets: string[] = [];
   const fileSystem: GraphFileSystem = {
     exists: async (path) => files.has(path),
@@ -340,13 +341,13 @@ describe("Graphify workflow", () => {
     );
     const semanticMutation = equivalent.replace('"calls"', '"references"');
     const importRetarget = JSON.parse(equivalent) as {
-      links: Array<Record<string, unknown>>;
+      links: Record<string, unknown>[];
     };
     importRetarget.links.find((link) => link["relation"] === "imports")![
       "target"
     ] = replacementNodeId;
     const importRemoval = JSON.parse(equivalent) as {
-      links: Array<Record<string, unknown>>;
+      links: Record<string, unknown>[];
     };
     importRemoval.links = importRemoval.links.filter(
       (link) => link["relation"] !== "imports_from"

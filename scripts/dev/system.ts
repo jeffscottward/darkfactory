@@ -16,7 +16,7 @@ import { request as requestHttps } from "node:https";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-
+import { required } from "../lib/required.ts";
 import {
   type CommandOptions,
   type CommandResult,
@@ -260,8 +260,8 @@ export const nodeLifecycleFileSystem: LifecycleFileSystem = Object.freeze({
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
-      await rename(certificatePath, finals[0]!);
-      await rename(keyPath, finals[1]!);
+      await rename(certificatePath, required(finals[0], "certificate path"));
+      await rename(keyPath, required(finals[1], "certificate key path"));
       await cleanup();
       return undefined;
     }

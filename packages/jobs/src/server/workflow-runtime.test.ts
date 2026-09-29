@@ -201,13 +201,13 @@ const duplicate = (): Error & { code: "23505" } => {
 
 type FakeRepository = Readonly<{
   repository: WorkflowRepository;
-  created: Array<Parameters<WorkflowRepository["createRun"]>[0]>;
-  appended: Array<Parameters<WorkflowRepository["append"]>[0]>;
-  evidence: Array<Parameters<WorkflowRepository["addEvidence"]>[0]>;
-  messages: Array<Parameters<WorkflowRepository["addMessageAndAppend"]>[0]>;
-  approvals: Array<Parameters<WorkflowRepository["createApproval"]>[0]>;
-  heartbeats: Array<Parameters<WorkflowRepository["heartbeatEffect"]>[0]>;
-  completions: Array<Parameters<WorkflowRepository["finalizeEffect"]>[0]>;
+  created: Parameters<WorkflowRepository["createRun"]>[0][];
+  appended: Parameters<WorkflowRepository["append"]>[0][];
+  evidence: Parameters<WorkflowRepository["addEvidence"]>[0][];
+  messages: Parameters<WorkflowRepository["addMessageAndAppend"]>[0][];
+  approvals: Parameters<WorkflowRepository["createApproval"]>[0][];
+  heartbeats: Parameters<WorkflowRepository["heartbeatEffect"]>[0][];
+  completions: Parameters<WorkflowRepository["finalizeEffect"]>[0][];
   projection: () => WorkflowProjection | null;
   outbox: () => OutboxEvent | null;
   now: () => Date;
@@ -221,20 +221,14 @@ const fakeRepository = (): FakeRepository => {
   let current: WorkflowProjection | null = null;
   let row: OutboxEvent | null = null;
   let rejectCompletion = false;
-  const created: Array<Parameters<WorkflowRepository["createRun"]>[0]> = [];
-  const appended: Array<Parameters<WorkflowRepository["append"]>[0]> = [];
-  const evidence: Array<Parameters<WorkflowRepository["addEvidence"]>[0]> = [];
-  const approvals: Array<Parameters<WorkflowRepository["createApproval"]>[0]> =
+  const created: Parameters<WorkflowRepository["createRun"]>[0][] = [];
+  const appended: Parameters<WorkflowRepository["append"]>[0][] = [];
+  const evidence: Parameters<WorkflowRepository["addEvidence"]>[0][] = [];
+  const approvals: Parameters<WorkflowRepository["createApproval"]>[0][] = [];
+  const messages: Parameters<WorkflowRepository["addMessageAndAppend"]>[0][] =
     [];
-  const messages: Array<
-    Parameters<WorkflowRepository["addMessageAndAppend"]>[0]
-  > = [];
-  const heartbeats: Array<
-    Parameters<WorkflowRepository["heartbeatEffect"]>[0]
-  > = [];
-  const completions: Array<
-    Parameters<WorkflowRepository["finalizeEffect"]>[0]
-  > = [];
+  const heartbeats: Parameters<WorkflowRepository["heartbeatEffect"]>[0][] = [];
+  const completions: Parameters<WorkflowRepository["finalizeEffect"]>[0][] = [];
 
   const projectionFor = (
     input:

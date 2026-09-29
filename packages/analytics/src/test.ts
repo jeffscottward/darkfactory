@@ -57,17 +57,18 @@ export const createRecordingAnalyticsPort = (): RecordingAnalyticsPort => {
       return Object.freeze([...recorded]);
     },
     clear: () => {
-      return (recorded.length = 0);
+      recorded.length = 0;
     },
-    capture: async (input): Promise<AnalyticsResult> => {
+    capture: (input): Promise<AnalyticsResult> => {
       const snapshot = snapshotAnalyticsCapture(input);
-      if (!snapshot) return invalidCaptureResult();
+      if (!snapshot) return Promise.resolve(invalidCaptureResult());
 
       const consentReason = consentSkipReason(snapshot);
-      if (consentReason) return { status: "skipped", reason: consentReason };
+      if (consentReason)
+        return Promise.resolve({ status: "skipped", reason: consentReason });
 
       recorded.push(snapshot);
-      return { status: "captured", eventId: snapshot.eventId };
+      return Promise.resolve({ status: "captured", eventId: snapshot.eventId });
     },
   };
 };

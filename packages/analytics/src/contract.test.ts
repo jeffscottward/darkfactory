@@ -257,9 +257,7 @@ describe("AnalyticsPort contract", () => {
     { properties: { action: "contains private text" } },
     { properties: { outcome: "maybe" } },
     { properties: { requestId: "request with spaces" } },
-  ] as Array<
-    Partial<AnalyticsCapture>
-  >)("rejects unsafe capture values %#", async (overrides) => {
+  ] as Partial<AnalyticsCapture>[])("rejects unsafe capture values %#", async (overrides) => {
     const analytics = createRecordingAnalyticsPort();
     const result = await analytics.capture(createAnalyticsCapture(overrides));
 

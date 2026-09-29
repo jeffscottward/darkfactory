@@ -1,10 +1,10 @@
 import type { FeatureItemOutput } from "@darkfactory/api";
-import type { ReactElement } from "react";
+import type { EffectCallback, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const hookRuntime = vi.hoisted(() => {
-  type Effect = () => void | (() => void);
+  type Effect = EffectCallback;
   type DependencySlot<Value> = Readonly<{
     deps: readonly unknown[] | undefined;
     value: Value;
@@ -17,8 +17,8 @@ const hookRuntime = vi.hoisted(() => {
 
   const stateSlots: Array<{ value: unknown }> = [];
   const refSlots: Array<{ current: unknown }> = [];
-  const callbackSlots: Array<DependencySlot<unknown>> = [];
-  const effectSlots: Array<DependencySlot<(() => void) | undefined>> = [];
+  const callbackSlots: DependencySlot<unknown>[] = [];
+  const effectSlots: DependencySlot<(() => void) | undefined>[] = [];
   const pendingEffects: PendingEffect[] = [];
   const focusHistory: string[] = [];
   let stateCursor = 0;
@@ -53,7 +53,7 @@ const hookRuntime = vi.hoisted(() => {
   ): void => {
     if (Array.isArray(node)) {
       for (const child of node) visitElements(child, visit, seen);
-      return undefined;
+      return;
     }
     if (typeof node !== "object" || node === null || seen.has(node)) return;
     seen.add(node);

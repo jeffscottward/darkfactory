@@ -50,7 +50,7 @@ export type FeatureItemStatus = (typeof FEATURE_ITEM_STATUSES)[number];
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
   | JsonPrimitive
-  | ReadonlyArray<JsonValue>
+  | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
 export type FeatureItemMetadata = Readonly<Record<string, JsonValue>>;
 export type EventPayload = Readonly<Record<string, JsonValue>>;

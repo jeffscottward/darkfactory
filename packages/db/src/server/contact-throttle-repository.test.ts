@@ -11,15 +11,15 @@ import {
 const QUERY_DIALECT = new PgDialect();
 const KEY_HASH = "a".repeat(64);
 
-type ExecuteRows = Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>;
+type ExecuteRows = Readonly<{ rows: readonly Record<string, unknown>[] }>;
 type ExecuteOutcome = ExecuteRows | Error;
-type TransactionRecord = {
+interface TransactionRecord {
   statements: unknown[];
   lifecycle: string[];
-};
+}
 
 const rows = (
-  values: ReadonlyArray<Record<string, unknown>> = []
+  values: readonly Record<string, unknown>[] = []
 ): ExecuteRows => ({ rows: values });
 
 const createThrottleDatabase = (scenarios: ExecuteOutcome[][]) => {

@@ -883,7 +883,6 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () =>
     for (const [tableName, expectedColumnNames] of Object.entries(
       expectedColumnsByTable
     )) {
-      const results2 = [];
       for (const columnName of expectedColumnNames) {
         const key = `${tableName}.${columnName}`;
         const column = columns.get(key);
@@ -906,14 +905,11 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () =>
         expect(column?.is_nullable, key).toBe(
           nullableColumns.has(key) ? "YES" : "NO"
         );
-        results2.push(
-          expect(
-            jsonColumns.has(key) ? column?.udt_name : column?.data_type,
-            key
-          ).toBe(expectedDataType)
-        );
+        expect(
+          jsonColumns.has(key) ? column?.udt_name : column?.data_type,
+          key
+        ).toBe(expectedDataType);
       }
-      results2;
     }
   });
 

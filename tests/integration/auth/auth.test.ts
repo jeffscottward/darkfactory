@@ -500,7 +500,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
     );
     expect(listed.response.status).toBe(200);
     expect(Array.isArray(listed.body)).toBe(true);
-    const listedSessions = listed.body as Array<Record<string, unknown>>;
+    const listedSessions = listed.body as Record<string, unknown>[];
     expect(listedSessions.map((session) => session["id"])).toContain(
       currentSessionId
     );

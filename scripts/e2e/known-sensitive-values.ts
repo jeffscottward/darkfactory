@@ -1,3 +1,5 @@
+import { required } from "../lib/required.ts";
+
 const COMPACT_SENSITIVE_TEXT_SEPARATOR = /[\n\p{Z}]/u;
 
 export const MINIMUM_PRECISE_KNOWN_VALUE_LENGTH = 6;
@@ -114,8 +116,15 @@ export const knownSensitiveTextRanges = (
       return undefined;
     for (const range of compactedRanges) {
       ranges.push({
-        start: compactedInspection.sourceOffsets[range.start]!,
-        end: compactedInspection.sourceOffsets[range.end - 1]! + 1,
+        start: required(
+          compactedInspection.sourceOffsets[range.start],
+          "sensitive range start offset"
+        ),
+        end:
+          required(
+            compactedInspection.sourceOffsets[range.end - 1],
+            "sensitive range end offset"
+          ) + 1,
       });
     }
   }

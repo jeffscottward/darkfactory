@@ -29,20 +29,64 @@
         "useArrowFunction": {
           "level": "error",
           "fix": "unsafe"
-        }
+        },
+        "noExcessiveCognitiveComplexity": "warn"
       },
       "performance": {
         "useTopLevelRegex": "off"
       },
       "style": {
         "useBlockStatements": "off",
-        "noNestedTernary": "off"
+        "noNestedTernary": "off",
+        "useDefaultSwitchClause": "off"
+      },
+      "suspicious": {
+        "noControlCharactersInRegex": "off"
+      },
+      "a11y": {
+        "useSemanticElements": "off",
+        "noRedundantRoles": "off"
       }
     }
   },
   "overrides": [
     {
       "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "tests/**",
+        "playwright.config.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off",
+            "useThrowOnlyError": "off"
+          },
+          "suspicious": {
+            "useAwait": "off",
+            "noMisplacedAssertion": "off",
+            "noAssignInExpressions": "off",
+            "noThenProperty": "off",
+            "useErrorMessage": "off",
+            "noTemplateCurlyInString": "off"
+          },
+          "performance": {
+            "noDelete": "off",
+            "noNamespaceImport": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/jobs/src/server/omp.ts",
+        "packages/jobs/src/server/wayfinder.ts",
+        "packages/jobs/src/server/wayfinder.test.ts",
+        "packages/jobs/src/server/workflow-recovery-regression.test.ts",
+        "packages/email/src/server/preview.test.ts",
+        "packages/observability/src/redaction.ts",
+        "scripts/**",
         "tests/e2e/helpers/artifacts.ts",
         "tests/e2e/helpers/dev-vars.ts",
         "tests/e2e/helpers/dev-vars.test.ts",
@@ -61,14 +105,26 @@
     },
     {
       "includes": [
-        "tests/e2e/helpers/serialized-lifecycle.test.ts",
-        "tests/e2e/helpers/server-readiness.test.ts",
-        "tests/e2e/helpers/structured-evidence.test.ts"
+        "packages/api/src/contract.ts",
+        "packages/api/src/index.ts",
+        "packages/api/src/server/index.ts",
+        "packages/auth/src/db.ts",
+        "packages/auth/src/server.ts",
+        "packages/config/src/server/capabilities.ts",
+        "packages/db/src/schema/index.ts",
+        "packages/db/src/server/index.ts",
+        "packages/email/src/server.ts",
+        "packages/observability/src/index.ts",
+        "packages/operator/src/index.ts",
+        "packages/operator/src/server/index.ts",
+        "packages/state/src/workflow/index.ts",
+        "packages/ui/src/client/toaster.ts",
+        "packages/ui/src/index.ts"
       ],
       "linter": {
         "rules": {
-          "suspicious": {
-            "useAwait": "off"
+          "performance": {
+            "noBarrelFile": "off"
           }
         }
       }
@@ -91,26 +147,9 @@
       }
     },
     {
-      "includes": [
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/browser-errors.ts"
-      ],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noControlCharactersInRegex": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["tests/e2e/helpers/lifecycle-state.test.ts"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noMisplacedAssertion": "off"
-          }
-        }
+      "includes": ["infra/docker/verifier/runner.ts"],
+      "javascript": {
+        "globals": ["Bun"]
       }
     }
   ]

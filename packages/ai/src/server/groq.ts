@@ -155,10 +155,10 @@ const runBounded = async <Result>(
   let removeAbortListener: (() => void) | undefined;
 
   const timeout = new Promise<never>((_resolve, reject) => {
-    return (timeoutId = setTimeout(() => {
+    timeoutId = setTimeout(() => {
       reject(CALL_TIMED_OUT);
       return controller.abort();
-    }, timeoutMs));
+    }, timeoutMs);
   });
   const callerAbort = new Promise<never>((_resolve, reject) => {
     if (!callerSignal) return;
@@ -168,8 +168,8 @@ const runBounded = async <Result>(
       return controller.abort();
     };
     callerSignal.addEventListener("abort", onAbort, { once: true });
-    return (removeAbortListener = () =>
-      callerSignal.removeEventListener("abort", onAbort));
+    removeAbortListener = () =>
+      callerSignal.removeEventListener("abort", onAbort);
   });
 
   try {

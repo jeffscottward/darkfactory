@@ -14,6 +14,7 @@ export const Label = ({
   optionalLabel = "Optional",
   ...props
 }: LabelProps) => (
+  // biome-ignore lint/a11y/noLabelWithoutControl: callers associate the control through the forwarded htmlFor prop.
   <label
     className={cn(
       "flex items-baseline justify-between gap-3 font-body font-semibold text-foreground text-sm",

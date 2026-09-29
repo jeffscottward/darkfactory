@@ -66,23 +66,19 @@ export const useTheme = (): ThemeContextValue => {
   return theme;
 };
 
-export const THEME_MODE_OPTIONS: ReadonlyArray<
-  Readonly<{
-    label: string;
-    value: ThemeMode;
-  }>
-> = Object.freeze([
+export const THEME_MODE_OPTIONS: readonly Readonly<{
+  label: string;
+  value: ThemeMode;
+}>[] = Object.freeze([
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" },
   { label: "System", value: "system" },
 ]);
 
-export const PALETTE_OPTIONS: ReadonlyArray<
-  Readonly<{
-    label: string;
-    value: PaletteName;
-  }>
-> = Object.freeze([
+export const PALETTE_OPTIONS: readonly Readonly<{
+  label: string;
+  value: PaletteName;
+}>[] = Object.freeze([
   { label: "Neutral", value: "neutral" },
   { label: "Slate", value: "slate" },
   { label: "Blue", value: "blue" },

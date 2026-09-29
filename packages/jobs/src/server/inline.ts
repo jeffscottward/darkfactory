@@ -85,8 +85,6 @@ export const createInlineJobPort = (
 
   return Object.freeze({
     enqueue,
-    flush: async (): Promise<void> => {
-      tail;
-    },
+    flush: (): Promise<void> => tail,
   });
 };

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const browserApiRuntime = vi.hoisted(() => ({
   client: null as ApiClient | null,
-  options: [] as Array<Readonly<{ baseUrl: string }>>,
+  options: [] as Readonly<{ baseUrl: string }>[],
 }));
 
 vi.mock("@darkfactory/api", async (importOriginal) => {

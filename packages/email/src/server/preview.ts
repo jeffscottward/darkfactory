@@ -22,16 +22,8 @@ import type {
   PasswordResetEmailInput,
 } from "../index.ts";
 import { normalizeRecipient } from "../recipient.ts";
-import {
-  type RenderEmailVerificationEmailOptions,
-  type RenderedEmailVerificationEmail,
-  renderEmailVerificationEmail,
-} from "./render-email-verification.ts";
-import {
-  type RenderedPasswordResetEmail,
-  type RenderPasswordResetEmailOptions,
-  renderPasswordResetEmail,
-} from "./render-reset-password.ts";
+import { renderEmailVerificationEmail } from "./render-email-verification.ts";
+import { renderPasswordResetEmail } from "./render-reset-password.ts";
 
 const DEFAULT_MAX_ARTIFACTS = 20;
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
@@ -120,7 +112,7 @@ const STALE_PARTIAL_MILLISECONDS = 5 * 60 * 1000;
 
 const MAX_METADATA_BYTES = 1024;
 
-type ArtifactInventory = {
+interface ArtifactInventory {
   artifactName: string;
   modifiedAt: number;
   totalBytes: number;
@@ -128,7 +120,7 @@ type ArtifactInventory = {
   hasText: boolean;
   hasMetadata: boolean;
   hasDeleting: boolean;
-};
+}
 
 const removeFile = async (path: string): Promise<void> => {
   await rm(path, { force: true });
@@ -471,7 +463,7 @@ const createPreviewPort = (
     const normalizedRecipient = normalizeRecipient(recipient);
     if (!normalizedRecipient) return recipientFailure();
 
-    let rendered;
+    let rendered: Awaited<ReturnType<typeof renderer>>;
     try {
       rendered = await renderer(input, {
         trustedAppOrigin: options.trustedAppOrigin,
@@ -579,11 +571,12 @@ const createPreviewPort = (
       const publishResults = await Promise.allSettled([
         link(temporaryHtmlPath, htmlPath),
         link(temporaryTextPath, textPath),
-      ]);
-      if (publishResults[0]!.status === "fulfilled") {
+      ] as const);
+      const [htmlPublishResult, textPublishResult] = publishResults;
+      if (htmlPublishResult.status === "fulfilled") {
         publishedContentPaths.push(htmlPath);
       }
-      if (publishResults[1]!.status === "fulfilled") {
+      if (textPublishResult.status === "fulfilled") {
         publishedContentPaths.push(textPath);
       }
       if (publishResults.some((result) => result.status === "rejected")) {
@@ -656,12 +649,4 @@ export const createPreviewEmailPortForTest = (
     options.artifactName,
     options.removeFile ?? removeFile
   );
-};
-
-export { renderEmailVerificationEmail, renderPasswordResetEmail };
-export type {
-  RenderedEmailVerificationEmail,
-  RenderedPasswordResetEmail,
-  RenderEmailVerificationEmailOptions,
-  RenderPasswordResetEmailOptions,
 };

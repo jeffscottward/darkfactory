@@ -12,14 +12,10 @@ import {
   createPreviewEmailPort,
   type PreviewEmailBinding,
   type PreviewEmailPortOptions,
-  type RenderEmailVerificationEmailOptions,
-  type RenderedEmailVerificationEmail,
-  type RenderedPasswordResetEmail,
-  type RenderPasswordResetEmailOptions,
-  renderEmailVerificationEmail,
-  renderPasswordResetEmail,
 } from "./preview.ts";
 import { createRemotePreviewEmailPort } from "./remote-preview.ts";
+import { renderEmailVerificationEmail } from "./render-email-verification.ts";
+import { renderPasswordResetEmail } from "./render-reset-password.ts";
 
 export type ResendMessage = Readonly<{
   from: string;
@@ -106,6 +102,18 @@ const isRetryableProviderError = (error: ResendProviderError): boolean => {
   );
 };
 
+const sendWithResendSdk =
+  (sdkClient: Resend) => async (message: ResendMessage) => {
+    const response = await sdkClient.emails.send({
+      ...message,
+      to: [...message.to],
+    });
+    return {
+      data: response.data,
+      error: response.error,
+    };
+  };
+
 export const createResendEmailPort = (
   options: ResendEmailPortOptions
 ): EmailPort => {
@@ -119,19 +127,10 @@ export const createResendEmailPort = (
     return createDisabledEmailPort("EMAIL_PROVIDER_NOT_CONFIGURED");
   }
 
-  const sdkClient = options.client ? undefined : new Resend(apiKey);
-  const send = options.client
-    ? (message: ResendMessage) => options.client!.emails.send(message)
-    : async (message: ResendMessage) => {
-        const response = await sdkClient!.emails.send({
-          ...message,
-          to: [...message.to],
-        });
-        return {
-          data: response.data,
-          error: response.error,
-        };
-      };
+  const injectedClient = options.client;
+  const send = injectedClient
+    ? (message: ResendMessage) => injectedClient.emails.send(message)
+    : sendWithResendSdk(new Resend(apiKey));
 
   const deliver = async (
     recipientValue: string,
@@ -146,14 +145,14 @@ export const createResendEmailPort = (
       return resendFailure("EMAIL_RECIPIENT_INVALID", false);
     }
 
-    let rendered;
+    let rendered: Awaited<ReturnType<typeof renderEmail>>;
     try {
       rendered = await renderEmail();
     } catch {
       return resendFailure("EMAIL_RENDER_FAILED", false);
     }
 
-    let response;
+    let response: Awaited<ReturnType<typeof send>>;
     try {
       response = await send({
         from,
@@ -253,19 +252,4 @@ export const selectEmailPort = (options: SelectEmailPortOptions): EmailPort => {
   }
 
   return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED");
-};
-
-export {
-  createPreviewEmailPort,
-  normalizeRecipient,
-  renderPasswordResetEmail,
-  renderEmailVerificationEmail,
-};
-export type {
-  PreviewEmailPortOptions,
-  PreviewEmailBinding,
-  RenderedPasswordResetEmail,
-  RenderPasswordResetEmailOptions,
-  RenderedEmailVerificationEmail,
-  RenderEmailVerificationEmailOptions,
 };

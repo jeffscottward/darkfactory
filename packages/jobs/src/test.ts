@@ -40,7 +40,7 @@ export const createRecordingJobPort = (
   const envelopes: JobEnvelope<string, JsonObject>[] = [];
   let sequence = 0;
 
-  const enqueue = async <Name extends string, Payload extends object, Result>(
+  const enqueue = <Name extends string, Payload extends object, Result>(
     definition: JobDefinition<Name, Payload, Result>,
     payload: JobPayload<Payload>
   ): Promise<JobReceipt<Name, Result>> => {
@@ -50,17 +50,19 @@ export const createRecordingJobPort = (
     const enqueuedAt = now();
     const snapshot = snapshotJobPayload(payload);
     if (snapshot.status === "invalid") {
-      return Object.freeze({
-        status: "failed",
-        execution: "recording",
-        jobId,
-        jobName,
-        enqueuedAt,
-        error: Object.freeze({
-          code: "JOB_PAYLOAD_INVALID",
-          retryable: false,
-        }),
-      });
+      return Promise.resolve(
+        Object.freeze({
+          status: "failed",
+          execution: "recording",
+          jobId,
+          jobName,
+          enqueuedAt,
+          error: Object.freeze({
+            code: "JOB_PAYLOAD_INVALID",
+            retryable: false,
+          }),
+        })
+      );
     }
 
     const envelope: JobEnvelope<Name, Payload> = Object.freeze({
@@ -71,18 +73,18 @@ export const createRecordingJobPort = (
     });
     envelopes.push(envelope);
 
-    return Object.freeze({
-      status: "recorded",
-      execution: "recording",
-      jobId,
-      jobName,
-      enqueuedAt,
-    });
+    return Promise.resolve(
+      Object.freeze({
+        status: "recorded",
+        execution: "recording",
+        jobId,
+        jobName,
+        enqueuedAt,
+      })
+    );
   };
 
-  const flush = async (): Promise<void> => {
-    return;
-  };
+  const flush = (): Promise<void> => Promise.resolve();
   const getEnvelopes = (): readonly JobEnvelope<string, JsonObject>[] => {
     return Object.freeze(envelopes.map((envelope) => cloneEnvelope(envelope)));
   };

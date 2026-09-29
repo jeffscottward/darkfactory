@@ -5,16 +5,16 @@ import type {
 } from "@darkfactory/api";
 import { createUiStore, type UiStore } from "@darkfactory/state/client";
 import { useTheme } from "@darkfactory/ui/client/theme";
-import { createElement, type ReactNode } from "react";
+import { createElement, type EffectCallback, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const themeHookRuntime = vi.hoisted(() => {
-  type Effect = () => void | (() => void);
-  type EffectSlot = {
+  type Effect = EffectCallback;
+  interface EffectSlot {
     cleanup: (() => void) | undefined;
     deps: readonly unknown[] | undefined;
-  };
+  }
   type PendingEffect = Readonly<{
     deps: readonly unknown[] | undefined;
     effect: Effect;
@@ -27,7 +27,7 @@ const themeHookRuntime = vi.hoisted(() => {
 
   const stateSlots: Array<{ value: unknown }> = [];
   const refSlots: Array<{ current: unknown }> = [];
-  const callbackSlots: Array<DependencySlot<unknown>> = [];
+  const callbackSlots: DependencySlot<unknown>[] = [];
   const layoutSlots: EffectSlot[] = [];
   const passiveSlots: EffectSlot[] = [];
   const pendingLayouts: PendingEffect[] = [];
@@ -1066,6 +1066,9 @@ describe("trusted theme controls", () => {
         case "sequence": {
           requestSequence.current += 1;
           break;
+        }
+        default: {
+          throw new Error(`Unhandled stale boundary: ${String(staleBoundary)}`);
         }
       }
       gate.resolve({

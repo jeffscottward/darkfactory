@@ -66,10 +66,9 @@ export const parseThemeCookieHeader = (
       return name === THEME_COOKIE_NAME;
     });
 
-  if (values.length === 0) return { status: "missing" };
-  if (values.length !== 1) return { status: "invalid" };
-
-  const cookie = values[0]!;
+  const [cookie, ...duplicateCookies] = values;
+  if (cookie === undefined) return { status: "missing" };
+  if (duplicateCookies.length > 0) return { status: "invalid" };
   const separatorIndex = cookie.indexOf("=");
   if (separatorIndex === -1) return { status: "invalid" };
   const encodedValue = cookie.slice(separatorIndex + 1);

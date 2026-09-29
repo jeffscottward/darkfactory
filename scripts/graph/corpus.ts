@@ -87,9 +87,11 @@ export const rewriteWorkspaceAliases = (
     true,
     sourcePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
-  const replacements: Array<
-    Readonly<{ start: number; end: number; value: string }>
-  > = [];
+  const replacements: Readonly<{
+    start: number;
+    end: number;
+    value: string;
+  }>[] = [];
   const recordSpecifier = (literal: ts.StringLiteralLike | undefined) => {
     if (!literal?.text.startsWith("@darkfactory/")) return;
     const target = aliases.get(literal.text);

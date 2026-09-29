@@ -95,7 +95,8 @@ const inspectIdentity = async (
       )
     );
 
-  if (matchedUsers.length === 0) {
+  const [matchedUser, ...otherMatchedUsers] = matchedUsers;
+  if (matchedUser === undefined) {
     if (matchedAccounts.length > 0) {
       throw new SeedIdentityCollisionError(
         `Seed identity collision for ${persona.name}: deterministic account ID is already in use`
@@ -105,9 +106,9 @@ const inspectIdentity = async (
   }
 
   if (
-    matchedUsers.length !== 1 ||
-    matchedUsers[0]!.id !== persona.userId ||
-    normalizedEmail(matchedUsers[0]!.email) !== email
+    otherMatchedUsers.length > 0 ||
+    matchedUser.id !== persona.userId ||
+    normalizedEmail(matchedUser.email) !== email
   ) {
     throw new SeedIdentityCollisionError(
       `Seed identity collision for ${persona.name}: deterministic user ID and normalized email do not identify the same user`

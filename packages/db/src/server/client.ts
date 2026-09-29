@@ -1,5 +1,6 @@
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
+// biome-ignore lint/performance/noNamespaceImport: Drizzle consumes the complete schema module object as its relational schema.
 import * as schema from "../schema/index.ts";
 
 export type Database = NodePgDatabase<typeof schema>;
@@ -179,7 +180,7 @@ const closeRequestDatabaseClient = (
 ): (() => Promise<void>) => {
   let closePromise: Promise<void> | undefined;
   return () => {
-    return (closePromise ??= (async (): Promise<void> => {
+    closePromise ??= (async (): Promise<void> => {
       try {
         await client.end();
       } catch (error) {
@@ -191,7 +192,8 @@ const closeRequestDatabaseClient = (
       }
       activeRequestConnections -= 1;
       undefined;
-    })());
+    })();
+    return closePromise;
   };
 };
 

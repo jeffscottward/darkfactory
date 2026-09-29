@@ -247,12 +247,11 @@ describe("createPostHogAnalyticsPort", () => {
   });
 
   it("fails closed instead of forwarding a redirect response", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(null, {
-        status: 307,
-        headers: { location: "https://attacker.invalid/capture" },
-      })
-    );
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        Response.redirect("https://attacker.invalid/capture", 307)
+      );
 
     const result = await configured(fetch).capture(createAnalyticsCapture());
 

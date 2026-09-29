@@ -52,13 +52,14 @@ export interface AnalyticsPort {
 }
 
 export const createDisabledAnalyticsPort = (): AnalyticsPort => ({
-  capture: async (input) => {
+  capture: (input) => {
     const snapshot = snapshotAnalyticsCapture(input);
-    if (!snapshot) return invalidCaptureResult();
+    if (!snapshot) return Promise.resolve(invalidCaptureResult());
 
     const consentReason = consentSkipReason(snapshot);
-    if (consentReason) return { status: "skipped", reason: consentReason };
+    if (consentReason)
+      return Promise.resolve({ status: "skipped", reason: consentReason });
 
-    return { status: "skipped", reason: "disabled" };
+    return Promise.resolve({ status: "skipped", reason: "disabled" });
   },
 });

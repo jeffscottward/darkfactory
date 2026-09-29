@@ -6,15 +6,13 @@ const utf8ByteLength = (value: string): number => {
   let length = 0;
   for (const character of value) {
     const codePoint = character.codePointAt(0) ?? 0;
-    let ref;
     if (codePoint <= 0x7f) {
-      ref = 1;
+      length += 1;
     } else if (codePoint <= 0x7_ff) {
-      ref = 2;
+      length += 2;
     } else if (codePoint <= 0xff_ff) {
-      ref = 3;
-    } else ref = 4;
-    length += ref;
+      length += 3;
+    } else length += 4;
   }
   return length;
 };

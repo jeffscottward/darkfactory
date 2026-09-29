@@ -106,7 +106,7 @@ export const normalizeAuthDestination = (value: unknown): string => {
     return DEFAULT_AUTH_DESTINATION;
   }
 
-  const decodedPathname = decoded.split(/[?#]/u, 1)[0]!;
+  const decodedPathname = decoded.replace(/[?#][\s\S]*$/u, "");
   if (
     decodedPathname
       .split("/")

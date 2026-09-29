@@ -43,11 +43,6 @@ const SAFE_SIGN_UP_RESPONSE = {
   message:
     "If this email can be registered, check your email for a verification link",
 };
-const SAFE_RESET_RESPONSE = {
-  status: true,
-  message:
-    "If this email exists in our system, check your email for the reset link",
-};
 
 beforeEach(() => {
   mocks.context = undefined;
@@ -350,7 +345,7 @@ const malformedPresentSessionCases = [
   [
     "non-plain status container",
     () => ({
-      session: { user: { status: Object("active") } },
+      session: { user: { status: new Object("active") } },
       traps: [],
     }),
   ],
@@ -427,10 +422,10 @@ describe("createAuth hooks", () => {
     "/send-verification-email",
   ])("normalizes an email for %s without mutating the caller body", async (path) => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
     const body = { email: "  Member@Domain.TEST  ", password: "unchanged" };
 
-    const result = await before({ path, body, context: {} });
+    const result = await beforeHook({ path, body, context: {} });
 
     expect(result).toEqual({
       context: {
@@ -452,18 +447,18 @@ describe("createAuth hooks", () => {
     ["already normalized", "/sign-in/email", { email: "member@domain.test" }],
   ] as const)("leaves %s request bodies unchanged", async (_case, path, body) => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
     return await expect(
-      before({ path, body, context: {} })
+      beforeHook({ path, body, context: {} })
     ).resolves.toBeUndefined();
   });
 
   it("normalizes email after admitting an active current session", async () => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
-    const result = await before({
+    const result = await beforeHook({
       path: "/sign-in/email",
       body: { email: "  ACTIVE@Domain.TEST  ", password: "unchanged" },
       context: { session: { user: { status: "active" } } },
@@ -483,10 +478,10 @@ describe("createAuth hooks", () => {
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
   ] as const)("blocks a %s current session inside Better Auth", async (status, code) => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
     return await expect(
-      before({
+      beforeHook({
         path: "/change-password",
         context: { session: { user: { status } } },
       })
@@ -501,10 +496,10 @@ describe("createAuth hooks", () => {
     ["non-string status", null],
   ] as const)("fails closed for a current session with %s inside Better Auth", async (_case, status) => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
     return await expect(
-      before({
+      beforeHook({
         path: "/change-password",
         context: { session: { user: { status } } },
       })
@@ -521,10 +516,10 @@ describe("createAuth hooks", () => {
     ["null", null],
   ] as const)("admits a canonically absent %s current session", async (_case, session) => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
     return await expect(
-      before({
+      beforeHook({
         path: "/change-password",
         context: { session },
       })
@@ -535,11 +530,11 @@ describe("createAuth hooks", () => {
     malformedPresentSessionCases
   )("fails closed for a malformed %s current session without leaking private failures", async (_case, createCase) => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
     const { session, traps } = createCase();
 
     await expect(
-      before({
+      beforeHook({
         path: "/change-password",
         context: { session },
       })
@@ -558,10 +553,10 @@ describe("createAuth hooks", () => {
 
   it("allows an inactive current session to sign out", async () => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
     return await expect(
-      before({
+      beforeHook({
         path: "/sign-out",
         context: { session: { user: { status: "suspended" } } },
       })
@@ -570,7 +565,7 @@ describe("createAuth hooks", () => {
 
   it("exempts sign out before reading a current-session accessor", async () => {
     const { database } = createResourceDatabase();
-    const before = createConfiguredAuth(database).options.hooks.before;
+    const beforeHook = createConfiguredAuth(database).options.hooks.before;
     const accessor = vi.fn(() => {
       throw new Error("private sign-out session accessor");
     });
@@ -581,7 +576,7 @@ describe("createAuth hooks", () => {
     });
 
     await expect(
-      before({
+      beforeHook({
         path: "/sign-out",
         context,
       })
@@ -591,19 +586,19 @@ describe("createAuth hooks", () => {
 
   it("provisions application resources after an email sign-in only", async () => {
     const { database, state } = createResourceDatabase();
-    const after = createConfiguredAuth(database).options.hooks.after;
+    const afterHook = createConfiguredAuth(database).options.hooks.after;
 
-    await after({
+    await afterHook({
       path: "/sign-in/email",
       context: {
         newSession: { user: { id: "user-2", name: "Signed In Member" } },
       },
     });
-    await after({
+    await afterHook({
       path: "/sign-in/email",
       context: { newSession: null },
     });
-    await after({
+    await afterHook({
       path: "/sign-out",
       context: { newSession: { user: { id: "ignored", name: "Ignored" } } },
     });

@@ -104,8 +104,6 @@ export const validateRequestDatabaseEndpoint = (
       "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432; direct port 5432 is not allowed"
     );
   }
-
-  return undefined;
 };
 
 const isPostgresUrl = (value: string): boolean => {

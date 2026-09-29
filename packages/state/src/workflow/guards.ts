@@ -1,3 +1,4 @@
+import { required } from "./required.ts";
 import {
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
@@ -30,7 +31,7 @@ const windowsAbsolutePathPattern = /^[A-Za-z]:[/\\]/u;
 const utf8Bytes = (value: string): number => {
   let bytes = 0;
   for (const character of value) {
-    const codePoint = character.codePointAt(0)!;
+    const codePoint = required(character.codePointAt(0), "code point");
     bytes +=
       codePoint <= 0x7f
         ? 1

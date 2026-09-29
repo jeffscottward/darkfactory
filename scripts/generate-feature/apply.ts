@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-
+import { required } from "../lib/required.ts";
 import { GeneratorError } from "./errors.ts";
 import {
   assertDirectoryChain,
@@ -109,7 +109,12 @@ const rollbackApplied = async (
   for (const entry of [...applied].reverse()) {
     const destination = join(plan.targetRoot, ...entry.file.path.split("/"));
     try {
-      await assertDirectoryChain(parentChains.get(dirname(entry.file.path))!);
+      await assertDirectoryChain(
+        required(
+          parentChains.get(dirname(entry.file.path)),
+          "generated file parent chain"
+        )
+      );
       await dependencies.assertNoSymlinkPath(plan.targetRoot, entry.file.path);
       if (
         !(
@@ -282,10 +287,18 @@ export const applyGenerationPlan = async (
 
     await options.beforePromotion?.();
     for (const [index, file] of plan.files.entries()) {
-      await assertDirectoryChain(parentChains.get(dirname(file.path))!);
+      await assertDirectoryChain(
+        required(
+          parentChains.get(dirname(file.path)),
+          "generated file parent chain"
+        )
+      );
       await dependencies.assertNoSymlinkPath(plan.targetRoot, file.path);
       const destination = join(plan.targetRoot, ...file.path.split("/"));
-      const stagedPath = stagedPaths.get(file.path)!;
+      const stagedPath = required(
+        stagedPaths.get(file.path),
+        "staged generated file"
+      );
       if (file.operation === "create") {
         await dependencies
           .link(stagedPath, destination)
@@ -339,7 +352,7 @@ export const applyGenerationPlan = async (
       await dependencies
         .rm(tempRoot, { force: true, recursive: true })
         .catch(() => {
-          return (cleanupComplete = false);
+          cleanupComplete = false;
         });
     } else cleanupComplete = false;
   }

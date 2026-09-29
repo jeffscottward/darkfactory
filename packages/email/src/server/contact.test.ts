@@ -27,11 +27,11 @@ vi.mock("resend", () => ({
 import type { ContactEmailInput } from "../index.ts";
 import {
   type ContactResendClient,
-  createPreviewContactEmailPort,
   createResendContactEmailPort,
-  renderContactEmail,
   selectContactEmailPort,
 } from "./contact.ts";
+import { createPreviewContactEmailPort } from "./contact-preview.ts";
+import { renderContactEmail } from "./render-contact.ts";
 
 const temporaryDirectories: string[] = [];
 

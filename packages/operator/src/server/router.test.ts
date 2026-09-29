@@ -244,11 +244,9 @@ const expectInternalError = async (
       defined: false,
     });
     const responseText = `${error.message}\n${JSON.stringify(error)}`;
-    const results = [];
     for (const value of forbidden) {
-      results.push(expect(responseText).not.toContain(value));
+      expect(responseText).not.toContain(value);
     }
-    return results;
   }
 };
 

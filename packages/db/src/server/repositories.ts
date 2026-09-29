@@ -6,6 +6,7 @@ import {
   ilike,
   ne,
   or as orWhere,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import {
@@ -46,6 +47,7 @@ import {
   createDashboardRepository,
   type DashboardRepository,
 } from "./dashboard-repository.ts";
+import { required } from "./required.ts";
 import {
   createWorkflowRepository,
   type WorkflowRepository,
@@ -248,9 +250,12 @@ const jsonbNumberText = (value: number): string => {
   const source = String(value);
   if (!(source.includes("e") || source.includes("E"))) return source;
 
-  const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)!;
-  const sign = match[1]!;
-  const whole = match[2]!;
+  const match = required(
+    /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source),
+    "exponent notation"
+  );
+  const sign = required(match[1], "exponent sign");
+  const whole = required(match[2], "exponent mantissa");
   const fraction = match[3] ?? "";
   const exponent = Number(match[4]);
   const digits = whole + fraction;
@@ -368,7 +373,7 @@ export const createProfileRepository = (
           },
         })
         .returning();
-      return profile!;
+      return required(profile, "profile row");
     },
 
     updateOptimistic: async (input) => {
@@ -539,7 +544,7 @@ export const createAddressRepository = (
 
   return {
     listByUserId: async (userId) => {
-      return database
+      return await database
         .select()
         .from(addresses)
         .where(eq(addresses.userId, userId))
@@ -552,7 +557,7 @@ export const createAddressRepository = (
     },
 
     findByIdForUser: async (id, userId) => {
-      return findAddress(database, id, userId);
+      return await findAddress(database, id, userId);
     },
 
     create: async (input) => {
@@ -598,7 +603,7 @@ export const createAddressRepository = (
               updatedAt: timestamp,
             })
             .returning();
-          return address!;
+          return required(address, "address row");
         });
       } catch (error) {
         return mapConflict(error, "address");
@@ -824,7 +829,7 @@ export const createAddressRepository = (
     },
 
     setPrimaryOptimistic: async (input) => {
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         await lockAddressOwner(transaction, input.userId);
         const existing = await findAddress(transaction, input.id, input.userId);
         if (existing === null) return null;
@@ -1022,7 +1027,7 @@ export const createUserPreferencesRepository = (
           },
         })
         .returning();
-      return preferences!;
+      return required(preferences, "preferences row");
     },
 
     updateOptimistic: async (input) => {
@@ -1199,7 +1204,9 @@ export const createFeatureItemRepository = (
           );
         }
       }
-      const conditions = [eq(featureItems.ownerId, ownerId)];
+      const conditions: (SQL | undefined)[] = [
+        eq(featureItems.ownerId, ownerId),
+      ];
       if (filters.query !== undefined) {
         const escaped = filters.query
           .replaceAll("\\", "\\\\")
@@ -1210,13 +1217,13 @@ export const createFeatureItemRepository = (
           orWhere(
             ilike(featureItems.name, pattern),
             ilike(featureItems.description, pattern)
-          )!
+          )
         );
       }
       if (filters.status !== undefined) {
         conditions.push(eq(featureItems.status, filters.status));
       }
-      return database
+      return await database
         .select()
         .from(featureItems)
         .where(andWhere(...conditions))
@@ -1225,7 +1232,7 @@ export const createFeatureItemRepository = (
     },
 
     findByIdForOwner: async (id, ownerId) => {
-      return findFeatureItem(database, id, ownerId);
+      return await findFeatureItem(database, id, ownerId);
     },
 
     create: async (input, context) => {
@@ -1252,16 +1259,17 @@ export const createFeatureItemRepository = (
               updatedAt: timestamp,
             })
             .returning();
+          const createdItem = required(item, "feature item row");
           await writeMutationRecords(
             transaction,
-            item!,
+            createdItem,
             "feature_item.created",
             context,
-            { status: item!.status },
+            { status: createdItem.status },
             dependencies,
             timestamp
           );
-          return item!;
+          return createdItem;
         });
       } catch (error) {
         return mapFeatureMutationError(error);

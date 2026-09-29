@@ -10,7 +10,11 @@ import {
   type UpdateFeatureItemInput,
 } from "../server/repositories.ts";
 
-export const DEVELOPMENT_ADDRESSES: readonly CreateAddressInput[] =
+export type SeededAddressInput = CreateAddressInput & Readonly<{ id: string }>;
+export type SeededFeatureItemInput = CreateFeatureItemInput &
+  Readonly<{ id: string }>;
+
+export const DEVELOPMENT_ADDRESSES: readonly SeededAddressInput[] =
   Object.freeze([
     Object.freeze({
       id: "20000000-0000-4000-8000-000000000001",
@@ -50,7 +54,7 @@ export const DEVELOPMENT_ADDRESSES: readonly CreateAddressInput[] =
     }),
   ]);
 
-export const DEVELOPMENT_FEATURE_ITEMS: readonly CreateFeatureItemInput[] =
+export const DEVELOPMENT_FEATURE_ITEMS: readonly SeededFeatureItemInput[] =
   Object.freeze([
     Object.freeze({
       id: "30000000-0000-4000-8000-000000000001",
@@ -96,9 +100,9 @@ const matchesAddress = (
 
 const addressUpdate = (
   current: Address,
-  expected: CreateAddressInput
+  expected: SeededAddressInput
 ): UpdateAddressInput => ({
-  id: expected.id!,
+  id: expected.id,
   userId: expected.userId,
   type: expected.type,
   line1: expected.line1,
@@ -125,9 +129,9 @@ const matchesFeatureItem = (
 };
 
 const featureUpdate = (
-  expected: CreateFeatureItemInput
+  expected: SeededFeatureItemInput
 ): UpdateFeatureItemInput => ({
-  id: expected.id!,
+  id: expected.id,
   ownerId: expected.ownerId,
   name: expected.name,
   description: expected.description,
@@ -141,8 +145,8 @@ const mutationContext = (ownerId: string): FeatureMutationContext => ({
 });
 
 export type DevelopmentContentSeed = Readonly<{
-  addresses: readonly CreateAddressInput[];
-  featureItems: readonly CreateFeatureItemInput[];
+  addresses: readonly SeededAddressInput[];
+  featureItems: readonly SeededFeatureItemInput[];
 }>;
 
 const DEFAULT_DEVELOPMENT_CONTENT: DevelopmentContentSeed = {
@@ -157,7 +161,7 @@ export const convergeDevelopmentContent = async (
   const addresses = createAddressRepository(database);
   for (const expected of content.addresses) {
     const current = await addresses.findByIdForUser(
-      expected.id!,
+      expected.id,
       expected.userId
     );
     if (!current) {
@@ -170,7 +174,7 @@ export const convergeDevelopmentContent = async (
   const features = createFeatureItemRepository(database);
   for (const expected of content.featureItems) {
     const current = await features.findByIdForOwner(
-      expected.id!,
+      expected.id,
       expected.ownerId
     );
     const context = mutationContext(expected.ownerId);

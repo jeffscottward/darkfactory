@@ -47,7 +47,9 @@ export const resolvePortalAppUrl = (
       url.search.length > 0 ||
       url.hash.length > 0
     )
-      throw new TypeError();
+      throw new TypeError(
+        "Portal application URL must be a clean HTTPS origin"
+      );
     return url;
   } catch {
     throw new TypeError("Portal application URL must be a clean HTTPS origin");

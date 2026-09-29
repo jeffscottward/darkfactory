@@ -117,7 +117,7 @@ describe("recording jobs adapter", () => {
   it("bounds collection size and nesting depth", () => {
     expect(
       snapshotJobPayload({
-        values: Array(MAX_JOB_PAYLOAD_BYTES).fill(0),
+        values: new Array(MAX_JOB_PAYLOAD_BYTES).fill(0),
       }).status
     ).toBe("invalid");
     expect(

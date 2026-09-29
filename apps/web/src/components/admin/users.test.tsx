@@ -2,12 +2,12 @@ import type {
   AdminUserSummaryOutput,
   AdminUsersListOutput,
 } from "@darkfactory/api";
-import type { ReactElement } from "react";
+import type { EffectCallback, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const hookRuntime = vi.hoisted(() => {
-  type Effect = () => void | (() => void);
+  type Effect = EffectCallback;
   type DependencySlot<Value> = Readonly<{
     deps: readonly unknown[] | undefined;
     value: Value;
@@ -19,8 +19,8 @@ const hookRuntime = vi.hoisted(() => {
   }>;
 
   const stateSlots: Array<{ value: unknown }> = [];
-  const callbackSlots: Array<DependencySlot<unknown>> = [];
-  const effectSlots: Array<DependencySlot<(() => void) | undefined>> = [];
+  const callbackSlots: DependencySlot<unknown>[] = [];
+  const effectSlots: DependencySlot<(() => void) | undefined>[] = [];
   const pendingEffects: PendingEffect[] = [];
   let stateCursor = 0;
   let callbackCursor = 0;

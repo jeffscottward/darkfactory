@@ -13,7 +13,7 @@ import {
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
-
+import { required } from "../lib/required.ts";
 import type {
   JourneyProgress,
   JourneyResult,
@@ -171,7 +171,10 @@ const sanitizedDiagnostics = (
   const safe: string[] = [];
   for (const diagnostic of diagnostics.slice(-4)) {
     const lifecycle = LIFECYCLE_FAILURE.exec(diagnostic);
-    if (lifecycle !== null && LIFECYCLE_STAGES.has(lifecycle[2]!)) {
+    if (
+      lifecycle !== null &&
+      LIFECYCLE_STAGES.has(required(lifecycle[2], "lifecycle stage"))
+    ) {
       safe.push(`E2E lifecycle ${lifecycle[1]} failed during ${lifecycle[2]}`);
       continue;
     }

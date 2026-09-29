@@ -37,20 +37,20 @@ import {
 const QUERY_DIALECT = new PgDialect();
 const VALID_PASSWORD_HASH = `${"a".repeat(32)}:${"b".repeat(128)}`;
 
-type QueryRows = ReadonlyArray<Record<string, unknown>>;
+type QueryRows = readonly Record<string, unknown>[];
 type QueryOutcome = QueryRows | Error;
-type QueryOperation = {
+interface QueryOperation {
   table?: "users" | "accounts" | "unknown";
   where?: unknown;
-};
-type QueryBuilder = {
+}
+interface QueryBuilder {
   from: (table: unknown) => QueryBuilder;
   where: (condition: unknown) => QueryBuilder;
   then: (
     onFulfilled: (rows: QueryRows) => unknown,
     onRejected?: (error: unknown) => unknown
   ) => Promise<unknown>;
-};
+}
 
 const createSeedDatabase = (configuredOutcomes: QueryOutcome[]) => {
   const outcomes = [...configuredOutcomes];

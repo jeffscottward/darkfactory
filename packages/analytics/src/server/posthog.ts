@@ -91,13 +91,14 @@ export const createPostHogAnalyticsPort = (
   const host = options.host?.trim();
   if (!(apiKey && host)) {
     return {
-      capture: async (input): Promise<AnalyticsResult> => {
+      capture: (input): Promise<AnalyticsResult> => {
         const snapshot = snapshotAnalyticsCapture(input);
-        if (!snapshot) return invalidCaptureResult();
+        if (!snapshot) return Promise.resolve(invalidCaptureResult());
 
         const consentReason = consentSkipReason(snapshot);
-        if (consentReason) return { status: "skipped", reason: consentReason };
-        return { status: "skipped", reason: "unconfigured" };
+        if (consentReason)
+          return Promise.resolve({ status: "skipped", reason: consentReason });
+        return Promise.resolve({ status: "skipped", reason: "unconfigured" });
       },
     };
   }

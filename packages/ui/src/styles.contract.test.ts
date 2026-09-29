@@ -167,9 +167,7 @@ describe("CSS theme contract", () => {
     }));
 
     for (const mode of ["light", "dark"] as const) {
-      const results2 = [];
       for (let index = 0; index < catalog.length; index += 1) {
-        const results3 = [];
         for (
           let comparison = index + 1;
           comparison < catalog.length;
@@ -177,19 +175,15 @@ describe("CSS theme contract", () => {
         ) {
           const first = catalog[index]!;
           const second = catalog[comparison]!;
-          results3.push(
-            expect(
-              deltaE(
-                first.tokens[`palette-primary-${mode}`]!,
-                second.tokens[`palette-primary-${mode}`]!
-              ),
-              `${first.palette} and ${second.palette} ${mode}`
-            ).toBeGreaterThanOrEqual(13)
-          );
+          expect(
+            deltaE(
+              first.tokens[`palette-primary-${mode}`]!,
+              second.tokens[`palette-primary-${mode}`]!
+            ),
+            `${first.palette} and ${second.palette} ${mode}`
+          ).toBeGreaterThanOrEqual(13);
         }
-        results2.push(results3);
       }
-      results2;
     }
   });
 

@@ -65,14 +65,18 @@ type ScriptedDatabaseInput = Readonly<{
   updates?: ScriptedQueryResult[];
   executes?: ScriptedQueryResult[];
 }>;
-type UnknownRecord = { readonly [key: string]: unknown };
-type JsonRecord = { readonly [key: string]: JsonValue };
+interface UnknownRecord {
+  readonly [key: string]: unknown;
+}
+interface JsonRecord {
+  readonly [key: string]: JsonValue;
+}
 type ScriptedQueryCase = Readonly<{ rows: ScriptedQueryResult }>;
-type RecordedQuery = {
+interface RecordedQuery {
   kind: "select" | "insert" | "update";
   arguments: unknown[];
-  methods: Array<Readonly<{ name: string; arguments: unknown[] }>>;
-};
+  methods: Readonly<{ name: string; arguments: unknown[] }>[];
+}
 
 const scriptedDatabase = (input: ScriptedDatabaseInput = {}) => {
   const queues = {
@@ -982,9 +986,7 @@ describe("workflow creation", () => {
         ],
       })
     );
-    const values = methodValues(fake, "insert") as Array<
-      Record<string, unknown>
-    >;
+    const values = methodValues(fake, "insert") as Record<string, unknown>[];
     expect(result).toEqual(corrected);
     expect(values).toHaveLength(4);
     expect(values[0]).toMatchObject({
@@ -1569,7 +1571,6 @@ describe("workflow owner-scoped lists", () => {
 
 describe("workflow approvals", () => {
   it("creates a pending approval bound to the current snapshot", async () => {
-    const projection = projectionFixture();
     const bound = projectionFixture([EVENT], {
       run: { state: "planning" },
       snapshot: {
@@ -2264,13 +2265,28 @@ describe("workflow evidence and messages", () => {
       const journalEntry = methodValues(seeded.fake, "insert")[0];
       const duplicate = repositoryFor({
         executes: [[]],
-        selects: [[before.run], [], [before.snapshot], [journalEntry]],
+        selects: [
+          [before.run],
+          [],
+          [before.snapshot],
+          [journalEntry],
+          ...projectionSelects(after),
+        ],
       });
 
       await expect(
         duplicate.repository.addMessageAndAppend(messageAppendInput(before))
       ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
-      return expect(duplicate.fake.lifecycle.rollbacks).toBe(1);
+      expect(duplicate.fake.lifecycle.rollbacks).toBe(1);
+
+      const vanished = repositoryFor({
+        executes: [[]],
+        selects: [[before.run], [], [before.snapshot], [journalEntry]],
+      });
+      await expect(
+        vanished.repository.addMessageAndAppend(messageAppendInput(before))
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+      return expect(vanished.fake.lifecycle.rollbacks).toBe(1);
     });
 
     return it("rolls back when the message insert returns no row", async () => {

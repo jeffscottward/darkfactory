@@ -1,9 +1,14 @@
-import { createElement, type ReactElement, type ReactNode } from "react";
+import {
+  createElement,
+  type EffectCallback,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
-  type Effect = () => void | (() => void);
+  type Effect = EffectCallback;
 
   let current = true;
   let effect: Effect | undefined;
@@ -147,7 +152,7 @@ describe("destinationForSession", () => {
 describe("SessionRedirect", () => {
   it("announces the initial check and withholds interactive children", () => {
     const { tree } = mount({
-      children: createElement("button", {}, "Interactive form"),
+      children: createElement("button", { type: "button" }, "Interactive form"),
     });
     const html = markup(tree);
     expect(html).toContain('role="status"');
@@ -164,7 +169,7 @@ describe("SessionRedirect", () => {
     const { setIsChecking } = mount({
       auth: authClient({ getSession }),
       callbackURL: "//attacker.test/steal",
-      children: createElement("button", {}, "Interactive form"),
+      children: createElement("button", { type: "button" }, "Interactive form"),
     });
     const cleanup = reactHarness.runEffect();
     expect(cleanup).toBeTypeOf("function");
@@ -186,7 +191,7 @@ describe("SessionRedirect", () => {
 
     const ready = mount({
       auth: authClient({ getSession }),
-      children: createElement("button", {}, "Interactive form"),
+      children: createElement("button", { type: "button" }, "Interactive form"),
       isChecking: false,
     });
     expect(markup(ready.tree)).toContain("Interactive form");

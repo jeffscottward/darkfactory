@@ -28,16 +28,16 @@ afterEach(() => {
 });
 
 type QueryKind = "select" | "insert" | "update";
-type QueryRows = ReadonlyArray<Record<string, unknown>>;
-type QueryOperation = {
+type QueryRows = readonly Record<string, unknown>[];
+interface QueryOperation {
   kind: QueryKind | "execute";
   table?: string;
   value?: Record<string, unknown>;
   where?: unknown;
   returning?: boolean;
   statement?: unknown;
-};
-type QueryBuilder = {
+}
+interface QueryBuilder {
   from: (table: unknown) => QueryBuilder;
   where: (condition: unknown) => QueryBuilder;
   limit: (value: number) => QueryBuilder;
@@ -48,7 +48,7 @@ type QueryBuilder = {
     onFulfilled: (rows: QueryRows) => unknown,
     onRejected?: (error: unknown) => unknown
   ) => Promise<unknown>;
-};
+}
 type QueryOutcomes = Partial<Record<QueryKind, QueryRows[]>>;
 
 const tableName = (table: unknown): string => {

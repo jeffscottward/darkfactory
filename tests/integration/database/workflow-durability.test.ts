@@ -1506,7 +1506,7 @@ describe.sequential("workflow durability on real PostgreSQL", () => {
   it("returns only a complete old or new projection during concurrent appends", async () => {
     const ownerId = await createOwner();
     let projection = await createRun(ownerId);
-    for (const index in [1, 2, 3, 4, 5, 6, 7, 8]) {
+    for (let index = 0; index < 8; index += 1) {
       const event = eventFor(
         nextId(`concurrent-${index}`),
         "PROJECTION_ADVANCED"

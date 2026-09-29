@@ -15,12 +15,12 @@ if (!isValidTarget || extra.length > 0) {
   try {
     await materializeWorkerBindings(process.cwd(), target);
     process.stdout.write(
-      JSON.stringify({
+      `${JSON.stringify({
         action: target === "operator" ? "operator:bindings" : "dev:bindings",
         ok: true,
         target: workerBindingsTargetPath(target),
         mode: "0600",
-      }) + "\n"
+      })}\n`
     );
   } catch {
     process.stderr.write(

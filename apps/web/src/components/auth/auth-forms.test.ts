@@ -198,7 +198,7 @@ describe("signed-in auth route redirect", () => {
       createElement(
         SessionRedirect,
         { auth: client, callbackURL: "/dashboard" },
-        createElement("button", {}, "Interactive form")
+        createElement("button", { type: "button" }, "Interactive form")
       )
     );
 

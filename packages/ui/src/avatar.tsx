@@ -32,7 +32,9 @@ export const Avatar = ({
       <img
         alt={name}
         className="size-full object-cover"
+        height={40}
         src={src}
+        width={40}
         {...imageProps}
       />
     )}

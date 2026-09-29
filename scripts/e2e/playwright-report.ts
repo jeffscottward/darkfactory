@@ -13,7 +13,9 @@ const REDACTED_REPORT_BOUND_MESSAGE =
   "Redacted Playwright report exceeds its bound";
 
 type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
-type JsonObject = { [key: string]: JsonValue };
+interface JsonObject {
+  [key: string]: JsonValue;
+}
 
 const isRecord = (value: unknown): value is JsonObject => {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -100,8 +102,8 @@ const redactSensitiveValues = (
   sensitiveValues: CanonicalSensitiveValues
 ): JsonValue => {
   if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      value[index] = redactSensitiveValues(value[index]!, sensitiveValues);
+    for (const [index, item] of value.entries()) {
+      value[index] = redactSensitiveValues(item, sensitiveValues);
     }
     return value;
   }
@@ -111,16 +113,15 @@ const redactSensitiveValues = (
       return containsKnownSensitiveText(key, sensitiveValues);
     });
     const occupiedKeys = new Set<string>();
-    for (let index = 0; index < entries.length; index += 1) {
-      if (!sensitiveKeys[index]) occupiedKeys.add(entries[index]![0]);
+    for (const [index, [key]] of entries.entries()) {
+      if (!sensitiveKeys[index]) occupiedKeys.add(key);
     }
 
     const redacted = Object.create(null) as JsonObject;
     let redactedKeyOrdinal = 1;
     const maximumRedactedKeyOrdinal =
       entries.length + sensitiveValues.inspected.length + 1;
-    for (let index = 0; index < entries.length; index += 1) {
-      const [key, entry] = entries[index]!;
+    for (const [index, [key, entry]] of entries.entries()) {
       let redactedKey = key;
       if (sensitiveKeys[index]) {
         redactedKey = "";

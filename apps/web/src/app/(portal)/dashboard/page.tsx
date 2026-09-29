@@ -179,7 +179,7 @@ export const loadDashboardSummaryState = async (
         )(request);
       },
     });
-    for (let attempt = 0; true; attempt += 1) {
+    for (let attempt = 0; ; attempt += 1) {
       capacityResponse = false;
       try {
         controller.signal.throwIfAborted();

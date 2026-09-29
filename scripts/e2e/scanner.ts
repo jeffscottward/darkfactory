@@ -352,7 +352,9 @@ const parseNormalizedStructuredContent = (
         parsedValue = JSON.parse(source) as unknown;
         parsed = true;
         break;
-      } catch {}
+      } catch {
+        // Not JSON at this offset: continue with the next candidate.
+      }
     }
     if (!parsed) return undefined;
     if (typeof parsedValue !== "string") return parsedValue;

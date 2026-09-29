@@ -39,16 +39,16 @@ const tableName = (table: unknown): string => {
   return "unknown";
 };
 
-type InsertOperation = {
+interface InsertOperation {
   table: string;
   value: Record<string, unknown>;
-};
+}
 
-type DatabaseDoubleOptions = {
+interface DatabaseDoubleOptions {
   failOnTable?: string;
   transactionError?: unknown;
   beforeTransaction?: () => void | Promise<void>;
-};
+}
 
 const createDatabaseDouble = (options: DatabaseDoubleOptions = {}) => {
   const lifecycle: string[] = [];
@@ -114,10 +114,10 @@ const wrappedDatabaseError = (
 
 type QueryKind = "select" | "insert" | "update" | "delete";
 type QueryScope = "database" | "transaction";
-type QueryRows = ReadonlyArray<Record<string, unknown>>;
+type QueryRows = readonly Record<string, unknown>[];
 type QueryOutcome = QueryRows | Error;
 
-type QueryOperation = {
+interface QueryOperation {
   kind: QueryKind | "execute";
   scope: QueryScope;
   table?: string;
@@ -129,9 +129,9 @@ type QueryOperation = {
   conflict?: unknown;
   returning?: unknown;
   statement?: unknown;
-};
+}
 
-type QueryBuilder = {
+interface QueryBuilder {
   from: (table: unknown) => QueryBuilder;
   where: (condition: unknown) => QueryBuilder;
   orderBy: (...clauses: unknown[]) => QueryBuilder;
@@ -145,7 +145,7 @@ type QueryBuilder = {
     onFulfilled: (rows: QueryRows) => unknown,
     onRejected?: (error: unknown) => unknown
   ) => Promise<unknown>;
-};
+}
 
 type QueryDatabaseDoubleOptions = Partial<Record<QueryKind, QueryOutcome[]>> & {
   executeError?: unknown;

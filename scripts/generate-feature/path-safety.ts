@@ -10,7 +10,7 @@ export type PathIdentity = Readonly<{
 }>;
 
 const missing = (error: unknown): boolean => {
-  return Reflect.get(Object(error), "code") === "ENOENT";
+  return Reflect.get(new Object(error), "code") === "ENOENT";
 };
 
 const isRelativeOffsetInside = (offset: string): boolean => {

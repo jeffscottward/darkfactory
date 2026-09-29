@@ -12,7 +12,7 @@ export const buildOpenApiDocument = async (): Promise<OpenAPI.Document> => {
   const generator = new OpenAPIGenerator({
     schemaConverters: [new ZodToJsonSchemaConverter()],
   });
-  return generator.generate(appContract, { info: OPENAPI_INFO });
+  return await generator.generate(appContract, { info: OPENAPI_INFO });
 };
 
 const sortJson = (value: unknown): unknown => {

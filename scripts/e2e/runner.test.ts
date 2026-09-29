@@ -64,12 +64,10 @@ const preparedRun = (
 
 describe("serialized E2E journey runner", () => {
   it("classifies the exact filesystem set and binds binary policy to each spec", async () => {
-    const calls: Array<
-      Readonly<{
-        arguments_: readonly string[];
-        environment: Readonly<Record<string, string>>;
-      }>
-    > = [];
+    const calls: Readonly<{
+      arguments_: readonly string[];
+      environment: Readonly<Record<string, string>>;
+    }>[] = [];
     const prepared: Array<
       readonly [string, "anonymous-public-visual" | "no-binary"]
     > = [];

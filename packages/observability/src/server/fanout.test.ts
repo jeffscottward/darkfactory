@@ -1,13 +1,3 @@
-var range: (start: number, end: number) => number[] = (start, end) => {
-  const length = end - start;
-  if (length <= 0) return [];
-  const arr = Array(length);
-  for (let i = 0; i < length; ++i) {
-    arr[i] = i + start;
-  }
-  return arr;
-};
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -216,7 +206,7 @@ describe("createSemanticEventFanout", () => {
 
   it("canonicalizes required event fields before bounded optional data despite key floods", async () => {
     const flooded: Record<string, unknown> = {};
-    for (const index in range(0, 100)) {
+    for (let index = 0; index < 100; index += 1) {
       flooded[`attacker_${index.toString().padStart(3, "0")}`] = "ignored";
     }
     Object.assign(flooded, baseEvent, {

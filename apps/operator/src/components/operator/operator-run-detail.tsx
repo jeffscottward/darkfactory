@@ -605,10 +605,11 @@ export const OperatorRunDetail = ({
             disabled={busyAction !== null}
             implementationPlan={output.implementationPlan}
             onApprove={() => {
-              if (output.approval !== null) {
+              const approval = output.approval;
+              if (approval !== null) {
                 return void perform(
                   "approve",
-                  () => gateway.approve(id, output.approval!),
+                  () => gateway.approve(id, approval),
                   "Plan approved. Work can start."
                 );
               }

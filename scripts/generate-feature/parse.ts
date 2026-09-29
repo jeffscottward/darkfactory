@@ -1,3 +1,4 @@
+import { required } from "../lib/required.ts";
 import { GeneratorError } from "./errors.ts";
 import type { GeneratorArguments } from "./types.ts";
 
@@ -28,7 +29,7 @@ export const parseGeneratorArguments = (
   }
 
   return Object.freeze({
-    name: names[0]!,
+    name: required(names[0], "feature name"),
     dryRun: options.includes("--dry-run"),
     json: options.includes("--json"),
   });

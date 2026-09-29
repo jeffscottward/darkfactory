@@ -146,7 +146,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", () => {
       maxRequests: 30,
     });
     const key = "6".repeat(64);
-    const decisions = [];
+    const decisions: Awaited<ReturnType<typeof repository.consume>>[] = [];
     for (let attempt = 0; attempt < 31; attempt += 1) {
       decisions.push(await repository.consume(key));
     }

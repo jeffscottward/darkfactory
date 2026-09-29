@@ -8,6 +8,7 @@ import {
   sha256Hex,
 } from "./canonical.ts";
 import { assertWorkflowEventV1, assertWorkflowSnapshotV1 } from "./guards.ts";
+import { required } from "./required.ts";
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
@@ -198,10 +199,10 @@ const proposalFor = (
   handler: handlerFor(kind),
   scope,
   payload: {
-    taskId: context.taskId!,
-    workspaceId: context.workspaceId!,
-    taskRevision: context.taskRevision!,
-    taskHash: context.taskHash!,
+    taskId: required(context.taskId, "workflow task id"),
+    workspaceId: required(context.workspaceId, "workflow workspace id"),
+    taskRevision: required(context.taskRevision, "workflow task revision"),
+    taskHash: required(context.taskHash, "workflow task hash"),
     sourceSequence,
     evidenceIds: evidenceIds(context),
     ...(context.executionMode === undefined
@@ -291,13 +292,15 @@ const reduceContext = (
       };
     }
     case "PLAN_REVISION_REQUESTED": {
+      const taskRevision =
+        required(context.taskRevision, "workflow task revision") + 1;
       const revisedContext = {
         ...context,
-        taskRevision: context.taskRevision! + 1,
+        taskRevision,
         taskHash: sha256Hex(
           canonicalJsonV1({
             previousTaskHash: context.taskHash,
-            taskRevision: context.taskRevision! + 1,
+            taskRevision,
             clarification: event.clarification,
           })
         ),
@@ -315,7 +318,7 @@ const reduceContext = (
         pendingEffect: proposalFor(
           revisedContext,
           "plan",
-          context.scope!,
+          required(context.scope, "workflow scope"),
           nextSequence
         ),
       };
@@ -371,13 +374,17 @@ const reduceContext = (
     }
     case "RETRY_REQUESTED": {
       const kind = retryKindFor(context);
+      const pendingEffect = required(
+        context.pendingEffect,
+        "pending workflow effect"
+      );
       return {
         ...context,
         attempts: incrementAttempt(context, kind),
         pendingEffect: {
-          ...context.pendingEffect!,
+          ...pendingEffect,
           payload: {
-            ...context.pendingEffect!.payload,
+            ...pendingEffect.payload,
             sourceSequence: nextSequence,
           },
         },
@@ -401,7 +408,7 @@ const attemptFor = (
 ): number => context.attempts[kind];
 
 const materializeEffect = (context: WorkflowContextV1): WorkflowEffectV1 => {
-  const proposal = context.pendingEffect!;
+  const proposal = required(context.pendingEffect, "pending workflow effect");
   const attempt = attemptFor(context, proposal.kind);
   const idempotencyKey = sha256Hex(
     canonicalJsonV1({

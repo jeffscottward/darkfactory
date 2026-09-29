@@ -55,7 +55,7 @@ let evlogRuntime: ReturnType<typeof initializeEvlog> | undefined;
 let analyticsPort: ReturnType<typeof createPostHogAnalyticsPort> | undefined;
 
 const telemetryFor = (env: ServerEnv) => {
-  return (telemetryRuntime ??= initializeTelemetry({
+  telemetryRuntime ??= initializeTelemetry({
     enabled: env.OTEL_ENABLED,
     serviceName: env.OTEL_SERVICE_NAME,
     ...(env.OTEL_EXPORTER_OTLP_ENDPOINT === undefined
@@ -66,20 +66,23 @@ const telemetryFor = (env: ServerEnv) => {
             env.OTEL_EXPORTER_OTLP_ENDPOINT
           ),
         }),
-  }));
+  });
+  return telemetryRuntime;
 };
 
 const evlogFor = (env: ServerEnv) => {
-  return (evlogRuntime ??= initializeEvlog({
+  evlogRuntime ??= initializeEvlog({
     serviceName: env.OTEL_SERVICE_NAME,
-  }));
+  });
+  return evlogRuntime;
 };
 
 const analyticsFor = (env: ServerEnv) => {
-  return (analyticsPort ??= createPostHogAnalyticsPort({
+  analyticsPort ??= createPostHogAnalyticsPort({
     ...(env.POSTHOG_KEY === undefined ? {} : { apiKey: env.POSTHOG_KEY }),
     ...(env.POSTHOG_HOST === undefined ? {} : { host: env.POSTHOG_HOST }),
-  }));
+  });
+  return analyticsPort;
 };
 
 const unsafeRequestDenied = (request: Request, appUrl: string): boolean => {
@@ -160,7 +163,7 @@ const tryAcquireDatabaseRequest = (): DatabaseAdmission | undefined => {
       return;
     },
     transfer: () => {
-      return (transferred = true);
+      transferred = true;
     },
   });
 };
@@ -213,7 +216,7 @@ export const handleOrpcRuntimeRequest = async (
   if (unsafeRequestDenied(request, env.APP_URL))
     return forbiddenOriginResponse();
 
-  return withDatabaseAdmission(async (admission) => {
+  return await withDatabaseAdmission(async (admission) => {
     const isContactSubmission =
       method === "POST" &&
       new URL(request.url).pathname === "/api/orpc/contact/submit";
@@ -249,7 +252,7 @@ export const handleOrpcRuntimeRequest = async (
           scheduleBackgroundTask,
           requestId,
         });
-        let database;
+        let database: Awaited<ReturnType<typeof createDatabase>>;
         try {
           database = await createDatabase({
             connectionString: databaseProfile.connection.connectionString,
@@ -294,7 +297,9 @@ export const handleOrpcRuntimeRequest = async (
               env.CONTACT_THROTTLE_SECRET,
               "edge"
             );
-            let edgeResult;
+            let edgeResult: Awaited<
+              ReturnType<typeof contactEdgeThrottle.consume>
+            >;
             try {
               edgeResult = await contactEdgeThrottle.consume(edgeKey);
             } catch {

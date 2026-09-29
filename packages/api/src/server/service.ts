@@ -159,7 +159,7 @@ export const createFeatureItemService = (
       input.limit === undefined
     )
       return runRepository(() => repository.listByOwner(ownerId));
-    return runRepository(() =>
+    return await runRepository(() =>
       repository.listByOwner(ownerId, {
         ...(input.query === undefined ? {} : { query: input.query }),
         ...(input.status === undefined ? {} : { status: input.status }),
@@ -178,7 +178,7 @@ export const createFeatureItemService = (
 
   create: async (principal, input, requestId) => {
     const ownerId = ownerFor(principal, input.ownerId);
-    return runRepository(() => {
+    return await runRepository(() => {
       return repository.create(
         {
           ownerId,

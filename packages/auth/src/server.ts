@@ -1,4 +1,5 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+// biome-ignore lint/performance/noNamespaceImport: Drizzle consumes the complete schema module object as its relational schema.
 import * as databaseSchema from "@darkfactory/db/schema";
 import {
   profiles,
@@ -282,6 +283,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
         : {}),
     },
     hooks: {
+      // biome-ignore lint/suspicious/useAwait: async keeps the middleware promise contract so inactive-session errors reject instead of throwing.
       before: createAuthMiddleware(async (context) => {
         if (context.path !== "/sign-out") {
           const currentSession = readPlainDataProperty(
@@ -977,7 +979,6 @@ export const createAuthHandler = (
   };
 };
 
-export { AUTHORIZATION_ERROR_CODES, AuthAuthorizationError };
 export type {
   SafeAuthSession,
   SafeAuthUser,
@@ -986,3 +987,4 @@ export type {
   UserRole,
   UserStatus,
 } from "./types.ts";
+export { AUTHORIZATION_ERROR_CODES, AuthAuthorizationError } from "./types.ts";

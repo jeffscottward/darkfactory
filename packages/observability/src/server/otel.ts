@@ -246,7 +246,7 @@ const createInactiveRuntime = (
     input: SpanInput,
     run: (span: SpanHandle) => T | Promise<T>
   ): Promise<T> => {
-    return run(
+    return await run(
       Object.freeze({
         correlation: Object.freeze({ ...input.correlation }),
         addEvent: (_event: SemanticEvent) => undefined,
@@ -398,18 +398,20 @@ export const initializeTelemetry = (
       "service.name": serviceName,
     })
   );
-  const traceExporter = options.testExport
-    ? new InMemorySpanExporter()
-    : new OTLPTraceExporter({
-        url: signalUrls!.traces,
-        ...(headers === undefined ? {} : { headers: { ...headers } }),
-      });
-  const metricExporter = options.testExport
-    ? new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE)
-    : new OTLPMetricExporter({
-        url: signalUrls!.metrics,
-        ...(headers === undefined ? {} : { headers: { ...headers } }),
-      });
+  const traceExporter =
+    options.testExport || signalUrls === undefined
+      ? new InMemorySpanExporter()
+      : new OTLPTraceExporter({
+          url: signalUrls.traces,
+          ...(headers === undefined ? {} : { headers: { ...headers } }),
+        });
+  const metricExporter =
+    options.testExport || signalUrls === undefined
+      ? new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE)
+      : new OTLPMetricExporter({
+          url: signalUrls.metrics,
+          ...(headers === undefined ? {} : { headers: { ...headers } }),
+        });
   const metricReader = new PeriodicExportingMetricReader({
     exporter: metricExporter,
   });
@@ -432,6 +434,7 @@ export const initializeTelemetry = (
   ): Promise<T> => {
     const startedAt = now();
     const parentContext = createParentContext(input.correlation);
+    const procedure = input.procedure ?? input.correlation.procedure;
     const otelSpan = tracer.startSpan(
       input.name,
       {
@@ -439,12 +442,7 @@ export const initializeTelemetry = (
           ...toAttributes(input.attributes),
           "service.name": serviceName,
           "request.id": input.correlation.requestId,
-          ...((input.procedure ?? input.correlation.procedure) === undefined
-            ? {}
-            : {
-                "rpc.procedure":
-                  input.procedure ?? input.correlation.procedure!,
-              }),
+          ...(procedure === undefined ? {} : { "rpc.procedure": procedure }),
           ...(input.correlation.route === undefined
             ? {}
             : { "http.route": input.correlation.route }),

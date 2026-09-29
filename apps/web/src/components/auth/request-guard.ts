@@ -16,11 +16,11 @@ export const createRequestGuard = (): RequestGuard => {
     },
     isCurrent: (requestId: number) => !isDisposed && requestId === generation,
     invalidate: () => {
-      return (generation += 1);
+      generation += 1;
     },
     dispose: () => {
       isDisposed = true;
-      return (generation += 1);
+      generation += 1;
     },
   });
 };

@@ -46,6 +46,7 @@ const normalizeContactInput = (input: ContactEmailInput): ContactEmailInput => {
   });
 };
 
+// biome-ignore lint/suspicious/useAwait: async keeps the promise contract so synchronous validation failures reject instead of throwing.
 export const renderContactEmail = async (
   input: ContactEmailInput
 ): Promise<RenderedContactEmail> => {

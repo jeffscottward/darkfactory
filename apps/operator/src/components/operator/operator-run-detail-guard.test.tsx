@@ -13,7 +13,7 @@ vi.mock("./approval-panel.tsx", () => ({
     approvalPanel.onApprove = onApprove;
     return createElement(
       "button",
-      { onClick: onApprove },
+      { onClick: onApprove, type: "button" },
       "Invoke approval callback"
     );
   },

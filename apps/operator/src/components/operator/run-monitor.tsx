@@ -122,11 +122,9 @@ export const RunMonitor = ({ runs, selectedRunId }: RunMonitorProps) => {
               <CardTitle className="text-base" headingLevel={3}>
                 {stage.label}
               </CardTitle>
-              <span
-                aria-label={`${stage.runs.length} runs`}
-                className="text-muted-foreground text-xs tabular-nums"
-              >
-                {stage.runs.length}
+              <span className="text-muted-foreground text-xs tabular-nums">
+                <span aria-hidden="true">{stage.runs.length}</span>
+                <span className="sr-only">{`${stage.runs.length} runs`}</span>
               </span>
             </CardHeader>
             <CardContent className="px-3 py-0">

@@ -49,6 +49,7 @@ import {
   WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
+import { required } from "./required.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
 import {
   type ClaimedWorkflowEffect,
@@ -797,7 +798,7 @@ export const createWorkflowApplication = (
             machineVersion: 1,
             occurredAt,
             planEvidenceId: evidenceId,
-            planHash: plan!.digest,
+            planHash: required(plan, "plan evidence").digest,
             implementationScope: input.effectScope,
           }
         : input.effectKind === "implement"
@@ -808,7 +809,10 @@ export const createWorkflowApplication = (
               machineVersion: 1,
               occurredAt,
               implementationEvidenceId: evidenceId,
-              changeHash: implementationChangeHash!,
+              changeHash: required(
+                implementationChangeHash,
+                "implementation change hash"
+              ),
               verificationScope: input.effectScope,
             }
           : {
@@ -819,7 +823,7 @@ export const createWorkflowApplication = (
               occurredAt,
               verificationEvidenceId: evidenceId,
             };
-    return finalizeTransition(input, "succeeded", event);
+    return await finalizeTransition(input, "succeeded", event);
   };
 
   const failEffect = async (
@@ -838,7 +842,7 @@ export const createWorkflowApplication = (
         "effect failure has invalid change evidence"
       );
     }
-    return finalizeTransition(input, "failed", {
+    return await finalizeTransition(input, "failed", {
       type: "EFFECT_FAILED",
       eventId: failureEventId(input.effectId),
       eventVersion: 1,
@@ -1332,7 +1336,9 @@ export const createWorkflowTerminalReconciler = (
   };
   const runOnce = (): Promise<readonly WorkflowTerminalReconcilerResult[]> => {
     if (activeRun !== null) return activeRun;
-    activeRun = performRun().finally(() => (activeRun = null));
+    activeRun = performRun().finally(() => {
+      activeRun = null;
+    });
     return activeRun;
   };
   const stop = async (): Promise<void> => {
@@ -1426,7 +1432,9 @@ export const createWorkflowRuntime = (
         reconciler.runOnce(),
       ]);
       return workerResults;
-    })().finally(() => (activeRun = null));
+    })().finally(() => {
+      activeRun = null;
+    });
     return activeRun;
   };
   const stop = async (): Promise<void> => {

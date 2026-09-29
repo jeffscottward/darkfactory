@@ -1,9 +1,9 @@
-import type { ReactElement } from "react";
+import type { EffectCallback, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
-  type Effect = () => void | (() => void);
+  type Effect = EffectCallback;
   type Setter = (next: unknown) => void;
   type StatePair = readonly [unknown, Setter];
 
@@ -61,20 +61,20 @@ const reactHarness = vi.hoisted(() => {
 
 const formHarness = vi.hoisted(() => {
   type Values = Record<string, string>;
-  type State = {
+  interface State {
     values: Values;
     isValid: boolean;
     canSubmit: boolean;
     isSubmitting: boolean;
-  };
+  }
   type Setup = Partial<Omit<State, "values">> & {
     values?: Values;
     handleSubmit?: () => Promise<void>;
   };
-  type Options = {
+  interface Options {
     defaultValues: Values;
     onSubmit: (input: { value: Values }) => Promise<void> | void;
-  };
+  }
 
   const Field = (_props: unknown): null => null;
   const Subscribe = (_props: unknown): null => null;

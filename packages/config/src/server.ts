@@ -31,10 +31,10 @@ const optionalContactRecipient = z.preprocess(
 const isHeaderSafeEmailFrom = (value: string): boolean => {
   if (value.length > 400 || /[\r\n]/.test(value)) return false;
   if (MAILBOX_PATTERN.test(value)) return true;
-  const displayMailbox = /^([^<>]+)<([^<>]+)>$/.exec(value);
-  if (displayMailbox === null) return false;
-  const displayName = displayMailbox[1]!.trim();
-  const mailbox = displayMailbox[2]!.trim();
+  if (!/^[^<>]+<[^<>]+>$/.test(value)) return false;
+  const mailboxStart = value.indexOf("<");
+  const displayName = value.slice(0, mailboxStart).trim();
+  const mailbox = value.slice(mailboxStart + 1, -1).trim();
   return (
     displayName.length > 0 &&
     displayName.length <= 100 &&
@@ -293,7 +293,6 @@ export const serverEnvSchema = baseServerEnvSchema.superRefine(
           "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
       });
     }
-    return undefined;
   }
 );
 

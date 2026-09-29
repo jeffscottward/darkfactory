@@ -2,11 +2,11 @@
 
 import { createElement } from "react";
 import type { ToastClassnames, ToasterProps } from "sonner";
-import { Toaster as SonnerToaster, toast } from "sonner";
+import { Toaster as SonnerToaster } from "sonner";
 
 import { cn } from "../utilities.ts";
 
-export { toast };
+export { toast } from "sonner";
 
 const defaultToastClassNames: ToastClassnames = {
   toast:

@@ -268,13 +268,12 @@ const isSensitiveKey = (key: string): boolean => {
 const redactJson = (
   value: string
 ): Readonly<{ value: string; redacted: boolean }> | undefined => {
-  let ref;
+  let parsed: unknown;
   try {
-    ref = JSON.parse(value);
+    parsed = JSON.parse(value);
   } catch {
     return undefined;
   }
-  const parsed: unknown = ref;
   if (parsed === null || typeof parsed !== "object") return undefined;
 
   const pending: unknown[] = [parsed];
@@ -460,12 +459,12 @@ const detailFor = (
     );
   }
 
-  let ref1;
+  let implementationPlan: ReturnType<typeof parseWorkflowPlanEvidenceV1> | null;
   if (detail.implementationPlan === null) {
-    ref1 = null;
+    implementationPlan = null;
   } else {
     try {
-      ref1 = parseWorkflowPlanEvidenceV1(
+      implementationPlan = parseWorkflowPlanEvidenceV1(
         detail.implementationPlan,
         detail.implementationPlan.digest
       );
@@ -479,7 +478,6 @@ const detailFor = (
       throw error;
     }
   }
-  const implementationPlan = ref1;
 
   return {
     run: {
@@ -608,7 +606,7 @@ export const createOperatorService = (
     },
 
     approve: async (principal, id, approval, requestId) => {
-      return projectAction(principal, (workflow) =>
+      return await projectAction(principal, (workflow) =>
         workflow.approve({
           ...actionContext(principal, id, requestId),
           approval,

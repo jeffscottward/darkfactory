@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { required } from "../lib/required.ts";
 
 const MAX_CONFIG_BYTES = 262_144;
 const MAX_GRAPH_BYTES = 67_108_864;
@@ -286,7 +287,7 @@ const canonicalizeHyperedge = (
   });
   if (memberKeys.length !== 1)
     throw new Error("Graph output has invalid hyperedge members");
-  const memberKey = memberKeys[0]!;
+  const memberKey = required(memberKeys[0], "hyperedge member key");
   const memberValues = hyperedge[memberKey];
   if (!Array.isArray(memberValues) || memberValues.length < 3) {
     throw new Error("Graph output has too few hyperedge members");
@@ -295,7 +296,7 @@ const canonicalizeHyperedge = (
     if (typeof member !== "string" || !nodeIds.has(member)) {
       throw new Error("Graph output has an invalid hyperedge member");
     }
-    return nodeIds.get(member)!;
+    return required(nodeIds.get(member), "hyperedge member node");
   });
   if (new Set(members).size !== members.length) {
     throw new Error("Graph output has repeated hyperedge members");
@@ -744,8 +745,14 @@ export const runGraphAction = async (
       index < config.verificationPath.length - 1;
       index += 1
     ) {
-      const from = config.verificationPath[index]!;
-      const to = config.verificationPath[index + 1]!;
+      const from = required(
+        config.verificationPath[index],
+        "verification path node"
+      );
+      const to = required(
+        config.verificationPath[index + 1],
+        "verification path node"
+      );
       const query = await dependencies.process.run(
         "graphify",
         ["path", from, to],

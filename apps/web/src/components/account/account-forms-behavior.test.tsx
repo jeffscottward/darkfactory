@@ -45,7 +45,7 @@ const formRuntime = vi.hoisted(() => {
       for (const child of node) {
         capture(child, seen);
       }
-      return undefined;
+      return;
     }
     if (typeof node !== "object" || node === null || seen.has(node)) return;
     seen.add(node);

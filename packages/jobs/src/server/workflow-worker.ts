@@ -24,6 +24,7 @@ import {
   WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
+import { required } from "./required.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
 
 export const WORKFLOW_EFFECT_HANDLER_V1 = "workflow.omp";
@@ -696,7 +697,10 @@ export const createWorkflowOutboxWorker = (
                     cwd: scope.repositoryId,
                     scopePaths: scope.paths,
                     repositoryId: scope.repositoryId,
-                    humanRequest: wayfinderTask.humanRequest!,
+                    humanRequest: required(
+                      wayfinderTask.humanRequest,
+                      "Wayfinder human request"
+                    ),
                     ...(wayfinderTask.planClarification === undefined
                       ? {}
                       : { planClarification: wayfinderTask.planClarification }),
@@ -854,7 +858,9 @@ export const createWorkflowOutboxWorker = (
 
   const runOnce = (): Promise<readonly WorkflowWorkerItemResult[]> => {
     if (activeRun !== null) return activeRun;
-    activeRun = performRun().finally(() => (activeRun = null));
+    activeRun = performRun().finally(() => {
+      activeRun = null;
+    });
     return activeRun;
   };
 
@@ -869,7 +875,7 @@ export const createWorkflowOutboxWorker = (
         return resolveSleep();
       };
       const timer = setTimeout(finish, pollMilliseconds);
-      return (wakeSleep = finish);
+      wakeSleep = finish;
     });
 
   const runLoop = async (): Promise<void> => {
@@ -885,7 +891,7 @@ export const createWorkflowOutboxWorker = (
     running = true;
     workflowLoop = runLoop().finally(() => {
       running = false;
-      return (workflowLoop = null);
+      workflowLoop = null;
     });
     await Promise.resolve();
   };

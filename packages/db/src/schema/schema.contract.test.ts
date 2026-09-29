@@ -180,13 +180,11 @@ describe("Better Auth 1.6.24 schema", () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(currentTime);
-      const results = [];
       for (const table of [users, sessions, accounts, verifications]) {
         const updatedAt = column(table, "updated_at").onUpdateFn!();
         expect(updatedAt).toEqual(currentTime);
-        results.push(expect(updatedAt).not.toBe(currentTime));
+        expect(updatedAt).not.toBe(currentTime);
       }
-      return results;
     } finally {
       vi.useRealTimers();
     }
@@ -616,15 +614,11 @@ describe("DarkFactory-owned schema", () => {
       outboxEvents,
       auditRecords,
     ]) {
-      const results2 = [];
       for (const candidate of getTableConfig(table).columns.filter((entry) => {
         return entry.name.endsWith("_at");
       })) {
-        results2.push(
-          expect(candidate.getSQLType()).toBe("timestamp with time zone")
-        );
+        expect(candidate.getSQLType()).toBe("timestamp with time zone");
       }
-      results2;
     }
   });
 });

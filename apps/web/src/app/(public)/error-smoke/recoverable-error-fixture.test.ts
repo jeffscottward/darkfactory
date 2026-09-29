@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const hooks = vi.hoisted(() => {
   type Phase = "checking" | "recovered" | "throw";
   let phase: Phase = "checking";
-  let effect: (() => void | undefined) | undefined;
+  let effect: (() => void) | undefined;
 
   return {
     reset: () => {
@@ -12,7 +12,7 @@ const hooks = vi.hoisted(() => {
       return (effect = undefined);
     },
     runEffect: () => effect?.(),
-    useEffect: (nextEffect: () => void | undefined): void => {
+    useEffect: (nextEffect: () => void): void => {
       effect = nextEffect;
     },
     useState: <Value>(

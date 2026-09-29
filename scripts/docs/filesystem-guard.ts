@@ -63,10 +63,10 @@ const prepareAncestors = async (
   const paths = ancestorPaths(root, parent);
   const snapshots: Identity[] = [];
   let firstMissing = paths.length;
-  for (let index = 0; index < paths.length; index += 1) {
+  for (const [index, path] of paths.entries()) {
     try {
-      const snapshot = await identity(paths[index]!);
-      const stats = await lstat(paths[index]!);
+      const snapshot = await identity(path);
+      const stats = await lstat(path);
       if (!stats.isDirectory())
         throw new Error("Filesystem ancestor is not a directory");
       snapshots.push(snapshot);
@@ -77,11 +77,11 @@ const prepareAncestors = async (
     }
   }
   for (const snapshot of snapshots) await assertIdentity(snapshot);
-  for (let index = firstMissing; index < paths.length; index += 1) {
+  for (const path of paths.slice(firstMissing)) {
     for (const snapshot of snapshots) await assertIdentity(snapshot);
-    await mkdir(paths[index]!, { mode: 0o700 });
-    const created = await identity(paths[index]!);
-    const stats = await lstat(paths[index]!);
+    await mkdir(path, { mode: 0o700 });
+    const created = await identity(path);
+    const stats = await lstat(path);
     if (!stats.isDirectory())
       throw new Error("Filesystem ancestor creation failed");
     snapshots.push(created);
@@ -212,7 +212,7 @@ export const guardedWrite = async (
       for (const snapshot of ancestors) await assertIdentity(snapshot);
       await assertLock();
       await removeOwned(backupIdentity);
-      return (backupIdentity = undefined);
+      backupIdentity = undefined;
     } catch (error) {
       try {
         for (const snapshot of ancestors) await assertIdentity(snapshot);

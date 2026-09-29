@@ -1,13 +1,3 @@
-var range: (start: number, end: number) => number[] = (start, end) => {
-  const length = end - start;
-  if (length <= 0) return [];
-  const arr = Array(length);
-  for (let i = 0; i < length; ++i) {
-    arr[i] = i + start;
-  }
-  return arr;
-};
-
 import type { SafePrincipal } from "@darkfactory/auth/types";
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import { describe, expect, it, vi } from "vitest";
@@ -583,23 +573,16 @@ describe("operator service projection boundary", () => {
       );
 
       const projected = await service.detail(principal, "run-1");
-      const results2 = [];
-      for (const index in range(0, batch.length)) {
-        const testCase = batch[index]!;
+      for (const [index, testCase] of batch.entries()) {
         const evidence = projected.evidence[index];
         expect(evidence).toMatchObject({
           redacted: testCase.redacted,
           redactedContent: testCase.expected,
         });
         if (testCase.sensitive) {
-          results2.push(
-            expect(evidence?.redactedContent).not.toContain(sentinel)
-          );
-        } else {
-          results2.push(void 0);
+          expect(evidence?.redactedContent).not.toContain(sentinel);
         }
       }
-      results2;
     }
   });
 

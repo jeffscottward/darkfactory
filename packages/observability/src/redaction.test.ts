@@ -1,13 +1,3 @@
-var range: (start: number, end: number) => number[] = (start, end) => {
-  const length = end - start;
-  if (length <= 0) return [];
-  const arr = Array(length);
-  for (let i = 0; i < length; ++i) {
-    arr[i] = i + start;
-  }
-  return arr;
-};
-
 import { describe, expect, it } from "vitest";
 
 import type { SemanticEvent } from "./port.ts";
@@ -474,8 +464,8 @@ describe("redact", () => {
       "apiKey-super-secret-value": "safe-secret-key-value",
       [oversizedKey]: "raw-oversized-key-value",
     };
-    for (const index in range(0, 100)) {
-      keyed[`key_${index.toString().padStart(3, "0")}`] = index;
+    for (let index = 0; index < 100; index += 1) {
+      keyed[`key_${index.toString().padStart(3, "0")}`] = String(index);
     }
 
     expect(redact(revoked.proxy)).toBe("[Unserializable]");
@@ -538,7 +528,7 @@ describe("redact", () => {
 
     let excessive: Record<string, unknown> = {};
     const root = excessive;
-    for (const index in range(0, 32)) {
+    for (let depth = 0; depth < 32; depth += 1) {
       const child: Record<string, unknown> = {};
       excessive["child"] = child;
       excessive = child;
@@ -1306,7 +1296,9 @@ describe("redactSemanticEvent", () => {
     } as unknown as Record<string, unknown>;
     Object.defineProperty(setterOnly, "attributes", {
       enumerable: true,
-      set(_value: unknown) {},
+      set(_value: unknown) {
+        // Setter-only accessor: there is intentionally no readable value.
+      },
     });
     return expectInvalidSemanticEvent(
       setterOnly,

@@ -201,7 +201,7 @@ describe("DF-076 bounded contact request body", () => {
       "203.0.113.256",
       "203.0.x.42",
       "2001:db8::1%en0",
-      "x".repeat(46) + ":",
+      `${"x".repeat(46)}:`,
     ]) {
       expect(
         await createContactThrottleKey(requestWith(candidate), secret)

@@ -120,9 +120,8 @@ export type New${names.pascal} = typeof ${names.pluralCamel}.$inferInsert
 const migrationTemplate = (names: FeatureNames): string => {
   const table = names.pluralSnake;
   const users = AUTH_USER_IDENTITY.table;
-  return (
-    [
-      `CREATE TABLE "${table}" (
+  return `${[
+    `CREATE TABLE "${table}" (
 \t"id" text PRIMARY KEY NOT NULL,
 \t"owner_id" text NOT NULL,
 \t"name" text NOT NULL,
@@ -135,10 +134,9 @@ const migrationTemplate = (names: FeatureNames): string => {
 \tCONSTRAINT "${table}_name_check" CHECK (length(trim("${table}"."name")) > 0)
 );
 `,
-      `ALTER TABLE "${table}" ADD CONSTRAINT "${table}_owner_id_${users}_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."${users}"("id") ON DELETE cascade ON UPDATE no action;`,
-      `CREATE INDEX "${table}_owner_id_idx" ON "${table}" USING btree ("owner_id","updated_at" DESC NULLS LAST,"id" DESC NULLS LAST);`,
-    ].join("--> statement-breakpoint\n") + "\n"
-  );
+    `ALTER TABLE "${table}" ADD CONSTRAINT "${table}_owner_id_${users}_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."${users}"("id") ON DELETE cascade ON UPDATE no action;`,
+    `CREATE INDEX "${table}_owner_id_idx" ON "${table}" USING btree ("owner_id","updated_at" DESC NULLS LAST,"id" DESC NULLS LAST);`,
+  ].join("--> statement-breakpoint\n")}\n`;
 };
 
 const repositoryTemplate = (
@@ -284,11 +282,11 @@ export const createLiveLeafFiles = (
 const namesFor = (feature: RegisteredFeature): FeatureNames => {
   const words = feature.name.split("-");
   const pascal = words
-    .map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
     .join("");
   const camel = `${words[0]}${words
     .slice(1)
-    .map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
     .join("")}`;
   const pluralWords = feature.route.slice(1).split("-");
   return Object.freeze({
@@ -298,7 +296,7 @@ const namesFor = (feature: RegisteredFeature): FeatureNames => {
     pluralCamel: feature.apiNamespace,
     pascal,
     pluralPascal: pluralWords
-      .map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`)
+      .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
       .join(""),
     snake: feature.name.replaceAll("-", "_"),
     pluralSnake: feature.table,

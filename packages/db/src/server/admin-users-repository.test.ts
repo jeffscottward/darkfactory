@@ -14,10 +14,10 @@ import type { Database } from "./client.ts";
 const QUERY_DIALECT = new PgDialect();
 const CREATED_AT = new Date("2026-01-02T03:04:05.000Z");
 
-type QueryRows = ReadonlyArray<Record<string, unknown>>;
+type QueryRows = readonly Record<string, unknown>[];
 type QueryOutcome = QueryRows | Error;
 type JoinOperation = Readonly<{ kind: "inner" | "left"; table: unknown }>;
-type SelectOperation = {
+interface SelectOperation {
   selection: Record<string, unknown> | undefined;
   table?: "users" | "profiles" | "unknown";
   where?: unknown;
@@ -26,8 +26,8 @@ type SelectOperation = {
   joins: JoinOperation[];
   setOperators?: unknown[];
   alias?: string;
-};
-type QueryBuilder = {
+}
+interface QueryBuilder {
   from: (table: unknown) => QueryBuilder;
   where: (condition: unknown) => QueryBuilder;
   orderBy: (...clauses: unknown[]) => QueryBuilder;
@@ -41,7 +41,7 @@ type QueryBuilder = {
     onFulfilled: (rows: QueryRows) => unknown,
     onRejected?: (error: unknown) => unknown
   ) => Promise<unknown>;
-};
+}
 type AdminDatabaseOptions = Readonly<{
   outcomes?: QueryOutcome[];
   executeError?: Error;

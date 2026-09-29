@@ -157,7 +157,7 @@ export const createAdminUsersRepository = (
         ? undefined
         : decodeAdminUsersCursor(input.cursor);
     const createdAtKey = users.createdAt;
-    const conditions: SQL[] = [];
+    const conditions: (SQL | undefined)[] = [];
     const pattern =
       query === undefined || query.length === 0
         ? undefined
@@ -167,7 +167,7 @@ export const createAdminUsersRepository = (
         orWhere(
           lt(createdAtKey, cursor.createdAt),
           andWhere(eq(createdAtKey, cursor.createdAt), lt(users.id, cursor.id))
-        )!
+        )
       );
     }
 

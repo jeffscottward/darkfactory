@@ -130,15 +130,13 @@ const parseRegistry = (content: string): FeatureRegistry => {
 type MigrationJournal = Readonly<{
   version: "7";
   dialect: "postgresql";
-  entries: Array<
-    Readonly<{
-      idx: number;
-      version: "7";
-      when: number;
-      tag: string;
-      breakpoints: boolean;
-    }>
-  >;
+  entries: Readonly<{
+    idx: number;
+    version: "7";
+    when: number;
+    tag: string;
+    breakpoints: boolean;
+  }>[];
 }>;
 
 const parseJournal = (content: string): MigrationJournal => {

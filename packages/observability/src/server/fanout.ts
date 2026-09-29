@@ -47,7 +47,7 @@ const emitAnalytics = async (
   analytics: AnalyticsCaptureFacade,
   resolveConsent: ConsentResolver
 ): Promise<"captured" | "skipped" | "failed"> => {
-  let consent;
+  let consent: Awaited<ReturnType<typeof resolveConsent>>;
   try {
     consent = await resolveConsent(event.correlation);
   } catch {

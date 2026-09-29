@@ -41,7 +41,11 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("@darkfactory/ui/client/toaster", () => ({ Toaster: () => null }));
 vi.mock("./components/theme-menu.tsx", () => ({
-  ThemeMenu: () => createElement("button", { "aria-label": "Theme settings" }),
+  ThemeMenu: () =>
+    createElement("button", {
+      "aria-label": "Theme settings",
+      type: "button",
+    }),
 }));
 vi.mock("@darkfactory/ui/client/dialog", () => ({
   Dialog: ({ children }: { children: ReactNode }) =>

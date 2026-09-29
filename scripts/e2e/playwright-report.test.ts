@@ -310,13 +310,9 @@ describe("Playwright JSON report redaction", () => {
       "true",
       "null",
     ]) {
-      const results3 = [];
       for (const scalar of collectJsonScalars(sanitized)) {
-        results3.push(
-          expect(reconstructSensitiveText(scalar)).not.toContain(knownValue)
-        );
+        expect(reconstructSensitiveText(scalar)).not.toContain(knownValue);
       }
-      results3;
     }
   });
 

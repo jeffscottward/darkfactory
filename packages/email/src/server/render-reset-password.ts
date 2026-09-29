@@ -53,6 +53,7 @@ const assertTrustedResetUrl = (
   }
 
   const callbackValues = resetUrl.searchParams.getAll("callbackURL");
+  const [callbackValue] = callbackValues;
   const queryKeys = [...resetUrl.searchParams.keys()];
   if (
     resetUrl.origin !== trustedUrl.origin ||
@@ -62,16 +63,17 @@ const assertTrustedResetUrl = (
     !RESET_PATH_PATTERN.test(resetUrl.pathname) ||
     queryKeys.length !== 1 ||
     queryKeys[0] !== "callbackURL" ||
-    callbackValues.length !== 1
+    callbackValues.length !== 1 ||
+    callbackValue === undefined
   ) {
     throw trustedResetUrlError();
   }
 
-  if (callbackValues[0] === "/reset-password") return;
+  if (callbackValue === "/reset-password") return;
 
   let callbackUrl: URL;
   try {
-    callbackUrl = new URL(callbackValues[0]!);
+    callbackUrl = new URL(callbackValue);
   } catch {
     throw trustedResetUrlError();
   }
@@ -105,6 +107,7 @@ const assertValidResetInput = (
   );
 };
 
+// biome-ignore lint/suspicious/useAwait: async keeps the promise contract so synchronous validation failures reject instead of throwing.
 export const renderPasswordResetEmail = async (
   input: PasswordResetEmailInput,
   options: RenderPasswordResetEmailOptions = {}

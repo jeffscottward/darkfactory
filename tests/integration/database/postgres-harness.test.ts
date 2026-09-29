@@ -1,13 +1,3 @@
-var range: (start: number, end: number) => number[] = (start, end) => {
-  const length = end - start;
-  if (length <= 0) return [];
-  const arr = Array(length);
-  for (let i = 0; i < length; ++i) {
-    arr[i] = i + start;
-  }
-  return arr;
-};
-
 import { randomUUID } from "node:crypto";
 import {
   createPostgresTestDatabase,
@@ -224,7 +214,7 @@ describe.sequential("real Postgres test database lifecycle", () => {
       cleanup = dropPostgresTestDatabase(original);
       void cleanup.catch(() => undefined);
       let lockObserved = false;
-      for (const _attempt in range(0, 40)) {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
         const result = await monitor.query<{ lock_held: boolean }>(
           "WITH attempt AS MATERIALIZED (SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired) SELECT NOT acquired AS lock_held, CASE WHEN acquired THEN pg_advisory_unlock(hashtextextended($1, 0)) ELSE false END AS released FROM attempt",
           [`darkfactory-testkit:${original.databaseName}`]

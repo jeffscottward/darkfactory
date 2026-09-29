@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { isAbsolute, win32 } from "node:path";
+import { required } from "../lib/required.ts";
 import { GeneratorError } from "./errors.ts";
-
 import type { FeatureNames } from "./types.ts";
 
 const CANONICAL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -21,7 +21,10 @@ const pluralizeWord = (word: string): string => {
 
 const formsFor = (words: readonly string[], plural: boolean) => {
   const resolved = [...words];
-  if (plural) resolved[resolved.length - 1] = pluralizeWord(resolved.at(-1)!);
+  if (plural)
+    resolved[resolved.length - 1] = pluralizeWord(
+      required(resolved.at(-1), "feature word")
+    );
   return Object.freeze({
     kebab: resolved.join("-"),
     camel: `${resolved[0]}${resolved.slice(1).map(capitalize).join("")}`,

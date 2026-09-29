@@ -42,6 +42,7 @@ import {
   type Transaction,
   withTransaction,
 } from "./client.ts";
+import { required } from "./required.ts";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -938,8 +939,7 @@ const verifyProjection = (
   }
 
   let previousHash = GENESIS_WORKFLOW_JOURNAL_HASH;
-  for (let index = 0; index < journal.length; index += 1) {
-    const entry = journal[index]!;
+  for (const [index, entry] of journal.entries()) {
     const sequence = index + 1;
     if (
       entry.runId !== run.id ||
@@ -978,6 +978,13 @@ const verifyProjection = (
     );
   }
   return Object.freeze({ run, snapshot, journal: Object.freeze([...journal]) });
+};
+
+const projectionOrConflict = (
+  projection: WorkflowProjection | null
+): WorkflowProjection => {
+  if (projection === null) throw new WorkflowConcurrencyError();
+  return projection;
 };
 
 const readProjection = async (
@@ -1296,11 +1303,9 @@ const appendLocked = async (
     }
     return Object.freeze({
       duplicate: true,
-      projection: (await readProjection(
-        transaction,
-        input.runId,
-        input.ownerId
-      ))!,
+      projection: projectionOrConflict(
+        await readProjection(transaction, input.runId, input.ownerId)
+      ),
     });
   }
 
@@ -1387,11 +1392,9 @@ const appendLocked = async (
   }
   return Object.freeze({
     duplicate: false,
-    projection: (await readProjection(
-      transaction,
-      input.runId,
-      input.ownerId
-    ))!,
+    projection: projectionOrConflict(
+      await readProjection(transaction, input.runId, input.ownerId)
+    ),
   });
 };
 
@@ -1467,7 +1470,7 @@ export const createWorkflowRepository = (
       const occurredAt = new Date(input.event.occurredAt);
       const timestamp = options.now();
 
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         const globalCapacityLock = WORKFLOW_CAPACITY_GLOBAL_LOCK_CLASS;
         const ownerCapacityLock = WORKFLOW_CAPACITY_OWNER_LOCK_CLASS;
         await transaction.execute(
@@ -1611,7 +1614,9 @@ export const createWorkflowRepository = (
           options,
           timestamp
         );
-        return (await readProjection(transaction, runId, input.ownerId))!;
+        return projectionOrConflict(
+          await readProjection(transaction, runId, input.ownerId)
+        );
       });
     },
 
@@ -1629,7 +1634,7 @@ export const createWorkflowRepository = (
       );
       const event = validateEvent(input.event);
 
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         const run = await lockRun(transaction, input.runId, input.ownerId);
         return appendLocked(transaction, run, input, event, options);
       });
@@ -1637,7 +1642,7 @@ export const createWorkflowRepository = (
     findProjectionByOwner: async (runId: string, ownerId: string) => {
       requireNonBlank(runId, "runId");
       requireNonBlank(ownerId, "ownerId");
-      return database.transaction(
+      return await database.transaction(
         (transaction) => readProjection(transaction, runId, ownerId),
         { isolationLevel: "repeatable read", accessMode: "read only" }
       );
@@ -1650,7 +1655,7 @@ export const createWorkflowRepository = (
       if (runIds.length === 0) return Object.freeze([]);
       boundedInteger(runIds.length, 1, 100, "runIds.length");
       for (const runId of runIds) requireNonBlank(runId, "runId");
-      return database.transaction(
+      return await database.transaction(
         (transaction) => readProjections(transaction, ownerId, runIds),
         { isolationLevel: "repeatable read", accessMode: "read only" }
       );
@@ -1702,7 +1707,7 @@ export const createWorkflowRepository = (
         )
         .digest("hex");
 
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         const run = await lockRun(
           transaction,
           decision.runId,
@@ -1732,11 +1737,9 @@ export const createWorkflowRepository = (
         ) {
           return Object.freeze({
             duplicate: true,
-            projection: (await readProjection(
-              transaction,
-              append.runId,
-              append.ownerId
-            ))!,
+            projection: projectionOrConflict(
+              await readProjection(transaction, append.runId, append.ownerId)
+            ),
           });
         }
         const [snapshot] = await transaction
@@ -1931,7 +1934,7 @@ export const createWorkflowRepository = (
           : andWhere(
               eq(workflowRuns.ownerId, ownerId),
               eq(workflowRuns.state, listOptions.state)
-            )!;
+            );
       const cursor =
         listOptions.cursor === undefined
           ? undefined
@@ -1984,7 +1987,7 @@ export const createWorkflowRepository = (
       requireNonBlank(input.effectScope, "effectScope");
       requireHash(input.journalHeadHash, "journalHeadHash");
       requireHash(input.effectHash, "effectHash");
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         const run = await lockRun(transaction, input.runId, input.ownerId);
         const [snapshot] = await transaction
           .select()
@@ -2021,7 +2024,7 @@ export const createWorkflowRepository = (
             createdAt: options.now(),
           })
           .returning();
-        return approval!;
+        return required(approval, "workflow approval row");
       });
     },
 
@@ -2034,7 +2037,7 @@ export const createWorkflowRepository = (
         "summary"
       );
       const data = redactBoundedObject(input.data, MAX_EVIDENCE_BYTES, "data");
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         await lockRun(transaction, input.runId, input.ownerId);
         const [evidence] = await transaction
           .insert(workflowEvidence)
@@ -2048,7 +2051,7 @@ export const createWorkflowRepository = (
             createdAt: options.now(),
           })
           .returning();
-        return evidence!;
+        return required(evidence, "workflow evidence row");
       });
     },
 
@@ -2106,7 +2109,7 @@ export const createWorkflowRepository = (
         );
       }
 
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         const run = await lockRun(transaction, input.runId, input.ownerId);
         const [existing] = await transaction
           .select()
@@ -2143,11 +2146,9 @@ export const createWorkflowRepository = (
           return Object.freeze({
             duplicate: true,
             message: existing,
-            projection: (await readProjection(
-              transaction,
-              input.runId,
-              input.ownerId
-            ))!,
+            projection: projectionOrConflict(
+              await readProjection(transaction, input.runId, input.ownerId)
+            ),
           });
         }
 
@@ -2161,6 +2162,7 @@ export const createWorkflowRepository = (
           .limit(1);
         const messageCount = snapshot?.context["messageCount"];
         if (
+          snapshot === undefined ||
           !Number.isSafeInteger(messageCount) ||
           (messageCount as number) < 0
         ) {
@@ -2173,16 +2175,16 @@ export const createWorkflowRepository = (
         }
         if (input.append === null) throw new WorkflowConcurrencyError();
         const expectedContext = {
-          ...snapshot!.context,
+          ...snapshot.context,
           messageCount: (messageCount as number) + 1,
         };
         if (
           input.append.snapshot.state !== run.state ||
           canonicalWorkflowJson(input.append.snapshot.context) !==
             canonicalWorkflowJson(expectedContext) ||
-          (input.append.snapshot.effectHash ?? null) !== snapshot!.effectHash ||
+          (input.append.snapshot.effectHash ?? null) !== snapshot.effectHash ||
           (input.append.snapshot.effectScope ?? null) !==
-            snapshot!.effectScope ||
+            snapshot.effectScope ||
           (input.append.effects?.length ?? 0) !== 0
         ) {
           throw new WorkflowConcurrencyError();
@@ -2729,7 +2731,7 @@ export const createWorkflowRepository = (
         )
         .digest("hex");
 
-      return withTransaction(database, async (transaction) => {
+      return await withTransaction(database, async (transaction) => {
         const run = await lockRun(
           transaction,
           input.append.runId,

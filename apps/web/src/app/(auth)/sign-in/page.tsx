@@ -25,14 +25,12 @@ export default async function SignInPage({
       title="Welcome back."
     >
       <SessionRedirect callbackURL={callbackURL}>
-        <>
-          {wasReset ? (
-            <p className="mb-6 text-foreground text-sm leading-6" role="status">
-              Your password was updated. Sign in with the new password.
-            </p>
-          ) : null}
-          <SignInForm callbackURL={callbackURL} />
-        </>
+        {wasReset ? (
+          <p className="mb-6 text-foreground text-sm leading-6" role="status">
+            Your password was updated. Sign in with the new password.
+          </p>
+        ) : null}
+        <SignInForm callbackURL={callbackURL} />
       </SessionRedirect>
     </AuthPanel>
   );
