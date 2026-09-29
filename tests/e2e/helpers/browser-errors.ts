@@ -297,18 +297,10 @@ const isWithinRepository = (path: string): boolean => {
 
 const ACCOUNT_MODULE_FAMILIES = new Map<string, BrowserErrorModuleFamily>([
   ["/components/account/account-client.ts", "account-gateway"],
-  ["/components/account/account-client.civet.tsx", "account-gateway"],
   ["/components/account/address-page-client.tsx", "account-address"],
-  ["/components/account/address-page-client.civet.tsx", "account-address"],
   ["/components/account/preferences-page-client.tsx", "account-preferences"],
-  [
-    "/components/account/preferences-page-client.civet.tsx",
-    "account-preferences",
-  ],
   ["/components/account/profile-page-client.tsx", "account-profile"],
-  ["/components/account/profile-page-client.civet.tsx", "account-profile"],
   ["/components/account/security-page-client.tsx", "account-security"],
-  ["/components/account/security-page-client.civet.tsx", "account-security"],
 ]);
 
 const sourceModuleFamily = (

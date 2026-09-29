@@ -76,7 +76,7 @@ describe("secret-safe browser error diagnostics", () => {
       "\\u0000",
       "\\u001b",
       "select * from users",
-      "account-client.civet",
+      "account-client.ts",
     ]) {
       expect(output).not.toContain(forbidden);
     }
@@ -192,10 +192,10 @@ describe("secret-safe browser error diagnostics", () => {
       "TypeError: failed\n    at render (https://darkfactory.localhost/assets/account-client.js:73:4)",
       "TypeError: failed\n    at render (https://darkfactory.localhost/src/account.tsx:74:4)",
       "TypeError: failed\n    at render (https://darkfactory.localhost/src/node_modules/react/index.js:75:4)",
-      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/profile-page-client.civet:82:4)",
-      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/address-page-client.civet:83:4)",
-      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/preferences-page-client.civet:84:4)",
-      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/security-page-client.civet:85:4)",
+      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/profile-page-client.tsx:82:4)",
+      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/address-page-client.tsx:83:4)",
+      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/preferences-page-client.tsx:84:4)",
+      "TypeError: failed\n    at render (https://darkfactory.localhost/apps/web/src/components/account/security-page-client.tsx:85:4)",
       "TypeError: failed\n    at render (https://darkfactory.localhost/src/node_modules/@orpc/client/dist/index.js:86:4)",
       "TypeError: failed\n    at render (https://darkfactory.localhost/src/node_modules/vinext/dist/shims/router.js:87:4)",
       "TypeError: failed\n    at render (https://darkfactory.localhost/src/node_modules/zod/index.js:88:4)",
