@@ -1,48 +1,20 @@
-import type { ApiClient, CapabilityProjection } from "@darkfactory/api";
 import { buttonVariants, StatusBadge } from "@darkfactory/ui";
 import { ArrowRight, FilePlus2 } from "lucide-react";
 
-export type DashboardSummary = Awaited<
-  ReturnType<ApiClient["dashboard"]["summary"]>
->;
-export type DashboardSummaryState =
-  | Readonly<{ type: "ready"; summary: DashboardSummary }>
-  | Readonly<{ type: "unauthorized" }>
-  | Readonly<{ type: "error" }>;
+import type { DashboardViewModel } from "../../features/dashboard/view-model.ts";
 
 export interface DashboardContentProps {
-  readonly summaryState: DashboardSummaryState;
+  readonly model: DashboardViewModel;
 }
 
-const CAPABILITIES: readonly Readonly<{
-  key: keyof CapabilityProjection;
-  label: string;
-}>[] = Object.freeze([
-  { key: "ai", label: "AI integration" },
-  { key: "emailDelivery", label: "Email delivery" },
-  { key: "analytics", label: "Product analytics" },
-  { key: "telemetryExport", label: "Telemetry export" },
-]);
-
-const itemCountLabel = (count: number): string => {
-  return `${count} feature ${count === 1 ? "item" : "items"}`;
-};
-
-export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
-  const summary = summaryState.type === "ready" ? summaryState.summary : null;
-  const session = summary?.session ?? null;
-  const accessLabel =
-    session === null
-      ? null
-      : session.role === "admin"
-        ? "Administrator access"
-        : "Member access";
+export const DashboardContent = ({ model }: DashboardContentProps) => {
+  const ready = model.type === "ready" ? model : null;
 
   return (
     <div className="space-y-12">
       <section className="grid gap-8 border-border border-y py-8 md:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.6fr)] md:items-end">
         <div className="min-w-0">
-          {session === null ? (
+          {ready === null ? (
             <>
               <p className="font-semibold text-primary text-sm">
                 Dashboard unavailable
@@ -58,13 +30,13 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
           ) : (
             <>
               <p className="font-semibold text-primary text-sm">
-                {accessLabel}
+                {ready.accessLabel}
               </p>
               <h2
                 className="mt-3 min-w-0 font-heading font-semibold text-2xl text-foreground tracking-tight"
                 style={{ overflowWrap: "anywhere" }}
               >
-                Welcome back, {session.name}
+                {ready.greeting}
               </h2>
               <p className="mt-3 max-w-reading text-base text-muted-foreground leading-7">
                 This overview reports only authoritative owner-scoped data
@@ -74,7 +46,7 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
           )}
         </div>
         <div className="md:text-right">
-          {summary === null ? (
+          {ready === null ? (
             <>
               <p className="font-heading font-semibold text-foreground text-xl">
                 Feature data unavailable
@@ -86,7 +58,7 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
           ) : (
             <>
               <p className="font-heading font-semibold text-foreground text-xl">
-                {itemCountLabel(summary.featureItems.total)}
+                {ready.totalLabel}
               </p>
               <p className="mt-1 text-muted-foreground text-sm">
                 Authoritative owner-scoped total
@@ -96,7 +68,7 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
         </div>
       </section>
 
-      {summary === null ? null : (
+      {ready === null ? null : (
         <section aria-labelledby="feature-status-counts-title">
           <h2
             className="font-heading font-semibold text-foreground text-xl tracking-tight"
@@ -105,13 +77,7 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
             Feature status
           </h2>
           <dl className="mt-5 grid divide-y divide-border border-border border-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            {(
-              [
-                ["Draft", summary.featureItems.draft],
-                ["Active", summary.featureItems.active],
-                ["Archived", summary.featureItems.archived],
-              ] as const
-            ).map(([label, count]) => (
+            {ready.statusCounts.map(({ label, count }) => (
               <div className="py-4 sm:px-5 sm:first:pl-0" key={label}>
                 <dt className="text-muted-foreground text-sm">{label}</dt>
                 <dd className="mt-1 font-heading font-semibold text-foreground text-xl">
@@ -132,13 +98,13 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
             Request and capability status
           </h2>
           <p className="mt-2 text-muted-foreground text-sm leading-6">
-            {summary === null
+            {ready === null
               ? "Request-scoped capability information could not be loaded."
               : "Better Auth session authority and server-projected capability availability."}
           </p>
         </div>
         <dl className="divide-y divide-border border-border border-y">
-          {summary === null ? (
+          {ready === null ? (
             <div className="py-4">
               <dt className="font-medium text-foreground">
                 Capability summary
@@ -158,19 +124,18 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
                   <StatusBadge status="success">Active</StatusBadge>
                 </dd>
               </div>
-              {CAPABILITIES.map(({ key, label }) => {
-                const available = summary.capabilities[key];
-                return (
+              {ready.capabilities.map(
+                ({ key, label, available, statusLabel }) => (
                   <div className="py-4" key={key}>
                     <dt className="font-medium text-foreground">{label}</dt>
                     <dd className="mt-1 flex items-center justify-between gap-3 text-muted-foreground text-sm">
                       <StatusBadge status={available ? "success" : "neutral"}>
-                        {available ? "Available" : "Unavailable"}
+                        {statusLabel}
                       </StatusBadge>
                     </dd>
                   </div>
-                );
-              })}
+                )
+              )}
             </>
           )}
         </dl>
@@ -200,7 +165,7 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
           </a>
         </div>
 
-        {summary === null ? (
+        {ready === null ? (
           <div className="mt-6 border-border border-y py-8">
             <p className="font-medium text-foreground">
               Recent items could not be loaded.
@@ -209,7 +174,7 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
               Open Feature Items to retry a bounded typed API request.
             </p>
           </div>
-        ) : summary.featureItems.recent.length === 0 ? (
+        ) : ready.recentItems.length === 0 ? (
           <div className="mt-6 border-border border-y py-8">
             <p className="font-medium text-foreground">No feature items yet</p>
             <p className="mt-2 max-w-reading text-muted-foreground text-sm leading-6">
@@ -225,10 +190,10 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
           </div>
         ) : (
           <div className="mt-6 divide-y divide-border border-border border-y">
-            {summary.featureItems.recent.map((item) => (
+            {ready.recentItems.map((item) => (
               <a
                 className="flex min-h-16 items-center justify-between gap-4 py-4 text-foreground transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                href={`/feature-items/${encodeURIComponent(item.id)}`}
+                href={item.href}
                 key={item.id}
               >
                 <span className="min-w-0">
@@ -238,8 +203,8 @@ export const DashboardContent = ({ summaryState }: DashboardContentProps) => {
                   >
                     {item.name}
                   </span>
-                  <span className="mt-1 block text-muted-foreground text-sm capitalize">
-                    {item.status}
+                  <span className="mt-1 block text-muted-foreground text-sm">
+                    {item.statusLabel}
                   </span>
                 </span>
                 <ArrowRight aria-hidden="true" className="size-4 shrink-0" />

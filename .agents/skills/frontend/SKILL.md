@@ -10,8 +10,8 @@ Build the presentation over a contract. Data and behavior stay headless; compone
 ## Responsibilities
 
 - Load data through the oRPC contract (server-rendered pages use the in-process dispatch). Never query the database from a page.
-- Map contract output into a small view-model (plain, serializable props) in the feature folder `apps/web/src/features/<name>/`.
-- Build presentational components in `packages/ui` with Tailwind and shadcn tokens. `packages/ui` has no workspace dependencies; keep it that way.
+- Map contract output into a view-model (plain, pre-formatted props) with a pure, unit-tested `to<Name>ViewModel` function in `apps/web/src/features/<name>/view-model.ts`. The component takes only the model. Copy the reference: `apps/web/src/features/dashboard/view-model.ts`, rendered by `apps/web/src/components/portal/dashboard-content.tsx`.
+- Build reusable presentational components in `packages/ui` with Tailwind and shadcn tokens, and page-specific ones in `apps/web/src/components/`. `packages/ui` has no workspace dependencies; keep it that way.
 - Use XState (`packages/state`) for multi-step lifecycles and Zustand only for ephemeral UI state, never for server data.
 - Meet accessibility rules: semantic structure, labels, visible focus, contrast, a 44 px minimum height for fields and buttons, and `prefers-reduced-motion`.
 - Check responsive layouts at 375, 768, 1024 and 1440 px.
