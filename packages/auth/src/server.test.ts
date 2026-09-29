@@ -1509,6 +1509,10 @@ describe("development seed identity preparation", () => {
       role: "member",
       status: "active",
     });
+    expect(seed.adapter.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ id: IDENTITY.userId }),
+      { method: "admin" }
+    );
     expect(seed.accounts()).toEqual([
       {
         id: IDENTITY.accountId,

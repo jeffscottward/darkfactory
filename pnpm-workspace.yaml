@@ -20,7 +20,7 @@ overrides:
 
 catalog:
   "@axe-core/playwright": 4.13.0
-  "@better-auth/drizzle-adapter": 1.6.33
+  "@better-auth/drizzle-adapter": 1.7.6
   "@biomejs/biome": 2.3.10
   "@cloudflare/vite-plugin": 1.47.0
   "@vitest/coverage-v8": 4.1.11
@@ -48,8 +48,8 @@ catalog:
   "@vinext/cloudflare": 1.0.0-beta.3
   "@vitejs/plugin-react": 6.1.1
   "@vitejs/plugin-rsc": 0.5.35
-  auth: 1.6.33
-  better-auth: 1.6.33
+  auth: 1.7.6
+  better-auth: 1.7.6
   class-variance-authority: 0.7.1
   clsx: 2.1.1
   drizzle-kit: 0.31.11

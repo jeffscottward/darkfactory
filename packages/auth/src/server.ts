@@ -622,15 +622,20 @@ export const ensureDevelopmentSeedIdentity = async (
         });
       }
     } else {
-      const created = await context.internalAdapter.createUser({
-        id: identity.userId,
-        name: identity.name,
-        email: identity.email,
-        emailVerified: true,
-        image: identity.image,
-        role: identity.role,
-        status: "active",
-      });
+      // Seed identities are operator-provisioned, so they use Better Auth's
+      // "admin" provisioning source rather than a self-service method.
+      const created = await context.internalAdapter.createUser(
+        {
+          id: identity.userId,
+          name: identity.name,
+          email: identity.email,
+          emailVerified: true,
+          image: identity.image,
+          role: identity.role,
+          status: "active",
+        },
+        { method: "admin" }
+      );
       if (created.id !== identity.userId) {
         throw new Error("Seed user received an unexpected identifier");
       }
