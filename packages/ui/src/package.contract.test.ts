@@ -6,24 +6,25 @@ import * as serverSafeUi from "./index.ts"
 const packageUrl = new URL("../package.json", import.meta.url)
 
 describe("UI package boundaries", function() {
-  it("retains every declared types target", async function() {
+  it("points every export at an existing TypeScript source or stylesheet", async function() {
     const manifest = JSON.parse(await readFile(packageUrl, "utf8")) as {
-      exports: Record<string, string | { types?: string }>
+      exports: Record<string, string | { import?: string }>
     }
 
-    const typedTargets = Object.values(manifest.exports).flatMap((exported) => {
-      if (typeof exported === "object" && typeof exported.types === "string") {
-        return [exported.types]
-      }
-      return []
+    const targets = Object.values(manifest.exports).flatMap((exported) => {
+      if (typeof exported === "string") return [exported]
+      return typeof exported.import === "string" ? [exported.import] : []
     }
     )
 
-    expect(typedTargets).toHaveLength(22)
+    expect(targets).toHaveLength(Object.keys(manifest.exports).length)
+    for (const target of targets) {
+      expect(target).toMatch(/^\.\/src\/.+\.(?:ts|tsx|css)$/)
+    }
     return await Promise.all(
-      typedTargets.map(async (typesTarget) => {
+      targets.map(async (target) => {
         return await expect(
-          access(new URL(`..${typesTarget.slice(1)}`, import.meta.url)),
+          access(new URL(`..${target.slice(1)}`, import.meta.url)),
         ).resolves.toBeUndefined()
       }
       ),
