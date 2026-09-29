@@ -68,7 +68,6 @@ export type DoctorReport = Readonly<{
   checks: readonly DoctorCheck[];
   capabilities: Readonly<{
     required: readonly string[];
-    optional: readonly string[];
     disabled: readonly string[];
   }>;
 }>;
@@ -139,15 +138,7 @@ const classifyCapabilities = (
       ...(codeGraph.enabled ? [codeGraph.provider] : []),
       ...(https.enabled ? [https.provider] : []),
     ]),
-    optional: Object.freeze(
-      Object.entries(manifest.developer_tools)
-        .filter(([, tool]) => tool.enabled === "development")
-        .map(([name]) => name)
-        .sort()
-    ),
-    disabled: Object.freeze(
-      disabledCapabilities(manifest.capabilities, "").sort()
-    ),
+    disabled: Object.freeze(disabledCapabilities(manifest, "").sort()),
   });
 };
 
@@ -246,7 +237,7 @@ const inspectManifest = async (
       result: check(
         "Capabilities manifest",
         "pass",
-        "Required, optional, and disabled capabilities are classified"
+        "Required and disabled capabilities are classified"
       ),
     });
   } catch {
@@ -625,16 +616,7 @@ export const runDoctor = async (
 
   const classification = manifest.manifest
     ? classifyCapabilities(manifest.manifest)
-    : { required: [], optional: [], disabled: [] };
-  for (const capability of classification.optional) {
-    checks.push(
-      check(
-        `Capability ${capability}`,
-        "optional",
-        `${capability} is development-scoped`
-      )
-    );
-  }
+    : { required: [], disabled: [] };
   for (const capability of classification.disabled) {
     checks.push(
       check(`Capability ${capability}`, "disabled", `${capability} is disabled`)
@@ -646,7 +628,6 @@ export const runDoctor = async (
     checks: Object.freeze(checks),
     capabilities: Object.freeze({
       required: classification.required,
-      optional: classification.optional,
       disabled: classification.disabled,
     }),
   });

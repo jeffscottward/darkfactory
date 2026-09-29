@@ -7,8 +7,6 @@ export const CapabilityProjectionSchema = z
     emailDelivery: z.boolean(),
     analytics: z.boolean(),
     telemetryExport: z.boolean(),
-    storage: z.boolean(),
-    errorTracking: z.boolean(),
   })
   .strict();
 

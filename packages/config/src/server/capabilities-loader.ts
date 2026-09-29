@@ -14,7 +14,6 @@ export type CapabilityManifestIssueCode =
   | "missing_requirement"
   | "invalid_type"
   | "unsupported_value"
-  | "invalid_combination"
   | "invalid_manifest";
 
 export type CapabilityManifestIssue = Readonly<{
@@ -229,25 +228,6 @@ const MANIFEST_PATH_SEGMENTS = new Set([
   "state",
   "workflows",
   "client_local",
-  "developer_tools",
-  "tanstack_devtools",
-  "capabilities",
-  "docs",
-  "public",
-  "jobs",
-  "dashboard",
-  "uptime",
-  "error_tracking",
-  "storage",
-  "metadata",
-  "context_graphs",
-  "data",
-  "postgres_extensions",
-  "pgvector",
-  "postgis",
-  "timescaledb",
-  "pg_trgm",
-  "pg_cron",
 ]);
 
 const sanitizedPath = (path: readonly PropertyKey[]): string => {
@@ -338,13 +318,6 @@ const sanitizedSchemaIssue = (
           path,
           message: "Manifest value has an invalid type",
         };
-  }
-  if (issue.code === "custom") {
-    return {
-      code: "invalid_combination",
-      path,
-      message: "Manifest capability combination is invalid",
-    };
   }
   return {
     code: "invalid_manifest",

@@ -70,7 +70,7 @@ describe("parseServerEnv", () => {
     return expect(error.message).not.toContain(shortContactSecret);
   });
 
-  it("applies typed core and disabled-capability defaults", () => {
+  it("applies typed core defaults", () => {
     const env = parseServerEnv(validCoreEnv());
 
     expect(env).toMatchObject({
@@ -86,17 +86,8 @@ describe("parseServerEnv", () => {
       ANALYTICS_PROVIDER: "posthog",
       OTEL_ENABLED: true,
       OTEL_SERVICE_NAME: "darkfactory-web",
-      STORAGE_ENABLED: false,
-      DOCS_ENABLED: false,
-      DOCS_PUBLIC: false,
-      JOBS_ENABLED: false,
-      FLOWER_ENABLED: false,
-      UPTIME_KUMA_ENABLED: false,
-      ERROR_TRACKING_ENABLED: false,
-      MEMORI_ENABLED: false,
     });
-    expect(typeof env.OTEL_ENABLED).toBe("boolean");
-    return expect(typeof env.STORAGE_ENABLED).toBe("boolean");
+    return expect(typeof env.OTEL_ENABLED).toBe("boolean");
   });
 
   it("parses an optional bounded contact recipient and treats an empty value as disabled", () => {
@@ -224,16 +215,14 @@ describe("parseServerEnv", () => {
       );
     }
   );
-  it("normalizes explicit false booleans and rejects unsupported spellings", () => {
-    const env = parseServerEnv({
-      ...validCoreEnv(),
-      OTEL_ENABLED: " FALSE ",
-      STORAGE_ENABLED: "false",
-      DOCS_ENABLED: "False",
-    });
-    expect(env.OTEL_ENABLED).toBe(false);
-    expect(env.STORAGE_ENABLED).toBe(false);
-    expect(env.DOCS_ENABLED).toBe(false);
+  it("normalizes explicit booleans and rejects unsupported spellings", () => {
+    expect(
+      parseServerEnv({ ...validCoreEnv(), OTEL_ENABLED: " FALSE " })
+        .OTEL_ENABLED
+    ).toBe(false);
+    expect(
+      parseServerEnv({ ...validCoreEnv(), OTEL_ENABLED: "True" }).OTEL_ENABLED
+    ).toBe(true);
 
     return expect(
       captureValidationError({
@@ -269,8 +258,6 @@ describe("parseServerEnv", () => {
       emailDelivery: false,
       analytics: false,
       telemetryExport: false,
-      storage: false,
-      errorTracking: false,
     });
     expect(env.GROQ_MODEL).toBeUndefined();
     expect(env.POSTHOG_HOST).toBeUndefined();
@@ -337,8 +324,6 @@ describe("parseServerEnv", () => {
       emailDelivery: true,
       analytics: true,
       telemetryExport: true,
-      storage: false,
-      errorTracking: false,
     });
   });
 
@@ -349,8 +334,6 @@ describe("parseServerEnv", () => {
       emailDelivery: false,
       analytics: false,
       telemetryExport: false,
-      storage: false,
-      errorTracking: false,
     });
 
     const incompleteRuntimeEnv = {
@@ -359,40 +342,16 @@ describe("parseServerEnv", () => {
       POSTHOG_HOST: "https://analytics.invalid",
       OTEL_ENABLED: false,
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.invalid/v1/traces",
-      STORAGE_ENABLED: true,
-      R2_ACCOUNT_ID: "account-reference",
-      R2_ACCESS_KEY_ID: undefined,
-      R2_SECRET_ACCESS_KEY: "secret-reference",
-      R2_BUCKET: "bucket-reference",
-      ERROR_TRACKING_ENABLED: true,
-      ERROR_TRACKING_DSN: undefined,
+      RESEND_API_KEY: "r".repeat(32),
     };
     return expect(getProviderCapabilities(incompleteRuntimeEnv)).toEqual({
       ai: false,
       emailDelivery: false,
       analytics: false,
       telemetryExport: false,
-      storage: false,
-      errorTracking: false,
     });
   });
 
-  it("rejects explicitly enabled provider capabilities with incomplete environment", () => {
-    const error = captureValidationError({
-      ...validCoreEnv(),
-      STORAGE_ENABLED: "true",
-      R2_ACCOUNT_ID: "account-reference",
-    });
-
-    expect(error.issues.map(({ path }) => path)).toEqual([
-      "R2_ACCESS_KEY_ID",
-      "R2_SECRET_ACCESS_KEY",
-      "R2_BUCKET",
-    ]);
-    return expect(error.message).toContain(
-      "R2_ACCESS_KEY_ID is required when STORAGE_ENABLED is true"
-    );
-  });
   it.each([
     {
       label: "an APP_URL with a trailing slash",
@@ -440,25 +399,6 @@ describe("parseServerEnv", () => {
       overrides: { APP_ENV: "production" },
       path: "EMAIL_TRANSPORT",
       message: "EMAIL_TRANSPORT cannot use preview in production",
-    },
-    {
-      label: "public docs while docs are disabled",
-      overrides: { DOCS_PUBLIC: "true" },
-      path: "DOCS_PUBLIC",
-      message: "DOCS_PUBLIC requires DOCS_ENABLED to be true",
-    },
-    {
-      label: "Flower while jobs are disabled",
-      overrides: { FLOWER_ENABLED: "true" },
-      path: "FLOWER_ENABLED",
-      message: "FLOWER_ENABLED requires JOBS_ENABLED to be true",
-    },
-    {
-      label: "error tracking without a DSN",
-      overrides: { ERROR_TRACKING_ENABLED: "true" },
-      path: "ERROR_TRACKING_DSN",
-      message:
-        "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
     },
   ])("rejects $label", ({ overrides, path, message }) => {
     const error = captureValidationError({
@@ -678,7 +618,7 @@ describe("parseServerEnv", () => {
     );
   });
 
-  return it("accepts complete configurations for every conditional capability", () => {
+  return it("accepts a complete production configuration", () => {
     const applicationUrl = "https://app.darkfactory.example";
     const env = parseServerEnv({
       ...validCoreEnv(),
@@ -687,24 +627,10 @@ describe("parseServerEnv", () => {
       BETTER_AUTH_URL: applicationUrl,
       EMAIL_TRANSPORT: "resend",
       RESEND_API_KEY: "r".repeat(32),
-      DOCS_ENABLED: "true",
-      DOCS_PUBLIC: "true",
-      JOBS_ENABLED: "true",
-      FLOWER_ENABLED: "true",
-      STORAGE_ENABLED: "true",
-      R2_ACCOUNT_ID: "account-reference",
-      R2_ACCESS_KEY_ID: "access-reference",
-      R2_SECRET_ACCESS_KEY: "r".repeat(32),
-      R2_BUCKET: "bucket-reference",
-      ERROR_TRACKING_ENABLED: "true",
-      ERROR_TRACKING_DSN: "https://errors.invalid/project-reference",
     });
 
     expect(env.APP_URL).toBe(applicationUrl);
-    expect(env.DOCS_PUBLIC).toBe(true);
-    expect(env.FLOWER_ENABLED).toBe(true);
-    expect(getProviderCapabilities(env).storage).toBe(true);
-    return expect(getProviderCapabilities(env).errorTracking).toBe(true);
+    return expect(getProviderCapabilities(env).emailDelivery).toBe(true);
   });
 });
 
@@ -719,7 +645,6 @@ describe("toClientEnv", () =>
       CONTACT_THROTTLE_SECRET: "c".repeat(32),
       GROQ_API_KEY: providerSecret,
       GROQ_MODEL: "provider-model",
-      R2_SECRET_ACCESS_KEY: "r".repeat(32),
     });
 
     const clientEnv = toClientEnv(env);
@@ -736,6 +661,5 @@ describe("toClientEnv", () =>
     expect(serializedClientEnv).not.toContain(providerSecret);
     expect(clientEnv).not.toHaveProperty("DATABASE_URL");
     expect(clientEnv).not.toHaveProperty("BETTER_AUTH_SECRET");
-    expect(clientEnv).not.toHaveProperty("GROQ_API_KEY");
-    return expect(clientEnv).not.toHaveProperty("R2_SECRET_ACCESS_KEY");
+    return expect(clientEnv).not.toHaveProperty("GROQ_API_KEY");
   }));

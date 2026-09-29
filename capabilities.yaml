@@ -93,39 +93,3 @@ development:
 state:
   workflows: xstate
   client_local: zustand
-
-developer_tools:
-  tanstack_devtools:
-    enabled: development
-
-capabilities:
-  docs:
-    provider: mintlify
-    enabled: false
-    public: false
-  jobs:
-    engine: celery
-    dashboard: flower
-    enabled: false
-  uptime:
-    provider: uptime-kuma
-    enabled: false
-  error_tracking:
-    provider: glitchtip
-    database: postgres
-    enabled: false
-  storage:
-    provider: r2
-    metadata: postgres
-    enabled: false
-  context_graphs:
-    data:
-      provider: memori
-      database: postgres
-      enabled: false
-  postgres_extensions:
-    pgvector: { enabled: false }
-    postgis: { enabled: false }
-    timescaledb: { enabled: false }
-    pg_trgm: { enabled: false }
-    pg_cron: { enabled: false }

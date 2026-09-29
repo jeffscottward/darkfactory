@@ -90,8 +90,6 @@ const clientFor = (
         emailDelivery: false,
         analytics: false,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
       requireSession: async () => session,
       requireRole: async (_headers, role) => {

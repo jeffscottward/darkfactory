@@ -64,8 +64,6 @@ vi.mock("@darkfactory/config/server", () => ({
     emailDelivery: false,
     analytics: false,
     telemetryExport: false,
-    storage: false,
-    errorTracking: false,
   }),
 }));
 vi.mock("@darkfactory/db/server", () => ({

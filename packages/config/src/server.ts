@@ -159,32 +159,7 @@ const baseServerEnvSchema = z.object({
   OTEL_ENABLED: environmentBoolean("OTEL_ENABLED", true),
   OTEL_SERVICE_NAME: z.string().trim().min(1).default("darkfactory-web"),
   OTEL_EXPORTER_OTLP_ENDPOINT: optionalUrl("OTEL_EXPORTER_OTLP_ENDPOINT"),
-
-  STORAGE_ENABLED: environmentBoolean("STORAGE_ENABLED", false),
-  STORAGE_PROVIDER: z.enum(["r2"]).default("r2"),
-  R2_ACCOUNT_ID: optionalString,
-  R2_ACCESS_KEY_ID: optionalString,
-  R2_SECRET_ACCESS_KEY: optionalString,
-  R2_BUCKET: optionalString,
-
-  DOCS_ENABLED: environmentBoolean("DOCS_ENABLED", false),
-  DOCS_PUBLIC: environmentBoolean("DOCS_PUBLIC", false),
-  JOBS_ENABLED: environmentBoolean("JOBS_ENABLED", false),
-  JOBS_ENGINE: z.enum(["celery"]).default("celery"),
-  FLOWER_ENABLED: environmentBoolean("FLOWER_ENABLED", false),
-  UPTIME_KUMA_ENABLED: environmentBoolean("UPTIME_KUMA_ENABLED", false),
-  ERROR_TRACKING_ENABLED: environmentBoolean("ERROR_TRACKING_ENABLED", false),
-  ERROR_TRACKING_PROVIDER: z.enum(["glitchtip"]).default("glitchtip"),
-  ERROR_TRACKING_DSN: optionalUrl("ERROR_TRACKING_DSN"),
-  MEMORI_ENABLED: environmentBoolean("MEMORI_ENABLED", false),
 });
-
-const STORAGE_REQUIRED_KEYS = [
-  "R2_ACCOUNT_ID",
-  "R2_ACCESS_KEY_ID",
-  "R2_SECRET_ACCESS_KEY",
-  "R2_BUCKET",
-] as const;
 
 export const serverEnvSchema = baseServerEnvSchema
   .refine(
@@ -265,42 +240,6 @@ export const serverEnvSchema = baseServerEnvSchema
         message: "EMAIL_TRANSPORT cannot use preview in production",
       });
     }
-
-    if (env.STORAGE_ENABLED) {
-      for (const key of STORAGE_REQUIRED_KEYS) {
-        if (env[key]) continue;
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: `${key} is required when STORAGE_ENABLED is true`,
-        });
-      }
-    }
-
-    if (env.DOCS_PUBLIC && !env.DOCS_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["DOCS_PUBLIC"],
-        message: "DOCS_PUBLIC requires DOCS_ENABLED to be true",
-      });
-    }
-
-    if (env.FLOWER_ENABLED && !env.JOBS_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["FLOWER_ENABLED"],
-        message: "FLOWER_ENABLED requires JOBS_ENABLED to be true",
-      });
-    }
-
-    if (env.ERROR_TRACKING_ENABLED && !env.ERROR_TRACKING_DSN) {
-      context.addIssue({
-        code: "custom",
-        path: ["ERROR_TRACKING_DSN"],
-        message:
-          "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
-      });
-    }
   });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -343,8 +282,6 @@ export type ProviderCapabilities = Readonly<{
   emailDelivery: boolean;
   analytics: boolean;
   telemetryExport: boolean;
-  storage: boolean;
-  errorTracking: boolean;
 }>;
 
 /** Environment readiness only; capability manifests still own installation and availability. */
@@ -357,8 +294,4 @@ export const getProviderCapabilities = (
   ),
   analytics: Boolean(env.POSTHOG_KEY && env.POSTHOG_HOST),
   telemetryExport: Boolean(env.OTEL_ENABLED && env.OTEL_EXPORTER_OTLP_ENDPOINT),
-  storage: Boolean(
-    env.STORAGE_ENABLED && STORAGE_REQUIRED_KEYS.every((key) => env[key])
-  ),
-  errorTracking: Boolean(env.ERROR_TRACKING_ENABLED && env.ERROR_TRACKING_DSN),
 });

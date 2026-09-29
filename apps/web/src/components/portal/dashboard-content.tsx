@@ -22,8 +22,6 @@ const CAPABILITIES: readonly Readonly<{
   { key: "emailDelivery", label: "Email delivery" },
   { key: "analytics", label: "Product analytics" },
   { key: "telemetryExport", label: "Telemetry export" },
-  { key: "storage", label: "Object storage" },
-  { key: "errorTracking", label: "Error tracking" },
 ]);
 
 const itemCountLabel = (count: number): string => {

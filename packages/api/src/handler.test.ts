@@ -89,8 +89,6 @@ const clientFor = (
         emailDelivery: false,
         analytics: false,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
       requireSession: async () => {
         if (requestSession === null) {
@@ -203,8 +201,6 @@ describe("DF-045/051 production context to middleware to Fetch handler", () => {
           emailDelivery: false,
           analytics: false,
           telemetryExport: false,
-          storage: false,
-          errorTracking: false,
         },
         requireSession: async () => session("member"),
         requireRole: async () => session("admin"),
@@ -226,8 +222,6 @@ describe("DF-045/051 production context to middleware to Fetch handler", () => {
         emailDelivery: false,
         analytics: false,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
       requireSession: async () => session("member"),
       requireRole: async () => session("admin"),

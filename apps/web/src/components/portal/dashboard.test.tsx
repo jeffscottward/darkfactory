@@ -28,8 +28,6 @@ const unavailableCapabilities = {
   emailDelivery: false,
   analytics: false,
   telemetryExport: false,
-  storage: false,
-  errorTracking: false,
 } as const;
 
 describe("DashboardContent", () => {

@@ -44,8 +44,6 @@ const clientFor = (
         emailDelivery: false,
         analytics: false,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
       requireSession: vi.fn(async () => {
         throw new Error("Contact must stay public");

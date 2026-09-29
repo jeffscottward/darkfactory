@@ -5655,12 +5655,6 @@
                         "emailDelivery": {
                           "type": "boolean"
                         },
-                        "errorTracking": {
-                          "type": "boolean"
-                        },
-                        "storage": {
-                          "type": "boolean"
-                        },
                         "telemetryExport": {
                           "type": "boolean"
                         }
@@ -5669,9 +5663,7 @@
                         "ai",
                         "emailDelivery",
                         "analytics",
-                        "telemetryExport",
-                        "storage",
-                        "errorTracking"
+                        "telemetryExport"
                       ],
                       "type": "object"
                     },

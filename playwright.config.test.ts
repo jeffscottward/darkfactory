@@ -217,11 +217,7 @@ describe("Playwright harness", () => {
     for (const [key, value] of Object.entries(CALLER_SECRETS)) {
       expect(Object.values(appEnvironment)).not.toContain(value);
       expect(Object.values(proxyEnvironment)).not.toContain(value);
-      if (
-        key === "GROQ_API_KEY" ||
-        key === "RESEND_API_KEY" ||
-        key === "R2_SECRET_ACCESS_KEY"
-      ) {
+      if (key === "GROQ_API_KEY" || key === "RESEND_API_KEY") {
         expect(appEnvironment[key]).toBe("");
       } else {
         expect(appEnvironment).not.toHaveProperty(key);
@@ -239,7 +235,6 @@ describe("Playwright harness", () => {
       OTEL_ENABLED: "false",
       PORTLESS_APP_PORT: "43124",
       POSTHOG_KEY: "",
-      STORAGE_ENABLED: "false",
     });
     return expect(
       new URL(appEnvironment["DATABASE_URL"] ?? "").pathname

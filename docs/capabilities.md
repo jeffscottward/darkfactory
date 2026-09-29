@@ -14,7 +14,7 @@ Capability packages declare `"brick": "capability"` and may depend on no other b
 
 `capabilities.yaml` records the project identity, the fixed architecture choices (`database.orm: drizzle`, `api.provider: orpc`) and which adapter each capability uses. One Zod loader validates it: `packages/config/src/server/capabilities-loader.ts`, using the schema in `packages/config/src/capabilities.ts`. Provider fields are enums built from the registry in each brick's `src/adapters.ts` (for example `EMAIL_ADAPTERS` in `packages/email/src/adapters.ts`) and from `DATABASE_PROVIDERS` in `packages/config/src/database.ts`, so the manifest cannot name an adapter that does not exist. `packages/config/src/capabilities.server.test.ts` loads an adapter module for every registry id.
 
-Entries with `enabled: false` (docs, uptime, error tracking, storage and so on) are placeholders. No code exists for them. Do not describe them as available.
+The manifest lists only what is installed and wired. Ideas that are not built yet go in the [roadmap list](#roadmap-capability-candidates), not in `capabilities.yaml` or the env schema.
 
 `bun run doctor` reads the manifest and adds the probes it implies: Bun for `workspace.script_runtime`, Docker and Postgres for `database.engine`, portless when `development.https` is enabled, and Graphify when `developer_context.code_graph` is enabled.
 
@@ -66,7 +66,7 @@ Local development is unaffected. `EMAIL_TRANSPORT=preview` still writes files to
 ## Recipe: remove a capability
 
 1. Remove the consumer wiring from the app and services.
-2. Remove its registry import, env keys and manifest enum from `packages/config`, then its manifest entry (or set `enabled: false` if you plan to bring it back).
+2. Remove its registry import, env keys and manifest enum from `packages/config`, then its manifest entry. If you may bring it back, add it to the [roadmap list](#roadmap-capability-candidates).
 3. Delete the package and its entries in the app's and root `package.json`.
 4. Run `pnpm install`, `bun run docs:generate` and `bun run verify:prepush`.
 
@@ -81,3 +81,17 @@ The database host is swapped with `DATABASE_PROVIDER`, not a port, because every
 | `hyperdrive` | Cloudflare Hyperdrive in front of any Postgres | `HYPERDRIVE` binding required; `DATABASE_URL` must be absent |
 
 Every profile also rejects `host`, `hostaddr` and `port` query overrides. The profiles live in `DATABASE_PROVIDER_PROFILES` in `packages/config/src/database.ts`. See [deploy.md](deploy.md#hyperdrive) for Hyperdrive setup.
+
+## Roadmap: capability candidates
+
+These are not installed, configured or wired. Add one with the [new-capability recipe](#recipe-add-a-new-capability) when a feature needs it.
+
+- Public docs site (for example Mintlify).
+- Uptime monitoring (for example Uptime Kuma).
+- Error tracking (for example GlitchTip, Sentry-compatible).
+- Object storage (for example Cloudflare R2, with metadata in Postgres).
+- Agent memory or context graphs (for example Memori on Postgres).
+- Postgres extensions: `pgvector`, `postgis`, `timescaledb`, `pg_trgm`, `pg_cron`.
+- TanStack devtools in development.
+
+Background work stays in Postgres (inline jobs and the operator workflow tables); a separate queue such as Celery is out of scope.

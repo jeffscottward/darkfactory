@@ -56,11 +56,6 @@ export const E2E_BLANKED_REMOTE_KEYS = [
   "POSTHOG_KEY",
   "POSTHOG_HOST",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
-  "R2_ACCOUNT_ID",
-  "R2_ACCESS_KEY_ID",
-  "R2_SECRET_ACCESS_KEY",
-  "R2_BUCKET",
-  "ERROR_TRACKING_DSN",
 ] as const;
 
 // Playwright adds these to every webServer environment.
@@ -236,14 +231,6 @@ export const e2eEnvironment = (
       E2E_RUN_ID: runId,
       ...Object.fromEntries(E2E_BLANKED_REMOTE_KEYS.map((key) => [key, ""])),
       OTEL_ENABLED: "false",
-      STORAGE_ENABLED: "false",
-      DOCS_ENABLED: "false",
-      DOCS_PUBLIC: "false",
-      JOBS_ENABLED: "false",
-      FLOWER_ENABLED: "false",
-      UPTIME_KUMA_ENABLED: "false",
-      ERROR_TRACKING_ENABLED: "false",
-      MEMORI_ENABLED: "false",
     },
     source
   );

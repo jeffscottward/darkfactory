@@ -76,8 +76,6 @@ describe("account, preferences, dashboard, and admin contracts", () => {
         emailDelivery: false,
         analytics: false,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
     };
 

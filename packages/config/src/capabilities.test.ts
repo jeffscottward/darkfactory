@@ -92,28 +92,6 @@ const expectedManifest = {
     },
   },
   state: { workflows: "xstate", client_local: "zustand" },
-  developer_tools: { tanstack_devtools: { enabled: "development" } },
-  capabilities: {
-    docs: { provider: "mintlify", enabled: false, public: false },
-    jobs: { engine: "celery", dashboard: "flower", enabled: false },
-    uptime: { provider: "uptime-kuma", enabled: false },
-    error_tracking: {
-      provider: "glitchtip",
-      database: "postgres",
-      enabled: false,
-    },
-    storage: { provider: "r2", metadata: "postgres", enabled: false },
-    context_graphs: {
-      data: { provider: "memori", database: "postgres", enabled: false },
-    },
-    postgres_extensions: {
-      pgvector: { enabled: false },
-      postgis: { enabled: false },
-      timescaledb: { enabled: false },
-      pg_trgm: { enabled: false },
-      pg_cron: { enabled: false },
-    },
-  },
 } as const;
 
 describe("capability manifest", () => {
@@ -191,17 +169,14 @@ describe("capability manifest", () => {
     [
       "unknown nested key",
       (source: string) =>
-        source.replace(
-          "    public: false",
-          "    public: false\n    token: hidden"
-        ),
-      "capabilities.docs",
+        source.replace("  orm: drizzle", "  orm: drizzle\n  token: hidden"),
+      "database",
     ],
     [
       "unsupported provider",
       (source: string) =>
-        source.replace("provider: mintlify", "provider: another-docs-provider"),
-      "capabilities.docs.provider",
+        source.replace("provider: better-auth", "provider: another-auth"),
+      "auth.provider",
     ],
     [
       "unsupported script runtime",
@@ -216,8 +191,8 @@ describe("capability manifest", () => {
     ],
     [
       "missing required field",
-      (source: string) => source.replace("    metadata: postgres\n", ""),
-      "capabilities.storage.metadata",
+      (source: string) => source.replace("  orm: drizzle\n", ""),
+      "database.orm",
     ],
   ])("rejects $0", async (_label, mutate, expectedPath) => {
     const invalidManifest = mutate(await readManifest());
@@ -242,20 +217,6 @@ describe("capability manifest", () => {
     return expect(() => loadCapabilityManifest(source)).toThrow(
       CapabilityManifestValidationError
     );
-  });
-
-  it("rejects public docs while docs are disabled", async () => {
-    const source = (await readManifest()).replace(
-      "    public: false",
-      "    public: true"
-    );
-    return expect(captureManifestError(source).issues).toEqual([
-      {
-        code: "invalid_combination",
-        path: "capabilities.docs.public",
-        message: "Manifest capability combination is invalid",
-      },
-    ]);
   });
 
   it("rejects non-JSON mapping keys before conversion", () => {
@@ -456,22 +417,22 @@ describe("capability manifest", () => {
   it.each([
     [
       "array",
-      "    provider:\n      - provider-secret-value",
+      "  provider:\n    - provider-secret-value",
       "provider-secret-value",
     ],
-    ["number", "    provider: 982451653", "982451653"],
+    ["number", "  provider: 982451653", "982451653"],
   ])(
     "classifies a wrong-type $0 without reflecting it",
     async (_label, replacement, secretValue) => {
       const source = (await readManifest()).replace(
-        "    provider: mintlify",
+        "  provider: better-auth",
         replacement
       );
       const error = captureManifestError(source);
 
       expect(error.issues).toContainEqual({
         code: "invalid_type",
-        path: "capabilities.docs.provider",
+        path: "auth.provider",
         message: "Manifest value has an invalid type",
       });
       return expect(JSON.stringify(error)).not.toContain(secretValue);
@@ -480,13 +441,13 @@ describe("capability manifest", () => {
 
   it("classifies a null literal value as an invalid type", async () => {
     const source = (await readManifest()).replace(
-      "    provider: mintlify",
-      "    provider:"
+      "  provider: better-auth",
+      "  provider:"
     );
 
     return expect(captureManifestError(source).issues).toContainEqual({
       code: "invalid_type",
-      path: "capabilities.docs.provider",
+      path: "auth.provider",
       message: "Manifest value has an invalid type",
     });
   });

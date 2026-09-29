@@ -134,8 +134,8 @@ describe("manifest probes", () => {
       healthyDependencies({
         files: files({
           "capabilities.yaml": WITHOUT_GRAPH_OR_HTTPS.replace(
-            "    provider: uptime-kuma\n    enabled: false",
-            "    provider: uptime-kuma\n    enabled: true"
+            "    infrastructure: alchemy\n    enabled: false",
+            "    infrastructure: alchemy\n    enabled: true"
           ),
         }),
       })
@@ -143,8 +143,10 @@ describe("manifest probes", () => {
     const names = report.checks.map(({ name }) => name);
 
     expect(report.ok).toBe(true);
-    expect(report.capabilities.disabled).not.toContain("uptime");
-    expect(report.capabilities.disabled).toContain("storage");
+    expect(report.capabilities.disabled).toEqual([
+      "developer_context.code_graph",
+      "development.https",
+    ]);
     expect(names).toEqual(
       expect.arrayContaining(["Bun", "Docker", "Postgres"])
     );
@@ -197,19 +199,7 @@ describe("doctor", () => {
 
   it("aggregates checks and capability classifications in deterministic order", async () => {
     const report = await runDoctor(healthyDependencies());
-    const disabled = [
-      "context_graphs.data",
-      "docs",
-      "error_tracking",
-      "jobs",
-      "postgres_extensions.pg_cron",
-      "postgres_extensions.pg_trgm",
-      "postgres_extensions.pgvector",
-      "postgres_extensions.postgis",
-      "postgres_extensions.timescaledb",
-      "storage",
-      "uptime",
-    ];
+    const disabled = ["deployment.ancillary_resources"];
 
     expect(report.checks.map(({ name }) => name)).toEqual([
       "Capabilities manifest",
@@ -238,26 +228,15 @@ describe("doctor", () => {
       "Vitest",
       "Playwright",
       "mkcert fallback",
-      "Capability tanstack_devtools",
       ...disabled.map((name) => `Capability ${name}`),
     ]);
-    expect(
-      report.checks.slice(-disabled.length - 1, -disabled.length + 1)
-    ).toEqual([
-      {
-        name: "Capability tanstack_devtools",
-        status: "optional",
-        detail: "tanstack_devtools is development-scoped",
-      },
-      {
-        name: "Capability context_graphs.data",
-        status: "disabled",
-        detail: "context_graphs.data is disabled",
-      },
-    ]);
+    expect(report.checks.at(-1)).toEqual({
+      name: "Capability deployment.ancillary_resources",
+      status: "disabled",
+      detail: "deployment.ancillary_resources is disabled",
+    });
     return expect(report.capabilities).toEqual({
       required: ["postgres", "cloudflare", "graphify", "portless"],
-      optional: ["tanstack_devtools"],
       disabled,
     });
   });
@@ -797,7 +776,6 @@ describe("doctor", () => {
 
     expect(report.capabilities).toEqual({
       required: [],
-      optional: [],
       disabled: [],
     });
     return expect(
