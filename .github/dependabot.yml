@@ -1,8 +1,6 @@
 version: 2
 
 updates:
-  # The repository uses pnpm 11, whose Dependabot updater support is unproven.
-  # Keep automation limited to pinned GitHub Actions until support is verified.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -11,3 +9,17 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+
+  # npm packages (pnpm workspace and catalog). Minor and patch releases arrive as one weekly
+  # group; majors come separately so each one gets its own review. The cooldown mirrors
+  # pnpm's minimumReleaseAge supply-chain gate, so brand-new releases wait a few days.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 3
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]

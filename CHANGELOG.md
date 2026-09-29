@@ -4,7 +4,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
-Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https://github.com/jeffscottward/darkfactory/pull/37), [#38](https://github.com/jeffscottward/darkfactory/pull/38) and the documentation rewrite that follows them.
+Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https://github.com/jeffscottward/darkfactory/pull/37), [#38](https://github.com/jeffscottward/darkfactory/pull/38) and the follow-up documentation, template and dependency work.
 
 ### Added
 
@@ -19,6 +19,8 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - A `brick` role in every workspace `package.json`, and a live package graph (`docs/generated/package-graph.md`) that `docs:generate` derives from them. `docs:check` fails when the graph is stale, a role is missing or a dependency breaks the role rules.
 - Role skills for pm, architect, backend, frontend, qa, security, scalability and release in `.agents/skills/`, also exposed to Claude Code through `.claude/skills`.
 - Guides: getting started, testing, capabilities (add or swap a provider), deploy, debugging and the operator plane.
+- `bun run init`: renames the template (scope, slug, domain, repository URLs, env prefixes, database names, LICENSE holder), drops instance-only history and removes itself; a renamed copy passes check and tests.
+- Weekly grouped Dependabot updates for npm packages with a release-age cooldown, alongside the existing GitHub Actions group.
 
 ### Changed
 
@@ -29,6 +31,7 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - Biome is configured in `biome.jsonc` with a rationale per rule; `doctor` parses `wrangler.jsonc` with `jsonc-parser`. (#38)
 - The trusted theme load retries a database-capacity 503 under one deadline instead of rendering an indeterminate theme. (#38)
 - Project the safe active-session identity and owner-scoped dashboard summary from one authenticated oRPC context, and reuse identical portal and administration session checks within one server request.
+- Toolchain and dependencies: native TypeScript 7 for typechecks (the compiler API stays pinned as `typescript-api` for tooling), Vitest 5, Biome 2.5 with Ultracite 7, better-auth 1.7, React 19.3, Vite 8.3, Playwright 1.63, portless 0.15, wrangler 4.142 and current patch releases across the catalog.
 - README, AGENTS, ARCHITECTURE, CONVENTIONS, CONTRIBUTING and the security guide are rewritten to match the code. `CLAUDE.md` is a symlink to `AGENTS.md`. Historical specs, evidence and assessments moved to `docs/archive/`.
 
 ### Removed
