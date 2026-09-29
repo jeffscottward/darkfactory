@@ -91,7 +91,7 @@ const dashboardErrorResponse = (
 
 const dashboardCapacityResponse = (): Response =>
   Response.json(
-    { error: "Service Unavailable" },
+    { error: "Service temporarily at capacity", code: "DATABASE_CAPACITY" },
     { status: 503, headers: { "retry-after": "1" } }
   );
 

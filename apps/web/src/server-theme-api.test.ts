@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { INDETERMINATE_THEME } from "./lib/server-theme.ts";
+import {
+  INDETERMINATE_THEME,
+  resolveRequestTheme,
+} from "./lib/server-theme.ts";
 import {
   forwardThemeApiRequest,
   loadApiThemePreference,
@@ -309,5 +312,88 @@ describe("server theme API forwarding", () => {
     ]) {
       await expect(load(failure)).resolves.toBe(INDETERMINATE_THEME);
     }
+  });
+});
+
+describe("trusted theme load under request-database capacity", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const capacityResponse = (): Response =>
+    Response.json(
+      { error: "Service temporarily at capacity", code: "DATABASE_CAPACITY" },
+      { status: 503, headers: { "retry-after": "1" } }
+    );
+  const themeResponse = (): Response =>
+    Response.json({
+      json: { themeMode: "dark", palette: "rose", updatedAt: null },
+    });
+  const resolveTheme = (fetch: typeof globalThis.fetch) =>
+    resolveRequestTheme({
+      cookieHeader: ACTIVE_SESSION_COOKIE,
+      loadTrustedPreference: () =>
+        loadApiThemePreference({
+          appUrl: "https://darkfactory.example",
+          cookieHeader: ACTIVE_SESSION_COOKIE,
+          fetch,
+          requestId: "request-capacity",
+        }),
+    });
+
+  it("stays trusted when the first attempt meets the capacity 503", async () => {
+    vi.useFakeTimers();
+    const fetchRequest = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(capacityResponse())
+      .mockResolvedValueOnce(themeResponse());
+    const theme = resolveTheme(fetchRequest);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchRequest).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(theme).resolves.toMatchObject({
+      authority: "trusted",
+      preference: { themeMode: "dark", palette: "rose" },
+    });
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("fails closed to indeterminate after three consecutive capacity responses", async () => {
+    vi.useFakeTimers();
+    const fetchRequest = vi.fn<typeof globalThis.fetch>(async () =>
+      capacityResponse()
+    );
+    const theme = resolveTheme(fetchRequest);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(theme).resolves.toMatchObject({ authority: "indeterminate" });
+    expect(fetchRequest).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("never retries a 503 that is not the exact capacity response", async () => {
+    const fetchRequest = vi.fn<typeof globalThis.fetch>(
+      async () => new Response(null, { status: 503 })
+    );
+
+    await expect(resolveTheme(fetchRequest)).resolves.toMatchObject({
+      authority: "indeterminate",
+    });
+    expect(fetchRequest).toHaveBeenCalledOnce();
+  });
+
+  it("spends one theme deadline across attempts and capacity waits", async () => {
+    vi.useFakeTimers();
+    const fetchRequest = vi.fn<typeof globalThis.fetch>(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 7500));
+      return capacityResponse();
+    });
+    const theme = resolveTheme(fetchRequest);
+
+    await vi.advanceTimersByTimeAsync(8000);
+    await expect(theme).resolves.toMatchObject({ authority: "indeterminate" });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetchRequest).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -12,6 +12,7 @@ import {
   DashboardContent,
   type DashboardSummaryState,
 } from "../../../components/portal/dashboard-content.tsx";
+import { ownErrorData, retryOnCapacity } from "../../../lib/capacity-retry.ts";
 import {
   createAuthenticatedDashboardFetch,
   type DashboardTransportFetch,
@@ -35,18 +36,6 @@ const SUMMARY_ERROR_STATUSES: Readonly<Record<string, number>> = Object.freeze({
   VALIDATION_ERROR: 422,
   STORAGE_ERROR: 503,
 });
-
-const ownErrorData = (error: unknown, key: string): unknown => {
-  if (typeof error !== "object" || error === null) return undefined;
-  try {
-    const descriptor = Object.getOwnPropertyDescriptor(error, key);
-    return descriptor !== undefined && Object.hasOwn(descriptor, "value")
-      ? descriptor.value
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
 
 const summaryFailureCategory = (error: unknown): string => {
   const code = ownErrorData(error, "code");
@@ -128,26 +117,12 @@ const isDefinedUnauthorized = (error: unknown): boolean => {
   );
 };
 
-const waitForDashboardCapacity = (signal: AbortSignal): Promise<boolean> => {
-  return new Promise((resolve) => {
-    signal.throwIfAborted();
-    const finish = () => {
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", finish);
-      return resolve(!signal.aborted);
-    };
-    const timeout = setTimeout(finish, 1000);
-    return signal.addEventListener("abort", finish, { once: true });
-  });
-};
-
 export const loadDashboardSummaryState = async (
   cookieHeader: string | null,
   fetcher: DashboardTransportFetch = globalThis.fetch,
   timeoutMs = DEFAULT_DASHBOARD_TIMEOUT_MS,
   signal?: AbortSignal
 ): Promise<DashboardSummaryState> => {
-  let capacityResponse = false;
   const controller = new AbortController();
   const abort = () => controller.abort();
   const deadline = Date.now() + timeoutMs;
@@ -156,53 +131,29 @@ export const loadDashboardSummaryState = async (
   if (signal?.aborted) {
     abort();
   }
-  const observedFetch: DashboardTransportFetch = async (request) => {
-    const response = await fetcher(request);
-    capacityResponse =
-      response.status === 503 && response.headers.get("retry-after") === "1";
-    return response;
-  };
   try {
     const appUrl = resolvePortalAppUrl();
-    const client = createApiClient({
-      baseUrl: appUrl,
-      fetch: (request) => {
-        const remainingMs = Math.max(0, deadline - Date.now());
-        if (remainingMs === 0) {
-          abort();
-        }
-        return createAuthenticatedDashboardFetch(
-          cookieHeader,
-          appUrl.origin,
-          observedFetch,
-          remainingMs
-        )(request);
-      },
-    });
-    for (let attempt = 0; ; attempt += 1) {
-      capacityResponse = false;
-      try {
-        controller.signal.throwIfAborted();
-        const summary = await client.dashboard.summary(
-          {},
-          { signal: controller.signal }
-        );
-        controller.signal.throwIfAborted();
-        return { type: "ready", summary };
-      } catch (error) {
-        const isCapacityFailure =
-          capacityResponse &&
-          ownErrorData(error, "defined") === false &&
-          ownErrorData(error, "code") === "SERVICE_UNAVAILABLE" &&
-          ownErrorData(error, "status") === 503;
-        if (attempt === 2 || !isCapacityFailure) {
-          throw error;
-        }
-        if (!(await waitForDashboardCapacity(controller.signal))) {
-          throw error;
-        }
-      }
-    }
+    const summary = await retryOnCapacity(
+      fetcher,
+      controller.signal,
+      (observedFetch) =>
+        createApiClient({
+          baseUrl: appUrl,
+          fetch: (request) => {
+            const remainingMs = Math.max(0, deadline - Date.now());
+            if (remainingMs === 0) {
+              abort();
+            }
+            return createAuthenticatedDashboardFetch(
+              cookieHeader,
+              appUrl.origin,
+              observedFetch,
+              remainingMs
+            )(request);
+          },
+        }).dashboard.summary({}, { signal: controller.signal })
+    );
+    return { type: "ready", summary };
   } catch (error) {
     const state: DashboardSummaryState = isDefinedUnauthorized(error)
       ? { type: "unauthorized" }
