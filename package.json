@@ -132,6 +132,7 @@
     "typescript": "catalog:",
     "ultracite": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "yaml": "catalog:"
   }
 }
