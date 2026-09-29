@@ -31,4 +31,4 @@
 - [ ] I did not add secrets, credentials, session data, personal data or unredacted sensitive output.
 - [ ] Vulnerability details, if any, went through `SECURITY.md`, not this PR.
 
-Done means all four required checks are green: core, coverage, integration and browser.
+Done means all eight required checks are green: the core, coverage, integration and browser lanes, both CodeQL `Analyze` jobs, `CodeQL` and `Dependency Review`.

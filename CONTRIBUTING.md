@@ -30,7 +30,7 @@ plan → contract → failing test → implement → bun run verify:prepush → 
 3. **Failing test.** Write it at the lowest layer that proves the behavior ([docs/testing.md](docs/testing.md)).
 4. **Implement.** Make the smallest complete change. Iterate with `bun run check` and `pnpm exec vitest run <file>`.
 5. **Pre-push.** `bun run verify:prepush` runs on `git push`. Fix the cause; never bypass the hook.
-6. **PR.** Fill in the template. The PR is done when all four required checks are green: `Verification (core)`, `Verification (coverage)`, `Verification (integration)` and `Verification (browser)`.
+6. **PR.** Fill in the template. The PR is done when all eight required checks are green: the four CI lanes `Verification (core)`, `Verification (coverage)`, `Verification (integration)` and `Verification (browser)`, plus `Analyze (actions)`, `Analyze (javascript-typescript)`, `CodeQL` and `Dependency Review` ([docs/deploy.md](docs/deploy.md#branch-protection)).
 
 Update the docs that describe anything you change, in the same commit, and regenerate derived files instead of editing them (`openapi:generate`, `db:generate`, `docs:generate`). A new workspace package needs a `brick` role in its `package.json`.
 
