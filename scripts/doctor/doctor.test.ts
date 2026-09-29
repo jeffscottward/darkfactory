@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { loadCapabilityManifest } from "@darkfactory/config/server/capabilities";
 import { describe, expect, it } from "vitest";
 import {
   PM2_ENVIRONMENT_VERSION,
@@ -7,45 +9,20 @@ import { runDoctorCli } from "./cli.ts";
 import {
   type DoctorDependencies,
   type DoctorFileSystem,
+  probesFor,
   runDoctor,
 } from "./doctor.ts";
-import { parseCapabilityManifest } from "./manifest.ts";
 
-const MANIFEST = `
-project:
-  name: DarkFactory
-  runtime: cloudflare-workers
-workspace:
-  package_manager: pnpm
-  script_runtime: bun
-database:
-  engine: postgres
-deployment:
-  web:
-    provider: cloudflare
-developer_context:
-  code_graph:
-    provider: graphify
-    enabled: true
-development:
-  https:
-    enabled: true
-    provider: portless
-    service_name: darkfactory
-    canonical_url: https://darkfactory.localhost
-    process_manager: pm2
-    certificate_fallback: mkcert
-developer_tools:
-  tanstack_devtools:
-    enabled: development
-capabilities:
-  docs:
-    provider: mintlify
-    enabled: false
-  storage:
-    provider: r2
-    enabled: false
-`;
+// The real manifest is the fixture, so the doctor is tested against the same
+// file and parser (packages/config/src/server/capabilities-loader.ts) it uses.
+const MANIFEST = readFileSync(
+  new URL("../../capabilities.yaml", import.meta.url),
+  "utf8"
+);
+const WITHOUT_GRAPH_OR_HTTPS = MANIFEST.replace(
+  "    provider: graphify\n    enabled: true",
+  "    provider: graphify\n    enabled: false"
+).replace("  https:\n    enabled: true", "  https:\n    enabled: false");
 
 const TEST_CWD = "/workspace/darkfactory";
 const PINNED_BUN_VERSION = "1.3.14";
@@ -171,72 +148,52 @@ const healthyDependencies = (
   ...overrides,
 });
 
-describe("capability manifest", () => {
-  it("classifies core, enabled, environment-scoped, and disabled declarations", () => {
-    const parsed = parseCapabilityManifest(MANIFEST);
+describe("manifest probes", () => {
+  it("derives Bun, Docker, Postgres, portless, and Graphify from the manifest", () => {
+    expect([...probesFor(loadCapabilityManifest(MANIFEST))]).toEqual([
+      "bun",
+      "docker",
+      "postgres",
+      "portless",
+      "graphify",
+    ]);
+    return expect([
+      ...probesFor(loadCapabilityManifest(WITHOUT_GRAPH_OR_HTTPS)),
+    ]).toEqual(["bun", "docker", "postgres"]);
+  });
 
-    expect(parsed.required).toEqual(
-      expect.arrayContaining(["postgres", "graphify", "portless", "pm2"])
+  return it("skips the probes, required capabilities, and disabled entries the manifest turns off or on", async () => {
+    const report = await runDoctor(
+      healthyDependencies({
+        files: files({
+          "capabilities.yaml": WITHOUT_GRAPH_OR_HTTPS.replace(
+            "    provider: uptime-kuma\n    enabled: false",
+            "    provider: uptime-kuma\n    enabled: true"
+          ),
+        }),
+      })
     );
-    expect(parsed.optional).toContain("tanstack_devtools");
-    return expect(parsed.disabled).toEqual(
-      expect.arrayContaining(["docs", "storage"])
+    const names = report.checks.map(({ name }) => name);
+
+    expect(report.ok).toBe(true);
+    expect(report.capabilities.disabled).not.toContain("uptime");
+    expect(report.capabilities.disabled).toContain("storage");
+    expect(names).toEqual(
+      expect.arrayContaining(["Bun", "Docker", "Postgres"])
     );
-  });
-
-  it("rejects malformed indentation, unknown booleans, and missing core declarations", () => {
-    expect(() =>
-      parseCapabilityManifest("capabilities:\n   docs:\n    enabled: false")
-    ).toThrow(/manifest/i);
-    expect(() =>
-      parseCapabilityManifest(
-        MANIFEST.replace("enabled: true", "enabled: perhaps")
-      )
-    ).toThrow(/boolean/i);
-    return expect(() =>
-      parseCapabilityManifest(
-        MANIFEST.replace("database:\n  engine: postgres\n", "")
-      )
-    ).toThrow(/database/i);
-  });
-
-  it("parses quoted scalars, CRLF input, comments, and inline enabled declarations", () => {
-    const inline = `# capability contract\r\n${MANIFEST.replace(
-      "engine: postgres",
-      'engine: "postgres"'
-    )
-      .replace("provider: cloudflare", "provider: 'cloudflare'")
-      .replace(
-        "  tanstack_devtools:\n    enabled: development",
-        "  tanstack_devtools: { enabled: development }"
-      )
-      .replaceAll("\n", "\r\n")}`;
-
-    const parsed = parseCapabilityManifest(inline);
-    expect(parsed.values["database.engine"]).toBe("postgres");
-    expect(parsed.values["deployment.web.provider"]).toBe("cloudflare");
-    return expect(parsed.optional).toEqual(["tanstack_devtools"]);
-  });
-
-  return it.each([
-    [
-      "tabs",
-      MANIFEST.replace("  name: DarkFactory", "\tname: DarkFactory"),
-      /tab/i,
-    ],
-    [
-      "indentation jumps",
-      `jump:\n    too_deep: value\n${MANIFEST}`,
-      /jumps indentation/i,
-    ],
-    [
-      "invalid syntax",
-      MANIFEST.replace("  name: DarkFactory", "  invalid-name: value"),
-      /invalid syntax/i,
-    ],
-    ["oversized bytes", "x".repeat(262_145), /too large/i],
-  ])("rejects manifest parsing boundary: %s", (_name, source, expected) => {
-    return expect(() => parseCapabilityManifest(source)).toThrow(expected);
+    for (const skipped of [
+      "portless",
+      "portless route",
+      "portless trust",
+      "PM2 process",
+      "Graphify",
+    ]) {
+      expect(names).not.toContain(skipped);
+    }
+    return expect(report.capabilities.required).toEqual([
+      "postgres",
+      "cloudflare",
+    ]);
   });
 });
 
@@ -276,17 +233,27 @@ describe("doctor", () => {
 
   it("aggregates checks and capability classifications in deterministic order", async () => {
     const report = await runDoctor(healthyDependencies());
+    const disabled = [
+      "context_graphs.data",
+      "docs",
+      "error_tracking",
+      "jobs",
+      "postgres_extensions.pg_cron",
+      "postgres_extensions.pg_trgm",
+      "postgres_extensions.pgvector",
+      "postgres_extensions.postgis",
+      "postgres_extensions.timescaledb",
+      "storage",
+      "uptime",
+    ];
 
     expect(report.checks.map(({ name }) => name)).toEqual([
       "Capabilities manifest",
       "Node",
-      "Bun",
       "Corepack",
       "pnpm",
       "Pinned toolchain",
       "Vinext configuration",
-      "Docker",
-      "Postgres",
       "Cloudflare tooling",
       "Cloudflare config",
       "DATABASE_URL",
@@ -295,6 +262,9 @@ describe("doctor", () => {
       "Email provider",
       "Analytics provider",
       "Telemetry exporter",
+      "Bun",
+      "Docker",
+      "Postgres",
       "portless",
       "portless route",
       "portless trust",
@@ -308,30 +278,26 @@ describe("doctor", () => {
       "Playwright",
       "mkcert fallback",
       "Capability tanstack_devtools",
-      "Capability docs",
-      "Capability storage",
+      ...disabled.map((name) => `Capability ${name}`),
     ]);
-    expect(report.checks.slice(-3)).toEqual([
+    expect(
+      report.checks.slice(-disabled.length - 1, -disabled.length + 1)
+    ).toEqual([
       {
         name: "Capability tanstack_devtools",
         status: "optional",
         detail: "tanstack_devtools is development-scoped",
       },
       {
-        name: "Capability docs",
+        name: "Capability context_graphs.data",
         status: "disabled",
-        detail: "docs is disabled",
-      },
-      {
-        name: "Capability storage",
-        status: "disabled",
-        detail: "storage is disabled",
+        detail: "context_graphs.data is disabled",
       },
     ]);
     return expect(report.capabilities).toEqual({
-      required: ["postgres", "cloudflare", "graphify", "portless", "pm2"],
+      required: ["postgres", "cloudflare", "graphify", "portless"],
       optional: ["tanstack_devtools"],
-      disabled: ["docs", "storage"],
+      disabled,
     });
   });
 
@@ -861,6 +827,26 @@ describe("doctor", () => {
         return name === "Cloudflare config";
       })
     ).toMatchObject({ status: "fail" });
+  });
+
+  it("parses commented wrangler.jsonc and rejects invalid JSONC", async () => {
+    const cloudflareStatus = async (source: string) =>
+      (
+        await runDoctor(
+          healthyDependencies({
+            files: files({ "apps/web/wrangler.jsonc": source }),
+          })
+        )
+      ).checks.find(({ name }) => name === "Cloudflare config")?.status;
+
+    expect(
+      await cloudflareStatus(`{
+  // Optional: "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<id>" }],
+  "name": "darkfactory-web",
+  /* entry */ "main": "vinext/server/fetch-handler",
+}`)
+    ).toBe("pass");
+    return expect(await cloudflareStatus("{ name: ")).toBe("fail");
   });
 
   it("maps nonzero, malformed, and stale PM2 process inspection", async () => {

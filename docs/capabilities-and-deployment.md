@@ -50,7 +50,7 @@ Run the manifest and prerequisite inspection with:
 varlock run -- bun run doctor
 ```
 
-The doctor reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.
+The doctor parses the manifest with the same loader as the app and derives its probes from it: the script runtime (Bun), the database engine (Docker and Postgres), the HTTPS provider (portless) and an enabled code graph (Graphify). It reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.
 
 ## Enabling a capability
 
