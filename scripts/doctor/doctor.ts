@@ -274,7 +274,7 @@ const environmentChecks = (dependencies: DoctorDependencies): readonly DoctorChe
 }
 
 const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
-  ["node_modules/@danielx/civet/package.json", "0.11.15"],
+  ["node_modules/typescript/package.json", "6.0.2"],
   ["node_modules/turbo/package.json", "2.10.6"],
   ["node_modules/vitest/package.json", "4.1.10"],
   ["node_modules/@playwright/test/package.json", "1.61.1"],
@@ -291,7 +291,7 @@ const inspectPinnedToolchain = async (dependencies: DoctorDependencies): Promise
       const actual = (JSON.parse(source) as Record<string, unknown>)["version"]
       if (actual !== expected) throw new Error("drift")
     }
-    return check("Pinned toolchain", "pass", "Reviewed Civet, Turbo, Vitest, Playwright, Vinext, Cloudflare, and Vite versions match")
+    return check("Pinned toolchain", "pass", "Reviewed TypeScript, Turbo, Vitest, Playwright, Vinext, Cloudflare, and Vite versions match")
   }
   catch {
     return check("Pinned toolchain", "fail", "Reviewed toolchain versions are missing or incompatible")
@@ -402,7 +402,7 @@ export const runDoctor = async (
   ))
 
   const enabledTools: ReadonlyArray<readonly [string, string]> = [
-    ["Civet", "civet"],
+    ["TypeScript", "tsc"],
     ["Turbo", "turbo"],
     ["Vitest", "vitest"],
     ["Playwright", "playwright"],

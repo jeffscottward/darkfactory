@@ -48,7 +48,7 @@ capabilities:
 const TEST_CWD = "/workspace/darkfactory"
 const PINNED_BUN_VERSION = "1.3.14"
 const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
-  "node_modules/@danielx/civet/package.json": "0.11.15",
+  "node_modules/typescript/package.json": "6.0.2",
   "node_modules/turbo/package.json": "2.10.6",
   "node_modules/vitest/package.json": "4.1.10",
   "node_modules/@playwright/test/package.json": "1.61.1",
@@ -249,7 +249,7 @@ describe("doctor", () => {
       "Graphify",
       "Varlock",
       "uv",
-      "Civet",
+      "TypeScript",
       "Turbo",
       "Vitest",
       "Playwright",
