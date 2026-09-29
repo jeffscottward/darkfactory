@@ -10,9 +10,6 @@
     "certs:install",
     "ci",
     "civet:style:check",
-    "coverage:check",
-    "coverage:generate",
-    "coverage:update",
     "db:check",
     "db:generate",
     "db:migrate",
@@ -65,6 +62,7 @@
     "test:integration",
     "test:operations",
     "test:unit",
+    "test:unit:root",
     "typecheck",
     "typecheck:ci",
     "typecheck:database-integration",
@@ -78,6 +76,7 @@
     "verify:core:ci",
     "verify:coverage",
     "verify:integration",
+    "verify:prepush",
     "verify:static"
   ],
   "packages": [

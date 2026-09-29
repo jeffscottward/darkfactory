@@ -214,7 +214,7 @@ varlock run -- bun run verify
 bun run db:test:down
 ```
 
-Every source push must pass the destination-aware hosted security capability preflight, then only `verify:core` (static checks, build/docs, unit, contract, and operations tests). The hook uses Git's actual destination URL, not `origin`, and requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before preflight. Any runtime, preflight, or core failure blocks the push. Install locked dependencies and provide authenticated GitHub CLI access to the destination. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
+Every source push runs `verify:prepush`: format, lint, Civet style, auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper tests. It skips `build`, which hosted core runs. Every pushed ref must be the current HEAD with committed tracked files; untracked and ignored files do not block. A Bun version that differs from `.bun-version` prints a warning. Any failed check blocks the push. Install locked dependencies. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
 
 Push from a clean checkout with every pushed branch or tag resolving to current `HEAD` (annotated tags are peeled); tracked, staged, and unignored untracked changes block verification. Different source commits must be checked out and pushed separately. Deletion-only pushes contain no source and explicitly skip verification. Local success cannot guarantee hosted network, service, runner, or permission behavior; hosted CI remains required.
 

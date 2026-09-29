@@ -52,10 +52,10 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The pre-push requirement is destination-aware security capability preflight followed by only the deterministic `verify:core` lifecycle. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects dirty or mismatched source rather than verifying one checkout while publishing another.
+The pre-push requirement is the deterministic `verify:prepush` lifecycle: format, lint (including Markdown), Civet style, auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper Vitest projects. It skips `build`, which hosted core runs. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects mismatched source or uncommitted changes to tracked files rather than verifying one checkout while publishing another; untracked and ignored files do not block.
 
 ```bash
-varlock run -- bun run verify:core
+varlock run -- bun run verify:prepush
 ```
 
 Environment-heavy verification remains explicit and independently runnable for diagnosis; it is mandatory in hosted CI, not in the per-push hook:
@@ -73,15 +73,15 @@ varlock run -- bun run verify
 varlock run -- bun run ci
 ```
 
-`verify` composes all four lanes without weakening any gate. Its core entry point is `verify:core:ci`, which runs `verify:static` plus `test:e2e-helpers`, not the local pre-push `verify:core`. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, docs, and E2E helpers; coverage runs unit/contract/operations once and enforces the documented deterministic source baseline; integration starts isolated PostgreSQL; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. All four `Verification (core/coverage/integration/browser)` checks remain mandatory, and the four coverage thresholds remain 100%. This does not add a four-lane local pre-push sequence. pnpm remains limited to installation/workspace selection and the measured Node compatibility exceptions.
+`verify` composes all four lanes without weakening any gate. Its core entry point is `verify:core:ci`, which runs `verify:static` plus `test:e2e-helpers`, not the local pre-push `verify:prepush`. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, docs, and E2E helpers; coverage runs unit/contract/operations once and enforces the 100% thresholds; integration starts isolated PostgreSQL; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. All four `Verification (core/coverage/integration/browser)` checks remain mandatory, and the four coverage thresholds remain 100%. This does not add a four-lane local pre-push sequence. pnpm remains limited to installation/workspace selection and the measured Node compatibility exceptions.
 
 Heavy `ci.yml` selects only `pull_request` and explicit `workflow_dispatch`; every eligible PR gets all four lanes regardless of actor, target branch, or changed paths. Pushes, including merges to `main`, intentionally do not schedule another heavy matrix. CodeQL, Scorecard, and Dependency Review keep their own events and job-level `if:` guards, including applicable default-branch security scans; see [hosted security capabilities](capabilities-and-deployment.md#hosted-security-capabilities).
 
-Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. `test:e2e-helpers` positively selects the helper directory with `--project e2e-helpers tests/e2e/helpers`; coverage's unit project owns the separate root `playwright.config.test.ts`. The local `test:operations` path still includes all E2E helpers, including that configuration test; the local pre-push contract is unchanged.
+Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. Project globs are disjoint, and the root `playwright.config.test.ts` belongs to `unit`. `scripts/ci/test-invariants.test.civet` proves that full `verify` runs every tracked Vitest test file exactly once and that `verify:prepush` and `verify:core` run every unit, contract, operations, and E2E-helper file. Package `test:unit` scripts select their whole package directory; root `test:unit` fans them out through Turborepo, then runs the root unit tests.
 
-Before pushing, install locked dependencies and provide destination-authenticated GitHub CLI access. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Run `varlock run -- git push <remote> <ref>` when Git needs that environment. Missing core prerequisites, stale artifacts checked by core, failed preflight, or failed core block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
+Before pushing, install locked dependencies. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Run `varlock run -- git push <remote> <ref>` when Git needs that environment. Missing prerequisites, stale artifacts checked by `verify:prepush`, or a failed check block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
 
-The hook checks clean source and requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before destination-scoped preflight. Only after preflight passes does it run immutable `verify:core`; any failure stops the push. Success also requires a final clean-source and unchanged-HEAD check. Coverage, integration, graph, and browser remain full-lifecycle/hosted gates, not hook stages. An explicitly unconfigured private licensed capability is reported as not configured/not run, not successful analysis.
+The hook checks that every pushed source is current HEAD and that tracked files are committed. A mismatch between the executing or PATH-resolved Bun and the exact `.bun-version` pin prints a warning but does not block. The hook then runs immutable `verify:prepush`; any failure stops the push. Success also requires a final tracked-file and unchanged-HEAD check. Deletion-only pushes skip checks. Coverage, integration, graph, and browser remain full-lifecycle/hosted gates, not hook stages.
 
 Local checks do not run hosted security analysis. After pushing, still follow every hosted lane to a terminal result: runner differences, GitHub outages and changed permissions cannot be guaranteed away before the push.
 
@@ -101,17 +101,12 @@ The email preview writer and the feature generator's path-safety and planning mo
 
 ```bash
 bun run test:coverage
-bun run coverage:generate
-bun run coverage:check
-bun run coverage:update
 bun run verify:coverage
 ```
 
-V8 writes the uncommitted raw report to `coverage/coverage-summary.json`. `coverage:generate` validates its aggregate metrics and writes path-free, timestamp-free artifacts to `docs/assessments/coverage-summary.json` and `docs/assessments/coverage-badge.json` through same-directory synchronized temporary files and atomic renames. `coverage:check` regenerates both representations in memory and requires an exact byte match, detecting any mixed baseline left by interruption. Rerun `coverage:generate` to recover. `coverage:update` is the deliberate baseline-refresh path; review both artifact changes rather than accepting them automatically. `verify:coverage` reruns the lane and performs the byte check; the root `verify` command composes it with the other four lanes.
+V8 writes the uncommitted raw report to `coverage/`; no coverage totals are committed. `verify:coverage` runs the lane and fails if any of the four metrics drops below 100%. The measured file set is pinned instead: `scripts/ci/test-invariants.test.civet` requires every tracked non-test source file under `apps/*/src`, `packages/*/src`, and `scripts` to be matched by `coverage.include`, and it requires `coverage.exclude` to equal the reviewed allowlist in that test.
 
-The badge message publishes both line and branch percentages, and its color is graded from the lower of the two so a stronger line result cannot hide weaker branch coverage.
-
-The committed deterministic scope measures 100% for lines, branches, functions, and statements across every included authored module. All four configured floors are 100%, and the committed byte-checked artifact provides an exact non-regression signal.
+The committed deterministic scope measures 100% for lines, branches, functions, and statements across every included authored module. All four configured floors are 100%, and the pinned measured file set keeps new source from escaping the report. The README badge states this gate; it is not a live measurement.
 
 ### Assertion-enabled dynamic analysis
 
