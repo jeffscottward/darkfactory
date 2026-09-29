@@ -123,6 +123,9 @@ catalogs:
     husky:
       specifier: 9.1.7
       version: 9.1.7
+    jsonc-parser:
+      specifier: 3.3.1
+      version: 3.3.1
     lucide-react:
       specifier: 1.25.0
       version: 1.25.0
@@ -274,6 +277,9 @@ importers:
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0(supports-color@10.2.2)
+      jsonc-parser:
+        specifier: 'catalog:'
+        version: 3.3.1
       markdownlint-cli2:
         specifier: 'catalog:'
         version: 0.23.3(supports-color@10.2.2)

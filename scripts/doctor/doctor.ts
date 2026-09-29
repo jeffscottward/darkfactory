@@ -2,7 +2,7 @@ import {
   type CapabilityManifest,
   loadCapabilityManifest,
 } from "@darkfactory/config/server/capabilities";
-import ts from "typescript";
+import { type ParseError, parse as parseJsonc } from "jsonc-parser";
 import { inspectBunRuntime } from "../ci/bun-runtime.ts";
 import {
   CANONICAL_URL,
@@ -353,12 +353,13 @@ const inspectCloudflareConfig = async (
       throw new Error("missing");
     const source = await dependencies.files.readText("apps/web/wrangler.jsonc");
     if (Buffer.byteLength(source, "utf8") > 262_144) throw new Error("large");
-    // wrangler.jsonc may carry comments, so parse it as JSONC, not JSON.
-    const { config, error } = ts.parseConfigFileTextToJson(
-      "wrangler.jsonc",
-      source
-    );
-    if (error) throw new Error("malformed");
+    // wrangler.jsonc may carry comments, so parse it as JSONC, not JSON;
+    // jsonc-parser keeps this runtime script off the TypeScript compiler API.
+    const errors: ParseError[] = [];
+    const config: unknown = parseJsonc(source, errors, {
+      allowTrailingComma: true,
+    });
+    if (errors.length > 0) throw new Error("malformed");
     const parsed = config as Record<string, unknown>;
     const valid =
       parsed["name"] === "darkfactory-web" &&

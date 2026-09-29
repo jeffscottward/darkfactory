@@ -113,6 +113,7 @@
     "@vitest/coverage-v8": "catalog:",
     "husky": "catalog:",
     "jsdom": "^26.1.0",
+    "jsonc-parser": "catalog:",
     "markdownlint-cli2": "catalog:",
     "pg": "catalog:",
     "portless": "catalog:",
