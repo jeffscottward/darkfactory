@@ -1,7 +1,7 @@
 # DarkFactory Web Design System
 
 > **Authority:** This file is the source of truth for every DarkFactory web surface.
-> Before building a page, check `design-system/darkfactory/pages/[page-name].md`.
+> Before building a page, check `design-system/darkfactory/pages/<page-name>.md`.
 > A page file may record deviations only; everything not explicitly overridden inherits this file.
 
 **Project:** DarkFactory  

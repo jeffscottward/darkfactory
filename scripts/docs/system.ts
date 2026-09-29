@@ -1,11 +1,14 @@
+import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
+import { withoutGitRepositoryEnvironment } from "../lib/git-env.ts";
 import type { DocsFileSystem, PackageManifestSource } from "./docs.ts";
 import { type GuardHooks, guardedWrite } from "./filesystem-guard.ts";
 
-const MAX_MANIFEST_BYTES = 262_144;
+// Bounds every read: manifests, Markdown and the largest source files.
+const MAX_FILE_BYTES = 1_048_576;
 const portable = (path: string): string => path.replaceAll("\\", "/");
 type ReadIdentity = Readonly<{ path: string; dev: number; ino: number }>;
 
@@ -83,11 +86,11 @@ export const createDocsFileSystem = async (
     );
     try {
       const stats = await handle.stat();
-      if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES)
-        throw new Error(`Package manifest is invalid: ${path}`);
+      if (!stats.isFile() || stats.size > MAX_FILE_BYTES)
+        throw new Error(`Repository file is invalid: ${path}`);
       const content = await handle.readFile({ encoding: "utf8" });
-      if (Buffer.byteLength(content, "utf8") > MAX_MANIFEST_BYTES)
-        throw new Error(`Package manifest is too large: ${path}`);
+      if (Buffer.byteLength(content, "utf8") > MAX_FILE_BYTES)
+        throw new Error(`Repository file is too large: ${path}`);
       await assertAncestors(ancestors);
       return content;
     } finally {
@@ -124,13 +127,45 @@ export const createDocsFileSystem = async (
     );
   };
 
+  // Hooks export GIT_DIR; drop it so Git always reads the repository at `root`.
+  const git = (
+    arguments_: readonly string[],
+    accepted: readonly number[],
+    input = ""
+  ) => {
+    const result = spawnSync("git", arguments_, {
+      cwd: root,
+      encoding: "utf8",
+      env: withoutGitRepositoryEnvironment(),
+      input,
+      maxBuffer: 16 * MAX_FILE_BYTES,
+    });
+    if (!accepted.some((status) => status === result.status)) {
+      throw new Error(`git ${arguments_[0]} failed: ${result.stderr}`.trim());
+    }
+    return result.stdout.split("\0").filter((path) => path.length > 0);
+  };
+
   return Object.freeze({
     discoverPackageManifests,
-    readGenerated: async (path) => {
+    listRepositoryFiles: async () =>
+      git(
+        ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        [0]
+      ),
+    // check-ignore exits 1 when no path is ignored.
+    listIgnoredPaths: async (paths) =>
+      git(
+        ["check-ignore", "--no-index", "--stdin", "-z"],
+        [0, 1],
+        paths.join("\0")
+      ),
+    readFile: async (path) => {
       try {
         return await readBounded(path);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ELOOP") return;
         throw error;
       }
     },

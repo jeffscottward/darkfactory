@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/analytics",
   "brick": "capability",
+  "description": "Product analytics port with a PostHog adapter.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {

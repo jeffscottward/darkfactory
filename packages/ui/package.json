@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/ui",
   "brick": "product",
+  "description": "Presentational React components, styles and shadcn primitives.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {

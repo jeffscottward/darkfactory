@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/web",
   "brick": "app",
+  "description": "Customer web app: pages, route handlers and the request scope.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {

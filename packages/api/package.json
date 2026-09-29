@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/api",
   "brick": "product",
+  "description": "oRPC contracts, services and router; the source of the typed client and OpenAPI.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
