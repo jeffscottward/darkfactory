@@ -5,10 +5,11 @@ import type { Page, TestInfo } from "@playwright/test";
 
 import {
   expect,
-  screenshotArtifactPath,
+  expectHydrated,
   test,
   waitForContactPreview,
 } from "./fixtures.ts";
+import { clearContactThrottle } from "./helpers/database.ts";
 
 const PUBLIC_ROUTES = [
   {
@@ -82,7 +83,7 @@ const FORBIDDEN_VISUAL_SOURCE_FRAGMENTS = [
 ] as const;
 
 const waitForStableDocument = async (page: Page): Promise<void> => {
-  await page.waitForLoadState("networkidle");
+  await expectHydrated(page.locator("main"));
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
@@ -142,11 +143,10 @@ const captureEvidence = async (
     throw new Error("Public screenshot capture requires empty form controls.");
   }
 
-  const path = await screenshotArtifactPath(testInfo, `${name}.png`);
   await page.screenshot({
     animations: "disabled",
     fullPage: true,
-    path,
+    path: testInfo.outputPath(`${name}.png`),
   });
 };
 
@@ -204,6 +204,9 @@ for (const route of PUBLIC_ROUTES) {
 test("captures sanitized invalid contact state and exercises pending/previewed outcomes responsively", async ({
   page,
 }, testInfo) => {
+  // Four real submissions per attempt share one local throttle key (5 per window),
+  // so every attempt, retries included, starts from an empty throttle.
+  await clearContactThrottle();
   let releaseRequest = (): void => undefined;
   let requestGate: Promise<void> = Promise.resolve();
   await page.route("**/api/orpc/contact/submit", async (route) => {

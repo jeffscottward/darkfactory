@@ -5,10 +5,6 @@ import vinext from "vinext";
 import { defineConfig, type Plugin } from "vite";
 
 const rawPort = process.env["PORT"];
-const appEnvironment = process.env["APP_ENV"];
-const e2eRunId = process.env["E2E_RUN_ID"];
-const isOwnedE2EPreview =
-  appEnvironment === "test" && /^[A-Za-z0-9_-]{1,128}$/u.test(e2eRunId ?? "");
 let port: number | undefined;
 
 if (rawPort !== undefined) {
@@ -98,32 +94,6 @@ const environmentOptimizerPolicy = (): Plugin => ({
   },
 });
 
-const e2ePreviewDiagnostics = (): Plugin => {
-  let requestPublished = false;
-  let responsePublished = false;
-
-  return {
-    name: "darkfactory:e2e-preview-diagnostics",
-    enforce: "pre",
-    configurePreviewServer(server) {
-      server.middlewares.use((_request, response, next) => {
-        if (!requestPublished) {
-          requestPublished = true;
-          process.stderr.write("DARKFACTORY_E2E_VITE_REQUEST_RECEIVED\n");
-        }
-        response.once("finish", () => {
-          if (responsePublished) {
-            return;
-          }
-          responsePublished = true;
-          process.stderr.write("DARKFACTORY_E2E_VITE_RESPONSE_FINISHED\n");
-        });
-        next();
-      });
-    },
-  };
-};
-
 export default defineConfig({
   resolve: {
     dedupe: [
@@ -154,7 +124,6 @@ export default defineConfig({
         pageExtensions: ["tsx", "ts", "jsx", "js"],
       },
     }),
-    ...(isOwnedE2EPreview ? [e2ePreviewDiagnostics()] : []),
     cloudflare({
       viteEnvironment: {
         name: "rsc",

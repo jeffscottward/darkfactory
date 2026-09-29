@@ -18,7 +18,7 @@ import {
   spawnOwnedProcess,
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
-} from "../../scripts/e2e/owned-process-tree.ts";
+} from "./helpers/owned-process-tree.ts";
 import {
   inheritedEnvironment,
   redactValues,

@@ -1,4 +1,8 @@
-import { expect, test } from "./fixtures.ts";
+import type { Page } from "@playwright/test";
+import { expect, expectHydrated, test } from "./fixtures.ts";
+
+const contactFormReady = (page: Page) =>
+  expectHydrated(page.locator("#contact-form"));
 
 test.describe("DF-076 public contact form", () => {
   test("validates, focuses, prevents duplicate submission, and preserves values on failure", async ({
@@ -6,7 +10,7 @@ test.describe("DF-076 public contact form", () => {
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/contact");
-    await page.waitForLoadState("networkidle");
+    await contactFormReady(page);
 
     await expect(
       page.getByRole("heading", {
@@ -130,7 +134,7 @@ test.describe("DF-076 public contact form", () => {
         })
       );
       await page.goto("/contact");
-      await page.waitForLoadState("networkidle");
+      await contactFormReady(page);
       await page.locator("#name").fill(values.name);
       await page.locator("#email").fill(values.email);
       await page.locator("#subject").fill(values.subject);
@@ -188,7 +192,7 @@ test.describe("DF-076 public contact form", () => {
       });
     });
     await page.goto("/contact");
-    await page.waitForLoadState("networkidle");
+    await contactFormReady(page);
     await page.locator("#name").fill(values.name);
     await page.locator("#email").fill(values.email);
     await page.locator("#subject").fill(values.subject);
@@ -229,7 +233,7 @@ test.describe("DF-076 public contact form", () => {
       });
     });
     await page.goto("/contact");
-    await page.waitForLoadState("networkidle");
+    await contactFormReady(page);
     await page.locator("#name").fill("Ada Pending");
     await page.locator("#email").fill("ada.pending@example.test");
     await page.locator("#subject").fill("Pending state");
@@ -250,7 +254,7 @@ test.describe("DF-076 public contact form", () => {
     for (const width of [375, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/contact");
-      await page.waitForLoadState("networkidle");
+      await contactFormReady(page);
       const layout = await page.evaluate(() => ({
         viewport: window.innerWidth,
         scrollWidth: document.documentElement.scrollWidth,

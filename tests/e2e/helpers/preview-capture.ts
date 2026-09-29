@@ -32,6 +32,8 @@ export type PreviewCaptureServerOptions = Readonly<{
   authDirectory: string;
   contactDirectory: string;
   binding: PreviewEmailBinding;
+  /** Fixed loopback port; the app server learns the endpoint before capture starts. */
+  port?: number;
 }>;
 
 export type PreviewCaptureServer = Readonly<{
@@ -193,7 +195,7 @@ export const startPreviewCaptureServer = async (
     };
     server.once("error", onError);
     return server.listen(
-      { host: "127.0.0.1", port: 0, exclusive: true },
+      { host: "127.0.0.1", port: options.port ?? 0, exclusive: true },
       () => {
         server.off("error", onError);
         return resolve();

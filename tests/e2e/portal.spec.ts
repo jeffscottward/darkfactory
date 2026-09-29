@@ -10,6 +10,10 @@ import type {
 } from "@playwright/test";
 
 import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures.ts";
+import { resetDatabase } from "./helpers/database.ts";
+
+// Each file starts from the seeded identities, whatever ran before it.
+test.beforeAll(() => resetDatabase());
 
 const ALICE_SEED_ITEM = "Alice example item";
 const BOB_SEED_ITEM = "Bob example item";

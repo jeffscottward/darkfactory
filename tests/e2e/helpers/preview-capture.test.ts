@@ -89,7 +89,7 @@ describe("preview capture server", () => {
     });
   });
 
-  return it("rejects a wrong bearer, run, path, and content type without writing files", async () => {
+  it("rejects a wrong bearer, run, path, and content type without writing files", async () => {
     const { root, binding, server } = await createFixture();
     const payload = JSON.stringify({
       version: 1,
@@ -142,5 +142,20 @@ describe("preview capture server", () => {
     ]);
     await expect(readdir(join(root, "auth"))).rejects.toThrow();
     return await expect(readdir(join(root, "contact"))).rejects.toThrow();
+  });
+
+  return it("binds the fixed port the app server was told about", async () => {
+    const { root, binding, server } = await createFixture();
+    const port = Number(new URL(server.endpoint).port);
+    await server.close();
+    const fixed = await startPreviewCaptureServer({
+      appOrigin: "https://darkfactory.localhost:43123",
+      authDirectory: join(root, "auth"),
+      contactDirectory: join(root, "contact"),
+      binding,
+      port,
+    });
+    servers.add(fixed);
+    return expect(fixed.endpoint).toBe(`http://127.0.0.1:${port}/v1/capture`);
   });
 });

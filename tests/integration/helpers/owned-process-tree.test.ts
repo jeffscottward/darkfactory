@@ -6,7 +6,7 @@ import {
   spawnOwnedProcess,
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
-} from "../../../scripts/e2e/owned-process-tree.ts";
+} from "./owned-process-tree.ts";
 
 type FixtureAddress = Readonly<{
   pid: number;

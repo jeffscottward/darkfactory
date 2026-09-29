@@ -4,8 +4,7 @@ import { join } from "node:path";
 
 import { normalizeRecipient } from "@darkfactory/email/recipient";
 
-import { e2eRunPathsFromEnvironment } from "./run-artifacts.ts";
-import { canonicalBaseURL, parsePortlessPort } from "./runtime.ts";
+import { e2eEnvironment } from "../env.ts";
 
 const HTTPS_LINK_PATTERN = /https:\/\/[^\s<>"']+/gu;
 const RESET_PATH_PATTERN = /^\/api\/auth\/reset-password\/[A-Za-z0-9_-]+$/u;
@@ -277,8 +276,8 @@ const matchingPreviewMetadata = async ({
 
 export const waitForPreviewLink = async ({
   after,
-  appOrigin = canonicalBaseURL(parsePortlessPort(process.env["PORTLESS_PORT"])),
-  directory = e2eRunPathsFromEnvironment().authPreviews,
+  appOrigin = e2eEnvironment().appUrl,
+  directory = e2eEnvironment().runPaths.authPreviews,
   hmacKey = process.env["E2E_EMAIL_PREVIEW_HMAC_KEY"],
   operation,
   recipient,
@@ -294,7 +293,7 @@ export const waitForPreviewLink = async ({
   readonly runId?: string;
   readonly timeoutMs?: number;
 }): Promise<URL> => {
-  const expectedRunId = runId ?? e2eRunPathsFromEnvironment().runId;
+  const expectedRunId = runId ?? e2eEnvironment().runId;
   if (
     !Number.isFinite(after) ||
     after < 0 ||
@@ -344,7 +343,7 @@ export const waitForPreviewLink = async ({
 
 export const waitForContactPreview = async ({
   after,
-  directory = e2eRunPathsFromEnvironment().contactPreviews,
+  directory = e2eEnvironment().runPaths.contactPreviews,
   recipientEmail,
   subject,
   timeoutMs = DEFAULT_TIMEOUT_MILLISECONDS,

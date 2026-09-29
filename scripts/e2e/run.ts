@@ -1,8 +1,0 @@
-import { runJourneyCli } from "./cli.ts";
-
-process.stderr.write('{"kind":"darkfactory-e2e-entry","version":1}\n');
-
-process.exitCode = await runJourneyCli(process.argv.slice(2), process.cwd(), {
-  writeOutput: (value) => process.stdout.write(value),
-  writeError: (value) => process.stderr.write(value),
-});

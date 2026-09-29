@@ -9,7 +9,11 @@ import {
   test,
   waitForPreviewLink,
 } from "./fixtures.ts";
+import { resetDatabase } from "./helpers/database.ts";
 import { assertNoSensitiveData } from "./helpers/sensitive-data.ts";
+
+// Each file starts from the seeded identities, whatever ran before it.
+test.beforeAll(() => resetDatabase());
 
 const SAFE_ACCOUNT_EMAIL_MESSAGE =
   "If the address can receive this email, a message is on its way. Check your inbox and spam folder.";
@@ -104,7 +108,7 @@ const signInThroughUi = async ({
   expectBrowserResponse(response, "/api/auth/sign-in/email", 200);
   const sessionCookie = await expectCanonicalSessionCookie(page, response);
   await page.waitForURL((url) => url.pathname !== "/sign-in");
-  await page.waitForLoadState("networkidle");
+  await expect(page.locator("main h1")).toBeVisible();
   await assertPageDoesNotExposeSensitiveData(page, [
     email,
     password,

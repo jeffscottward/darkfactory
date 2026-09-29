@@ -1,4 +1,4 @@
-import type { OwnedProcess } from "../../../scripts/e2e/owned-process-tree.ts";
+import type { OwnedProcess } from "./owned-process-tree.ts";
 
 export class WorkerExitedBeforeReadinessError extends Error {
   constructor(message: string) {

@@ -6,7 +6,7 @@ import {
   ownedProcessTreeExists,
   spawnOwnedProcess,
   terminateOwnedProcessTree,
-} from "../../../scripts/e2e/owned-process-tree.ts";
+} from "./owned-process-tree.ts";
 import {
   startWorkerWithRetry,
   WorkerExitedBeforeReadinessError,

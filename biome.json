@@ -86,14 +86,7 @@
         "packages/jobs/src/server/workflow-recovery-regression.test.ts",
         "packages/email/src/server/preview.test.ts",
         "packages/observability/src/redaction.ts",
-        "scripts/**",
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/dev-vars.ts",
-        "tests/e2e/helpers/dev-vars.test.ts",
-        "tests/e2e/helpers/lifecycle-state.test.ts",
-        "tests/e2e/helpers/run-artifacts.ts",
-        "tests/e2e/helpers/run-artifacts.test.ts",
-        "tests/e2e/helpers/structured-evidence.test.ts"
+        "scripts/**"
       ],
       "linter": {
         "rules": {
@@ -132,11 +125,7 @@
     {
       "includes": [
         "tests/e2e/helpers/browser-errors.ts",
-        "tests/e2e/helpers/dev-vars.ts",
-        "tests/e2e/helpers/optimizer-cache.ts",
-        "tests/e2e/helpers/preview-email.ts",
-        "tests/e2e/helpers/run-artifacts.ts",
-        "tests/e2e/helpers/server-readiness.ts"
+        "tests/e2e/helpers/preview-email.ts"
       ],
       "linter": {
         "rules": {

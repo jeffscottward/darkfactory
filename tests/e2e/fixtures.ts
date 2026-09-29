@@ -1,23 +1,16 @@
 import {
   test as base,
   type ConsoleMessage,
+  type Locator,
   type Page,
   expect as playwrightExpect,
   type Response,
 } from "@playwright/test";
 import {
-  discardEvidenceArtifacts,
-  ensureStructuredEvidence,
-} from "./helpers/artifacts.ts";
-import {
   BrowserErrorCollector,
   type ExpectedBrowserMessage,
   type ExpectedHttpError,
 } from "./helpers/browser-errors.ts";
-import {
-  type EvidenceContext,
-  publishEvidenceManifest,
-} from "./helpers/evidence.ts";
 
 const DEVELOPMENT_PASSWORD = "Development123!";
 
@@ -83,20 +76,33 @@ export const signInAs = async (
   ).toBeVisible();
 };
 
+/**
+ * Explicit readiness in place of `networkidle`, which never settles while any
+ * request (such as a link prefetch) stays open: the element is visible, React
+ * has hydrated it, and web fonts have loaded.
+ */
+export const expectHydrated = async (locator: Locator): Promise<void> => {
+  await playwrightExpect(locator).toBeVisible();
+  await playwrightExpect
+    .poll(() =>
+      locator.evaluate((element) =>
+        Object.keys(element).some((key) => key.startsWith("__reactFiber$"))
+      )
+    )
+    .toBe(true);
+  await locator.page().evaluate(async () => {
+    await document.fonts.ready;
+  });
+};
+
 export type BrowserErrorGuard = Readonly<{
   allowConsoleError: (rule: ExpectedBrowserMessage) => void;
   allowHttpError: (rule: ExpectedHttpError) => void;
   allowPageError: (rule: ExpectedBrowserMessage) => void;
 }>;
 
-export type EvidenceRecorder = Readonly<{
-  describe: (context: Partial<EvidenceContext>) => void;
-  snapshot: () => EvidenceContext;
-}>;
-
 type E2EFixtures = Readonly<{
   browserErrors: BrowserErrorGuard;
-  evidence: EvidenceRecorder;
 }>;
 
 const currentPathname = (page: Page): string => {
@@ -108,21 +114,8 @@ const currentPathname = (page: Page): string => {
 };
 
 export const test = base.extend<E2EFixtures>({
-  // biome-ignore lint/correctness/noEmptyPattern: Playwright requires object destructuring to discover fixture dependencies.
-  evidence: async ({}, use, _testInfo) => {
-    let context: EvidenceContext = {
-      persona: "anonymous",
-      state: "ready",
-    };
-    await use({
-      describe: (nextContext) => {
-        context = { ...context, ...nextContext };
-      },
-      snapshot: () => context,
-    });
-  },
   browserErrors: [
-    async ({ baseURL, evidence, page }, use, testInfo) => {
+    async ({ baseURL, page }, use, testInfo) => {
       if (testInfo.repeatEachIndex > 0) {
         throw new Error(
           "DB-backed E2E journeys do not support --repeat-each; start a fresh run instead."
@@ -163,29 +156,9 @@ export const test = base.extend<E2EFixtures>({
 
       const failures = collector.failures();
       if (failures.length > 0) {
-        await discardEvidenceArtifacts(testInfo);
         throw new Error(
           `Browser emitted unexpected errors:\n${failures.join("\n")}`
         );
-      }
-      if (
-        testInfo.status === "passed" &&
-        testInfo.expectedStatus === "passed"
-      ) {
-        const context = evidence.snapshot();
-        try {
-          await ensureStructuredEvidence({ context, page, testInfo });
-          await publishEvidenceManifest({ context, page, testInfo });
-        } catch {
-          try {
-            await discardEvidenceArtifacts(testInfo);
-          } catch {
-            throw new Error("Evidence finalization cleanup failed.");
-          }
-          throw new Error("Evidence finalization failed.");
-        }
-      } else {
-        await discardEvidenceArtifacts(testInfo);
       }
     },
     { auto: true },
@@ -194,12 +167,6 @@ export const test = base.extend<E2EFixtures>({
 
 // biome-ignore lint/performance/noBarrelFile: The central Playwright fixture intentionally exposes its shared helpers.
 export { expect } from "@playwright/test";
-export {
-  axeArtifactPath,
-  expectNoThemeFlash,
-  installFirstPaintProbe,
-  screenshotArtifactPath,
-} from "./helpers/artifacts.ts";
 export type {
   ExpectedBrowserMessage,
   ExpectedHttpError,

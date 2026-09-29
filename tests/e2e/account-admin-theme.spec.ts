@@ -10,7 +10,17 @@ import type {
 import { RPCLink } from "../../packages/api/node_modules/@orpc/client/dist/adapters/fetch/index.mjs";
 import { createORPCClient } from "../../packages/api/node_modules/@orpc/client/dist/index.mjs";
 
-import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures.ts";
+import {
+  E2E_IDENTITIES,
+  expect,
+  expectHydrated,
+  signInAs,
+  test,
+} from "./fixtures.ts";
+import { resetDatabase } from "./helpers/database.ts";
+
+// Each file starts from the seeded identities, whatever ran before it.
+test.beforeAll(() => resetDatabase());
 
 const THEME_COOKIE_NAME = "darkfactory-theme";
 const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1";
@@ -827,7 +837,7 @@ test.describe
           )
         ).toBeVisible();
 
-        await page.reload({ waitUntil: "networkidle" });
+        await page.reload();
         await expect(page).toHaveURL(ACCOUNT_SECURITY_URL);
         await expect(
           page.getByText("Current session", { exact: true })
@@ -1057,10 +1067,10 @@ test.describe
       try {
         await signInAs(adminPage, E2E_IDENTITIES.admin);
         await adminPage.goto("/admin/users");
-        await adminPage.waitForLoadState("networkidle");
         const adminTrigger = adminPage.getByRole("button", {
           name: "Open portal navigation",
         });
+        await expectHydrated(adminTrigger);
         await expect(adminTrigger).toHaveAttribute(
           "popovertarget",
           "portal-navigation"
