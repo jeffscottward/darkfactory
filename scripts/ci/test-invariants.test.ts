@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, matchesGlob, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import ts from "typescript-api";
 import { afterAll, describe, expect, it } from "vitest";
 import vitestConfig from "../../vitest.config.ts";
 
@@ -30,7 +31,59 @@ const COVERAGE_EXCLUDE_ALLOWLIST = [
   // Generator output; freshness checks own these bytes.
   "**/generated/**",
   "apps/web/src/features/generated-navigation.ts",
+  // Root entry wrappers only hand process I/O to a measured CLI; the
+  // "thin root entries" test below fails the moment one gains logic.
+  "scripts/*.ts",
 ] as const;
+
+// Wrappers must not branch, loop, catch or declare block-bodied functions.
+const LOGIC = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.Block,
+  ts.SyntaxKind.IfStatement,
+  ts.SyntaxKind.ConditionalExpression,
+  ts.SyntaxKind.SwitchStatement,
+  ts.SyntaxKind.TryStatement,
+  ts.SyntaxKind.ForStatement,
+  ts.SyntaxKind.ForInStatement,
+  ts.SyntaxKind.ForOfStatement,
+  ts.SyntaxKind.WhileStatement,
+  ts.SyntaxKind.DoStatement,
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+  ts.SyntaxKind.QuestionDotToken,
+]);
+
+// Imports, then exactly `process.exitCode = [await] runCli(...)`.
+const isThinEntry = (source: string): boolean => {
+  const file = ts.createSourceFile("entry.ts", source, ts.ScriptTarget.Latest);
+  const statements = [...file.statements];
+  const last = statements.pop();
+  if (
+    last === undefined ||
+    !statements.every(ts.isImportDeclaration) ||
+    !ts.isExpressionStatement(last) ||
+    !ts.isBinaryExpression(last.expression) ||
+    last.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
+    last.expression.left.getText(file) !== "process.exitCode"
+  ) {
+    return false;
+  }
+  const { right } = last.expression;
+  let logic = false;
+  const visit = (node: ts.Node): void => {
+    logic ||= LOGIC.has(node.kind);
+    ts.forEachChild(node, visit);
+  };
+  visit(right);
+  return (
+    !logic &&
+    ts.isCallExpression(ts.isAwaitExpression(right) ? right.expression : right)
+  );
+};
 
 const SOURCE_ROOT = /^(?:apps\/[^/]+\/src\/|packages\/[^/]+\/src\/|scripts\/)/u;
 const SOURCE_EXTENSION = /\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/u;
@@ -203,6 +256,27 @@ describe("coverage measures every authored source file", () => {
     return expect(
       [...(await trackedFiles)].filter((file) => /\.civet$/iu.test(file))
     ).toEqual([]);
+  });
+
+  it("keeps every excluded root entry a thin wrapper around a measured CLI", async () => {
+    const entries = [...(await trackedFiles)].filter(
+      (file) => matchesGlob(file, "scripts/*.ts") && !TEST_FILE.test(file)
+    );
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      const source = await readFile(join(root, entry), "utf8");
+      expect(isThinEntry(source), entry).toBe(true);
+    }
+    // The checker itself must see logic hidden inside the exit-code call.
+    for (const logic of [
+      "process.exitCode = await run(a ? 1 : 2);",
+      "process.exitCode = run(() => { return 1; });",
+      "process.exitCode = run(a ?? b, c && d);",
+      "const a = 1;\nprocess.exitCode = run(a);",
+      "process.exitCode = 1;",
+    ]) {
+      expect(isThinEntry(logic), logic).toBe(false);
+    }
   });
 
   return it("includes every tracked non-test source file outside the allowlist", async () => {

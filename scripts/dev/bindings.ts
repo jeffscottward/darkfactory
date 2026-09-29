@@ -11,7 +11,11 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { parseEnv } from "node:util";
-import { parseServerEnv, serverEnvSchema } from "@darkfactory/config/server";
+import {
+  EnvironmentValidationError,
+  parseServerEnv,
+  serverEnvSchema,
+} from "@darkfactory/config/server";
 
 const MAX_BINDING_BYTES = 128 * 1024;
 export type WorkerBindingsTarget = "web" | "operator";
@@ -171,6 +175,53 @@ export const materializeWorkerBindings = async (
     targetPath,
     resolveWorkerBindings(dotenvSource, environment)
   );
+};
+
+type WorkerBindingsCliDependencies = Readonly<{
+  repositoryPath: string;
+  environment: Readonly<Record<string, string | undefined>>;
+  writeOutput: (value: string) => void;
+  writeError: (value: string) => void;
+}>;
+
+// `bun scripts/dev-bindings.ts [operator]`: prints a receipt, never binding values.
+export const runWorkerBindingsCli = async (
+  arguments_: readonly string[],
+  dependencies: WorkerBindingsCliDependencies
+): Promise<number> => {
+  const [candidate, ...extra] = arguments_;
+  if (
+    (candidate !== undefined && candidate !== "operator") ||
+    extra.length > 0
+  ) {
+    dependencies.writeError("Usage: dev-bindings [operator]\n");
+    return 2;
+  }
+  const target: WorkerBindingsTarget = candidate ?? "web";
+  try {
+    await materializeWorkerBindings(
+      dependencies.repositoryPath,
+      target,
+      dependencies.environment
+    );
+  } catch (error) {
+    // Validation issues name variables and rules, never values.
+    dependencies.writeError(
+      error instanceof EnvironmentValidationError
+        ? `${error.message}\nFix .env (or run bun run setup) and retry.\n`
+        : "Unable to materialize validated Worker bindings safely.\n"
+    );
+    return 1;
+  }
+  dependencies.writeOutput(
+    `${JSON.stringify({
+      action: target === "operator" ? "operator:bindings" : "dev:bindings",
+      ok: true,
+      target: workerBindingsTargetPath(target),
+      mode: "0600",
+    })}\n`
+  );
+  return 0;
 };
 
 export const listTemporaryBindingFiles = async (

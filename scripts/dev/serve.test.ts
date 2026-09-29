@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { runDevServer, type ServeDependencies } from "./serve.ts";
+import {
+  runDevServer,
+  type ServeDependencies,
+  spawnInherited,
+} from "./serve.ts";
 import { DEVELOPMENT_TARGETS, isCanonicalRouteOutput } from "./targets.ts";
 
 const fixture = (
@@ -59,7 +63,7 @@ describe("foreground development server", () => {
     ]);
   });
 
-  return it("rejects unknown targets and a missing or malformed portless port", async () => {
+  it("rejects unknown targets and a missing or malformed portless port", async () => {
     for (const [arguments_, environment, message] of [
       [[], { PORT: "4000" }, /Usage/],
       [["admin"], { PORT: "4000" }, /Usage/],
@@ -72,6 +76,20 @@ describe("foreground development server", () => {
       expect(run.spawn).not.toHaveBeenCalled();
       expect(run.errors.join("")).toMatch(message);
     }
+  });
+
+  return it("spawns real children and reports exit codes, spawn errors and signals", async () => {
+    const exited = spawnInherited(process.execPath, ["-e", "process.exit(5)"]);
+    expect(await exited.exited).toBe(5);
+    const missing = spawnInherited("darkfactory-missing-executable", []);
+    expect(await missing.exited).toBe(1);
+    // The child's timer only keeps it alive until the immediate SIGTERM; nothing waits on it.
+    const sleeping = spawnInherited(process.execPath, [
+      "-e",
+      "setTimeout(() => {}, 60_000)",
+    ]);
+    sleeping.kill("SIGTERM");
+    return expect(await sleeping.exited).toBeNull();
   });
 });
 

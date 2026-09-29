@@ -35,28 +35,10 @@ afterEach(() => {
   process.argv = [...originalArguments];
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
-  vi.doUnmock("./apply.ts");
-  vi.doUnmock("./system.ts");
   return vi.resetModules();
 });
 
 describe("bun run init", () => {
-  it("forwards arguments and node dependencies from the root wrapper", async () => {
-    const dependencies = Object.freeze({ kind: "init-dependencies" });
-    const nodeInitDependencies = vi.fn(() => dependencies);
-    const runInitMock = vi.fn(async () => 7);
-    vi.doMock("./system.ts", () => ({ nodeInitDependencies }));
-    vi.doMock("./apply.ts", () => ({ runInit: runInitMock }));
-    process.argv = ["bun", "init.ts", "--dry-run"];
-
-    // Importing the entrypoint is the behavior under test (it runs on load).
-    await import("../init.ts");
-
-    expect(nodeInitDependencies).toHaveBeenCalledWith(process.cwd());
-    expect(runInitMock).toHaveBeenCalledWith(["--dry-run"], dependencies);
-    return expect(process.exitCode).toBe(7);
-  });
-
   it("renames a clone of this repository with no template identity left", async () => {
     const directory = await mkdtemp(join(tmpdir(), "init-clone-"));
     try {
