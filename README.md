@@ -101,7 +101,7 @@ Versions live in [`package.json`](package.json), the `catalog` in [`pnpm-workspa
 | ORM and migrations | Drizzle | Core: `packages/db` (not a swap point) |
 | API | oRPC contracts + generated OpenAPI | Core: `packages/api/src/contracts/` (not a swap point) |
 | Auth | Better Auth | `packages/auth` |
-| Email | Resend (preview files locally) | `EmailPort` in `packages/email/src/server-types.ts`; adapters in `packages/email/src/server/provider.ts` and `contact.ts` |
+| Email | Resend (preview files locally) | `EmailPort` in `packages/email/src/index.ts`; adapters in `packages/email/src/server/provider.ts` and `contact.ts` |
 | Product analytics | PostHog | `AnalyticsPort` in `packages/analytics/src/index.ts`; adapter in `packages/analytics/src/server/posthog.ts` |
 | AI | Groq | `AiPort` in `packages/ai/src/index.ts`; adapter in `packages/ai/src/server/groq.ts` |
 | Traces and metrics | OpenTelemetry | `TelemetryPort` in `packages/observability/src/port.ts`; adapter in `packages/observability/src/server/otel.ts` |

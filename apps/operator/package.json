@@ -32,7 +32,6 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-server-dom-webpack": "catalog:",
-    "tailwindcss": "catalog:",
     "vinext": "catalog:"
   },
   "devDependencies": {

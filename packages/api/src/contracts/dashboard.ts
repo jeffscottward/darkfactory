@@ -20,7 +20,7 @@ export const DashboardSessionProjectionSchema = z
   })
   .strict();
 
-export const DASHBOARD_ERRORS = {
+const DASHBOARD_ERRORS = {
   BAD_REQUEST: { status: 400, message: "Invalid request" },
   UNAUTHORIZED: { status: 401, message: "Authentication required" },
   FORBIDDEN: { status: 403, message: "Forbidden" },

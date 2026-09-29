@@ -284,7 +284,6 @@ export {
   AddressIdSchema,
   AddressSchema,
   AddressUpdateSchema,
-  IsoDateSchema,
   PROFILE_VISIBILITIES,
   PreferenceFieldsSchema,
   PreferencesSchema,
@@ -314,7 +313,4 @@ export {
   ContactSubmitOutputSchema,
 } from "./contracts/contact.ts";
 export type { CapabilityProjection } from "./contracts/dashboard.ts";
-export {
-  CapabilityProjectionSchema,
-  DASHBOARD_ERRORS,
-} from "./contracts/dashboard.ts";
+export { CapabilityProjectionSchema } from "./contracts/dashboard.ts";

@@ -41,7 +41,6 @@
     "node": ">=24.21.0"
   },
   "dependencies": {
-    "@darkfactory/observability": "workspace:*",
     "drizzle-orm": "catalog:",
     "pg": "catalog:"
   },

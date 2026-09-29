@@ -1,5 +1,5 @@
 export const THEME_API_REQUEST_TIMEOUT_MS = 8000 as const;
-export const THEME_API_RESPONSE_MAX_BYTES = 16_384 as const;
+const THEME_API_RESPONSE_MAX_BYTES = 16_384 as const;
 
 /** Only ever called with a fully built Request; `fetch` and the in-process dispatcher both fit. */
 export type ThemeTransport = (request: Request) => Promise<Response>;

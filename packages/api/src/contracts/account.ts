@@ -31,7 +31,7 @@ const validIsoDate = (value: string): boolean => {
   );
 };
 
-export const IsoDateSchema = z.string().refine(validIsoDate, {
+const IsoDateSchema = z.string().refine(validIsoDate, {
   message: "Expected an ISO calendar date",
 });
 

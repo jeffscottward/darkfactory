@@ -43,7 +43,6 @@
   },
   "dependencies": {
     "@darkfactory/auth": "workspace:*",
-    "@darkfactory/db": "workspace:*",
     "@darkfactory/jobs": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",

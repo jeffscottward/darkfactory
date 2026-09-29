@@ -30,9 +30,8 @@ const WORKFLOW_STATE_TONES: Readonly<
 export const workflowStateLabel = (state: WorkflowState): string =>
   WORKFLOW_STATE_LABELS[state];
 
-export const workflowStateTone = (
-  state: WorkflowState
-): StatusBadgeProps["status"] => WORKFLOW_STATE_TONES[state];
+const workflowStateTone = (state: WorkflowState): StatusBadgeProps["status"] =>
+  WORKFLOW_STATE_TONES[state];
 
 export const WorkflowStatus = ({
   state,

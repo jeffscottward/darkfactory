@@ -17,53 +17,52 @@ export const AUTH_USER_IDENTITY = Object.freeze({
   table: "user",
 } as const);
 
-export const RESERVED_CORE_IDENTITIES: readonly ReservedIdentity[] =
-  Object.freeze(
-    [
-      { name: "account", schemaExport: "accounts", table: "account" },
-      { name: "address", schemaExport: "addresses", table: "addresses" },
-      {
-        name: "audit-record",
-        schemaExport: "auditRecords",
-        table: "audit_records",
-      },
-      {
-        name: "contact-rate-limit",
-        schemaExport: "contactRateLimits",
-        table: "contact_rate_limits",
-      },
-      {
-        name: "feature-item",
-        schemaExport: "featureItems",
-        table: "feature_items",
-        route: "/feature-items",
-        apiNamespace: "featureItems",
-      },
-      {
-        name: "outbox-event",
-        schemaExport: "outboxEvents",
-        table: "outbox_events",
-      },
-      {
-        name: "preference",
-        route: "/preferences",
-        apiNamespace: "preferences",
-      },
-      { name: "profile", schemaExport: "profiles", table: "profiles" },
-      { name: "session", schemaExport: "sessions", table: "session" },
-      AUTH_USER_IDENTITY,
-      {
-        name: "user-preference",
-        schemaExport: "userPreferences",
-        table: "user_preferences",
-      },
-      {
-        name: "verification",
-        schemaExport: "verifications",
-        table: "verification",
-      },
-    ].map((identity) => Object.freeze(identity))
-  );
+const RESERVED_CORE_IDENTITIES: readonly ReservedIdentity[] = Object.freeze(
+  [
+    { name: "account", schemaExport: "accounts", table: "account" },
+    { name: "address", schemaExport: "addresses", table: "addresses" },
+    {
+      name: "audit-record",
+      schemaExport: "auditRecords",
+      table: "audit_records",
+    },
+    {
+      name: "contact-rate-limit",
+      schemaExport: "contactRateLimits",
+      table: "contact_rate_limits",
+    },
+    {
+      name: "feature-item",
+      schemaExport: "featureItems",
+      table: "feature_items",
+      route: "/feature-items",
+      apiNamespace: "featureItems",
+    },
+    {
+      name: "outbox-event",
+      schemaExport: "outboxEvents",
+      table: "outbox_events",
+    },
+    {
+      name: "preference",
+      route: "/preferences",
+      apiNamespace: "preferences",
+    },
+    { name: "profile", schemaExport: "profiles", table: "profiles" },
+    { name: "session", schemaExport: "sessions", table: "session" },
+    AUTH_USER_IDENTITY,
+    {
+      name: "user-preference",
+      schemaExport: "userPreferences",
+      table: "user_preferences",
+    },
+    {
+      name: "verification",
+      schemaExport: "verifications",
+      table: "verification",
+    },
+  ].map((identity) => Object.freeze(identity))
+);
 
 export const assertCoreIdentityAvailable = (names: FeatureNames): void => {
   const candidate = {

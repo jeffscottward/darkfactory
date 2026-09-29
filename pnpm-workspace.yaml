@@ -38,7 +38,6 @@ catalog:
   "@orpc/server": 1.15.4
   "@orpc/zod": 1.15.4
   "@playwright/test": 1.63.0
-  "@tanstack/react-devtools": 0.10.13
   "@tanstack/react-form": 1.33.5
   "@tailwindcss/vite": 4.3.3
   "@types/node": 24.19.0
@@ -59,6 +58,7 @@ catalog:
   groq-sdk: 1.6.0
   husky: 9.1.7
   jsonc-parser: 3.3.1
+  knip: 6.38.0
   lucide-react: 1.48.0
   markdownlint-cli2: 0.23.3
   pg: 8.23.0

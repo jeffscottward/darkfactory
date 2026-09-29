@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const serverSpecifier = "@darkfactory/analytics/server/posthog";
 const browserError =
   "@darkfactory/analytics/server/posthog is unavailable in browser bundles";
@@ -22,7 +22,7 @@ const runWithConditions = (
       "--eval",
       expression,
     ],
-    { cwd: workspaceRoot, encoding: "utf8" }
+    { cwd: packageRoot, encoding: "utf8" }
   );
 };
 

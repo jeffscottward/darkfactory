@@ -1,10 +1,7 @@
 import { cn } from "@darkfactory/ui";
 import type { ComponentPropsWithRef } from "react";
 
-export const BrandMark = ({
-  className,
-  ...props
-}: ComponentPropsWithRef<"svg">) => (
+const BrandMark = ({ className, ...props }: ComponentPropsWithRef<"svg">) => (
   <svg
     aria-hidden="true"
     className={cn("size-6 shrink-0", className)}
