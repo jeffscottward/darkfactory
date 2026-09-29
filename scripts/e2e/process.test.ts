@@ -219,7 +219,6 @@ describe("owned E2E command lifecycle", () => {
     const result = await runOwnedCommand(
       process.execPath,
       [
-        "--experimental-strip-types",
         "--input-type=module",
         "--eval",
         [

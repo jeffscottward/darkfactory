@@ -387,8 +387,7 @@ describe("E2E lifecycle CLIs", () => {
       maxOutputBytes: 1024 * 1024,
       timeoutMillis: 45_000,
     });
-    expect(scanner.arguments.slice(0, 2)).toEqual([
-      "--experimental-strip-types",
+    expect(scanner.arguments.slice(0, 1)).toEqual([
       "./scripts/e2e/scan-artifacts.ts",
     ]);
     expect(scanner.arguments).not.toContain("corepack");
@@ -1062,7 +1061,7 @@ describe("E2E lifecycle CLIs", () => {
       );
       const result = spawnSync(
         process.execPath,
-        ["--experimental-strip-types", "--no-warnings", canaryPath],
+        ["--no-warnings", canaryPath],
         {
           cwd: root,
           encoding: "utf8",

@@ -130,8 +130,7 @@ export const createCanonicalWebServerConfig = ({
     throw new Error("Canonical E2E app URL is unsafe");
   }
   return {
-    command:
-      "node --experimental-strip-types ./tests/e2e/helpers/web-server.ts",
+    command: "node ./tests/e2e/helpers/web-server.ts",
     env: {
       APP_ENV: "test",
       DATABASE_URL: databaseUrl,

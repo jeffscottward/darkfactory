@@ -12,7 +12,7 @@ import {
   resolve,
   sep,
 } from "node:path";
-
+import { required } from "../lib/required.ts";
 import {
   compactSensitiveTextRange,
   inspectSensitiveText,
@@ -220,7 +220,9 @@ const resolveTrustedExecutable = async (
         command: canonical,
         pathDirectory: canonicalDirectory,
       });
-    } catch {}
+    } catch {
+      // Untrusted candidate: continue with the next trusted location.
+    }
   }
   throw new Error(`Trusted ${name} executable is unavailable`);
 };
@@ -321,8 +323,8 @@ const createPlaywrightEnvironmentWithTrustedDirectories =
       PATH: executableDirectories.join(delimiter),
     };
     if (webScript !== undefined) environment[E2E_WEB_SCRIPT_KEY] = webScript;
-    delete environment["NODE_OPTIONS"];
-    delete environment["DEBUG"];
+    Reflect.deleteProperty(environment, "NODE_OPTIONS");
+    Reflect.deleteProperty(environment, "DEBUG");
     for (const key of INHERITED_PLAYWRIGHT_KEYS) {
       const value = source[key];
       if (value !== undefined) environment[key] = value;
@@ -507,7 +509,6 @@ export const createArtifactScannerInvocation = (
   }>
 ) => {
   const arguments_ = [
-    "--experimental-strip-types",
     "./scripts/e2e/scan-artifacts.ts",
     "--run-id",
     runId,
@@ -717,13 +718,16 @@ function redactProcessOutputUnsafe(
       let inspectionOffset = 0;
       let rangeIndex = 0;
       let previousLineWasSensitive = false;
-      for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index]!;
-        const inspectionLine = inspectionLines[index]!;
+      for (const [index, line] of lines.entries()) {
+        const inspectionLine = required(
+          inspectionLines[index],
+          "process output inspection line"
+        );
         const lineEnd = inspectionOffset + inspectionLine.length;
         while (
           ranges[rangeIndex] !== undefined &&
-          ranges[rangeIndex]!.end <= inspectionOffset
+          required(ranges[rangeIndex], "sensitive range").end <=
+            inspectionOffset
         ) {
           rangeIndex += 1;
         }
@@ -1019,9 +1023,8 @@ const parseScannerCandidate = (
       (hasFailureCategory && failureCategory === undefined)
     )
       return undefined;
-    const normalizedFindings: Array<
-      Readonly<{ category: string; path: string }>
-    > = [];
+    const normalizedFindings: Readonly<{ category: string; path: string }>[] =
+      [];
     for (const finding of findings) {
       const record = recordValue(finding);
       if (
@@ -1043,8 +1046,8 @@ const parseScannerCandidate = (
     for (let index = 1; index < normalizedFindings.length; index += 1) {
       if (
         compareScannerFindings(
-          normalizedFindings[index - 1]!,
-          normalizedFindings[index]!
+          required(normalizedFindings[index - 1], "scanner finding"),
+          required(normalizedFindings[index], "scanner finding")
         ) >= 0
       )
         return undefined;
@@ -1371,7 +1374,9 @@ const runDefaultPlaywright = async (
   environment[E2E_NODE_EXECUTABLE_KEY] = playwrightNode.command;
   environment[E2E_PNPM_SCRIPT_KEY] = playwrightPnpm.command;
   const knownSecrets = [
-    ...databaseUrlSensitiveValues(environment["DATABASE_URL"]!),
+    ...databaseUrlSensitiveValues(
+      required(environment["DATABASE_URL"], "DATABASE_URL")
+    ),
     isolatedEnvironment["E2E_EMAIL_PREVIEW_HMAC_KEY"] ?? "",
   ];
   const result = await runOwnedCommand(

@@ -252,7 +252,7 @@ describe("canonical Playwright runtime", () => {
     expect(output).toMatch(/runner adoption is unavailable/i);
     expect(output).not.toContain(sentinel);
     expect(output).not.toContain("[WebServer]");
-    expect(output).not.toContain("web-server.civet");
+    expect(output).not.toContain("web-server.ts");
   });
 
   it("serializes DB-backed journeys and never reuses an unknown local server", () => {
@@ -300,8 +300,7 @@ describe("canonical Playwright runtime", () => {
     expect(runtimeWebServer).not.toHaveProperty("url");
     expect(runtimeWebServer).not.toHaveProperty("port");
     expect(runtimeWebServer).toMatchObject({
-      command:
-        "node --experimental-strip-types ./tests/e2e/helpers/web-server.ts",
+      command: "node ./tests/e2e/helpers/web-server.ts",
       gracefulShutdown: {
         signal: "SIGTERM",
         timeout: E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,

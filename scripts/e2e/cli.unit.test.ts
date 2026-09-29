@@ -434,7 +434,6 @@ describe("CLI argument and environment forwarding", () => {
 
     expect(invocation.command).toBe("/trusted/node");
     expect(invocation.arguments).toEqual([
-      "--experimental-strip-types",
       "./scripts/e2e/scan-artifacts.ts",
       "--run-id",
       "safe_run",
@@ -2240,15 +2239,11 @@ describe("default CLI dependency fakes", () => {
           fixture.password,
         ])
       );
-      const results3 = [];
       for (const secret of [fixture.username, fixture.password]) {
         expect(cli.output.join("")).not.toContain(secret);
         expect(cli.errors.join("")).not.toContain(secret);
-        results3.push(
-          expect(JSON.stringify(processResults)).not.toContain(secret)
-        );
+        expect(JSON.stringify(processResults)).not.toContain(secret);
       }
-      results3;
     }
   });
 

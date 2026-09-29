@@ -25,11 +25,10 @@ afterEach(async () => {
 });
 
 describe("E2E lifecycle runtime resolution", () => {
-  it("loads the TypeScript lifecycle modules under Node type stripping", () => {
+  it("loads the TypeScript lifecycle modules under default Node type stripping", () => {
     const result = spawnSync(
       process.execPath,
       [
-        "--experimental-strip-types",
         "--input-type=module",
         "--eval",
         'await import("./tests/e2e/helpers/owner-lock.ts"); await import("./tests/e2e/helpers/lifecycle.ts");',
