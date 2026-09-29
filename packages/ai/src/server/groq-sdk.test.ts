@@ -174,7 +174,8 @@ describe("Groq SDK boundary", () => {
     const create = vi.fn(async () => ({
       choices: [{ message: { content: "named SDK generated text" } }],
     }));
-    const NamedGroq = vi.fn((options: unknown) => {
+    // biome-ignore lint/complexity/useArrowFunction: the SDK mock is invoked with `new`; arrows are not constructable.
+    const NamedGroq = vi.fn(function (options: unknown) {
       constructorOptions = options;
       return {
         chat: { completions: { create } },
