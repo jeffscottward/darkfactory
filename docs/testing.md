@@ -20,12 +20,12 @@ Pick the lowest layer that proves the behavior. A rule in a service is a unit te
 bun run test                 # every layer
 bun run test:unit
 bun run test:contract
-bun run test:integration     # needs Postgres and the test env below
+bun run test:integration     # needs the local test Postgres (below)
 bun run test:e2e             # playwright test --project e2e
 bun run test:a11y            # playwright test --project a11y
 bun run verify:coverage      # unit + contract + operations + E2E helpers, 100% gate
 pnpm exec vitest run packages/api/src/contact.contract.test.ts
-pnpm exec playwright test --ui
+bun scripts/with-test-env.ts pnpm exec playwright test --ui
 ```
 
 ## The coverage gate
@@ -60,15 +60,11 @@ One `playwright test` run covers both projects. Everything uses Playwright built
 - **TLS:** there is no `ignoreHTTPSErrors`. Chromium trusts only the portless CA, through an SPKI pin (`--ignore-certificate-errors-spki-list`), and Node-side requests trust it through `NODE_EXTRA_CA_CERTS`.
 - **CI policy:** `forbidOnly`, `retries: 1` and `failOnFlakyTests`. A test that passes only on retry fails the run. Traces are recorded on the first retry.
 
-Local runs need Postgres and a production build: `bun run verify:browser` builds first. Use `pnpm exec playwright test --ui` for an interactive loop with the trace viewer.
+Local runs need Postgres and a production build: `bun run verify:browser` builds first. Use `bun scripts/with-test-env.ts pnpm exec playwright test --ui` for an interactive loop with the trace viewer.
 
 ## Integration tests
 
-Integration tests use `@darkfactory/testkit/postgres` to create an isolated database per file on the maintenance server in `DATABASE_URL`. The testkit refuses a non-local or non-test maintenance database. Start Postgres with `bun run setup` or `bun run db:test:up`, then pass the test role from the shell, as CI does:
-
-```sh
-APP_ENV=test DATABASE_URL=postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance bun run test:integration
-```
+Integration tests use `@darkfactory/testkit/postgres` to create an isolated database per file on the maintenance server in `DATABASE_URL`. The testkit refuses a non-local or non-test maintenance database. Start Postgres with `bun run setup` or `bun run db:test:up`, then run `bun run test:integration`. Like the browser lane, it runs through `scripts/with-test-env.ts`, which sets `APP_ENV=test` and points `DATABASE_URL` at `TEST_DATABASE_URL`, or at the compose test role when that is empty, so the app database in `.env` is never used.
 
 The browser lane (`bun run verify:browser`) needs the same two variables.
 

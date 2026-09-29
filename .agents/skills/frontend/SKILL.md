@@ -32,7 +32,7 @@ Build the presentation over a contract. Data and behavior stay headless; compone
 
 - `bun run dev` to work at `https://darkfactory.localhost`.
 - `pnpm exec vitest run <file>` for view-models and components.
-- `bun run test:e2e` and `bun run test:a11y`, or `pnpm exec playwright test --ui`.
+- `bun run test:e2e` and `bun run test:a11y`, or `bun scripts/with-test-env.ts pnpm exec playwright test --ui`.
 - `bun run check`, then `bun run verify:prepush`.
 - Gate: the a11y project passes, and the browser error guard in `tests/e2e/fixtures.ts` reports no console errors.
 

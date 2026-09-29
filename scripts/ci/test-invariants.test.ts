@@ -146,6 +146,7 @@ const expandVitestRuns = async (
   for (const step of command.split(" && ")) {
     const words = step
       .trim()
+      .replace(/^bun scripts\/with-test-env\.ts /u, "")
       .split(/\s+/u)
       .map((token) => token.replace(/^"(.*)"$/u, "$1"));
     // A root entry that wraps a command (`bun scripts/x.ts pnpm exec …`) runs it.
