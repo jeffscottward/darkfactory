@@ -25,8 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # CodeQL does not scan authored Civet (.civet) source. These entries cover
-        # only repository JavaScript/TypeScript and GitHub Actions workflows.
+        # Every authored source file is TypeScript, so javascript-typescript scans
+        # all application, package, script, and test code; actions covers workflows.
         language: [javascript-typescript, actions]
 
     steps:
