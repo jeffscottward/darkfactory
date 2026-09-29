@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,16 +20,11 @@ import {
   terminateOwnedProcessTreeThen,
 } from "../../scripts/e2e/owned-process-tree.ts";
 import {
-  acquireOwnedDevVars,
-  type OwnedDevVarsLease,
-  releaseOwnedDevVarsLock,
-  removeOwnedDevVarsFile,
-} from "../e2e/helpers/dev-vars.ts";
-import {
-  createE2EExecutionEnvironment,
-  type E2EProcessEnvironment,
-  redactSensitiveBindingValues,
-} from "../e2e/helpers/runtime.ts";
+  inheritedEnvironment,
+  redactValues,
+  type WorkerConfig,
+  writeWorkerConfig,
+} from "./helpers/worker-env.ts";
 import {
   startWorkerWithRetry,
   WorkerExitedBeforeReadinessError,
@@ -51,8 +46,8 @@ const WORKER_TERMINATION_OPTIONS = {
 let database: PostgresTestDatabase;
 let devServer: OwnedProcess | undefined;
 let baseUrl = "";
-let devVarsLease: OwnedDevVarsLease | undefined;
-let workerBindingEnvironment: E2EProcessEnvironment = {};
+let workerConfig: WorkerConfig | undefined;
+let workerBindingValues: readonly string[] = [];
 let serverOutput = "";
 
 const availablePort = async (): Promise<number> => {
@@ -72,50 +67,6 @@ const availablePort = async (): Promise<number> => {
     );
   });
   return address.port;
-};
-
-type LockContenderResult = Readonly<{
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-  stderr: string;
-  stdout: string;
-}>;
-
-const runLockContender = async (
-  lockPath: string
-): Promise<LockContenderResult> => {
-  const script = `
-    import { mkdir, rm } from "node:fs/promises";
-    const lockPath = ${JSON.stringify(lockPath)};
-    try {
-      await mkdir(lockPath);
-      await rm(lockPath, { recursive: true, force: true });
-      process.stdout.write("acquired");
-      process.exitCode = 2;
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-      process.stdout.write("blocked");
-    }
-  `;
-  const contender = spawnOwnedProcess(
-    process.execPath,
-    ["--input-type=module", "--eval", script],
-    { signal: AbortSignal.timeout(5000) }
-  );
-  let stderr = "";
-  let stdout = "";
-  contender.stderr.on("data", (chunk: Buffer) => {
-    return (stderr += chunk.toString());
-  });
-  contender.stdout.on("data", (chunk: Buffer) => {
-    return (stdout += chunk.toString());
-  });
-  return await new Promise<LockContenderResult>((resolve, reject) => {
-    contender.once("error", reject);
-    contender.once("exit", (exitCode, signal) => {
-      return resolve({ exitCode, signal, stderr, stdout });
-    });
-  });
 };
 
 const writeWorkerVars = async (): Promise<void> => {
@@ -142,23 +93,28 @@ const writeWorkerVars = async (): Promise<void> => {
     ERROR_TRACKING_ENABLED: "false",
     MEMORI_ENABLED: "false",
   } as const;
-  workerBindingEnvironment = environment;
-  devVarsLease = await acquireOwnedDevVars({
-    bindingNames: Object.keys(environment),
-    environment,
-    webDirectory: WEB_DIRECTORY,
-  });
+  workerBindingValues = [
+    database.databaseUrl,
+    environment.BETTER_AUTH_SECRET,
+    environment.CONTACT_THROTTLE_SECRET,
+  ];
+  workerConfig = await writeWorkerConfig(WEB_DIRECTORY, environment);
 };
 
 const safeDiagnostic = (value: string): string => {
-  return redactSensitiveBindingValues(value, workerBindingEnvironment)
+  return redactValues(value, workerBindingValues)
     .replaceAll(PASSWORD, "[PASSWORD]")
     .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/giu, "[DATABASE_URL]")
     .slice(-24_000);
 };
 
-const createWorkerProcessEnvironment = (port: number): NodeJS.ProcessEnv => ({
-  ...createE2EExecutionEnvironment(process.env),
+const createWorkerProcessEnvironment = (
+  port: number,
+  configPath = workerConfig?.configPath ?? ""
+): NodeJS.ProcessEnv => ({
+  ...inheritedEnvironment(process.env),
+  // Bindings come from the temp config's .dev.vars, never apps/web/.dev.vars.
+  CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH: configPath,
   NODE_ENV: "development",
   FORCE_COLOR: "0",
   HOST: "127.0.0.1",
@@ -264,13 +220,12 @@ const stopWorker = async (
 };
 
 const cleanupWorkerResources = async (): Promise<void> => {
-  const lease = devVarsLease;
-  if (lease !== undefined) await removeOwnedDevVarsFile(lease);
-  if (database !== undefined) await dropPostgresTestDatabase(database);
-  if (lease !== undefined) {
-    await releaseOwnedDevVarsLock(lease);
-    if (devVarsLease === lease) devVarsLease = undefined;
+  const config = workerConfig;
+  if (config !== undefined) {
+    await rm(config.directory, { force: true, recursive: true });
+    workerConfig = undefined;
   }
+  if (database !== undefined) await dropPostgresTestDatabase(database);
 };
 
 const cookieFrom = (response: Response): string => {
@@ -360,7 +315,7 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
         error instanceof Error ? (error.stack ?? error.message) : String(error)
       );
       throw new Error(
-        `Worker teardown failed; retained test resources and lock:\n${diagnostic}`,
+        `Worker teardown failed; retained test resources:\n${diagnostic}`,
         { cause: error }
       );
     }
@@ -368,20 +323,6 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
 
   it("runs authenticated typed theme reads and writes through real PostgreSQL", async () => {
     const email = `worker-${database.runId}@domain.test`;
-    const lease = devVarsLease;
-    if (lease === undefined) throw new Error("Worker lock was not acquired");
-    await expect(readFile(lease.ownerPath, "utf8")).resolves.toContain(
-      lease.ownerToken
-    );
-    await expect(runLockContender(lease.lockPath)).resolves.toEqual({
-      exitCode: 0,
-      signal: null,
-      stderr: "",
-      stdout: "blocked",
-    });
-    await expect(readFile(lease.ownerPath, "utf8")).resolves.toContain(
-      lease.ownerToken
-    );
     const anonymousSession = await fetch(`${baseUrl}/api/auth/get-session`, {
       headers: { origin: APP_ORIGIN },
     });
@@ -492,7 +433,13 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
     process.env["UNRELATED_SECRET"] = "must-not-reach-worker";
     process.env["AWS_SECRET_ACCESS_KEY"] = "must-not-reach-worker-provider";
     try {
-      const environment = createWorkerProcessEnvironment(43_123);
+      const environment = createWorkerProcessEnvironment(
+        43_123,
+        "/tmp/worker/wrangler.jsonc"
+      );
+      expect(environment["CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH"]).toBe(
+        "/tmp/worker/wrangler.jsonc"
+      );
       expect(environment["UNRELATED_SECRET"]).toBeUndefined();
       expect(environment["AWS_SECRET_ACCESS_KEY"]).toBeUndefined();
       expect(environment["PATH"]).toBe(process.env["PATH"]);
