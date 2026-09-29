@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: { runtime: "better-auth" },
-  close: vi.fn(async () => undefined),
   composeDatabaseProfile: vi.fn(),
   createAuth: vi.fn(),
-  createRequestDatabase: vi.fn(),
+  openRequestScope: vi.fn(),
+  finalize: vi.fn(async () => undefined),
+  trackedSchedule: vi.fn(),
   database: { runtime: "database" },
   email: { runtime: "preview-email" },
   parseServerEnv: vi.fn(),
@@ -19,17 +20,27 @@ vi.mock("@darkfactory/config/database", () => ({
 vi.mock("@darkfactory/config/server", () => ({
   parseServerEnv: mocks.parseServerEnv,
 }));
-vi.mock("@darkfactory/db/server", () => ({
-  createRequestDatabase: mocks.createRequestDatabase,
+vi.mock("@darkfactory/db/server", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  openRequestScope: mocks.openRequestScope,
 }));
+vi.mock("@darkfactory/jobs/server/workflow-repository", () => ({
+  createWorkflowRepository: vi.fn(),
+}));
+vi.mock("@darkfactory/operator/server", () => ({}));
+vi.mock("@darkfactory/state/workflow", () => ({}));
 vi.mock("@darkfactory/email/server", () => ({
   selectEmailPort: mocks.selectEmailPort,
 }));
 
+import { RequestDatabaseCapacityError } from "@darkfactory/db/server";
+import { handleOperatorAuthRequest } from "../app/api/auth/[...all]/handler.ts";
+import { handleOperatorOrpcRequest } from "../app/api/orpc/[...rest]/handler.ts";
 import {
   createOperatorAuthForDatabase,
-  createOperatorAuthRuntime,
   withOperatorAuth,
+  withOperatorRequestScope,
+  withOperatorScope,
 } from "./operator-auth.ts";
 import { OPERATOR_APP_ORIGIN } from "./operator-environment.ts";
 
@@ -38,13 +49,13 @@ describe("operator Better Auth policy", () => {
     vi.clearAllMocks();
     mocks.createAuth.mockReturnValue(mocks.auth);
     mocks.selectEmailPort.mockReturnValue(mocks.email);
-    mocks.close.mockClear();
     mocks.composeDatabaseProfile.mockReset().mockReturnValue({
       connection: { connectionString: "postgres://operator.test/database" },
     });
-    mocks.createRequestDatabase.mockReset().mockResolvedValue({
+    mocks.openRequestScope.mockReset().mockResolvedValue({
       db: mocks.database,
-      close: mocks.close,
+      schedule: mocks.trackedSchedule,
+      finalize: mocks.finalize,
     });
     return mocks.parseServerEnv.mockReset().mockReturnValue({
       APP_ENV: "development",
@@ -124,48 +135,116 @@ describe("operator Better Auth policy", () => {
     );
   });
 
-  it("composes and closes a request-scoped authentication runtime", async () => {
-    const runtime = await createOperatorAuthRuntime();
+  it("opens one request scope, wires auth to its tracked scheduler, and awaits finalization", async () => {
+    const order: string[] = [];
+    mocks.finalize.mockImplementationOnce(async () => {
+      order.push("finalized");
+    });
+
+    await expect(
+      withOperatorScope(async (scope) => {
+        expect(scope).toEqual({
+          env: mocks.parseServerEnv.mock.results[0]!.value,
+          db: mocks.database,
+          auth: mocks.auth,
+        });
+        return "done";
+      }).then((value) => {
+        order.push("returned");
+        return value;
+      })
+    ).resolves.toBe("done");
+
+    expect(order).toEqual(["finalized", "returned"]);
     expect(mocks.parseServerEnv).toHaveBeenCalledWith(process.env);
-    expect(mocks.createRequestDatabase).toHaveBeenCalledWith({
+    expect(mocks.openRequestScope).toHaveBeenCalledWith({
       connectionString: "postgres://operator.test/database",
+      schedule: expect.any(Function),
     });
-    expect(runtime.auth).toBe(mocks.auth);
-    await runtime.close();
-    return expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.createAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduleBackgroundTask: mocks.trackedSchedule })
+    );
   });
 
-  it("settles rejected background work before closing its database", async () => {
-    let rejectTask: ((error: Error) => void) | undefined;
-    const task = new Promise<never>((_resolve, reject) => {
-      return (rejectTask = reject);
-    });
-    mocks.createAuth.mockImplementationOnce((options) => {
-      options.scheduleBackgroundTask(task);
-      return mocks.auth;
-    });
-    const runtime = await createOperatorAuthRuntime();
-    const closePromise = runtime.close();
-    expect(mocks.close).not.toHaveBeenCalled();
-    rejectTask?.(new Error("email task failed"));
-    await closePromise;
-    return expect(mocks.close).toHaveBeenCalledOnce();
+  it("marks externally scheduled task rejections handled", async () => {
+    await withOperatorScope(async () => "done");
+    const [{ schedule }] = mocks.openRequestScope.mock.calls[0]!;
+    const failed = Promise.reject(new Error("background task failed"));
+
+    schedule(failed);
+
+    await expect(failed).rejects.toThrow("background task failed");
   });
 
-  return it("runs an operation with request-scoped auth and always closes", async () => {
-    const operation = vi.fn(async (auth) => {
-      expect(auth).toBe(mocks.auth);
-      return "complete";
-    });
-    await expect(withOperatorAuth(operation)).resolves.toBe("complete");
-    expect(mocks.close).toHaveBeenCalledOnce();
+  it("refuses production before opening a database", async () => {
+    mocks.parseServerEnv.mockReturnValueOnce({ APP_ENV: "production" });
 
-    mocks.close.mockClear();
+    await expect(withOperatorScope(async () => "unused")).rejects.toThrow(
+      "Operator app is development-only"
+    );
+    expect(mocks.openRequestScope).not.toHaveBeenCalled();
+  });
+
+  it("finalizes when the operation fails and preserves its error", async () => {
     await expect(
       withOperatorAuth(async () => {
         throw new Error("operation failed");
       })
     ).rejects.toThrow("operation failed");
-    return expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.finalize).toHaveBeenCalledOnce();
+  });
+
+  it("runs an operation with request-scoped auth", async () => {
+    const operation = vi.fn(async (auth: unknown) => {
+      expect(auth).toBe(mocks.auth);
+      return "complete";
+    });
+
+    await expect(withOperatorAuth(operation)).resolves.toBe("complete");
+    expect(mocks.finalize).toHaveBeenCalledOnce();
+  });
+
+  it("rethrows non-capacity failures from the route-handler scope", async () => {
+    const failure = new Error("connect failed");
+    mocks.openRequestScope.mockRejectedValueOnce(failure);
+
+    await expect(
+      withOperatorRequestScope(async () => new Response("unused"))
+    ).rejects.toBe(failure);
+  });
+
+  it.each([
+    [
+      "auth",
+      () =>
+        handleOperatorAuthRequest(
+          new Request(`${OPERATOR_APP_ORIGIN}/api/auth/get-session`)
+        ),
+    ],
+    [
+      "oRPC",
+      () =>
+        handleOperatorOrpcRequest(
+          new Request(`${OPERATOR_APP_ORIGIN}/api/orpc/operator/workspace`)
+        ),
+    ],
+  ])("maps capacity exhaustion to the coded 503 in the operator %s handler", async (_name, handle) => {
+    vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "/srv/repositories");
+    mocks.openRequestScope.mockRejectedValueOnce(
+      new RequestDatabaseCapacityError()
+    );
+
+    try {
+      const response = await handle();
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("1");
+      await expect(response.json()).resolves.toEqual({
+        error: "Service temporarily at capacity",
+        code: "DATABASE_CAPACITY",
+      });
+      expect(mocks.createAuth).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
