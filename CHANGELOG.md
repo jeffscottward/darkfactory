@@ -4,16 +4,20 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
-### Security
+### Changed
 
-- The operator verifier image no longer receives local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so `.dev.vars`, `.env*` files and host `node_modules` were copied into the image. It is now an allowlist of files, and an invariant test rejects directory re-includes. Rebuild the image with `verifier:image:setup`.
-- The verifier image fetches pnpm as a checksum-pinned registry tarball instead of an unpinned `npm install --global`, and its Bun base defaults to a digest-pinned `oven/bun:1.3.14`. `DARKFACTORY_VERIFIER_BASE_IMAGE` is now an optional override, which must still be digest-pinned.
+- Pre-push takes about 37 s instead of about 80 s. The init clone acceptance test (clone, init, install) moved to its own `acceptance` Vitest project, which the CI coverage lane runs with coverage; run it locally with `bun run test:acceptance`. (#48)
 
 ### Fixed
 
-- The pre-push hook accepts Git's empty input, which Git sends for "Everything up-to-date" and for pushes it already rejected (stale lease, non-fast-forward). It used to fail with "expected four fields" and hide Git's own message.
-- The verifier's `build-web` check points at `apps/web`'s `vinext` binary, and the image makes its dependencies readable for the runtime user regardless of the builder's umask.
+- The pre-push hook accepts Git's empty input, which Git sends for "Everything up-to-date" and for pushes it already rejected (stale lease, non-fast-forward). It used to fail with "expected four fields" and hide Git's own message. (#47)
+- The verifier's `build-web` check points at `apps/web`'s `vinext` binary, and the image makes its dependencies readable for the runtime user regardless of the builder's umask. (#47)
 - Two load-dependent test flakes (#46): an isolated RSC build test now runs the plugin hook that initializes `es-module-lexer`, and an operator test waits for run details to load.
+
+### Security
+
+- The operator verifier image no longer receives local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so `.dev.vars`, `.env*` files and host `node_modules` were copied into the image. It is now an allowlist of files, and an invariant test rejects directory re-includes. Rebuild the image with `verifier:image:setup`. (#47)
+- The verifier image fetches pnpm as a checksum-pinned registry tarball instead of an unpinned `npm install --global`, and its Bun base defaults to a digest-pinned `oven/bun:1.3.14`. `DARKFACTORY_VERIFIER_BASE_IMAGE` is now an optional override, which must still be digest-pinned. (#47)
 
 ## [0.3.0] - 2026-09-29
 

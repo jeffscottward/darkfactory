@@ -77,6 +77,21 @@ export default defineConfig({
             "**/.git/**",
             "**/.turbo/**",
             "**/dist/**",
+            "scripts/**/*.acceptance.test.ts",
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          // Clone-and-install acceptance tests: CI coverage lane only, not pre-push.
+          name: "acceptance",
+          include: ["scripts/**/*.acceptance.test.ts"],
+          exclude: [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.turbo/**",
+            "**/dist/**",
           ],
         },
       },
