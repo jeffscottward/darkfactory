@@ -18,7 +18,6 @@
     "build": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js build",
     "start": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {

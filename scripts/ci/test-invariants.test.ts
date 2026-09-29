@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript-api";
 import { afterAll, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import vitestConfig from "../../vitest.config.ts";
 
 type Manifest = Readonly<{ scripts?: Readonly<Record<string, string>> }>;
@@ -143,10 +144,15 @@ const expandVitestRuns = async (
   }
   const runs: VitestRun[] = [];
   for (const step of command.split(" && ")) {
-    const tokens = step
+    const words = step
       .trim()
       .split(/\s+/u)
       .map((token) => token.replace(/^"(.*)"$/u, "$1"));
+    // A root entry that wraps a command (`bun scripts/x.ts pnpm exec …`) runs it.
+    const tokens =
+      words[0] === "bun" && /^scripts\/[^/]+\.ts$/u.test(words[1] ?? "")
+        ? words.slice(2)
+        : words;
     if (tokens.length === 3 && tokens[0] === "bun" && tokens[1] === "run") {
       runs.push(...(await expandVitestRuns(tokens[2]!, cwd)));
     } else if (tokens.slice(0, 3).join(" ") === "pnpm exec vitest") {
@@ -233,6 +239,32 @@ const executionCounts = async (
   }
   return counts;
 };
+
+// Expands `bun run` chains down to the commands a root script really executes.
+const leafSteps = async (script: string): Promise<string[]> => {
+  const command = (await readManifest(root)).scripts?.[script];
+  expect(command, script).toBeDefined();
+  const leaves: string[] = [];
+  for (const step of (command ?? "").split(" && ")) {
+    const nested = /^bun run (\S+)$/u.exec(step.trim());
+    leaves.push(...(nested ? await leafSteps(nested[1]!) : [step.trim()]));
+  }
+  return leaves;
+};
+
+type CiWorkflow = Readonly<{
+  jobs: Readonly<{
+    verification: Readonly<{
+      strategy: Readonly<{ matrix: Readonly<{ lane: readonly string[] }> }>;
+      steps: readonly Readonly<{ name?: string; run?: string }>[];
+    }>;
+  }>;
+}>;
+
+const ciVerification = readFile(
+  join(root, ".github/workflows/ci.yml"),
+  "utf8"
+).then((text) => (parse(text) as CiWorkflow).jobs.verification);
 
 describe("coverage measures every authored source file", () => {
   it("pins coverage exclusions to the reviewed allowlist", () => {
@@ -337,20 +369,49 @@ describe("every Vitest test file runs in the gates", {
     );
   });
 
-  return it.each(["verify:prepush", "verify:core"])(
-    "runs every unit, contract, operations, and e2e-helpers file in %s",
-    async (script) => {
-      const [files, counts] = await Promise.all([
-        allTestFiles(),
-        executionCounts(script),
-      ]);
-      const local = files.filter(({ projectName }) =>
-        LOCAL_PROJECTS.some((name) => name === projectName)
-      );
-      expect(local.length).toBeGreaterThan(0);
-      return expect(
-        local.filter(({ file }) => !counts.has(file)).map(({ file }) => file)
-      ).toEqual([]);
-    }
-  );
+  return it("runs every unit, contract, operations, and e2e-helpers file in verify:prepush", async () => {
+    const [files, counts] = await Promise.all([
+      allTestFiles(),
+      executionCounts("verify:prepush"),
+    ]);
+    const local = files.filter(({ projectName }) =>
+      LOCAL_PROJECTS.some((name) => name === projectName)
+    );
+    expect(local.length).toBeGreaterThan(0);
+    return expect(
+      local.filter(({ file }) => !counts.has(file)).map(({ file }) => file)
+    ).toEqual([]);
+  });
+});
+
+describe("verify mirrors the CI lanes and builds once", () => {
+  it("chains exactly the CI lanes, each through its verify:<lane> script", async () => {
+    const { strategy, steps } = await ciVerification;
+    expect(steps.map(({ run }) => run)).toContain(
+      'bun run "verify:${{ matrix.lane }}"'
+    );
+    return expect((await readManifest(root)).scripts?.["verify"]).toBe(
+      strategy.matrix.lane.map((lane) => `bun run verify:${lane}`).join(" && ")
+    );
+  });
+
+  // verify:browser needs the production build, so a build break fails that required lane.
+  return it("runs the turbo build exactly once, in the browser lane", async () => {
+    const { strategy } = await ciVerification;
+    const builds = await Promise.all(
+      strategy.matrix.lane.map(async (lane) => {
+        const leaves = await leafSteps(`verify:${lane}`);
+        return [
+          lane,
+          leaves.filter((leaf) => /\bturbo run build\b/u.test(leaf)).length,
+        ];
+      })
+    );
+    return expect(Object.fromEntries(builds)).toEqual({
+      core: 0,
+      coverage: 0,
+      integration: 0,
+      browser: 1,
+    });
+  });
 });

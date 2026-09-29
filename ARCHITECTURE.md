@@ -93,14 +93,14 @@ flowchart LR
 
 ## CI lanes
 
-`ci.yml` runs on `pull_request` and `workflow_dispatch` only, never on push. Each lane runs one root script, `bun run verify:<lane>`, where core runs `verify:core:ci`. The four check names are the required checks.
+`ci.yml` runs on `pull_request` and `workflow_dispatch` only, never on push. Each lane runs one root script, `bun run verify:<lane>`, and only the browser lane builds. The four check names are the required checks.
 
 ```mermaid
 flowchart TB
   trigger["PR or manual dispatch"] --> matrix
   subgraph matrix["ci.yml matrix (fail-fast off)"]
-    core["Verification (core)<br/>format, lint, generated artifacts, typecheck, build, docs, e2e-helper tests"]
-    cov["Verification (coverage)<br/>unit + contract + operations, 100% gate"]
+    core["Verification (core)<br/>format, lint, generated artifacts, typecheck, docs"]
+    cov["Verification (coverage)<br/>unit + contract + operations + e2e helpers, 100% gate"]
     integ["Verification (integration)<br/>Vitest against Postgres"]
     browser["Verification (browser)<br/>Playwright e2e + a11y projects"]
   end

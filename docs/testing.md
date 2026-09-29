@@ -23,7 +23,7 @@ bun run test:contract
 bun run test:integration     # needs Postgres and the test env below
 bun run test:e2e             # playwright test --project e2e
 bun run test:a11y            # playwright test --project a11y
-bun run test:coverage        # unit + contract + operations with the 100% gate
+bun run verify:coverage      # unit + contract + operations + E2E helpers, 100% gate
 pnpm exec vitest run packages/api/src/contact.contract.test.ts
 pnpm exec playwright test --ui
 ```
@@ -76,8 +76,8 @@ The browser lane (`bun run verify:browser`) needs the same two variables.
 
 | Lane | Script | What it proves |
 | --- | --- | --- |
-| core | `verify:core:ci` | format, lint, generated artifacts (OpenAPI, auth schema, docs), typecheck, build, E2E-helper tests |
-| coverage | `verify:coverage` | unit, contract and operations tests at 100% coverage |
+| core | `verify:core` | format, lint, generated artifacts (OpenAPI, auth schema, docs), typecheck |
+| coverage | `verify:coverage` | unit, contract, operations and E2E-helper tests at 100% coverage |
 | integration | `verify:integration` | repositories, migrations, auth and API against real Postgres |
 | browser | `verify:browser` | production build, Playwright `e2e` and `a11y` |
 
