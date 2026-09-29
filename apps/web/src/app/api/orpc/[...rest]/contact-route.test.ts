@@ -69,11 +69,11 @@ vi.mock("@darkfactory/config/server", () => ({
   }),
 }));
 vi.mock("@darkfactory/db/server", () => ({
-  REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
   RequestDatabaseCapacityError: class RequestDatabaseCapacityError extends Error {},
-  createRequestDatabase: vi.fn(async () => ({
+  openRequestScope: vi.fn(async () => ({
     db: { request: true },
-    close: mocks.close,
+    schedule: vi.fn(),
+    finalize: mocks.close,
   })),
   createRepositories: () => ({}),
   createContactThrottleRepository: (

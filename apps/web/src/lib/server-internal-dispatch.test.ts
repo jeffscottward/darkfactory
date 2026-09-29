@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  parentHeaders: vi.fn(async () => new Headers()),
   handleAuthRequest: vi.fn(),
   handleOrpcRuntimeRequest: vi.fn(),
   waitUntil: vi.fn(
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }));
+vi.mock("next/headers", () => ({ headers: mocks.parentHeaders }));
 vi.mock("../app/api/auth/[...all]/handler.ts", () => ({
   handleAuthRequest: mocks.handleAuthRequest,
 }));
@@ -34,40 +36,71 @@ const deferredResponse = () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.parentHeaders.mockResolvedValue(
+    new Headers({ "x-request-id": "parent-request" })
+  );
   return vi.stubEnv("APP_URL", "https://darkfactory.localhost");
 });
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("request-local internal dispatch", () => {
-  it("delegates the auth session request unchanged through the Worker scheduler", async () => {
+  it("delegates the auth session request, correlated with the parent, through the Worker scheduler", async () => {
     const response = new Response("auth-session", { status: 200 });
     const request = new Request(
       "https://darkfactory.localhost/api/auth/get-session",
-      { method: "GET" }
+      { method: "GET", headers: { cookie: "session=opaque" } }
     );
     mocks.handleAuthRequest.mockResolvedValueOnce(response);
 
     await expect(dispatchInternalAuthRequest(request)).resolves.toBe(response);
-    return expect(mocks.handleAuthRequest).toHaveBeenCalledWith(
-      request,
-      mocks.waitUntil
-    );
+    const [forwarded, scheduler] = mocks.handleAuthRequest.mock.calls[0]!;
+    expect(scheduler).toBe(mocks.waitUntil);
+    expect(forwarded.url).toBe(request.url);
+    expect(forwarded.headers.get("cookie")).toBe("session=opaque");
+    expect(forwarded.headers.get("x-request-id")).toBe("parent-request");
+    expect(request.headers.get("x-request-id")).toBeNull();
   });
 
-  it("delegates the oRPC request unchanged through the same Worker scheduler", async () => {
+  it("delegates the oRPC request with its body through the same Worker scheduler", async () => {
     const response = new Response("orpc", { status: 202 });
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/dashboard/summary",
-      { method: "POST" }
+      { method: "POST", body: '{"json":{}}' }
     );
     mocks.handleOrpcRuntimeRequest.mockResolvedValueOnce(response);
 
     await expect(dispatchInternalOrpcRequest(request)).resolves.toBe(response);
-    return expect(mocks.handleOrpcRuntimeRequest).toHaveBeenCalledWith(
-      request,
-      mocks.waitUntil
+    const [forwarded, scheduler] =
+      mocks.handleOrpcRuntimeRequest.mock.calls[0]!;
+    expect(scheduler).toBe(mocks.waitUntil);
+    expect(forwarded.method).toBe("POST");
+    expect(forwarded.headers.get("x-request-id")).toBe("parent-request");
+    await expect(forwarded.text()).resolves.toBe('{"json":{}}');
+  });
+
+  it("replaces a caller-supplied id with the parent's cf-ray, or a fresh id", async () => {
+    mocks.handleOrpcRuntimeRequest.mockImplementation(
+      async () => new Response("orpc")
     );
+    const dispatch = () =>
+      dispatchInternalOrpcRequest(
+        "https://darkfactory.localhost/api/orpc/preferences/theme/get",
+        { method: "POST", headers: { "x-request-id": "caller-chosen" } }
+      );
+
+    mocks.parentHeaders.mockResolvedValueOnce(
+      new Headers({ "cf-ray": "8f1e2d3c4b5a6978-SJC" })
+    );
+    await dispatch();
+    mocks.parentHeaders.mockResolvedValueOnce(new Headers());
+    await dispatch();
+
+    const ids = mocks.handleOrpcRuntimeRequest.mock.calls.map(([forwarded]) =>
+      forwarded.headers.get("x-request-id")
+    );
+    expect(ids[0]).toBe("8f1e2d3c4b5a6978-SJC");
+    expect(ids[1]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("constructs a request from fetch-compatible auth input", async () => {

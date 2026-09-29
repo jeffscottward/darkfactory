@@ -884,17 +884,22 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()"
       );
       const response = await handleAuthRequest(
-        new Request(`${BASE_URL}/api/auth/ok`),
+        new Request(`${BASE_URL}/api/auth/ok`, {
+          headers: { "x-request-id": "integration-auth-ok" },
+        }),
         (task) => {
           return backgroundTasks.push(task);
         }
       );
+      // The request scope closes its connection in waitUntil, after the response.
+      await Promise.all(backgroundTasks);
       const [after] = await testDatabase.query<{ connection_count: number }>(
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()"
       );
 
       expect(response).toBeInstanceOf(Response);
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-request-id")).toBe("integration-auth-ok");
       return expect(after?.connection_count).toBe(before?.connection_count);
     } finally {
       vi.unstubAllEnvs();
