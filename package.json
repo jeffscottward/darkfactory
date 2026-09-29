@@ -100,7 +100,7 @@
     "@types/pg": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "husky": "catalog:",
-    "jsdom": "^26.1.0",
+    "jsdom": "^30.1.1",
     "jsonc-parser": "catalog:",
     "knip": "catalog:",
     "markdownlint-cli2": "catalog:",
