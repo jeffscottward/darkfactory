@@ -16,19 +16,20 @@ Every external service (email, analytics, AI, telemetry) sits behind a small por
 
 ## Lego bricks
 
-Every workspace package declares a `brick` role in its `package.json`. `bun run docs:check` enforces the direction of dependencies between roles:
+Every workspace package declares a `brick` role in its `package.json`. Arrows mean "uses"; `bun run docs:check` enforces their direction:
 
 ```mermaid
 flowchart LR
-  app["🌐 app<br/>composition roots"]
-  sdlc["🧭 agent-sdlc<br/>opt-in operator plane"]
-  product["🧱 product<br/>api, auth, db, config,<br/>observability, ui, state"]
-  capability["🔌 capability<br/>ports + adapters"]
-  tooling["🧪 tooling<br/>test support"]
+  app["🌐 <b>app</b><br/>apps/web<br/><i>turns bricks<br/>into pages</i>"]
+  sdlc["🧭 <b>agent-sdlc</b><br/>operator, jobs<br/><i>optional AI crew,<br/>safe to delete</i>"]
+  product["🧱 <b>product</b><br/>api · auth · db<br/>config · ui · state<br/>observability<br/><i>your rules and data</i>"]
+  capability["🔌 <b>capability</b><br/>email · ai<br/>analytics<br/><i>swap vendors, not features</i>"]
+  tooling["🧪 <b>tooling</b><br/>testkit<br/><i>throwaway test databases</i>"]
 
   app --> product & capability
   sdlc --> product & capability
   product --> capability
+  tooling -.->|tests| product
 
   classDef appRole fill:#1f6feb,stroke:#0b3d91,color:#ffffff
   classDef productRole fill:#2ea44f,stroke:#1a7f37,color:#ffffff

@@ -63,48 +63,31 @@ sequenceDiagram
 
 ## SDLC agent graph
 
-Roles produce artifacts. Gates decide whether an artifact moves on. The graph describes the workflow for any agent harness; the opt-in operator plane can run it with approvals. Role playbooks are in [`.agents/skills/`](.agents/skills/) (linked from [AGENTS.md](AGENTS.md#agent-roles)).
+Each role hands the next one an artifact (the edge labels). Security and scalability review the code beside qa; CI lanes and security scans run side by side as PR gates. Any agent harness can follow this; the opt-in operator plane can run it with approvals. Role playbooks are in [`.agents/skills/`](.agents/skills/) (linked from [AGENTS.md](AGENTS.md#agent-roles)).
 
 ```mermaid
 flowchart LR
-  subgraph roles["Roles (.agents/skills)"]
-    pm["📋 pm"]
-    arch["🏛️ architect"]
-    be["🧱 backend"]
-    fe["🖥️ frontend"]
-    qa["🧪 qa"]
-    sec["🛡️ security"]
-    scale["📐 scalability"]
-    rel["🚀 release"]
-  end
-  subgraph artifacts["Artifacts"]
-    plan["plan + acceptance tests"]
-    contract["contract, port, ADR"]
-    code["code + tests"]
-    review["threat and load notes"]
-    notes["changelog + version"]
-  end
-  subgraph gates["Gates"]
-    prepush["verify:prepush"]
-    ci["4 required CI lanes"]
+  pm["📋 pm"] -->|"plan + acceptance tests"| arch["🏛️ architect"]
+  arch -->|"contract / port / ADR"| be["🧱 backend"] & fe["🖥️ frontend"]
+  be & fe -->|"code + tests"| qa["🧪 qa"]
+  sec["🛡️ security"] -.->|"threat review"| qa
+  scale["📐 scalability"] -.->|"load review"| qa
+  qa -->|"verify:prepush"| gates
+  subgraph gates["PR gates, in parallel"]
+    direction TB
+    ci["4 CI lanes"]
     scans["CodeQL + Dependency Review"]
-    sha["exact-SHA CI dispatch"]
   end
-  deploy["deploy:web"]
-
-  pm --> plan --> arch --> contract
-  contract --> be & fe
-  be & fe --> code --> qa --> prepush --> ci
-  code --> sec & scale --> review --> ci
-  ci --> scans --> rel --> notes --> sha --> deploy
+  gates -->|"green gates"| rel["🚀 release"]
+  rel -->|"changelog + exact-SHA CI"| deploy["☁️ deploy:web"]
 
   classDef role fill:#1f6feb,stroke:#0b3d91,color:#ffffff
-  classDef artifact fill:#f6f8fa,stroke:#57606a,color:#24292f
+  classDef reviewer fill:#8250df,stroke:#512a97,color:#ffffff
   classDef gate fill:#bf8700,stroke:#7d4e00,color:#ffffff
   classDef ship fill:#2ea44f,stroke:#1a7f37,color:#ffffff
-  class pm,arch,be,fe,qa,sec,scale,rel role
-  class plan,contract,code,review,notes artifact
-  class prepush,ci,scans,sha gate
+  class pm,arch,be,fe,qa,rel role
+  class sec,scale reviewer
+  class ci,scans gate
   class deploy ship
 ```
 
