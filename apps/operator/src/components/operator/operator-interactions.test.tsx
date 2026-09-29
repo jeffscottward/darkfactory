@@ -328,7 +328,10 @@ describe("operator workspace behavior", () => {
     expect(
       screen.getByRole("heading", { name: "Run details: Selected run" })
     ).toBeDefined();
-    expect(screen.getByRole("heading", { name: "Selected run" })).toBeDefined();
+    // The details load through gateway.detail after selection; wait for them.
+    expect(
+      await screen.findByRole("heading", { name: "Selected run" })
+    ).toBeDefined();
     expect(
       screen.getByRole("link", { name: "Open Selected run, Review plan" })
     ).toBeDefined();

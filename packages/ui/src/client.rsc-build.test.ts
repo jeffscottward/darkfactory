@@ -57,6 +57,10 @@ const runRscScanBuild = () => {
           resolveId(id) { if (id === virtualId) return resolvedId },
           load(id) { if (id === resolvedId) return ${JSON.stringify(clientBoundarySource)} },
         },
+        // rsc:minimal's config hook awaits es-module-lexer's WebAssembly init,
+        // as in a real vinext build. Without it, scan-strip can parse first
+        // under CPU load and fail with "object is not iterable".
+        minimal,
         instrumentedScanStrip,
       ],
       build: {
