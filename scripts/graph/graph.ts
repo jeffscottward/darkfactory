@@ -329,7 +329,7 @@ export const calculateGraphDigest = (content: string): string => {
   }
   )
   const graphMetadata = Object.fromEntries(
-    Object.entries(graph).filter(([key]) => {
+    Object.entries(graph as Record<string, unknown>).filter(([key]) => {
       return key !== "built_at_commit" &&
       key !== "nodes" &&
       key !== "links" &&

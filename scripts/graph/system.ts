@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
-import { constants } from "node:fs"
+import { constants, type Stats } from "node:fs"
 import {
   chmod,
   lstat,
@@ -16,8 +16,9 @@ import {
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import {
-  compileCivetSnapshot,
   deriveWorkspaceAliases,
+  isTypeScriptSource,
+  snapshotTypeScriptSource,
 } from "./corpus.ts"
 import type {
   GraphCommandOptions,
@@ -202,7 +203,6 @@ const validateGraphSource = async (
 }
 export const isGraphSourceExcluded = (path: string, excludes: readonly string[]): boolean => {
   return excludes.some((excluded) => {
-    if (excluded === "*.civet.d.ts") return path.endsWith(".civet.d.ts")
     if (excluded.endsWith("/**")) {
       const rootPath = excluded.slice(0, -3)
       return rootPath.length > 0 && (path === rootPath || path.startsWith(`${rootPath}/`))
@@ -368,17 +368,17 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
       join(outputDirectory, ".graphify_analysis.json"),
       join(outputDirectory, "manifest.json"),
     ]
-    const results=[];for (const target of targets) {
+    for (const target of targets) {
       const info = await inspectPath(target)
       if (info.kind === "missing") continue
       if (info.kind !== "file" && info.kind !== "directory") {
         throw new Error("Graph output contains an unsafe generated path")
       }
-      results.push(await rm(containedPath(target), {
+      await rm(containedPath(target), {
         force: true,
         recursive: info.kind === "directory",
-      }))
-    };return results;
+      })
+    }
   },
   listSourceFiles: listConfiguredSourceFiles,
   createSourceSnapshot: async (config) => {
@@ -398,7 +398,7 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
     let markerHandle: GraphPathHandle | undefined
     let temporaryBaseHandle: GraphPathHandle | undefined
     const isTrustedTemporaryDirectory = (
-      stats: Awaited<ReturnType<typeof lstat>>,
+      stats: Stats,
     ): boolean => {
       return !stats.isSymbolicLink() &&
       stats.isDirectory() &&
@@ -425,7 +425,7 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
       base: PinnedTemporaryBase,
     ): Promise<void> => {
       const pinned = await pinnedTemporaryBaseStats(base)
-      let current: Awaited<ReturnType<typeof lstat>>
+      let current: Stats
       try {
         current = await lstat(base.path)
       }
@@ -456,7 +456,7 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
       parent: PinnedPrivateParent,
     ): Promise<void> => {
       const pinned = await pinnedPrivateStats(parent)
-      let current: Awaited<ReturnType<typeof lstat>>
+      let current: Stats
       try {
         current = await lstat(parent.path)
       }
@@ -488,7 +488,7 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
       path: string,
     ): Promise<void> => {
       const pinned = await pinnedSnapshotStats(snapshot)
-      let current: Awaited<ReturnType<typeof lstat>>
+      let current: Stats
       try {
         current = await lstat(path)
       }
@@ -519,7 +519,7 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
     }
     const ownerPathStats = async (
       path: string,
-    ): Promise<Awaited<ReturnType<typeof lstat>>> => {
+    ): Promise<Stats> => {
       try {
         return await lstat(path)
       }
@@ -773,8 +773,8 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
         const raw = await readGraphSourceBounded(path, MAX_SOURCE_FILE_BYTES)
         let snapshot: Readonly<{ path: string; content: string }>
         try {
-          snapshot = path.endsWith(".civet")
-            ? await compileCivetSnapshot(
+          snapshot = isTypeScriptSource(path)
+            ? snapshotTypeScriptSource(
                 path,
                 Buffer.from(raw, "latin1").toString("utf8"),
                 aliases,
@@ -783,12 +783,12 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem => Object.free
         }
         catch (error) {
           const detail = error instanceof Error ? error.message.split("\n", 1)[0] : "unknown"
-          throw new Error(`Civet snapshot compilation failed: ${path}: ${detail}`)
+          throw new Error(`TypeScript snapshot rewrite failed: ${path}: ${detail}`)
         }
-        const encoded = path.endsWith(".civet")
+        const encoded = isTypeScriptSource(path)
           ? Buffer.from(snapshot.content, "utf8")
           : Buffer.from(snapshot.content, "latin1")
-        if (encoded.byteLength > MAX_SOURCE_FILE_BYTES) throw new Error("Compiled source file is too large")
+        if (encoded.byteLength > MAX_SOURCE_FILE_BYTES) throw new Error("Snapshot source file is too large")
         total += encoded.byteLength
         if (total > MAX_SOURCE_TOTAL_BYTES) throw new Error("Architectural source corpus is too large")
         const destination = join(rootPath, snapshot.path)

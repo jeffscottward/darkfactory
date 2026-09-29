@@ -1,4 +1,3 @@
-import { compile } from "@danielx/civet"
 import { posix } from "node:path"
 import ts from "typescript"
 
@@ -13,13 +12,15 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
     : null
 }
 
+export const isTypeScriptSource = (path: string): boolean => /\.tsx?$/.test(path)
+
 const exportTarget = (value: unknown): string | null => {
-  if (typeof value === "string") return value.endsWith(".civet") ? value : null
+  if (typeof value === "string") return isTypeScriptSource(value) ? value : null
   const record = asRecord(value)
   if (!record) return null
   for (const condition of ["import", "workerd", "worker", "default"]) {
     const candidate = record[condition]
-    if (typeof candidate === "string" && candidate.endsWith(".civet")) return candidate
+    if (typeof candidate === "string" && isTypeScriptSource(candidate)) return candidate
   }
   return null
 }
@@ -27,7 +28,7 @@ const exportTarget = (value: unknown): string | null => {
 const safePackageTarget = (directory: string, target: string): string => {
   if (!target.startsWith("./") || target.includes("\\")) throw new Error("Unsafe workspace export target")
   const normalized = posix.normalize(posix.join(directory, target.slice(2)))
-  if (normalized === directory || !normalized.startsWith(`${directory}/`) || !normalized.endsWith(".civet")) {
+  if (normalized === directory || !normalized.startsWith(`${directory}/`) || !isTypeScriptSource(normalized)) {
     throw new Error("Workspace export target escapes its package")
   }
   return normalized
@@ -55,21 +56,21 @@ export const deriveWorkspaceAliases = (
 }
 
 const relativeModulePath = (fromFile: string, targetFile: string): string => {
-  const relative = posix.relative(posix.dirname(fromFile), targetFile.replace(/\.civet$/, ".tsx"))
+  const relative = posix.relative(posix.dirname(fromFile), targetFile)
   return relative.startsWith(".") ? relative : `./${relative}`
 }
 
 export const rewriteWorkspaceAliases = (
-  compiledFile: string,
-  compiledSource: string,
+  sourcePath: string,
+  source: string,
   aliases: ReadonlyMap<string, string>,
 ): string => {
   const sourceFile = ts.createSourceFile(
-    compiledFile,
-    compiledSource,
+    sourcePath,
+    source,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TSX,
+    sourcePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   )
   const replacements: Array<Readonly<{ start: number; end: number; value: string }>> = []
   const recordSpecifier = (literal: ts.StringLiteralLike | undefined) => {
@@ -77,11 +78,11 @@ export const rewriteWorkspaceAliases = (
     const target = aliases.get(literal.text)
     if (!target) throw new Error(`Unknown workspace alias: ${literal.text}`)
     const start = literal.getStart(sourceFile)
-    const quote = compiledSource[start] === "'" ? "'" : '"'
+    const quote = source[start] === "'" ? "'" : '"'
     return replacements.push({
       start,
       end: literal.getEnd(),
-      value: `${quote}${relativeModulePath(compiledFile, target)}${quote}`,
+      value: `${quote}${relativeModulePath(sourcePath, target)}${quote}`,
     })
   }
   const visit = (node: ts.Node): void => {
@@ -101,28 +102,21 @@ export const rewriteWorkspaceAliases = (
     ts.forEachChild(node, visit)
   }
   visit(sourceFile)
-  let rewritten = compiledSource
+  let rewritten = source
   for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
     rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`
   }
   return rewritten
 }
 
-export const compileCivetSnapshot = async (
+export const snapshotTypeScriptSource = (
   sourcePath: string,
   source: string,
   aliases: ReadonlyMap<string, string>,
-): Promise<Readonly<{ path: string; content: string }>> => {
-  if (!sourcePath.endsWith(".civet") || sourcePath.endsWith(".civet.d.ts")) {
-    throw new Error("Snapshot compiler accepts authored Civet only")
-  }
-  const outputPath = sourcePath.replace(/\.civet$/, ".tsx")
-  const compiled = await compile(source, {
-    filename: sourcePath,
-    rewriteCivetImports: ".tsx",
-  })
+): Readonly<{ path: string; content: string }> => {
+  if (!isTypeScriptSource(sourcePath)) throw new Error("Snapshot rewriter accepts TypeScript sources only")
   return Object.freeze({
-    path: outputPath,
-    content: rewriteWorkspaceAliases(outputPath, compiled, aliases),
+    path: sourcePath,
+    content: rewriteWorkspaceAliases(sourcePath, source, aliases),
   })
 }

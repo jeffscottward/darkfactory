@@ -18,7 +18,7 @@ const CONFIG = JSON.stringify({
   source: {
     roots: ["."],
     files: ["package.json", "pnpm-workspace.yaml", "capabilities.yaml", "ARCHITECTURE.md", "CONVENTIONS.md"],
-    extensions: [".civet", ".ts", ".tsx", ".json", ".jsonc", ".yaml", ".yml", ".sql", ".md"],
+    extensions: [".ts", ".tsx", ".json", ".jsonc", ".yaml", ".yml", ".sql", ".md"],
     excludes: [".git", ".graphify", "graphify-out", "node_modules", "dist", ".turbo", ".vinext", "coverage"],
   },
   verificationPath: [
@@ -84,7 +84,7 @@ const fixture = (options: {
     listSourceFiles: async () => [...sourceFiles.keys()].reverse(),
     resetGraphOutput: async (path) => {
       resets.push(path)
-      return files.delete(path)
+      files.delete(path)
     },
     createSourceSnapshot: async () => ({
       path: "/tmp/darkfactory-graphify-test",
@@ -141,8 +141,8 @@ describe("Graphify workflow", () => {
   )
 
   it("hashes equivalent semantic graphs deterministically and detects semantic mutations", () => {
-    const firstNodeId = "/tmp/darkfactory-graphify-first/src/service.civet::service"
-    const secondNodeId = "/tmp/darkfactory-graphify-first/src/service.civet::repository"
+    const firstNodeId = "/tmp/darkfactory-graphify-first/src/service.ts::service"
+    const secondNodeId = "/tmp/darkfactory-graphify-first/src/service.ts::repository"
     const first = JSON.stringify({
       directed: false,
       multigraph: false,
@@ -151,16 +151,16 @@ describe("Graphify workflow", () => {
         {
           id: firstNodeId,
           label: "service",
-          source_file: "src/service.civet",
+          source_file: "src/service.ts",
           source_location: "L1",
           community: 7,
           norm_label: "service",
-          metadata: { kind: "function", language: "civet" },
+          metadata: { kind: "function", language: "typescript" },
         },
         {
           id: secondNodeId,
           label: "repository",
-          source_file: "src/service.civet",
+          source_file: "src/service.ts",
           source_location: "L8",
           community: 7,
           norm_label: "repository",
@@ -201,8 +201,8 @@ describe("Graphify workflow", () => {
       hyperedges: [],
       built_at_commit: "1111111111111111111111111111111111111111",
     })
-    const replacementNodeId = "/home/runner/work/darkfactory-graphify-second/src/service.civet::service"
-    const replacementTargetId = "/home/runner/work/darkfactory-graphify-second/src/service.civet::repository"
+    const replacementNodeId = "/home/runner/work/darkfactory-graphify-second/src/service.ts::service"
+    const replacementTargetId = "/home/runner/work/darkfactory-graphify-second/src/service.ts::repository"
     const equivalent = JSON.stringify({
       built_at_commit: "2222222222222222222222222222222222222222",
       hyperedges: [],
@@ -243,16 +243,16 @@ describe("Graphify workflow", () => {
           norm_label: "repository",
           community: 99,
           source_location: "L8",
-          source_file: "src/service.civet",
+          source_file: "src/service.ts",
           label: "repository",
           id: replacementTargetId,
         },
         {
-          metadata: { language: "civet", kind: "function" },
+          metadata: { language: "typescript", kind: "function" },
           norm_label: "service",
           community: 42,
           source_location: "L1",
-          source_file: "src/service.civet",
+          source_file: "src/service.ts",
           label: "service",
           id: replacementNodeId,
         },
@@ -782,7 +782,7 @@ describe("Graphify workflow", () => {
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
           cleanup: async () => {
-            return resetCleanups += 1
+            resetCleanups += 1
           }
         }),
         resetGraphOutput: async () => {
@@ -806,7 +806,7 @@ describe("Graphify workflow", () => {
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
           cleanup: async () => {
-            return extractCleanups += 1
+            extractCleanups += 1
           }
         }),
       },
@@ -835,7 +835,7 @@ describe("Graphify workflow", () => {
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
           cleanup: async () => {
-            return cleanups += 1
+            cleanups += 1
           }
         }),
       },
@@ -890,7 +890,7 @@ describe("Graphify workflow", () => {
         createSourceSnapshot: async () => ({
           path: "/tmp/owned-snapshot",
           cleanup: async () => {
-            return cleanups += 1
+            cleanups += 1
           }
         }),
       },
@@ -925,7 +925,7 @@ describe("Graphify workflow", () => {
     const empty = await checkWith({ listSourceFiles: async () => [] })
     expect(empty).toMatchObject({ ok: false, reason: "Graph check inspection failed" })
 
-    const unsafe = await checkWith({ listSourceFiles: async () => ["../outside.civet"] })
+    const unsafe = await checkWith({ listSourceFiles: async () => ["../outside.ts"] })
     expect(unsafe).toMatchObject({ ok: false, reason: "Graph check inspection failed" })
 
     const irregularState = fixture({ graphExists: true, manifest: manifestFor() })

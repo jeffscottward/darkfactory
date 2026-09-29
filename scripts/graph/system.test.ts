@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
     "lstat" | "mkdir" | "mkdtemp" | "open" | "readdir" | "realpath" | "rename" | "rm" | "writeFile"
   >,
   snapshotPrivateParents: new Set<string>(),
-  compileCivetSnapshot: vi.fn(),
+  snapshotTypeScriptSource: vi.fn(),
   resetFileSystem: (): void => { undefined},
   resetCompiler: (): void => { undefined},
 }))
@@ -74,11 +74,11 @@ vi.mock("node:fs/promises", async () => {
 vi.mock("./corpus.ts", async () => {
   const actual = await vi.importActual<typeof import("./corpus.ts")>("./corpus.ts")
   const reset = (): void => {
-    mocks.compileCivetSnapshot.mockReset().mockImplementation(actual.compileCivetSnapshot)
+    mocks.snapshotTypeScriptSource.mockReset().mockImplementation(actual.snapshotTypeScriptSource)
   }
   mocks.resetCompiler = reset
   reset()
-  return { ...actual, compileCivetSnapshot: mocks.compileCivetSnapshot }
+  return { ...actual, snapshotTypeScriptSource: mocks.snapshotTypeScriptSource }
 }
 )
 
@@ -255,7 +255,7 @@ describe("Graphify source snapshot", () => {
       return String(arguments_[0]) === canonicalTemporaryBase
         ? Object.assign(stats, {
             mode: stats.mode | 0o022 | 0o1000,
-            uid: process.geteuid() + 1,
+            uid: process.geteuid!() + 1,
           })
         : stats
     }
@@ -292,7 +292,7 @@ describe("Graphify source snapshot", () => {
       const path = String(arguments_[0])
       if (path.startsWith(expectedPrefix) && dirname(path) === canonicalTemporaryBase) {
         privateParent = path
-        return Object.assign(stats, { uid: process.geteuid() + 1 })
+        return Object.assign(stats, { uid: process.geteuid!() + 1 })
       }
       return stats
     }
@@ -317,10 +317,10 @@ describe("Graphify source snapshot", () => {
     const hostile = await mocks.fileSystemActual.mkdtemp(
       join(tmpdir(), "darkfactory-hostile-tmpdir-"),
     )
-    const previousTmpdir = process.env.TMPDIR
+    const previousTmpdir = process.env["TMPDIR"]
     await mkdir(root, { recursive: true })
     await writeFile(source, "export const source = true\n")
-    process.env.TMPDIR = hostile
+    process.env["TMPDIR"] = hostile
     const isolated = isolatedSnapshotFileSystem()
     let privateParent = ""
 
@@ -336,8 +336,8 @@ describe("Graphify source snapshot", () => {
       return await snapshot.cleanup()
     }
     finally {
-      if (previousTmpdir === undefined) { delete process.env.TMPDIR}
-      else process.env.TMPDIR = previousTmpdir
+      if (previousTmpdir === undefined) { delete process.env["TMPDIR"]}
+      else process.env["TMPDIR"] = previousTmpdir
       await rm(root, { force: true, recursive: true })
       await mocks.fileSystemActual.rm(hostile, { force: true, recursive: true })
       if (privateParent) {
@@ -1827,12 +1827,11 @@ describe("Graphify generated output reset", () => {
 
 describe("Graphify configured source corpus", () => {
   it("distinguishes root-generated output from authored nested directories", () => {
-    const excludes = ["coverage/**", "node_modules", "*.civet.d.ts", ".session-recovery"]
+    const excludes = ["coverage/**", "node_modules", ".session-recovery"]
 
     expect(isGraphSourceExcluded("coverage/coverage-summary.json", excludes)).toBe(true)
     expect(isGraphSourceExcluded("scripts/coverage/coverage.civet", excludes)).toBe(false)
     expect(isGraphSourceExcluded("packages/api/node_modules/provider/index.js", excludes)).toBe(true)
-    expect(isGraphSourceExcluded("packages/api/src/index.civet.d.ts", excludes)).toBe(true)
     expect(isGraphSourceExcluded(".session-recovery", excludes)).toBe(true)
     return expect(isGraphSourceExcluded(".session-recovery/run/private.json", excludes)).toBe(true)
   }
@@ -1884,14 +1883,14 @@ describe("Graphify configured source corpus", () => {
 describe("Graphify process environment", () => {
   it("never forwards provider or application secrets to extract", () => {
     Object.assign(process.env, SENTINELS)
-    process.env.PYTHONHASHSEED = "inherited-nondeterministic-value"
-    process.env.GRAPHIFY_MAX_WORKERS = "inherited-nondeterministic-value"
+    process.env["PYTHONHASHSEED"] = "inherited-nondeterministic-value"
+    process.env["GRAPHIFY_MAX_WORKERS"] = "inherited-nondeterministic-value"
 
     const environment = graphProcessEnvironment({})
 
     for (const name of Object.keys(SENTINELS)) expect(environment[name]).toBeUndefined()
-    expect(environment.PYTHONHASHSEED).toBeUndefined()
-    return expect(environment.GRAPHIFY_MAX_WORKERS).toBeUndefined()
+    expect(environment["PYTHONHASHSEED"]).toBeUndefined()
+    return expect(environment["GRAPHIFY_MAX_WORKERS"]).toBeUndefined()
   }
   )
 
@@ -1907,12 +1906,12 @@ describe("Graphify process environment", () => {
     })
 
     for (const name of Object.keys(SENTINELS)) expect(environment[name]).toBeUndefined()
-    expect(environment.GRAPHIFY_QUERY_LOG_DISABLE).toBe("1")
-    expect(environment.PYTHONHASHSEED).toBe("0")
-    expect(environment.GRAPHIFY_MAX_WORKERS).toBe("1")
-    expect(graphProcessEnvironment({ PYTHONHASHSEED: "1" }).PYTHONHASHSEED).toBeUndefined()
-    expect(graphProcessEnvironment({ GRAPHIFY_MAX_WORKERS: "2" }).GRAPHIFY_MAX_WORKERS).toBeUndefined()
-    return expect(environment.CUSTOM_SECRET).toBeUndefined()
+    expect(environment["GRAPHIFY_QUERY_LOG_DISABLE"]).toBe("1")
+    expect(environment["PYTHONHASHSEED"]).toBe("0")
+    expect(environment["GRAPHIFY_MAX_WORKERS"]).toBe("1")
+    expect(graphProcessEnvironment({ PYTHONHASHSEED: "1" })["PYTHONHASHSEED"]).toBeUndefined()
+    expect(graphProcessEnvironment({ GRAPHIFY_MAX_WORKERS: "2" })["GRAPHIFY_MAX_WORKERS"]).toBeUndefined()
+    return expect(environment["CUSTOM_SECRET"]).toBeUndefined()
   }
   )
 }
@@ -2019,7 +2018,7 @@ describe("Graph node filesystem boundaries", () => {
   }
   )
 
-  it("compiles authored Civet snapshots and rewrites discovered workspace aliases", async () => {
+  it("snapshots TypeScript sources and rewrites discovered workspace aliases", async () => {
     const packageName = `graph-system-${randomUUID()}`
     const root = join("packages", packageName)
     await mkdir(join(root, "src"), { recursive: true })
@@ -2027,11 +2026,11 @@ describe("Graph node filesystem boundaries", () => {
       writeFile(join(root, "package.json"), JSON.stringify({
         name: `@darkfactory/${packageName}`,
         version: "1.0.0",
-        exports: { ".": "./src/index.civet" },
+        exports: { ".": "./src/index.ts" },
       })),
-      writeFile(join(root, "src/index.civet"), "export const value = 1\n"),
+      writeFile(join(root, "src/index.ts"), "export const value = 1\n"),
       writeFile(
-        join(root, "src/consumer.civet"),
+        join(root, "src/consumer.tsx"),
         `import { value } from "@darkfactory/${packageName}"\nexport const consumer = value\n`,
       ),
     ])
@@ -2042,7 +2041,7 @@ describe("Graph node filesystem boundaries", () => {
       source: {
         roots: [root],
         files: ["package.json"],
-        extensions: [".civet", ".json"],
+        extensions: [".ts", ".tsx", ".json"],
         excludes: ["node_modules"],
       },
       verificationPath: ["from", "to"],
@@ -2060,8 +2059,9 @@ describe("Graph node filesystem boundaries", () => {
         await expect(readFile(
           join(snapshot.path, root, "src/consumer.tsx"),
           "utf8",
-        )).resolves.toContain('from "./index.tsx"')
-        return await expect(exists(join(snapshot.path, root, "src/consumer.civet"))).resolves.toBe(false)
+        )).resolves.toContain('from "./index.ts"')
+        return await expect(readFile(join(snapshot.path, root, "src/index.ts"), "utf8"))
+          .resolves.toBe("export const value = 1\n")
       }
       finally {
         await snapshot.cleanup()
@@ -2316,7 +2316,7 @@ describe("Graph node filesystem boundaries", () => {
   }
   )
 
-  it("rejects source and compiled file size boundaries before publication", async () => {
+  it("rejects source and snapshot file size boundaries before publication", async () => {
     const largeRoot = join("scripts", "graph", `system-large-${randomUUID()}`)
     const largeSource = join(largeRoot, "source.ts")
     await mkdir(largeRoot, { recursive: true })
@@ -2333,40 +2333,44 @@ describe("Graph node filesystem boundaries", () => {
       await rm(largeRoot, { force: true, recursive: true })
     }
 
-    const civetRoot = join("scripts", "graph", `system-compile-${randomUUID()}`)
-    await mkdir(civetRoot, { recursive: true })
-    await writeFile(join(civetRoot, "source.civet"), "export const value = 1")
-    const config = snapshotConfig(civetRoot, [".civet"])
-    const compiledSnapshot = isolatedSnapshotFileSystem()
+    const rewriteRoot = join("scripts", "graph", `system-rewrite-${randomUUID()}`)
+    await mkdir(rewriteRoot, { recursive: true })
+    await writeFile(join(rewriteRoot, "source.ts"), "export const value = 1")
+    const config = snapshotConfig(rewriteRoot)
+    const rewrittenSnapshot = isolatedSnapshotFileSystem()
     try {
-      mocks.compileCivetSnapshot.mockRejectedValueOnce(new Error("compiler unavailable"))
-      await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
-        .rejects.toThrow(/compilation failed.*compiler unavailable/i)
+      mocks.snapshotTypeScriptSource.mockImplementationOnce(() => {
+        throw new Error("rewriter unavailable")
+      })
+      await expect(rewrittenSnapshot.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/snapshot rewrite failed.*rewriter unavailable/i)
 
-      mocks.compileCivetSnapshot.mockRejectedValueOnce("private compiler failure")
-      await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
-        .rejects.toThrow(/compilation failed.*unknown/i)
+      mocks.snapshotTypeScriptSource.mockImplementationOnce(() => {
+        throw "private rewriter failure"
+      })
+      await expect(rewrittenSnapshot.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/snapshot rewrite failed.*unknown/i)
 
-      mocks.compileCivetSnapshot.mockResolvedValueOnce({
-        path: join(civetRoot, "source.tsx"),
+      mocks.snapshotTypeScriptSource.mockReturnValueOnce({
+        path: join(rewriteRoot, "source.ts"),
         content: "x".repeat(8_388_609),
       })
-      await expect(compiledSnapshot.fileSystem.createSourceSnapshot(config))
-        .rejects.toThrow(/compiled source file is too large/i)
-      return await expectPrivateParentsRemoved(compiledSnapshot.privateParents, 3)
+      await expect(rewrittenSnapshot.fileSystem.createSourceSnapshot(config))
+        .rejects.toThrow(/snapshot source file is too large/i)
+      return await expectPrivateParentsRemoved(rewrittenSnapshot.privateParents, 3)
     }
     finally {
-      await rm(civetRoot, { force: true, recursive: true })
+      await rm(rewriteRoot, { force: true, recursive: true })
     }
   }
   )
 
-  return it("rejects a compiled corpus above the aggregate boundary", async () => {
+  return it("rejects a snapshot corpus above the aggregate boundary", async () => {
     const root = join("scripts", "graph", `system-total-${randomUUID()}`)
     await mkdir(root, { recursive: true })
     await Promise.all(Array.from(
       { length: 17 },
-      (_, index) => writeFile(join(root, `source-${index}.civet`), "export {}"),
+      (_, index) => writeFile(join(root, `source-${index}.ts`), "export {}"),
     ))
     const isolated = isolatedSnapshotFileSystem()
     const atFileLimit = "x".repeat(8_388_608)
@@ -2379,8 +2383,8 @@ describe("Graph node filesystem boundaries", () => {
       return handle
     }
     )
-    mocks.compileCivetSnapshot.mockImplementation(async (path: string) => ({
-      path: path.replace(/\.civet$/, ".tsx"),
+    mocks.snapshotTypeScriptSource.mockImplementation((path: string) => ({
+      path,
       content: atFileLimit,
     }))
     mocks.fileSystem.writeFile.mockImplementation(async (...arguments_) => {
@@ -2388,7 +2392,7 @@ describe("Graph node filesystem boundaries", () => {
       if (
         activeRoot &&
         path.startsWith(`${activeRoot}${sep}`) &&
-        path.endsWith(".tsx")
+        path.endsWith(".ts")
       ) {
         suppressedWrites += 1
         return
@@ -2398,7 +2402,7 @@ describe("Graph node filesystem boundaries", () => {
     )
 
     try {
-      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig(root, [".civet"])))
+      await expect(isolated.fileSystem.createSourceSnapshot(snapshotConfig(root)))
         .rejects.toThrow(/source corpus is too large/i)
       expect(suppressedWrites).toBe(15)
       return await expectPrivateParentsRemoved(isolated.privateParents)
@@ -2413,12 +2417,12 @@ describe("Graph node filesystem boundaries", () => {
 
 describe("Graphify inherited process controls", () => {
   return it("forwards allowlisted values only when the parent environment defines them", () => {
-    process.env.LC_ALL = ""
-    expect(graphProcessEnvironment().LC_ALL).toBeUndefined()
+    process.env["LC_ALL"] = ""
+    expect(graphProcessEnvironment()["LC_ALL"]).toBeUndefined()
 
-    process.env.LC_ALL = "C"
-    expect(graphProcessEnvironment().LC_ALL).toBe("C")
-    return expect(graphProcessEnvironment({ LC_ALL: "attacker-controlled" }).LC_ALL).toBe("C")
+    process.env["LC_ALL"] = "C"
+    expect(graphProcessEnvironment()["LC_ALL"]).toBe("C")
+    return expect(graphProcessEnvironment({ LC_ALL: "attacker-controlled" })["LC_ALL"]).toBe("C")
   }
   )
 }
@@ -2458,7 +2462,7 @@ describe("Graphify Node process adapter", () => {
       windowsHide: true,
       env: expect.objectContaining({ PYTHONHASHSEED: "0" }),
     })
-    expect((capturedOptions?.["env"] as NodeJS.ProcessEnv | undefined)?.DATABASE_URL).toBeUndefined()
+    expect((capturedOptions?.["env"] as NodeJS.ProcessEnv | undefined)?.["DATABASE_URL"]).toBeUndefined()
 
     mocks.execFile.mockImplementationOnce((
       _command: string,
