@@ -20,8 +20,7 @@ type ScannerFixtureModule = Readonly<{
     }>
   ) => Promise<Readonly<{ ok: boolean; purged: boolean }>>;
 }>;
-// A variable import intentionally exercises the focused Vitest Civet loader.
-const scannerModulePath = ["../../../scripts/e2e", "scanner.civet"].join("/");
+const scannerModulePath = ["../../../scripts/e2e", "scanner.ts"].join("/");
 const { scanArtifactPaths } = (await import(
   scannerModulePath
 )) as ScannerFixtureModule;

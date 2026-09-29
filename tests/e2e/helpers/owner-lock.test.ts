@@ -37,7 +37,7 @@ afterEach(async () => {
 
 
 describe("E2E lifecycle runtime resolution", () => {
-  it("loads TypeScript and Civet lifecycle modules through the registered loader", () => {
+  it("loads the TypeScript lifecycle modules under Node type stripping", () => {
     const result = spawnSync(
       process.execPath,
       [

@@ -19,8 +19,7 @@ type SystemFixtureModule = Readonly<{
     artifactProfile: "anonymous-public-visual" | "no-binary"
   ) => Promise<unknown>;
 }>;
-// A variable import intentionally exercises the focused Vitest Civet loader.
-const systemModulePath = ["../../../scripts/e2e", "system.civet"].join("/");
+const systemModulePath = ["../../../scripts/e2e", "system.ts"].join("/");
 const { encodeOwnedRunAdoption, prepareOwnedRun } = (await import(
   systemModulePath
 )) as SystemFixtureModule;

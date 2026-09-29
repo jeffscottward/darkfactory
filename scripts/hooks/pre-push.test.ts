@@ -18,7 +18,7 @@ it("preserves destination argv through the executable shell hook", async () => {
     })
     expect(invocation.status).toBe(0)
     return expect(invocation.stdout.trimEnd().split("\n")).toEqual([
-      "--preload", "@danielx/civet/bun-civet", "scripts/hooks/pre-push.ts", "review", destination,
+      "scripts/hooks/pre-push.ts", "review", destination,
     ])
   }
   finally {
