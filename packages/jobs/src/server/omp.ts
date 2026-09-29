@@ -1029,7 +1029,7 @@ const VERIFIER_MANIFEST_SKIPPED_DIRECTORIES = new Set([
 ]);
 const VERIFIER_ROOT_CONTROL_FILES = new Set([
   ".markdownlint-cli2.jsonc",
-  "biome.json",
+  "biome.jsonc",
   "package.json",
   "playwright.config.ts",
   "pnpm-lock.yaml",
