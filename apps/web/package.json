@@ -50,6 +50,7 @@
     "@vitejs/plugin-rsc": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
+    "typescript-api": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"

@@ -23,7 +23,7 @@ const WITHOUT_GRAPH_OR_HTTPS = MANIFEST.replace(
 const TEST_CWD = "/workspace/darkfactory";
 const PINNED_BUN_VERSION = "1.3.14";
 const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
-  "node_modules/typescript/package.json": "6.0.2",
+  "node_modules/typescript/package.json": "7.0.2",
   "node_modules/turbo/package.json": "2.11.5",
   "node_modules/vitest/package.json": "5.0.2",
   "node_modules/@playwright/test/package.json": "1.63.0",

@@ -72,7 +72,9 @@ catalog:
   tailwind-merge: 3.7.0
   tailwindcss: 4.3.3
   turbo: 2.11.5
-  typescript: 6.0.2
+  typescript: 7.0.2
+  # TypeScript 7 (native tsc) ships no classic compiler API; tools that walk the AST import this alias.
+  typescript-api: npm:typescript@6.0.3
   ultracite: 7.12.1
   vinext: 1.0.0-beta.3
   vite: 8.3.1

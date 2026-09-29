@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import ts from "typescript";
+import ts from "typescript-api";
 
 export type WorkspaceManifest = Readonly<{
   directory: string;

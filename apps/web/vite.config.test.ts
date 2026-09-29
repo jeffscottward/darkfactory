@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import ts from "typescript-api";
 import { describe, expect, it, vi } from "vitest";
 import viteConfig from "./vite.config";
 

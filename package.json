@@ -116,6 +116,7 @@
     "portless": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
+    "typescript-api": "catalog:",
     "ultracite": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
