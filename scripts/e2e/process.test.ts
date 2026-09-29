@@ -222,7 +222,7 @@ describe("owned E2E command lifecycle", () => {
   }
   )
 
-  it("loads auth, database, and testkit modules through the exact Civet loader", async () => {
+  it("loads auth, database, and testkit modules under Node type stripping", async () => {
     const result = await runOwnedCommand(
       process.execPath,
       [

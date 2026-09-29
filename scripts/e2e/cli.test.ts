@@ -346,7 +346,7 @@ describe("E2E lifecycle CLIs", () => {
       '{"kind":"darkfactory-e2e-entry","version":1}\n',
     )
     expect(result.stderr).toContain("Usage: e2e-run <e2e|a11y>")
-    expect(result.stdout).not.toMatch(/playwright|web-server\.civet/iu)
+    expect(result.stdout).not.toMatch(/playwright|web-server\.ts/iu)
     expect(result.stderr).not.toMatch(
       /Process from config\.webServer|https?:|password|token|authorization|cookie/iu,
     )
@@ -368,7 +368,7 @@ describe("E2E lifecycle CLIs", () => {
       maxOutputBytes: 1024 * 1024,
       timeoutMillis: 45_000,
     })
-    expect(scanner.arguments.slice(0, 4)).toEqual([
+    expect(scanner.arguments.slice(0, 2)).toEqual([
       "--experimental-strip-types",
       "./scripts/e2e/scan-artifacts.ts",
     ])
@@ -929,7 +929,7 @@ describe("E2E lifecycle CLIs", () => {
   }
   )
 
-  it("preserves post-probe startup failure through the actual Civet CLI loader boundary", async () => {
+  it("preserves post-probe startup failure through the Node type-stripping entrypoint boundary", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url))
     const runId = `subprocess_reader_${process.pid}_${Date.now()}`
     const proof = await prepareOwnedRun(root, runId, "no-binary")
@@ -937,7 +937,7 @@ describe("E2E lifecycle CLIs", () => {
     const canaryPath = join(
       root,
       "test-results",
-      `.lifecycle-observer-${process.pid}-${Date.now()}.civet`,
+      `.lifecycle-observer-${process.pid}-${Date.now()}.ts`,
     )
     try {
       await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
@@ -977,8 +977,8 @@ describe("E2E lifecycle CLIs", () => {
         "utf8",
       )
       const result = spawnSync(
-        "corepack",
-        ["pnpm", "exec", "civet", canaryPath],
+        process.execPath,
+        ["--experimental-strip-types", "--no-warnings", canaryPath],
         {
           cwd: root,
           encoding: "utf8",
