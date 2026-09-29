@@ -1,6 +1,6 @@
 # DarkFactory post-build TODO
 
-This file contains maintenance and hardening work that begins only after DF-118 has a green final evidence bundle for an exact SHA. It is not a place to defer v0.1 implementation, tests, documentation, deployment evidence, or unresolved CI. If the [evidence map](docs/evidence-map.md) is still draft/pending, every item below remains blocked.
+This file contains maintenance and hardening work that begins only after DF-118 has a green final evidence bundle for an exact SHA. It is not a place to defer v0.1 implementation, tests, documentation, deployment evidence, or unresolved CI. If the [evidence map](evidence-map.md) is still draft/pending, every item below remains blocked.
 
 ## Authorized Shannon hardening
 
