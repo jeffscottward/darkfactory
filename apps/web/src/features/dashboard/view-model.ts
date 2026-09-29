@@ -53,8 +53,6 @@ const CAPABILITY_LABELS: Readonly<Record<keyof CapabilityProjection, string>> =
     emailDelivery: "Email delivery",
     analytics: "Product analytics",
     telemetryExport: "Telemetry export",
-    storage: "Object storage",
-    errorTracking: "Error tracking",
   });
 
 const STATUS_LABELS = Object.freeze({

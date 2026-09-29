@@ -24,8 +24,6 @@ const summary = (
     emailDelivery: false,
     analytics: false,
     telemetryExport: false,
-    storage: false,
-    errorTracking: false,
   },
   ...overrides,
 });
@@ -72,8 +70,6 @@ describe("toDashboardViewModel", () => {
             emailDelivery: false,
             analytics: true,
             telemetryExport: false,
-            storage: false,
-            errorTracking: false,
           },
         }),
       })
@@ -92,8 +88,6 @@ describe("toDashboardViewModel", () => {
         capability("emailDelivery", "Email delivery", false),
         capability("analytics", "Product analytics", true),
         capability("telemetryExport", "Telemetry export", false),
-        capability("storage", "Object storage", false),
-        capability("errorTracking", "Error tracking", false),
       ],
       recentItems: [
         {
