@@ -3182,6 +3182,39 @@ describe("repository residual boundaries", () => {
     });
   });
 
+  it("persists every supported address patch field with the default clock", async () => {
+    const updatedAddress = {
+      ...ADDRESS_ROW,
+      type: "work" as const,
+      region: "CA",
+      postalCode: "90210",
+    };
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW]],
+      update: [[updatedAddress]],
+    });
+    const repository = createAddressRepository(double.database);
+
+    await expect(
+      repository.update({
+        id: "address_home",
+        userId: "user_alice",
+        type: "work",
+        region: "CA",
+        postalCode: "90210",
+      })
+    ).resolves.toEqual(updatedAddress);
+    const update = double.operations.find(
+      (operation) => operation.kind === "update"
+    );
+    return expect(update?.value).toEqual({
+      type: "work",
+      region: "CA",
+      postalCode: "90210",
+      updatedAt: expect.any(Date),
+    });
+  });
+
   it("terminates cyclic provider causes and preserves the original failure", async () => {
     const providerFailure = new Error("cyclic provider failure") as Error & {
       cause?: unknown;
@@ -3228,6 +3261,61 @@ describe("repository residual boundaries", () => {
         expectedUpdatedAt: null,
       })
     ).rejects.toBe(providerFailure);
+  });
+
+  it("uses the current clock as the next optimistic version when it is ahead of the expected version", async () => {
+    const profileDouble = createQueryDatabaseDouble({
+      update: [[PROFILE_ROW]],
+    });
+    const profileRepository = createProfileRepository(profileDouble.database, {
+      now: () => FIXED_NOW,
+    });
+    await expect(
+      profileRepository.updateOptimistic({
+        ...PROFILE_INPUT,
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      })
+    ).resolves.toEqual(PROFILE_ROW);
+    expect(profileDouble.operations[0]).toMatchObject({
+      kind: "update",
+      table: "profiles",
+      value: { updatedAt: FIXED_NOW },
+    });
+
+    const theme = {
+      mode: "dark" as const,
+      colorScheme: "violet" as const,
+      updatedAt: FIXED_NOW,
+    };
+    const preferencesDouble = createQueryDatabaseDouble({
+      update: [[theme], [PREFERENCES_ROW]],
+    });
+    const preferencesRepository = createUserPreferencesRepository(
+      preferencesDouble.database,
+      { now: () => FIXED_NOW }
+    );
+    await expect(
+      preferencesRepository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "violet",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      })
+    ).resolves.toEqual(theme);
+    await expect(
+      preferencesRepository.updateOptimistic({
+        userId: "user_alice",
+        emailNotifications: true,
+        productUpdates: true,
+        analyticsConsent: false,
+        personalizationConsent: false,
+        profileVisibility: "private",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      })
+    ).resolves.toEqual(PREFERENCES_ROW);
+    return expect(
+      preferencesDouble.operations.map((operation) => operation.value)
+    ).toMatchObject([{ updatedAt: FIXED_NOW }, { updatedAt: FIXED_NOW }]);
   });
 
   return it("returns null when non-optimistic address writes lose a row after lookup", async () => {

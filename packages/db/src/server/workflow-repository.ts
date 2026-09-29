@@ -2735,9 +2735,9 @@ export const createWorkflowRepository = (
           input.append.runId,
           input.ownerId
         );
-        const finalized =
+        const finalized = await transaction.execute(
           input.terminal === "completed"
-            ? await transaction.execute(sql`
+            ? sql`
               update outbox_events
               set published_at = clock_timestamp(),
                   lease_owner = null,
@@ -2752,8 +2752,8 @@ export const createWorkflowRepository = (
                 and published_at is null
                 and dead_at is null
               returning id
-            `)
-            : await transaction.execute(sql`
+            `
+            : sql`
               update outbox_events
               set attempt_count = attempt_count + 1,
                   last_error = ${terminalError},
@@ -2769,7 +2769,8 @@ export const createWorkflowRepository = (
                 and published_at is null
                 and dead_at is null
               returning id
-            `);
+            `
+        );
         if (
           (finalized as unknown as QueryRows<{ id: string }>).rows.length !== 1
         ) {

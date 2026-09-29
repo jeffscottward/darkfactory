@@ -107,6 +107,23 @@ describe("workflow plan evidence", () => {
         digest: hashWorkflowPlanEvidenceV1(truncated),
       })
     ).toThrow("Workflow plan evidence is incomplete");
+    for (const summary of [
+      " \n\t ",
+      "é".repeat(MAX_WORKFLOW_PLAN_SUMMARY_BYTES / 2 + 1),
+    ]) {
+      const unreviewable = {
+        version: 1 as const,
+        summary,
+        truncated: false,
+        redacted: false,
+      };
+      expect(() =>
+        parseWorkflowPlanEvidenceV1({
+          ...unreviewable,
+          digest: hashWorkflowPlanEvidenceV1(unreviewable),
+        })
+      ).toThrow("Workflow plan summary is not safely reviewable");
+    }
     expect(() =>
       parseWorkflowPlanEvidenceV1(
         {

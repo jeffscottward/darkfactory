@@ -138,8 +138,7 @@ export const OperatorRunDetail = ({
     deadlineTimer.current = window.setTimeout(() => {
       if (automaticGeneration.current !== session) return;
       cancelAutomaticRefresh();
-      if (mounted.current) return setAutoRefreshStatus("paused");
-      return;
+      return setAutoRefreshStatus("paused");
     }, AUTO_REFRESH_SESSION_MS);
     return session;
   }, [cancelAutomaticRefresh]);

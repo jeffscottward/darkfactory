@@ -111,6 +111,33 @@ describe("setupFlowMachine", () => {
     return expect(result).toBe(context);
   });
 
+  it.each([
+    "setDetailsComplete",
+    "recordFailure",
+  ] as const)("preserves context when %s receives another event", (name) => {
+    const context: SetupFlowContext = {
+      detailsComplete: true,
+      preferencesComplete: false,
+      submissionAttempts: 0,
+      error: null,
+    };
+    const action = setupFlowMachine.implementations.actions[
+      name
+    ] as unknown as {
+      assignment: (args: {
+        context: SetupFlowContext;
+        event: SetupFlowEvent;
+      }) => SetupFlowContext;
+    };
+
+    const result = action.assignment({
+      context,
+      event: { type: "NEXT" },
+    });
+
+    return expect(result).toBe(context);
+  });
+
   it("ignores submit outcomes outside the submitting state", () => {
     const actor = startFlow();
 

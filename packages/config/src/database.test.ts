@@ -66,6 +66,18 @@ describe("validateRequestDatabaseEndpoint", () => {
       /PostgreSQL URL/,
     ],
     [
+      "a PlanetScale provider and a non-PlanetScale host",
+      "planetscale",
+      "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
+      /hostname ending in \.pg\.psdb\.cloud/,
+    ],
+    [
+      "a PlanetScale provider and a bare PlanetScale suffix host",
+      "planetscale",
+      "postgresql://private-user:private-password@.pg.psdb.cloud:6432/darkfactory?sslmode=verify-full",
+      /hostname ending in \.pg\.psdb\.cloud/,
+    ],
+    [
       "a generic host without a documented pooled-host pattern",
       "postgres",
       "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",

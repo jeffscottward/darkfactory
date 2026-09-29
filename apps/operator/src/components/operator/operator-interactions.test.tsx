@@ -1556,6 +1556,38 @@ describe("operator run detail behavior", () => {
     ).toBeDefined();
   });
 
+  it("drops an automatic read failure that settles after unmount", async () => {
+    vi.useFakeTimers();
+    const pollResponse = deferred<OperatorRunDetailOutput>();
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce(detail({ state: "planning" }))
+      .mockImplementationOnce(() => pollResponse.promise);
+    const { unmount } = render(
+      <OperatorRunDetail gateway={gatewayWith({ detail: load })} id="run-1" />
+    );
+    await act(async () => {
+      await Promise.resolve();
+      return await Promise.resolve();
+    });
+
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000));
+    expect(load).toHaveBeenCalledTimes(2);
+    unmount();
+    await act(async () => {
+      pollResponse.reject(new Error("late automatic failure"));
+      return await Promise.resolve();
+    });
+    await act(async () => await vi.advanceTimersByTimeAsync(10_000));
+
+    expect(load).toHaveBeenCalledTimes(2);
+    return expect(
+      screen.queryByText(
+        "An automatic update failed. Retrying until this update session ends."
+      )
+    ).toBeNull();
+  });
+
   it("pauses automatic updates when a poll reaches a terminal state", async () => {
     vi.useFakeTimers();
     const load = vi

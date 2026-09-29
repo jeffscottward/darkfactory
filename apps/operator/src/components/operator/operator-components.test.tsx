@@ -325,13 +325,18 @@ describe("operator workflow components", () => {
       <ApprovalPanel
         approval={approval}
         busyAction={null}
-        implementationPlan={{ ...implementationPlan, truncated: true }}
+        implementationPlan={{
+          ...implementationPlan,
+          truncated: true,
+          redacted: false,
+        }}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
       />
     );
     expect(truncatedPlan).toContain("incomplete and cannot be approved");
+    expect(truncatedPlan).not.toContain("Sensitive values were redacted.");
     expect(truncatedPlan.match(/disabled=""/g)).toHaveLength(1);
 
     const conflicted = renderToStaticMarkup(
