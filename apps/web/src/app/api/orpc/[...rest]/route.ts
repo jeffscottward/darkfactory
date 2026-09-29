@@ -37,6 +37,7 @@ import {
 import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
 import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
+import { resolveDatabaseRequestBinding } from "../../../../server/database-binding.ts";
 import {
   bufferContactRequest,
   createContactThrottleKey,
@@ -241,7 +242,10 @@ export const handleOrpcRuntimeRequest = async (
       },
       scheduleBackgroundTask,
       async (span) => {
-        const databaseProfile = composeDatabaseProfile(env);
+        const databaseProfile = composeDatabaseProfile(
+          env,
+          resolveDatabaseRequestBinding()
+        );
         const sink = createEvlogSink({
           runtime: evlogFor(env),
           request: effectiveRequest,

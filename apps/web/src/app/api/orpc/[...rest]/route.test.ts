@@ -111,6 +111,10 @@ const mocks = vi.hoisted(() => {
     composeDatabaseProfile: vi.fn(() => ({
       connection: { connectionString: "postgres://configured.invalid/db" },
     })),
+    resolveDatabaseRequestBinding: vi.fn(() => ({
+      connectionString: "postgres://hyperdrive.invalid/db",
+      trustedPlatform: "cloudflare-hyperdrive",
+    })),
     parseServerEnv: vi.fn(() => ({
       APP_ENV: "test",
       APP_URL: "https://darkfactory.localhost",
@@ -194,6 +198,9 @@ vi.mock("@darkfactory/observability/server/otel", () => ({
   initializeTelemetry: mocks.initializeTelemetry,
 }));
 vi.mock("./handler.ts", () => ({ handleOrpcRequest: mocks.handleOrpcRequest }));
+vi.mock("../../../../server/database-binding.ts", () => ({
+  resolveDatabaseRequestBinding: mocks.resolveDatabaseRequestBinding,
+}));
 vi.mock(
   "../../../../lib/background-task-lifecycle.ts",
   async (importOriginal) => {
@@ -487,6 +494,10 @@ describe("oRPC Worker route provider composition", () => {
       connectionString: "postgres://configured.invalid/db",
       diagnosticSink: expect.any(Function),
     });
+    expect(mocks.composeDatabaseProfile).toHaveBeenCalledWith(
+      mocks.parseServerEnv.mock.results.at(-1)!.value,
+      mocks.resolveDatabaseRequestBinding.mock.results.at(-1)!.value
+    );
     const requestSink = mocks.createEvlogSink.mock.results[0]!.value;
     expect(mocks.createSemanticEventFanout).toHaveBeenCalledWith(
       expect.objectContaining({ sink: requestSink })

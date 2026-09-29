@@ -51,6 +51,14 @@
   },
   "overrides": [
     {
+      "includes": ["apps/web/wrangler.jsonc"],
+      "json": {
+        "parser": {
+          "allowComments": true
+        }
+      }
+    },
+    {
       "includes": [
         "**/*.test.ts",
         "**/*.test.tsx",

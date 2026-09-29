@@ -15,6 +15,7 @@ import {
 import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
 import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
+import { resolveDatabaseRequestBinding } from "../../../../server/database-binding.ts";
 
 export type { BackgroundTaskScheduler } from "../../../../lib/background-task-lifecycle.ts";
 
@@ -38,7 +39,10 @@ export const handleAuthRequest = async (
     : { request, tooLarge: false };
   if (boundedRequest.tooLarge) return authPayloadTooLargeResponse();
   const effectiveRequest = boundedRequest.request;
-  const databaseProfile = composeDatabaseProfile(env);
+  const databaseProfile = composeDatabaseProfile(
+    env,
+    resolveDatabaseRequestBinding()
+  );
   const requestId = resolveApiRequestId(effectiveRequest);
   const evlogSink = createEvlogSink({
     runtime: initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME }),

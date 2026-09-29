@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => {
   const waitUntil = vi.fn((task: Promise<unknown>) => {
     return void task.catch(() => undefined);
   });
+  const requestBinding = Object.freeze({
+    connectionString: "postgres://hyperdrive.invalid/db",
+    trustedPlatform: "cloudflare-hyperdrive",
+  });
   return {
     close,
     finalize,
@@ -40,6 +44,8 @@ const mocks = vi.hoisted(() => {
     composeDatabaseProfile: vi.fn(() => ({
       connection: { connectionString: "postgres://configured.invalid/db" },
     })),
+    requestBinding,
+    resolveDatabaseRequestBinding: vi.fn(() => requestBinding),
     createRequestDatabase: vi.fn(
       async (
         options: Readonly<{
@@ -121,6 +127,9 @@ vi.mock("../../../../lib/e2e-fixtures.ts", () => ({
 vi.mock("../../../../lib/background-task-lifecycle.ts", () => ({
   createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
 }));
+vi.mock("../../../../server/database-binding.ts", () => ({
+  resolveDatabaseRequestBinding: mocks.resolveDatabaseRequestBinding,
+}));
 vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }));
 
 import { handleStrictSignOutRequest } from "../strict-sign-out/handler.ts";
@@ -191,6 +200,10 @@ describe("auth route rate-limit configuration", () => {
     expect(authDatabaseOptions.diagnosticSink).not.toBe(
       strictDatabaseOptions.diagnosticSink
     );
+    expect(mocks.composeDatabaseProfile.mock.calls).toEqual([
+      [mocks.parseServerEnv.mock.results[0]!.value, mocks.requestBinding],
+      [mocks.parseServerEnv.mock.results[1]!.value, mocks.requestBinding],
+    ]);
     expect(mocks.createEvlogSink).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({

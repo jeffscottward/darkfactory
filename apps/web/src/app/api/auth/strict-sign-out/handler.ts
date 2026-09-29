@@ -15,6 +15,7 @@ import {
 } from "../../../../lib/background-task-lifecycle.ts";
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
 import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
+import { resolveDatabaseRequestBinding } from "../../../../server/database-binding.ts";
 
 export const handleStrictSignOutRequest = async (
   request: Request,
@@ -22,7 +23,10 @@ export const handleStrictSignOutRequest = async (
 ): Promise<Response> => {
   const env = parseServerEnv(process.env);
   const previewOptions = resolveE2eEmailPreviewOptions();
-  const databaseProfile = composeDatabaseProfile(env);
+  const databaseProfile = composeDatabaseProfile(
+    env,
+    resolveDatabaseRequestBinding()
+  );
   const requestId = resolveApiRequestId(request);
   const evlogSink = createEvlogSink({
     runtime: initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME }),

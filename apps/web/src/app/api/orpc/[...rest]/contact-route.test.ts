@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }));
+vi.mock("cloudflare:workers", () => ({ env: {}, waitUntil: mocks.waitUntil }));
 vi.mock("@darkfactory/analytics/server/posthog", () => ({
   createPostHogAnalyticsPort: () => ({ capture: vi.fn() }),
 }));

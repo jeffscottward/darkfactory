@@ -32,6 +32,9 @@ import {
 } from "vitest";
 import { handleAuthRequest } from "../../../apps/web/src/app/api/auth/[...all]/handler.ts";
 
+// The handler runs in Node here: an empty Worker env means no Hyperdrive binding, so DATABASE_URL is used.
+vi.mock("cloudflare:workers", () => ({ env: {} }));
+
 const BASE_URL = "https://darkfactory.localhost";
 const AUTH_SECRET = "integration-auth-secret-with-at-least-32-characters";
 const INITIAL_PASSWORD = "CorrectHorseBatteryStaple!42";
