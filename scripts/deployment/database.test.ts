@@ -15,6 +15,21 @@ const productionEnvironment = (
   DATABASE_URL: databaseUrl,
 });
 
+const hyperdriveBinding = (id = "0123456789abcdef0123456789abcdef") =>
+  `"hyperdrive": [{ "binding": "HYPERDRIVE", "id": "${id}" }]`;
+const wrangler =
+  (topLevel: string, staging = `"vars": {}`) =>
+  () =>
+    `{
+    // JSONC comments must not break the check.
+    ${topLevel},
+    "env": { "staging": { ${staging} } }
+  }`;
+const hyperdriveWrangler = wrangler(
+  `"vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding()}`,
+  `"vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding()}`
+);
+
 describe("production web database deployment check", () => {
   it("accepts the current PlanetScale provider-managed PgBouncer endpoint", () =>
     expect(
@@ -26,6 +41,51 @@ describe("production web database deployment check", () => {
       message:
         "Production web DATABASE_URL uses the provider-managed PlanetScale PgBouncer endpoint on port 6432 with sslmode=verify-full",
     }));
+
+  it.each([
+    {
+      provider: "postgres",
+      databaseUrl:
+        "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
+      readConfig: undefined,
+    },
+    {
+      provider: "hyperdrive",
+      databaseUrl: undefined,
+      readConfig: hyperdriveWrangler,
+    },
+    {
+      provider: "hyperdrive",
+      databaseUrl: " ",
+      readConfig: wrangler(
+        `"vars": { "DATABASE_PROVIDER": "planetscale" }`,
+        `"vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding()}`
+      ),
+    },
+    {
+      provider: "hyperdrive",
+      databaseUrl: undefined,
+      readConfig: () =>
+        `{ "vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding()} }`,
+    },
+  ])("accepts the $provider production profile with its profile message", ({
+    provider,
+    databaseUrl,
+    readConfig,
+  }) => {
+    const report = checkProductionWebDatabaseEndpoint(
+      { DATABASE_PROVIDER: provider, DATABASE_URL: databaseUrl },
+      readConfig
+    );
+
+    return expect(report).toEqual({
+      ok: true,
+      message:
+        databaseConfig.DATABASE_PROVIDER_PROFILES[
+          provider as databaseConfig.DatabaseProvider
+        ].productionRequirement,
+    });
+  });
 
   it.each([
     [
@@ -53,19 +113,89 @@ describe("production web database deployment check", () => {
     return expect(report.message).not.toContain("private-password");
   });
 
-  it("rejects an undocumented generic pooled-host assertion", () => {
-    const report = checkProductionWebDatabaseEndpoint({
-      DATABASE_PROVIDER: "postgres",
-      DATABASE_URL:
-        "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
-    });
-
-    expect(report).toMatchObject({
-      ok: false,
-      message: expect.stringMatching(
-        /explicitly supported provider-managed pooled endpoint/
+  it.each([
+    {
+      label: "a local postgres host",
+      source: {
+        DATABASE_PROVIDER: "postgres",
+        DATABASE_URL:
+          "postgresql://private-user:private-password@localhost:5432/darkfactory?sslmode=verify-full",
+      },
+      readConfig: undefined,
+      message: /must use a non-local host/,
+    },
+    {
+      label: "a direct URL beside Hyperdrive",
+      source: {
+        DATABASE_PROVIDER: "hyperdrive",
+        DATABASE_URL: pooledDatabaseUrl,
+      },
+      readConfig: hyperdriveWrangler,
+      message: /DATABASE_URL must be absent/,
+    },
+    {
+      label: "Hyperdrive without a declared binding",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: undefined,
+      message:
+        /DATABASE_PROVIDER=hyperdrive requires apps\/web\/wrangler\.jsonc to set DATABASE_PROVIDER=hyperdrive and declare a HYPERDRIVE binding/,
+    },
+    {
+      label: "a Hyperdrive environment that relies on inherited bindings",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: wrangler(
+        `"vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding()}`,
+        `"vars": { "DATABASE_PROVIDER": "hyperdrive" }`
       ),
-    });
+      message:
+        /apps\/web\/wrangler\.jsonc env\.staging must declare a HYPERDRIVE binding exactly when its DATABASE_PROVIDER var is hyperdrive/,
+    },
+    {
+      label: "a HYPERDRIVE binding under another provider",
+      source: productionEnvironment(pooledDatabaseUrl),
+      readConfig: wrangler(
+        `"vars": { "DATABASE_PROVIDER": "planetscale" }, ${hyperdriveBinding()}`
+      ),
+      message: /top-level must declare a HYPERDRIVE binding exactly when/,
+    },
+    {
+      label: "a HYPERDRIVE binding without an id",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: wrangler(
+        `"vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding(" ")}`
+      ),
+      message: /top-level must declare a HYPERDRIVE binding exactly when/,
+    },
+    {
+      label: "a non-object wrangler environment",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: () => `{ "env": { "staging": [] } }`,
+      message: /apps\/web\/wrangler\.jsonc env\.staging must be an object/,
+    },
+    {
+      label: "an unparseable wrangler config",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: () => "{ not json",
+      message: /apps\/web\/wrangler\.jsonc could not be parsed/,
+    },
+    {
+      label: "a non-object wrangler config",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: () => "[]",
+      message: /apps\/web\/wrangler\.jsonc could not be parsed/,
+    },
+    {
+      label: "an unreadable wrangler config",
+      source: { DATABASE_PROVIDER: "hyperdrive" },
+      readConfig: () => {
+        throw new Error("EACCES private path");
+      },
+      message: /^apps\/web\/wrangler\.jsonc could not be read$/,
+    },
+  ])("rejects $label", ({ source, readConfig, message }) => {
+    const report = checkProductionWebDatabaseEndpoint(source, readConfig);
+
+    expect(report).toMatchObject({ ok: false, message });
     return expect(report.message).not.toContain("private-password");
   });
 
@@ -78,7 +208,7 @@ describe("production web database deployment check", () => {
     ).toEqual({
       ok: false,
       message:
-        "DATABASE_PROVIDER must be planetscale or postgres for production web deployment",
+        "DATABASE_PROVIDER must be one of postgres, planetscale, hyperdrive for production web deployment",
     });
     return expect(
       checkProductionWebDatabaseEndpoint({

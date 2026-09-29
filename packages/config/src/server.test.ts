@@ -35,9 +35,9 @@ describe("parseServerEnv", () => {
     expect(error.message).toContain("BETTER_AUTH_SECRET");
     expect(error.message).toContain("CONTACT_THROTTLE_SECRET");
     return expect(error.issues.map(({ path }) => path)).toEqual([
-      "DATABASE_URL",
       "BETTER_AUTH_SECRET",
       "CONTACT_THROTTLE_SECRET",
+      "DATABASE_URL",
     ]);
   });
 
@@ -77,7 +77,7 @@ describe("parseServerEnv", () => {
       APP_ENV: "development",
       APP_URL: CANONICAL_APP_URL,
       APP_NAME: "DarkFactory",
-      DATABASE_PROVIDER: "planetscale",
+      DATABASE_PROVIDER: "postgres",
       BETTER_AUTH_URL: CANONICAL_APP_URL,
       AI_PROVIDER: "groq",
       EMAIL_PROVIDER: "resend",
@@ -480,6 +480,8 @@ describe("parseServerEnv", () => {
     "https://localhost.",
     "https://app.darkfactory.localhost.",
     "https://[::ffff:127.0.0.1]",
+    "https://169.254.169.254",
+    "https://[fe80::1]",
   ])("rejects the local production origin %s", (applicationUrl) => {
     const error = captureValidationError({
       ...validCoreEnv(),
@@ -528,6 +530,7 @@ describe("parseServerEnv", () => {
     const error = captureValidationError({
       ...validCoreEnv(),
       APP_ENV: "production",
+      DATABASE_PROVIDER: "planetscale",
       APP_URL: applicationUrl,
       BETTER_AUTH_URL: applicationUrl,
       DATABASE_URL: directDatabaseUrl,
@@ -541,6 +544,87 @@ describe("parseServerEnv", () => {
     });
     expect(error.message).not.toContain(directDatabaseUrl);
     return expect(error.message).not.toContain("private-password");
+  });
+
+  it.each([
+    {
+      label: "hyperdrive without DATABASE_URL in production",
+      overrides: {
+        APP_ENV: "production",
+        DATABASE_PROVIDER: "hyperdrive",
+        DATABASE_URL: undefined,
+      },
+      issue: undefined,
+    },
+    {
+      label: "hyperdrive with a blank DATABASE_URL in production",
+      overrides: {
+        APP_ENV: "production",
+        DATABASE_PROVIDER: "hyperdrive",
+        DATABASE_URL: "  ",
+      },
+      issue: undefined,
+    },
+    {
+      label: "hyperdrive without DATABASE_URL in development",
+      overrides: { DATABASE_PROVIDER: "hyperdrive", DATABASE_URL: undefined },
+      issue: undefined,
+    },
+    {
+      label: "a remote verified postgres host in production",
+      overrides: {
+        APP_ENV: "production",
+        DATABASE_URL:
+          "postgresql://db.example.com:5432/darkfactory?sslmode=verify-full",
+      },
+      issue: undefined,
+    },
+    {
+      label: "hyperdrive beside a direct DATABASE_URL in production",
+      overrides: {
+        APP_ENV: "production",
+        DATABASE_PROVIDER: "hyperdrive",
+        DATABASE_URL:
+          "postgresql://db.example.com:5432/darkfactory?sslmode=verify-full",
+      },
+      issue:
+        "DATABASE_URL must be absent in production when DATABASE_PROVIDER=hyperdrive; the HYPERDRIVE binding supplies the connection",
+    },
+    {
+      label: "a loopback postgres host in production",
+      overrides: {
+        APP_ENV: "production",
+        DATABASE_URL: "postgresql://127.1:5432/darkfactory?sslmode=verify-full",
+      },
+      issue:
+        "Production postgres DATABASE_URL must use a non-local host; loopback, *.localhost, unspecified and link-local addresses are rejected",
+    },
+    {
+      label: "postgres without DATABASE_URL",
+      overrides: { DATABASE_PROVIDER: "postgres", DATABASE_URL: undefined },
+      issue: "DATABASE_URL is required",
+    },
+    {
+      label: "planetscale with a blank DATABASE_URL",
+      overrides: { DATABASE_PROVIDER: "planetscale", DATABASE_URL: " " },
+      issue: "DATABASE_URL is required",
+    },
+  ])("applies the database profile to $label", ({ overrides, issue }) => {
+    const applicationUrl = "https://app.darkfactory.example";
+    const source = {
+      ...validCoreEnv(),
+      APP_URL: applicationUrl,
+      BETTER_AUTH_URL: applicationUrl,
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "r".repeat(32),
+      ...overrides,
+    };
+    if (issue === undefined) {
+      return expect(() => parseServerEnv(source)).not.toThrow();
+    }
+    return expect(captureValidationError(source).issues).toEqual([
+      { path: "DATABASE_URL", message: issue },
+    ]);
   });
 
   it("does not convert unexpected database endpoint validator failures", () => {
