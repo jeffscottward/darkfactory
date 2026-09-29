@@ -32,6 +32,30 @@ const TEMPLATE_IDENTITY = /darkfactory|jeffscott/giu;
 // reason. Keep it empty: every entry is identity leaking into a new project.
 const ALLOWED_LEFTOVERS: readonly string[] = [];
 
+// A clone that never starts background Git work. `git commit` runs a detached
+// `git maintenance run --auto`, which once kept writing `.git` while the test
+// deleted it (ENOTEMPTY); a user-enabled fsmonitor daemon would do the same.
+const cloneRepository = (clone: string): void => {
+  execFileSync(
+    "git",
+    [
+      "clone",
+      "--quiet",
+      "--local",
+      "--no-hardlinks",
+      "--config=gc.auto=0",
+      "--config=maintenance.auto=false",
+      "--config=core.fsmonitor=false",
+      repositoryRoot,
+      clone,
+    ],
+    { env: cloneEnvironment }
+  );
+};
+// Retries only cover a filesystem still settling; nothing runs in the clone.
+const removeClone = (directory: string): Promise<void> =>
+  rm(directory, { recursive: true, force: true, maxRetries: 3 });
+
 afterEach(() => {
   process.argv = [...originalArguments];
   process.exitCode = originalExitCode;
@@ -44,18 +68,7 @@ describe("bun run init", () => {
     const directory = await mkdtemp(join(tmpdir(), "init-clone-"));
     try {
       const clone = join(directory, "project");
-      execFileSync(
-        "git",
-        [
-          "clone",
-          "--quiet",
-          "--local",
-          "--no-hardlinks",
-          repositoryRoot,
-          clone,
-        ],
-        { env: cloneEnvironment }
-      );
+      cloneRepository(clone);
       vi.spyOn(process.stdout, "write").mockImplementation(() => true);
       const dependencies = nodeInitDependencies(clone);
 
@@ -125,7 +138,7 @@ describe("bun run init", () => {
         "This project is already initialized (capabilities.yaml project.slug is acme-labs); pass --force to re-run.\n"
       );
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await removeClone(directory);
     }
   }, 180_000);
 
@@ -164,18 +177,7 @@ describe("bun run init", () => {
       }
     };
     try {
-      execFileSync(
-        "git",
-        [
-          "clone",
-          "--quiet",
-          "--local",
-          "--no-hardlinks",
-          repositoryRoot,
-          clone,
-        ],
-        { env: cloneEnvironment }
-      );
+      cloneRepository(clone);
       vi.spyOn(process.stdout, "write").mockImplementation(() => true);
       const errors = vi
         .spyOn(process.stderr, "write")
@@ -226,29 +228,22 @@ describe("bun run init", () => {
       expect(await read("packages/config/src/server.ts")).not.toMatch(
         /WORKFLOW_/u
       );
-      const importsPlane =
-        /(?:\bfrom\s*|\bimport\s*\(\s*|\bmock\s*\(\s*)["']@acme\/(?:jobs|operator)\b/u;
-      const importers: string[] = [];
-      for (const path of paths.filter((path) =>
-        /\.[cm]?[jt]sx?$/u.test(path)
-      )) {
-        if (importsPlane.test(await read(path))) importers.push(path);
-      }
-      expect(importers).toEqual([]);
 
-      // The renamed project passes its own gates.
+      // The renamed project passes its own gates; typecheck (in `check`)
+      // fails on any import of a deleted package.
       for (const script of [
         "check",
         "docs:check",
         "test:unit",
         "test:operations",
       ]) {
-        expect(await execute("bun", ["run", script])).toBe(0);
+        await execute("bun", ["run", script]);
       }
+      // Each failure carries its command and output tail.
       expect(failures).toEqual([]);
     } finally {
       vi.unstubAllEnvs();
-      await rm(directory, { recursive: true, force: true });
+      await removeClone(directory);
     }
   }, 900_000);
 });
