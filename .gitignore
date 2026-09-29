@@ -27,6 +27,8 @@ graphify-out/
 # Local agent recovery artifacts
 .session-recovery/
 /.scratch/
+# Per-machine agent checkpoint; never publish session state.
+/.omp-status.md
 
 # Environment and local credentials
 .env
