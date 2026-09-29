@@ -7,7 +7,7 @@ import {
   RequestDatabaseEndpointError,
   validateRequestDatabaseEndpoint,
 } from "@darkfactory/config/database";
-import ts from "typescript";
+import { type ParseError, parse as parseJsonc } from "jsonc-parser";
 
 export type DeploymentEnvironment = Readonly<
   Record<string, string | undefined>
@@ -64,11 +64,11 @@ const wranglerHyperdriveProblem = (
   source: string,
   provider: DatabaseProvider
 ): string | undefined => {
-  const { config, error } = ts.parseConfigFileTextToJson(
-    WRANGLER_CONFIG_PATH,
-    source
-  );
-  if (error !== undefined || !isConfigObject(config)) {
+  const errors: ParseError[] = [];
+  const config: unknown = parseJsonc(source, errors, {
+    allowTrailingComma: true,
+  });
+  if (errors.length > 0 || !isConfigObject(config)) {
     return `${WRANGLER_CONFIG_PATH} could not be parsed`;
   }
   const namedEnvironments = isConfigObject(config["env"])
