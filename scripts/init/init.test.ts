@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withoutGitRepositoryEnvironment } from "../lib/git-env.ts";
 import { regularFilesOf, runInit } from "./apply.ts";
 import { isBinary, parseInitArguments, planInit } from "./plan.ts";
 import { nodeInitDependencies } from "./system.ts";
@@ -11,6 +12,8 @@ import { nodeInitDependencies } from "./system.ts";
 const originalArguments = [...process.argv];
 const originalExitCode = process.exitCode;
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+// Git hooks export GIT_DIR/GIT_INDEX_FILE; the clone must never inherit them.
+const cloneEnvironment = withoutGitRepositoryEnvironment(process.env);
 const IDENTITY_ARGUMENTS = [
   "--name",
   "Acme Labs",
@@ -58,14 +61,18 @@ describe("bun run init", () => {
     const directory = await mkdtemp(join(tmpdir(), "init-clone-"));
     try {
       const clone = join(directory, "project");
-      execFileSync("git", [
-        "clone",
-        "--quiet",
-        "--local",
-        "--no-hardlinks",
-        repositoryRoot,
-        clone,
-      ]);
+      execFileSync(
+        "git",
+        [
+          "clone",
+          "--quiet",
+          "--local",
+          "--no-hardlinks",
+          repositoryRoot,
+          clone,
+        ],
+        { env: cloneEnvironment }
+      );
       vi.spyOn(process.stdout, "write").mockImplementation(() => true);
       const dependencies = nodeInitDependencies(clone);
 
@@ -77,6 +84,7 @@ describe("bun run init", () => {
         execFileSync("git", ["ls-files", "-s", "-z"], {
           cwd: clone,
           encoding: "utf8",
+          env: cloneEnvironment,
           maxBuffer: 64 * 1024 * 1024,
         })
       );
@@ -124,7 +132,7 @@ describe("bun run init", () => {
           "-m",
           "chore: initialize project",
         ],
-        { cwd: clone }
+        { cwd: clone, env: cloneEnvironment }
       );
       const stderr = vi
         .spyOn(process.stderr, "write")

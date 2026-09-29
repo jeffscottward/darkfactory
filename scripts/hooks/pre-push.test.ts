@@ -136,6 +136,47 @@ describe("source-bound pre-push", () => {
     ).toBe(true);
   });
 
+  it("isolates verification lanes from the hook's repository environment", () => {
+    const hookEnvironment = {
+      GIT_DIR: "/outer/.git",
+      GIT_INDEX_FILE: "/outer/.git/index",
+      GIT_WORK_TREE: "/outer",
+      GIT_SSH_COMMAND: "ssh -i key",
+      GIT_ASKPASS: "/bin/askpass",
+    };
+    const previous = Object.fromEntries(
+      Object.keys(hookEnvironment).map((key) => [key, process.env[key]])
+    );
+    Object.assign(process.env, hookEnvironment);
+    try {
+      expect(run()).toBe(0);
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) Reflect.deleteProperty(process.env, key);
+        else process.env[key] = value;
+      }
+    }
+    const laneCalls = mocks.spawnSync.mock.calls.filter(
+      ([executable, arguments_]) =>
+        executable === "bun" && arguments_[0] === "run"
+    );
+    expect(laneCalls).toHaveLength(1);
+    const laneEnvironment = laneCalls[0]?.[2].env as NodeJS.ProcessEnv;
+    for (const key of ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"]) {
+      expect(laneEnvironment).not.toHaveProperty(key);
+    }
+    expect(laneEnvironment).toMatchObject({
+      GIT_SSH_COMMAND: "ssh -i key",
+      GIT_ASKPASS: "/bin/askpass",
+    });
+    // The hook's own checks still target the pushing repository.
+    return expect(
+      mocks.spawnSync.mock.calls
+        .filter(([executable]) => executable === "git")
+        .every(([, , options]) => !("env" in options))
+    ).toBe(true);
+  });
+
   it("blocks publication when core fails", () => {
     mocks.spawnSync.mockImplementation((executable, arguments_) => {
       if (executable === "bun" && arguments_[1] === "verify:prepush") {

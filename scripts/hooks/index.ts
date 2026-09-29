@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readSync } from "node:fs";
 import { extname } from "node:path";
 import { inspectBunRuntime } from "../ci/bun-runtime.ts";
+import { withoutGitRepositoryEnvironment } from "../lib/git-env.ts";
 
 const BIOME_EXTENSIONS = new Set([
   ".cjs",
@@ -102,7 +103,8 @@ type BunScriptRunner = (
 
 function runBunScripts(
   scripts: readonly string[],
-  paths: readonly string[] = []
+  paths: readonly string[] = [],
+  env?: NodeJS.ProcessEnv
 ) {
   const safePaths = paths.map((path) => `./${path}`);
 
@@ -112,6 +114,7 @@ function runBunScripts(
         ? ["run", script]
         : ["run", script, "--", ...safePaths];
     const result = spawnSync("bun", arguments_, {
+      ...(env === undefined ? {} : { env }),
       shell: false,
       stdio: "inherit",
     });
@@ -206,6 +209,13 @@ interface PushDependencies {
   readInput?: () => string;
   runScripts?: BunScriptRunner;
 }
+
+// Verification lanes spawn Git for other repositories (for example the init
+// test's temporary clone); Git's hook-exported GIT_DIR/GIT_INDEX_FILE would
+// redirect those commands into this worktree. The hook's own Git checks keep
+// the inherited environment because they target the pushing repository.
+const runPrePushScripts: BunScriptRunner = (scripts) =>
+  runBunScripts(scripts, [], withoutGitRepositoryEnvironment(process.env));
 
 function readPushInput(): string {
   const buffer = Buffer.alloc(MAX_PUSH_INPUT_BYTES + 1);
@@ -380,7 +390,7 @@ export function runPrePush(
     }
     warnBunRuntime();
     for (const script of PRE_PUSH_SCRIPTS) {
-      const status = (dependencies.runScripts ?? runBunScripts)([script]);
+      const status = (dependencies.runScripts ?? runPrePushScripts)([script]);
       if (status !== 0) {
         console.error(`[hook] mandatory local lane failed: ${script}`);
         return Number.isInteger(status) && status > 0 ? status : 1;

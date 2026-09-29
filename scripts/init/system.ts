@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { withoutGitRepositoryEnvironment } from "../lib/git-env.ts";
 import type { CommandResult, InitDependencies } from "./apply.ts";
 
 // Removes directories left empty by a move or delete, stopping at the root
@@ -26,6 +27,9 @@ const pruneEmptyParents = async (root: string, path: string): Promise<void> => {
   }
 };
 
+// Every command (git add/commit/ls-files, installs) targets `root`, so Git must
+// locate the repository from that cwd rather than from GIT_DIR/GIT_INDEX_FILE
+// inherited from an enclosing Git hook.
 export const nodeInitDependencies = (root: string): InitDependencies =>
   Object.freeze({
     capture: (command, arguments_) => {
@@ -36,6 +40,7 @@ export const nodeInitDependencies = (root: string): InitDependencies =>
         {
           cwd: root,
           encoding: "utf8",
+          env: withoutGitRepositoryEnvironment(process.env),
           maxBuffer: 256 * 1024 * 1024,
           windowsHide: true,
         },
@@ -52,6 +57,7 @@ export const nodeInitDependencies = (root: string): InitDependencies =>
       const { promise, resolve } = Promise.withResolvers<number>();
       const child = spawn(command, [...arguments_], {
         cwd: root,
+        env: withoutGitRepositoryEnvironment(process.env),
         stdio: "inherit",
       });
       child.once("error", () => resolve(127));
