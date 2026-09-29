@@ -48,10 +48,10 @@ describe("generate-feature path safety", function() {
     const root = resolve(sep, "workspace", "root")
 
     expect(isPathInside(root, root)).toBe(true)
-    expect(isPathInside(root, join(root, "nested", "file.civet"))).toBe(true)
+    expect(isPathInside(root, join(root, "nested", "file.ts"))).toBe(true)
     expect(isPathInside(root, dirname(root))).toBe(false)
     expect(isPathInside(root, `${root}-sibling`)).toBe(false)
-    expect(pathSafetyPredicatesForTest.isRelativeOffsetInside("child/file.civet")).toBe(true)
+    expect(pathSafetyPredicatesForTest.isRelativeOffsetInside("child/file.ts")).toBe(true)
     expect(pathSafetyPredicatesForTest.isRelativeOffsetInside(`..${sep}outside`)).toBe(false)
     expect(pathSafetyPredicatesForTest.isRelativeOffsetInside("..")).toBe(false)
     return expect(pathSafetyPredicatesForTest.isRelativeOffsetInside(resolve(sep, "other-volume"))).toBe(false)
@@ -66,7 +66,7 @@ describe("generate-feature path safety", function() {
   })
 
   it("accepts portable relative paths and rejects every unsafe shape", function() {
-    expect(() => assertSafeRelativePath("apps/web/src/features/item.civet")).not.toThrow()
+    expect(() => assertSafeRelativePath("apps/web/src/features/item.ts")).not.toThrow()
     const results=[];for (const unsafePath of [
       "",
       resolve(sep, "absolute"),
@@ -190,8 +190,8 @@ describe("generate-feature path safety", function() {
       replacementIdentity.device,
       replacementIdentity.inode,
     ]).not.toEqual([
-      identities[2].device,
-      identities[2].inode,
+      identities[2]?.device,
+      identities[2]?.inode,
     ])
     return await expect(assertDirectoryChain(identities)).rejects.toMatchObject({
       name: "GeneratorError",

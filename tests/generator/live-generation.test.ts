@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { compile } from "@danielx/civet"
+import ts from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
@@ -48,17 +48,17 @@ const registryPaths = [
 ] as const
 
 const liveCreatePaths = [
-  "apps/web/src/app/(portal)/order-items/page.civet",
-  "apps/web/src/features/order-item/feature.test.civet",
+  "apps/web/src/app/(portal)/order-items/page.tsx",
+  "apps/web/src/features/order-item/feature.test.ts",
   "apps/web/src/features/order-item/graphify.json",
-  "apps/web/src/features/order-item/index.civet",
-  "apps/web/src/features/order-item/names.civet",
+  "apps/web/src/features/order-item/index.ts",
+  "apps/web/src/features/order-item/names.ts",
   "docs/features/order-item.md",
-  "packages/api/src/generated/order-item/contract.civet",
-  "packages/api/src/generated/order-item/service.civet",
+  "packages/api/src/generated/order-item/contract.ts",
+  "packages/api/src/generated/order-item/service.ts",
   "packages/db/migrations/0000_order_items.sql",
-  "packages/db/src/generated/order-item/repository.civet",
-  "packages/db/src/generated/order-item/schema.civet",
+  "packages/db/src/generated/order-item/repository.ts",
+  "packages/db/src/generated/order-item/schema.ts",
 ] as const
 
 type LivePlannedFile = PlannedFile & Readonly<{
@@ -121,16 +121,20 @@ describe("DF-069 live feature registration", function() {
     })
   })
 
-  it("emits generated Civet consumers that the pinned compiler parses", async function() {
+  it("emits generated TypeScript consumers that the TypeScript parser accepts", async function() {
     const { root } = await fixture()
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
     const sources = liveFiles(plan).filter(
-      (file) => file.operation === "create" && file.path.endsWith(".civet"),
+      (file) => file.operation === "create" && /\.tsx?$/.test(file.path),
     )
+    const diagnostics = sources.flatMap((file) => ts.transpileModule(file.content, {
+      fileName: file.path,
+      reportDiagnostics: true,
+      compilerOptions: { jsx: ts.JsxEmit.Preserve, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).diagnostics ?? []).map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
 
-    return await expect(Promise.all(
-      sources.map((file) => compile(file.content, { filename: file.path })),
-    )).resolves.toHaveLength(sources.length)
+    expect(sources).toHaveLength(8)
+    return expect(diagnostics).toEqual([])
   })
 
   it("points generated ownership at the reserved auth user table", async function() {

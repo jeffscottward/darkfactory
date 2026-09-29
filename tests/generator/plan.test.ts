@@ -113,7 +113,7 @@ describe("generate-feature plan validators", function() {
       ["primitive", '"registry"'],
       ["array", "[]"],
       ["wrong root keys", '{"version":1}'],
-    ]) {
+    ] as const) {
       results.push(expect(
         () => generationPlanValidatorsForTest.parseRegistry(content),
         label,
@@ -285,7 +285,7 @@ describe("generate-feature plan validators", function() {
       ["primitive", '"journal"'],
       ["array", "[]"],
       ["wrong root keys", '{"version":"7"}'],
-    ]) {
+    ] as const) {
       expect(
         () => generationPlanValidatorsForTest.parseJournal(content),
         label,

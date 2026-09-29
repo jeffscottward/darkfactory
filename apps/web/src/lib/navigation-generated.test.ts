@@ -7,7 +7,7 @@ vi.mock("../features/generated-navigation.ts", () => ({
   ]),
   GENERATED_FEATURE_ROUTE_PATHS: Object.freeze(["/reports"]),
   GENERATED_FEATURE_ROUTE_PAGE_FILES: Object.freeze({
-    "/reports": "(portal)/reports/page.civet",
+    "/reports": "(portal)/reports/page.tsx",
   }),
 }))
 
@@ -25,7 +25,7 @@ describe("navigation composition", function() {
       icon: LayoutList,
     })
     expect(EXPOSED_ROUTE_PATHS).toContain("/reports")
-    return expect(ROUTE_PAGE_FILES["/reports"]).toBe("(portal)/reports/page.civet")
+    return expect(ROUTE_PAGE_FILES["/reports"]).toBe("(portal)/reports/page.tsx")
   })
 
   return it("keeps the local operator outside product navigation", function() {

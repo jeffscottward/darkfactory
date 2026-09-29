@@ -172,7 +172,7 @@ describe("DF-069 issued deterministic planning", function() {
     const { root } = await fixture()
     const collision = join(root, "apps/web/src/features/order-item")
     await mkdir(collision)
-    await writeFile(join(collision, "names.civet"), "user work", "utf8")
+    await writeFile(join(collision, "names.ts"), "user work", "utf8")
     const before = await listFixtureEntries(root)
 
     await expect(createGenerationPlan(root, validateFeatureName("order-item"))).rejects.toThrow(
@@ -332,7 +332,7 @@ describe("DF-069 transactional live apply and verification", function() {
       cleanup: "complete",
     })
     expect(await readFile(
-      join(root, "apps/web/src/features/order-item/names.civet"),
+      join(root, "apps/web/src/features/order-item/names.ts"),
       "utf8",
     )).toContain('route: "/order-items"')
     return expect(await listFixtureEntries(root)).not.toContain(
@@ -419,8 +419,16 @@ describe("DF-069 transactional live apply and verification", function() {
     const { root } = await fixture()
     const firstPlan = await createGenerationPlan(root, validateFeatureName("order-item"))
     const secondPlan = await createGenerationPlan(root, validateFeatureName("invoice-item"))
-    const entered = Promise.withResolvers<void>()
-    const release = Promise.withResolvers<void>()
+    // Manual deferred: the configured lib predates Promise.withResolvers.
+    const deferred = () => {
+      let resolve!: () => void
+      const promise = new Promise<void>((settle) => {
+        resolve = settle
+      })
+      return { promise, resolve }
+    }
+    const entered = deferred()
+    const release = deferred()
     const firstApply = applyGenerationPlan(firstPlan, {
       beforePromotion: async () => {
         entered.resolve()
@@ -496,7 +504,7 @@ describe("DF-069 transactional live apply and verification", function() {
     const { root } = await fixture()
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
     const before = await readGeneratedFiles(root, registryPaths)
-    const destination = join(root, "apps/web/src/app/(portal)/order-items/page.civet")
+    const destination = join(root, "apps/web/src/app/(portal)/order-items/page.tsx")
 
     await expect(applyGenerationPlan(plan, {
       beforePromotion: async () => {
@@ -606,7 +614,7 @@ describe("DF-069 transactional live apply and verification", function() {
       descriptorBefore,
     )
     return await expect(readFile(
-      join(root, "apps/web/src/app/(portal)/order-items/page.civet"),
+      join(root, "apps/web/src/app/(portal)/order-items/page.tsx"),
       "utf8",
     )).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -655,7 +663,7 @@ describe("DF-069 transactional live apply and verification", function() {
   it("emits valid Drizzle SQL interpolation in generated schemas", async function() {
     const { root } = await fixture()
     const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
-    const schema = plan.files.find((file) => file.path.endsWith("/schema.civet"))!
+    const schema = plan.files.find((file) => file.path.endsWith("/schema.ts"))!
 
     expect(schema.content).toContain("\${table.status}")
     expect(schema.content).toContain("\${table.name}")
@@ -1064,7 +1072,7 @@ describe("DF-069 deterministic filesystem fault handling", function() {
       cleanup: "complete",
     })
     await expect(readFile(
-      join(directoryRaceFixture.root, "apps/web/src/app/(portal)/order-items/page.civet"),
+      join(directoryRaceFixture.root, "apps/web/src/app/(portal)/order-items/page.tsx"),
       "utf8",
     )).resolves.toContain("OrderItems")
 
@@ -1111,7 +1119,7 @@ describe("DF-069 deterministic filesystem fault handling", function() {
     )
     configure(
       "link-error",
-      join(linkFailurePlan.targetRoot, "apps/web/src/app/(portal)/order-items/page.civet"),
+      join(linkFailurePlan.targetRoot, "apps/web/src/app/(portal)/order-items/page.tsx"),
       "ENOENT",
     )
     await expect(applyWithFaults(linkFailurePlan)).rejects.toMatchObject({
@@ -1127,7 +1135,7 @@ describe("DF-069 deterministic filesystem fault handling", function() {
     const disappearingFixture = await fixture()
     const disappearingPlan = await planFor(disappearingFixture.root)
     const disappearingFile = disappearingPlan.files.find(
-      (file) => file.path === "apps/web/src/app/(portal)/order-items/page.civet",
+      (file) => file.path === "apps/web/src/app/(portal)/order-items/page.tsx",
     )!
     const disappearingPath = join(
       disappearingPlan.targetRoot,
