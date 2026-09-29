@@ -308,9 +308,9 @@ describe("public route states", () => {
   });
 
   it("hides smoke fixtures outside the isolated E2E process", async () => {
+    // Production bindings fail closed even if the fixture flag leaks in.
     vi.stubEnv("APP_ENV", "production");
-    vi.stubEnv("E2E_FIXTURES", "0");
-    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("E2E_FIXTURES", "1");
 
     expect(() => ErrorSmokePage()).toThrow("not-found");
     await expect(LoadingSmokePage()).rejects.toThrow("not-found");
@@ -321,7 +321,6 @@ describe("public route states", () => {
     vi.useFakeTimers();
     vi.stubEnv("APP_ENV", "test");
     vi.stubEnv("E2E_FIXTURES", "1");
-    vi.stubEnv("NODE_ENV", "test");
 
     const error = ErrorSmokePage();
     expect(error.type).toBe(RecoverableErrorFixture);
