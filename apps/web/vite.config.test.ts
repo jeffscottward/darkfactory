@@ -94,6 +94,7 @@ describe("Vite application plugin contract", () => {
             handler: (
               name: string,
               environment: {
+                build?: { sourcemap?: boolean };
                 optimizeDeps?: {
                   exclude?: string[];
                   include?: string[];
@@ -114,6 +115,7 @@ describe("Vite application plugin contract", () => {
     };
     hook?.handler("rsc", rscEnvironment);
     expect(rscEnvironment.optimizeDeps.noDiscovery).toBe(true);
+    expect(rscEnvironment).toMatchObject({ build: { sourcemap: true } });
     expect(rscEnvironment.optimizeDeps.include).toContain(
       "@darkfactory/auth > better-auth"
     );
@@ -145,6 +147,7 @@ describe("Vite application plugin contract", () => {
     };
     hook?.handler("client", clientEnvironment);
     expect(clientEnvironment.optimizeDeps.noDiscovery).toBe(false);
+    expect(clientEnvironment).toMatchObject({ build: { sourcemap: false } });
     expect(clientEnvironment.optimizeDeps.include).toContain(
       "@tanstack/react-form"
     );

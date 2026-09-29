@@ -6,6 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "vinext/server/fetch-handler",
   "workers_dev": false,
+  // Server bundles emit maps (apps/web/vite.config.ts#environmentOptimizerPolicy);
+  // upload them privately so Workers stack traces are symbolicated. Envs inherit it.
+  "upload_source_maps": true,
   "preview_urls": false,
   "limits": {
     "cpu_ms": 500

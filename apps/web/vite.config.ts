@@ -77,6 +77,8 @@ const environmentOptimizerPolicy = (): Plugin => ({
             CLIENT_OPTIMIZE_DEPS_INCLUDE
           ),
         };
+        // Client assets are publicly served, so never emit maps for them.
+        environment.build = { ...environment.build, sourcemap: false };
         return;
       }
       if (name !== "rsc" && name !== "ssr") {
@@ -90,6 +92,9 @@ const environmentOptimizerPolicy = (): Plugin => ({
         ),
         noDiscovery: true,
       };
+      // Worker (rsc/ssr) maps are uploaded privately via wrangler.jsonc
+      // `upload_source_maps`, so production stack traces stay readable.
+      environment.build = { ...environment.build, sourcemap: true };
     },
   },
 });

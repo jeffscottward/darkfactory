@@ -72,5 +72,8 @@ describe("resolved Vite environment optimizer contract", () => {
     );
     expect(new Set(client?.include).size).toBe(client?.include?.length);
     expect(new Set(client?.exclude).size).toBe(client?.exclude?.length);
+    expect(resolved.environments["rsc"]?.build.sourcemap).toBe(true);
+    expect(resolved.environments["ssr"]?.build.sourcemap).toBe(true);
+    expect(resolved.environments["client"]?.build.sourcemap).toBe(false);
   });
 });
