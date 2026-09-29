@@ -16,6 +16,10 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./schema/workflow": {
+      "import": "./src/schema/workflow.ts",
+      "default": "./src/schema/workflow.ts"
+    },
     "./server/inline": {
       "workerd": "./src/server/inline.ts",
       "worker": "./src/server/inline.ts",
@@ -58,6 +62,17 @@
       "import": "./src/server/plan-evidence.ts",
       "default": "./src/server/plan-evidence.ts"
     },
+    "./server/workflow-error": {
+      "import": "./src/server/workflow-error.ts",
+      "default": "./src/server/workflow-error.ts"
+    },
+    "./server/workflow-repository": {
+      "workerd": "./src/server/workflow-repository.ts",
+      "worker": "./src/server/workflow-repository.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/workflow-repository.ts",
+      "default": "./src/server/workflow-repository.ts"
+    },
     "./server/pilot-worker": {
       "workerd": "./src/server/unsupported.ts",
       "worker": "./src/server/unsupported.ts",
@@ -74,11 +89,15 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "worker:pilot": "bun src/server/pilot-worker-cli.ts"
+    "worker:pilot": "bun src/server/pilot-worker-cli.ts",
+    "verifier:image:setup": "bun src/server/verifier-image.ts setup",
+    "verifier:image:check": "bun src/server/verifier-image.ts check"
   },
   "dependencies": {
     "@darkfactory/db": "workspace:*",
-    "@darkfactory/state": "workspace:*"
+    "@darkfactory/observability": "workspace:*",
+    "@darkfactory/state": "workspace:*",
+    "drizzle-orm": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

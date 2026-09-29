@@ -63,8 +63,6 @@
     "test:unit",
     "test:unit:root",
     "typecheck",
-    "verifier:image:check",
-    "verifier:image:setup",
     "verify",
     "verify:browser",
     "verify:core",
@@ -145,8 +143,7 @@
       "publicExports": [
         "./schema",
         "./server",
-        "./server/migration",
-        "./server/workflow"
+        "./server/migration"
       ],
       "workspaceDependencies": [
         "@darkfactory/observability"
@@ -170,17 +167,21 @@
       "directory": "packages/jobs",
       "publicExports": [
         ".",
+        "./schema/workflow",
         "./server/inline",
         "./server/omp",
         "./server/pilot-worker",
         "./server/plan-evidence",
         "./server/wayfinder",
+        "./server/workflow-error",
+        "./server/workflow-repository",
         "./server/workflow-runtime",
         "./server/workflow-worker",
         "./test"
       ],
       "workspaceDependencies": [
         "@darkfactory/db",
+        "@darkfactory/observability",
         "@darkfactory/state"
       ]
     },
@@ -226,6 +227,7 @@
         "@darkfactory/config",
         "@darkfactory/db",
         "@darkfactory/email",
+        "@darkfactory/jobs",
         "@darkfactory/operator",
         "@darkfactory/state",
         "@darkfactory/ui"

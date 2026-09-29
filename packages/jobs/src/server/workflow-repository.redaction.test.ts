@@ -1,6 +1,5 @@
+import type { DatabaseExecutor } from "@darkfactory/db/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import type { DatabaseExecutor } from "./client.ts";
 
 const REDACTION_MODULE = "@darkfactory/observability/redaction";
 

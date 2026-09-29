@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@darkfactory/db/server", () => ({
   createNodeDatabase: mocks.createNodeDatabase,
+}));
+
+vi.mock("./workflow-repository.ts", () => ({
   createWorkflowRepository: mocks.createWorkflowRepository,
 }));
 

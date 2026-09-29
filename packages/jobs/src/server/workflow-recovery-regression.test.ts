@@ -12,13 +12,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  WorkflowRepository,
-  WorkflowRetainedResourceClaim,
-} from "@darkfactory/db/server/workflow";
 import { canonicalJsonV1 } from "@darkfactory/state/workflow";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import {
   applyOmpImplementationArtifact,
   decodeOmpImplementationArtifact,
@@ -29,6 +24,10 @@ import {
   OmpRequestError,
   OmpWorkspaceBusyError,
 } from "./omp.ts";
+import type {
+  WorkflowRepository,
+  WorkflowRetainedResourceClaim,
+} from "./workflow-repository.ts";
 import {
   createWorkflowRuntime,
   createWorkflowTerminalReconciler,

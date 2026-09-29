@@ -2723,7 +2723,7 @@ describe("OMP CLI adapter", () => {
       OmpProcessTerminationError
     );
     const verifierConfig = await readFile(
-      new URL("../../../../infra/docker/verifier/checks.json", import.meta.url)
+      new URL("../../verifier/checks.json", import.meta.url)
     );
     expect(createHash("sha256").update(verifierConfig).digest("hex")).toBe(
       OMP_VERIFIER_CONFIG_DIGEST

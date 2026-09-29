@@ -49,7 +49,7 @@ describe("development database reset", () => {
 
     const result = await resetDevelopment(double.database, { environment });
 
-    expect(result).toEqual({ tablesCleared: 19 });
+    expect(result).toEqual({ tablesCleared: 12 });
     expect(Object.isFrozen(result)).toBe(true);
     expect(double.lifecycle).toEqual(["begin", "commit"]);
     expect(double.transaction).toHaveBeenCalledOnce();
@@ -57,30 +57,23 @@ describe("development database reset", () => {
     const statement = double.execute.mock.calls[0]![0] as SQL;
     const query = new PgDialect().sqlToQuery(statement).sql;
     expect(query).toContain("TRUNCATE TABLE");
-    for (const table of [
-      "session",
-      "account",
-      "addresses",
-      "profiles",
-      "user_preferences",
-      "feature_items",
-      "contact_rate_limits",
-      "workflow_omp_resources",
-      "workflow_messages",
-      "workflow_evidence",
-      "workflow_approvals",
-      "workflow_snapshots",
-      "workflow_journal",
-      "workflow_runs",
-      "audit_records",
-      "user",
-      "verification",
-      "rate_limit",
-      "outbox_events",
-    ]) {
-      expect(query).toContain(`"${table}"`);
-    }
-    return expect(query).toContain("RESTART IDENTITY");
+    expect([...query.matchAll(/"([a-z_]+)"/g)].map(([, name]) => name)).toEqual(
+      [
+        "session",
+        "account",
+        "addresses",
+        "profiles",
+        "user_preferences",
+        "feature_items",
+        "contact_rate_limits",
+        "audit_records",
+        "user",
+        "verification",
+        "rate_limit",
+        "outbox_events",
+      ]
+    );
+    return expect(query).toContain("RESTART IDENTITY CASCADE");
   });
 
   it("rejects every non-development environment before opening a transaction", async () => {

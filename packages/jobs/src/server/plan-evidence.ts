@@ -38,6 +38,7 @@ type WorkflowPlanDigestInput = Readonly<{
 }>;
 
 export class WorkflowPlanEvidenceError extends Error {
+  readonly workflowErrorCode = "PLAN_EVIDENCE" as const;
   constructor(message: string) {
     super(message);
     this.name = "WorkflowPlanEvidenceError";

@@ -8,7 +8,7 @@ const EXECUTION_WORKSPACE = "/output/workspace";
 const RESULT_PATH = "/output/result.json";
 const CHECK_IDENTITY = "darkfactory-verifier-checks-v1";
 const CONFIG_DIGEST =
-  "455a12cb56a5d785a8233e8bce2348fec2519b744a95e49abefd54e7075a4f92";
+  "d2799b335dd76e228f22ef6fd168364ad9c1c37f26ed8b07ce1eb4d06b2a5c8e";
 const ARGV_DIGEST =
   "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff";
 const EXECUTABLES = Object.freeze({

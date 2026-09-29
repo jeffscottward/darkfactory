@@ -76,8 +76,6 @@
     "graph:check": "bun scripts/graph.ts check",
     "graph:verify": "bun scripts/graph.ts verify",
     "generate:feature": "bun scripts/generate-feature.ts",
-    "verifier:image:setup": "bun scripts/verifier-image.ts setup",
-    "verifier:image:check": "bun scripts/verifier-image.ts check",
     "deploy:web:validate": "bun scripts/deployment.ts",
     "deploy:web": "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
     "deploy:web:check": "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy --dry-run",

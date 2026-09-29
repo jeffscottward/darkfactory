@@ -48,10 +48,6 @@ import {
   type DashboardRepository,
 } from "./dashboard-repository.ts";
 import { required } from "./required.ts";
-import {
-  createWorkflowRepository,
-  type WorkflowRepository,
-} from "./workflow-repository.ts";
 
 const FEATURE_METADATA_LIMIT_BYTES = 16 * 1024;
 const nextOptimisticVersion = (candidate: Date, expected: Date): Date => {
@@ -1383,7 +1379,6 @@ export type Repositories = Readonly<{
   adminUsers: AdminUsersRepository;
   dashboard: DashboardRepository;
   generated?: GeneratedFeatureRepositories;
-  workflows?: WorkflowRepository;
 }>;
 
 export const createRepositories = (
@@ -1397,5 +1392,4 @@ export const createRepositories = (
   adminUsers: createAdminUsersRepository(database),
   dashboard: createDashboardRepository(database),
   generated: createGeneratedFeatureRepositories(database),
-  workflows: createWorkflowRepository(database, dependencies),
 });

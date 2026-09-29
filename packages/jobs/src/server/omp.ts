@@ -44,7 +44,7 @@ export const MAX_OMP_REDACTIONS = 64;
 export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1024;
 export const OMP_VERIFIER_COMMAND_IDENTITY = "darkfactory-verify-core-v2";
 export const OMP_VERIFIER_CONFIG_DIGEST =
-  "455a12cb56a5d785a8233e8bce2348fec2519b744a95e49abefd54e7075a4f92";
+  "d2799b335dd76e228f22ef6fd168364ad9c1c37f26ed8b07ce1eb4d06b2a5c8e";
 export const OMP_VERIFIER_ARGUMENTS = Object.freeze([
   "/usr/local/bin/bun",
   "/opt/darkfactory-verifier/runner.ts",

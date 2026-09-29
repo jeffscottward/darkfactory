@@ -1,16 +1,15 @@
 import { createHash } from "node:crypto";
+import type { JsonValue } from "@darkfactory/db/schema";
+import type { DatabaseExecutor } from "@darkfactory/db/server";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
-
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
-  type JsonValue,
   type WorkflowJournalEntry,
   type WorkflowRun,
   type WorkflowSnapshot,
-} from "../schema/index.ts";
-import type { DatabaseExecutor } from "./client.ts";
+} from "../schema/workflow.ts";
 import {
   type AddWorkflowMessageAndAppendInput,
   type AppendWorkflowInput,

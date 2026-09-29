@@ -8,8 +8,6 @@
 !packages/
 !packages/*/
 !packages/*/package.json
-!infra/
-!infra/docker/
-!infra/docker/verifier/
-!infra/docker/verifier/checks.json
-!infra/docker/verifier/runner.ts
+!packages/jobs/verifier/
+!packages/jobs/verifier/checks.json
+!packages/jobs/verifier/runner.ts

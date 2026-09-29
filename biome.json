@@ -144,7 +144,7 @@
       }
     },
     {
-      "includes": ["infra/docker/verifier/runner.ts"],
+      "includes": ["packages/jobs/verifier/runner.ts"],
       "javascript": {
         "globals": ["Bun"]
       }

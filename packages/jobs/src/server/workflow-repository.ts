@@ -1,4 +1,14 @@
 import { createHash } from "node:crypto";
+import {
+  type JsonValue,
+  type OutboxEvent,
+  outboxEvents,
+} from "@darkfactory/db/schema";
+import {
+  type DatabaseExecutor,
+  type Transaction,
+  withTransaction,
+} from "@darkfactory/db/server";
 import { redact } from "@darkfactory/observability/redaction";
 import {
   and as andWhere,
@@ -10,12 +20,8 @@ import {
   or as orWhere,
   sql,
 } from "drizzle-orm";
-
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
-  type JsonValue,
-  type OutboxEvent,
-  outboxEvents,
   WORKFLOW_EVENT_VERSION,
   WORKFLOW_MACHINE_ID,
   WORKFLOW_MACHINE_VERSION,
@@ -36,13 +42,9 @@ import {
   workflowOmpResources,
   workflowRuns,
   workflowSnapshots,
-} from "../schema/index.ts";
-import {
-  type DatabaseExecutor,
-  type Transaction,
-  withTransaction,
-} from "./client.ts";
+} from "../schema/workflow.ts";
 import { required } from "./required.ts";
+import { isWorkflowError } from "./workflow-error.ts";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -71,6 +73,7 @@ export const MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER = 20;
 export const MAX_WORKFLOW_MESSAGES_PER_RUN = 100;
 
 export class WorkflowPersistenceInputError extends Error {
+  readonly workflowErrorCode = "PERSISTENCE_INPUT" as const;
   constructor(message: string) {
     super(`Invalid workflow persistence input: ${message}`);
     this.name = "WorkflowPersistenceInputError";
@@ -78,6 +81,7 @@ export class WorkflowPersistenceInputError extends Error {
 }
 
 export class WorkflowRunNotFoundError extends Error {
+  readonly workflowErrorCode = "RUN_NOT_FOUND" as const;
   constructor() {
     super("Workflow run was not found for this owner");
     this.name = "WorkflowRunNotFoundError";
@@ -85,6 +89,7 @@ export class WorkflowRunNotFoundError extends Error {
 }
 
 export class WorkflowRunCapacityError extends Error {
+  readonly workflowErrorCode = "RUN_CAPACITY" as const;
   constructor() {
     super("Workflow run admission is temporarily unavailable");
     this.name = "WorkflowRunCapacityError";
@@ -92,6 +97,7 @@ export class WorkflowRunCapacityError extends Error {
 }
 
 export class WorkflowRunSubmissionRateError extends Error {
+  readonly workflowErrorCode = "RUN_SUBMISSION_RATE" as const;
   readonly retryAfterSeconds: number;
 
   constructor(retryAfterSeconds: number) {
@@ -102,6 +108,7 @@ export class WorkflowRunSubmissionRateError extends Error {
 }
 
 export class WorkflowConcurrencyError extends Error {
+  readonly workflowErrorCode = "CONCURRENCY" as const;
   constructor() {
     super("Workflow run changed before the event could be appended");
     this.name = "WorkflowConcurrencyError";
@@ -109,6 +116,7 @@ export class WorkflowConcurrencyError extends Error {
 }
 
 export class WorkflowRunTerminalError extends Error {
+  readonly workflowErrorCode = "RUN_TERMINAL" as const;
   readonly state: "completed" | "cancelled";
 
   constructor(state: "completed" | "cancelled") {
@@ -119,6 +127,7 @@ export class WorkflowRunTerminalError extends Error {
 }
 
 export class WorkflowMessageCapacityError extends Error {
+  readonly workflowErrorCode = "MESSAGE_CAPACITY" as const;
   constructor() {
     super("Workflow run has reached the operator message limit");
     this.name = "WorkflowMessageCapacityError";
@@ -126,6 +135,7 @@ export class WorkflowMessageCapacityError extends Error {
 }
 
 export class WorkflowProjectionIntegrityError extends Error {
+  readonly workflowErrorCode = "PROJECTION_INTEGRITY" as const;
   constructor(message: string) {
     super(`Workflow projection integrity check failed: ${message}`);
     this.name = "WorkflowProjectionIntegrityError";
@@ -133,6 +143,7 @@ export class WorkflowProjectionIntegrityError extends Error {
 }
 
 export class StaleWorkflowApprovalError extends Error {
+  readonly workflowErrorCode = "STALE_APPROVAL" as const;
   constructor() {
     super("Workflow approval no longer matches the current projection");
     this.name = "StaleWorkflowApprovalError";
@@ -541,7 +552,7 @@ export const decodeWorkflowRunsCursor = (
   try {
     value = JSON.parse(fromBase64Url(cursor));
   } catch (error) {
-    if (error instanceof WorkflowPersistenceInputError) throw error;
+    if (isWorkflowError(error, "PERSISTENCE_INPUT")) throw error;
     throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {

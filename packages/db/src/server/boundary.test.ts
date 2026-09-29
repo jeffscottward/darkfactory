@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -76,6 +76,28 @@ describe("database package boundaries", () => {
     expect(entrySource).not.toMatch(/\bmigrate\b|migration\.ts/);
     return expect(clientSource).not.toMatch(
       /node:url|node-postgres\/migrator|fileURLToPath|\brunMigrations\b/
+    );
+  });
+
+  it("leaves operator workflow code to @darkfactory/jobs", async () => {
+    const sourceDirectory = new URL("../", import.meta.url);
+    const self = fileURLToPath(import.meta.url);
+    const sources = (
+      await readdir(sourceDirectory, { recursive: true, withFileTypes: true })
+    ).filter((entry) => entry.isFile() && entry.name.endsWith(".ts"));
+    expect(sources.length).toBeGreaterThan(0);
+    const offenders: string[] = [];
+    for (const entry of sources) {
+      const path = `${entry.parentPath}/${entry.name}`;
+      if (path === self) continue;
+      if (/workflow/i.test(await readFile(path, "utf8"))) offenders.push(path);
+    }
+    expect(offenders).toEqual([]);
+    const manifest = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8")
+    );
+    return expect(Object.keys(manifest.exports).join()).not.toMatch(
+      /workflow/i
     );
   });
 

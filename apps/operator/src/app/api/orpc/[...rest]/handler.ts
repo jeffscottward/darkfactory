@@ -2,10 +2,8 @@ import { isAbsolute } from "node:path";
 import { requireRole } from "@darkfactory/auth/server";
 import { composeDatabaseProfile } from "@darkfactory/config/database";
 import { parseServerEnv } from "@darkfactory/config/server";
-import {
-  createRequestDatabase,
-  createWorkflowRepository,
-} from "@darkfactory/db/server";
+import { createRequestDatabase } from "@darkfactory/db/server";
+import { createWorkflowRepository } from "@darkfactory/jobs/server/workflow-repository";
 import {
   createOperatorContext,
   createOperatorWayfinderWorkflowService,

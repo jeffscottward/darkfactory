@@ -1,13 +1,4 @@
-import {
-  GENESIS_WORKFLOW_JOURNAL_HASH,
-  type OutboxEvent,
-} from "@darkfactory/db/schema";
-import {
-  type WorkflowProjection,
-  type WorkflowRepository,
-  WorkflowRunNotFoundError,
-  WorkflowRunTerminalError,
-} from "@darkfactory/db/server/workflow";
+import type { OutboxEvent } from "@darkfactory/db/schema";
 import {
   createWorkflowApprovalBindingV1,
   hashWorkflowApprovalV1,
@@ -15,7 +6,7 @@ import {
   type WorkflowEventV1,
 } from "@darkfactory/state/workflow";
 import { describe, expect, it, vi } from "vitest";
-
+import { GENESIS_WORKFLOW_JOURNAL_HASH } from "../schema/workflow.ts";
 import {
   OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
   OMP_VERIFIER_ARGV_IDENTITY,
@@ -32,6 +23,12 @@ import {
   createWorkflowPlanEvidenceV1,
   hashWorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
+import {
+  type WorkflowProjection,
+  type WorkflowRepository,
+  WorkflowRunNotFoundError,
+  WorkflowRunTerminalError,
+} from "./workflow-repository.ts";
 import {
   createWorkflowApplication,
   createWorkflowRepositoryOutboxAdapter,

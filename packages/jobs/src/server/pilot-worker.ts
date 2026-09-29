@@ -2,10 +2,8 @@ import { isAbsolute } from "node:path";
 
 import {
   createNodeDatabase,
-  createWorkflowRepository,
   type Database,
   type DatabaseResource,
-  type WorkflowRepository,
 } from "@darkfactory/db/server";
 import {
   isWorkflowRepositoryGranted,
@@ -22,6 +20,10 @@ import {
   createLocalWayfinderExecutionAdapter,
   type WayfinderExecutionPort,
 } from "./wayfinder.ts";
+import {
+  createWorkflowRepository,
+  type WorkflowRepository,
+} from "./workflow-repository.ts";
 import {
   createWorkflowRuntime,
   type WorkflowRuntime,

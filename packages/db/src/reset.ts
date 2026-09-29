@@ -27,6 +27,9 @@ export const resetDevelopment = async (
     );
   }
 
+  // Names only product tables. CASCADE also empties every table that references
+  // them, such as the operator-plane tables owned by @darkfactory/jobs, so this
+  // package never needs to know their names.
   await withTransaction(database, async (transaction) => {
     return await transaction.execute(sql`
       TRUNCATE TABLE
@@ -37,21 +40,14 @@ export const resetDevelopment = async (
         "user_preferences",
         "feature_items",
         "contact_rate_limits",
-        "workflow_omp_resources",
-        "workflow_messages",
-        "workflow_evidence",
-        "workflow_approvals",
-        "workflow_snapshots",
-        "workflow_journal",
-        "workflow_runs",
         "audit_records",
         "user",
         "verification",
         "rate_limit",
         "outbox_events"
-      RESTART IDENTITY
+      RESTART IDENTITY CASCADE
     `);
   });
 
-  return Object.freeze({ tablesCleared: 19 });
+  return Object.freeze({ tablesCleared: 12 });
 };

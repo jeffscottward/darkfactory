@@ -1,18 +1,8 @@
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("node:path", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:path")>();
-  return {
-    ...actual,
-    resolve: (first: string | undefined, ...rest: string[]): string => {
-      if (first === undefined) return process.cwd();
-      return actual.resolve(first, ...rest);
-    },
-  };
-});
-
 const CONFIG_DIGEST =
-  "455a12cb56a5d785a8233e8bce2348fec2519b744a95e49abefd54e7075a4f92";
+  "d2799b335dd76e228f22ef6fd168364ad9c1c37f26ed8b07ce1eb4d06b2a5c8e";
 const ARGV_DIGEST =
   "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff";
 const IMAGE_DIGEST = `sha256:${"b".repeat(64)}`;
@@ -115,7 +105,7 @@ describe.sequential("verifier image executable", () => {
       "build",
       "--pull",
       "--file",
-      "infra/docker/verifier/Dockerfile",
+      "packages/jobs/verifier/Dockerfile",
       "--tag",
       "registry.example/darkfactory-verifier",
       "--build-arg",
@@ -127,6 +117,7 @@ describe.sequential("verifier image executable", () => {
       ".",
     ]);
     expect(spawn.mock.calls[0]?.[1]).toMatchObject({
+      cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
       env: expect.objectContaining({
         HOME: "/owned-home",
         PATH: "/owned-bin",

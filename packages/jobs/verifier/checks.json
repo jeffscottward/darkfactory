@@ -86,12 +86,6 @@
       "cwd": "packages/state"
     },
     {
-      "id": "typecheck-storage",
-      "executable": "tsc",
-      "args": ["--noEmit", "-p", "tsconfig.json"],
-      "cwd": "packages/storage"
-    },
-    {
       "id": "typecheck-ui",
       "executable": "tsc",
       "args": ["--noEmit", "-p", "tsconfig.json"],

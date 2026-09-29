@@ -1,14 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Bun runtime globals used by this script. bun-types is not installed, so declare
 // only the minimal surface this Bun-executed script relies on.
-declare global {
-  interface ImportMeta {
-    readonly dir: string;
-  }
-}
 declare const Bun: Readonly<{
   which: (command: string) => string | null;
   spawn: (
@@ -28,7 +23,7 @@ declare const Bun: Readonly<{
 }>;
 
 const CONFIG_DIGEST =
-  "455a12cb56a5d785a8233e8bce2348fec2519b744a95e49abefd54e7075a4f92";
+  "d2799b335dd76e228f22ef6fd168364ad9c1c37f26ed8b07ce1eb4d06b2a5c8e";
 const ARGV_DIGEST =
   "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff";
 const VERIFIER_ARGUMENTS = Object.freeze([
@@ -49,9 +44,11 @@ const IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._/-]{0,255}$/u;
 const fail = (message: string): never => {
   throw new Error(message);
 };
-const repositoryRoot = resolve(import.meta.dir, "..");
+// Docker builds from the repository root because the image installs the whole
+// workspace; the verifier assets live beside the jobs package that runs them.
+const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const configBytes = await readFile(
-  resolve(repositoryRoot, "infra/docker/verifier/checks.json")
+  new URL("../../verifier/checks.json", import.meta.url)
 );
 if (createHash("sha256").update(configBytes).digest("hex") !== CONFIG_DIGEST) {
   fail("Verifier config digest changed");
@@ -139,7 +136,7 @@ if (command === "setup") {
     "build",
     "--pull",
     "--file",
-    "infra/docker/verifier/Dockerfile",
+    "packages/jobs/verifier/Dockerfile",
     "--tag",
     imageName,
     "--build-arg",

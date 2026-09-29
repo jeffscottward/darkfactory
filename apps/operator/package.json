@@ -24,6 +24,7 @@
     "@darkfactory/config": "workspace:*",
     "@darkfactory/db": "workspace:*",
     "@darkfactory/email": "workspace:*",
+    "@darkfactory/jobs": "workspace:*",
     "@darkfactory/operator": "workspace:*",
     "@darkfactory/state": "workspace:*",
     "@darkfactory/ui": "workspace:*",

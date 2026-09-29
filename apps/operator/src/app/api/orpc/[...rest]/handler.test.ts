@@ -45,6 +45,8 @@ vi.mock("@darkfactory/config/server", () => ({
 }));
 vi.mock("@darkfactory/db/server", () => ({
   createRequestDatabase: mocks.createRequestDatabase,
+}));
+vi.mock("@darkfactory/jobs/server/workflow-repository", () => ({
   createWorkflowRepository: mocks.createWorkflowRepository,
 }));
 vi.mock("@darkfactory/operator/server", () => ({

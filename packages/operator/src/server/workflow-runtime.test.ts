@@ -1,4 +1,5 @@
-import { GENESIS_WORKFLOW_JOURNAL_HASH } from "@darkfactory/db/schema";
+import { GENESIS_WORKFLOW_JOURNAL_HASH } from "@darkfactory/jobs/schema/workflow";
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import {
   type CreateWorkflowRunInput,
   decodeWorkflowRunsCursor,
@@ -14,8 +15,7 @@ import {
   WorkflowRunNotFoundError,
   WorkflowRunSubmissionRateError,
   WorkflowRunTerminalError,
-} from "@darkfactory/db/server/workflow";
-import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
+} from "@darkfactory/jobs/server/workflow-repository";
 import {
   createWorkflowApplication,
   WorkflowProjectionVerificationError,
@@ -1938,6 +1938,39 @@ describe("operator workflow port error mapping", () => {
       new OperatorWorkflowPortError(code, operatorServiceErrorMessage(code))
     );
   });
+  it("classifies errors thrown by a separately loaded module instance", async () => {
+    // Regression: the durability flake came from one source file loaded twice,
+    // which made `instanceof` fail. Codes must survive a fresh module graph.
+    vi.resetModules();
+    const other = await import("@darkfactory/jobs/server/workflow-repository");
+    const [state, runtime] = await Promise.all([
+      import("@darkfactory/state/workflow"),
+      import("@darkfactory/jobs/server/workflow-runtime"),
+    ]);
+    const stale = new other.StaleWorkflowApprovalError();
+    expect(stale).not.toBeInstanceOf(StaleWorkflowApprovalError);
+    for (const [failure, code] of [
+      [stale, "STALE_APPROVAL"],
+      [new other.WorkflowRunNotFoundError(), "NOT_FOUND"],
+      [new other.WorkflowConcurrencyError(), "CONFLICT"],
+      [new other.WorkflowRunCapacityError(), "SERVICE_UNAVAILABLE"],
+      [new other.WorkflowPersistenceInputError("bad"), "VALIDATION_ERROR"],
+      [new state.WorkflowRetryLimitReachedError(), "CONFLICT"],
+      [
+        new runtime.WorkflowProjectionVerificationError("corrupt"),
+        "PROJECTION_INVALID",
+      ],
+    ] as const) {
+      const fake = fakeRepository();
+      vi.spyOn(fake.repository, "listRunsByOwner").mockRejectedValue(failure);
+      await expect(
+        portFor(fake).workspace("owner-1", { limit: 1 })
+      ).rejects.toEqual(
+        new OperatorWorkflowPortError(code, operatorServiceErrorMessage(code))
+      );
+    }
+  });
+
   it("preserves an internal storage cause without exposing it in the public message", async () => {
     const failure = Object.assign(new Error("database password=private"), {
       code: "XX000",

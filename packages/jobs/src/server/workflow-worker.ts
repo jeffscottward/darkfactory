@@ -21,11 +21,11 @@ import {
 } from "./omp.ts";
 import {
   createWorkflowPlanEvidenceV1,
-  WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
 import { required } from "./required.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
+import { isWorkflowError } from "./workflow-error.ts";
 
 export const WORKFLOW_EFFECT_HANDLER_V1 = "workflow.omp";
 export const WORKFLOW_EFFECT_HANDLER_V2 = "workflow.omp.v2";
@@ -779,7 +779,7 @@ export const createWorkflowOutboxWorker = (
               result as OmpExecutionResult & Readonly<{ status: "succeeded" }>
             );
           } catch (error) {
-            if (error instanceof WorkflowPlanEvidenceError) {
+            if (isWorkflowError(error, "PLAN_EVIDENCE")) {
               return persistFailure(planEvidenceFailureFor(result));
             }
             await result.lifecycle?.finalize("unpersisted");
