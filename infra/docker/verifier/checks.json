@@ -28,7 +28,7 @@
     {
       "id": "openapi",
       "executable": "bun",
-      "args": ["{workspace}/packages/api/scripts/openapi.civet"],
+      "args": ["{workspace}/packages/api/scripts/openapi.ts"],
       "cwd": "."
     },
     {
@@ -158,7 +158,7 @@
     {
       "id": "docs",
       "executable": "bun",
-      "args": ["{workspace}/scripts/docs.civet", "check"],
+      "args": ["{workspace}/scripts/docs.ts", "check"],
       "cwd": "."
     }
   ]

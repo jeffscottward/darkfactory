@@ -35,6 +35,7 @@ import {
   isWorkflowRelativePathV1,
   MAX_WORKFLOW_SCOPE_PATHS,
 } from "@darkfactory/state/workflow";
+import { required } from "./required.ts";
 
 export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_OMP_MAX_OUTPUT_BYTES = 32 * 1024;
@@ -43,7 +44,7 @@ export const MAX_OMP_REDACTIONS = 64;
 export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1024;
 export const OMP_VERIFIER_COMMAND_IDENTITY = "darkfactory-verify-core-v2";
 export const OMP_VERIFIER_CONFIG_DIGEST =
-  "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d";
+  "455a12cb56a5d785a8233e8bce2348fec2519b744a95e49abefd54e7075a4f92";
 export const OMP_VERIFIER_ARGUMENTS = Object.freeze([
   "/usr/local/bin/bun",
   "/opt/darkfactory-verifier/runner.ts",
@@ -328,7 +329,7 @@ export class OmpWorkspaceBusyError extends OmpRequestError {
   }
 }
 
-const wayfinderArtifactError = (): never => {
+const wayfinderArtifactError: () => never = () => {
   throw new OmpRequestError("OMP Wayfinder tracker artifact is invalid");
 };
 
@@ -561,7 +562,7 @@ const readSecureWayfinderFile = async (
     } catch {
       wayfinderArtifactError();
     }
-    const validated = validateWayfinderContent(relativePath, content!);
+    const validated = validateWayfinderContent(relativePath, content);
     return Object.freeze({
       path: relativePath,
       bytes: validated.bytes,
@@ -1041,7 +1042,7 @@ const VERIFIER_ROOT_CONTROL_FILES = new Set([
 
 export const isVerifierControlPath = (path: string): boolean => {
   const segments = path.split("/");
-  const name = segments.at(-1)!.toLowerCase();
+  const name = required(segments.at(-1), "path segment").toLowerCase();
   return (
     segments.includes("scripts") ||
     VERIFIER_ROOT_CONTROL_FILES.has(path) ||
@@ -1085,7 +1086,7 @@ const verifierControlDigest = async (
 const collectTrustedVerifierControls = async (
   sourceCwd: string,
   directory: string,
-  entries: Array<Readonly<{ path: string; digest: string }>>,
+  entries: Readonly<{ path: string; digest: string }>[],
   budget: { entries: number; bytes: number }
 ): Promise<void> => {
   for (const name of (await readdir(directory)).sort()) {
@@ -1128,7 +1129,7 @@ export const trustedVerifierManifestFor = async (
   if (!isContainedPath(sourceCwd, absolutePath)) {
     throw new OmpConfigurationError("OMP verifier manifest is outside source");
   }
-  const entries: Array<Readonly<{ path: string; digest: string }>> = [];
+  const entries: Readonly<{ path: string; digest: string }>[] = [];
   await collectTrustedVerifierControls(sourceCwd, sourceCwd, entries, {
     entries: 0,
     bytes: 0,
@@ -1147,7 +1148,7 @@ export const matchesTrustedVerifierManifest = async (
   cwd: string,
   manifest: TrustedVerifierManifest
 ): Promise<boolean> => {
-  const current: Array<Readonly<{ path: string; digest: string }>> = [];
+  const current: Readonly<{ path: string; digest: string }>[] = [];
   try {
     await collectTrustedVerifierControls(cwd, cwd, current, {
       entries: 0,
@@ -1456,7 +1457,10 @@ const isSameOrContainedPath = (root: string, candidate: string): boolean => {
 };
 
 const isSensitiveScopePath = (cwd: string, candidate: string): boolean => {
-  const firstSegment = relative(cwd, candidate).split(sep, 1)[0]!.toLowerCase();
+  const firstSegment = required(
+    relative(cwd, candidate).split(sep, 1)[0],
+    "scope path segment"
+  ).toLowerCase();
   return (
     SENSITIVE_SCOPE_SEGMENTS.has(firstSegment) ||
     firstSegment === ".env" ||
@@ -1474,7 +1478,10 @@ const resolveScopePath = async (
   if (!isWorkflowRelativePathV1(scopePath)) {
     throw new OmpRequestError("OMP scope path is invalid");
   }
-  const firstSegment = scopePath.split("/", 1)[0]!.toLowerCase();
+  const firstSegment = required(
+    scopePath.split("/", 1)[0],
+    "scope path segment"
+  ).toLowerCase();
   if (
     scopePath === "." ||
     SENSITIVE_SCOPE_SEGMENTS.has(firstSegment) ||
@@ -1532,10 +1539,10 @@ const resolveScopePaths = async (
   return Object.freeze(collapsed);
 };
 
-type OmpSkillBundleBudget = {
+interface OmpSkillBundleBudget {
   entries: number;
   bytes: number;
-};
+}
 
 const copyOmpSkillEntry = async (
   source: string,
@@ -1626,7 +1633,9 @@ const resolveOmpExecutable = async (executable: string): Promise<string> => {
       await access(candidate, constants.X_OK);
       const canonical = await realpath(candidate);
       if ((await stat(canonical)).isFile()) return canonical;
-    } catch {}
+    } catch {
+      // Unusable candidate: continue with the next trusted location.
+    }
   }
   throw new OmpConfigurationError("OMP executable is unavailable");
 };
@@ -1748,7 +1757,10 @@ const sandboxProfileFor = (
 };
 
 type OmpManifest = ReadonlyMap<string, string>;
-type OmpManifestBudget = { entries: number; bytes: number };
+interface OmpManifestBudget {
+  entries: number;
+  bytes: number;
+}
 
 const addManifestEntry = (
   manifest: Map<string, string>,
@@ -1786,7 +1798,7 @@ const walkManifest = async (
   budget: OmpManifestBudget
 ): Promise<void> => {
   const repositoryPath = relative(cwd, path);
-  let metadata;
+  let metadata: Awaited<ReturnType<typeof lstat>>;
   try {
     metadata = await lstat(path);
   } catch (error) {
@@ -1984,7 +1996,9 @@ const resolveGitExecutable = async (): Promise<string> => {
       if (await isSecureRootOwnedGitPath(gitExecutable)) {
         return gitExecutable;
       }
-    } catch {}
+    } catch {
+      // Unusable candidate: continue with the next trusted location.
+    }
   }
   throw new OmpConfigurationError("OMP git executable is unavailable");
 };
@@ -2909,7 +2923,7 @@ const implementationArtifactFor = async (
   changeHash: string
 ): Promise<OmpImplementationArtifact> => {
   const cwd = worktree.cwd;
-  const entries: Array<Readonly<Record<string, string | number>>> = [];
+  const entries: Readonly<Record<string, string | number>>[] = [];
   for (const path of changedPaths) {
     const absolutePath = join(cwd, path);
     try {
@@ -3135,7 +3149,7 @@ const runOwnedProcess = async (
     });
   }
   const startedAt = options.now();
-  return new Promise<OmpVerifierRunnerResult>(
+  return await new Promise<OmpVerifierRunnerResult>(
     (resolveExecution, rejectExecution) => {
       let settling = false;
       let termination: Promise<void> | undefined;
@@ -3228,10 +3242,10 @@ const runOwnedProcess = async (
         settle("aborted", null, null);
       };
       options.signal?.addEventListener("abort", abortExecution, { once: true });
-      return (timeout = setTimeout(
+      timeout = setTimeout(
         () => settle("timed-out", null, "SIGTERM"),
         options.timeoutMs
-      ));
+      );
     }
   );
 };
@@ -3251,7 +3265,9 @@ const resolveDockerExecutable = async (): Promise<string> => {
       if ((await stat(canonical)).isFile()) {
         return canonical;
       }
-    } catch {}
+    } catch {
+      // Unusable candidate: continue with the next trusted location.
+    }
   }
   throw new OmpConfigurationError("OMP Docker verifier backend is unavailable");
 };
@@ -3342,6 +3358,87 @@ export const dockerCleanupBudgetFor = (
   });
 };
 
+const cleanupDockerVerifierContainer = async (
+  cleanup: Readonly<{
+    input: Parameters<typeof runDockerVerifier>[0];
+    result: OmpVerifierRunnerResult | undefined;
+    cidPath: string;
+    containerName: string;
+    environment: ReturnType<typeof environmentForDocker>;
+    verifierShutdownTimeoutMs: number;
+  }>
+): Promise<void> => {
+  const {
+    input,
+    result,
+    cidPath,
+    containerName,
+    environment,
+    verifierShutdownTimeoutMs,
+  } = cleanup;
+  const cleanupTimeoutMs =
+    result !== undefined &&
+    (result.status === "succeeded" || result.status === "failed")
+      ? input.shutdownTimeoutMs
+      : Math.max(1, input.shutdownTimeoutMs - verifierShutdownTimeoutMs);
+  const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs;
+  try {
+    let cid: string | undefined;
+    try {
+      cid = (await readFile(cidPath, "utf8")).trim();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const cleanupBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
+    const cleanup = await runOwnedProcess({
+      executable: input.dockerExecutable,
+      arguments: ["container", "rm", "--force", "--volumes", containerName],
+      cwd: input.sessionDirectory,
+      environment,
+      timeoutMs: cleanupBudget.timeoutMs,
+      shutdownTimeoutMs: cleanupBudget.shutdownTimeoutMs,
+      maximumOutputBytes: 4096,
+      redactions: input.redactions,
+      now: input.now,
+      startError: "OMP Docker verifier cleanup failed to start",
+    });
+    if (cleanup.status !== "succeeded" || cleanup.exitCode !== 0) {
+      const probeBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
+      const probe = await runOwnedProcess({
+        executable: input.dockerExecutable,
+        arguments: [
+          "container",
+          "ls",
+          "--all",
+          "--quiet",
+          "--no-trunc",
+          `--filter=name=^/${containerName}$`,
+        ],
+        cwd: input.sessionDirectory,
+        environment,
+        timeoutMs: probeBudget.timeoutMs,
+        shutdownTimeoutMs: probeBudget.shutdownTimeoutMs,
+        maximumOutputBytes: 4096,
+        redactions: input.redactions,
+        now: input.now,
+        startError: "OMP Docker verifier cleanup probe failed to start",
+      });
+      if (
+        probe.status !== "succeeded" ||
+        probe.exitCode !== 0 ||
+        probe.output.stdout.trim().length > 0
+      ) {
+        throw new OmpProcessTerminationError();
+      }
+    }
+    if (cid !== undefined && !/^[a-f0-9]{64}$/u.test(cid)) {
+      throw new OmpProcessTerminationError();
+    }
+  } finally {
+    await rm(cidPath, { force: true });
+  }
+};
+
 export const runDockerVerifier = async (
   input: Readonly<{
     dockerExecutable: string;
@@ -3413,70 +3510,17 @@ export const runDockerVerifier = async (
       now: input.now,
       startError: "OMP Docker verifier failed to start",
     });
+    return result;
   } finally {
-    const cleanupTimeoutMs =
-      result !== undefined &&
-      (result.status === "succeeded" || result.status === "failed")
-        ? input.shutdownTimeoutMs
-        : Math.max(1, input.shutdownTimeoutMs - verifierShutdownTimeoutMs);
-    const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs;
-    try {
-      let cid: string | undefined;
-      try {
-        cid = (await readFile(cidPath, "utf8")).trim();
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      const cleanupBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
-      const cleanup = await runOwnedProcess({
-        executable: input.dockerExecutable,
-        arguments: ["container", "rm", "--force", "--volumes", containerName],
-        cwd: input.sessionDirectory,
-        environment,
-        timeoutMs: cleanupBudget.timeoutMs,
-        shutdownTimeoutMs: cleanupBudget.shutdownTimeoutMs,
-        maximumOutputBytes: 4096,
-        redactions: input.redactions,
-        now: input.now,
-        startError: "OMP Docker verifier cleanup failed to start",
-      });
-      if (cleanup.status !== "succeeded" || cleanup.exitCode !== 0) {
-        const probeBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
-        const probe = await runOwnedProcess({
-          executable: input.dockerExecutable,
-          arguments: [
-            "container",
-            "ls",
-            "--all",
-            "--quiet",
-            "--no-trunc",
-            `--filter=name=^/${containerName}$`,
-          ],
-          cwd: input.sessionDirectory,
-          environment,
-          timeoutMs: probeBudget.timeoutMs,
-          shutdownTimeoutMs: probeBudget.shutdownTimeoutMs,
-          maximumOutputBytes: 4096,
-          redactions: input.redactions,
-          now: input.now,
-          startError: "OMP Docker verifier cleanup probe failed to start",
-        });
-        if (
-          probe.status !== "succeeded" ||
-          probe.exitCode !== 0 ||
-          probe.output.stdout.trim().length > 0
-        ) {
-          throw new OmpProcessTerminationError();
-        }
-      }
-      if (cid !== undefined && !/^[a-f0-9]{64}$/u.test(cid)) {
-        throw new OmpProcessTerminationError();
-      }
-    } finally {
-      await rm(cidPath, { force: true });
-    }
+    await cleanupDockerVerifierContainer({
+      input,
+      result,
+      cidPath,
+      containerName,
+      environment,
+      verifierShutdownTimeoutMs,
+    });
   }
-  return result!;
 };
 
 export const createOmpCliAdapter = (
@@ -3600,10 +3644,7 @@ export const createOmpCliAdapter = (
               request.recovery.changeHash
             )
         : undefined;
-    if (
-      recovery !== undefined &&
-      recovery.entries.some((entry) => isVerifierControlPath(entry.path))
-    ) {
+    if (recovery?.entries.some((entry) => isVerifierControlPath(entry.path))) {
       throw new OmpRequestError("OMP artifact changes verifier control inputs");
     }
     const trustedVerifierManifest =
@@ -3632,7 +3673,7 @@ export const createOmpCliAdapter = (
           await requireOwnershipMarker(
             sourceCwd,
             cwd,
-            request.recovery!.artifact
+            required(request.recovery, "OMP recovery request").artifact
           );
           await worktree.dispose();
           worktree = await prepareWorktree(
@@ -3645,7 +3686,9 @@ export const createOmpCliAdapter = (
           scopePaths = await resolveScopePaths(cwd, request.scopePaths);
         }
         await implementationBaselineFor(worktree, scopePaths);
-        await worktree.persistOwnership(request.recovery!.artifact);
+        await worktree.persistOwnership(
+          required(request.recovery, "OMP recovery request").artifact
+        );
         await applyOmpImplementationArtifact(cwd, recovery);
         const recoveredChange = scopedChangeFor(
           await implementationBaselineFor(worktree, scopePaths),
@@ -3658,8 +3701,11 @@ export const createOmpCliAdapter = (
         );
         if (
           recoveredChange.changeHash !== recovery.changeHash ||
-          recoveredArtifact.digest !== request.recovery!.artifact.digest ||
-          recoveredArtifact.content !== request.recovery!.artifact.content
+          recoveredArtifact.digest !==
+            required(request.recovery, "OMP recovery request").artifact
+              .digest ||
+          recoveredArtifact.content !==
+            required(request.recovery, "OMP recovery request").artifact.content
         ) {
           throw new OmpRequestError(
             "OMP recovered implementation digest changed"
@@ -3749,7 +3795,7 @@ export const createOmpCliAdapter = (
         let finalization: Promise<void> | undefined;
         return Object.freeze({
           finalize: (disposition: OmpPersistenceDisposition): Promise<void> => {
-            return (finalization ??= (async (): Promise<void> => {
+            finalization ??= (async (): Promise<void> => {
               try {
                 const retain =
                   request.effectKind === "verify"
@@ -3764,7 +3810,8 @@ export const createOmpCliAdapter = (
                 if (error instanceof OmpProcessTerminationError) throw error;
                 throw new OmpWorkspaceCleanupError();
               }
-            })());
+            })();
+            return finalization;
           },
         });
       };
@@ -3809,7 +3856,10 @@ export const createOmpCliAdapter = (
           return resultFor("succeeded", {
             wayfinderTrackerArtifact: sanitizeOmpWayfinderTrackerArtifact(
               await captureOmpWayfinderTrackerArtifact({
-                trackerDirectory: wayfinderTrackerDirectory!,
+                trackerDirectory: required(
+                  wayfinderTrackerDirectory,
+                  "Wayfinder tracker directory"
+                ),
                 repositoryId: request.cwd,
                 runId: request.workspaceId,
               }),
@@ -3895,7 +3945,10 @@ export const createOmpCliAdapter = (
               dockerExecutable,
               workspace: verifierWorkspace.cwd,
               sessionDirectory,
-              imageDigest: options.verifierImageDigest!,
+              imageDigest: required(
+                options.verifierImageDigest,
+                "OMP verifier image digest"
+              ),
               ...(request.signal === undefined
                 ? {}
                 : { signal: request.signal }),
@@ -4000,7 +4053,7 @@ export const createOmpCliAdapter = (
           trustedVerifierManifest?.digest ?? INJECTED_VERIFIER_MANIFEST_DIGEST;
         const verifierImageIdentity =
           options.verificationRunner === undefined
-            ? options.verifierImageDigest!
+            ? required(options.verifierImageDigest, "OMP verifier image digest")
             : `injected:${INJECTED_VERIFIER_MANIFEST_DIGEST}`;
 
         const verification = verificationAttemptFor(
@@ -4028,7 +4081,7 @@ export const createOmpCliAdapter = (
       let change: OmpScopedChange;
       try {
         change = scopedChangeFor(
-          beforeManifest!,
+          required(beforeManifest, "OMP implementation baseline manifest"),
           await manifestFor(cwd, scopePaths)
         );
       } catch {
