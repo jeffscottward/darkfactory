@@ -70,56 +70,42 @@ The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/ope
 | State | XState 5.32.5 for explicit lifecycles; Zustand 5.0.14 for ephemeral local UI state |
 | Local operator | Separate `apps/operator` vinext app with `packages/operator` contracts/services; local-only and excluded from product deployment |
 | Workflow execution | PostgreSQL journal/outbox in `packages/jobs`; separately started pilot worker with scoped local OMP and Wayfinder adapters |
-| Providers | Groq, React Email/Resend, PostHog, evlog, and OpenTelemetry behind ports or runtime selection |
+| Providers | Groq, Resend, PostHog, evlog, and OpenTelemetry behind ports or runtime selection |
 | Quality | Biome/Ultracite, Vitest 4.1.10, Playwright 1.61.1, Husky, Graphify |
 
 Optional providers are not automatically available merely because an adapter exists. [`capabilities.yaml`](capabilities.yaml) is the capability truth source.
 
 ## Prerequisites
 
-| Requirement | Supported version or state | Purpose | Installer behavior |
-| --- | --- | --- | --- |
-| Host platform | macOS with Homebrew, or Debian/Ubuntu with `apt` and root/`sudo` | Deterministic workstation bootstrap | Uses the existing platform package manager; never installs Homebrew or guesses an unsupported platform |
-| Bun | Exactly 1.3.14 | Primary script and TypeScript runtime | Installs the exact user-scoped release when absent or mismatched |
-| Node.js | Node.js 24 (24.21.0 LTS; `.nvmrc`) | Corepack/pnpm, PM2/Portless, Vitest, and measured compatibility paths | Keeps a compatible installed runtime; bootstraps 24.21.0 through Homebrew `node@24` or pinned `n` 10.2.0 only when Node is missing or older than 24.21 |
-| Corepack and pnpm | Corepack 0.34.7; pnpm 11.16.0 | Sole dependency/workspace manager and lockfile owner | Activates the pinned pnpm release; installs workspace dependencies from the frozen lockfile |
-| Python and uv | Compatible Python 3.13 or 3.14; uv 0.11.32 | Graphify and Python-backed repository tooling | Keeps a compatible installed Python; installs the exact user-scoped uv release |
-| Docker, Compose, PostgreSQL | Docker and Compose installed; daemon running; isolated PostgreSQL service available | Local integration database | Installs Docker/Compose where supported; an operator must start the daemon before database work |
-| PM2 and Portless | PM2 7.0.3; workspace Portless 0.13.0 | Durable named local process and stable HTTPS URL | Installs exact tool/dependency releases; does not start services or trust certificates |
-| Varlock | 1.13.0 | Environment validation and injection | Installs the exact release |
-| Graphify | `graphifyy` 0.9.2 | Repository graph build/query/verification | Installs the exact Python package through uv |
-| Playwright and Chromium | Workspace Playwright 1.61.1 with its compatible Chromium | Browser and accessibility verification | Installs frozen workspace dependencies and the installer-managed browser once |
-| Local HTTPS trust | Browser trusts the Portless local certificate authority | Warning-free `https://darkfactory.localhost` | Manual: run `bun run dev:trust`; the installer never changes trust stores |
-| Provider/deployment credentials | Required only for an intentionally exercised provider or authorized Cloudflare operation | Optional AI, email, analytics, observability, and deployment paths | Manual and conditional; the installer never inspects accounts or creates credentials |
+| Requirement | Version | Purpose |
+| --- | --- | --- |
+| [mise](https://mise.jdx.dev) | any current release | Installs the pinned toolchain from [`mise.toml`](mise.toml): Node.js 24.21.0, Bun 1.3.14, pnpm 11.16.0 |
+| Docker with Compose | daemon running | Disposable local PostgreSQL 17 (`infra/docker/postgres.compose.yml`); optional if you run your own PostgreSQL with the same roles |
+| Python and uv | Python 3.13 or 3.14; uv 0.11.32 | Graphify (`graphifyy` 0.9.2) repository graph tooling |
+| Provider/deployment credentials | only when exercised | Optional AI, email, analytics, observability, and Cloudflare paths |
 
-Provider credentials are optional unless the corresponding provider is being exercised. The local email transport defaults to preview.
+`.nvmrc`, `.bun-version`, and `package.json` repeat the `mise.toml` pins for CI; an invariant test keeps them equal. The local email transport defaults to preview.
 
 ## Safe local setup
 
 ```bash
 git clone https://github.com/jeffscottward/darkfactory.git
 cd darkfactory
-sh scripts/install-prerequisites.sh
-cp .env.example .env
+mise install
+bun run setup
+bun run dev
 ```
 
-Treat [`.env.schema`](.env.schema) as the public variable contract and [`.env.example`](.env.example) as safe starter values. Put real values only in an ignored environment file, Varlock/1Password reference, CI secret store, or deployment secret store. Never commit `.env`, resolved secrets, private keys, or raw environment dumps. Client variables remain an explicit allowlist; a server variable is not safe for a browser bundle merely because it exists in the schema.
+`bun run setup` is idempotent (`bun run setup -- --check` only reports). It checks the toolchain against `mise.toml`, runs `pnpm install --frozen-lockfile`, creates the ignored `.env` from [`.env.example`](.env.example) with mode `0600`, generates only empty local secrets (`BETTER_AUTH_SECRET`, `CONTACT_THROTTLE_SECRET`), sets the local `DATABASE_URL`, starts PostgreSQL through Docker Compose when available, applies migrations, seeds the development accounts, and writes `apps/web/.dev.vars`. It never overwrites a value you set and never prints secrets. Without Docker it explains how to point `DATABASE_URL` at your own PostgreSQL and continues.
 
-Before startup, set `DATABASE_PROVIDER=postgres` and provide distinct development-only values of at least 32 characters for both `BETTER_AUTH_SECRET` and `CONTACT_THROTTLE_SECRET`. All three are required; never reuse either secret outside this disposable environment.
+The Zod schema in `packages/config/src/server.ts` (`parseServerEnv`) is the only environment contract; `.env.example` documents it with safe values. Bun loads `.env` for root scripts. Keep real secrets out of Git; 1Password users can wrap commands with `op run --env-file=.env --`. Client variables remain an explicit allowlist.
 
-`WORKFLOW_REPOSITORIES_ROOT` is optional when you run only the product. Before you use the operator app, set it to an absolute directory that contains the repositories the operator may access. The operator API rejects repository operations before it opens a database when this value is missing or invalid.
+`WORKFLOW_REPOSITORIES_ROOT` is optional when you run only the product. Before you use the operator app, set it to an absolute directory that contains the repositories the operator may access.
 
-For the repository's disposable local application database, set `DATABASE_URL` in the ignored environment to:
+The local application database URL that setup writes is:
 
 ```text
 postgresql://darkfactory_app:darkfactory-app-local-only@127.0.0.1:5432/darkfactory_dev
-```
-
-Then start PostgreSQL and apply the checked-in migrations with Varlock loading the ignored values:
-
-```bash
-bun run db:test:up
-varlock run -- bun run db:migrate
 ```
 
 ### Development seed warning
@@ -129,42 +115,29 @@ varlock run -- bun run db:migrate
 The package scripts intentionally omit confirmation, so append the matching flag after `--`:
 
 ```bash
-varlock run -- bun run db:seed -- --confirm-environment=development
-varlock run -- bun run db:reset -- --confirm-environment=development
+bun run db:seed -- --confirm-environment=development
+bun run db:reset -- --confirm-environment=development
 ```
 
 `bun run db:reset` is destructive. The matching confirmation proves only that the invocation was explicit; it does not prove `DATABASE_URL` points to a disposable target. Inspect the destination without printing its password, and never seed or reset a shared, staging, customer, or production database.
 
-## Canonical local HTTPS and PM2
+## Canonical local HTTPS
 
-The product URL is <https://darkfactory.localhost>. The local operator URL is <https://operator.darkfactory.localhost>. Portless owns both hidden ports and trusted HTTPS routes. PM2 owns separate `darkfactory-web-dev` and `darkfactory-operator-dev` processes.
-
-Start the product:
+The product URL is <https://darkfactory.localhost>. The local operator URL is <https://operator.darkfactory.localhost>. Portless owns both hidden ports and trusted HTTPS routes; each command runs in the foreground (stop it with Ctrl-C).
 
 ```bash
-bun run dev:trust
-bun run dev:bindings
-bun run dev:https
-bun run dev:status
+bun run dev            # product
+bun run operator:dev   # operator, after setting WORKFLOW_REPOSITORIES_ROOT
 ```
 
-After you set `WORKFLOW_REPOSITORIES_ROOT`, start the local operator meta-layer:
-
-```bash
-bun run operator:dev
-bun run operator:status
-```
-
-`operator:dev` runs `operator:bindings` before it starts the process. Use `bun run operator:logs` and `bun run operator:stop` for the same process. Use `bun run operator:bindings` directly when you only need to refresh `apps/operator/.dev.vars`.
-
-The product Worker reads `apps/web/.dev.vars`. The operator app reads `apps/operator/.dev.vars`. Each binding command validates the Varlock environment, writes a same-directory mode-`0600` temporary file, and atomically replaces only its ignored destination without printing values. Regenerate the applicable file after `.env` changes; never commit either file.
+Each command first rewrites its validated, mode-`0600` Worker bindings (`apps/web/.dev.vars` or `apps/operator/.dev.vars`) from `.env`, then runs the app's vinext dev server through `portless`. On first use portless may ask for `sudo` to bind port 443 and trust its local CA; `bun run dev:trust` repeats the trust step. Use `bun run dev:bindings` or `bun run operator:bindings` to refresh only the bindings.
 
 The operator Wayfinder status reports `installed` only when the bounded local manifest at `~/.agents/skills/wayfinder/SKILL.md` is a valid Wayfinder manifest; otherwise it reports `unavailable`. Start validates and durably enqueues a bounded request, then returns `queued`. It does not run OMP in the HTTP request or in the browser.
 
 Start the jobs worker separately to process queued effects:
 
 ```bash
-varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot
+pnpm --filter @darkfactory/jobs run worker:pilot
 ```
 
 The pilot worker claims the plan effect before it dispatches the local Wayfinder adapter through one scoped OMP adapter. This documentation does not claim that any particular Wayfinder run or its evidence has completed.
@@ -186,17 +159,17 @@ The generator accepts one feature name plus optional `--dry-run` and `--json` fl
 
 | Purpose | Commands |
 | --- | --- |
-| Product development | `bun run dev`, `bun run dev:https`, `bun run dev:status`, `bun run dev:logs`, `bun run dev:stop`, `bun run dev:trust`, `bun run dev:bindings` |
-| Local operator | `bun run operator:dev`, `bun run operator:status`, `bun run operator:logs`, `bun run operator:stop`, `bun run operator:bindings` |
+| Setup and development | `bun run setup`, `bun run dev`, `bun run dev:trust`, `bun run dev:bindings` |
+| Local operator | `bun run operator:dev`, `bun run operator:bindings` |
 | Database | `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run db:seed`, `bun run db:reset`, `bun run db:test:up`, `bun run db:test:down` |
 | Build and types | `bun run build`, `bun run types`, `bun run types:check`, `bun run typecheck` |
-| Static checks | `bun run lint`, `bun run lint:markdown`, `bun run format:check` |
+| Static checks | `bun run check` (format, lint, typecheck), `bun run lint:markdown` |
 | Generated contracts | `bun run auth:schema:check`, `bun run api:openapi:generate`, `bun run api:openapi:check` |
 | Tests | `bun run test:unit`, `bun run test:integration`, `bun run test:e2e`, `bun run test` |
 | Deterministic gates | `bun run verify:static`, `bun run verify:core`, `bun run verify:core:ci` |
 | Full gates | `bun run verify`, `bun run ci` |
 | Graphify | `bun run graph:build`, `bun run graph:update`, `bun run graph:check`, `bun run graph:verify` |
-| Operations | `bun run doctor`, `bun run generate:feature`, `varlock run -- corepack pnpm --filter @darkfactory/jobs run worker:pilot` |
+| Operations | `bun run doctor`, `bun run generate:feature`, `pnpm --filter @darkfactory/jobs run worker:pilot` |
 | Explicit web deployment | `bun run deploy:web:check`, `bun run deploy:web:preview`, `bun run deploy:web` |
 
 Vitest and Vinext's development, build, and deployment CLIs deliberately run through package-local binaries under Node. These are narrow measured compatibility exceptions: Bun 1.3.14 misloads Vitest's Vite `zod` dependency, its V8 coverage path lacks the `node:inspector` APIs required by `@vitest/coverage-v8`, Vite's development server requires WebSocket events that Bun does not implement, and a Bun-generated Vinext production bundle can report success while returning 404 for authored routes. Bun and Turbo still orchestrate compatible lifecycle and package tasks; pnpm remains the sole package and lockfile owner.
@@ -207,10 +180,10 @@ Start the isolated PostgreSQL service and load the test environment before datab
 
 ```bash
 bun run db:test:up
-varlock run -- bun run test:unit
-varlock run -- bun run test:integration
-varlock run -- bun run test:e2e
-varlock run -- bun run verify
+bun run test:unit
+APP_ENV=test DATABASE_URL=postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance bun run test:integration
+bun run test:e2e
+bun run verify
 bun run db:test:down
 ```
 
@@ -244,7 +217,7 @@ bun run graph:verify
 
 ## Capabilities and deployment boundary
 
-`apps/web` is the only deployable application. It builds and deploys through the official `@vinext/cloudflare` adapter. The package `start` command uses Vite's Cloudflare-faithful production preview rather than Vinext's generic Node wrapper. Stop the canonical product development process, regenerate product Worker bindings, build, and run `corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start` to preview the built Worker at the configured product HTTPS origin.
+`apps/web` is the only deployable application. It builds and deploys through the official `@vinext/cloudflare` adapter. The package `start` command uses Vite's Cloudflare-faithful production preview rather than Vinext's generic Node wrapper. Stop `bun run dev`, regenerate product Worker bindings, build, and run `pnpm exec portless darkfactory pnpm --filter @darkfactory/web run start` to preview the built Worker at the configured product HTTPS origin.
 
 `apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are local development tooling. `deploy:web:check`, `deploy:web:preview`, and `deploy:web` target only `@darkfactory/web`; there is no operator deploy command. Filesystem email previews are disabled in a production bundle; a real production environment must use its validated Resend configuration. `bun run deploy:web:check` validates adapter setup in dry-run mode without building or deploying. The explicit preview and deploy commands are credentialed Cloudflare operations; no automatic deployment workflow or proof of a completed deployment is claimed here.
 

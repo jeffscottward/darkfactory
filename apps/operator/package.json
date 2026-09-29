@@ -16,14 +16,15 @@
     "build": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js build",
     "start": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
+    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src",
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
     "@darkfactory/auth": "workspace:*",
     "@darkfactory/config": "workspace:*",
     "@darkfactory/db": "workspace:*",
     "@darkfactory/email": "workspace:*",
+    "@darkfactory/jobs": "workspace:*",
     "@darkfactory/operator": "workspace:*",
     "@darkfactory/state": "workspace:*",
     "@darkfactory/ui": "workspace:*",

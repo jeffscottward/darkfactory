@@ -1,6 +1,11 @@
+import { AI_ADAPTERS } from "@darkfactory/ai/adapters";
+import { ANALYTICS_ADAPTERS } from "@darkfactory/analytics/adapters";
+import { EMAIL_ADAPTERS } from "@darkfactory/email/adapters";
 import { z } from "zod";
 import { CANONICAL_APP_URL } from "./client.ts";
 import {
+  DATABASE_PROVIDERS,
+  isLocalHostname,
   RequestDatabaseEndpointError,
   validateRequestDatabaseEndpoint,
 } from "./database.ts";
@@ -93,25 +98,6 @@ const environmentBoolean = (name: string, defaultValue: boolean) => {
   );
 };
 
-const isLocalProductionOrigin = (value: string): boolean => {
-  const parsedUrl = parseUrl(value);
-  if (!parsedUrl) return false;
-  const parsedHostname = parsedUrl.hostname.toLowerCase();
-  const withoutTerminalDot = parsedHostname.endsWith(".")
-    ? parsedHostname.slice(0, -1)
-    : parsedHostname;
-  const hostname = withoutTerminalDot.replace(/^\[|\]$/g, "");
-  return (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1" ||
-    hostname === "::" ||
-    /^127(?:\.\d{1,3}){3}$/.test(hostname) ||
-    /^::ffff:7f[0-9a-f]{2}:/.test(hostname)
-  );
-};
-
 const isPostgresUrl = (value: string): boolean => {
   const url = parseUrl(value);
   return (
@@ -121,11 +107,15 @@ const isPostgresUrl = (value: string): boolean => {
   );
 };
 
-const databaseUrlSchema = z
-  .string({ error: "DATABASE_URL is required" })
-  .trim()
-  .min(1, "DATABASE_URL is required")
-  .refine(isPostgresUrl, "DATABASE_URL must be a PostgreSQL URL");
+// Optional here because Hyperdrive supplies the connection; serverEnvSchema requires it for URL providers.
+const databaseUrlSchema = z.preprocess(
+  emptyStringToUndefined,
+  z
+    .string({ error: "DATABASE_URL must be a PostgreSQL URL" })
+    .trim()
+    .refine(isPostgresUrl, "DATABASE_URL must be a PostgreSQL URL")
+    .optional()
+);
 
 const secretSchema = (name: string) => {
   return z
@@ -139,7 +129,7 @@ const baseServerEnvSchema = z.object({
   APP_URL: httpsUrl("APP_URL").default(CANONICAL_APP_URL),
   APP_NAME: z.string().trim().min(1).default("DarkFactory"),
 
-  DATABASE_PROVIDER: z.enum(["planetscale", "postgres"]).default("planetscale"),
+  DATABASE_PROVIDER: z.enum(DATABASE_PROVIDERS).default("postgres"),
   DATABASE_URL: databaseUrlSchema,
 
   BETTER_AUTH_SECRET: secretSchema("BETTER_AUTH_SECRET"),
@@ -147,17 +137,19 @@ const baseServerEnvSchema = z.object({
   CONTACT_THROTTLE_SECRET: secretSchema("CONTACT_THROTTLE_SECRET"),
   WORKFLOW_REPOSITORY_GRANTS: optionalString,
 
-  AI_PROVIDER: z.enum(["groq"]).default("groq"),
+  AI_PROVIDER: z.enum(AI_ADAPTERS).default("groq"),
   GROQ_API_KEY: optionalString,
   GROQ_MODEL: optionalString,
 
-  EMAIL_PROVIDER: z.enum(["resend", "disabled"]).default("resend"),
-  EMAIL_TRANSPORT: z.enum(["preview", "resend", "disabled"]).default("preview"),
+  EMAIL_PROVIDER: z.enum([...EMAIL_ADAPTERS, "disabled"]).default("resend"),
+  EMAIL_TRANSPORT: z
+    .enum(["preview", ...EMAIL_ADAPTERS, "disabled"])
+    .default("preview"),
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: emailFromSchema.default("DarkFactory <noreply@domain.test>"),
   CONTACT_EMAIL_TO: optionalContactRecipient,
 
-  ANALYTICS_PROVIDER: z.enum(["posthog"]).default("posthog"),
+  ANALYTICS_PROVIDER: z.enum(ANALYTICS_ADAPTERS).default("posthog"),
   POSTHOG_KEY: optionalString,
   POSTHOG_HOST: optionalUrl("POSTHOG_HOST"),
 
@@ -191,8 +183,19 @@ const STORAGE_REQUIRED_KEYS = [
   "R2_BUCKET",
 ] as const;
 
-export const serverEnvSchema = baseServerEnvSchema.superRefine(
-  (env, context): void => {
+export const serverEnvSchema = baseServerEnvSchema
+  .refine(
+    (env) =>
+      env.DATABASE_PROVIDER === "hyperdrive" || env.DATABASE_URL !== undefined,
+    {
+      path: ["DATABASE_URL"],
+      message: "DATABASE_URL is required",
+      // Run beside other field errors so a missing DATABASE_URL is reported in the same pass.
+      when: (payload) =>
+        typeof payload.value === "object" && payload.value !== null,
+    }
+  )
+  .superRefine((env, context): void => {
     if (env.APP_URL !== env.BETTER_AUTH_URL) {
       context.addIssue({
         code: "custom",
@@ -206,14 +209,16 @@ export const serverEnvSchema = baseServerEnvSchema.superRefine(
         ["APP_URL", env.APP_URL],
         ["BETTER_AUTH_URL", env.BETTER_AUTH_URL],
       ] as const) {
-        if (!isLocalProductionOrigin(value)) continue;
+        const parsedUrl = parseUrl(value);
+        if (parsedUrl === undefined || !isLocalHostname(parsedUrl.hostname))
+          continue;
         context.addIssue({
           code: "custom",
           path: [name],
           message: `${name} cannot use a local origin in production`,
         });
       }
-      if (isPostgresUrl(env.DATABASE_URL)) {
+      if (env.DATABASE_URL !== undefined && isPostgresUrl(env.DATABASE_URL)) {
         try {
           validateRequestDatabaseEndpoint({
             appEnvironment: env.APP_ENV,
@@ -293,8 +298,7 @@ export const serverEnvSchema = baseServerEnvSchema.superRefine(
           "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
       });
     }
-  }
-);
+  });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type EnvironmentSource = Readonly<Record<string, string | undefined>>;

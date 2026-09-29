@@ -6,6 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "vinext/server/fetch-handler",
   "workers_dev": false,
+  // Server bundles emit maps (apps/web/vite.config.ts#environmentOptimizerPolicy);
+  // upload them privately so Workers stack traces are symbolicated. Envs inherit it.
+  "upload_source_maps": true,
   "preview_urls": false,
   "limits": {
     "cpu_ms": 500
@@ -38,6 +41,10 @@
     "EMAIL_TRANSPORT": "resend",
     "EMAIL_FROM": "DarkFactory <no-reply@send.darkfactory.jeffscott.world>"
   },
+  // Optional Cloudflare Hyperdrive (docs/deploy-hyperdrive.md). Bindings are not inherited:
+  // each environment declares its own, with the id that `wrangler hyperdrive create`
+  // printed for that environment's instance, and sets DATABASE_PROVIDER to "hyperdrive".
+  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<production-hyperdrive-id>" }],
   "assets": {
     "directory": "dist/client",
     "not_found_handling": "none",
@@ -59,6 +66,7 @@
         "EMAIL_TRANSPORT": "disabled",
         "EMAIL_FROM": "DarkFactory Staging <noreply@darkfactory.test>"
       }
+      // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<staging-hyperdrive-id>" }]
     }
   }
 }

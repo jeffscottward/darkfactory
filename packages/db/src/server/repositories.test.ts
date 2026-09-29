@@ -1060,7 +1060,6 @@ describe("feature item mutation repository", () => {
       "adminUsers",
       "dashboard",
       "generated",
-      "workflows",
     ]);
     return expect(repositories.generated).toEqual({});
   });

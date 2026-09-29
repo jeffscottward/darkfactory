@@ -16,6 +16,10 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./adapters": {
+      "import": "./src/adapters.ts",
+      "default": "./src/adapters.ts"
+    },
     "./server": {
       "workerd": "./src/server.ts",
       "worker": "./src/server.ts",
@@ -35,8 +39,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
+    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/",
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
     "resend": "catalog:"

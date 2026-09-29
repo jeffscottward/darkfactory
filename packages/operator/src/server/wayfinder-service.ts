@@ -1,5 +1,4 @@
 import type { SafePrincipal } from "@darkfactory/auth/types";
-import type { WorkflowRepository } from "@darkfactory/db/server/workflow";
 import {
   createOmpCliAdapter,
   type OmpCliAdapterOptions,
@@ -9,6 +8,7 @@ import {
   createWayfinderWorkflowService,
   WayfinderRequestError,
 } from "@darkfactory/jobs/server/wayfinder";
+import type { WorkflowRepository } from "@darkfactory/jobs/server/workflow-repository";
 import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime";
 
 import {

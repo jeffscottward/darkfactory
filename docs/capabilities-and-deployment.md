@@ -27,7 +27,7 @@ The manifest currently declares these core selections:
 - Tailwind and shadcn composition.
 - evlog and OpenTelemetry, with product analytics behind a PostHog adapter.
 - Graphify for developer context.
-- portless and PM2 for local HTTPS.
+- portless for local HTTPS.
 - XState for explicit workflows and Zustand for ephemeral client-local state.
 
 Configuration-sensitive adapters include Groq, Resend, PostHog, and remote OpenTelemetry export. Email preview is the safe local transport; a missing optional provider configuration must disable that provider or select the explicit local adapter, never create a fake production fallback.
@@ -47,10 +47,10 @@ Disabled capabilities must remain removable and must not leave provider dependen
 Run the manifest and prerequisite inspection with:
 
 ```bash
-varlock run -- bun run doctor
+bun run doctor
 ```
 
-The doctor reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.
+The doctor parses the manifest with the same loader as the app and derives its probes from it: the script runtime (Bun), the database engine (Docker and Postgres), the HTTPS provider (portless) and an enabled code graph (Graphify). It reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.
 
 ## Enabling a capability
 
@@ -59,7 +59,7 @@ A capability change is a complete vertical change, not a manifest toggle. Before
 1. Define its user outcome, owner, data authority, provenance, retention, and failure behavior.
 2. Prefer a PostgreSQL core feature, then a proven PostgreSQL extension/pattern, before introducing an external system.
 3. Define a small provider-neutral port and typed errors at the real external boundary.
-4. Add the adapter and only the dependencies required by the enabled capability.
+4. Add the adapter and only the dependencies required by the enabled capability. Register its id in the brick's adapter registry (for example `EMAIL_ADAPTERS` in `packages/email/src/adapters.ts`); the manifest and environment enums are built from it.
 5. Add server-only environment schema/example entries and an explicit client allowlist decision.
 6. Add installation, migration, removal, rollback, and secret-rotation instructions.
 7. Add deterministic contract/integration tests and an unavailable/misconfigured test.
@@ -100,10 +100,9 @@ Reassess visibility, licensing, permissions, rulesets, action versions, and vari
 The authored web application has one deployer: official `@vinext/cloudflare`.
 
 ```bash
-bun run dev:stop
 bun run dev:bindings
 bun run build
-corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start
+pnpm exec portless darkfactory pnpm --filter @darkfactory/web run start
 bun run deploy:web:check
 bun run deploy:web:staging:check
 bun run deploy:web:staging

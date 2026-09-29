@@ -28,7 +28,6 @@ graphify-out/
 .env.*
 .dev.vars*
 !.env.example
-!.env.schema
 .certs/
 *.pem
 *.key
@@ -36,7 +35,11 @@ graphify-out/
 # Editors and operating systems
 .DS_Store
 .idea/
-.vscode/
+# Shared VS Code workspace settings are tracked; everything else stays local.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
 *.swp
 
 # Logs

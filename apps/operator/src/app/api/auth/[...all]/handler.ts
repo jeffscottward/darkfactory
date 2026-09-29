@@ -1,14 +1,8 @@
 import { createAuthHandler } from "@darkfactory/auth/server";
 
-import { createOperatorAuthRuntime } from "../../../../server/operator-auth.ts";
+import { withOperatorRequestScope } from "../../../../server/operator-auth.ts";
 
-export const handleOperatorAuthRequest = async (
+export const handleOperatorAuthRequest = (
   request: Request
-): Promise<Response> => {
-  const runtime = await createOperatorAuthRuntime();
-  try {
-    return await createAuthHandler(runtime.auth)(request);
-  } finally {
-    await runtime.close();
-  }
-};
+): Promise<Response> =>
+  withOperatorRequestScope(({ auth }) => createAuthHandler(auth)(request));

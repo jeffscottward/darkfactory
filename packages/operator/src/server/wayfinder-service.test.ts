@@ -1,6 +1,6 @@
 import type { SafePrincipal } from "@darkfactory/auth/types";
-import type { WorkflowRepository } from "@darkfactory/db/server/workflow";
 import { WayfinderRequestError } from "@darkfactory/jobs/server/wayfinder";
+import type { WorkflowRepository } from "@darkfactory/jobs/server/workflow-repository";
 import { describe, expect, it, vi } from "vitest";
 
 import {

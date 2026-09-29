@@ -39,8 +39,8 @@
     "auth:schema:generate": "bun scripts/check-auth-schema.ts --write",
     "auth:schema:check": "bun scripts/check-auth-schema.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.ts src/db.test.ts src/server-bundle.test.ts src/verification-config.test.ts",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
+    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.ts src/db.test.ts src/server-bundle.test.ts src/verification-config.test.ts",
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {
     "node": ">=24.21.0"

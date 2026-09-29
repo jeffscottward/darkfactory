@@ -1,0 +1,13 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/
+!apps/*/
+!apps/*/package.json
+!packages/
+!packages/*/
+!packages/*/package.json
+!packages/jobs/verifier/
+!packages/jobs/verifier/checks.json
+!packages/jobs/verifier/runner.ts

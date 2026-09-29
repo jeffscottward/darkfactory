@@ -114,9 +114,8 @@ const runCli = async (
   const { APP_ENV: _inheritedAppEnvironment, ...parentEnvironment } =
     process.env;
   return execFileAsync(
-    "corepack",
+    "pnpm",
     [
-      "pnpm",
       "--silent",
       "run",
       `db:${command}`,
@@ -167,7 +166,7 @@ describe.sequential("DF-040 development database lifecycle", () => {
     }
   }, 60_000);
 
-  it("rejects unsafe reset environments before mutation, reports nineteen cleared tables, preserves the journal, and reseeds", async () => {
+  it("rejects unsafe reset environments before mutation, reports twelve named tables, preserves the journal, and reseeds", async () => {
     await seed();
     await populateSessionAndVerification();
 
@@ -190,7 +189,7 @@ describe.sequential("DF-040 development database lifecycle", () => {
       resetDevelopment(databaseResource.db, {
         environment: "test",
       })
-    ).resolves.toEqual({ tablesCleared: 19 });
+    ).resolves.toEqual({ tablesCleared: 12 });
     expect(await tableCounts()).toEqual(
       Object.fromEntries(TABLES.map((table) => [table, 0]))
     );
@@ -253,7 +252,7 @@ describe.sequential("DF-040 development database lifecycle", () => {
     expectNoUnexpectedStderr(secondSeed.stderr);
 
     const reset = await runCli("reset", "test", "test");
-    expect(JSON.parse(reset.stdout)).toEqual({ tablesCleared: 19 });
+    expect(JSON.parse(reset.stdout)).toEqual({ tablesCleared: 12 });
     expect(reset.stdout).not.toContain("Development123!");
     expect(reset.stdout).not.toContain(AUTH_SECRET);
     expectNoUnexpectedStderr(reset.stderr);

@@ -467,11 +467,7 @@ describe("trusted theme updates", () => {
     };
     const boundedRequest = (httpMethod: "GET" | "PATCH") =>
       fetchThemeApiRequest({
-        fetchRequest: async (input, init) => {
-          const request =
-            input instanceof Request ? input : new Request(input, init);
-          return stalledRequest(request);
-        },
+        fetchRequest: async (request) => stalledRequest(request),
         request: new Request("https://darkfactory.example/api/orpc", {
           method: httpMethod,
         }),
@@ -655,9 +651,7 @@ describe("bounded theme API transport", () => {
 
     await expect(
       fetchThemeApiRequest({
-        fetchRequest: async (input, init) => {
-          const forwarded =
-            input instanceof Request ? input : new Request(input, init);
+        fetchRequest: async (forwarded) => {
           forwardedSignal = forwarded.signal;
           return new Response(new ReadableStream<Uint8Array>());
         },

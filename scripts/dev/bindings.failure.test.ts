@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,16 +8,16 @@ const mocks = vi.hoisted(() => ({
   readdir: vi.fn(),
   rename: vi.fn(),
   realpath: vi.fn(),
+  readFile: vi.fn(),
   rm: vi.fn(),
-  spawnSync: vi.fn(),
 }));
 
-vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }));
 vi.mock("node:crypto", () => ({ randomUUID: mocks.randomUUID }));
 vi.mock("node:fs/promises", () => ({
   lstat: mocks.lstat,
   open: mocks.open,
   readdir: mocks.readdir,
+  readFile: mocks.readFile,
   realpath: mocks.realpath,
   rename: mocks.rename,
   rm: mocks.rm,
@@ -149,28 +150,26 @@ describe("Worker binding failure cleanup", () => {
     await expect(
       materializeWorkerBindings("/repo", "operator")
     ).rejects.toThrow("Worker bindings directory is unsafe");
-    expect(mocks.spawnSync).not.toHaveBeenCalled();
+    expect(mocks.readFile).not.toHaveBeenCalled();
     return expect(mocks.open).not.toHaveBeenCalled();
   });
 
-  return it("uses the current working directory by default without continuing after resolver failure", async () => {
-    mocks.spawnSync.mockReturnValueOnce({
-      status: 1,
-      error: undefined,
-      stdout: "",
-    });
+  return it("uses the current working directory and process environment by default without writing invalid bindings", async () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "");
     mocks.lstat.mockResolvedValueOnce(directoryMetadata);
+    mocks.readFile.mockRejectedValueOnce(errno("ENOENT"));
 
     await expect(materializeWorkerBindings()).rejects.toThrow(
-      "Unable to resolve validated Worker bindings"
+      "BETTER_AUTH_SECRET"
     );
-    expect(mocks.spawnSync).toHaveBeenCalledWith(
-      "varlock",
-      ["load", "--format", "env", "--compact"],
-      expect.objectContaining({ cwd: process.cwd() })
-    );
-    return expect(mocks.lstat).toHaveBeenCalledWith(
+    expect(mocks.lstat).toHaveBeenCalledWith(
       expect.stringContaining("apps/web")
     );
+    expect(mocks.readFile).toHaveBeenCalledWith(
+      join(process.cwd(), ".env"),
+      "utf8"
+    );
+    vi.unstubAllEnvs();
+    return expect(mocks.open).not.toHaveBeenCalled();
   });
 });

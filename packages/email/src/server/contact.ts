@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import type { EmailAdapterId } from "../adapters.ts";
 
 import type {
   ContactEmailDeliveryResult,
@@ -65,7 +66,7 @@ export type ResendContactEmailPortOptions = Readonly<{
 
 export type SelectContactEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production";
-  transport?: "preview" | "resend" | "disabled" | undefined;
+  transport?: "preview" | EmailAdapterId | "disabled" | undefined;
   recipient?: string | undefined;
   previewDirectory?: string | undefined;
   previewMaxArtifacts?: number | undefined;
@@ -77,7 +78,7 @@ export type SelectContactEmailPortOptions = Readonly<{
 }>;
 
 const contactFailure = (
-  provider: "preview" | "resend" | "disabled",
+  provider: "preview" | EmailAdapterId | "disabled",
   code: ContactEmailFailureCode,
   retryable = false
 ): ContactEmailDeliveryResult => ({

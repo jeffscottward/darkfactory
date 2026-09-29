@@ -112,7 +112,7 @@ The HTTP Wayfinder start operation ends after durable enqueue and returns `queue
 
 ## Current runtime assembly
 
-The repository has separate composition roots. `apps/web` composes the deployable product. Its Better Auth catch-all route builds a request-scoped database connection, selects the configured email transport, creates the Better Auth instance, delegates to the hardened auth handler, and closes the connection. Its oRPC catch-all route parses the validated server environment, rejects unsafe cross-origin mutations, opens request-scoped repositories and authorization guards, selects product adapters from capability truth, and closes the database connection in `finally`.
+The repository has separate composition roots. `apps/web` composes the deployable product. Its Better Auth, strict sign-out, and oRPC routes each run inside one request scope (`apps/web/src/server/request-scope.ts`): it opens a request-scoped database connection, selects the configured email transport, creates the Better Auth instance, answers database capacity exhaustion with a coded `503` (`retry-after: 1`), sets `x-request-id`, and after the response drains tracked background tasks before closing the connection. The oRPC route first rejects unsafe cross-origin mutations and oversized bodies, then opens request-scoped repositories and authorization guards and selects product adapters from capability truth.
 
 `apps/operator` composes the authenticated local operator plane at <https://operator.darkfactory.localhost>. It supplies local auth and operator oRPC routes, builds the operator context, connects the database workflow repository to `packages/operator` services, and connects those services to `packages/jobs`. `packages/operator` owns operator contracts, bounded projections, typed safe errors, authorization and repository scope, workflow actions, and Wayfinder status/start services. `packages/api` remains product-only and does not own operator contracts or runtime.
 
@@ -162,7 +162,7 @@ Create ports only at real external boundaries; do not build a universal abstract
 | Telemetry | traces, metrics, technical logs | OpenTelemetry |
 | Application events | semantic structured event emission | evlog |
 | AI inference | model-neutral request/result contract | Groq adapter when configured |
-| Email | render/send contract | React Email + Resend; safe local preview without credentials |
+| Email | render/send contract | Resend adapter; safe local preview without credentials |
 | Storage | object operations | R2/S3-compatible adapter when enabled |
 | Jobs | durable enqueue, claim, status, and execution | PostgreSQL workflow runtime; separately started pilot worker with scoped local OMP and Wayfinder adapters |
 | Memory/context | provenance-aware context graph | PostgreSQL-backed Memori capability when enabled |
@@ -183,9 +183,9 @@ Provider configuration belongs in infrastructure. Missing optional credentials m
 
 The root scripts provide separate product and operator lifecycles:
 
-- `bun run dev` runs only `@darkfactory/web`. `bun run dev:https` manages the stable `darkfactory-web-dev` PM2 process and the canonical <https://darkfactory.localhost> route. The matching product commands are `dev:bindings`, `dev:status`, `dev:logs`, `dev:stop`, and `dev:trust`.
-- `bun run operator:dev` first runs `operator:bindings`, then manages the stable `darkfactory-operator-dev` PM2 process and the <https://operator.darkfactory.localhost> route. The matching commands are `operator:status`, `operator:logs`, `operator:stop`, and `operator:bindings`.
-- `operator:bindings` validates the Varlock environment and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
+- `bun run dev` runs only `@darkfactory/web`, in the foreground, through `portless darkfactory` at the canonical <https://darkfactory.localhost> route, after writing validated Worker bindings. The matching product commands are `dev:bindings` and `dev:trust`.
+- `bun run operator:dev` first writes the operator bindings, then serves the <https://operator.darkfactory.localhost> route in the foreground. `operator:bindings` refreshes only the bindings.
+- `operator:bindings` validates `.env` with `parseServerEnv` and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
 - `bun run doctor` independently probes installed Bun 1.3.14 and Node 24.21.0 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
 - Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Build, test, generated-contract, docs, and Graphify checks remain explicit repository gates. Deploy scripts own only the official `apps/web` vinext/Cloudflare path.
 
@@ -204,7 +204,7 @@ Graphify output is generated context rather than an authored runtime dependency.
 
 Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly enabled, supported ancillary Cloudflare resources. No ancillary resource is currently enabled, so DarkFactory has no Alchemy dependency, `alchemy.run.ts`, or Alchemy deployment step. Do not put the vinext web application in Alchemy or add an empty program: in the reviewed baseline, `finalize()` can reconcile and delete resources persisted in a reused stage when they are absent from the current program. Re-review the then-current release before enabling a real ancillary resource. Alchemy here is infrastructure tooling, not a blockchain API dependency. pnpm owns dependency installation and the lockfile; Turborepo owns the repository task graph.
 
-Canonical local development uses <https://darkfactory.localhost> for the product and <https://operator.darkfactory.localhost> for the operator meta-layer. Portless owns both trusted routes. PM2 owns the separate `darkfactory-web-dev` and `darkfactory-operator-dev` processes. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
+Canonical local development uses <https://darkfactory.localhost> for the product and <https://operator.darkfactory.localhost> for the operator meta-layer. Portless owns both trusted routes; each app runs as a foreground process. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
 
 GitHub Actions runs the repository verification lanes but does not deploy or run the local operator worker from a browser. Current documentation makes no claim of a production operator deployment, remote CI operator execution, or completed Wayfinder evidence.
 

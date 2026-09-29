@@ -1,15 +1,13 @@
+import {
+  type CapabilityManifest,
+  loadCapabilityManifest,
+} from "@darkfactory/config/server/capabilities";
+import { type ParseError, parse as parseJsonc } from "jsonc-parser";
 import { inspectBunRuntime } from "../ci/bun-runtime.ts";
-import {
-  CANONICAL_URL,
-  isCanonicalRouteOutput,
-  PROCESS_NAME,
-  parsePm2ProcessList,
-  ROUTE_NAME,
-} from "../dev/lifecycle.ts";
-import {
-  type CapabilityClassification,
-  parseCapabilityManifest,
-} from "./manifest.ts";
+import { DEVELOPMENT_TARGETS, isCanonicalRouteOutput } from "../dev/targets.ts";
+
+const { routeName: ROUTE_NAME, canonicalUrl: CANONICAL_URL } =
+  DEVELOPMENT_TARGETS.web;
 
 const MAX_OUTPUT_BYTES = 1_048_576;
 const COMMAND_OPTIONS = Object.freeze({
@@ -51,7 +49,6 @@ export type HttpsProbeResult = Readonly<{
 export type DoctorDependencies = Readonly<{
   bunVersion: string;
   workingDirectory: string;
-  pm2DaemonAvailable: () => Promise<boolean>;
   environmentHas: (name: string) => boolean;
   process: DoctorProcess;
   files: DoctorFileSystem;
@@ -80,6 +77,80 @@ export type DoctorOptions = Readonly<{
   certificateFallback?: boolean;
 }>;
 
+export type DoctorProbe =
+  | "bun"
+  | "docker"
+  | "postgres"
+  | "portless"
+  | "graphify";
+
+type ManifestProbes<Choice extends string> = Readonly<
+  Record<Choice, readonly DoctorProbe[]>
+>;
+
+// Each manifest choice maps to the local prerequisites it needs. The Record
+// types make a new enum value in packages/config/src/capabilities.ts fail
+// typecheck here until the doctor knows how to probe it.
+const SCRIPT_RUNTIME_PROBES: ManifestProbes<
+  CapabilityManifest["workspace"]["script_runtime"]
+> = { bun: ["bun"] };
+const DATABASE_ENGINE_PROBES: ManifestProbes<
+  CapabilityManifest["database"]["engine"]
+> = { postgres: ["docker", "postgres"] };
+const HTTPS_PROBES: ManifestProbes<
+  CapabilityManifest["development"]["https"]["provider"]
+> = { portless: ["portless"] };
+
+export const probesFor = (
+  manifest: CapabilityManifest
+): ReadonlySet<DoctorProbe> => {
+  const { code_graph: codeGraph } = manifest.developer_context;
+  const { https } = manifest.development;
+  return new Set<DoctorProbe>([
+    ...SCRIPT_RUNTIME_PROBES[manifest.workspace.script_runtime],
+    ...DATABASE_ENGINE_PROBES[manifest.database.engine],
+    ...(https.enabled ? HTTPS_PROBES[https.provider] : []),
+    ...(codeGraph.enabled ? (["graphify"] as const) : []),
+  ]);
+};
+
+type CapabilityClassification = DoctorReport["capabilities"];
+
+const disabledCapabilities = (node: unknown, path: string): string[] => {
+  if (typeof node !== "object" || node === null) return [];
+  const entries = Object.entries(node);
+  if (entries.some(([key, value]) => key === "enabled" && value === false)) {
+    return [path];
+  }
+  return entries.flatMap(([key, value]) =>
+    disabledCapabilities(value, path ? `${path}.${key}` : key)
+  );
+};
+
+const classifyCapabilities = (
+  manifest: CapabilityManifest
+): CapabilityClassification => {
+  const { code_graph: codeGraph } = manifest.developer_context;
+  const { https } = manifest.development;
+  return Object.freeze({
+    required: Object.freeze([
+      manifest.database.engine,
+      manifest.deployment.web.provider,
+      ...(codeGraph.enabled ? [codeGraph.provider] : []),
+      ...(https.enabled ? [https.provider] : []),
+    ]),
+    optional: Object.freeze(
+      Object.entries(manifest.developer_tools)
+        .filter(([, tool]) => tool.enabled === "development")
+        .map(([name]) => name)
+        .sort()
+    ),
+    disabled: Object.freeze(
+      disabledCapabilities(manifest.capabilities, "").sort()
+    ),
+  });
+};
+
 const check = (
   name: string,
   status: DoctorCheckStatus,
@@ -91,14 +162,14 @@ const check = (
 const safeRun = async (
   dependencies: DoctorDependencies,
   command: string,
-  arguments_: readonly string[],
-  options: DoctorCommandOptions = {}
+  arguments_: readonly string[]
 ): Promise<DoctorCommandResult> => {
   try {
-    const result = await dependencies.process.run(command, arguments_, {
-      ...COMMAND_OPTIONS,
-      ...options,
-    });
+    const result = await dependencies.process.run(
+      command,
+      arguments_,
+      COMMAND_OPTIONS
+    );
     if (
       Buffer.byteLength(result.stdout, "utf8") > MAX_OUTPUT_BYTES ||
       Buffer.byteLength(result.stderr, "utf8") > MAX_OUTPUT_BYTES
@@ -165,13 +236,13 @@ const inspectBun = async (
 const inspectManifest = async (
   dependencies: DoctorDependencies
 ): Promise<
-  Readonly<{ classification?: CapabilityClassification; result: DoctorCheck }>
+  Readonly<{ manifest?: CapabilityManifest; result: DoctorCheck }>
 > => {
   try {
     const source = await dependencies.files.readText("capabilities.yaml");
-    const classification = parseCapabilityManifest(source);
+    const manifest = loadCapabilityManifest(source);
     return Object.freeze({
-      classification,
+      manifest,
       result: check(
         "Capabilities manifest",
         "pass",
@@ -278,7 +349,14 @@ const inspectCloudflareConfig = async (
       throw new Error("missing");
     const source = await dependencies.files.readText("apps/web/wrangler.jsonc");
     if (Buffer.byteLength(source, "utf8") > 262_144) throw new Error("large");
-    const parsed = JSON.parse(source) as Record<string, unknown>;
+    // wrangler.jsonc may carry comments, so parse it as JSONC, not JSON;
+    // jsonc-parser keeps this runtime script off the TypeScript compiler API.
+    const errors: ParseError[] = [];
+    const config: unknown = parseJsonc(source, errors, {
+      allowTrailingComma: true,
+    });
+    if (errors.length > 0) throw new Error("malformed");
+    const parsed = config as Record<string, unknown>;
     const valid =
       parsed["name"] === "darkfactory-web" &&
       parsed["main"] === "vinext/server/fetch-handler";
@@ -294,40 +372,6 @@ const inspectCloudflareConfig = async (
       "Cloudflare config",
       "fail",
       "Cloudflare web configuration is missing or malformed"
-    );
-  }
-};
-
-const inspectPm2 = async (
-  dependencies: DoctorDependencies
-): Promise<DoctorCheck> => {
-  if (!(await dependencies.pm2DaemonAvailable())) {
-    return check(
-      "PM2 process",
-      "fail",
-      "PM2 daemon and stable process are absent"
-    );
-  }
-  const list = await safeRun(dependencies, "pm2", ["jlist"], {
-    environment: { PM2_SILENT: "true" },
-  });
-  try {
-    const process =
-      list.exitCode === 0
-        ? parsePm2ProcessList(list.stdout, dependencies.workingDirectory)
-        : { status: "unknown" };
-    return check(
-      "PM2 process",
-      process.status === "online" ? "pass" : "fail",
-      process.status === "online"
-        ? `${PROCESS_NAME} is online`
-        : `${PROCESS_NAME} is ${process.status}`
-    );
-  } catch {
-    return check(
-      "PM2 process",
-      "fail",
-      "PM2 process output is malformed or has conflicting identity"
     );
   }
 };
@@ -368,6 +412,45 @@ const inspectTrust = async (
     );
   }
 };
+
+// Checks run for each probe that probesFor(manifest) selects.
+const PROBE_CHECKS: Readonly<
+  Record<
+    DoctorProbe,
+    (dependencies: DoctorDependencies) => Promise<readonly DoctorCheck[]>
+  >
+> = {
+  bun: async (dependencies) => [await inspectBun(dependencies)],
+  docker: async (dependencies) => [await inspectDocker(dependencies)],
+  postgres: async (dependencies) => [await inspectPostgres(dependencies)],
+  portless: async (dependencies) => [
+    await toolCheck(
+      dependencies,
+      "portless",
+      "bunx",
+      ["--bun", "--no-install", "portless", "--version"],
+      exactVersion("0.13.0")
+    ),
+    await inspectPortlessRoute(dependencies),
+    // Route and trust pass only while `bun run dev` is serving; see
+    // scripts/dev/serve.ts#runDevServer.
+    await inspectTrust(dependencies),
+  ],
+  graphify: async (dependencies) => [
+    await toolCheck(
+      dependencies,
+      "Graphify",
+      "graphify",
+      ["--version"],
+      exactVersion("0.9.2")
+    ),
+  ],
+};
+
+// An unreadable manifest probes everything so the report stays complete.
+const ALL_PROBES: ReadonlySet<DoctorProbe> = new Set(
+  Object.keys(PROBE_CHECKS) as DoctorProbe[]
+);
 
 const environmentChecks = (
   dependencies: DoctorDependencies
@@ -447,28 +530,19 @@ export const runDoctor = async (
   const checks: DoctorCheck[] = [];
   const manifest = await inspectManifest(dependencies);
   checks.push(manifest.result);
+  const probes = manifest.manifest ? probesFor(manifest.manifest) : ALL_PROBES;
   checks.push(
     await toolCheck(dependencies, "Node", "node", ["--version"], (value) => {
       const version = parsedVersion(value);
       return version !== undefined && supportedNode(version);
     })
   );
-  checks.push(await inspectBun(dependencies));
-  checks.push(
-    await toolCheck(
-      dependencies,
-      "Corepack",
-      "corepack",
-      ["--version"],
-      exactVersion("0.34.7")
-    )
-  );
   checks.push(
     await toolCheck(
       dependencies,
       "pnpm",
-      "corepack",
-      ["pnpm", "--version"],
+      "pnpm",
+      ["--version"],
       exactVersion("11.16.0")
     )
   );
@@ -477,9 +551,8 @@ export const runDoctor = async (
     await toolCheck(
       dependencies,
       "Vinext configuration",
-      "corepack",
+      "pnpm",
       [
-        "pnpm",
         "--filter",
         "@darkfactory/web",
         "exec",
@@ -492,11 +565,8 @@ export const runDoctor = async (
       () => true
     )
   );
-  checks.push(await inspectDocker(dependencies));
-  checks.push(await inspectPostgres(dependencies));
   checks.push(
-    await toolCheck(dependencies, "Cloudflare tooling", "corepack", [
-      "pnpm",
+    await toolCheck(dependencies, "Cloudflare tooling", "pnpm", [
       "--filter",
       "@darkfactory/web",
       "exec",
@@ -509,36 +579,9 @@ export const runDoctor = async (
   );
   checks.push(await inspectCloudflareConfig(dependencies));
   checks.push(...environmentChecks(dependencies));
-  checks.push(
-    await toolCheck(
-      dependencies,
-      "portless",
-      "bunx",
-      ["--bun", "--no-install", "portless", "--version"],
-      exactVersion("0.13.0")
-    )
-  );
-  checks.push(await inspectPortlessRoute(dependencies));
-  checks.push(await inspectTrust(dependencies));
-  checks.push(await inspectPm2(dependencies));
-  checks.push(
-    await toolCheck(
-      dependencies,
-      "Graphify",
-      "graphify",
-      ["--version"],
-      exactVersion("0.9.2")
-    )
-  );
-  checks.push(
-    await toolCheck(
-      dependencies,
-      "Varlock",
-      "varlock",
-      ["--version"],
-      exactVersion("1.13.0")
-    )
-  );
+  for (const probe of probes) {
+    checks.push(...(await PROBE_CHECKS[probe](dependencies)));
+  }
   checks.push(
     await toolCheck(
       dependencies,
@@ -580,11 +623,9 @@ export const runDoctor = async (
     );
   }
 
-  const classification = manifest.classification ?? {
-    required: [],
-    optional: [],
-    disabled: [],
-  };
+  const classification = manifest.manifest
+    ? classifyCapabilities(manifest.manifest)
+    : { required: [], optional: [], disabled: [] };
   for (const capability of classification.optional) {
     checks.push(
       check(

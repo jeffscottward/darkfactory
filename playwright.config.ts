@@ -66,7 +66,7 @@ export default defineConfig({
       // NODE_ENV=production, which would disable the E2E fixtures
       // (see apps/web/src/lib/e2e-fixtures.ts#isE2eFixtureEnabled).
       command:
-        "rm -f apps/web/dist/server/.dev.vars && node_modules/.bin/portless darkfactory corepack pnpm --filter @darkfactory/web run start --mode test",
+        "rm -f apps/web/dist/server/.dev.vars && node_modules/.bin/portless darkfactory pnpm --filter @darkfactory/web run start --mode test",
       env: env.appEnv,
       gracefulShutdown: { signal: "SIGTERM", timeout: 5000 },
       reuseExistingServer: false,

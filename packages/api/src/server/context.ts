@@ -46,9 +46,18 @@ export type ApiContextDependencies = Readonly<{
 }>;
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+// Cloudflare ray ids: 16 lowercase hex digits, optionally suffixed with the colo code.
+const CF_RAY_PATTERN = /^[0-9a-f]{16}(?:-[A-Z]{3})?$/;
 
+/**
+ * Correlation id for one request, shared by evlog, the OTel span and audit rows.
+ * Order: an injected id (in-process dispatch passes its parent's, see
+ * apps/web/src/lib/server-internal-dispatch.ts), then a pattern-checked
+ * edge-set `cf-ray`, then a fresh UUID. A public `x-request-id` is never
+ * read: it would let a client choose its own `audit_records.request_id`.
+ */
 export const resolveApiRequestId = (
-  _request: Request,
+  request: Readonly<{ headers: Pick<Headers, "get"> }>,
   options: ApiRequestIdOptions = {}
 ): string => {
   if (options.requestId !== undefined) {
@@ -59,6 +68,9 @@ export const resolveApiRequestId = (
     }
     return options.requestId;
   }
+
+  const ray = request.headers.get("cf-ray");
+  if (ray !== null && CF_RAY_PATTERN.test(ray)) return ray;
 
   const generated = options.generateRequestId?.() ?? crypto.randomUUID();
   if (!REQUEST_ID_PATTERN.test(generated)) {

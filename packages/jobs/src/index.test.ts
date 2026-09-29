@@ -346,7 +346,7 @@ describe("recording jobs adapter", () => {
 });
 
 describe("jobs dependency inventory", () =>
-  it("declares only internal runtime dependencies and explicit entrypoints", async () => {
+  it("declares its runtime dependencies and explicit entrypoints", async () => {
     const manifestText = await readFile(
       new URL("../package.json", import.meta.url),
       "utf8"
@@ -360,19 +360,25 @@ describe("jobs dependency inventory", () =>
     }).toEqual({
       dependencies: {
         "@darkfactory/db": "workspace:*",
+        "@darkfactory/observability": "workspace:*",
         "@darkfactory/state": "workspace:*",
+        // The operator-plane workflow repository queries through Drizzle.
+        "drizzle-orm": "catalog:",
       },
       optionalDependencies: {},
       peerDependencies: {},
     });
     return expect(Object.keys(manifest.exports)).toEqual([
       ".",
+      "./schema/workflow",
       "./server/inline",
       "./server/omp",
       "./server/wayfinder",
       "./server/workflow-worker",
       "./server/workflow-runtime",
       "./server/plan-evidence",
+      "./server/workflow-error",
+      "./server/workflow-repository",
       "./server/pilot-worker",
       "./test",
     ]);

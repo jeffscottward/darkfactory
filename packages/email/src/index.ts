@@ -1,3 +1,7 @@
+import type { EmailAdapterId } from "./adapters.ts";
+
+export type { EmailAdapterId } from "./adapters.ts";
+
 export type PasswordResetEmailInput = Readonly<{
   to: string;
   resetUrl: string;
@@ -19,7 +23,7 @@ export type ContactEmailInput = Readonly<{
   message: string;
 }>;
 
-export type ContactEmailProvider = "preview" | "resend" | "disabled";
+export type ContactEmailProvider = "preview" | EmailAdapterId | "disabled";
 export type ContactEmailFailureCode =
   | "CONTACT_DELIVERY_DISABLED"
   | "CONTACT_PROVIDER_NOT_CONFIGURED"
@@ -32,7 +36,7 @@ export type ContactEmailFailureCode =
   | "CONTACT_PROVIDER_UNAVAILABLE";
 
 export type ContactEmailDeliveryResult =
-  | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
+  | Readonly<{ status: "sent"; provider: EmailAdapterId; messageId: string }>
   | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
   | Readonly<{
       status: "not-delivered";
@@ -45,7 +49,7 @@ export interface ContactEmailPort {
   sendContact(input: ContactEmailInput): Promise<ContactEmailDeliveryResult>;
 }
 
-export type EmailProvider = "preview" | "resend" | "disabled";
+export type EmailProvider = "preview" | EmailAdapterId | "disabled";
 
 export type EmailDeliveryFailureCode =
   | "EMAIL_DELIVERY_DISABLED"
@@ -59,7 +63,7 @@ export type EmailDeliveryFailureCode =
 
 export type SentEmailDelivery = Readonly<{
   status: "sent";
-  provider: "resend";
+  provider: EmailAdapterId;
   messageId: string;
 }>;
 

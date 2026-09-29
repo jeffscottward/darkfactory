@@ -1,4 +1,7 @@
 import { waitUntil } from "cloudflare:workers";
+import { resolveApiRequestId } from "@darkfactory/api/server";
+import { headers } from "next/headers";
+import { cache } from "react";
 
 import { handleAuthRequest } from "../app/api/auth/[...all]/handler.ts";
 import { handleOrpcRuntimeRequest } from "../app/api/orpc/[...rest]/route.ts";
@@ -16,6 +19,26 @@ const requestFrom = (input: RequestInfo | URL, init?: RequestInit): Request =>
   input instanceof Request && init === undefined
     ? input
     : new Request(input, init);
+
+/*
+ * Each dispatch runs the full route handler and therefore opens its own
+ * request scope and pg Client (see apps/web/src/server/request-scope.ts).
+ * Sharing one Client across the dispatches of a render was rejected: pg
+ * multiplexes nothing, so concurrent `db.transaction` calls from sibling
+ * dispatches (layout theme + page data) would interleave their statements
+ * inside each other's BEGIN/COMMIT. Capacity pressure is handled instead by
+ * the callers' bounded retry (see ./capacity-retry.ts#retryOnCapacity).
+ */
+
+/**
+ * The parent page request's id (its edge-set `cf-ray`, else a UUID), memoized
+ * per server request by React `cache` so every dispatch of one render shares
+ * it. It is handed to the route handler as an explicit in-process argument,
+ * never as a header: a header is forgeable by any network client.
+ */
+const parentRequestId = cache(
+  async (): Promise<string> => resolveApiRequestId({ headers: await headers() })
+);
 
 const isConfiguredOrigin = (url: URL): boolean => {
   return url.origin === resolvePortalAppUrl().origin;
@@ -87,8 +110,8 @@ export const dispatchInternalAuthRequest: typeof globalThis.fetch = async (
       "Internal auth dispatch requires GET /api/auth/get-session on the configured app origin"
     );
   }
-  return await dispatchWithAbort(request, () =>
-    handleAuthRequest(request, waitUntil)
+  return await dispatchWithAbort(request, async () =>
+    handleAuthRequest(request, waitUntil, await parentRequestId())
   );
 };
 
@@ -110,7 +133,7 @@ export const dispatchInternalOrpcRequest: typeof globalThis.fetch = async (
       "Internal oRPC dispatch requires a routed API request on the configured app origin"
     );
   }
-  return await dispatchWithAbort(request, () =>
-    handleOrpcRuntimeRequest(request, waitUntil)
+  return await dispatchWithAbort(request, async () =>
+    handleOrpcRuntimeRequest(request, waitUntil, await parentRequestId())
   );
 };

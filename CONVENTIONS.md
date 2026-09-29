@@ -108,7 +108,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 
 ## Biome scope and exception rationale
 
-`biome.json` is strict JSON so standard discovery and parsers can consume it. The configuration owns the exact file scopes; these conventions preserve the reasons for every non-default scope and rule exception:
+`biome.jsonc` records a one-line rationale beside every disabled or overridden rule. The configuration owns the exact file scopes; these conventions preserve the reasons for every non-default scope and rule exception:
 
 - `packages/api/openapi.json` is generated deterministically by `@darkfactory/api`; the stale check owns its exact bytes.
 - `useLiteralKeys` is disabled only for the listed files that intentionally inspect validated dynamic records and `ProcessEnv`; TypeScript's `noPropertyAccessFromIndexSignature` requires bracket access.

@@ -3,12 +3,14 @@ import type {
   ContactSubmitOutput,
 } from "../contracts/contact.ts";
 
+// `provider` is opaque so the API brick names no email vendor; the service
+// never copies it into ContactSubmitOutput.
 export type ContactDeliveryResult =
-  | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
-  | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
+  | Readonly<{ status: "sent"; provider: string; messageId: string }>
+  | Readonly<{ status: "previewed"; provider: string; artifactPath: string }>
   | Readonly<{
       status: "not-delivered";
-      provider: "preview" | "resend" | "disabled";
+      provider: string;
       code: string;
       retryable: boolean;
     }>;

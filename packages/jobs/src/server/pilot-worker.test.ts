@@ -1,7 +1,4 @@
-import type {
-  DatabaseResource,
-  WorkflowRepository,
-} from "@darkfactory/db/server";
+import type { DatabaseResource } from "@darkfactory/db/server";
 import { parseWorkflowRepositoryGrants } from "@darkfactory/state/workflow";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -20,6 +17,7 @@ import {
   runPilotWorker,
 } from "./pilot-worker.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
+import type { WorkflowRepository } from "./workflow-repository.ts";
 import type { WorkflowRuntime } from "./workflow-runtime.ts";
 
 const VERIFIER_IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;

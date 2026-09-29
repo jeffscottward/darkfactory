@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import type { EmailAdapterId } from "../adapters.ts";
 
 import type {
   EmailDeliveryFailureCode,
@@ -51,7 +52,7 @@ export type ResendEmailPortOptions = Readonly<{
 
 export type SelectEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production";
-  transport?: "preview" | "resend" | "disabled" | undefined;
+  transport?: "preview" | EmailAdapterId | "disabled" | undefined;
   previewDirectory?: string | undefined;
   previewMaxArtifacts?: number | undefined;
   previewMaxBytes?: number | undefined;

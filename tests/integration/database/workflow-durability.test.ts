@@ -1,13 +1,12 @@
 type AutoPromise<T> = Promise<Awaited<T>>;
 
 import { createHash, randomUUID } from "node:crypto";
+import { type OutboxEvent, users } from "@darkfactory/db/schema";
+import { createNodeDatabase, resetDevelopment } from "@darkfactory/db/server";
+import { migrate } from "@darkfactory/db/server/migration";
+import { GENESIS_WORKFLOW_JOURNAL_HASH } from "@darkfactory/jobs/schema/workflow";
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import {
-  GENESIS_WORKFLOW_JOURNAL_HASH,
-  type OutboxEvent,
-  users,
-} from "@darkfactory/db/schema";
-import {
-  createNodeDatabase,
   createWorkflowRepository,
   hashWorkflowJournalEntryV1,
   type PersistedWorkflowEvent,
@@ -17,9 +16,7 @@ import {
   type WorkflowProjection,
   WorkflowProjectionIntegrityError,
   type WorkflowRepository,
-} from "@darkfactory/db/server";
-import { migrate } from "@darkfactory/db/server/migration";
-import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
+} from "@darkfactory/jobs/server/workflow-repository";
 import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime";
 import { WORKFLOW_EFFECT_HANDLER_V2 } from "@darkfactory/jobs/server/workflow-worker";
 import { createOperatorWorkflowPort } from "@darkfactory/operator/server";
@@ -1658,7 +1655,7 @@ describe.sequential("workflow durability on real PostgreSQL", () => {
     return expect(rows).toEqual([{ run_count: "0", journal_count: "0" }]);
   });
 
-  return it("enforces owner scope for projections, evidence, messages, and listings", async () => {
+  it("enforces owner scope for projections, evidence, messages, and listings", async () => {
     const ownerId = await createOwner();
     const otherOwnerId = await createOwner();
     const projection = await createRun(ownerId);
@@ -1673,5 +1670,39 @@ describe.sequential("workflow durability on real PostgreSQL", () => {
     return expect(
       await repository.listMessagesByOwner(projection.run.id, otherOwnerId)
     ).toEqual({ items: [], nextCursor: null });
+  });
+
+  // Runs last: the product reset names no workflow table, so this proves
+  // TRUNCATE ... CASCADE still empties the operator plane (RESTRICT FKs included).
+  return it("empties every operator workflow table through the product reset cascade", async () => {
+    await createRun(await createOwner());
+    const workflowTables = [
+      "workflow_runs",
+      "workflow_journal",
+      "workflow_snapshots",
+      "workflow_approvals",
+      "workflow_evidence",
+      "workflow_omp_resources",
+      "workflow_messages",
+    ];
+    const counts = async () =>
+      await testDatabase.query<{ table_name: string; row_count: string }>(
+        workflowTables
+          .map(
+            (table) =>
+              `SELECT '${table}' AS table_name, count(*)::text AS row_count FROM ${table}`
+          )
+          .join(" UNION ALL ")
+      );
+    expect(
+      (await counts()).find(({ table_name }) => table_name === "workflow_runs")
+        ?.row_count
+    ).not.toBe("0");
+
+    await resetDevelopment(databaseResource.db, { environment: "test" });
+
+    return expect(
+      (await counts()).filter(({ row_count }) => row_count !== "0")
+    ).toEqual([]);
   });
 });

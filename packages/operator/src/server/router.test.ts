@@ -3,8 +3,8 @@ import {
   AuthAuthorizationError,
   type SafeAuthSession,
 } from "@darkfactory/auth/server";
-import type { WorkflowRepository } from "@darkfactory/db/server";
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
+import type { WorkflowRepository } from "@darkfactory/jobs/server/workflow-repository";
 import { ORPCError } from "@orpc/client";
 import { describe, expect, it, vi } from "vitest";
 import { createOperatorClient } from "../client.ts";

@@ -1,7 +1,7 @@
 .PHONY: setup lint test verify
 
 setup:
-	sh scripts/install-prerequisites.sh
+	bun run setup
 
 lint:
 	bun run lint

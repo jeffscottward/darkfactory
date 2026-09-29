@@ -1,4 +1,5 @@
 import type {
+  BackgroundTaskScheduler,
   RequestDatabaseDiagnostic,
   RequestDatabaseDiagnosticSink,
 } from "@darkfactory/db/server";
@@ -6,8 +7,6 @@ import type {
   SemanticEvent,
   StructuredEventSink,
 } from "@darkfactory/observability";
-
-import type { BackgroundTaskScheduler } from "./background-task-lifecycle.ts";
 
 type RequestDatabaseDiagnosticAdapterOptions = Readonly<{
   sink: StructuredEventSink;

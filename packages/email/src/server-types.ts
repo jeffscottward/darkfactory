@@ -1,3 +1,5 @@
+import type { EmailAdapterId } from "./adapters.ts";
+
 export type PasswordResetEmailInput = Readonly<{
   to: string;
   resetUrl: string;
@@ -11,7 +13,7 @@ export type EmailVerificationEmailInput = Readonly<{
   recipientName?: string;
 }>;
 
-export type EmailProvider = "preview" | "resend" | "disabled";
+export type EmailProvider = "preview" | EmailAdapterId | "disabled";
 export type EmailDeliveryFailureCode =
   | "EMAIL_DELIVERY_DISABLED"
   | "EMAIL_PROVIDER_NOT_CONFIGURED"
@@ -22,7 +24,7 @@ export type EmailDeliveryFailureCode =
   | "EMAIL_PROVIDER_INVALID_RESPONSE"
   | "EMAIL_PROVIDER_UNAVAILABLE";
 export type EmailDeliveryResult =
-  | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
+  | Readonly<{ status: "sent"; provider: EmailAdapterId; messageId: string }>
   | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
   | Readonly<{
       status: "failed";
@@ -97,7 +99,7 @@ export type ResendEmailPortOptions = Readonly<{
 }>;
 export type SelectEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production";
-  transport?: "preview" | "resend" | "disabled" | undefined;
+  transport?: "preview" | EmailAdapterId | "disabled" | undefined;
   previewDirectory?: string | undefined;
   previewMaxArtifacts?: number | undefined;
   previewMaxBytes?: number | undefined;
@@ -133,7 +135,7 @@ export type ContactEmailInput = Readonly<{
   subject: string;
   message: string;
 }>;
-export type ContactEmailProvider = "preview" | "resend" | "disabled";
+export type ContactEmailProvider = "preview" | EmailAdapterId | "disabled";
 export type ContactEmailFailureCode =
   | "CONTACT_DELIVERY_DISABLED"
   | "CONTACT_PROVIDER_NOT_CONFIGURED"
@@ -145,7 +147,7 @@ export type ContactEmailFailureCode =
   | "CONTACT_PROVIDER_INVALID_RESPONSE"
   | "CONTACT_PROVIDER_UNAVAILABLE";
 export type ContactEmailDeliveryResult =
-  | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
+  | Readonly<{ status: "sent"; provider: EmailAdapterId; messageId: string }>
   | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
   | Readonly<{
       status: "not-delivered";
@@ -199,7 +201,7 @@ export type ResendContactEmailPortOptions = Readonly<{
 }>;
 export type SelectContactEmailPortOptions = Readonly<{
   environment: "development" | "test" | "production";
-  transport?: "preview" | "resend" | "disabled" | undefined;
+  transport?: "preview" | EmailAdapterId | "disabled" | undefined;
   recipient?: string | undefined;
   previewDirectory?: string | undefined;
   previewMaxArtifacts?: number | undefined;

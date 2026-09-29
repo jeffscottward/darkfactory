@@ -1,0 +1,7 @@
+# Toolchain pins. `mise install` provisions them; `bun run setup` checks them.
+# CI reads .nvmrc and .bun-version, and package.json pins pnpm; the invariant
+# test in scripts/ci/toolchain-invariants.test.ts keeps all of them equal.
+[tools]
+node = "24.21.0"
+bun = "1.3.14"
+pnpm = "11.16.0"

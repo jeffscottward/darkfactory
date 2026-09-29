@@ -1,9 +1,9 @@
 import type { SafePrincipal } from "@darkfactory/auth/types";
 import {
   parseWorkflowPlanEvidenceV1,
-  WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "@darkfactory/jobs/server/plan-evidence";
+import { isWorkflowError } from "@darkfactory/jobs/server/workflow-error";
 import {
   OPERATOR_ERRORS,
   type OperatorApprovalBindingInput,
@@ -469,7 +469,7 @@ const detailFor = (
         detail.implementationPlan.digest
       );
     } catch (error) {
-      if (error instanceof WorkflowPlanEvidenceError) {
+      if (isWorkflowError(error, "PLAN_EVIDENCE")) {
         throw new OperatorServiceError(
           "PROJECTION_INVALID",
           operatorServiceErrorMessage("PROJECTION_INVALID")

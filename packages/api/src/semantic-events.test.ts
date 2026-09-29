@@ -176,6 +176,37 @@ describe("feature mutation semantic events", () => {
     ).toBe("internal-request-id");
   });
 
+  it("correlates with a pattern-checked cf-ray, else an injected or generated id", () => {
+    const generateRequestId = () => "internal-request-id";
+    const withHeaders = (headers: Record<string, string>) =>
+      new Request("https://darkfactory.localhost/api/orpc", { headers });
+
+    expect(
+      resolveApiRequestId(
+        withHeaders({
+          "x-request-id": "attacker-controlled",
+          "cf-ray": "8f1e2d3c4b5a6978-SJC",
+        }),
+        { generateRequestId }
+      )
+    ).toBe("8f1e2d3c4b5a6978-SJC");
+    expect(
+      resolveApiRequestId(withHeaders({ "cf-ray": "8f1e2d3c4b5a6978" }), {
+        generateRequestId,
+      })
+    ).toBe("8f1e2d3c4b5a6978");
+    expect(
+      resolveApiRequestId(withHeaders({ "cf-ray": "not-a-ray" }), {
+        generateRequestId,
+      })
+    ).toBe("internal-request-id");
+    expect(
+      resolveApiRequestId(withHeaders({ "cf-ray": "8f1e2d3c4b5a6978-SJC" }), {
+        requestId: "injected-parent",
+      })
+    ).toBe("injected-parent");
+  });
+
   it.each([
     {
       name: "feature-item.created",

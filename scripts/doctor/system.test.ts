@@ -2,9 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(),
-  createConnection: vi.fn(),
   execFile: vi.fn(),
-  homedir: vi.fn(() => "/home/doctor"),
   open: vi.fn(),
 }));
 
@@ -13,8 +11,6 @@ vi.mock("node:fs/promises", () => ({
   access: mocks.access,
   open: mocks.open,
 }));
-vi.mock("node:net", () => ({ createConnection: mocks.createConnection }));
-vi.mock("node:os", () => ({ homedir: mocks.homedir }));
 
 import {
   nodeDoctorDependencies,
@@ -51,14 +47,6 @@ const textHandle = (
     close: vi.fn(async () => undefined),
   };
 };
-
-const fakeSocket = (outcome: "connect" | "error" | "none") => ({
-  destroy: vi.fn(),
-  once: vi.fn((event: string, listener: () => void) => {
-    if (event === outcome) return queueMicrotask(listener);
-    return;
-  }),
-});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -251,7 +239,7 @@ describe("doctor bounded filesystem adapter", () => {
 });
 
 describe("doctor dependency discovery", () => {
-  it("exposes injected runtime paths and treats only nonempty environment values as configured", () => {
+  return it("exposes injected runtime paths and treats only nonempty environment values as configured", () => {
     vi.stubEnv("EMPTY_DOCTOR_VALUE", "");
     vi.stubEnv("SPACE_DOCTOR_VALUE", " ");
     const dependencies = nodeDoctorDependencies({
@@ -267,70 +255,10 @@ describe("doctor dependency discovery", () => {
     expect(dependencies.environmentHas("SPACE_DOCTOR_VALUE")).toBe(true);
     expect(dependencies.process).toBe(nodeDoctorProcess);
     expect(dependencies.files).toBe(nodeDoctorFileSystem);
+    expect(
+      nodeDoctorDependencies({ cwd: () => "/", versions: { node: "24.21.0" } })
+        .bunVersion
+    ).toBe("");
     return expect(dependencies.probeHttps).toBe(probeTrustedHttps);
-  });
-
-  it("requires a live bounded PM2 PID and connected socket", async () => {
-    vi.stubEnv("PM2_HOME", "/doctor/pm2");
-    const handle = textHandle([Buffer.from("654\n")]);
-    mocks.open.mockResolvedValueOnce(handle);
-    const socket = fakeSocket("connect");
-    mocks.createConnection.mockReturnValueOnce(socket);
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
-
-    await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(
-      true
-    );
-    expect(mocks.open).toHaveBeenCalledWith(
-      "/doctor/pm2/pm2.pid",
-      expect.any(Number)
-    );
-    expect(kill).toHaveBeenCalledWith(654, 0);
-    expect(mocks.createConnection).toHaveBeenCalledWith("/doctor/pm2/rpc.sock");
-    expect(socket.destroy).toHaveBeenCalledOnce();
-    expect(handle.close).toHaveBeenCalledOnce();
-
-    mocks.open.mockResolvedValueOnce(textHandle([Buffer.from("654")]));
-    mocks.createConnection.mockReturnValueOnce(fakeSocket("error"));
-    return await expect(
-      nodeDoctorDependencies().pm2DaemonAvailable()
-    ).resolves.toBe(false);
-  });
-
-  return it("rejects missing, malformed, dead, oversized, and unresponsive PM2 state", async () => {
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
-    mocks.open.mockRejectedValueOnce(errno("ENOENT"));
-    await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(
-      false
-    );
-
-    for (const handle of [
-      textHandle([Buffer.from("0")]),
-      textHandle([Buffer.from("not-a-pid")]),
-      textHandle([], { file: false }),
-      textHandle([], { size: 33 }),
-    ]) {
-      mocks.open.mockResolvedValueOnce(handle);
-      await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(
-        false
-      );
-      expect(handle.close).toHaveBeenCalledOnce();
-    }
-    expect(mocks.createConnection).not.toHaveBeenCalled();
-
-    mocks.open.mockResolvedValueOnce(textHandle([Buffer.from("44")]));
-    kill.mockImplementationOnce(() => {
-      throw errno("ESRCH");
-    });
-    await expect(nodeDoctorDependencies().pm2DaemonAvailable()).resolves.toBe(
-      false
-    );
-
-    vi.useFakeTimers();
-    mocks.open.mockResolvedValueOnce(textHandle([Buffer.from("55")]));
-    mocks.createConnection.mockReturnValueOnce(fakeSocket("none"));
-    const availability = nodeDoctorDependencies().pm2DaemonAvailable();
-    await vi.advanceTimersByTimeAsync(500);
-    return await expect(availability).resolves.toBe(false);
   });
 });

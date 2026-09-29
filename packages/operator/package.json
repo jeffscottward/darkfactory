@@ -34,8 +34,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
+    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {
     "node": ">=24.21.0"

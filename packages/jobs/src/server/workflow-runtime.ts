@@ -1,18 +1,5 @@
 import type { OutboxEvent } from "@darkfactory/db/schema";
 import {
-  type AddWorkflowMessageInput,
-  type DecideWorkflowApprovalInput,
-  type PersistedWorkflowEvent,
-  type PersistedWorkflowSnapshot,
-  WorkflowConcurrencyError,
-  type WorkflowEffectInput,
-  type WorkflowProjection,
-  type WorkflowRepository,
-  type WorkflowRetainedResourceClaim,
-  WorkflowRunNotFoundError,
-  WorkflowRunTerminalError,
-} from "@darkfactory/db/server/workflow";
-import {
   canonicalJsonV1,
   createInitialWorkflowSnapshotV1,
   createWorkflowApprovalBindingV1,
@@ -32,7 +19,6 @@ import {
   type WorkflowJournalEntryV1,
   type WorkflowSnapshotV1,
 } from "@darkfactory/state/workflow";
-
 import {
   DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES,
   MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,
@@ -46,11 +32,24 @@ import {
 } from "./omp.ts";
 import {
   parseWorkflowPlanEvidenceV1,
-  WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
 import { required } from "./required.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
+import { isWorkflowError } from "./workflow-error.ts";
+import {
+  type AddWorkflowMessageInput,
+  type DecideWorkflowApprovalInput,
+  type PersistedWorkflowEvent,
+  type PersistedWorkflowSnapshot,
+  WorkflowConcurrencyError,
+  type WorkflowEffectInput,
+  type WorkflowProjection,
+  type WorkflowRepository,
+  type WorkflowRetainedResourceClaim,
+  WorkflowRunNotFoundError,
+  WorkflowRunTerminalError,
+} from "./workflow-repository.ts";
 import {
   type ClaimedWorkflowEffect,
   createWorkflowOutboxWorker,
@@ -70,6 +69,7 @@ const MAX_EFFECT_ATTEMPTS = 3;
 const BASE_RETRY_MILLISECONDS = 1000;
 
 export class WorkflowProjectionVerificationError extends Error {
+  readonly workflowErrorCode = "PROJECTION_VERIFICATION" as const;
   readonly reason: string;
 
   constructor(reason: string) {
@@ -411,7 +411,7 @@ const completionPlanEvidence = (
     try {
       return parseWorkflowPlanEvidenceV1(result.plan);
     } catch (error) {
-      if (error instanceof WorkflowPlanEvidenceError) {
+      if (isWorkflowError(error, "PLAN_EVIDENCE")) {
         throw new WorkflowProjectionVerificationError(
           "plan completion lacks digest-bound review evidence"
         );
@@ -458,7 +458,7 @@ export const createWorkflowApplication = (
     try {
       return parseWorkflowPlanEvidenceV1(evidence.data["plan"], digest);
     } catch (error) {
-      if (error instanceof WorkflowPlanEvidenceError) {
+      if (isWorkflowError(error, "PLAN_EVIDENCE")) {
         throw new WorkflowProjectionVerificationError(
           "Digest-bound plan evidence is invalid"
         );

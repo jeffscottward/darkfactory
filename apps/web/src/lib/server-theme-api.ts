@@ -1,7 +1,12 @@
 import { createApiClient } from "@darkfactory/api";
 
+import { retryOnCapacity } from "./capacity-retry.ts";
 import { INDETERMINATE_THEME } from "./server-theme.ts";
-import { fetchThemeApiRequest } from "./theme-api-timeout.ts";
+import {
+  fetchThemeApiRequest,
+  THEME_API_REQUEST_TIMEOUT_MS,
+  type ThemeTransport,
+} from "./theme-api-timeout.ts";
 
 export interface ThemeApiRequestOptions {
   readonly appUrl: string | URL;
@@ -58,7 +63,7 @@ export const forwardThemeApiRequest = async ({
   trustedOrigin,
 }: {
   readonly cookieHeader: string | null;
-  readonly fetchRequest: typeof globalThis.fetch;
+  readonly fetchRequest: ThemeTransport;
   readonly request: Request;
   readonly requestId: string | null;
   readonly timeoutMs?: number;
@@ -84,6 +89,8 @@ export const forwardThemeApiRequest = async ({
     headers: forwardedHeaders,
     method: request.method,
     redirect: "manual",
+    // Carries the loader's overall deadline into the in-flight attempt.
+    ...(request.signal === undefined ? {} : { signal: request.signal }),
     ...(request.body === null ? {} : { body: request.body, duplex: "half" }),
   } as RequestInit);
   return await fetchThemeApiRequest({
@@ -101,22 +108,34 @@ export const loadApiThemePreference = async ({
   requestId,
 }: ThemeApiRequestOptions): Promise<unknown> => {
   if (!hasBetterAuthSessionCookie(cookieHeader)) return undefined;
+  // One deadline spans every attempt and capacity wait, so retries never extend the render budget.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(
+      new DOMException("Theme preference request timed out", "TimeoutError")
+    );
+  }, THEME_API_REQUEST_TIMEOUT_MS);
   try {
     const configuredAppUrl = new URL(appUrl);
     const trustedOrigin = requireTrustedOrigin(configuredAppUrl.origin);
-    const client = clientFactory({
-      baseUrl: trustedOrigin,
-      fetch: async (request) =>
-        forwardThemeApiRequest({
-          cookieHeader,
-          fetchRequest,
-          request,
-          requestId,
-          trustedOrigin,
-        }),
-    });
-    return await client.preferences.theme.get({});
+    // Sibling dispatches of the same render can briefly fill the isolate DB cap;
+    // without this bounded retry that flake rendered `indeterminate` (fail-closed but wrong).
+    return await retryOnCapacity(fetchRequest, controller.signal, (observed) =>
+      clientFactory({
+        baseUrl: trustedOrigin,
+        fetch: async (request) =>
+          forwardThemeApiRequest({
+            cookieHeader,
+            fetchRequest: observed,
+            request,
+            requestId,
+            trustedOrigin,
+          }),
+      }).preferences.theme.get({}, { signal: controller.signal })
+    );
   } catch (error) {
     return isUnauthorized(error) ? undefined : INDETERMINATE_THEME;
+  } finally {
+    clearTimeout(timeout);
   }
 };

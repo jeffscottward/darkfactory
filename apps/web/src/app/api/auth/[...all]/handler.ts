@@ -1,94 +1,28 @@
-import { resolveApiRequestId } from "@darkfactory/api/server";
-import { createAuth, createAuthHandler } from "@darkfactory/auth/server";
-import { composeDatabaseProfile } from "@darkfactory/config/database";
-import { parseServerEnv } from "@darkfactory/config/server";
-import { createRequestDatabase } from "@darkfactory/db/server";
-import { selectEmailPort } from "@darkfactory/email/server";
-import {
-  createEvlogSink,
-  initializeEvlog,
-} from "@darkfactory/observability/server/evlog";
-import {
-  type BackgroundTaskScheduler,
-  createBackgroundTaskLifecycle,
-} from "../../../../lib/background-task-lifecycle.ts";
-import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
-import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
-import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
+import { createAuthHandler } from "@darkfactory/auth/server";
+import type { BackgroundTaskScheduler } from "@darkfactory/db/server";
 
-export type { BackgroundTaskScheduler } from "../../../../lib/background-task-lifecycle.ts";
+import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
+import { withRequestScope } from "../../../../server/request-scope.ts";
 
 const AUTH_BODY_METHODS: readonly string[] = ["POST", "PUT", "PATCH", "DELETE"];
 export const AUTH_REQUEST_MAX_BYTES = 64 * 1024;
 
-const authPayloadTooLargeResponse = (): Response => {
-  return Response.json({ error: "Payload Too Large" }, { status: 413 });
-};
-
 export const handleAuthRequest = async (
   request: Request,
-  scheduleBackgroundTask: BackgroundTaskScheduler
+  waitUntil: BackgroundTaskScheduler,
+  internalParentRequestId?: string
 ): Promise<Response> => {
-  const env = parseServerEnv(process.env);
-  const previewOptions = resolveE2eEmailPreviewOptions();
-  const boundedRequest = AUTH_BODY_METHODS.includes(
-    request.method.toUpperCase()
-  )
+  // Bound the body before the scope opens a connection, so oversized input never costs a DB slot.
+  const bounded = AUTH_BODY_METHODS.includes(request.method.toUpperCase())
     ? await bufferBoundedRequest(request, AUTH_REQUEST_MAX_BYTES)
     : { request, tooLarge: false };
-  if (boundedRequest.tooLarge) return authPayloadTooLargeResponse();
-  const effectiveRequest = boundedRequest.request;
-  const databaseProfile = composeDatabaseProfile(env);
-  const requestId = resolveApiRequestId(effectiveRequest);
-  const evlogSink = createEvlogSink({
-    runtime: initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME }),
-    request: effectiveRequest,
-    executionContext: { waitUntil: scheduleBackgroundTask },
-  });
-  const diagnosticSink = createRequestDatabaseDiagnosticSink({
-    sink: evlogSink,
-    scheduleBackgroundTask,
-    requestId,
-  });
-  const createDatabase = createRequestDatabase;
-  const database = await createDatabase({
-    connectionString: databaseProfile.connection.connectionString,
-    diagnosticSink,
-  });
-  const backgroundTasks = createBackgroundTaskLifecycle(
-    scheduleBackgroundTask,
-    async () => {
-      try {
-        return await database.close();
-      } catch (_error) {
-        // Cleanup is best-effort after the auth response has been determined.
-        return undefined;
-      }
-    }
-  );
-
-  try {
-    const email = selectEmailPort({
-      environment: env.APP_ENV,
-      transport: env.EMAIL_TRANSPORT,
-      previewDirectory: previewOptions?.authDirectory,
-      previewBinding: previewOptions?.binding,
-      previewCaptureEndpoint: previewOptions?.captureEndpoint,
-      resendApiKey: env.RESEND_API_KEY,
-      from: env.EMAIL_FROM,
-      trustedAppOrigin: env.APP_URL,
-    });
-    const auth = createAuth({
-      database: database.db,
-      email,
-      secret: env.BETTER_AUTH_SECRET,
-      baseURL: env.BETTER_AUTH_URL,
-      trustedOrigins: [env.APP_URL],
-      rateLimitEnabled: env.APP_ENV !== "test",
-      scheduleBackgroundTask: backgroundTasks.schedule,
-    });
-    return await createAuthHandler(auth)(effectiveRequest);
-  } finally {
-    await backgroundTasks.finalize();
+  if (bounded.tooLarge) {
+    return Response.json({ error: "Payload Too Large" }, { status: 413 });
   }
+  return await withRequestScope(
+    bounded.request,
+    waitUntil,
+    ({ auth }) => createAuthHandler(auth)(bounded.request),
+    internalParentRequestId
+  );
 };

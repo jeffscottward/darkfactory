@@ -1,20 +1,16 @@
 import {
-  encodeWorkflowRunsCursor,
-  StaleWorkflowApprovalError,
-  WorkflowConcurrencyError,
-  WorkflowMessageCapacityError,
-  WorkflowPersistenceInputError,
-  WorkflowProjectionIntegrityError,
-  type WorkflowRepository,
-  WorkflowRunCapacityError,
-  WorkflowRunNotFoundError,
-  WorkflowRunSubmissionRateError,
-  WorkflowRunTerminalError,
-} from "@darkfactory/db/server/workflow";
-import {
   parseWorkflowPlanEvidenceV1,
   WorkflowPlanEvidenceError,
 } from "@darkfactory/jobs/server/plan-evidence";
+import {
+  isStaleWorkflowApprovalError,
+  isWorkflowError,
+} from "@darkfactory/jobs/server/workflow-error";
+import {
+  encodeWorkflowRunsCursor,
+  WorkflowConcurrencyError,
+  type WorkflowRepository,
+} from "@darkfactory/jobs/server/workflow-repository";
 import {
   createWorkflowApplication,
   type VerifiedWorkflowProjection,
@@ -30,7 +26,6 @@ import {
   parseWorkflowEffectScopeV1,
   replayWorkflowV1,
   sha256Hex,
-  WorkflowRetryLimitReachedError,
 } from "@darkfactory/state/workflow";
 
 import type {
@@ -52,6 +47,15 @@ export type OperatorWorkflowPortOptions = Readonly<{
   now?: () => Date;
 }>;
 
+// Classify by stable codes, not class identity: callers may load the throwing
+// module through a different entry (see packages/jobs/src/server/workflow-error.ts).
+const isRetryLimitReached = (error: unknown): boolean => {
+  return (
+    error instanceof Error &&
+    (error as { code?: unknown }).code === "RETRY_LIMIT_REACHED"
+  );
+};
+
 const mapError = (
   error: unknown,
   fallback: "STORAGE_ERROR" | "VALIDATION_ERROR"
@@ -62,57 +66,57 @@ const mapError = (
       operatorServiceErrorMessage(error.code)
     );
   }
-  if (error instanceof WorkflowRunNotFoundError) {
+  if (isWorkflowError(error, "RUN_NOT_FOUND")) {
     throw new OperatorWorkflowPortError(
       "NOT_FOUND",
       operatorServiceErrorMessage("NOT_FOUND")
     );
   }
-  if (error instanceof WorkflowConcurrencyError) {
+  if (isWorkflowError(error, "CONCURRENCY")) {
     throw new OperatorWorkflowPortError(
       "CONFLICT",
       operatorServiceErrorMessage("CONFLICT")
     );
   }
   if (
-    error instanceof WorkflowRunTerminalError ||
-    error instanceof WorkflowMessageCapacityError ||
-    error instanceof WorkflowRetryLimitReachedError
+    isWorkflowError(error, "RUN_TERMINAL") ||
+    isWorkflowError(error, "MESSAGE_CAPACITY") ||
+    isRetryLimitReached(error)
   ) {
     throw new OperatorWorkflowPortError(
       "CONFLICT",
       operatorServiceErrorMessage("CONFLICT")
     );
   }
-  if (error instanceof StaleWorkflowApprovalError) {
+  if (isStaleWorkflowApprovalError(error)) {
     throw new OperatorWorkflowPortError(
       "STALE_APPROVAL",
       operatorServiceErrorMessage("STALE_APPROVAL")
     );
   }
   if (
-    error instanceof WorkflowProjectionIntegrityError ||
-    error instanceof WorkflowProjectionVerificationError ||
-    error instanceof WorkflowPlanEvidenceError
+    isWorkflowError(error, "PROJECTION_INTEGRITY") ||
+    isWorkflowError(error, "PROJECTION_VERIFICATION") ||
+    isWorkflowError(error, "PLAN_EVIDENCE")
   ) {
     throw new OperatorWorkflowPortError(
       "PROJECTION_INVALID",
       operatorServiceErrorMessage("PROJECTION_INVALID")
     );
   }
-  if (error instanceof WorkflowRunCapacityError) {
+  if (isWorkflowError(error, "RUN_CAPACITY")) {
     throw new OperatorWorkflowPortError(
       "SERVICE_UNAVAILABLE",
       operatorServiceErrorMessage("SERVICE_UNAVAILABLE")
     );
   }
-  if (error instanceof WorkflowRunSubmissionRateError) {
+  if (isWorkflowError(error, "RUN_SUBMISSION_RATE")) {
     throw new OperatorWorkflowPortError(
       "SERVICE_UNAVAILABLE",
       operatorServiceErrorMessage("SERVICE_UNAVAILABLE")
     );
   }
-  if (error instanceof WorkflowPersistenceInputError) {
+  if (isWorkflowError(error, "PERSISTENCE_INPUT")) {
     throw new OperatorWorkflowPortError(
       "VALIDATION_ERROR",
       operatorServiceErrorMessage("VALIDATION_ERROR")
@@ -520,8 +524,8 @@ export const createOperatorWorkflowPort = (
     } catch (error) {
       if (
         !(
-          error instanceof WorkflowConcurrencyError ||
-          error instanceof StaleWorkflowApprovalError
+          isWorkflowError(error, "CONCURRENCY") ||
+          isStaleWorkflowApprovalError(error)
         )
       ) {
         throw error;

@@ -23,13 +23,6 @@
       "import": "./src/server/index.ts",
       "default": "./src/server/index.ts"
     },
-    "./server/workflow": {
-      "workerd": "./src/server/workflow-repository.ts",
-      "worker": "./src/server/workflow-repository.ts",
-      "browser": "./src/server/unsupported.ts",
-      "import": "./src/server/workflow-repository.ts",
-      "default": "./src/server/workflow-repository.ts"
-    },
     "./server/migration": {
       "import": "./src/server/migration.ts",
       "default": "./src/server/migration.ts"
@@ -37,8 +30,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.ts src/server/server-bundle.test.ts src/server/client.test.ts src/server/repositories.test.ts src/server/workflow-repository.test.ts --exclude \"**/*contract.test.ts\"",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
+    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.ts src/server/server-bundle.test.ts src/server/client.test.ts src/server/repositories.test.ts --exclude \"**/*contract.test.ts\"",
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "db:generate": "bunx --bun --no-install drizzle-kit generate --config drizzle.config.ts",
     "db:check": "bunx --bun --no-install drizzle-kit check --config drizzle.config.ts",
     "db:migrate": "bunx --bun --no-install drizzle-kit migrate --config drizzle.config.ts"

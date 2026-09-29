@@ -1,7 +1,13 @@
 import { createAuth, type DarkFactoryAuth } from "@darkfactory/auth/server";
 import { composeDatabaseProfile } from "@darkfactory/config/database";
-import { parseServerEnv } from "@darkfactory/config/server";
-import { createRequestDatabase } from "@darkfactory/db/server";
+import { parseServerEnv, type ServerEnv } from "@darkfactory/config/server";
+import {
+  type BackgroundTaskScheduler,
+  type Database,
+  openRequestScope,
+  RequestDatabaseCapacityError,
+  requestDatabaseCapacityResponse,
+} from "@darkfactory/db/server";
 import { selectEmailPort } from "@darkfactory/email/server";
 
 import {
@@ -9,20 +15,16 @@ import {
   OPERATOR_APP_ORIGIN,
 } from "./operator-environment.ts";
 
-export type OperatorBackgroundTaskScheduler = (task: Promise<unknown>) => void;
-
-export interface OperatorAuthRuntime {
+export interface OperatorRequestScope {
+  readonly env: ServerEnv;
+  readonly db: Database;
   readonly auth: DarkFactoryAuth;
-  readonly close: () => Promise<void>;
 }
 
-type OperatorServerEnv = ReturnType<typeof parseServerEnv>;
-type OperatorAuthDatabase = Parameters<typeof createAuth>[0]["database"];
-
 export const createOperatorAuthForDatabase = (
-  database: OperatorAuthDatabase,
-  env: OperatorServerEnv,
-  scheduleBackgroundTask: OperatorBackgroundTaskScheduler = () => undefined
+  database: Database,
+  env: ServerEnv,
+  scheduleBackgroundTask: BackgroundTaskScheduler = () => undefined
 ): DarkFactoryAuth => {
   assertLocalOperatorEnvironment(env);
   const email = selectEmailPort({
@@ -43,47 +45,48 @@ export const createOperatorAuthForDatabase = (
   });
 };
 
-export const createOperatorAuthRuntime =
-  async (): Promise<OperatorAuthRuntime> => {
-    const env = parseServerEnv(process.env);
-    assertLocalOperatorEnvironment(env);
-    const databaseProfile = composeDatabaseProfile(env);
-    const database = await createRequestDatabase({
-      connectionString: databaseProfile.connection.connectionString,
-    });
-    const pendingTasks = new Set<Promise<unknown>>();
-    const scheduleBackgroundTask: OperatorBackgroundTaskScheduler = (task) => {
-      let observed: Promise<unknown>;
-      observed = task
-        .catch(() => undefined)
-        .finally(() => pendingTasks.delete(observed));
-      return pendingTasks.add(observed);
-    };
+// The dev-only operator host has no `waitUntil`: finalization is awaited below,
+// so the external scheduler only has to mark task rejections as handled.
+const observeRejections: BackgroundTaskScheduler = (task) => {
+  task.catch(() => undefined);
+};
 
-    const auth = createOperatorAuthForDatabase(
-      database.db,
-      env,
-      scheduleBackgroundTask
-    );
-
-    return Object.freeze({
-      auth,
-      close: async () => {
-        while (pendingTasks.size > 0) {
-          await Promise.allSettled([...pendingTasks]);
-        }
-        return await database.close();
-      },
-    });
-  };
-
-export const withOperatorAuth = async <Result>(
-  operation: (auth: DarkFactoryAuth) => Promise<Result>
+/**
+ * Operator twin of apps/web/src/server/request-scope.ts#withRequestScope,
+ * built on the same packages/db/src/server/request-scope.ts#openRequestScope:
+ * tracked auth tasks drain before the one request connection closes.
+ */
+export const withOperatorScope = async <Result>(
+  run: (scope: OperatorRequestScope) => Promise<Result>
 ): Promise<Result> => {
-  const runtime = await createOperatorAuthRuntime();
+  const env = parseServerEnv(process.env);
+  assertLocalOperatorEnvironment(env);
+  const scope = await openRequestScope({
+    connectionString: composeDatabaseProfile(env).connection.connectionString,
+    schedule: observeRejections,
+  });
   try {
-    return await operation(runtime.auth);
+    const auth = createOperatorAuthForDatabase(scope.db, env, scope.schedule);
+    return await run({ env, db: scope.db, auth });
   } finally {
-    await runtime.close();
+    await scope.finalize();
   }
 };
+
+/** Route-handler form: capacity exhaustion becomes the shared coded 503. */
+export const withOperatorRequestScope = async (
+  run: (scope: OperatorRequestScope) => Promise<Response>
+): Promise<Response> => {
+  try {
+    return await withOperatorScope(run);
+  } catch (error) {
+    if (error instanceof RequestDatabaseCapacityError) {
+      return requestDatabaseCapacityResponse();
+    }
+    throw error;
+  }
+};
+
+export const withOperatorAuth = <Result>(
+  operation: (auth: DarkFactoryAuth) => Promise<Result>
+): Promise<Result> => withOperatorScope(({ auth }) => operation(auth));

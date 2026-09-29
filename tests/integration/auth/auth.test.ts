@@ -32,6 +32,9 @@ import {
 } from "vitest";
 import { handleAuthRequest } from "../../../apps/web/src/app/api/auth/[...all]/handler.ts";
 
+// The handler runs in Node here: an empty Worker env means no Hyperdrive binding, so DATABASE_URL is used.
+vi.mock("cloudflare:workers", () => ({ env: {} }));
+
 const BASE_URL = "https://darkfactory.localhost";
 const AUTH_SECRET = "integration-auth-secret-with-at-least-32-characters";
 const INITIAL_PASSWORD = "CorrectHorseBatteryStaple!42";
@@ -881,17 +884,26 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()"
       );
       const response = await handleAuthRequest(
-        new Request(`${BASE_URL}/api/auth/ok`),
+        new Request(`${BASE_URL}/api/auth/ok`, {
+          headers: {
+            "cf-ray": "0123456789abcdef-SJC",
+            "x-request-id": "attacker-controlled",
+          },
+        }),
         (task) => {
           return backgroundTasks.push(task);
         }
       );
+      // The request scope closes its connection in waitUntil, after the response.
+      await Promise.all(backgroundTasks);
       const [after] = await testDatabase.query<{ connection_count: number }>(
         "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()"
       );
 
       expect(response).toBeInstanceOf(Response);
       expect(response.status).toBe(200);
+      // A public x-request-id is ignored; the edge-set cf-ray is the effective id.
+      expect(response.headers.get("x-request-id")).toBe("0123456789abcdef-SJC");
       return expect(after?.connection_count).toBe(before?.connection_count);
     } finally {
       vi.unstubAllEnvs();
