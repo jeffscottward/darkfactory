@@ -2,7 +2,7 @@
   "name": "@darkfactory/config",
   "brick": "product",
   "description": "Zod-validated environment, database profiles and the capabilities.yaml loader.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "repository": {
     "type": "git",

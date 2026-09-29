@@ -4,7 +4,9 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
-Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https://github.com/jeffscottward/darkfactory/pull/37), [#38](https://github.com/jeffscottward/darkfactory/pull/38) and the follow-up documentation, template and dependency work.
+## [0.3.0] - 2026-09-29
+
+Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https://github.com/jeffscottward/darkfactory/pull/37), [#38](https://github.com/jeffscottward/darkfactory/pull/38), [#39](https://github.com/jeffscottward/darkfactory/pull/39), [#42](https://github.com/jeffscottward/darkfactory/pull/42) and [#44](https://github.com/jeffscottward/darkfactory/pull/44).
 
 ### Added
 
@@ -22,6 +24,10 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - `bun run init`: renames the template (scope, slug, domain, repository URLs, env prefixes, database names, LICENSE holder), drops instance-only history and removes itself; a renamed copy passes check and tests.
 - Weekly grouped Dependabot updates for npm packages with a release-age cooldown, alongside the existing GitHub Actions group.
 
+- `init --fresh-history` (also for shallow or detached clones) and `init --without-operator`, which removes every `agent-sdlc` brick; the quickstart now starts from `gh repo create --template`. (#44)
+- A reference dashboard view-model (`apps/web/src/features/dashboard/view-model.ts`) for headless data-to-presentation mapping, and pointer headers (`What / Used by / See`) on central modules. (#44)
+- `docs:check` verifies real imports against declared bricks, requires a one-line purpose per package, and resolves backticked repository paths and `path#symbol` references in Markdown. `knip` gates dead code and unused dependencies. (#44)
+
 ### Changed
 
 - All sources are strict TypeScript; packages export TypeScript source, each package typechecks with `tsc`, and Biome lints all code. The runtime is Node 24 LTS. (#37)
@@ -34,8 +40,12 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - Toolchain and dependencies: native TypeScript 7 for typechecks (the compiler API stays pinned as `typescript-api` for tooling), Vitest 5, Biome 2.5 with Ultracite 7, better-auth 1.7, React 19.3, Vite 8.3, Playwright 1.63, portless 0.15, wrangler 4.142 and current patch releases across the catalog.
 - README, AGENTS, ARCHITECTURE, CONVENTIONS, CONTRIBUTING and the security guide are rewritten to match the code. `CLAUDE.md` is a symlink to `AGENTS.md`. Historical specs, evidence and assessments moved to `docs/archive/`.
 
+- Coverage runs in parallel and CI builds once, in the browser lane. `bun run test` runs the database suites against the test database on a normal developer `.env`. (#44)
+- Operator workflow state moved from `@darkfactory/state` to `@darkfactory/jobs`; vinext moved to 1.0.0-beta.13, and the E2E fixture gate now reads Worker bindings instead of a leaked host `NODE_ENV`. (#44)
+
 ### Removed
 
+- Speculative capabilities that were never installed (Celery/Flower, Mintlify, Uptime Kuma, GlitchTip, R2, Memori, Postgres extensions, TanStack devtools) from the manifest, environment schema and API projection; they are listed as roadmap candidates in `docs/capabilities.md`. (#44)
 - PM2, Varlock, Corepack and the prerequisite installer, replaced by `mise` and `bun run setup`. (#38)
 - The orphan `packages/shared` and `packages/storage` packages and the `capability:add` scaffolder. (#38)
 - The custom E2E harness (about 26,800 lines), replaced by Playwright built-ins. (#37)
@@ -109,7 +119,8 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - Updated direct and transitive build dependencies to resolve eight published advisories: [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99), [GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr), [GHSA-r5fr-rjxr-66jc](https://github.com/advisories/GHSA-r5fr-rjxr-66jc) / CVE-2026-4800, [GHSA-f23m-r3pf-42rh](https://github.com/advisories/GHSA-f23m-r3pf-42rh) / CVE-2026-2950, [GHSA-xxjr-mmjv-4gpg](https://github.com/advisories/GHSA-xxjr-mmjv-4gpg) / CVE-2025-13465, [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) / CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, and CVE-2026-35591, [GHSA-pm4m-ph32-ghv5](https://github.com/advisories/GHSA-pm4m-ph32-ghv5), and [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg). A current `pnpm audit` reports zero known vulnerabilities.
 - No published DarkFactory-specific security advisory or NVD CVE record matching the project name or repository was identified when this first release was prepared. This bounded statement is not a claim that the software is vulnerability-free.
 
-[Unreleased]: https://github.com/jeffscottward/darkfactory/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/jeffscottward/darkfactory/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jeffscottward/darkfactory/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/jeffscottward/darkfactory/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jeffscottward/darkfactory/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jeffscottward/darkfactory/releases/tag/v0.1.0

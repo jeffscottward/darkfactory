@@ -2,7 +2,7 @@
   "name": "@darkfactory/testkit",
   "brick": "tooling",
   "description": "Isolated, disposable Postgres databases for tests.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "repository": {
     "type": "git",
