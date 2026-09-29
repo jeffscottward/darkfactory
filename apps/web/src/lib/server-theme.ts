@@ -1,7 +1,7 @@
 import {
+  type AnonymousThemePreference,
   DEFAULT_ANONYMOUS_THEME,
   parseThemeCookieHeader,
-  type AnonymousThemePreference,
   type ThemeCookieParseResult,
 } from "./theme.ts";
 

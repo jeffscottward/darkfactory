@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SemanticEvent } from "@darkfactory/observability";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(function () {
+const mocks = vi.hoisted(() => {
   const waitUntil = vi.fn(
     (promise: Promise<unknown>) => void promise.catch(() => undefined)
   );
@@ -145,79 +145,55 @@ const mocks = vi.hoisted(function () {
   };
 });
 
-vi.mock("cloudflare:workers", function () {
-  return { waitUntil: mocks.waitUntil };
-});
-vi.mock("@darkfactory/api/server", function () {
-  return {
-    createApiContext: mocks.createApiContext,
-    resolveApiRequestId: mocks.resolveApiRequestId,
-  };
-});
-vi.mock("@darkfactory/analytics/server/posthog", function () {
-  return {
-    createPostHogAnalyticsPort: mocks.createPostHogAnalyticsPort,
-  };
-});
-vi.mock("@darkfactory/auth/server", function () {
-  return {
-    createAuth: mocks.createAuth,
-    requireSession: mocks.requireSession,
-    requireRole: mocks.requireRole,
-  };
-});
-vi.mock("@darkfactory/config/database", function () {
-  return {
-    composeDatabaseProfile: mocks.composeDatabaseProfile,
-  };
-});
-vi.mock("@darkfactory/config/server", function () {
-  return {
-    parseServerEnv: mocks.parseServerEnv,
-    getProviderCapabilities: () => ({
-      ai: false,
-      emailDelivery: false,
-      analytics: false,
-      telemetryExport: false,
-      storage: false,
-      errorTracking: false,
-    }),
-  };
-});
-vi.mock("@darkfactory/db/server", function () {
-  return {
-    REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
-    RequestDatabaseCapacityError: mocks.RequestDatabaseCapacityError,
-    createRepositories: mocks.createRepositories,
-    createRequestDatabase: mocks.createRequestDatabase,
-    createContactThrottleRepository: mocks.createContactThrottleRepository,
-  };
-});
-vi.mock("@darkfactory/email/server", function () {
-  return {
-    selectEmailPort: mocks.selectEmailPort,
-    selectContactEmailPort: mocks.selectContactEmailPort,
-  };
-});
-vi.mock("@darkfactory/observability/server/evlog", function () {
-  return {
-    createEvlogSink: mocks.createEvlogSink,
-    initializeEvlog: mocks.initializeEvlog,
-  };
-});
-vi.mock("@darkfactory/observability/server/fanout", function () {
-  return {
-    createSemanticEventFanout: mocks.createSemanticEventFanout,
-  };
-});
-vi.mock("@darkfactory/observability/server/otel", function () {
-  return {
-    initializeTelemetry: mocks.initializeTelemetry,
-  };
-});
-vi.mock("./handler.ts", function () {
-  return { handleOrpcRequest: mocks.handleOrpcRequest };
-});
+vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }));
+vi.mock("@darkfactory/api/server", () => ({
+  createApiContext: mocks.createApiContext,
+  resolveApiRequestId: mocks.resolveApiRequestId,
+}));
+vi.mock("@darkfactory/analytics/server/posthog", () => ({
+  createPostHogAnalyticsPort: mocks.createPostHogAnalyticsPort,
+}));
+vi.mock("@darkfactory/auth/server", () => ({
+  createAuth: mocks.createAuth,
+  requireSession: mocks.requireSession,
+  requireRole: mocks.requireRole,
+}));
+vi.mock("@darkfactory/config/database", () => ({
+  composeDatabaseProfile: mocks.composeDatabaseProfile,
+}));
+vi.mock("@darkfactory/config/server", () => ({
+  parseServerEnv: mocks.parseServerEnv,
+  getProviderCapabilities: () => ({
+    ai: false,
+    emailDelivery: false,
+    analytics: false,
+    telemetryExport: false,
+    storage: false,
+    errorTracking: false,
+  }),
+}));
+vi.mock("@darkfactory/db/server", () => ({
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
+  RequestDatabaseCapacityError: mocks.RequestDatabaseCapacityError,
+  createRepositories: mocks.createRepositories,
+  createRequestDatabase: mocks.createRequestDatabase,
+  createContactThrottleRepository: mocks.createContactThrottleRepository,
+}));
+vi.mock("@darkfactory/email/server", () => ({
+  selectEmailPort: mocks.selectEmailPort,
+  selectContactEmailPort: mocks.selectContactEmailPort,
+}));
+vi.mock("@darkfactory/observability/server/evlog", () => ({
+  createEvlogSink: mocks.createEvlogSink,
+  initializeEvlog: mocks.initializeEvlog,
+}));
+vi.mock("@darkfactory/observability/server/fanout", () => ({
+  createSemanticEventFanout: mocks.createSemanticEventFanout,
+}));
+vi.mock("@darkfactory/observability/server/otel", () => ({
+  initializeTelemetry: mocks.initializeTelemetry,
+}));
+vi.mock("./handler.ts", () => ({ handleOrpcRequest: mocks.handleOrpcRequest }));
 vi.mock(
   "../../../../lib/background-task-lifecycle.ts",
   async (importOriginal) => {
@@ -249,8 +225,8 @@ import {
   POST,
 } from "./route.ts";
 
-describe("oRPC Worker route provider composition", function () {
-  beforeEach(function () {
+describe("oRPC Worker route provider composition", () => {
+  beforeEach(() => {
     vi.stubEnv("APP_ENV", "test");
     vi.stubEnv("E2E_FIXTURES", "0");
     vi.stubEnv("NODE_ENV", "test");
@@ -278,11 +254,9 @@ describe("oRPC Worker route provider composition", function () {
     return mocks.handleOrpcRequest.mockClear();
   });
 
-  afterEach(function () {
-    return vi.unstubAllEnvs();
-  });
+  afterEach(() => vi.unstubAllEnvs());
 
-  it("uses fresh request clients when E2E fixtures are not validated", async function () {
+  it("uses fresh request clients when E2E fixtures are not validated", async () => {
     vi.stubEnv("APP_ENV", "production");
     vi.stubEnv("E2E_FIXTURES", "1");
     vi.stubEnv("NODE_ENV", "production");
@@ -295,7 +269,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.createRequestDatabase).toHaveBeenCalledOnce();
   });
 
-  it("uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async function () {
+  it("uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async () => {
     const firstRequest = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create?endpoint=https://attacker.invalid",
       {
@@ -373,7 +347,7 @@ describe("oRPC Worker route provider composition", function () {
     );
   });
 
-  it("runs the shared request lifecycle with the supplied background scheduler", async function () {
+  it("runs the shared request lifecycle with the supplied background scheduler", async () => {
     const scheduleBackgroundTask = vi.fn((task: Promise<unknown>) => {
       return void task.catch(() => undefined);
     });
@@ -399,7 +373,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(scheduleBackgroundTask).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to request-bound finalization when the scheduler rejects ownership", async function () {
+  it("falls back to request-bound finalization when the scheduler rejects ownership", async () => {
     let resolveClose!: () => void;
     const closeGate = new Promise<void>((resolve) => (resolveClose = resolve));
     mocks.close.mockImplementationOnce(() => closeGate.then(() => undefined));
@@ -426,7 +400,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(scheduleBackgroundTask).toHaveBeenCalledTimes(2);
   });
 
-  it("returns the response before draining auth tasks but retains database ownership", async function () {
+  it("returns the response before draining auth tasks but retains database ownership", async () => {
     let resolveTask!: () => void;
     const task = new Promise<void>((resolve) => (resolveTask = resolve));
     mocks.handleOrpcRequest.mockImplementationOnce(async () => {
@@ -456,7 +430,7 @@ describe("oRPC Worker route provider composition", function () {
     return await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
   });
 
-  it("preserves handler rejection while draining its auth background task", async function () {
+  it("preserves handler rejection while draining its auth background task", async () => {
     let resolveTask!: () => void;
     const task = new Promise<void>((resolve) => (resolveTask = resolve));
     const applicationError = new Error("application failure");
@@ -485,7 +459,7 @@ describe("oRPC Worker route provider composition", function () {
     return await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
   });
 
-  it("preserves response precedence and tracks one safe close diagnostic through the reused evlog sink", async function () {
+  it("preserves response precedence and tracks one safe close diagnostic through the reused evlog sink", async () => {
     mocks.close.mockRejectedValueOnce(
       new Error(
         "private close failure for postgresql://credential@configured.invalid/db; cookie=session-private"
@@ -532,7 +506,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.analyticsCapture).not.toHaveBeenCalled();
   });
 
-  it("preserves the application error when database close also rejects", async function () {
+  it("preserves the application error when database close also rejects", async () => {
     const applicationError = new Error("application failure");
     mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError);
     mocks.close.mockRejectedValueOnce(new Error("private close failure"));
@@ -546,7 +520,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  it("preserves a successful response when database close rejects with a primitive", async function () {
+  it("preserves a successful response when database close rejects with a primitive", async () => {
     mocks.close.mockRejectedValueOnce("primitive database close failure");
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
@@ -558,7 +532,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  it("rejects unsafe cross-origin requests before opening the database", async function () {
+  it("rejects unsafe cross-origin requests before opening the database", async () => {
     for (const headers of [
       {},
       { origin: "https://attacker.invalid" },
@@ -579,7 +553,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
   });
 
-  it("does not allocate a request database when production endpoint composition fails", async function () {
+  it("does not allocate a request database when production endpoint composition fails", async () => {
     const endpointError = new Error(
       "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432"
     );
@@ -596,7 +570,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
   });
 
-  it("rejects unsupported methods before opening the database", async function () {
+  it("rejects unsupported methods before opening the database", async () => {
     const response = await handleOrpcRuntimeRequest(
       new Request("https://darkfactory.localhost/api/orpc/dashboard/summary", {
         method: "PUT",
@@ -610,7 +584,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
   });
 
-  it("rejects declared, lying, and lengthless oversized bodies before database allocation", async function () {
+  it("rejects declared, lying, and lengthless oversized bodies before database allocation", async () => {
     const declared = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
       {
@@ -664,7 +638,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
   });
 
-  it("reconstructs an exact-boundary body with its request metadata", async function () {
+  it("reconstructs an exact-boundary body with its request metadata", async () => {
     const body = new Uint8Array(ORPC_REQUEST_MAX_BYTES);
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/update?source=operator",
@@ -696,7 +670,7 @@ describe("oRPC Worker route provider composition", function () {
     );
   });
 
-  it("returns a retryable 503 without queueing beyond isolate DB capacity", async function () {
+  it("returns a retryable 503 without queueing beyond isolate DB capacity", async () => {
     let releaseHandlers!: () => void;
     const handlerGate = new Promise<void>(
       (resolve) => (releaseHandlers = resolve)
@@ -745,7 +719,7 @@ describe("oRPC Worker route provider composition", function () {
     );
   });
 
-  it("does not read a body stream when no request admission slot is available", async function () {
+  it("does not read a body stream when no request admission slot is available", async () => {
     let releaseHandlers!: () => void;
     const handlerGate = new Promise<void>(
       (resolve) => (releaseHandlers = resolve)
@@ -786,7 +760,7 @@ describe("oRPC Worker route provider composition", function () {
     return await Promise.all(admitted);
   });
 
-  it("holds admission through task drain and deferred database close", async function () {
+  it("holds admission through task drain and deferred database close", async () => {
     let resolveBackgroundTask!: () => void;
     const backgroundTask = new Promise<void>(
       (resolve) => (resolveBackgroundTask = resolve)
@@ -880,7 +854,7 @@ describe("oRPC Worker route provider composition", function () {
     );
   });
 
-  it("keeps isolate admission idempotent when lifecycle closure repeats", async function () {
+  it("keeps isolate admission idempotent when lifecycle closure repeats", async () => {
     mocks.setRepeatDatabaseClose(true);
     await expect(
       GET(
@@ -926,7 +900,7 @@ describe("oRPC Worker route provider composition", function () {
     return await Promise.all(occupied);
   });
 
-  it("maps shared-pool capacity rejection to 503 and releases isolate admission", async function () {
+  it("maps shared-pool capacity rejection to 503 and releases isolate admission", async () => {
     for (let index = 0; index < ORPC_DATABASE_CONCURRENCY_LIMIT; index += 1) {
       mocks.createRequestDatabase.mockRejectedValueOnce(
         new mocks.RequestDatabaseCapacityError()
@@ -955,7 +929,7 @@ describe("oRPC Worker route provider composition", function () {
     );
   });
 
-  it("releases isolate admission when request database acquisition rejects", async function () {
+  it("releases isolate admission when request database acquisition rejects", async () => {
     const connectionFailure = new Error("connection failed");
     mocks.createRequestDatabase.mockRejectedValueOnce(connectionFailure);
 
@@ -976,7 +950,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2);
   });
 
-  it("releases an isolate DB slot when request handling rejects", async function () {
+  it("releases an isolate DB slot when request handling rejects", async () => {
     const applicationError = new Error("application failure");
     mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError);
 
@@ -997,7 +971,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2);
   });
 
-  it("counts malformed contact requests in a separate pre-parse bucket", async function () {
+  it("counts malformed contact requests in a separate pre-parse bucket", async () => {
     mocks.handleOrpcRequest.mockResolvedValue(
       new Response("invalid", { status: 400 })
     );
@@ -1042,7 +1016,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(5);
   });
 
-  it("returns 413 for an oversized declared or chunked contact payload after edge throttling", async function () {
+  it("returns 413 for an oversized declared or chunked contact payload after edge throttling", async () => {
     const declared = await POST(
       new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
         method: "POST",
@@ -1083,7 +1057,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.close).toHaveBeenCalledTimes(2);
   });
 
-  it("gives an edge denial precedence over an oversized contact payload", async function () {
+  it("gives an edge denial precedence over an oversized contact payload", async () => {
     mocks.consumeContactThrottle.mockResolvedValueOnce({
       allowed: false,
       remaining: 0,
@@ -1114,7 +1088,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
   });
 
-  it("isolates auth and contact previews inside the same proven E2E run", async function () {
+  it("isolates auth and contact previews inside the same proven E2E run", async () => {
     mocks.handleOrpcRequest.mockResolvedValue(
       new Response("handled", { status: 202 })
     );
@@ -1162,7 +1136,7 @@ describe("oRPC Worker route provider composition", function () {
     );
   });
 
-  it("returns a typed 503 and closes the database when edge throttle storage fails", async function () {
+  it("returns a typed 503 and closes the database when edge throttle storage fails", async () => {
     mocks.consumeContactThrottle.mockRejectedValueOnce(
       new Error("private database detail")
     );
@@ -1186,7 +1160,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  it("serves every exported HTTP method through the same bounded composition", async function () {
+  it("serves every exported HTTP method through the same bounded composition", async () => {
     const cases = [
       [
         GET,
@@ -1221,7 +1195,7 @@ describe("oRPC Worker route provider composition", function () {
     return expect(mocks.close).toHaveBeenCalledTimes(3);
   });
 
-  return it("omits optional telemetry and analytics configuration when absent", async function () {
+  return it("omits optional telemetry and analytics configuration when absent", async () => {
     const configured = mocks.parseServerEnv();
     mocks.parseServerEnv.mockReturnValueOnce({
       ...configured,

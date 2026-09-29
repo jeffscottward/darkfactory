@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  createApiClient,
   type AccountProfileOutput,
   type AddressCreateInput,
   type AddressOutput,
   type AddressUpdateInput,
   type ApiClient,
   type ApiClientOptions,
+  createApiClient,
   type PreferencesOutput,
   type PreferencesUpdateInput,
   type ProfileUpdateInput,

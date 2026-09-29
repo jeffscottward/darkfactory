@@ -8,10 +8,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   classifyFeatureFailure,
   createBrowserFeatureItemGateway,
-  restorePortalFocus,
-  withoutFeatureItem,
   type FeatureFailure,
   type FeatureItemGateway,
+  restorePortalFocus,
+  withoutFeatureItem,
 } from "./feature-items-client.ts";
 import {
   FeatureItemsCollection,
@@ -159,15 +159,15 @@ export const FeatureItemsWorkspace = ({
   return (
     <div className="space-y-6">
       <form
-        className="grid gap-4 border-b border-border pb-6 sm:grid-cols-[minmax(0,1fr)_12rem_auto]"
+        className="grid gap-4 border-border border-b pb-6 sm:grid-cols-[minmax(0,1fr)_12rem_auto]"
         onSubmit={applyFilters}
         role="search"
       >
         <div className="space-y-2">
           <Label htmlFor="feature-items-query">Search feature items</Label>
           <Input
-            id="feature-items-query"
             disabled={archivingId !== null}
+            id="feature-items-query"
             maxLength={200}
             onChange={(event) => setQuery(event.currentTarget.value)}
             placeholder="Example: onboarding"
@@ -207,14 +207,14 @@ export const FeatureItemsWorkspace = ({
           ) : null}
         </div>
       </form>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-muted-foreground text-xs">
         Showing up to 50 matching owner-scoped records.
       </p>
 
       <div
         aria-atomic="true"
         aria-live="polite"
-        className="min-h-6 text-sm text-muted-foreground outline-none"
+        className="min-h-6 text-muted-foreground text-sm outline-none"
         ref={feedbackRef}
         tabIndex={-1}
       >
@@ -233,7 +233,7 @@ export const FeatureItemsWorkspace = ({
         <section
           aria-describedby="archive-confirmation-description"
           aria-labelledby="archive-confirmation-title"
-          className="flex flex-col gap-4 border-y border-warning-border bg-warning-subtle px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-4 border-warning-border border-y bg-warning-subtle px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
           onKeyDown={(event) => {
             if (event.key === "Escape") return cancelArchive();
             return;
@@ -242,14 +242,14 @@ export const FeatureItemsWorkspace = ({
         >
           <div className="min-w-0">
             <h2
-              className="font-heading text-base font-semibold text-foreground"
+              className="font-heading font-semibold text-base text-foreground"
               id="archive-confirmation-title"
               style={{ overflowWrap: "anywhere" }}
             >
               Archive {archiveCandidate.name}?
             </h2>
             <p
-              className="mt-1 text-sm text-muted-foreground"
+              className="mt-1 text-muted-foreground text-sm"
               id="archive-confirmation-description"
             >
               The record remains available in archived views.

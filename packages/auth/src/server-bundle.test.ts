@@ -1,13 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
 import { build } from "vite";
+import { describe, expect, it } from "vitest";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
-describe("auth server browser bundle", function () {
-  return it("preserves browser poison for a side-effect-only server import", async function () {
+describe("auth server browser bundle", () =>
+  it("preserves browser poison for a side-effect-only server import", async () => {
     const tempDir = await mkdtemp(join(packageRoot, ".server-browser-bundle-"));
     const entry = join(tempDir, "entry.mjs");
 
@@ -53,5 +53,4 @@ describe("auth server browser bundle", function () {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
-  });
-});
+  }));

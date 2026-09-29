@@ -49,7 +49,7 @@ export default function SolutionsPage() {
         <h2 className="sr-only" id="archetypes-title">
           Example solution archetypes
         </h2>
-        <ol className="divide-y divide-border border-y border-border">
+        <ol className="divide-y divide-border border-border border-y">
           {archetypes.map((archetype) => (
             <li
               className="grid gap-6 py-10 md:grid-cols-12 md:py-12"
@@ -57,23 +57,23 @@ export default function SolutionsPage() {
             >
               <p
                 aria-hidden="true"
-                className="text-sm font-semibold text-muted-foreground md:col-span-1"
+                className="font-semibold text-muted-foreground text-sm md:col-span-1"
               >
                 {archetype.number}
               </p>
               <div className="md:col-span-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                <p className="font-semibold text-primary text-xs uppercase tracking-wide">
                   {archetype.label}
                 </p>
-                <h3 className="mt-3 font-heading text-3xl font-semibold tracking-tight text-foreground">
+                <h3 className="mt-3 font-heading font-semibold text-3xl text-foreground tracking-tight">
                   {archetype.title}
                 </h3>
               </div>
               <div className="space-y-5 md:col-span-6 md:col-start-7">
-                <p className="text-lg leading-8 text-foreground">
+                <p className="text-foreground text-lg leading-8">
                   {archetype.body}
                 </p>
-                <p className="text-base leading-7 text-muted-foreground">
+                <p className="text-base text-muted-foreground leading-7">
                   <strong className="font-semibold text-foreground">
                     Foundation path:
                   </strong>{" "}
@@ -87,21 +87,21 @@ export default function SolutionsPage() {
 
       <section
         aria-labelledby="adaptation-title"
-        className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-12 border-border border-y bg-surface py-16 md:grid-cols-12 md:py-20"
       >
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">
+          <p className="font-semibold text-primary text-sm tracking-wide">
             A clean adaptation test
           </p>
           <h2
-            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="mt-4 font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="adaptation-title"
           >
             Your domain should replace the example, not fight it.
           </h2>
         </div>
         <div className="md:col-span-6 md:col-start-7">
-          <ul className="divide-y divide-border border-y border-border text-base leading-7 text-muted-foreground">
+          <ul className="divide-y divide-border border-border border-y text-base text-muted-foreground leading-7">
             <li className="py-5">
               Name the real entity and invariants before generating files.
             </li>
@@ -127,12 +127,12 @@ export default function SolutionsPage() {
       >
         <div className="md:col-span-7">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="solutions-next-title"
           >
             Ground the example in repository evidence.
           </h2>
-          <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
+          <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
             The resource index points to the architecture, generated API
             description, capability manifest, and repository itself.
           </p>

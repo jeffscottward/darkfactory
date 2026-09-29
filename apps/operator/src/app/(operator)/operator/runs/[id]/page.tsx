@@ -1,4 +1,4 @@
-import { PageHeader, buttonVariants } from "@darkfactory/ui";
+import { buttonVariants, PageHeader } from "@darkfactory/ui";
 import { ArrowLeft } from "lucide-react";
 
 import { OperatorRunDetail } from "../../../../../components/operator/operator-run-detail.tsx";

@@ -22,7 +22,6 @@ import {
   classifyOperatorSubmissionFailure,
   createBrowserOperatorGateway,
   createOperatorIdempotencyKeySlot,
-  submitOperatorRun,
   type OperatorFailure,
   type OperatorGateway,
   type OperatorIdempotencyKeySlot,
@@ -30,6 +29,7 @@ import {
   type OperatorSubmissionOutcome,
   type OperatorSubmissionValues,
   type OperatorWorkspaceOutput,
+  submitOperatorRun,
 } from "./operator-client.ts";
 import { operatorRunTitle } from "./operator-format.ts";
 import { OperatorRunDetail } from "./operator-run-detail.tsx";
@@ -66,17 +66,17 @@ export const OperatorSubmitFormView = ({
         ? "border-warning-border bg-warning-subtle text-warning-foreground"
         : "border-success-border bg-success-subtle text-success-foreground";
   return (
-    <details className="group border-y border-border">
+    <details className="group border-border border-y">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-3 font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         Advanced
         <span
           aria-hidden="true"
-          className="text-sm font-normal text-muted-foreground"
+          className="font-normal text-muted-foreground text-sm"
         >
           Bounded run form
         </span>
       </summary>
-      <Card aria-labelledby="operator-submit-title" className="mb-5 mt-2">
+      <Card aria-labelledby="operator-submit-title" className="mt-2 mb-5">
         <CardHeader>
           <CardTitle headingLevel={2} id="operator-submit-title">
             Submit a bounded run
@@ -111,7 +111,7 @@ export const OperatorSubmitFormView = ({
                   value={values.title}
                 />
                 <p
-                  className="text-xs leading-5 text-muted-foreground"
+                  className="text-muted-foreground text-xs leading-5"
                   id="operator-run-title-hint"
                 >
                   Use a concise title for the operator journal.
@@ -135,7 +135,7 @@ export const OperatorSubmitFormView = ({
                   value={values.repositoryId}
                 />
                 <p
-                  className="text-xs leading-5 text-muted-foreground"
+                  className="text-muted-foreground text-xs leading-5"
                   id="operator-repository-id-hint"
                 >
                   Enter the repository slug; it is normalized to lowercase
@@ -162,7 +162,7 @@ export const OperatorSubmitFormView = ({
                   value={values.scopePaths}
                 />
                 <p
-                  className="text-xs leading-5 text-muted-foreground"
+                  className="text-muted-foreground text-xs leading-5"
                   id="operator-scope-paths-hint"
                 >
                   Repository-relative paths only. Do not enter a filesystem
@@ -379,13 +379,13 @@ export const OperatorWorkspace = ({
       <div className="space-y-8">
         <WayfinderPanel gateway={gateway} />
         <section
-          className="border-y border-destructive-border bg-destructive-subtle px-4 py-6"
+          className="border-destructive-border border-y bg-destructive-subtle px-4 py-6"
           role="alert"
         >
-          <h2 className="font-heading text-lg font-semibold text-foreground">
+          <h2 className="font-heading font-semibold text-foreground text-lg">
             Operator workspace unavailable
           </h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          <p className="mt-2 text-muted-foreground text-sm leading-6">
             {state.failure.message}
           </p>
           <Button className="mt-4" onClick={load} variant="secondary">
@@ -439,9 +439,9 @@ export const OperatorWorkspace = ({
           aria-labelledby="selected-run-detail-title"
           className="space-y-4"
         >
-          <div className="border-b border-border pb-4">
+          <div className="border-border border-b pb-4">
             <h2
-              className="break-words font-heading text-xl font-semibold text-foreground"
+              className="break-words font-heading font-semibold text-foreground text-xl"
               id="selected-run-detail-title"
             >
               Run details: {operatorRunTitle(selectedRun.run)}

@@ -238,8 +238,7 @@ function parsePushInput(input: string) {
     }
     const [localRef, localId, remoteRef, remoteId] = fields;
     if (
-      !OBJECT_ID.test(localId) ||
-      !OBJECT_ID.test(remoteId) ||
+      !(OBJECT_ID.test(localId) && OBJECT_ID.test(remoteId)) ||
       localId.length !== remoteId.length
     ) {
       throw new Error(
@@ -275,7 +274,7 @@ function runPushGit(arguments_: string[]) {
     shell: false,
     stdio: ["ignore", "pipe", "inherit"],
     maxBuffer: 1024 * 1024,
-    timeout: 30000,
+    timeout: 30_000,
   });
   if (result.error || result.signal || result.status !== 0) {
     return { exitCode: failureExitCode("git", arguments_, result), stdout: "" };

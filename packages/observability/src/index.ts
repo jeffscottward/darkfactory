@@ -22,11 +22,11 @@ export type {
 } from "./port.ts";
 
 export {
-  REDACTED,
-  TRUNCATED,
   freezeSnapshot,
-  redact,
-  redactSemanticEvent,
+  REDACTED,
   type RedactedValue,
   type RedactionOptions,
+  redact,
+  redactSemanticEvent,
+  TRUNCATED,
 } from "./redaction.ts";

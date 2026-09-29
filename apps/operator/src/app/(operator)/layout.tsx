@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 
 import { OperatorShell } from "../../components/operator-shell.tsx";
 import { getOperatorAdministrator } from "../../server/operator-session.ts";

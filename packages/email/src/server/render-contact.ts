@@ -1,6 +1,5 @@
-import { renderContactEmailHtml } from "./render-email-html.ts";
-
 import type { ContactEmailInput } from "../index.ts";
+import { renderContactEmailHtml } from "./render-email-html.ts";
 
 const MAILBOX_PATTERN =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -32,7 +31,7 @@ const normalizeContactInput = (input: ContactEmailInput): ContactEmailInput => {
   assertBoundedText(input.name, "name", 100);
   assertBoundedText(input.email, "email", 254);
   assertBoundedText(input.subject, "subject", 200);
-  assertBoundedText(input.message, "message", 5_000);
+  assertBoundedText(input.message, "message", 5000);
 
   const email = input.email.trim();
   if (!MAILBOX_PATTERN.test(email)) {

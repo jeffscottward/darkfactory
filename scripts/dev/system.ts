@@ -18,12 +18,12 @@ import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
 import {
-  MAX_COMMAND_OUTPUT_BYTES,
-  SAFE_PROCESS_ENVIRONMENT_KEYS,
   type CommandOptions,
   type CommandResult,
   type LifecycleFileSystem,
+  MAX_COMMAND_OUTPUT_BYTES,
   type ProcessAdapter,
+  SAFE_PROCESS_ENVIRONMENT_KEYS,
 } from "./lifecycle.ts";
 
 const repositoryRoot = await realpath(process.cwd());
@@ -128,7 +128,7 @@ const probeHttps = async (value: string): Promise<boolean> => {
           ...(ca === undefined ? {} : { ca }),
           method: "HEAD",
           rejectUnauthorized: true,
-          signal: AbortSignal.timeout(5_000),
+          signal: AbortSignal.timeout(5000),
         },
         (response) => {
           response.resume();

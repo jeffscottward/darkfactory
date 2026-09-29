@@ -1,12 +1,11 @@
-import { createUiStore } from "@darkfactory/state/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ThemePreferenceOutput,
   UpdateThemePreferenceInput,
 } from "@darkfactory/api";
-
-import { updateTrustedThemePreference } from "./lib/theme-update.ts";
+import { createUiStore } from "@darkfactory/state/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchThemeApiRequest } from "./lib/theme-api-timeout.ts";
+import { updateTrustedThemePreference } from "./lib/theme-update.ts";
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void;
@@ -16,15 +15,13 @@ const deferred = <Value>() => {
   return { promise, resolve };
 };
 
-describe("trusted theme updates", function () {
-  afterEach(function () {
-    return vi.useRealTimers();
-  });
+describe("trusted theme updates", () => {
+  afterEach(() => vi.useRealTimers());
 
   const versionA = new Date("2026-07-23T10:00:00.000Z");
   const versionB = new Date("2026-07-23T10:00:00.001Z");
 
-  it("preflights the current version, patches with it, and projects only saved UI fields", async function () {
+  it("preflights the current version, patches with it, and projects only saved UI fields", async () => {
     const store = createUiStore();
     const calls: string[] = [];
     let updateInput: UpdateThemePreferenceInput | undefined;
@@ -59,7 +56,7 @@ describe("trusted theme updates", function () {
     return expect(store.getState()).not.toHaveProperty("updatedAt");
   });
 
-  it("propagates a primitive PATCH failure instead of treating it as a lost response", async function () {
+  it("propagates a primitive PATCH failure instead of treating it as a lost response", async () => {
     const store = createUiStore();
     const failure = "primitive theme update failure";
     const get = vi.fn(async () => ({
@@ -76,7 +73,7 @@ describe("trusted theme updates", function () {
         preference: { themeMode: "dark", palette: "rose" },
         sequence: { current: 0 },
         store,
-        update: async function () {
+        async update() {
           throw failure;
         },
       })
@@ -88,7 +85,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("passes a null missing-row version as insert-only expectedUpdatedAt", async function () {
+  it("passes a null missing-row version as insert-only expectedUpdatedAt", async () => {
     const store = createUiStore();
     const update = vi.fn(async () => ({
       themeMode: "dark" as const,
@@ -116,7 +113,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("does not retry a conflict and leaves equal reconciled state untouched", async function () {
+  it("does not retry a conflict and leaves equal reconciled state untouched", async () => {
     const store = createUiStore();
     const before = store.getState();
     const get = vi.fn(async () => ({
@@ -124,7 +121,7 @@ describe("trusted theme updates", function () {
       palette: "neutral" as const,
       updatedAt: versionA,
     }));
-    const update = vi.fn(async function () {
+    const update = vi.fn(async () => {
       throw Object.assign(new Error("stale"), { code: "CONFLICT" });
     });
     const result = await updateTrustedThemePreference({
@@ -143,7 +140,7 @@ describe("trusted theme updates", function () {
     return expect(store.getState()).toBe(before);
   });
 
-  it("rejects trusted re-acquisition during a deferred GET before PATCH", async function () {
+  it("rejects trusted re-acquisition during a deferred GET before PATCH", async () => {
     const store = createUiStore();
     const current = deferred<ThemePreferenceOutput>();
     let authorityEpoch = 0;
@@ -173,7 +170,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("rejects trusted re-acquisition during a deferred PATCH before store mutation", async function () {
+  it("rejects trusted re-acquisition during a deferred PATCH before store mutation", async () => {
     const store = createUiStore();
     const saved = deferred<ThemePreferenceOutput>();
     let authorityEpoch = 0;
@@ -203,7 +200,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("rejects malformed preflight and saved outputs at the runtime boundary", async function () {
+  it("rejects malformed preflight and saved outputs at the runtime boundary", async () => {
     const store = createUiStore();
     const invalidGetUpdate = vi.fn();
     const invalidGet = await updateTrustedThemePreference({
@@ -252,7 +249,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("reconciles a PATCH that commits before its response is lost", async function () {
+  it("reconciles a PATCH that commits before its response is lost", async () => {
     const store = createUiStore();
     let remote: ThemePreferenceOutput = {
       themeMode: "system",
@@ -279,7 +276,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("does not apply a deferred reconciliation after authority is superseded", async function () {
+  it("does not apply a deferred reconciliation after authority is superseded", async () => {
     const store = createUiStore();
     const reconciliation = deferred<ThemePreferenceOutput>();
     let getCount = 0;
@@ -296,7 +293,7 @@ describe("trusted theme updates", function () {
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store,
-      update: async function () {
+      async update() {
         throw new Error("response lost");
       },
     });
@@ -316,7 +313,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("does not PATCH or mutate state when authority is lost during the preflight", async function () {
+  it("does not PATCH or mutate state when authority is lost during the preflight", async () => {
     const store = createUiStore();
     const current = deferred<ThemePreferenceOutput>();
     let authority: "trusted" | "anonymous" = "trusted";
@@ -350,7 +347,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("allows only the latest selection to advance from GET to PATCH", async function () {
+  it("allows only the latest selection to advance from GET to PATCH", async () => {
     const store = createUiStore();
     const sequence = { current: 0 };
     const firstGet = deferred<ThemePreferenceOutput>();
@@ -405,7 +402,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  it("applies only the latest completed trusted PATCH", async function () {
+  it("applies only the latest completed trusted PATCH", async () => {
     const store = createUiStore();
     const sequence = { current: 0 };
     const first = deferred<ThemePreferenceOutput>();
@@ -456,7 +453,7 @@ describe("trusted theme updates", function () {
     });
   });
 
-  return it("fails safely when either trusted request exceeds its bound", async function () {
+  return it("fails safely when either trusted request exceeds its bound", async () => {
     vi.useFakeTimers();
     const store = createUiStore();
     const stalledRequest = async (request: Request): Promise<Response> => {
@@ -533,12 +530,10 @@ describe("trusted theme updates", function () {
   });
 });
 
-describe("bounded theme API transport", function () {
-  afterEach(function () {
-    return vi.useRealTimers();
-  });
+describe("bounded theme API transport", () => {
+  afterEach(() => vi.useRealTimers());
 
-  it("reconstructs a bounded streaming response with its response metadata", async function () {
+  it("reconstructs a bounded streaming response with its response metadata", async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -567,7 +562,7 @@ describe("bounded theme API transport", function () {
     return expect(await response.text()).toBe('{"themeMode":"dark"}');
   });
 
-  it("returns a bodyless response without replacing it", async function () {
+  it("returns a bodyless response without replacing it", async () => {
     const source = new Response(null, { status: 204 });
 
     return await expect(
@@ -578,8 +573,8 @@ describe("bounded theme API transport", function () {
     ).resolves.toBe(source);
   });
 
-  it("fails closed when cancellation of declared or streamed excess rejects", async function () {
-    const declaredCancel = vi.fn(async function () {
+  it("fails closed when cancellation of declared or streamed excess rejects", async () => {
+    const declaredCancel = vi.fn(async () => {
       throw new Error("declared cancellation unavailable");
     });
     const declaredBody = new ReadableStream<Uint8Array>({
@@ -596,7 +591,7 @@ describe("bounded theme API transport", function () {
     ).rejects.toThrow("Theme response exceeded the safe size limit");
     expect(declaredCancel).toHaveBeenCalledOnce();
 
-    const streamedCancel = vi.fn(async function () {
+    const streamedCancel = vi.fn(async () => {
       throw new Error("stream cancellation unavailable");
     });
     const streamedBody = new ReadableStream<Uint8Array>({
@@ -614,9 +609,9 @@ describe("bounded theme API transport", function () {
     return expect(streamedCancel).toHaveBeenCalledOnce();
   });
 
-  it("propagates primitive cancellation failures for declared and streamed excess", async function () {
+  it("propagates primitive cancellation failures for declared and streamed excess", async () => {
     const declaredFailure = "primitive declared cancellation failure";
-    const declaredCancel = vi.fn(async function () {
+    const declaredCancel = vi.fn(async () => {
       throw declaredFailure;
     });
     await expect(
@@ -632,7 +627,7 @@ describe("bounded theme API transport", function () {
     expect(declaredCancel).toHaveBeenCalledOnce();
 
     const streamedFailure = "primitive streamed cancellation failure";
-    const streamedCancel = vi.fn(async function () {
+    const streamedCancel = vi.fn(async () => {
       throw streamedFailure;
     });
     await expect(
@@ -652,7 +647,7 @@ describe("bounded theme API transport", function () {
     return expect(streamedCancel).toHaveBeenCalledOnce();
   });
 
-  it("propagates an already-aborted caller signal through the forwarded request", async function () {
+  it("propagates an already-aborted caller signal through the forwarded request", async () => {
     const controller = new AbortController();
     const reason = new DOMException("caller cancelled", "AbortError");
     controller.abort(reason);
@@ -674,9 +669,9 @@ describe("bounded theme API transport", function () {
     return expect(forwardedSignal?.aborted).toBe(true);
   });
 
-  return it("absorbs body-cancellation failure while preserving the timeout reason", async function () {
+  return it("absorbs body-cancellation failure while preserving the timeout reason", async () => {
     vi.useFakeTimers();
-    const cancel = vi.fn(async function () {
+    const cancel = vi.fn(async () => {
       throw new Error("deadline cancellation unavailable");
     });
     const pending = fetchThemeApiRequest({
@@ -697,10 +692,10 @@ describe("bounded theme API transport", function () {
   });
 });
 
-describe("trusted theme fail-closed branches", function () {
+describe("trusted theme fail-closed branches", () => {
   const currentVersion = new Date("2026-07-25T10:00:00.000Z");
 
-  it("supersedes before preflight when trusted authority is already absent", async function () {
+  it("supersedes before preflight when trusted authority is already absent", async () => {
     const get = vi.fn();
     const update = vi.fn();
     const result = await updateTrustedThemePreference({
@@ -718,7 +713,7 @@ describe("trusted theme fail-closed branches", function () {
     return expect(update).not.toHaveBeenCalled();
   });
 
-  it("preserves supersession when a failed preflight also loses authority", async function () {
+  it("preserves supersession when a failed preflight also loses authority", async () => {
     let authority: "trusted" | "anonymous" = "trusted";
     const result = await updateTrustedThemePreference({
       authority: () => authority,
@@ -736,7 +731,7 @@ describe("trusted theme fail-closed branches", function () {
     return expect(result).toBe("superseded");
   });
 
-  it("preserves supersession when failed reconciliation loses authority", async function () {
+  it("preserves supersession when failed reconciliation loses authority", async () => {
     let authority: "trusted" | "anonymous" = "trusted";
     let getCount = 0;
     const result = await updateTrustedThemePreference({
@@ -757,7 +752,7 @@ describe("trusted theme fail-closed branches", function () {
       preference: { themeMode: "dark", palette: "rose" },
       sequence: { current: 0 },
       store: createUiStore(),
-      update: async function () {
+      async update() {
         throw new Error("save response unavailable");
       },
     });
@@ -766,7 +761,7 @@ describe("trusted theme fail-closed branches", function () {
     return expect(getCount).toBe(2);
   });
 
-  return it("reports an unconfirmed update when saved and reconciled values are malformed", async function () {
+  return it("reports an unconfirmed update when saved and reconciled values are malformed", async () => {
     const get = vi
       .fn()
       .mockResolvedValueOnce({
@@ -790,9 +785,9 @@ describe("trusted theme fail-closed branches", function () {
   });
 });
 
-describe("bodyless declared theme responses", function () {
-  return it("rejects declared excess without requiring a response body", async function () {
-    return await expect(
+describe("bodyless declared theme responses", () =>
+  it("rejects declared excess without requiring a response body", async () =>
+    await expect(
       fetchThemeApiRequest({
         fetchRequest: async () =>
           new Response(null, {
@@ -800,6 +795,4 @@ describe("bodyless declared theme responses", function () {
           }),
         request: new Request("https://darkfactory.example/api/orpc"),
       })
-    ).rejects.toThrow("Theme response exceeded the safe size limit");
-  });
-});
+    ).rejects.toThrow("Theme response exceeded the safe size limit")));

@@ -16,7 +16,7 @@ import {
 const stableCapability = () => ({
   dev: 11,
   ino: 12,
-  mode: 0o100600,
+  mode: 0o10_0600,
   uid: 501,
   gid: 20,
   nlink: 1,
@@ -47,7 +47,7 @@ const safeSnapshot = (changed: Record<string, unknown> = {}) => ({
   dev: 11,
   ino: 12,
   isFile: () => true,
-  mode: 0o100600,
+  mode: 0o10_0600,
   size: 128,
   uid: 501,
   gid: 20,
@@ -83,17 +83,16 @@ const markerHandle = ({
   };
 };
 
-describe("requireFileFlag", function () {
-  return it("retains an available platform flag and rejects a missing capability", function () {
+describe("requireFileFlag", () =>
+  it("retains an available platform flag and rejects a missing capability", () => {
     expect(requireFileFlag(131_072)).toBe(131_072);
     return expect(() => requireFileFlag(undefined)).toThrow(
       "Required filesystem ownership capability is unavailable"
     );
-  });
-});
+  }));
 
-describe("assertStableOwnedLifecycleRoot", function () {
-  it("rejects a changed root identity before opening its marker", async function () {
+describe("assertStableOwnedLifecycleRoot", () => {
+  it("rejects a changed root identity before opening its marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"));
     try {
       const stats = await lstat(root);
@@ -114,7 +113,7 @@ describe("assertStableOwnedLifecycleRoot", function () {
     }
   });
 
-  return it("rejects a root whose private creation mode already drifted", async function () {
+  return it("rejects a root whose private creation mode already drifted", async () => {
     const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"));
     try {
       const markerPath = join(root, ".darkfactory-e2e-owner.json");
@@ -141,8 +140,8 @@ describe("assertStableOwnedLifecycleRoot", function () {
   });
 });
 
-describe("rethrowOwnedLifecycleReadError", function () {
-  it("translates a missing capability without exposing its path", function () {
+describe("rethrowOwnedLifecycleReadError", () => {
+  it("translates a missing capability without exposing its path", () => {
     const missing = Object.assign(new Error("private lifecycle path"), {
       code: "ENOENT",
     });
@@ -156,7 +155,7 @@ describe("rethrowOwnedLifecycleReadError", function () {
     }
   });
 
-  return it("preserves every other failure", function () {
+  return it("preserves every other failure", () => {
     const failure = new Error("marker validation failed");
     return expect(() => rethrowOwnedLifecycleReadError(failure)).toThrow(
       failure
@@ -164,21 +163,20 @@ describe("rethrowOwnedLifecycleReadError", function () {
   });
 });
 
-describe("assertStableOwnedRoot", function () {
+describe("assertStableOwnedRoot", () => {
   const root = () => ({
     ...stableCapability(),
-    mode: 0o40700,
+    mode: 0o4_0700,
     nlink: 2,
   });
 
-  it("accepts an unchanged pinned root capability", function () {
-    return expect(() => assertStableOwnedRoot(root(), root())).not.toThrow();
-  });
+  it("accepts an unchanged pinned root capability", () =>
+    expect(() => assertStableOwnedRoot(root(), root())).not.toThrow());
 
   return it.each([
     ["device", { dev: 13 }],
     ["inode", { ino: 13 }],
-    ["mode", { mode: 0o40755 }],
+    ["mode", { mode: 0o4_0755 }],
     ["owner uid", { uid: 502 }],
     ["owner gid", { gid: 21 }],
     ["link count", { nlink: 3 }],
@@ -194,16 +192,15 @@ describe("assertStableOwnedRoot", function () {
   });
 });
 
-describe("assertStableOwnedMarkerRead", function () {
-  it("accepts an unchanged marker read", function () {
-    return expect(() => validateRead(stableRead())).not.toThrow();
-  });
+describe("assertStableOwnedMarkerRead", () => {
+  it("accepts an unchanged marker read", () =>
+    expect(() => validateRead(stableRead())).not.toThrow());
 
   it.each([
     ["device identity", { dev: 13 }],
     ["inode identity", { ino: 13 }],
     ["size", { size: 129 }],
-    ["mode", { mode: 0o100644 }],
+    ["mode", { mode: 0o10_0644 }],
     ["owner uid", { uid: 502 }],
     ["owner gid", { gid: 21 }],
     ["link count", { nlink: 2 }],
@@ -219,18 +216,17 @@ describe("assertStableOwnedMarkerRead", function () {
     ).toThrow("Owned lifecycle marker identity or capability changed");
   });
 
-  return it("rejects changed content", function () {
-    return expect(() =>
+  return it("rejects changed content", () =>
+    expect(() =>
       validateRead({
         ...stableRead(),
         content: "replaced-marker",
       })
-    ).toThrow("Owned lifecycle marker identity or capability changed");
-  });
+    ).toThrow("Owned lifecycle marker identity or capability changed"));
 });
 
-describe("inspectAndCloseOwnedMarker", function () {
-  it("validates and closes an unchanged marker", async function () {
+describe("inspectAndCloseOwnedMarker", () => {
+  it("validates and closes an unchanged marker", async () => {
     const { close, handle } = markerHandle();
 
     await expect(
@@ -249,7 +245,7 @@ describe("inspectAndCloseOwnedMarker", function () {
     ["device identity", safeSnapshot({ dev: 13 })],
     ["inode identity", safeSnapshot({ ino: 13 })],
     ["size", safeSnapshot({ size: 513 })],
-    ["mode", safeSnapshot({ mode: 0o100644 })],
+    ["mode", safeSnapshot({ mode: 0o10_0644 })],
     ["owner uid", safeSnapshot({ uid: 502 })],
     ["owner gid", safeSnapshot({ gid: 21 })],
     ["link count", safeSnapshot({ nlink: 2 })],
@@ -267,7 +263,7 @@ describe("inspectAndCloseOwnedMarker", function () {
     return expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("closes after a post-read validation failure", async function () {
+  it("closes after a post-read validation failure", async () => {
     const { close, handle } = markerHandle({ content: "replaced-marker" });
 
     await expect(
@@ -281,7 +277,7 @@ describe("inspectAndCloseOwnedMarker", function () {
     return expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves a close failure", async function () {
+  it("preserves a close failure", async () => {
     const closeFailure = new Error("private close failure");
     const close = vi.fn(async () => {
       throw closeFailure;
@@ -298,7 +294,7 @@ describe("inspectAndCloseOwnedMarker", function () {
     ).rejects.toBe(closeFailure);
   });
 
-  return it("preserves validation and close failures together", async function () {
+  return it("preserves validation and close failures together", async () => {
     const closeFailure = new Error("private close failure");
     const close = vi.fn(async () => {
       throw closeFailure;

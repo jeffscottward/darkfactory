@@ -1,19 +1,17 @@
-import { createActor } from "xstate";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { createActor } from "xstate";
 
 import {
   createSetupFlowActor,
-  setupFlowMachine,
   type SetupFlowContext,
   type SetupFlowEvent,
+  setupFlowMachine,
 } from "./setup-flow.ts";
 
-const startFlow = function () {
-  return createActor(setupFlowMachine).start();
-};
+const startFlow = () => createActor(setupFlowMachine).start();
 
-describe("createSetupFlowActor", function () {
-  return it("owns actor construction and releases subscribers when stopped", function () {
+describe("createSetupFlowActor", () =>
+  it("owns actor construction and releases subscribers when stopped", () => {
     const actor = createSetupFlowActor();
     const completed = vi.fn();
     const subscription = actor.subscribe({ complete: completed });
@@ -28,11 +26,10 @@ describe("createSetupFlowActor", function () {
 
     expect(completed).toHaveBeenCalledOnce();
     return expect(actor.getSnapshot().status).toBe("stopped");
-  });
-});
+  }));
 
-describe("setupFlowMachine", function () {
-  it("moves through details, preferences, review, submitting, and success", function () {
+describe("setupFlowMachine", () => {
+  it("moves through details, preferences, review, submitting, and success", () => {
     const actor = startFlow();
 
     expect(actor.getSnapshot().value).toBe("details");
@@ -56,7 +53,7 @@ describe("setupFlowMachine", function () {
     return actor.stop();
   });
 
-  it("supports back navigation only where explicitly allowed", function () {
+  it("supports back navigation only where explicitly allowed", () => {
     const actor = startFlow();
 
     actor.send({ type: "BACK" });
@@ -76,7 +73,7 @@ describe("setupFlowMachine", function () {
     return actor.stop();
   });
 
-  it("rejects next until the current step guard passes", function () {
+  it("rejects next until the current step guard passes", () => {
     const actor = startFlow();
 
     actor.send({ type: "NEXT" });
@@ -90,7 +87,7 @@ describe("setupFlowMachine", function () {
     return actor.stop();
   });
 
-  it("preserves context when the preferences assignment receives another event", function () {
+  it("preserves context when the preferences assignment receives another event", () => {
     const context: SetupFlowContext = {
       detailsComplete: true,
       preferencesComplete: false,
@@ -114,7 +111,7 @@ describe("setupFlowMachine", function () {
     return expect(result).toBe(context);
   });
 
-  it("ignores submit outcomes outside the submitting state", function () {
+  it("ignores submit outcomes outside the submitting state", () => {
     const actor = startFlow();
 
     actor.send({ type: "SUCCEED" });
@@ -127,7 +124,7 @@ describe("setupFlowMachine", function () {
     return actor.stop();
   });
 
-  it("captures failure and retries submission with deterministic context", function () {
+  it("captures failure and retries submission with deterministic context", () => {
     const actor = startFlow();
     actor.send({ type: "SET_DETAILS_COMPLETE", value: true });
     actor.send({ type: "NEXT" });
@@ -158,7 +155,7 @@ describe("setupFlowMachine", function () {
     return actor.stop();
   });
 
-  return it("exposes typed context and events", function () {
+  return it("exposes typed context and events", () => {
     expectTypeOf<SetupFlowContext>().toEqualTypeOf<{
       readonly detailsComplete: boolean;
       readonly preferencesComplete: boolean;

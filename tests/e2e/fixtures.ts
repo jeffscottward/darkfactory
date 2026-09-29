@@ -1,24 +1,23 @@
 import {
-  expect as playwrightExpect,
   test as base,
   type ConsoleMessage,
   type Page,
+  expect as playwrightExpect,
   type Response,
 } from "@playwright/test";
-
+import {
+  discardEvidenceArtifacts,
+  ensureStructuredEvidence,
+} from "./helpers/artifacts.ts";
 import {
   BrowserErrorCollector,
   type ExpectedBrowserMessage,
   type ExpectedHttpError,
 } from "./helpers/browser-errors.ts";
 import {
-  publishEvidenceManifest,
   type EvidenceContext,
+  publishEvidenceManifest,
 } from "./helpers/evidence.ts";
-import {
-  discardEvidenceArtifacts,
-  ensureStructuredEvidence,
-} from "./helpers/artifacts.ts";
 
 const DEVELOPMENT_PASSWORD = "Development123!";
 
@@ -201,10 +200,6 @@ export {
   installFirstPaintProbe,
   screenshotArtifactPath,
 } from "./helpers/artifacts.ts";
-export {
-  waitForContactPreview,
-  waitForPreviewLink,
-} from "./helpers/preview-email.ts";
 export type {
   ExpectedBrowserMessage,
   ExpectedHttpError,
@@ -212,4 +207,8 @@ export type {
 export type {
   PreviewOperation,
   PreviewRecipient,
+} from "./helpers/preview-email.ts";
+export {
+  waitForContactPreview,
+  waitForPreviewLink,
 } from "./helpers/preview-email.ts";

@@ -1,19 +1,25 @@
-import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 import {
   ADDRESS_TYPES,
-  COLOR_SCHEMES,
-  FEATURE_ITEM_STATUSES,
-  PREFERENCE_MODES,
-  PROFILE_VISIBILITIES,
-  USER_ROLES,
-  USER_STATUSES,
   accounts,
   addresses,
   auditRecords,
+  COLOR_SCHEMES,
   contactRateLimits,
+  FEATURE_ITEM_STATUSES,
   featureItems,
   outboxEvents,
+  PREFERENCE_MODES,
+  PROFILE_VISIBILITIES,
+  profiles,
+  rateLimit,
+  sessions,
+  USER_ROLES,
+  USER_STATUSES,
+  userPreferences,
+  users,
+  verifications,
   workflowApprovals,
   workflowEvidence,
   workflowJournal,
@@ -21,12 +27,6 @@ import {
   workflowOmpResources,
   workflowRuns,
   workflowSnapshots,
-  profiles,
-  rateLimit,
-  sessions,
-  userPreferences,
-  users,
-  verifications,
 } from "./index.ts";
 
 const columnNames = (table: Parameters<typeof getTableConfig>[0]): string[] => {
@@ -72,8 +72,8 @@ const foreignKey = (
       .columns.some((candidate) => candidate.name === localColumnName);
   })!;
 
-describe("Better Auth 1.6.24 schema", function () {
-  it("uses the required core tables and supported user extensions", function () {
+describe("Better Auth 1.6.24 schema", () => {
+  it("uses the required core tables and supported user extensions", () => {
     expect(getTableConfig(users).name).toBe("user");
     expect(getTableConfig(sessions).name).toBe("session");
     expect(getTableConfig(accounts).name).toBe("account");
@@ -143,7 +143,7 @@ describe("Better Auth 1.6.24 schema", function () {
     );
   });
 
-  it("keeps credential storage nullable and deletes auth dependants with users", function () {
+  it("keeps credential storage nullable and deletes auth dependants with users", () => {
     expect(column(accounts, "password").notNull).toBe(false);
     expect(foreignKey(sessions, "user_id").onDelete).toBe("cascade");
     expect(foreignKey(accounts, "user_id").onDelete).toBe("cascade");
@@ -151,7 +151,7 @@ describe("Better Auth 1.6.24 schema", function () {
     return expect(indexNames(accounts)).toContain("account_user_id_idx");
   });
 
-  it("stores every auth timestamp with timezone", function () {
+  it("stores every auth timestamp with timezone", () => {
     for (const table of [users, sessions, accounts, verifications]) {
       for (const candidate of getTableConfig(table).columns.filter((entry) => {
         return entry.name.endsWith("_at");
@@ -166,7 +166,7 @@ describe("Better Auth 1.6.24 schema", function () {
     );
   });
 
-  return it("matches Better Auth generated updatedAt callbacks and defaults", function () {
+  return it("matches Better Auth generated updatedAt callbacks and defaults", () => {
     for (const table of [users, sessions, accounts, verifications]) {
       expect(typeof column(table, "updated_at").onUpdateFn).toBe("function");
     }
@@ -193,8 +193,8 @@ describe("Better Auth 1.6.24 schema", function () {
   });
 });
 
-describe("DarkFactory-owned schema", function () {
-  it("defines the complete profiles contract with deliberate nullability", function () {
+describe("DarkFactory-owned schema", () => {
+  it("defines the complete profiles contract with deliberate nullability", () => {
     expect(columnNames(profiles)).toEqual([
       "user_id",
       "first_name",
@@ -216,7 +216,7 @@ describe("DarkFactory-owned schema", function () {
     return expect(foreignKey(profiles, "user_id").onDelete).toBe("cascade");
   });
 
-  it("enforces typed addresses and at most one primary address per user", function () {
+  it("enforces typed addresses and at most one primary address per user", () => {
     expect(ADDRESS_TYPES).toEqual(["home", "work", "other"]);
     expect(checkNames(addresses)).toContain("addresses_type_check");
     expect(indexNames(addresses)).toContain("addresses_user_id_idx");
@@ -239,7 +239,7 @@ describe("DarkFactory-owned schema", function () {
     return expect(foreignKey(addresses, "user_id").onDelete).toBe("cascade");
   });
 
-  it("persists the complete settled preference domains", function () {
+  it("persists the complete settled preference domains", () => {
     expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"]);
     expect(COLOR_SCHEMES).toEqual([
       "neutral",
@@ -278,7 +278,7 @@ describe("DarkFactory-owned schema", function () {
     );
   });
 
-  it("defines bounded contact throttles with an expiry lookup", function () {
+  it("defines bounded contact throttles with an expiry lookup", () => {
     expect(columnNames(contactRateLimits)).toEqual([
       "key_hash",
       "window_started_at",
@@ -295,7 +295,7 @@ describe("DarkFactory-owned schema", function () {
     ]);
   });
 
-  it("defines neutral feature items with bounded object metadata and an owner index", function () {
+  it("defines neutral feature items with bounded object metadata and an owner index", () => {
     expect(FEATURE_ITEM_STATUSES).toEqual(["draft", "active", "archived"]);
     expect(columnNames(featureItems)).toEqual([
       "id",
@@ -325,7 +325,7 @@ describe("DarkFactory-owned schema", function () {
     );
   });
 
-  it("defines durable outbox and redacted audit storage", function () {
+  it("defines durable outbox and redacted audit storage", () => {
     expect(columnNames(outboxEvents)).toEqual([
       "id",
       "event_type",
@@ -373,7 +373,7 @@ describe("DarkFactory-owned schema", function () {
     );
   });
 
-  it("defines normalized, bounded workflow durability tables", function () {
+  it("defines normalized, bounded workflow durability tables", () => {
     expect(columnNames(workflowRuns)).toEqual([
       "id",
       "owner_id",
@@ -552,15 +552,14 @@ describe("DarkFactory-owned schema", function () {
     );
   });
 
-  it("defines one owner-created workflow admission index", function () {
-    return expect(
+  it("defines one owner-created workflow admission index", () =>
+    expect(
       indexNames(workflowRuns).filter(
         (name) => name === "workflow_runs_owner_created_idx"
       )
-    ).toEqual(["workflow_runs_owner_created_idx"]);
-  });
+    ).toEqual(["workflow_runs_owner_created_idx"]));
 
-  it("extends the outbox with bounded idempotent fenced leases", function () {
+  it("extends the outbox with bounded idempotent fenced leases", () => {
     expect(columnNames(outboxEvents)).toEqual([
       "id",
       "event_type",
@@ -608,7 +607,7 @@ describe("DarkFactory-owned schema", function () {
     );
   });
 
-  return it("stores all DarkFactory timestamps in UTC-capable columns", function () {
+  return it("stores all DarkFactory timestamps in UTC-capable columns", () => {
     const results1 = [];
     for (const table of [
       profiles,

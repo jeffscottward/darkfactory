@@ -18,7 +18,7 @@ const createClientFactory = (
   }) => Promise<{ text: unknown }>
 ) => vi.fn(() => ({ complete }));
 
-describe("createGroqAiPort", function () {
+describe("createGroqAiPort", () => {
   it.each([
     { apiKey: undefined, model: "test-model" },
     { apiKey: "   ", model: "test-model" },
@@ -38,7 +38,7 @@ describe("createGroqAiPort", function () {
     return expect(groqModuleFactory).not.toHaveBeenCalled();
   });
 
-  it("does not construct the configured client until generation is requested", function () {
+  it("does not construct the configured client until generation is requested", () => {
     const clientFactory = createClientFactory(async () => ({ text: "unused" }));
 
     createGroqAiPort({ ...configuredOptions, clientFactory });
@@ -46,7 +46,7 @@ describe("createGroqAiPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("creates one zero-retry bounded client and generates nonstreaming text", async function () {
+  it("creates one zero-retry bounded client and generates nonstreaming text", async () => {
     const requests: GroqTextRequest[] = [];
     const injectedFetch = vi.fn();
     const clientFactory = vi.fn((_options) => ({
@@ -78,7 +78,7 @@ describe("createGroqAiPort", function () {
       apiKey: "secret-api-key",
       fetch: injectedFetch,
       maxRetries: 0,
-      timeoutMs: 5_000,
+      timeoutMs: 5000,
     });
     expect(requests).toHaveLength(2);
     expect(requests[0]).toMatchObject({
@@ -106,7 +106,7 @@ describe("createGroqAiPort", function () {
     });
   });
 
-  it("bounds a provider call and classifies its timeout", async function () {
+  it("bounds a provider call and classifies its timeout", async () => {
     let providerSignal: AbortSignal | undefined;
     const clientFactory = createClientFactory(async (request) => {
       providerSignal = request.signal;
@@ -128,7 +128,7 @@ describe("createGroqAiPort", function () {
     return expect(providerSignal?.aborted).toBe(true);
   });
 
-  it("classifies a caller abort without constructing for a pre-aborted call", async function () {
+  it("classifies a caller abort without constructing for a pre-aborted call", async () => {
     const controller = new AbortController();
     controller.abort();
     const clientFactory = createClientFactory(async () => ({ text: "unused" }));
@@ -144,7 +144,7 @@ describe("createGroqAiPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("classifies a caller abort while a request is pending", async function () {
+  it("classifies a caller abort while a request is pending", async () => {
     const controller = new AbortController();
     const clientFactory = createClientFactory(
       async () => await new Promise(() => undefined)
@@ -164,7 +164,7 @@ describe("createGroqAiPort", function () {
     });
   });
 
-  it("removes a caller abort listener when bounded execution times out", async function () {
+  it("removes a caller abort listener when bounded execution times out", async () => {
     const addEventListener = vi.fn();
     const removeEventListener = vi.fn();
     const signal = {
@@ -202,7 +202,7 @@ describe("createGroqAiPort", function () {
     );
   });
 
-  it("contains timer scheduling failures without misclassifying them", async function () {
+  it("contains timer scheduling failures without misclassifying them", async () => {
     let providerSignal: AbortSignal | undefined;
     const clientFactory = createClientFactory(async (request) => {
       providerSignal = request.signal;
@@ -231,7 +231,7 @@ describe("createGroqAiPort", function () {
       timer.mockRestore();
     }
   });
-  it("maps network errors without exposing provider details", async function () {
+  it("maps network errors without exposing provider details", async () => {
     const providerError = Object.assign(
       new Error("prompt and secret response body"),
       {
@@ -290,7 +290,7 @@ describe("createGroqAiPort", function () {
     );
   });
 
-  it("maps SDK timeout errors without copying their message", async function () {
+  it("maps SDK timeout errors without copying their message", async () => {
     const providerError = Object.assign(new Error("secret timeout body"), {
       name: "APIConnectionTimeoutError",
     });
@@ -310,8 +310,8 @@ describe("createGroqAiPort", function () {
   });
 
   it.each([
-    [Number.NaN, 5_000],
-    [Number.POSITIVE_INFINITY, 5_000],
+    [Number.NaN, 5000],
+    [Number.POSITIVE_INFINITY, 5000],
     [-10, 1],
     [1.9, 1],
     [10_001, 10_000],
@@ -441,7 +441,7 @@ describe("createGroqAiPort", function () {
     );
   });
 
-  it("contains hostile provider metadata in a bounded failure result", async function () {
+  it("contains hostile provider metadata in a bounded failure result", async () => {
     let metadataReads = 0;
     const nameAccessor = Object.defineProperty({}, "name", {
       get: () => {
@@ -477,7 +477,7 @@ describe("createGroqAiPort", function () {
     return expect(metadataReads).toBe(2);
   });
 
-  return it("honors an abort observed between the public preflight and bounded execution", async function () {
+  return it("honors an abort observed between the public preflight and bounded execution", async () => {
     let abortedReads = 0;
     const signal = {
       get aborted() {

@@ -201,7 +201,7 @@ export const sanitizePlaywrightJsonReport = async (
   );
   try {
     const opened = await handle.stat();
-    if (!opened.isFile() || !sameIdentity(before, opened)) {
+    if (!(opened.isFile() && sameIdentity(before, opened))) {
       throw new Error("Playwright report identity changed before redaction");
     }
     const content = await handle.readFile("utf8");
@@ -214,7 +214,7 @@ export const sanitizePlaywrightJsonReport = async (
     } catch {
       throw new Error("Playwright report is malformed");
     }
-    if (!isRecord(parsed) || !isRecord(parsed["config"])) {
+    if (!(isRecord(parsed) && isRecord(parsed["config"]))) {
       throw new Error("Playwright report configuration is malformed");
     }
     removeWebServerEnvironment(parsed["config"]);

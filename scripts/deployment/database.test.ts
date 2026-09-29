@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import * as databaseConfig from "@darkfactory/config/database";
+import { describe, expect, it, vi } from "vitest";
 import {
   checkProductionWebDatabaseEndpoint,
   runProductionWebDatabaseCheck,
@@ -15,9 +15,9 @@ const productionEnvironment = (
   DATABASE_URL: databaseUrl,
 });
 
-describe("production web database deployment check", function () {
-  it("accepts the current PlanetScale provider-managed PgBouncer endpoint", function () {
-    return expect(
+describe("production web database deployment check", () => {
+  it("accepts the current PlanetScale provider-managed PgBouncer endpoint", () =>
+    expect(
       checkProductionWebDatabaseEndpoint(
         productionEnvironment(pooledDatabaseUrl)
       )
@@ -25,8 +25,7 @@ describe("production web database deployment check", function () {
       ok: true,
       message:
         "Production web DATABASE_URL uses the provider-managed PlanetScale PgBouncer endpoint on port 6432 with sslmode=verify-full",
-    });
-  });
+    }));
 
   it.each([
     [
@@ -44,7 +43,7 @@ describe("production web database deployment check", function () {
       "postgresql://private-user:private-password@[invalid",
       /PostgreSQL URL/,
     ],
-  ])("rejects $0 endpoints with credential-free diagnostics", function (_label, databaseUrl, expectedMessage) {
+  ])("rejects $0 endpoints with credential-free diagnostics", (_label, databaseUrl, expectedMessage) => {
     const report = checkProductionWebDatabaseEndpoint(
       productionEnvironment(databaseUrl)
     );
@@ -54,7 +53,7 @@ describe("production web database deployment check", function () {
     return expect(report.message).not.toContain("private-password");
   });
 
-  it("rejects an undocumented generic pooled-host assertion", function () {
+  it("rejects an undocumented generic pooled-host assertion", () => {
     const report = checkProductionWebDatabaseEndpoint({
       DATABASE_PROVIDER: "postgres",
       DATABASE_URL:
@@ -111,7 +110,7 @@ describe("production web database deployment check", function () {
     });
   });
 
-  return it("renders the requirement without exposing the configured URL", function () {
+  return it("renders the requirement without exposing the configured URL", () => {
     const output = { write: vi.fn() };
     const error = { write: vi.fn() };
 

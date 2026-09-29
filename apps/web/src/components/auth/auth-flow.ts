@@ -288,7 +288,7 @@ export const submitResetPassword = async (
   client: AuthFlowClient,
   input: Readonly<{ token: string | undefined; newPassword: string }>
 ): Promise<AuthFlowResult> => {
-  if (!input.token || !RESET_TOKEN_PATTERN.test(input.token)) {
+  if (!(input.token && RESET_TOKEN_PATTERN.test(input.token))) {
     return resetTokenError();
   }
   try {

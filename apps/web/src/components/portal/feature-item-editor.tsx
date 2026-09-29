@@ -10,13 +10,13 @@ import {
   StatusBadge,
   Textarea,
 } from "@darkfactory/ui";
-import { Archive, RotateCcw, Save, X } from "lucide-react";
+import { Archive, Save, X } from "lucide-react";
 import {
+  type RefObject,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type RefObject,
 } from "react";
 
 import {
@@ -63,11 +63,11 @@ export const createEditorMutationGuard = (): EditorMutationGuard => {
   };
 };
 export const ArchivedFeatureItemNotice = () => (
-  <div className="border-y border-border py-4" role="note">
+  <div className="border-border border-y py-4" role="note">
     <p className="font-medium text-foreground">
       Archived records cannot be edited.
     </p>
-    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+    <p className="mt-1 text-muted-foreground text-sm leading-6">
       This detail view is read-only and preserves the stored record.
     </p>
   </div>
@@ -77,9 +77,9 @@ export const ArchivedFeatureItemDetails = ({
 }: Readonly<{ item: FeatureItemOutput }>) => (
   <div className="max-w-reading space-y-6">
     <ArchivedFeatureItemNotice />
-    <dl className="grid divide-y divide-border border-y border-border sm:grid-cols-2">
+    <dl className="grid divide-y divide-border border-border border-y sm:grid-cols-2">
       <div className="py-4 sm:col-span-2">
-        <dt className="text-sm font-medium text-muted-foreground">Name</dt>
+        <dt className="font-medium text-muted-foreground text-sm">Name</dt>
         <dd
           className="mt-1 text-base text-foreground"
           style={{ overflowWrap: "anywhere" }}
@@ -88,11 +88,11 @@ export const ArchivedFeatureItemDetails = ({
         </dd>
       </div>
       <div className="py-4 sm:col-span-2">
-        <dt className="text-sm font-medium text-muted-foreground">
+        <dt className="font-medium text-muted-foreground text-sm">
           Description
         </dt>
         <dd
-          className="mt-1 whitespace-pre-wrap text-base leading-7 text-foreground"
+          className="mt-1 whitespace-pre-wrap text-base text-foreground leading-7"
           style={{ overflowWrap: "anywhere" }}
         >
           {item.description.length > 0
@@ -101,16 +101,16 @@ export const ArchivedFeatureItemDetails = ({
         </dd>
       </div>
       <div className="py-4">
-        <dt className="text-sm font-medium text-muted-foreground">Status</dt>
+        <dt className="font-medium text-muted-foreground text-sm">Status</dt>
         <dd className="mt-1">
           <StatusBadge status="warning">Archived</StatusBadge>
         </dd>
       </div>
       <div className="py-4 sm:text-right">
-        <dt className="text-sm font-medium text-muted-foreground">
+        <dt className="font-medium text-muted-foreground text-sm">
           Last updated
         </dt>
-        <dd className="mt-1 text-sm text-foreground">
+        <dd className="mt-1 text-foreground text-sm">
           {item.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
         </dd>
       </div>
@@ -152,12 +152,12 @@ export const EditorNameField = ({
       ref={inputRef}
       value={value}
     />
-    <p className="text-sm text-muted-foreground" id="edit-feature-name-help">
+    <p className="text-muted-foreground text-sm" id="edit-feature-name-help">
       Use a concise label for this owner-scoped record.
     </p>
     {error === null ? null : (
       <p
-        className="text-sm text-destructive"
+        className="text-destructive text-sm"
         id="edit-feature-name-error"
         role="alert"
       >
@@ -391,7 +391,7 @@ export const FeatureItemEditor = ({
       <div className="min-w-0 space-y-6">
         <div
           aria-live="polite"
-          className="min-h-6 text-sm text-muted-foreground outline-none"
+          className="min-h-6 text-muted-foreground text-sm outline-none"
           ref={feedbackRef}
           tabIndex={-1}
         >
@@ -439,12 +439,12 @@ export const FeatureItemEditor = ({
       </div>
 
       <aside
-        className="min-w-0 space-y-6 border-t border-border pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0"
         aria-label="Feature item status and archive actions"
+        className="min-w-0 space-y-6 border-border border-t pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8"
       >
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="font-heading text-base font-semibold text-foreground">
+            <h2 className="font-heading font-semibold text-base text-foreground">
               Status
             </h2>
             <StatusBadge status={statusTone(state.item.status)}>
@@ -466,7 +466,7 @@ export const FeatureItemEditor = ({
           </select>
         </div>
 
-        <div className="border-t border-border pt-6">
+        <div className="border-border border-t pt-6">
           {confirmArchive ? (
             <section
               aria-describedby="editor-archive-description"
@@ -478,13 +478,13 @@ export const FeatureItemEditor = ({
               role="region"
             >
               <h2
-                className="font-heading text-base font-semibold text-foreground"
+                className="font-heading font-semibold text-base text-foreground"
                 id="editor-archive-title"
               >
                 Archive this item?
               </h2>
               <p
-                className="mt-2 text-sm leading-6 text-muted-foreground"
+                className="mt-2 text-muted-foreground text-sm leading-6"
                 id="editor-archive-description"
               >
                 The record remains available in archived views.

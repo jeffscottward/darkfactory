@@ -9,43 +9,43 @@ import {
   sql,
 } from "drizzle-orm";
 import {
-  COLOR_SCHEMES,
-  PREFERENCE_MODES,
-  addresses,
-  auditRecords,
-  featureItems,
-  outboxEvents,
-  profiles,
-  userPreferences,
+  createGeneratedFeatureRepositories,
+  type GeneratedFeatureRepositories,
+} from "../generated/repository-registry.ts";
+import {
   type Address,
   type AddressType,
+  addresses,
+  auditRecords,
+  COLOR_SCHEMES,
   type ColorScheme,
   type FeatureItem,
   type FeatureItemMetadata,
-  type JsonValue,
   type FeatureItemStatus,
+  featureItems,
+  type JsonValue,
+  outboxEvents,
+  PREFERENCE_MODES,
   type PreferenceMode,
   type Profile,
   type ProfileVisibility,
+  profiles,
   type UserPreferences,
+  userPreferences,
 } from "../schema/index.ts";
 import {
-  withTransaction,
+  type AdminUsersRepository,
+  createAdminUsersRepository,
+} from "./admin-users-repository.ts";
+import {
   type DatabaseExecutor,
   type Transaction,
+  withTransaction,
 } from "./client.ts";
-import {
-  createAdminUsersRepository,
-  type AdminUsersRepository,
-} from "./admin-users-repository.ts";
 import {
   createDashboardRepository,
   type DashboardRepository,
 } from "./dashboard-repository.ts";
-import {
-  createGeneratedFeatureRepositories,
-  type GeneratedFeatureRepositories,
-} from "../generated/repository-registry.ts";
 import {
   createWorkflowRepository,
   type WorkflowRepository,
@@ -219,7 +219,7 @@ const normalizeJsonValue = (
   if (prototype !== Object.prototype && prototype !== null) {
     return invalidJsonMetadata();
   }
-  if (Object.prototype.hasOwnProperty.call(value, "toJSON")) {
+  if (Object.hasOwn(value, "toJSON")) {
     return invalidJsonMetadata();
   }
 
@@ -246,7 +246,7 @@ const normalizeJsonValue = (
 
 const jsonbNumberText = (value: number): string => {
   const source = String(value);
-  if (!source.includes("e") && !source.includes("E")) return source;
+  if (!(source.includes("e") || source.includes("E"))) return source;
 
   const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)!;
   const sign = match[1]!;
@@ -413,9 +413,8 @@ export const createProfileRepository = (
               .returning();
       if (profile === undefined) {
         throw new OptimisticConcurrencyError("profile");
-      } else {
-        return profile;
       }
+      return profile;
     },
   };
 };
@@ -991,9 +990,8 @@ export const createUserPreferencesRepository = (
                 });
         if (preference === undefined) {
           throw new OptimisticConcurrencyError("theme preference");
-        } else {
-          return preference;
         }
+        return preference;
       } catch (error) {
         if (
           error instanceof InvalidRepositoryInputError ||
@@ -1060,9 +1058,8 @@ export const createUserPreferencesRepository = (
               .returning();
       if (preferences === undefined) {
         throw new OptimisticConcurrencyError("user preferences");
-      } else {
-        return preferences;
       }
+      return preferences;
     },
   };
 };

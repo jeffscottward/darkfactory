@@ -15,9 +15,9 @@ vi.mock("@darkfactory/auth/client", () => ({ authClient: browserAuthSdk }));
 
 import type { AuthFlowClient } from "./auth-flow.ts";
 import {
-  SAFE_ACCOUNT_EMAIL_MESSAGE,
   browserAuthClient,
   normalizeAuthDestination,
+  SAFE_ACCOUNT_EMAIL_MESSAGE,
   submitForgotPassword,
   submitResetPassword,
   submitSignIn,
@@ -31,7 +31,7 @@ import {
 } from "./auth-flow.ts";
 import { PasswordField } from "./password-field.tsx";
 
-afterEach(function () {
+afterEach(() => {
   vi.restoreAllMocks();
   return vi.unstubAllGlobals();
 });
@@ -48,8 +48,8 @@ const authClient = (
   ...overrides,
 });
 
-describe("browserAuthClient", function () {
-  return it("forwards every browser operation to the Better Auth client without changing its response", async function () {
+describe("browserAuthClient", () =>
+  it("forwards every browser operation to the Better Auth client without changing its response", async () => {
     const response = { data: { accepted: true }, error: null };
     browserAuthSdk.signIn.email.mockResolvedValueOnce(response);
     browserAuthSdk.signUp.email.mockResolvedValueOnce(response);
@@ -108,18 +108,17 @@ describe("browserAuthClient", function () {
       verification
     );
     return expect(browserAuthSdk.getSession).toHaveBeenCalledWith();
-  });
-});
+  }));
 
-describe("normalizeAuthDestination", function () {
-  it("preserves same-origin relative application paths", function () {
+describe("normalizeAuthDestination", () => {
+  it("preserves same-origin relative application paths", () => {
     expect(
       normalizeAuthDestination("/feature-items?status=active#results")
     ).toBe("/feature-items?status=active#results");
     return expect(normalizeAuthDestination("/dashboard")).toBe("/dashboard");
   });
 
-  it("falls back for absolute, protocol-relative, encoded, credentialed, slash-confused, and control-character callbacks", function () {
+  it("falls back for absolute, protocol-relative, encoded, credentialed, slash-confused, and control-character callbacks", () => {
     const hostileCallbacks = [
       "https://attacker.test/steal",
       "//attacker.test/steal",
@@ -144,7 +143,7 @@ describe("normalizeAuthDestination", function () {
     return results;
   });
 
-  it("decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", function () {
+  it("decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", () => {
     for (const callback of [
       "/%E0%A4%A",
       "/safe/./settings",
@@ -159,7 +158,7 @@ describe("normalizeAuthDestination", function () {
     ).toBe("/feature-items?status=active#results");
   });
 
-  it("falls back when the runtime URL parser rejects an otherwise local destination", function () {
+  it("falls back when the runtime URL parser rejects an otherwise local destination", () => {
     vi.stubGlobal(
       "URL",
       class {
@@ -174,7 +173,7 @@ describe("normalizeAuthDestination", function () {
     );
   });
 
-  return it("prevents auth loops and auth API callbacks", function () {
+  return it("prevents auth loops and auth API callbacks", () => {
     const results1 = [];
     for (const callback of [
       "/sign-in",
@@ -192,15 +191,15 @@ describe("normalizeAuthDestination", function () {
   });
 });
 
-describe("auth field validation", function () {
-  it("validates email absence, syntax, maximum length, and a trimmed valid address", function () {
+describe("auth field validation", () => {
+  it("validates email absence, syntax, maximum length, and a trimmed valid address", () => {
     expect(validateEmail("   ")).toBe("Enter your email address.");
     expect(validateEmail("member@domain")).toBe("Enter a valid email address.");
     expect(validateEmail("a".repeat(255))).toBe("Enter a valid email address.");
     return expect(validateEmail("  member@domain.test  ")).toBeUndefined();
   });
 
-  it("enforces the name boundaries after trimming", function () {
+  it("enforces the name boundaries after trimming", () => {
     expect(validateName("   ")).toBe("Enter your name.");
     expect(validateName(" A ")).toBe("Use at least 2 characters.");
     expect(validateName("a".repeat(81))).toBe(
@@ -210,7 +209,7 @@ describe("auth field validation", function () {
     return expect(validateName("a".repeat(80))).toBeUndefined();
   });
 
-  it("distinguishes sign-in presence from new-password length requirements", function () {
+  it("distinguishes sign-in presence from new-password length requirements", () => {
     expect(validatePasswordPresent("")).toBe("Enter your password.");
     expect(validatePasswordPresent("short")).toBeUndefined();
     expect(validatePassword("")).toBe("Enter your password.");
@@ -224,7 +223,7 @@ describe("auth field validation", function () {
     return expect(validatePassword("a".repeat(128))).toBeUndefined();
   });
 
-  return it("requires a present confirmation that exactly matches", function () {
+  return it("requires a present confirmation that exactly matches", () => {
     expect(validatePasswordConfirmation("", "a".repeat(12))).toBe(
       "Confirm your password."
     );
@@ -237,8 +236,8 @@ describe("auth field validation", function () {
   });
 });
 
-describe("typed auth operations", function () {
-  it("signs in through Better Auth and returns only the sanitized local destination", async function () {
+describe("typed auth operations", () => {
+  it("signs in through Better Auth and returns only the sanitized local destination", async () => {
     const signInEmail = vi.fn().mockResolvedValue({
       data: { redirect: true, url: "https://attacker.test/ignored" },
       error: null,
@@ -262,7 +261,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  it("returns an actionable verification recovery for unverified sign-in", async function () {
+  it("returns an actionable verification recovery for unverified sign-in", async () => {
     const client = authClient({
       signInEmail: vi.fn().mockResolvedValue({
         data: null,
@@ -288,7 +287,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  it("does not mislabel an unavailable account as unverified", async function () {
+  it("does not mislabel an unavailable account as unverified", async () => {
     const client = authClient({
       signInEmail: vi.fn().mockResolvedValue({
         data: null,
@@ -313,7 +312,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  it("signs up without inventing a session or success destination", async function () {
+  it("signs up without inventing a session or success destination", async () => {
     const signUpEmail = vi.fn().mockResolvedValue({
       data: { user: { id: "synthetic-or-real" } },
       error: null,
@@ -338,7 +337,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  it("keeps forgot-password and verification resend responses enumeration-safe", async function () {
+  it("keeps forgot-password and verification resend responses enumeration-safe", async () => {
     const requestPasswordReset = vi
       .fn()
       .mockResolvedValue({ data: {}, error: null });
@@ -369,7 +368,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  it("requires an in-memory reset token and maps invalid or expired tokens to recovery", async function () {
+  it("requires an in-memory reset token and maps invalid or expired tokens to recovery", async () => {
     const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null });
     const client = authClient({ resetPassword });
 
@@ -426,7 +425,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  it("never includes the reset token in the result or logs", async function () {
+  it("never includes the reset token in the result or logs", async () => {
     const token = "one-time-reset-token";
     const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null });
     const consoleLog = vi
@@ -454,7 +453,7 @@ describe("typed auth operations", function () {
     ).toEqual([]);
   });
 
-  it("distinguishes deactivated, rejected, and unreachable sign-in attempts", async function () {
+  it("distinguishes deactivated, rejected, and unreachable sign-in attempts", async () => {
     const input = {
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
@@ -512,7 +511,7 @@ describe("typed auth operations", function () {
     });
   });
 
-  return it("keeps account-email provider denials and transport failures generic", async function () {
+  return it("keeps account-email provider denials and transport failures generic", async () => {
     const providerDenial = {
       data: null,
       error: { code: "PROVIDER_FAILURE", message: "private provider detail" },
@@ -570,8 +569,8 @@ describe("typed auth operations", function () {
   });
 });
 
-describe("PasswordField accessibility", function () {
-  return it("renders a labeled password input and a 44px visibility control", function () {
+describe("PasswordField accessibility", () =>
+  it("renders a labeled password input and a 44px visibility control", () => {
     const markup = renderToStaticMarkup(
       createElement(PasswordField, {
         id: "password",
@@ -589,5 +588,4 @@ describe("PasswordField accessibility", function () {
     expect(markup).toContain('aria-label="Show password"');
     expect(markup).toContain('aria-pressed="false"');
     return expect(markup).toContain("min-h-11");
-  });
-});
+  }));

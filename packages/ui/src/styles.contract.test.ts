@@ -14,7 +14,7 @@ const rgb = (hex: string): readonly [number, number, number] => [
 
 const luminance = (hex: string): number => {
   const channels = rgb(hex).map((channel) => {
-    return channel <= 0.04045
+    return channel <= 0.040_45
       ? channel / 12.92
       : ((channel + 0.055) / 1.055) ** 2.4;
   });
@@ -32,17 +32,19 @@ const contrast = (first: string, second: string): number => {
 
 const lab = (hex: string): readonly [number, number, number] => {
   const linear = rgb(hex).map((channel) => {
-    return channel <= 0.04045
+    return channel <= 0.040_45
       ? channel / 12.92
       : ((channel + 0.055) / 1.055) ** 2.4;
   });
   const x =
-    (linear[0]! * 0.4124 + linear[1]! * 0.3576 + linear[2]! * 0.1805) / 0.95047;
+    (linear[0]! * 0.4124 + linear[1]! * 0.3576 + linear[2]! * 0.1805) /
+    0.950_47;
   const y = linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722;
   const z =
-    (linear[0]! * 0.0193 + linear[1]! * 0.1192 + linear[2]! * 0.9505) / 1.08883;
+    (linear[0]! * 0.0193 + linear[1]! * 0.1192 + linear[2]! * 0.9505) /
+    1.088_83;
   const transform = (value: number): number => {
-    return value > 0.008856 ? value ** (1 / 3) : 7.787 * value + 16 / 116;
+    return value > 0.008_856 ? value ** (1 / 3) : 7.787 * value + 16 / 116;
   };
   const [transformedX, transformedY, transformedZ] = [x, y, z].map(transform);
   return [
@@ -79,8 +81,8 @@ const blockFor = (css: string, selector: string): string => {
   return match[1];
 };
 
-describe("CSS theme contract", function () {
-  it("defines explicit light, dark, and system mode application", async function () {
+describe("CSS theme contract", () => {
+  it("defines explicit light, dark, and system mode application", async () => {
     const css = await readFile(stylesheetUrl, "utf8");
 
     expect(css).toContain(
@@ -91,7 +93,7 @@ describe("CSS theme contract", function () {
     );
   });
 
-  it("lets every named root palette override the default root tokens", async function () {
+  it("lets every named root palette override the default root tokens", async () => {
     const css = await readFile(stylesheetUrl, "utf8");
     const namedSelectors = [
       ...css.matchAll(/\.palette-([a-z]+),\n\[data-palette="([a-z]+)"\] \{/g),
@@ -105,7 +107,7 @@ describe("CSS theme contract", function () {
     ).toBeGreaterThan(css.indexOf(":root {"));
   });
 
-  it("keeps palette text and meaningful boundaries WCAG-aware in both modes", async function () {
+  it("keeps palette text and meaningful boundaries WCAG-aware in both modes", async () => {
     const css = await readFile(stylesheetUrl, "utf8");
 
     for (const palette of PALETTE_NAMES) {
@@ -162,7 +164,7 @@ describe("CSS theme contract", function () {
     return results;
   });
 
-  it("keeps every canonical palette perceptually distinct", async function () {
+  it("keeps every canonical palette perceptually distinct", async () => {
     const css = await readFile(stylesheetUrl, "utf8");
     const catalog = PALETTE_NAMES.map((palette) => ({
       palette,
@@ -200,7 +202,7 @@ describe("CSS theme contract", function () {
     return results1;
   });
 
-  return it("owns mode-aware palette swatch presentation", async function () {
+  return it("owns mode-aware palette swatch presentation", async () => {
     const css = await readFile(stylesheetUrl, "utf8");
 
     expect(css).toMatch(

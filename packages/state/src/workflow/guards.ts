@@ -1,9 +1,9 @@
 import {
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
+  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
   WORKFLOW_EFFECT_KINDS,
   WORKFLOW_EVENT_TYPES,
   WORKFLOW_EVENT_VERSION,
-  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
-  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   WORKFLOW_MACHINE_ID,
   WORKFLOW_MACHINE_VERSION,
   WORKFLOW_STATES,
@@ -23,7 +23,7 @@ const sha256Pattern = /^[a-f0-9]{64}$/;
 export const MAX_WORKFLOW_REPOSITORY_ID_BYTES = 64;
 export const MAX_WORKFLOW_SCOPE_PATHS = 128;
 export const MAX_WORKFLOW_SCOPE_PATH_BYTES = 256;
-export const MAX_WORKFLOW_SCOPE_BYTES = 4_096;
+export const MAX_WORKFLOW_SCOPE_BYTES = 4096;
 
 const repositorySlugPattern = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const windowsAbsolutePathPattern = /^[A-Za-z]:[/\\]/u;
@@ -34,9 +34,9 @@ const utf8Bytes = (value: string): number => {
     bytes +=
       codePoint <= 0x7f
         ? 1
-        : codePoint <= 0x7ff
+        : codePoint <= 0x7_ff
           ? 2
-          : codePoint <= 0xffff
+          : codePoint <= 0xff_ff
             ? 3
             : 4;
   }
@@ -180,8 +180,7 @@ export const isWorkflowApprovalBindingV1 = (
 
 export const isWorkflowEventV1 = (value: unknown): value is WorkflowEventV1 => {
   if (
-    !isRecord(value) ||
-    !isNonEmptyString(value["eventId"]) ||
+    !(isRecord(value) && isNonEmptyString(value["eventId"])) ||
     value["eventVersion"] !== WORKFLOW_EVENT_VERSION ||
     value["machineVersion"] !== WORKFLOW_MACHINE_VERSION ||
     !isNonEmptyString(value["occurredAt"]) ||
@@ -301,36 +300,36 @@ const isWorkflowEffectProposalV1 = (value: unknown): boolean => {
 
 const isWorkflowContextV1 = (value: unknown): value is WorkflowContextV1 => {
   if (
-    !isRecord(value) ||
-    !isNonEmptyString(value["runId"]) ||
-    !isNonEmptyString(value["ownerId"]) ||
-    !isNullableString(value["taskId"]) ||
-    !isNullableString(value["workspaceId"]) ||
     !(
-      value["taskRevision"] === null ||
-      isNonNegativeInteger(value["taskRevision"])
-    ) ||
-    !(value["taskHash"] === null || isHash(value["taskHash"])) ||
-    !(value["scope"] === null || isWorkflowEffectScopeV1(value["scope"])) ||
-    !isWorkflowExecutionMetadataV1(
-      value["executionMode"],
-      value["humanRequest"]
-    ) ||
-    !isRecord(value["attempts"]) ||
-    !isWorkflowStageAttempt(value["attempts"]["plan"]) ||
-    !isWorkflowStageAttempt(value["attempts"]["implement"]) ||
-    !isWorkflowStageAttempt(value["attempts"]["verify"]) ||
-    !isWorkflowEffectProposalV1(value["pendingEffect"]) ||
-    !isWorkflowPlanClarificationV1(value["planClarification"]) ||
-    !isNullableString(value["planEvidenceId"]) ||
-    !(value["planHash"] === null || isHash(value["planHash"])) ||
-    !isNullableString(value["approvalId"]) ||
-    !(value["approvalHash"] === null || isHash(value["approvalHash"])) ||
-    !isNullableString(value["implementationEvidenceId"]) ||
-    !(value["changeHash"] === null || isHash(value["changeHash"])) ||
-    !isNullableString(value["verificationEvidenceId"]) ||
-    !isNullableString(value["lastErrorCode"]) ||
-    !isNonNegativeInteger(value["messageCount"])
+      isRecord(value) &&
+      isNonEmptyString(value["runId"]) &&
+      isNonEmptyString(value["ownerId"]) &&
+      isNullableString(value["taskId"]) &&
+      isNullableString(value["workspaceId"]) &&
+      (value["taskRevision"] === null ||
+        isNonNegativeInteger(value["taskRevision"])) &&
+      (value["taskHash"] === null || isHash(value["taskHash"])) &&
+      (value["scope"] === null || isWorkflowEffectScopeV1(value["scope"])) &&
+      isWorkflowExecutionMetadataV1(
+        value["executionMode"],
+        value["humanRequest"]
+      ) &&
+      isRecord(value["attempts"]) &&
+      isWorkflowStageAttempt(value["attempts"]["plan"]) &&
+      isWorkflowStageAttempt(value["attempts"]["implement"]) &&
+      isWorkflowStageAttempt(value["attempts"]["verify"]) &&
+      isWorkflowEffectProposalV1(value["pendingEffect"]) &&
+      isWorkflowPlanClarificationV1(value["planClarification"]) &&
+      isNullableString(value["planEvidenceId"]) &&
+      (value["planHash"] === null || isHash(value["planHash"])) &&
+      isNullableString(value["approvalId"]) &&
+      (value["approvalHash"] === null || isHash(value["approvalHash"])) &&
+      isNullableString(value["implementationEvidenceId"]) &&
+      (value["changeHash"] === null || isHash(value["changeHash"])) &&
+      isNullableString(value["verificationEvidenceId"]) &&
+      isNullableString(value["lastErrorCode"]) &&
+      isNonNegativeInteger(value["messageCount"])
+    )
   ) {
     return false;
   }

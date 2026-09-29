@@ -1,6 +1,7 @@
+import { isUtf8 } from "node:buffer";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { isUtf8 } from "node:buffer";
+import { constants } from "node:fs";
 import {
   access,
   lstat,
@@ -12,9 +13,8 @@ import {
   rename,
   rm,
 } from "node:fs/promises";
-import { constants } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { join, relative, resolve, sep } from "node:path";
 import { inflateSync } from "node:zlib";
 
 import {
@@ -23,10 +23,10 @@ import {
 } from "./owned-marker.js";
 
 import {
-  ArtifactScannerCleanupError,
-  playwrightReportHasExecutedResult,
   type ArtifactEntry,
+  ArtifactScannerCleanupError,
   type ArtifactScannerDependencies,
+  playwrightReportHasExecutedResult,
 } from "./scanner.ts";
 
 export type ArtifactScanLimits = Readonly<{
@@ -260,9 +260,7 @@ const trustedArchiveExecutable = async (
         const canonical = await realpath(candidate);
         await access(canonical, constants.X_OK);
         return canonical;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     throw new Error(`Trusted ${name} executable is unavailable`);
   })();
@@ -293,7 +291,8 @@ const runFile: RunFile = async (
       (error, stdout) => {
         if (error) {
           return reject(error);
-        } else return resolvePromise({ stdout: Buffer.from(stdout) });
+        }
+        return resolvePromise({ stdout: Buffer.from(stdout) });
       }
     );
   });
@@ -368,23 +367,23 @@ const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
 const MAX_PNG_BYTES = 10 * 1024 * 1024;
-const MAX_PNG_DIMENSION = 8_192;
+const MAX_PNG_DIMENSION = 8192;
 const MAX_PNG_PIXELS = 8_000_000;
 const PNG_CHUNKS = new Set(["IHDR", "PLTE", "IDAT", "IEND"]);
 const PNG_CRC_TABLE = Uint32Array.from({ length: 256 }, (_unused, index) => {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
-    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    value = (value & 1) === 1 ? 0xed_b8_83_20 ^ (value >>> 1) : value >>> 1;
   }
   return value >>> 0;
 });
 
 const pngCrc32 = (content: Buffer): number => {
-  let crc = 0xffffffff;
+  let crc = 0xff_ff_ff_ff;
   for (const byte of content) {
     crc = (PNG_CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8);
   }
-  return (crc ^ 0xffffffff) >>> 0;
+  return (crc ^ 0xff_ff_ff_ff) >>> 0;
 };
 
 const assertStrictPng = (content: Buffer): void => {
@@ -408,7 +407,7 @@ const assertStrictPng = (content: Buffer): void => {
       throw new Error("PNG chunk length is unsafe");
     }
     const chunk = content.subarray(offset + 4, offset + 8).toString("ascii");
-    if (!/^[A-Za-z]{4}$/u.test(chunk) || !PNG_CHUNKS.has(chunk)) {
+    if (!(/^[A-Za-z]{4}$/u.test(chunk) && PNG_CHUNKS.has(chunk))) {
       throw new Error("PNG metadata or unknown chunks are rejected");
     }
     const chunkBytes = content.subarray(offset + 4, offset + 8 + length);
@@ -1006,7 +1005,7 @@ export const finalizeOwnedLifecycleAfterPlaywright = async ({
   const adoption = decodeOwnedRunAdoption(encodedAdoption, runId);
   await assertOwnedLifecycleRoots(paths, adoption);
   const current = await readOwnedLifecycleState(paths, adoption);
-  if (!treeTerminated || !(await playwrightReportExecuted(paths)))
+  if (!(treeTerminated && (await playwrightReportExecuted(paths))))
     return current;
   if (current?.status !== "stopped") return current;
   if (

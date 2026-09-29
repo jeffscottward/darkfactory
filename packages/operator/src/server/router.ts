@@ -8,8 +8,8 @@ import { implement } from "@orpc/server";
 import { operatorApiContract } from "../contract.ts";
 import type { OperatorContext } from "./context.ts";
 import {
-  OperatorServiceError,
   createOperatorService,
+  OperatorServiceError,
   type OperatorServiceErrorCode,
 } from "./operator-service.ts";
 import { createOperatorWayfinderService } from "./wayfinder-service.ts";

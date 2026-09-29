@@ -4,8 +4,9 @@ import { dirname, join } from "node:path";
 
 import { GeneratorError } from "./errors.ts";
 import {
-  descriptorFor,
   createLiveLeafFiles,
+  descriptorFor,
+  type FeatureRegistry,
   renderContractRegistry,
   renderFeatureRegistry,
   renderNavigationRegistry,
@@ -13,16 +14,14 @@ import {
   renderRepositoryRegistry,
   renderRouterRegistry,
   renderSchemaRegistry,
-  type FeatureRegistry,
-  type RegisteredFeature,
 } from "./live-templates.ts";
 import {
   assertDirectoryChain,
   assertNoSymlinkPath,
-  captureDirectoryChain,
   canonicalWorkspaceRoot,
-  pathExists,
+  captureDirectoryChain,
   identityAt,
+  pathExists,
 } from "./path-safety.ts";
 import { assertCoreIdentityAvailable } from "./reserved-identities.ts";
 import type { FeatureNames, GenerationPlan, PlannedFile } from "./types.ts";

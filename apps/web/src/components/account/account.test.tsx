@@ -1,19 +1,16 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
 import type {
   AddressCreateInput,
   AddressUpdateInput,
   PreferencesUpdateInput,
   ProfileUpdateInput,
 } from "@darkfactory/api";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/account/security",
 }));
 
-import { AccountNavigation } from "./account-navigation.tsx";
-import { AccountNavigationClient } from "./account-navigation-client.tsx";
-import { AccountFeedbackMessage } from "./account-feedback.tsx";
 import {
   accountFailureKind,
   createAccountGateway,
@@ -22,12 +19,15 @@ import {
   isAmbiguousAccountFailure,
   safeAccountFeedback,
 } from "./account-client.ts";
-import { ProfilePageClient } from "./profile-page-client.tsx";
-import { changedProfileInput, ProfileForm } from "./profile-form.tsx";
+import { AccountFeedbackMessage } from "./account-feedback.tsx";
+import { AccountNavigation } from "./account-navigation.tsx";
+import { AccountNavigationClient } from "./account-navigation-client.tsx";
 import {
   changedPreferencesInput,
   PreferencesForm,
 } from "./preferences-form.tsx";
+import { changedProfileInput, ProfileForm } from "./profile-form.tsx";
+import { ProfilePageClient } from "./profile-page-client.tsx";
 
 const profile = {
   firstName: "Alice",
@@ -69,8 +69,8 @@ const address = {
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
 
-describe("account navigation", function () {
-  it("links the summary to every distinct account task", function () {
+describe("account navigation", () => {
+  it("links the summary to every distinct account task", () => {
     const html = renderToStaticMarkup(
       <AccountNavigation currentPath="/account" />
     );
@@ -87,7 +87,7 @@ describe("account navigation", function () {
     return expect(html).toContain("Security");
   });
 
-  it("keeps every touch-sized destination visible and exposes the active destination without relying on color", function () {
+  it("keeps every touch-sized destination visible and exposes the active destination without relying on color", () => {
     const html = renderToStaticMarkup(
       <AccountNavigation currentPath="/account/profile" />
     );
@@ -97,15 +97,15 @@ describe("account navigation", function () {
     return expect(html).not.toContain("min-w-max");
   });
 
-  return it("binds the client navigation to the current pathname accessibly", function () {
+  return it("binds the client navigation to the current pathname accessibly", () => {
     const html = renderToStaticMarkup(<AccountNavigationClient />);
     expect(html).toContain('href="/account/security"');
     return expect(html).toContain('aria-current="page"');
   });
 });
 
-describe("typed account gateway", function () {
-  it("constructs and server-renders loading state without a browser window", function () {
+describe("typed account gateway", () => {
+  it("constructs and server-renders loading state without a browser window", () => {
     expect("window" in globalThis).toBe(false);
     expect(() => createBrowserAccountGateway()).not.toThrow();
     return expect(renderToStaticMarkup(<ProfilePageClient />)).toContain(
@@ -113,7 +113,7 @@ describe("typed account gateway", function () {
     );
   });
 
-  it("lazily creates and caches one client while forwarding every method", async function () {
+  it("lazily creates and caches one client while forwarding every method", async () => {
     const accountProfile = {
       identity: { email: "alice@domain.test", emailVerified: true },
       profile,
@@ -130,38 +130,20 @@ describe("typed account gateway", function () {
     const listedAddresses = [address];
     const account = {
       profile: {
-        get: vi.fn(async function () {
-          return accountProfile;
-        }),
-        update: vi.fn(async function () {
-          return updatedAccountProfile;
-        }),
+        get: vi.fn(async () => accountProfile),
+        update: vi.fn(async () => updatedAccountProfile),
       },
       addresses: {
-        list: vi.fn(async function () {
-          return listedAddresses;
-        }),
-        create: vi.fn(async function () {
-          return createdAddress;
-        }),
-        update: vi.fn(async function () {
-          return updatedAddress;
-        }),
-        remove: vi.fn(async function () {
-          return removed;
-        }),
-        setPrimary: vi.fn(async function () {
-          return primaryAddress;
-        }),
+        list: vi.fn(async () => listedAddresses),
+        create: vi.fn(async () => createdAddress),
+        update: vi.fn(async () => updatedAddress),
+        remove: vi.fn(async () => removed),
+        setPrimary: vi.fn(async () => primaryAddress),
       },
     };
     const apiPreferences = {
-      get: vi.fn(async function () {
-        return preferences;
-      }),
-      update: vi.fn(async function () {
-        return updatedPreferences;
-      }),
+      get: vi.fn(async () => preferences),
+      update: vi.fn(async () => updatedPreferences),
     };
     const createClient = vi.fn(
       () =>
@@ -246,7 +228,7 @@ describe("typed account gateway", function () {
     return expect(apiPreferences.update).toHaveBeenCalledWith(preferencesInput);
   });
 
-  it("uses the browser origin resolver when only a client factory is injected", async function () {
+  it("uses the browser origin resolver when only a client factory is injected", async () => {
     vi.stubGlobal("window", {
       location: { origin: "https://owner.example.test" },
     });
@@ -273,24 +255,18 @@ describe("typed account gateway", function () {
       vi.unstubAllGlobals();
     }
   });
-  it("uses the real profile and full-preference procedures", async function () {
+  it("uses the real profile and full-preference procedures", async () => {
     const accountProfile = {
       identity: { email: "alice@domain.test", emailVerified: true },
       profile,
     };
     const account = {
       profile: {
-        get: vi.fn(async function () {
-          return accountProfile;
-        }),
-        update: vi.fn(async function () {
-          return accountProfile;
-        }),
+        get: vi.fn(async () => accountProfile),
+        update: vi.fn(async () => accountProfile),
       },
       addresses: {
-        list: vi.fn(async function () {
-          return [];
-        }),
+        list: vi.fn(async () => []),
         create: vi.fn(),
         update: vi.fn(),
         remove: vi.fn(),
@@ -298,12 +274,8 @@ describe("typed account gateway", function () {
       },
     };
     const apiPreferences = {
-      get: vi.fn(async function () {
-        return preferences;
-      }),
-      update: vi.fn(async function () {
-        return preferences;
-      }),
+      get: vi.fn(async () => preferences),
+      update: vi.fn(async () => preferences),
     };
     const gateway = createAccountGateway({
       account,
@@ -337,11 +309,10 @@ describe("typed account gateway", function () {
     ["FORBIDDEN", "permission"],
     ["VALIDATION_ERROR", "highlighted fields"],
     ["STORAGE_ERROR", "temporarily unavailable"],
-  ])("maps %s to safe feedback", function (code, expected) {
-    return expect(safeAccountFeedback({ code })).toContain(expected);
-  });
+  ])("maps %s to safe feedback", (code, expected) =>
+    expect(safeAccountFeedback({ code })).toContain(expected));
 
-  it("never exposes raw failures", function () {
+  it("never exposes raw failures", () => {
     expect(
       safeAccountFeedback(
         new Error("postgres://user:secret@db.internal/private")
@@ -354,7 +325,7 @@ describe("typed account gateway", function () {
     ).not.toContain("secret");
   });
 
-  it("classifies direct and nested account failures without treating coded failures as ambiguous", function () {
+  it("classifies direct and nested account failures without treating coded failures as ambiguous", () => {
     expect(accountFailureKind({ code: "UNAUTHORIZED" })).toBe("unauthorized");
     expect(accountFailureKind({ data: { code: "FORBIDDEN" } })).toBe(
       "forbidden"
@@ -371,7 +342,7 @@ describe("typed account gateway", function () {
     return expect(isAmbiguousAccountFailure("network failure")).toBe(true);
   });
 
-  it("covers every owner-safe account feedback category and ignores malformed codes", function () {
+  it("covers every owner-safe account feedback category and ignores malformed codes", () => {
     expect(safeAccountFeedback({ code: "BAD_REQUEST" })).toContain(
       "highlighted fields"
     );
@@ -386,7 +357,7 @@ describe("typed account gateway", function () {
     );
   });
 
-  return it("suppresses responses from superseded request generations", function () {
+  return it("suppresses responses from superseded request generations", () => {
     const requests = createLatestRequestGuard();
     const first = requests.next();
     const second = requests.next();
@@ -395,8 +366,8 @@ describe("typed account gateway", function () {
   });
 });
 
-describe("persisted account forms", function () {
-  it("initializes every profile field from authoritative state", function () {
+describe("persisted account forms", () => {
+  it("initializes every profile field from authoritative state", () => {
     const html = renderToStaticMarkup(
       <ProfileForm initialProfile={profile} onSave={vi.fn()} />
     );
@@ -419,16 +390,15 @@ describe("persisted account forms", function () {
     return expect(html).toContain("Save profile");
   });
 
-  it("submits only changed profile fields to avoid stale-tab clobbering", function () {
-    return expect(
+  it("submits only changed profile fields to avoid stale-tab clobbering", () =>
+    expect(
       changedProfileInput(profile, { ...profile, jobTitle: "Maintainer" })
     ).toEqual({
       expectedUpdatedAt: profile.updatedAt,
       jobTitle: "Maintainer",
-    });
-  });
+    }));
 
-  it("normalizes nullable profile fields, trims durable locale fields, and keeps unchanged data out of the patch", function () {
+  it("normalizes nullable profile fields, trims durable locale fields, and keeps unchanged data out of the patch", () => {
     expect(changedProfileInput(profile, profile)).toEqual({
       expectedUpdatedAt: profile.updatedAt,
     });
@@ -463,7 +433,7 @@ describe("persisted account forms", function () {
     });
   });
 
-  return it("renders complete durable preferences without a reduced-motion setting", function () {
+  return it("renders complete durable preferences without a reduced-motion setting", () => {
     const html = renderToStaticMarkup(
       <PreferencesForm initialPreferences={preferences} onSave={vi.fn()} />
     );
@@ -493,8 +463,8 @@ describe("persisted account forms", function () {
   });
 });
 
-describe("account feedback accessibility", function () {
-  return it("renders nothing for explicit absence and maps every tone to stable live semantics", function () {
+describe("account feedback accessibility", () =>
+  it("renders nothing for explicit absence and maps every tone to stable live semantics", () => {
     expect(
       renderToStaticMarkup(<AccountFeedbackMessage feedback={null} />)
     ).toBe("");
@@ -523,5 +493,4 @@ describe("account feedback accessibility", function () {
     expect(info).toContain('role="status"');
     expect(info).toContain("border-border-strong");
     return expect(info).toContain('aria-live="polite"');
-  });
-});
+  }));

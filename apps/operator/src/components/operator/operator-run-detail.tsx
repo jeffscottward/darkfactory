@@ -393,13 +393,13 @@ export const OperatorRunDetail = ({
   if (state.type === "error") {
     return (
       <section
-        className="border-y border-destructive-border bg-destructive-subtle px-4 py-6"
+        className="border-destructive-border border-y bg-destructive-subtle px-4 py-6"
         role="alert"
       >
-        <h2 className="font-heading text-lg font-semibold text-foreground">
+        <h2 className="font-heading font-semibold text-foreground text-lg">
           Workflow run unavailable
         </h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        <p className="mt-2 text-muted-foreground text-sm leading-6">
           {state.failure.message}
         </p>
         <Button className="mt-4" onClick={load} variant="secondary">
@@ -428,12 +428,12 @@ export const OperatorRunDetail = ({
     <div className="space-y-6">
       <section
         aria-labelledby="run-summary-title"
-        className="min-w-0 border-y border-border bg-surface px-4 py-5 sm:px-6"
+        className="min-w-0 border-border border-y bg-surface px-4 py-5 sm:px-6"
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h2
-              className="break-words font-heading text-xl font-semibold text-foreground"
+              className="break-words font-heading font-semibold text-foreground text-xl"
               id="run-summary-title"
             >
               {operatorRunTitle(output.run)}
@@ -441,7 +441,7 @@ export const OperatorRunDetail = ({
             <p
               aria-atomic="true"
               aria-live="polite"
-              className="mt-2 text-sm leading-6 text-muted-foreground"
+              className="mt-2 text-muted-foreground text-sm leading-6"
               role="status"
             >
               {refreshSummary}
@@ -451,61 +451,61 @@ export const OperatorRunDetail = ({
         </div>
         <dl className="mt-5">
           <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
               Last update
             </dt>
-            <dd className="text-sm text-foreground">
+            <dd className="text-foreground text-sm">
               <time dateTime={output.run.updatedAt.toISOString()}>
                 {formatOperatorDate(output.run.updatedAt)}
               </time>
             </dd>
           </div>
         </dl>
-        <details className="mt-4 border-t border-border pt-2">
+        <details className="mt-4 border-border border-t pt-2">
           <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Integrity details
           </summary>
           <dl className="grid min-w-0 gap-4 pb-2 sm:grid-cols-2">
             <div>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                 Run ID
               </dt>
-              <dd className="break-all font-mono text-xs text-foreground">
+              <dd className="break-all font-mono text-foreground text-xs">
                 {output.run.id}
               </dd>
             </div>
             <div>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                 Journal sequence
               </dt>
-              <dd className="font-mono text-xs text-foreground">
+              <dd className="font-mono text-foreground text-xs">
                 {output.run.sequence}
               </dd>
             </div>
             <div className="min-w-0 sm:col-span-2">
-              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                 Journal head
               </dt>
-              <dd className="break-all font-mono text-xs text-foreground">
+              <dd className="break-all font-mono text-foreground text-xs">
                 {output.run.headHash}
               </dd>
             </div>
           </dl>
         </details>
         {output.run.blockedReason === undefined ? null : (
-          <div className="mt-5 border-y border-destructive-border bg-destructive-subtle px-4 py-4">
-            <h3 className="font-heading text-base font-semibold text-destructive">
+          <div className="mt-5 border-destructive-border border-y bg-destructive-subtle px-4 py-4">
+            <h3 className="font-heading font-semibold text-base text-destructive">
               Why this run needs attention
             </h3>
-            <p className="mt-1 text-sm leading-6 text-destructive">
+            <p className="mt-1 text-destructive text-sm leading-6">
               {output.run.blockedReason}
             </p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            <p className="mt-2 text-muted-foreground text-sm leading-6">
               {blockedGuidance(output)}
             </p>
           </div>
         )}
-        <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-4">
+        <div className="mt-5 flex flex-wrap gap-2 border-border border-t pt-4">
           <Button
             disabled={busyAction !== null}
             onClick={() => void load()}
@@ -554,7 +554,7 @@ export const OperatorRunDetail = ({
       <div
         aria-atomic="true"
         aria-live="polite"
-        className="min-h-6 text-sm text-muted-foreground outline-none"
+        className="min-h-6 text-muted-foreground text-sm outline-none"
         ref={feedbackRef}
         tabIndex={-1}
       >
@@ -564,7 +564,7 @@ export const OperatorRunDetail = ({
       approvalConflict !== null ||
       failureAction === "message" ? null : (
         <p
-          className="border-y border-destructive-border bg-destructive-subtle px-4 py-3 text-sm text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="border-destructive-border border-y bg-destructive-subtle px-4 py-3 text-destructive text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           ref={failureRef}
           role="alert"
           tabIndex={-1}
@@ -580,8 +580,6 @@ export const OperatorRunDetail = ({
         }
         implementationPlan={output.implementationPlan}
         messages={output.messages}
-        planRevisions={output.planRevisions}
-        runState={output.run.state}
         onSend={(body, idempotencyKey) => {
           return perform(
             "message",
@@ -590,12 +588,13 @@ export const OperatorRunDetail = ({
           );
         }}
         originalRequest={output.originalRequest}
+        planRevisions={output.planRevisions}
+        runState={output.run.state}
       />
       <div className="grid min-w-0 gap-6 xl:grid-cols-5">
         <div className="min-w-0 xl:col-span-3">
           <ApprovalPanel
             approval={output.approval}
-            implementationPlan={output.implementationPlan}
             busyAction={
               busyAction === "approve" ||
               busyAction === "reject" ||
@@ -603,9 +602,10 @@ export const OperatorRunDetail = ({
                 ? busyAction
                 : null
             }
-            disabled={busyAction !== null}
             canRequestChanges={output.canRequestPlanRevision}
             conflictMessage={approvalConflict?.message}
+            disabled={busyAction !== null}
+            implementationPlan={output.implementationPlan}
             onApprove={() => {
               if (output.approval !== null) {
                 return void perform(
@@ -624,8 +624,8 @@ export const OperatorRunDetail = ({
           />
         </div>
         <aside
-          className="min-w-0 space-y-6 xl:col-span-2"
           aria-label="Run history and evidence"
+          className="min-w-0 space-y-6 xl:col-span-2"
         >
           <RunTimeline entries={output.timeline} />
           <EvidencePanel evidence={output.evidence} />

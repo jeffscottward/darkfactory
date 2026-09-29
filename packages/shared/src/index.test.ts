@@ -1,18 +1,17 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
-
 import { createFixedClock, createIdSequence } from "@darkfactory/testkit";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   createIdentifier,
   failure,
+  type Identifier,
   matchResult,
   normalizeUnknownError,
   success,
-  type Identifier,
 } from "./index.ts";
 
-describe("createIdentifier", function () {
-  it("brands a non-empty identifier without changing its runtime value", function () {
+describe("createIdentifier", () => {
+  it("brands a non-empty identifier without changing its runtime value", () => {
     type RequestId = Identifier<"request">;
 
     const identifier = createIdentifier<"request">("req_01");
@@ -22,15 +21,14 @@ describe("createIdentifier", function () {
     return expectTypeOf(identifier).not.toMatchTypeOf<Identifier<"trace">>();
   });
 
-  return it("rejects an empty identifier", function () {
-    return expect(() => createIdentifier<"request">("")).toThrowError(
+  return it("rejects an empty identifier", () =>
+    expect(() => createIdentifier<"request">("")).toThrowError(
       new TypeError("Identifier must not be empty")
-    );
-  });
+    ));
 });
 
-describe("Result helpers", function () {
-  it("constructs and exhaustively matches a success", function () {
+describe("Result helpers", () => {
+  it("constructs and exhaustively matches a success", () => {
     let didCallFailure = false;
     const result = success({ count: 2 });
 
@@ -52,7 +50,7 @@ describe("Result helpers", function () {
     return expectTypeOf(output).toEqualTypeOf<string>();
   });
 
-  return it("constructs and exhaustively matches a failure", function () {
+  return it("constructs and exhaustively matches a failure", () => {
     let didCallSuccess = false;
     const reason = { code: "NOT_READY" as const };
     const result = failure(reason);
@@ -76,13 +74,13 @@ describe("Result helpers", function () {
   });
 });
 
-describe("normalizeUnknownError", function () {
+describe("normalizeUnknownError", () => {
   const normalizedError = {
     code: "UNEXPECTED_ERROR",
     message: "An unexpected error occurred.",
   };
 
-  it("normalizes Error instances without exposing internal details", function () {
+  it("normalizes Error instances without exposing internal details", () => {
     const secret = "sk-do-not-expose";
     const source = new Error(`Provider rejected ${secret}`, {
       cause: { token: secret },
@@ -95,7 +93,7 @@ describe("normalizeUnknownError", function () {
     return expect(JSON.stringify(normalized)).not.toContain(secret);
   });
 
-  return it("normalizes arbitrary unknown values to the same safe shape", function () {
+  return it("normalizes arbitrary unknown values to the same safe shape", () => {
     const secret = "session-do-not-expose";
     const unknownValues: readonly unknown[] = [
       `Session ${secret}`,
@@ -115,8 +113,8 @@ describe("normalizeUnknownError", function () {
   });
 });
 
-describe("@darkfactory/testkit fixtures", function () {
-  it("creates an isolated fixed clock that returns fresh dates", function () {
+describe("@darkfactory/testkit fixtures", () => {
+  it("creates an isolated fixed clock that returns fresh dates", () => {
     const source = new Date("2026-01-02T03:04:05.000Z");
     const clock = createFixedClock(source);
     source.setUTCFullYear(1999);
@@ -130,7 +128,7 @@ describe("@darkfactory/testkit fixtures", function () {
     return expect(first).not.toBe(second);
   });
 
-  it("rejects invalid and out-of-range fixed instants", function () {
+  it("rejects invalid and out-of-range fixed instants", () => {
     const expectedError = new TypeError("Fixed clock requires a valid instant");
 
     expect(() => createFixedClock(new Date(Number.NaN))).toThrowError(
@@ -139,7 +137,7 @@ describe("@darkfactory/testkit fixtures", function () {
     return expect(() => createFixedClock(9e15)).toThrowError(expectedError);
   });
 
-  return it("creates an isolated deterministic branded ID sequence", function () {
+  return it("creates an isolated deterministic branded ID sequence", () => {
     const first = createIdentifier<"fixture">("id_01");
     const second = createIdentifier<"fixture">("id_02");
     const nextId = createIdSequence(first, second);

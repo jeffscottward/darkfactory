@@ -13,10 +13,10 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  type CapabilityDependencies,
   parseCapabilityArguments,
   planCapabilityAddition,
   runCapabilityAddition,
-  type CapabilityDependencies,
 } from "./capability.ts";
 import { runCapabilityCli } from "./cli.ts";
 import {
@@ -24,7 +24,8 @@ import {
   nodeCapabilitySystemDependencies,
 } from "./system.ts";
 
-const MANIFEST = `project:\n  name: DarkFactory\n\ncapabilities:\n  docs:\n    provider: mintlify\n    enabled: false\n  uptime:\n    provider: uptime-kuma\n    enabled: false\n  storage:\n    provider: r2\n    enabled: false\n`;
+const MANIFEST =
+  "project:\n  name: DarkFactory\n\ncapabilities:\n  docs:\n    provider: mintlify\n    enabled: false\n  uptime:\n    provider: uptime-kuma\n    enabled: false\n  storage:\n    provider: r2\n    enabled: false\n";
 
 const dependencies = (
   overrides: Partial<CapabilityDependencies["files"]> = {}
@@ -324,7 +325,7 @@ describe("capability:add", () => {
         streams
       )
     ).resolves.toBe(0);
-    expect(stdout.join("")).toMatch(/Usage:|\"mode\": \"plan\"/);
+    expect(stdout.join("")).toMatch(/Usage:|"mode": "plan"/);
     return expect(stderr).toHaveLength(0);
   });
 

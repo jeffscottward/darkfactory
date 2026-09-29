@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -18,8 +18,8 @@ const resolveInlineWith = (conditions: readonly string[]) => {
   );
 };
 
-describe("inline jobs package boundary", function () {
-  it("orders Worker conditions before browser poison and Node fallbacks", async function () {
+describe("inline jobs package boundary", () => {
+  it("orders Worker conditions before browser poison and Node fallbacks", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     );

@@ -1,8 +1,8 @@
 import {
-  spawn,
   type ChildProcess,
   type ChildProcessByStdio,
   type SpawnOptions,
+  spawn,
 } from "node:child_process";
 import type { Readable } from "node:stream";
 
@@ -202,8 +202,8 @@ const validateTerminationRequest = (
 ): ValidatedTerminationRequest => {
   const pid = processState.pid;
   if (pid === undefined) throw new Error("Owned process has no PID");
-  const gracefulTimeoutMillis = options.gracefulTimeoutMillis ?? 5_000;
-  const forceTimeoutMillis = options.forceTimeoutMillis ?? 5_000;
+  const gracefulTimeoutMillis = options.gracefulTimeoutMillis ?? 5000;
+  const forceTimeoutMillis = options.forceTimeoutMillis ?? 5000;
   validateTimeoutBudget(gracefulTimeoutMillis, "Graceful");
   validateTimeoutBudget(forceTimeoutMillis, "Force");
   validateTimeoutBudget(gracefulTimeoutMillis + forceTimeoutMillis, "Combined");

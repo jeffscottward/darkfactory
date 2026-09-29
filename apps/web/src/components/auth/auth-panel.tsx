@@ -17,25 +17,25 @@ export const AuthPanel = ({
 }: AuthPanelProps) => (
   <section
     aria-labelledby="auth-title"
-    className="border-y border-border py-8 sm:py-10"
+    className="border-border border-y py-8 sm:py-10"
   >
     <header className="mb-8 grid gap-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+      <p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.16em]">
         {eyebrow}
       </p>
       <h1
-        className="font-heading text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl"
+        className="font-heading font-semibold text-3xl text-foreground leading-tight tracking-tight sm:text-4xl"
         id="auth-title"
       >
         {title}
       </h1>
-      <p className="max-w-prose text-base leading-7 text-muted-foreground">
+      <p className="max-w-prose text-base text-muted-foreground leading-7">
         {description}
       </p>
     </header>
     {children}
     {footer ? (
-      <footer className="mt-8 border-t border-border pt-6 text-sm leading-6 text-muted-foreground">
+      <footer className="mt-8 border-border border-t pt-6 text-muted-foreground text-sm leading-6">
         {footer}
       </footer>
     ) : null}

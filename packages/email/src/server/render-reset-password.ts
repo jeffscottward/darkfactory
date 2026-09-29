@@ -1,6 +1,5 @@
-import { renderTransactionalEmailHtml } from "./render-email-html.ts";
-
 import type { PasswordResetEmailInput } from "../index.ts";
+import { renderTransactionalEmailHtml } from "./render-email-html.ts";
 
 const DEFAULT_TRUSTED_APP_ORIGIN = "https://darkfactory.localhost";
 const RESET_PATH_PATTERN = /^\/api\/auth\/reset-password\/[A-Za-z0-9_-]+$/;

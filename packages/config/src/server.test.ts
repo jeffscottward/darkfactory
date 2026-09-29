@@ -27,8 +27,8 @@ const captureValidationError = (
   throw new Error("Expected environment validation to fail");
 };
 
-describe("parseServerEnv", function () {
-  it("reports every missing core database and authentication variable", function () {
+describe("parseServerEnv", () => {
+  it("reports every missing core database and authentication variable", () => {
     const error = captureValidationError({});
 
     expect(error.message).toContain("DATABASE_URL");
@@ -41,14 +41,14 @@ describe("parseServerEnv", function () {
     ]);
   });
 
-  it("reports a non-object environment at the stable root path", function () {
+  it("reports a non-object environment at the stable root path", () => {
     const error = captureValidationError(null as never);
 
     expect(error.issues).toHaveLength(1);
     return expect(error.issues[0]?.path).toBe("environment");
   });
 
-  it("rejects invalid core values without echoing their contents", function () {
+  it("rejects invalid core values without echoing their contents", () => {
     const invalidDatabaseUrl = "https://database.invalid/darkfactory";
     const shortAuthSecret = "s".repeat(8);
     const shortContactSecret = "c".repeat(8);
@@ -70,7 +70,7 @@ describe("parseServerEnv", function () {
     return expect(error.message).not.toContain(shortContactSecret);
   });
 
-  it("applies typed core and disabled-capability defaults", function () {
+  it("applies typed core and disabled-capability defaults", () => {
     const env = parseServerEnv(validCoreEnv());
 
     expect(env).toMatchObject({
@@ -99,7 +99,7 @@ describe("parseServerEnv", function () {
     return expect(typeof env.STORAGE_ENABLED).toBe("boolean");
   });
 
-  it("parses an optional bounded contact recipient and treats an empty value as disabled", function () {
+  it("parses an optional bounded contact recipient and treats an empty value as disabled", () => {
     expect(
       parseServerEnv({
         ...validCoreEnv(),
@@ -124,7 +124,7 @@ describe("parseServerEnv", function () {
       label: "an oversized contact recipient",
       value: `${"a".repeat(245)}@test.test`,
     },
-  ])("rejects $label without echoing its value", function ({ value }) {
+  ])("rejects $label without echoing its value", ({ value }) => {
     const error = captureValidationError({
       ...validCoreEnv(),
       CONTACT_EMAIL_TO: value,
@@ -138,7 +138,7 @@ describe("parseServerEnv", function () {
     return expect(error.message).not.toContain(value);
   });
 
-  it("accepts a mailbox or display mailbox sender and rejects header injection", function () {
+  it("accepts a mailbox or display mailbox sender and rejects header injection", () => {
     expect(
       parseServerEnv({
         ...validCoreEnv(),
@@ -171,7 +171,7 @@ describe("parseServerEnv", function () {
     ["an empty display name", "<support@example.test>"],
     ["an oversized display name", `${"x".repeat(101)} <support@example.test>`],
     ["an invalid display mailbox", "DarkFactory Support <invalid>"],
-  ])("rejects $0 without reflecting it", function (_label, value) {
+  ])("rejects $0 without reflecting it", (_label, value) => {
     const error = captureValidationError({
       ...validCoreEnv(),
       EMAIL_FROM: value,
@@ -187,7 +187,7 @@ describe("parseServerEnv", function () {
   it.each([
     ["a malformed URL", "not a URL"],
     ["a PostgreSQL URL without a host", "postgresql:///darkfactory"],
-  ])("rejects DATABASE_URL with $0", function (_label, value) {
+  ])("rejects DATABASE_URL with $0", (_label, value) => {
     const error = captureValidationError({
       ...validCoreEnv(),
       DATABASE_URL: value,
@@ -203,7 +203,7 @@ describe("parseServerEnv", function () {
   it.each([
     "APP_URL",
     "BETTER_AUTH_URL",
-  ] as const)("redacts a malformed credential-bearing %s", function (name) {
+  ] as const)("redacts a malformed credential-bearing %s", (name) => {
     const malformedUrl = "https://private-user:private-password@[invalid";
     const error = captureValidationError({
       ...validCoreEnv(),
@@ -224,7 +224,7 @@ describe("parseServerEnv", function () {
       "private-password"
     );
   });
-  it("normalizes explicit false booleans and rejects unsupported spellings", function () {
+  it("normalizes explicit false booleans and rejects unsupported spellings", () => {
     const env = parseServerEnv({
       ...validCoreEnv(),
       OTEL_ENABLED: " FALSE ",
@@ -246,8 +246,8 @@ describe("parseServerEnv", function () {
     });
   });
 
-  it("requires HTTPS before applying clean-origin validation", function () {
-    return expect(
+  it("requires HTTPS before applying clean-origin validation", () =>
+    expect(
       captureValidationError({
         ...validCoreEnv(),
         APP_URL: "http://app.domain.test",
@@ -256,9 +256,8 @@ describe("parseServerEnv", function () {
     ).toContainEqual({
       path: "APP_URL",
       message: "APP_URL must use HTTPS",
-    });
-  });
-  it("keeps provider capabilities disabled when required variables are absent", function () {
+    }));
+  it("keeps provider capabilities disabled when required variables are absent", () => {
     const env = parseServerEnv({
       ...validCoreEnv(),
       GROQ_API_KEY: "g".repeat(32),
@@ -278,7 +277,7 @@ describe("parseServerEnv", function () {
     return expect(env.RESEND_API_KEY).toBeUndefined();
   });
 
-  it("parses disabled production email without a Resend key and reports delivery unavailable", function () {
+  it("parses disabled production email without a Resend key and reports delivery unavailable", () => {
     const env = parseServerEnv({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -309,7 +308,7 @@ describe("parseServerEnv", function () {
         EMAIL_TRANSPORT: "disabled",
       },
     },
-  ])("rejects $label", function ({ overrides }) {
+  ])("rejects $label", ({ overrides }) => {
     const error = captureValidationError({
       ...validCoreEnv(),
       ...overrides,
@@ -321,7 +320,7 @@ describe("parseServerEnv", function () {
     });
   });
 
-  it("enables provider capabilities only after complete configuration", function () {
+  it("enables provider capabilities only after complete configuration", () => {
     const env = parseServerEnv({
       ...validCoreEnv(),
       GROQ_API_KEY: "g".repeat(32),
@@ -343,7 +342,7 @@ describe("parseServerEnv", function () {
     });
   });
 
-  it("evaluates short-circuit capability operands without enabling partial providers", function () {
+  it("evaluates short-circuit capability operands without enabling partial providers", () => {
     const env = parseServerEnv(validCoreEnv());
     expect(getProviderCapabilities(env)).toEqual({
       ai: false,
@@ -378,7 +377,7 @@ describe("parseServerEnv", function () {
     });
   });
 
-  it("rejects explicitly enabled provider capabilities with incomplete environment", function () {
+  it("rejects explicitly enabled provider capabilities with incomplete environment", () => {
     const error = captureValidationError({
       ...validCoreEnv(),
       STORAGE_ENABLED: "true",
@@ -461,7 +460,7 @@ describe("parseServerEnv", function () {
       message:
         "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
     },
-  ])("rejects $label", function ({ overrides, path, message }) {
+  ])("rejects $label", ({ overrides, path, message }) => {
     const error = captureValidationError({
       ...validCoreEnv(),
       ...overrides,
@@ -481,7 +480,7 @@ describe("parseServerEnv", function () {
     "https://localhost.",
     "https://app.darkfactory.localhost.",
     "https://[::ffff:127.0.0.1]",
-  ])("rejects the local production origin %s", function (applicationUrl) {
+  ])("rejects the local production origin %s", (applicationUrl) => {
     const error = captureValidationError({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -504,7 +503,7 @@ describe("parseServerEnv", function () {
     "postgresql://database.example/darkfactory?sslmode=no-verify",
     "postgresql://database.example/darkfactory?sslmode=verify-ca",
     "postgresql://database.example/darkfactory?sslmode=verify-full&sslmode=disable",
-  ])("rejects production DATABASE_URL without verified TLS: %s", function (databaseUrl) {
+  ])("rejects production DATABASE_URL without verified TLS: %s", (databaseUrl) => {
     const applicationUrl = "https://app.darkfactory.example";
     const error = captureValidationError({
       ...validCoreEnv(),
@@ -522,7 +521,7 @@ describe("parseServerEnv", function () {
     });
   });
 
-  it("requires the PlanetScale provider-managed PgBouncer endpoint in production", function () {
+  it("requires the PlanetScale provider-managed PgBouncer endpoint in production", () => {
     const applicationUrl = "https://app.darkfactory.example";
     const directDatabaseUrl =
       "postgresql://private-user:private-password@database.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full";
@@ -544,7 +543,7 @@ describe("parseServerEnv", function () {
     return expect(error.message).not.toContain("private-password");
   });
 
-  it("does not convert unexpected database endpoint validator failures", function () {
+  it("does not convert unexpected database endpoint validator failures", () => {
     const applicationUrl = "https://app.darkfactory.example";
     const unexpected = new Error("unexpected endpoint validator failure");
     const validate = vi
@@ -568,7 +567,7 @@ describe("parseServerEnv", function () {
     }
   });
 
-  it("redacts a malformed credential-bearing production database URL", function () {
+  it("redacts a malformed credential-bearing production database URL", () => {
     const malformedDatabaseUrl =
       "postgresql://private-user:private-password@[invalid";
     const applicationUrl = "https://app.darkfactory.example";
@@ -592,7 +591,7 @@ describe("parseServerEnv", function () {
     );
   });
 
-  return it("accepts complete configurations for every conditional capability", function () {
+  return it("accepts complete configurations for every conditional capability", () => {
     const applicationUrl = "https://app.darkfactory.example";
     const env = parseServerEnv({
       ...validCoreEnv(),
@@ -622,8 +621,8 @@ describe("parseServerEnv", function () {
   });
 });
 
-describe("toClientEnv", function () {
-  return it("returns an explicit public allowlist and redacts every server secret", function () {
+describe("toClientEnv", () =>
+  it("returns an explicit public allowlist and redacts every server secret", () => {
     const databaseUrl = "postgresql://localhost/darkfactory_test";
     const authSecret = "a".repeat(32);
     const providerSecret = "g".repeat(32);
@@ -652,5 +651,4 @@ describe("toClientEnv", function () {
     expect(clientEnv).not.toHaveProperty("BETTER_AUTH_SECRET");
     expect(clientEnv).not.toHaveProperty("GROQ_API_KEY");
     return expect(clientEnv).not.toHaveProperty("R2_SECRET_ACCESS_KEY");
-  });
-});
+  }));

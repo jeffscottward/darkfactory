@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(function () {
+const mocks = vi.hoisted(() => {
   let submitCount = 0;
   let edgeMode: "allow" | "deny" | "fail" = "allow";
   const edgeConsume = vi.fn(async () => {
@@ -28,116 +28,96 @@ const mocks = vi.hoisted(function () {
   };
 });
 
-vi.mock("cloudflare:workers", function () {
-  return { waitUntil: mocks.waitUntil };
-});
-vi.mock("@darkfactory/analytics/server/posthog", function () {
-  return {
-    createPostHogAnalyticsPort: () => ({ capture: vi.fn() }),
-  };
-});
-vi.mock("@darkfactory/auth/server", function () {
-  return {
-    createAuth: () => ({ auth: true }),
-    requireSession: vi.fn(),
-    requireRole: vi.fn(),
-  };
-});
-vi.mock("@darkfactory/config/database", function () {
-  return {
-    composeDatabaseProfile: () => ({
-      connection: { connectionString: "postgres://configured.invalid/db" },
-    }),
-  };
-});
-vi.mock("@darkfactory/config/server", function () {
-  return {
-    parseServerEnv: () => ({
-      APP_ENV: "test",
-      APP_URL: "https://darkfactory.localhost",
-      EMAIL_TRANSPORT: "preview",
-      EMAIL_FROM: "DarkFactory <noreply@domain.test>",
-      RESEND_API_KEY: undefined,
-      CONTACT_EMAIL_TO: "support@domain.test",
-      BETTER_AUTH_SECRET: "configured-secret".repeat(2),
-      CONTACT_THROTTLE_SECRET: "contact-throttle-secret".repeat(2),
-      BETTER_AUTH_URL: "https://darkfactory.localhost",
-      OTEL_ENABLED: false,
-      OTEL_SERVICE_NAME: "darkfactory-web",
-      OTEL_EXPORTER_OTLP_ENDPOINT: undefined,
-      POSTHOG_KEY: undefined,
-      POSTHOG_HOST: undefined,
-    }),
-    getProviderCapabilities: () => ({
-      ai: false,
-      emailDelivery: false,
-      analytics: false,
-      telemetryExport: false,
-      storage: false,
-      errorTracking: false,
-    }),
-  };
-});
-vi.mock("@darkfactory/db/server", function () {
-  return {
-    REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
-    RequestDatabaseCapacityError: class RequestDatabaseCapacityError extends Error {},
-    createRequestDatabase: vi.fn(async () => ({
-      db: { request: true },
-      close: mocks.close,
+vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }));
+vi.mock("@darkfactory/analytics/server/posthog", () => ({
+  createPostHogAnalyticsPort: () => ({ capture: vi.fn() }),
+}));
+vi.mock("@darkfactory/auth/server", () => ({
+  createAuth: () => ({ auth: true }),
+  requireSession: vi.fn(),
+  requireRole: vi.fn(),
+}));
+vi.mock("@darkfactory/config/database", () => ({
+  composeDatabaseProfile: () => ({
+    connection: { connectionString: "postgres://configured.invalid/db" },
+  }),
+}));
+vi.mock("@darkfactory/config/server", () => ({
+  parseServerEnv: () => ({
+    APP_ENV: "test",
+    APP_URL: "https://darkfactory.localhost",
+    EMAIL_TRANSPORT: "preview",
+    EMAIL_FROM: "DarkFactory <noreply@domain.test>",
+    RESEND_API_KEY: undefined,
+    CONTACT_EMAIL_TO: "support@domain.test",
+    BETTER_AUTH_SECRET: "configured-secret".repeat(2),
+    CONTACT_THROTTLE_SECRET: "contact-throttle-secret".repeat(2),
+    BETTER_AUTH_URL: "https://darkfactory.localhost",
+    OTEL_ENABLED: false,
+    OTEL_SERVICE_NAME: "darkfactory-web",
+    OTEL_EXPORTER_OTLP_ENDPOINT: undefined,
+    POSTHOG_KEY: undefined,
+    POSTHOG_HOST: undefined,
+  }),
+  getProviderCapabilities: () => ({
+    ai: false,
+    emailDelivery: false,
+    analytics: false,
+    telemetryExport: false,
+    storage: false,
+    errorTracking: false,
+  }),
+}));
+vi.mock("@darkfactory/db/server", () => ({
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
+  RequestDatabaseCapacityError: class RequestDatabaseCapacityError extends Error {},
+  createRequestDatabase: vi.fn(async () => ({
+    db: { request: true },
+    close: mocks.close,
+  })),
+  createRepositories: () => ({}),
+  createContactThrottleRepository: (
+    _database: unknown,
+    options?: { maxRequests?: number }
+  ) => ({
+    consume:
+      options?.maxRequests === 30 ? mocks.edgeConsume : mocks.submitConsume,
+  }),
+}));
+vi.mock("@darkfactory/email/server", () => ({
+  selectEmailPort: () => ({}),
+  selectContactEmailPort: () => ({
+    sendContact: vi.fn(async () => ({
+      status: "sent",
+      provider: "resend",
+      messageId: "contact-message",
     })),
-    createRepositories: () => ({}),
-    createContactThrottleRepository: (
-      _database: unknown,
-      options?: { maxRequests?: number }
-    ) => ({
-      consume:
-        options?.maxRequests === 30 ? mocks.edgeConsume : mocks.submitConsume,
-    }),
-  };
-});
-vi.mock("@darkfactory/email/server", function () {
-  return {
-    selectEmailPort: () => ({}),
-    selectContactEmailPort: () => ({
-      sendContact: vi.fn(async () => ({
-        status: "sent",
-        provider: "resend",
-        messageId: "contact-message",
-      })),
-    }),
-  };
-});
-vi.mock("@darkfactory/observability/server/evlog", function () {
-  return {
-    initializeEvlog: () => ({ runtime: "evlog" }),
-    createEvlogSink: () => ({ emit: vi.fn() }),
-  };
-});
-vi.mock("@darkfactory/observability/server/fanout", function () {
-  return {
-    createSemanticEventFanout: () => ({
-      emit: vi.fn(async () => ({
-        structuredEvent: "emitted",
-        span: "skipped",
-        analytics: "skipped",
-      })),
-    }),
-  };
-});
-vi.mock("@darkfactory/observability/server/otel", function () {
-  return {
-    initializeTelemetry: () => ({
-      state: { status: "in-memory" },
-      withSpan: async (
-        _input: unknown,
-        run: (span: undefined) => Promise<Response>
-      ) => run(undefined),
-      forceFlush: vi.fn(async () => undefined),
-      dispose: vi.fn(async () => undefined),
-    }),
-  };
-});
+  }),
+}));
+vi.mock("@darkfactory/observability/server/evlog", () => ({
+  initializeEvlog: () => ({ runtime: "evlog" }),
+  createEvlogSink: () => ({ emit: vi.fn() }),
+}));
+vi.mock("@darkfactory/observability/server/fanout", () => ({
+  createSemanticEventFanout: () => ({
+    emit: vi.fn(async () => ({
+      structuredEvent: "emitted",
+      span: "skipped",
+      analytics: "skipped",
+    })),
+  }),
+}));
+vi.mock("@darkfactory/observability/server/otel", () => ({
+  initializeTelemetry: () => ({
+    state: { status: "in-memory" },
+    withSpan: async (
+      _input: unknown,
+      run: (span: undefined) => Promise<Response>
+    ) => run(undefined),
+    forceFlush: vi.fn(async () => undefined),
+    dispose: vi.fn(async () => undefined),
+  }),
+}));
 
 import { createApiClient } from "@darkfactory/api";
 import { POST } from "./route.ts";
@@ -172,8 +152,8 @@ const expectCode = async (
   }
 };
 
-describe("DF-076 full exported contact route", function () {
-  beforeEach(function () {
+describe("DF-076 full exported contact route", () => {
+  beforeEach(() => {
     mocks.resetCounts();
     mocks.setEdgeMode("allow");
     mocks.edgeConsume.mockClear();
@@ -181,7 +161,7 @@ describe("DF-076 full exported contact route", function () {
     return mocks.close.mockClear();
   });
 
-  it("lets the normal sixth valid request reach the typed submit throttle", async function () {
+  it("lets the normal sixth valid request reach the typed submit throttle", async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await expect(client.contact.submit(input)).resolves.toEqual({
         status: "sent",
@@ -192,7 +172,7 @@ describe("DF-076 full exported contact route", function () {
     return expect(mocks.submitConsume).toHaveBeenCalledTimes(6);
   });
 
-  return it("decodes pre-parse payload, edge limit, and storage failures as typed errors", async function () {
+  return it("decodes pre-parse payload, edge limit, and storage failures as typed errors", async () => {
     await expectCode(
       client.contact.submit({ ...input, message: "x".repeat(70_000) }),
       "PAYLOAD_TOO_LARGE",

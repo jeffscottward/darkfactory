@@ -1,9 +1,8 @@
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
-
+import { type GuardHooks, guardedWrite } from "../docs/filesystem-guard.ts";
 import type { CapabilityFileSystem } from "./capability.ts";
-import { guardedWrite, type GuardHooks } from "../docs/filesystem-guard.ts";
 
 const MAX_MANIFEST_BYTES = 262_144;
 

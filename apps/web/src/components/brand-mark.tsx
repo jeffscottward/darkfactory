@@ -1,5 +1,5 @@
-import type { ComponentPropsWithRef } from "react";
 import { cn } from "@darkfactory/ui";
+import type { ComponentPropsWithRef } from "react";
 
 export const BrandMark = ({
   className,
@@ -23,7 +23,7 @@ export const BrandMark = ({
 export const BrandLink = ({ className }: { readonly className?: string }) => (
   <a
     className={cn(
-      "inline-flex min-h-11 items-center gap-3 rounded-md font-heading text-base font-semibold tracking-tight text-foreground transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      "inline-flex min-h-11 items-center gap-3 rounded-md font-heading font-semibold text-base text-foreground tracking-tight transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       className
     )}
     href="/"

@@ -1,13 +1,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import type { CapabilityManifest } from "./capabilities.ts";
-import { parseServerEnv } from "./server.ts";
 import { loadCapabilityManifest } from "./server/capabilities-loader.ts";
 import {
+  evaluateCapabilityReadiness,
   V01_CAPABILITY_BINDINGS,
   V01_INSTALLED_CAPABILITIES,
-  evaluateCapabilityReadiness,
 } from "./server/capability-readiness.ts";
+import { parseServerEnv } from "./server.ts";
 
 const readManifest = async (): Promise<CapabilityManifest> => {
   return loadCapabilityManifest(
@@ -143,7 +143,7 @@ describe("capability readiness", () => {
     ).toBe(true);
     expect(
       Object.values(readiness).every(
-        ({ enabled, available }) => !enabled && !available
+        ({ enabled, available }) => !(enabled || available)
       )
     ).toBe(true);
     expect(readiness.jobs.provider).toBe("celery");

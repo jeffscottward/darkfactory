@@ -1,10 +1,10 @@
 import {
-  OPERATOR_DEVELOPMENT_PROFILE,
-  WEB_DEVELOPMENT_PROFILE,
-  runDevelopmentAction,
   type DevelopmentAction,
   type LifecycleFileSystem,
+  OPERATOR_DEVELOPMENT_PROFILE,
   type ProcessAdapter,
+  runDevelopmentAction,
+  WEB_DEVELOPMENT_PROFILE,
 } from "./lifecycle.ts";
 
 const ACTIONS = new Set<DevelopmentAction>([

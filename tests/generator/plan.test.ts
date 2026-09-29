@@ -21,9 +21,9 @@ const fixture = async () => {
   return created;
 };
 
-afterEach(async function () {
-  return await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
-});
+afterEach(
+  async () => await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
+);
 
 const descriptor = (name = "order-item", migration = "0000_order_items") => {
   const names = validateFeatureName(name);
@@ -78,8 +78,8 @@ const writeJson = async (path: string, value: unknown): Promise<void> => {
 
 type Mutation = (value: any) => void;
 
-describe("generate-feature plan validators", function () {
-  it("hashes UTF-8 content deterministically", function () {
+describe("generate-feature plan validators", () => {
+  it("hashes UTF-8 content deterministically", () => {
     const value = "deterministic π content";
     expect(sha256(value)).toBe(
       createHash("sha256").update(value, "utf8").digest("hex")
@@ -87,7 +87,7 @@ describe("generate-feature plan validators", function () {
     return expect(sha256(value)).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("orders strings by locale-independent UTF-16 code units", function () {
+  it("orders strings by locale-independent UTF-16 code units", () => {
     expect(
       generationPlanValidatorsForTest.compareCodeUnits("alpha", "beta")
     ).toBe(-1);
@@ -99,13 +99,13 @@ describe("generate-feature plan validators", function () {
     ).toBe(0);
   });
 
-  it("accepts the exact registry schema including a canonical ordered descriptor", function () {
+  it("accepts the exact registry schema including a canonical ordered descriptor", () => {
     const value = registry([descriptor()]);
     expect(parseRegistryValue(value)).toEqual(value);
     return expect(Object.isFrozen(generationPlanValidatorsForTest)).toBe(true);
   });
 
-  it("rejects malformed registry roots and exact-key violations", function () {
+  it("rejects malformed registry roots and exact-key violations", () => {
     const results = [];
     for (const [label, content] of [
       ["malformed JSON", "{"],
@@ -124,7 +124,7 @@ describe("generate-feature plan validators", function () {
     return results;
   });
 
-  it("rejects every malformed built-in registry field", function () {
+  it("rejects every malformed built-in registry field", () => {
     const cases: Array<readonly [string, Mutation]> = [
       [
         "version",
@@ -201,7 +201,7 @@ describe("generate-feature plan validators", function () {
     return results1;
   });
 
-  it("rejects every malformed generated feature descriptor field", function () {
+  it("rejects every malformed generated feature descriptor field", () => {
     const cases: Array<readonly [string, Mutation]> = [
       [
         "missing descriptor",
@@ -342,7 +342,7 @@ describe("generate-feature plan validators", function () {
     return results2;
   });
 
-  it("accepts the exact migration journal schema and increasing unique entries", function () {
+  it("accepts the exact migration journal schema and increasing unique entries", () => {
     const value = journal([
       journalEntry(0, 10, "0000_invoice_items"),
       journalEntry(1, 11, "0001_order_items"),
@@ -350,7 +350,7 @@ describe("generate-feature plan validators", function () {
     return expect(parseJournalValue(value)).toEqual(value);
   });
 
-  it("rejects malformed journal roots and exact-key violations", function () {
+  it("rejects malformed journal roots and exact-key violations", () => {
     for (const [label, content] of [
       ["malformed JSON", "{"],
       ["null", "null"],
@@ -397,7 +397,7 @@ describe("generate-feature plan validators", function () {
     return results3;
   });
 
-  return it("rejects every malformed migration journal entry field", function () {
+  return it("rejects every malformed migration journal entry field", () => {
     const cases: Array<readonly [string, Mutation]> = [
       [
         "missing entry",
@@ -487,8 +487,8 @@ describe("generate-feature plan validators", function () {
   });
 });
 
-describe("createGenerationPlan", function () {
-  it("issues a deeply immutable capability and rejects every structural clone", async function () {
+describe("createGenerationPlan", () => {
+  it("issues a deeply immutable capability and rejects every structural clone", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -516,7 +516,7 @@ describe("createGenerationPlan", function () {
     return results5;
   });
 
-  it("rejects inconsistent caller-supplied name forms before filesystem access", async function () {
+  it("rejects inconsistent caller-supplied name forms before filesystem access", async () => {
     const names = {
       ...validateFeatureName("order-item"),
       pluralKebab: "wrong-items",
@@ -528,7 +528,7 @@ describe("createGenerationPlan", function () {
     });
   });
 
-  it("wraps unavailable required registries without leaking filesystem details", async function () {
+  it("wraps unavailable required registries without leaking filesystem details", async () => {
     const { root } = await fixture();
     await rm(join(root, "packages/api/src/generated/public-registry.ts"));
 
@@ -540,7 +540,7 @@ describe("createGenerationPlan", function () {
     });
   });
 
-  it("rejects a required registry that is not a regular file", async function () {
+  it("rejects a required registry that is not a regular file", async () => {
     const { root } = await fixture();
     const registryPath = join(
       root,
@@ -556,7 +556,7 @@ describe("createGenerationPlan", function () {
     });
   });
 
-  it("rejects an already registered feature even without an owned-directory collision", async function () {
+  it("rejects an already registered feature even without an owned-directory collision", async () => {
     const { root } = await fixture();
     await writeJson(
       join(root, ".darkfactory/features.json"),
@@ -574,7 +574,7 @@ describe("createGenerationPlan", function () {
     });
   });
 
-  it("rejects a registry whose descriptor has no matching journal tag", async function () {
+  it("rejects a registry whose descriptor has no matching journal tag", async () => {
     const { root } = await fixture();
     await writeJson(
       join(root, ".darkfactory/features.json"),
@@ -588,7 +588,7 @@ describe("createGenerationPlan", function () {
     });
   });
 
-  it("rejects a colliding generated leaf outside the feature-owned directories", async function () {
+  it("rejects a colliding generated leaf outside the feature-owned directories", async () => {
     const { root } = await fixture();
     const documentationPath = join(root, "docs/features/order-item.md");
     await mkdir(join(root, "docs/features"), { recursive: true });
@@ -601,7 +601,7 @@ describe("createGenerationPlan", function () {
     });
   });
 
-  return it("sorts an appended descriptor and advances a non-empty migration journal", async function () {
+  return it("sorts an appended descriptor and advances a non-empty migration journal", async () => {
     const { root } = await fixture();
     await writeJson(
       join(root, ".darkfactory/features.json"),
@@ -628,7 +628,7 @@ describe("createGenerationPlan", function () {
         generationPlanValidatorsForTest.compareCodeUnits
       )
     );
-    if (!descriptorFile || !journalFile) {
+    if (!(descriptorFile && journalFile)) {
       throw new Error("Expected generated registry replacements");
     }
     expect(descriptorFile.content.indexOf('"invoice-item"')).toBeLessThan(

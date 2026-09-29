@@ -461,10 +461,10 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
       password: "test-password",
       ssl: false,
       application_name: "darkfactory-testkit",
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 5000,
       query_timeout: 15_000,
       statement_timeout: 15_000,
-      lock_timeout: 5_000,
+      lock_timeout: 5000,
     });
     const creationStatements = (
       postgresDriver.clients[0]?.query.mock.calls ?? []
@@ -521,8 +521,8 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
     expect(postgresDriver.clients[1]?.end).toHaveBeenCalledOnce();
     expect(postgresDriver.clients[4]?.options).toEqual({
       ...(postgresDriver.clients[0]?.options as Record<string, unknown>),
-      query_timeout: 5_000,
-      statement_timeout: 5_000,
+      query_timeout: 5000,
+      statement_timeout: 5000,
     });
     const cleanupQueries = postgresDriver.clients[4]?.query.mock.calls ?? [];
     expect(cleanupQueries).toEqual([
@@ -1571,7 +1571,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
         () => undefined,
         (error: unknown) => error
       );
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       await expect(cleanupOutcome).resolves.toMatchObject({
         message: "Postgres test database cleanup failed",
         errors: [
@@ -1763,7 +1763,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
     const now = vi
       .spyOn(performance, "now")
       .mockReturnValueOnce(0)
-      .mockReturnValue(5_001);
+      .mockReturnValue(5001);
 
     await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
       message: "Postgres test database cleanup failed",
@@ -1802,7 +1802,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
           cleanupClient.end.mockImplementationOnce(
             () => new Promise<void>(() => undefined)
           );
-          nowMillis = 5_001;
+          nowMillis = 5001;
         }
         return postgresDriver.defaultResult(statement, values);
       },
@@ -1853,7 +1853,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
           }
           cleanupClient.end.mockImplementationOnce(async () => {
             await Promise.resolve();
-            nowMillis = 5_001;
+            nowMillis = 5001;
           });
         }
         return postgresDriver.defaultResult(statement, values);
@@ -1890,7 +1890,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
       .spyOn(performance, "now")
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0)
-      .mockReturnValue(5_001);
+      .mockReturnValue(5001);
 
     await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
       message: "Postgres test database cleanup failed",
@@ -2222,7 +2222,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
         () => undefined,
         (error: unknown) => error
       );
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       await expect(cleanupResult).resolves.toMatchObject({
         message: "Postgres test database cleanup failed",
         errors: [
@@ -2450,7 +2450,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
           return error;
         }
       );
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       expect(cleanupSettled).toBe(true);
       await expect(cleanupResult).resolves.toMatchObject({
         message: "Postgres test database cleanup failed",

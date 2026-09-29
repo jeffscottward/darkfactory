@@ -8,21 +8,21 @@ import {
 } from "../schema/index.ts";
 import type { Database } from "../server/client.ts";
 import {
+  convergeDevelopmentContent,
   DEVELOPMENT_ADDRESSES,
   DEVELOPMENT_FEATURE_ITEMS,
-  convergeDevelopmentContent,
 } from "./content.ts";
 
 const FIXED_ROW_TIME = new Date("2026-01-02T03:04:05.000Z");
 const FIXED_GENERATED_ID = "90000000-0000-4000-8000-000000000001";
 
-beforeEach(function () {
+beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(FIXED_ROW_TIME);
   return vi.spyOn(crypto, "randomUUID").mockReturnValue(FIXED_GENERATED_ID);
 });
 
-afterEach(function () {
+afterEach(() => {
   vi.useRealTimers();
   return vi.restoreAllMocks();
 });
@@ -68,7 +68,7 @@ const createContentSeedDatabase = (configured: QueryOutcomes) => {
   };
 
   const builderFor = (operation: QueryOperation): QueryBuilder => {
-    let builder = {} as QueryBuilder;
+    const builder = {} as QueryBuilder;
     builder.from = vi.fn((table: unknown) => {
       operation.table = tableName(table);
       return builder;
@@ -185,8 +185,8 @@ const missingContentOutcomes = (): QueryOutcomes => {
   return { select, insert, update };
 };
 
-describe("development content seeds", function () {
-  it("publishes aligned frozen addresses and feature items for every persona", function () {
+describe("development content seeds", () => {
+  it("publishes aligned frozen addresses and feature items for every persona", () => {
     expect(Object.isFrozen(DEVELOPMENT_ADDRESSES)).toBe(true);
     expect(Object.isFrozen(DEVELOPMENT_FEATURE_ITEMS)).toBe(true);
     expect(DEVELOPMENT_ADDRESSES.every(Object.isFrozen)).toBe(true);
@@ -215,7 +215,7 @@ describe("development content seeds", function () {
     ).toEqual(["active", "draft", "archived"]);
   });
 
-  it("creates all missing content and authors feature mutation records", async function () {
+  it("creates all missing content and authors feature mutation records", async () => {
     const double = createContentSeedDatabase(missingContentOutcomes());
 
     await convergeDevelopmentContent(double.database);
@@ -282,7 +282,7 @@ describe("development content seeds", function () {
     return expect(double.transaction).toHaveBeenCalledTimes(6);
   });
 
-  it("performs no mutations when all authored content already matches", async function () {
+  it("performs no mutations when all authored content already matches", async () => {
     const double = createContentSeedDatabase({
       select: matchingSelectOutcomes(),
     });
@@ -310,7 +310,7 @@ describe("development content seeds", function () {
     ["postalCode", "99999"],
     ["country", "us"],
     ["isPrimary", false],
-  ] as const)("repairs an address whose %s drifted", async function (field, replacement) {
+  ] as const)("repairs an address whose %s drifted", async (field, replacement) => {
     const drifted = { ...addressRow(0), [field]: replacement };
     const promotesPrimary = field === "isPrimary";
     const repositorySelects: QueryRows[] = [[drifted]];
@@ -382,7 +382,7 @@ describe("development content seeds", function () {
     ["description", "Changed description"],
     ["status", "draft"],
     ["metadata", { source: "changed" }],
-  ] as const)("repairs a feature item whose %s drifted", async function (field, replacement) {
+  ] as const)("repairs a feature item whose %s drifted", async (field, replacement) => {
     const drifted = { ...featureRow(0), [field]: replacement };
     const double = createContentSeedDatabase({
       select: [
@@ -424,7 +424,7 @@ describe("development content seeds", function () {
     });
   });
 
-  it("applies omitted address and feature defaults through an explicit content seam", async function () {
+  it("applies omitted address and feature defaults through an explicit content seam", async () => {
     const expectedAddress = {
       id: "20000000-0000-4000-8000-000000000099",
       userId: "00000000-0000-4000-8000-000000000099",
@@ -503,7 +503,7 @@ describe("development content seeds", function () {
     return expect(double.transaction).toHaveBeenCalledTimes(2);
   });
 
-  return it("stops convergence and preserves provider lookup failures", async function () {
+  return it("stops convergence and preserves provider lookup failures", async () => {
     const providerError = new Error("seed provider unavailable");
     const limit = vi.fn(async () => {
       throw providerError;

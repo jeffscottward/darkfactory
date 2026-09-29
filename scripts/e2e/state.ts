@@ -73,7 +73,7 @@ export type E2ERunnerState =
   | Readonly<{ version: 1; phase: "result"; report: JourneySuiteReport }>;
 
 const safeIdentity = (spec: string, runId: string): void => {
-  if (!SPEC_PATH.test(spec) || !RUN_ID.test(runId)) {
+  if (!(SPEC_PATH.test(spec) && RUN_ID.test(runId))) {
     throw new Error("E2E runner state identity is invalid");
   }
 };
@@ -191,13 +191,15 @@ const sanitizedDiagnostics = (
 const sanitizedResult = (result: JourneyResult): JourneyResult => {
   safeIdentity(result.spec, result.runId);
   if (
-    !Number.isSafeInteger(result.playwrightExitCode) ||
-    !STAGES.has(result.stage) ||
-    !PROCESS_STATES.has(result.processState) ||
-    !LIFECYCLE_STATUSES.has(result.lifecycleStatus) ||
-    !LIFECYCLE_STAGES.has(result.lifecycleStage) ||
-    !LIFECYCLE_OBSERVATIONS.has(result.lifecycleObservation) ||
-    !LIFECYCLE_OBSERVATION_REASONS.has(result.lifecycleObservationReason) ||
+    !(
+      Number.isSafeInteger(result.playwrightExitCode) &&
+      STAGES.has(result.stage) &&
+      PROCESS_STATES.has(result.processState) &&
+      LIFECYCLE_STATUSES.has(result.lifecycleStatus) &&
+      LIFECYCLE_STAGES.has(result.lifecycleStage) &&
+      LIFECYCLE_OBSERVATIONS.has(result.lifecycleObservation) &&
+      LIFECYCLE_OBSERVATION_REASONS.has(result.lifecycleObservationReason)
+    ) ||
     typeof result.processTreeTerminated !== "boolean" ||
     typeof result.scan.ok !== "boolean" ||
     typeof result.scan.purged !== "boolean" ||

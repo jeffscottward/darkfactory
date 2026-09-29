@@ -1,7 +1,8 @@
-import { lstat, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, readdir, readFile, rm, writeFile } from "node:fs/promises";
 
 import type { Page, TestInfo } from "@playwright/test";
 import { afterEach, describe, expect, it } from "vitest";
+
 type ScannerFixtureEntry = Readonly<{
   path: string;
   content: string;

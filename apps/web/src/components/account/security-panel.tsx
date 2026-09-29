@@ -1,21 +1,21 @@
 "use client";
 
-import { useForm } from "@tanstack/react-form";
 import {
   Button,
+  buttonVariants,
   EmptyState,
   Input,
   Label,
   Skeleton,
   StatusBadge,
-  buttonVariants,
 } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
 import { KeyRound, MonitorSmartphone, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
-  AccountFeedbackMessage,
   type AccountFeedback,
+  AccountFeedbackMessage,
 } from "./account-feedback.tsx";
 import type {
   ChangePasswordInput,
@@ -128,7 +128,7 @@ export const SecurityPanel = ({
     <div className="space-y-5">
       <AccountFeedbackMessage feedback={feedback} />
       <div
-        className="divide-y divide-border border-y border-border"
+        className="divide-y divide-border border-border border-y"
         role="list"
       >
         {state.sessions.map((session) => (
@@ -139,17 +139,17 @@ export const SecurityPanel = ({
           >
             <div className="min-w-0 space-y-1">
               <div className="flex min-w-0 flex-wrap items-center gap-3">
-                <h3 className="min-w-0 break-words font-heading text-base font-semibold text-foreground">
+                <h3 className="min-w-0 break-words font-heading font-semibold text-base text-foreground">
                   {session.userAgent ?? "Unidentified browser"}
                 </h3>
                 {session.isCurrent ? (
                   <StatusBadge status="success">Current session</StatusBadge>
                 ) : null}
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 Last active {formatDate(session.updatedAt)}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Expires {formatDate(session.expiresAt)}
               </p>
             </div>
@@ -160,7 +160,7 @@ export const SecurityPanel = ({
         <div
           aria-busy={isRevoking}
           aria-label="Confirm signing out other sessions"
-          className="space-y-3 border-l-2 border-destructive pl-4"
+          className="space-y-3 border-destructive border-l-2 pl-4"
           onKeyDown={(event) => {
             if (event.key === "Escape" && !isRevoking)
               return closeRevokeConfirmation();
@@ -168,10 +168,10 @@ export const SecurityPanel = ({
           }}
           role="alertdialog"
         >
-          <p className="text-sm font-medium text-foreground">
+          <p className="font-medium text-foreground text-sm">
             Sign out every other active session?
           </p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Those browsers will need to sign in again. This current session
             stays active.
           </p>
@@ -206,11 +206,11 @@ export const SecurityPanel = ({
           Sign out other sessions
         </Button>
       )}
-      {!hasOtherSessions ? (
-        <p className="text-sm text-muted-foreground">
+      {hasOtherSessions ? null : (
+        <p className="text-muted-foreground text-sm">
           This is the only active session. It cannot be revoked from this page.
         </p>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -310,16 +310,16 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
                   }
                   id={definition.name}
                   name={definition.name}
-                  required
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
+                  required
                   type="password"
                   value={field.state.value}
                 />
                 {error === undefined ? null : (
                   <p
                     aria-live="assertive"
-                    className="text-sm text-destructive"
+                    className="text-destructive text-sm"
                     id={errorId}
                     role="alert"
                   >
@@ -347,10 +347,10 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
               type="checkbox"
             />
             <span>
-              <span className="block text-sm font-medium text-foreground">
+              <span className="block font-medium text-foreground text-sm">
                 Sign out other sessions
               </span>
-              <span className="block text-sm text-muted-foreground">
+              <span className="block text-muted-foreground text-sm">
                 {field.state.value
                   ? "All other sessions will sign out after the password changes; this session stays active."
                   : "Other sessions will remain active after the password changes."}
@@ -366,7 +366,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
       >
         {([canSubmit, isDirty, isSubmitting]) => (
           <Button
-            disabled={!canSubmit || !isDirty || isSubmitting}
+            disabled={!(canSubmit && isDirty) || isSubmitting}
             loading={isSubmitting}
             loadingLabel="Changing password"
             type="submit"

@@ -12,7 +12,7 @@ export const ContactSubmitInputSchema = z
     name: z.string().trim().min(1).max(100).regex(SINGLE_LINE_TEXT_PATTERN),
     email: z.string().trim().max(254).regex(MAILBOX_PATTERN),
     subject: z.string().trim().min(1).max(200).regex(SINGLE_LINE_TEXT_PATTERN),
-    message: z.string().trim().min(1).max(5_000).regex(MESSAGE_TEXT_PATTERN),
+    message: z.string().trim().min(1).max(5000).regex(MESSAGE_TEXT_PATTERN),
     website: z.string().max(200).optional(),
   })
   .strict();

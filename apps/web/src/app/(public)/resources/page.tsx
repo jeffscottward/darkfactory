@@ -47,27 +47,27 @@ export default function ResourcesPage() {
     >
       <section aria-labelledby="source-index-title" className="py-16 md:py-20">
         <h2
-          className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+          className="font-heading font-semibold text-3xl text-foreground tracking-tight"
           id="source-index-title"
         >
           Stable source index
         </h2>
-        <ul className="mt-8 divide-y divide-border border-y border-border">
+        <ul className="mt-8 divide-y divide-border border-border border-y">
           {resources.map((resource) => (
             <li
               className="grid gap-5 py-8 md:grid-cols-12"
               key={resource.title}
             >
               <div className="md:col-span-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                <p className="font-semibold text-primary text-xs uppercase tracking-wide">
                   {resource.type}
                 </p>
-                <h3 className="mt-3 font-heading text-2xl font-semibold tracking-tight text-foreground">
+                <h3 className="mt-3 font-heading font-semibold text-2xl text-foreground tracking-tight">
                   {resource.title}
                 </h3>
               </div>
               <div className="md:col-span-6 md:col-start-6">
-                <p className="text-base leading-7 text-muted-foreground">
+                <p className="text-base text-muted-foreground leading-7">
                   {resource.body}
                 </p>
                 <a
@@ -87,45 +87,45 @@ export default function ResourcesPage() {
 
       <section
         aria-labelledby="example-labels-title"
-        className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-12 border-border border-y bg-surface py-16 md:grid-cols-12 md:py-20"
       >
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">
+          <p className="font-semibold text-primary text-sm tracking-wide">
             Reading the examples
           </p>
           <h2
-            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="mt-4 font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="example-labels-title"
           >
             Architecture evidence is not product proof.
           </h2>
         </div>
-        <dl className="divide-y divide-border border-y border-border md:col-span-6 md:col-start-7">
+        <dl className="divide-y divide-border border-border border-y md:col-span-6 md:col-start-7">
           <div className="py-6">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Architecture example
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               Request flows and boundary diagrams describe the intended
               dependency direction. Tests and implementation remain the
               behavioral evidence.
             </dd>
           </div>
           <div className="py-6">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Product example
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               The neutral Feature Item exists to demonstrate a vertical slice.
               It is example vocabulary, not a recommended customer, industry, or
               data model.
             </dd>
           </div>
           <div className="py-6">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Optional capability
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               A manifest entry declares an extension boundary. It does not imply
               that every provider is configured in every environment.
             </dd>
@@ -139,12 +139,12 @@ export default function ResourcesPage() {
       >
         <div className="md:col-span-7">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="resources-next-title"
           >
             Need the reasoning behind the boundaries?
           </h2>
-          <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
+          <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
             The about page explains why the starter keeps its core small, its
             adapters visible, and its context useful to both people and AI
             agents.

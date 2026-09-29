@@ -5,11 +5,11 @@ vi.mock("next/link", () => ({ default: "a" }));
 
 import {
   createRequestGuard,
-  runGuardedRequest,
   type RequestGuard,
+  runGuardedRequest,
 } from "./request-guard.ts";
-import { signInRequestController } from "./sign-in-form.tsx";
 import { resetPasswordRequestController } from "./reset-password-form.tsx";
+import { signInRequestController } from "./sign-in-form.tsx";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -34,8 +34,8 @@ const run = <T>(
   settle,
 });
 
-describe("auth request guard", function () {
-  it("commits and settles the current request", async function () {
+describe("auth request guard", () => {
+  it("commits and settles the current request", async () => {
     const guard = createRequestGuard();
     const request = deferred<string>();
     const commit = vi.fn();
@@ -48,7 +48,7 @@ describe("auth request guard", function () {
     return expect(settle).toHaveBeenCalledOnce();
   });
 
-  it("prevents completion after disposal from committing or settling state", async function () {
+  it("prevents completion after disposal from committing or settling state", async () => {
     const guard = createRequestGuard();
     const request = deferred<string>();
     const commit = vi.fn();
@@ -62,7 +62,7 @@ describe("auth request guard", function () {
     return expect(settle).not.toHaveBeenCalled();
   });
 
-  it("allows only the newest request to commit after supersession", async function () {
+  it("allows only the newest request to commit after supersession", async () => {
     const guard = createRequestGuard();
     const first = deferred<string>();
     const second = deferred<string>();
@@ -81,7 +81,7 @@ describe("auth request guard", function () {
     return expect(secondRun.settle).toHaveBeenCalledOnce();
   });
 
-  it("invalidates an active request and allows the next request to recover", async function () {
+  it("invalidates an active request and allows the next request to recover", async () => {
     const guard = createRequestGuard();
     const stale = deferred<string>();
     const staleCommit = vi.fn();
@@ -105,7 +105,7 @@ describe("auth request guard", function () {
     return expect(currentCommit).toHaveBeenCalledWith("recovered");
   });
 
-  it("settles a failed current request and keeps the guard reusable", async function () {
+  it("settles a failed current request and keeps the guard reusable", async () => {
     const guard = createRequestGuard();
     const failure = new Error("request failed");
     const commit = vi.fn();
@@ -134,7 +134,7 @@ describe("auth request guard", function () {
     return expect(commit).toHaveBeenCalledWith("next request");
   });
 
-  return it("binds both redirecting auth forms to the shared guarded controller", function () {
+  return it("binds both redirecting auth forms to the shared guarded controller", () => {
     expect(signInRequestController).toBe(runGuardedRequest);
     return expect(resetPasswordRequestController).toBe(runGuardedRequest);
   });

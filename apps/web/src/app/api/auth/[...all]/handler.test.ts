@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SemanticEvent } from "@darkfactory/observability";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(function () {
+const mocks = vi.hoisted(() => {
   let appEnvironment = "test";
   const close = vi.fn(async () => undefined);
   const emit = vi.fn(async (_event: SemanticEvent) => undefined);
@@ -88,67 +88,45 @@ const mocks = vi.hoisted(function () {
   };
 });
 
-vi.mock("@darkfactory/auth/server", function () {
-  return {
-    createAuth: mocks.createAuth,
-    createAuthHandler: mocks.createAuthHandler,
-  };
-});
-vi.mock("@darkfactory/auth/db", function () {
-  return {
-    createDatabaseConfirmedSignOutHandler:
-      mocks.createDatabaseConfirmedSignOutHandler,
-  };
-});
-vi.mock("@darkfactory/config/database", function () {
-  return {
-    composeDatabaseProfile: mocks.composeDatabaseProfile,
-  };
-});
-vi.mock("@darkfactory/config/server", function () {
-  return {
-    parseServerEnv: mocks.parseServerEnv,
-  };
-});
-vi.mock("@darkfactory/db/server", function () {
-  return {
-    createRequestDatabase: mocks.createRequestDatabase,
-  };
-});
-vi.mock("@darkfactory/api/server", function () {
-  return {
-    resolveApiRequestId: mocks.resolveApiRequestId,
-  };
-});
-vi.mock("@darkfactory/observability/server/evlog", function () {
-  return {
-    initializeEvlog: mocks.initializeEvlog,
-    createEvlogSink: mocks.createEvlogSink,
-  };
-});
-vi.mock("@darkfactory/email/server", function () {
-  return {
-    selectEmailPort: mocks.selectEmailPort,
-  };
-});
-vi.mock("../../../../lib/e2e-fixtures.ts", function () {
-  return {
-    resolveE2eEmailPreviewOptions: vi.fn(() => undefined),
-  };
-});
-vi.mock("../../../../lib/background-task-lifecycle.ts", function () {
-  return {
-    createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
-  };
-});
-vi.mock("cloudflare:workers", function () {
-  return { waitUntil: mocks.waitUntil };
-});
+vi.mock("@darkfactory/auth/server", () => ({
+  createAuth: mocks.createAuth,
+  createAuthHandler: mocks.createAuthHandler,
+}));
+vi.mock("@darkfactory/auth/db", () => ({
+  createDatabaseConfirmedSignOutHandler:
+    mocks.createDatabaseConfirmedSignOutHandler,
+}));
+vi.mock("@darkfactory/config/database", () => ({
+  composeDatabaseProfile: mocks.composeDatabaseProfile,
+}));
+vi.mock("@darkfactory/config/server", () => ({
+  parseServerEnv: mocks.parseServerEnv,
+}));
+vi.mock("@darkfactory/db/server", () => ({
+  createRequestDatabase: mocks.createRequestDatabase,
+}));
+vi.mock("@darkfactory/api/server", () => ({
+  resolveApiRequestId: mocks.resolveApiRequestId,
+}));
+vi.mock("@darkfactory/observability/server/evlog", () => ({
+  initializeEvlog: mocks.initializeEvlog,
+  createEvlogSink: mocks.createEvlogSink,
+}));
+vi.mock("@darkfactory/email/server", () => ({
+  selectEmailPort: mocks.selectEmailPort,
+}));
+vi.mock("../../../../lib/e2e-fixtures.ts", () => ({
+  resolveE2eEmailPreviewOptions: vi.fn(() => undefined),
+}));
+vi.mock("../../../../lib/background-task-lifecycle.ts", () => ({
+  createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
+}));
+vi.mock("cloudflare:workers", () => ({ waitUntil: mocks.waitUntil }));
 
-import { AUTH_REQUEST_MAX_BYTES, handleAuthRequest } from "./handler.ts";
-import { GET, POST } from "./route.ts";
 import { handleStrictSignOutRequest } from "../strict-sign-out/handler.ts";
 import { POST as strictSignOutPost } from "../strict-sign-out/route.ts";
+import { AUTH_REQUEST_MAX_BYTES, handleAuthRequest } from "./handler.ts";
+import { GET, POST } from "./route.ts";
 
 const request = new Request(
   "https://darkfactory.localhost/api/auth/sign-in/email",
@@ -161,14 +139,14 @@ const handle = async (): Promise<void> => {
   await handleAuthRequest(request, vi.fn());
 };
 
-describe("auth route rate-limit configuration", function () {
-  beforeEach(function () {
+describe("auth route rate-limit configuration", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.databaseCleanups.length = 0;
     return mocks.setAppEnvironment("test");
   });
 
-  it("disables Better Auth throttling only for the isolated test application environment", async function () {
+  it("disables Better Auth throttling only for the isolated test application environment", async () => {
     await handle();
 
     return expect(mocks.createAuth).toHaveBeenCalledWith(
@@ -182,7 +160,7 @@ describe("auth route rate-limit configuration", function () {
     "development",
     "staging",
     "production",
-  ])("keeps Better Auth throttling enabled in %s", async function (appEnvironment) {
+  ])("keeps Better Auth throttling enabled in %s", async (appEnvironment) => {
     mocks.setAppEnvironment(appEnvironment);
     await handle();
 
@@ -193,7 +171,7 @@ describe("auth route rate-limit configuration", function () {
     );
   });
 
-  it("uses isolated diagnostic sinks for both auth entrypoints", async function () {
+  it("uses isolated diagnostic sinks for both auth entrypoints", async () => {
     const authSchedule = vi.fn();
     const strictSchedule = vi.fn();
     await handleAuthRequest(request, authSchedule);
@@ -229,7 +207,7 @@ describe("auth route rate-limit configuration", function () {
     );
   });
 
-  return it("preserves auth response precedence and tracks one safe close diagnostic", async function () {
+  return it("preserves auth response precedence and tracks one safe close diagnostic", async () => {
     const cleanupFailure = new Error(
       "database cleanup failed for postgres://private@configured.invalid/db; cookie=session-private"
     );
@@ -257,14 +235,14 @@ describe("auth route rate-limit configuration", function () {
     return expect(JSON.stringify(event)).not.toContain("cookie");
   });
 });
-describe("bounded Better Auth request bodies", function () {
-  beforeEach(function () {
+describe("bounded Better Auth request bodies", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.setAppEnvironment("test");
     return (mocks.databaseCleanups.length = 0);
   });
 
-  it("rejects an oversized declared body before database allocation", async function () {
+  it("rejects an oversized declared body before database allocation", async () => {
     const response = await handleAuthRequest(
       new Request("https://darkfactory.localhost/api/auth/sign-in/email", {
         method: "POST",
@@ -282,7 +260,7 @@ describe("bounded Better Auth request bodies", function () {
     return expect(mocks.requestHandler).not.toHaveBeenCalled();
   });
 
-  it("rejects missing-length and lying-length streamed overflow before database allocation", async function () {
+  it("rejects missing-length and lying-length streamed overflow before database allocation", async () => {
     const oversizedStream = () =>
       new ReadableStream<Uint8Array>({
         start(controller) {
@@ -320,7 +298,7 @@ describe("bounded Better Auth request bodies", function () {
     return expect(mocks.requestHandler).not.toHaveBeenCalled();
   });
 
-  it("reconstructs an exact-boundary credential request with cookies and metadata", async function () {
+  it("reconstructs an exact-boundary credential request with cookies and metadata", async () => {
     const controller = new AbortController();
     const source = new Request(
       "https://darkfactory.localhost/api/auth/sign-up/email?redirect=portal",
@@ -358,7 +336,7 @@ describe("bounded Better Auth request bodies", function () {
     return expect(forwarded.signal.aborted).toBe(true);
   });
 
-  return it("forwards GET without a body while still allocating its request database", async function () {
+  return it("forwards GET without a body while still allocating its request database", async () => {
     const source = new Request(
       "https://darkfactory.localhost/api/auth/get-session",
       {
@@ -374,14 +352,14 @@ describe("bounded Better Auth request bodies", function () {
   });
 });
 
-describe("strict sign-out request composition", function () {
-  beforeEach(function () {
+describe("strict sign-out request composition", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.setAppEnvironment("test");
     return (mocks.databaseCleanups.length = 0);
   });
 
-  it("builds the database-confirmed handler and finalizes request resources", async function () {
+  it("builds the database-confirmed handler and finalizes request resources", async () => {
     const schedule = vi.fn();
     const response = await handleStrictSignOutRequest(request, schedule);
 
@@ -400,7 +378,7 @@ describe("strict sign-out request composition", function () {
     return expect(mocks.finalize).toHaveBeenCalledOnce();
   });
 
-  it("finalizes resources while preserving a strict sign-out failure", async function () {
+  it("finalizes resources while preserving a strict sign-out failure", async () => {
     const failure = new Error("confirmed sign-out failed");
     mocks.confirmedSignOutHandler.mockRejectedValueOnce(failure);
     mocks.close.mockRejectedValueOnce(new Error("database cleanup failed"));
@@ -412,7 +390,7 @@ describe("strict sign-out request composition", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  return it("preserves a completed sign-out response and tracks one safe close diagnostic", async function () {
+  return it("preserves a completed sign-out response and tracks one safe close diagnostic", async () => {
     const cleanupFailure = new Error(
       "database cleanup failed with postgresql://private@configured.invalid/db"
     );
@@ -441,14 +419,14 @@ describe("strict sign-out request composition", function () {
   });
 });
 
-describe("auth Worker route adapters", function () {
-  beforeEach(function () {
+describe("auth Worker route adapters", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.setAppEnvironment("test");
     return (mocks.databaseCleanups.length = 0);
   });
 
-  return it("forwards both Better Auth methods and strict sign-out through waitUntil", async function () {
+  return it("forwards both Better Auth methods and strict sign-out through waitUntil", async () => {
     const getResponse = await GET(
       new Request("https://darkfactory.localhost/api/auth/get-session")
     );

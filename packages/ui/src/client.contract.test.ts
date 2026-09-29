@@ -1,16 +1,15 @@
 import { createRef } from "react";
 import { describe, expect, it } from "vitest";
-
-import { Input } from "./input.tsx";
 import { DialogBody } from "./client/dialog.ts";
 import {
   DropdownMenuItem,
   DropdownMenuSubTrigger,
 } from "./client/dropdown-menu.ts";
 import { TabsTrigger } from "./client/tabs.ts";
+import { Input } from "./input.tsx";
 
-describe("React 19 focus refs", function () {
-  it("propagates native and client-wrapper refs to the focus-owning element", function () {
+describe("React 19 focus refs", () => {
+  it("propagates native and client-wrapper refs to the focus-owning element", () => {
     const inputRef = createRef<HTMLInputElement>();
     const dialogBodyRef = createRef<HTMLDivElement>();
     const itemRef = createRef<HTMLDivElement>();
@@ -28,7 +27,7 @@ describe("React 19 focus refs", function () {
     ).toBe(tabRef);
   });
 
-  return it("keeps menu focus and disabled states visually explicit", function () {
+  return it("keeps menu focus and disabled states visually explicit", () => {
     const itemClasses = DropdownMenuItem({}).props.className as string;
     const subTriggerClasses = DropdownMenuSubTrigger({}).props
       .className as string;

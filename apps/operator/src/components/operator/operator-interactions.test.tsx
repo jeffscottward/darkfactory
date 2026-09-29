@@ -157,7 +157,7 @@ const fillSubmission = async (
   return screen.getByRole("button", { name: "Submit run" });
 };
 
-afterEach(function () {
+afterEach(() => {
   cleanup();
   browserTransport.createOperatorClient.mockReset();
   vi.unstubAllGlobals();
@@ -165,8 +165,8 @@ afterEach(function () {
   return vi.useRealTimers();
 });
 
-describe("operator workspace behavior", function () {
-  it("renders loading, empty, populated, and retryable error states", async function () {
+describe("operator workspace behavior", () => {
+  it("renders loading, empty, populated, and retryable error states", async () => {
     const initial = deferred<OperatorWorkspaceOutput>();
     const load = vi.fn(() => initial.promise);
     render(<OperatorWorkspace gateway={gatewayWith({ workspace: load })} />);
@@ -208,7 +208,7 @@ describe("operator workspace behavior", function () {
     return expect(retryLoad).toHaveBeenCalledTimes(2);
   });
 
-  it("refreshes empty and populated boards from their visible controls", async function () {
+  it("refreshes empty and populated boards from their visible controls", async () => {
     const emptyLoad = vi.fn(async () => workspace());
     const { unmount } = render(
       <OperatorWorkspace gateway={gatewayWith({ workspace: emptyLoad })} />
@@ -236,7 +236,7 @@ describe("operator workspace behavior", function () {
     return expect(populatedLoad).toHaveBeenCalledTimes(2);
   });
 
-  it("uses the browser transport when no gateway is supplied", async function () {
+  it("uses the browser transport when no gateway is supplied", async () => {
     const operator = {
       submit: vi.fn(async () => detail()),
       workspace: vi.fn(async () => workspace()),
@@ -282,7 +282,7 @@ describe("operator workspace behavior", function () {
     return expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" });
   });
 
-  it("renders the projected long request instead of repeating the short run title", async function () {
+  it("renders the projected long request instead of repeating the short run title", async () => {
     const originalRequest =
       "Plan the complete operator cutover and preserve every bounded verification requirement.";
     render(
@@ -307,7 +307,7 @@ describe("operator workspace behavior", function () {
       within(conversation).queryByText("Operator cutover")
     ).toBeNull();
   });
-  it("selects a submitted run and replaces the board after refresh", async function () {
+  it("selects a submitted run and replaces the board after refresh", async () => {
     const selected = detail({ id: "selected", title: "Selected run" });
     const refreshed = workspace([selected.run]);
     const gateway = gatewayWith({
@@ -339,7 +339,7 @@ describe("operator workspace behavior", function () {
     );
   });
 
-  it("retains selection and warns when the board refresh fails", async function () {
+  it("retains selection and warns when the board refresh fails", async () => {
     const selected = detail({ id: "selected-warning", title: undefined });
     const gateway = gatewayWith({
       submit: vi.fn(async () => selected),
@@ -363,7 +363,7 @@ describe("operator workspace behavior", function () {
     return expect(screen.getByText("No planned work yet")).toBeDefined();
   });
 
-  it("blocks duplicate submissions and exposes pending state", async function () {
+  it("blocks duplicate submissions and exposes pending state", async () => {
     const request = deferred<OperatorRunDetailOutput>();
     const submit = vi.fn(() => request.promise);
     const selected = detail({ title: "Pilot run" });
@@ -398,7 +398,7 @@ describe("operator workspace behavior", function () {
     ).toBeDefined();
   });
 
-  it("reuses a failed retry key, invalidates it after editing, and reports validation safely", async function () {
+  it("reuses a failed retry key, invalidates it after editing, and reports validation safely", async () => {
     const selected = detail({ title: "Retry run" });
     const submit = vi
       .fn()
@@ -447,7 +447,7 @@ describe("operator workspace behavior", function () {
     return expect(submit.mock.calls[2]?.[2]).toBe("changed-key");
   });
 
-  it("does not apply late workspace responses after unmount", async function () {
+  it("does not apply late workspace responses after unmount", async () => {
     const lateSuccess = deferred<OperatorWorkspaceOutput>();
     const successLoad = vi.fn(() => lateSuccess.promise);
     const first = render(
@@ -478,7 +478,7 @@ describe("operator workspace behavior", function () {
     ).toBeNull();
   });
 
-  it("does not publish submission state or schedule focus after unmount", async function () {
+  it("does not publish submission state or schedule focus after unmount", async () => {
     const selected = detail({ title: "Late submission" });
     const request = deferred<OperatorRunDetailOutput>();
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
@@ -504,7 +504,7 @@ describe("operator workspace behavior", function () {
     return expect(lookup).not.toHaveBeenCalledWith("operator-submit-status");
   });
 
-  it("drops a rejected submission after unmount", async function () {
+  it("drops a rejected submission after unmount", async () => {
     const request = deferred<OperatorRunDetailOutput>();
     const lookup = vi.spyOn(document, "getElementById");
     const gateway = gatewayWith({
@@ -528,7 +528,7 @@ describe("operator workspace behavior", function () {
     ).toBeNull();
   });
 
-  return it("drops a scheduled submission focus after unmount", async function () {
+  return it("drops a scheduled submission focus after unmount", async () => {
     const selected = detail({ title: "Scheduled focus" });
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
     const gateway = gatewayWith({
@@ -561,8 +561,8 @@ describe("operator workspace behavior", function () {
   });
 });
 
-describe("operator run detail behavior", function () {
-  it("loads a blocked run and enables only valid actions", async function () {
+describe("operator run detail behavior", () => {
+  it("loads a blocked run and enables only valid actions", async () => {
     const output = detail({ state: "blocked" });
     render(
       <OperatorRunDetail
@@ -594,7 +594,7 @@ describe("operator run detail behavior", function () {
     ).toBe(false);
   });
 
-  it("retries a failed load and disables actions at both terminal boundaries", async function () {
+  it("retries a failed load and disables actions at both terminal boundaries", async () => {
     const load = vi
       .fn()
       .mockRejectedValueOnce({ code: "NOT_FOUND" })
@@ -661,7 +661,7 @@ describe("operator run detail behavior", function () {
     ).toBe(true);
   });
 
-  it("performs retry and cancel with pending and success feedback", async function () {
+  it("performs retry and cancel with pending and success feedback", async () => {
     const retryRequest = deferred<OperatorRunDetailOutput>();
     const cancelRequest = deferred<OperatorRunDetailOutput>();
     const retry = vi.fn(() => retryRequest.promise);
@@ -749,7 +749,7 @@ describe("operator run detail behavior", function () {
     );
   });
 
-  it("approves, rejects, and sends bounded chat actions", async function () {
+  it("approves, rejects, and sends bounded chat actions", async () => {
     const approve = vi.fn(async () => detail());
     const reject = vi.fn(async () => detail());
     const message = vi.fn(async () => detail());
@@ -803,7 +803,7 @@ describe("operator run detail behavior", function () {
     );
   });
 
-  it("requests a bounded plan revision and clears the superseded approval", async function () {
+  it("requests a bounded plan revision and clears the superseded approval", async () => {
     const revised = detail(
       { state: "planning" },
       {
@@ -867,7 +867,7 @@ describe("operator run detail behavior", function () {
     ).toBeNull();
   });
 
-  it("reuses a revision key for unchanged retries and rotates it after edits and success", async function () {
+  it("reuses a revision key for unchanged retries and rotates it after edits and success", async () => {
     const revise = vi
       .fn()
       .mockRejectedValueOnce({ code: "SERVICE_UNAVAILABLE" })
@@ -928,7 +928,7 @@ describe("operator run detail behavior", function () {
     ]);
   });
 
-  it("uses the revision capability for blocked stages and explains a missing planning result", async function () {
+  it("uses the revision capability for blocked stages and explains a missing planning result", async () => {
     const invalidStage = render(
       <OperatorRunDetail
         gateway={gatewayWith({
@@ -1035,7 +1035,7 @@ describe("operator run detail behavior", function () {
     ).toBeDefined();
   });
 
-  it("does not invoke approval without a binding", async function () {
+  it("does not invoke approval without a binding", async () => {
     const approve = vi.fn(async () => detail());
     render(
       <OperatorRunDetail
@@ -1055,7 +1055,7 @@ describe("operator run detail behavior", function () {
     return expect(approve).not.toHaveBeenCalled();
   });
 
-  it("fails closed when an approval binding has no reviewable implementation plan", async function () {
+  it("fails closed when an approval binding has no reviewable implementation plan", async () => {
     const approve = vi.fn(async () => detail());
     render(
       <OperatorRunDetail
@@ -1078,7 +1078,7 @@ describe("operator run detail behavior", function () {
     return expect(approve).not.toHaveBeenCalled();
   });
 
-  it("fails closed when implementation plan evidence is truncated", async function () {
+  it("fails closed when implementation plan evidence is truncated", async () => {
     const approve = vi.fn(async () => detail());
     render(
       <OperatorRunDetail
@@ -1108,7 +1108,7 @@ describe("operator run detail behavior", function () {
     return expect(approve).not.toHaveBeenCalled();
   });
 
-  it("keeps a stale approval conflict fenced until an authoritative reload succeeds", async function () {
+  it("keeps a stale approval conflict fenced until an authoritative reload succeeds", async () => {
     const reload = deferred<OperatorRunDetailOutput>();
     const load = vi
       .fn()
@@ -1223,7 +1223,7 @@ describe("operator run detail behavior", function () {
     ).toBe(false);
   });
 
-  it("renders and focuses each mutation failure once without polite feedback duplication", async function () {
+  it("renders and focuses each mutation failure once without polite feedback duplication", async () => {
     const staleGateway = gatewayWith({
       detail: vi.fn(async () => detail()),
       approve: vi.fn(async () => {
@@ -1304,7 +1304,7 @@ describe("operator run detail behavior", function () {
     ).toBe(false);
   });
 
-  it("routes generic conflicts to the single alert owned by the failed action", async function () {
+  it("routes generic conflicts to the single alert owned by the failed action", async () => {
     const conflictMessage =
       "The plan changed. Reload the run before you take action.";
     const retryGateway = gatewayWith({
@@ -1383,7 +1383,7 @@ describe("operator run detail behavior", function () {
     );
   });
 
-  it("fences a late run A action from run B by id and request generation", async function () {
+  it("fences a late run A action from run B by id and request generation", async () => {
     const retryRequest = deferred<OperatorRunDetailOutput>();
     const runA = detail({ id: "run-a", title: "Run A", state: "blocked" });
     const runB = detail({ id: "run-b", title: "Run B", state: "completed" });
@@ -1413,7 +1413,7 @@ describe("operator run detail behavior", function () {
     ).toBe(true);
   });
 
-  it("serializes automatic reads and ignores a poll superseded by a mutation", async function () {
+  it("serializes automatic reads and ignores a poll superseded by a mutation", async () => {
     vi.useFakeTimers();
     const pollResponse = deferred<OperatorRunDetailOutput>();
     const mutationResponse = deferred<OperatorRunDetailOutput>();
@@ -1461,7 +1461,7 @@ describe("operator run detail behavior", function () {
     return expect(screen.queryByText("Older poll result")).toBeNull();
   });
 
-  it("rejects a duplicate action before the busy render commits", async function () {
+  it("rejects a duplicate action before the busy render commits", async () => {
     const retryRequest = deferred<OperatorRunDetailOutput>();
     const retry = vi.fn(() => retryRequest.promise);
     render(
@@ -1491,7 +1491,7 @@ describe("operator run detail behavior", function () {
     });
   });
 
-  it("pauses without polling when a busy mutation passes the refresh deadline", async function () {
+  it("pauses without polling when a busy mutation passes the refresh deadline", async () => {
     vi.useFakeTimers();
     const clock = { now: 0 };
     vi.spyOn(performance, "now").mockImplementation(() => clock.now);
@@ -1522,7 +1522,7 @@ describe("operator run detail behavior", function () {
     ).toBeDefined();
   });
 
-  it("announces a transient automatic failure and resumes after a successful retry", async function () {
+  it("announces a transient automatic failure and resumes after a successful retry", async () => {
     vi.useFakeTimers();
     const load = vi
       .fn()
@@ -1556,7 +1556,7 @@ describe("operator run detail behavior", function () {
     ).toBeDefined();
   });
 
-  it("pauses automatic updates when a poll reaches a terminal state", async function () {
+  it("pauses automatic updates when a poll reaches a terminal state", async () => {
     vi.useFakeTimers();
     const load = vi
       .fn()
@@ -1578,7 +1578,7 @@ describe("operator run detail behavior", function () {
     ).toBeDefined();
   });
 
-  it("keeps one wall-clock deadline across lifecycle changes and restarts it manually", async function () {
+  it("keeps one wall-clock deadline across lifecycle changes and restarts it manually", async () => {
     vi.useFakeTimers();
     const blockedOutput = detail(
       { state: "blocked", blockedReason: "Implementation stopped." },
@@ -1636,7 +1636,7 @@ describe("operator run detail behavior", function () {
     return expect(load).toHaveBeenCalledTimes(callsAtDeadline + 2);
   });
 
-  it("ignores a cleared deadline callback from an older refresh session", async function () {
+  it("ignores a cleared deadline callback from an older refresh session", async () => {
     vi.useFakeTimers();
     const timeout = vi.spyOn(window, "setTimeout");
     const load = vi.fn(async () => detail({ state: "planning" }));
@@ -1667,7 +1667,7 @@ describe("operator run detail behavior", function () {
     ).toBeDefined();
   });
 
-  it("drops queued focus work when unmounted after a successful action", async function () {
+  it("drops queued focus work when unmounted after a successful action", async () => {
     const callbacks: Array<() => void> = [];
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
     render(
@@ -1695,7 +1695,7 @@ describe("operator run detail behavior", function () {
     return expect(focus).not.toHaveBeenCalled();
   });
 
-  it("drops late action errors and focus work after unmount", async function () {
+  it("drops late action errors and focus work after unmount", async () => {
     const messageRequest = deferred<OperatorRunDetailOutput>();
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
     const mounted = render(
@@ -1725,7 +1725,7 @@ describe("operator run detail behavior", function () {
     ).toBeNull();
   });
 
-  return it("ignores successful and failed detail loads after unmount", async function () {
+  return it("ignores successful and failed detail loads after unmount", async () => {
     const lateSuccess = deferred<OperatorRunDetailOutput>();
     const first = render(
       <OperatorRunDetail
@@ -1756,8 +1756,8 @@ describe("operator run detail behavior", function () {
   });
 });
 
-describe("approval panel behavior", function () {
-  it("forwards fresh decisions and restricts stale conflicts to reload", function () {
+describe("approval panel behavior", () => {
+  it("forwards fresh decisions and restricts stale conflicts to reload", () => {
     const onApprove = vi.fn();
     const onReject = vi.fn();
     const onReload = vi.fn();
@@ -1765,9 +1765,9 @@ describe("approval panel behavior", function () {
     const mounted = render(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction={null}
         canRequestChanges
+        implementationPlan={implementationPlan}
         onApprove={onApprove}
         onReject={onReject}
         onReload={onReload}
@@ -1792,9 +1792,9 @@ describe("approval panel behavior", function () {
     mounted.rerender(
       <ApprovalPanel
         approval={{ ...approval, stale: true }}
-        implementationPlan={implementationPlan}
         busyAction={null}
         canRequestChanges
+        implementationPlan={implementationPlan}
         onApprove={onApprove}
         onReject={onReject}
         onReload={onReload}
@@ -1823,14 +1823,14 @@ describe("approval panel behavior", function () {
     return expect(onReload).toHaveBeenCalledOnce();
   });
 
-  it("rejects a revision above the UTF-8 byte limit before the request callback", function () {
+  it("rejects a revision above the UTF-8 byte limit before the request callback", () => {
     const onRequestChanges = vi.fn(async () => true);
     render(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction={null}
         canRequestChanges
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -1868,14 +1868,14 @@ describe("approval panel behavior", function () {
     return expect(onRequestChanges).toHaveBeenCalledWith("é".repeat(512));
   });
 
-  return it("rejects a multiline revision before the request callback", function () {
+  return it("rejects a multiline revision before the request callback", () => {
     const onRequestChanges = vi.fn(async () => true);
     render(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction={null}
         canRequestChanges
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -1918,8 +1918,8 @@ describe("approval panel behavior", function () {
   });
 });
 
-describe("operator conversation behavior", function () {
-  it("renders empty, populated, busy, and failure states", function () {
+describe("operator conversation behavior", () => {
+  it("renders empty, populated, busy, and failure states", () => {
     const mounted = render(
       <ConversationPanel
         busy={false}
@@ -1950,8 +1950,6 @@ describe("operator conversation behavior", function () {
         busy
         failureMessage="Message could not be stored."
         implementationPlan={implementationPlan}
-        runState="awaitingApproval"
-        planRevisions={[]}
         messages={[
           {
             id: "message-1",
@@ -1962,6 +1960,8 @@ describe("operator conversation behavior", function () {
         ]}
         onSend={vi.fn(async () => true)}
         originalRequest="Plan safely"
+        planRevisions={[]}
+        runState="awaitingApproval"
       />
     );
     expect(screen.getByText("Operator Jane")).toBeDefined();
@@ -1980,7 +1980,7 @@ describe("operator conversation behavior", function () {
     ).toBe(true);
   });
 
-  it("ignores whitespace and busy submissions and prevents an in-flight duplicate", async function () {
+  it("ignores whitespace and busy submissions and prevents an in-flight duplicate", async () => {
     const request = deferred<boolean>();
     const onSend = vi.fn(() => request.promise);
     const mounted = render(
@@ -2024,7 +2024,7 @@ describe("operator conversation behavior", function () {
     return expect(onSend).toHaveBeenCalledOnce();
   });
 
-  it("reuses a failed-send key, rotates it after editing, and clears successful text", async function () {
+  it("reuses a failed-send key, rotates it after editing, and clears successful text", async () => {
     const onSend = vi
       .fn()
       .mockResolvedValueOnce(false)
@@ -2073,7 +2073,7 @@ describe("operator conversation behavior", function () {
     ]);
   });
 
-  return it("does not clear a late successful message after unmount", async function () {
+  return it("does not clear a late successful message after unmount", async () => {
     const request = deferred<boolean>();
     const onSend = vi.fn(() => request.promise);
     const mounted = render(

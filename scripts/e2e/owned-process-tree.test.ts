@@ -14,13 +14,13 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 import {
+  type OwnedProcess,
   ownedProcessTreeExists,
   processExists,
   spawnOwnedProcess,
+  type TerminateOwnedProcessOptions,
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
-  type OwnedProcess,
-  type TerminateOwnedProcessOptions,
 } from "./owned-process-tree.ts";
 
 type MutableChild = ChildProcess & {
@@ -31,7 +31,7 @@ type MutableChild = ChildProcess & {
   stdout: PassThrough;
 };
 
-const fakeChild = (pid = 4_321, exitCode: number | null = null): MutableChild =>
+const fakeChild = (pid = 4321, exitCode: number | null = null): MutableChild =>
   Object.assign(new EventEmitter(), {
     exitCode,
     pid,
@@ -133,14 +133,14 @@ describe("owned process spawning and existence", () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     const child = fakeChild();
     const owned = spawnFake(child);
-    child.pid = 9_999;
+    child.pid = 9999;
     const kill = vi.spyOn(process, "kill").mockImplementation((() => {
       throw errno("ESRCH");
     }) as typeof process.kill);
 
     expect(ownedProcessTreeExists(owned)).toBe(false);
     expect(kill).toHaveBeenCalledOnce();
-    expect(kill).toHaveBeenCalledWith(-4_321, 0);
+    expect(kill).toHaveBeenCalledWith(-4321, 0);
     child.emit("close", 0, null);
     await expect(
       terminateOwnedProcessTree(owned, {
@@ -164,7 +164,7 @@ describe("owned process spawning and existence", () => {
       .spyOn(process, "kill")
       .mockImplementation((() => true) as typeof process.kill);
     expect(ownedProcessTreeExists(child)).toBe(true);
-    expect(kill).toHaveBeenLastCalledWith(-4_321, 0);
+    expect(kill).toHaveBeenLastCalledWith(-4321, 0);
 
     kill.mockImplementation((() => {
       throw errno("ESRCH");
@@ -192,7 +192,7 @@ describe("owned process spawning and existence", () => {
     child.signalCode = null;
     child.exitCode = 0;
     expect(ownedProcessTreeExists(child)).toBe(true);
-    const owned = spawnFake(fakeChild(9_876));
+    const owned = spawnFake(fakeChild(9876));
     return expect(ownedProcessTreeExists(owned)).toBe(true);
   });
 });
@@ -213,14 +213,14 @@ describe("owned process tree termination", () => {
         platform: "win32",
       })
     ).rejects.toThrow(/has no PID/i);
-    noPid.pid = 9_999;
+    noPid.pid = 9999;
     const kill = vi.spyOn(process, "kill");
     expect(ownedProcessTreeExists(owned)).toBe(false);
     return expect(kill).not.toHaveBeenCalled();
   });
 
   it("rejects an exited Windows child without invoking taskkill", async () => {
-    const child = fakeChild(4_321, 0);
+    const child = fakeChild(4321, 0);
     const owned = spawnFake(child);
 
     await expect(
@@ -276,7 +276,7 @@ describe("owned process tree termination", () => {
     ];
 
     for (const [index, options] of invalidOptions.entries()) {
-      const owned = spawnFake(fakeChild(4_400 + index));
+      const owned = spawnFake(fakeChild(4400 + index));
       await expect(terminateOwnedProcessTree(owned, options)).rejects.toThrow(
         /timeout budget/i
       );
@@ -287,7 +287,7 @@ describe("owned process tree termination", () => {
   it("uses the immutable PID captured when the child was spawned", async () => {
     const child = fakeChild();
     const owned = spawnFake(child);
-    child.pid = 9_876;
+    child.pid = 9876;
     child.emit("close", 0, "SIGTERM");
     const kill = vi.spyOn(process, "kill").mockImplementation((() => {
       throw errno("ESRCH");
@@ -299,7 +299,7 @@ describe("owned process tree termination", () => {
       })
     ).resolves.toBeUndefined();
     expect(kill).toHaveBeenCalledOnce();
-    return expect(kill).toHaveBeenCalledWith(-4_321, 0);
+    return expect(kill).toHaveBeenCalledWith(-4321, 0);
   });
 
   it("requires both POSIX process-group absence and exact child close", async () => {
@@ -311,7 +311,7 @@ describe("owned process tree termination", () => {
       pid: number,
       signal?: number | NodeJS.Signals
     ) => {
-      expect(pid).toBe(-4_321);
+      expect(pid).toBe(-4321);
       if (signal === 0) {
         if (alive) return true;
         throw errno("ESRCH");
@@ -330,7 +330,7 @@ describe("owned process tree termination", () => {
     ).resolves.toBeUndefined();
     expect(delivered).toEqual(["SIGTERM"]);
 
-    const vanished = fakeChild(5_678);
+    const vanished = fakeChild(5678);
     const vanishedOwned = spawnFake(vanished);
     vanished.emit("close", 0, "SIGTERM");
     let probes = 0;
@@ -338,7 +338,7 @@ describe("owned process tree termination", () => {
       pid: number,
       signal?: number | NodeJS.Signals
     ) => {
-      expect(pid).toBe(-5_678);
+      expect(pid).toBe(-5678);
       if (signal === 0 && probes++ === 0) return true;
       throw errno("ESRCH");
     }) as typeof process.kill);
@@ -376,8 +376,8 @@ describe("owned process tree termination", () => {
     await vi.advanceTimersByTimeAsync(50);
     await expect(termination).resolves.toBeUndefined();
     return expect(kill.mock.calls).toEqual([
-      [-4_321, 0],
-      [-4_321, "SIGTERM"],
+      [-4321, 0],
+      [-4321, "SIGTERM"],
     ]);
   });
 
@@ -406,10 +406,10 @@ describe("owned process tree termination", () => {
     await vi.advanceTimersByTimeAsync(50);
     await expect(termination).resolves.toBeUndefined();
     return expect(kill.mock.calls).toEqual([
-      [-4_321, 0],
-      [-4_321, "SIGTERM"],
-      [-4_321, 0],
-      [-4_321, "SIGKILL"],
+      [-4321, 0],
+      [-4321, "SIGTERM"],
+      [-4321, 0],
+      [-4321, "SIGKILL"],
     ]);
   });
 
@@ -517,8 +517,8 @@ describe("owned process tree termination", () => {
     }) as typeof process.kill);
     await expect(terminateOwnedProcessTree(owned)).resolves.toBeUndefined();
     expect(kill).toHaveBeenCalledOnce();
-    expect(kill).toHaveBeenCalledWith(-4_321, 0);
-    child.pid = 9_999;
+    expect(kill).toHaveBeenCalledWith(-4321, 0);
+    child.pid = 9999;
     expect(ownedProcessTreeExists(owned)).toBe(false);
     return expect(kill).toHaveBeenCalledOnce();
   });
@@ -558,7 +558,7 @@ describe("owned process tree termination", () => {
     vi.useFakeTimers();
     const wallClock = vi
       .spyOn(Date, "now")
-      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1000)
       .mockReturnValue(-1_000_000);
     const child = fakeChild();
     const owned = spawnFake(child);
@@ -669,7 +669,7 @@ describe("owned process tree termination", () => {
       pid: number,
       signal?: number | NodeJS.Signals
     ) => {
-      expect(pid).toBe(-4_321);
+      expect(pid).toBe(-4321);
       if (signal === 0) {
         if (alive) return true;
         throw errno("ESRCH");
@@ -711,7 +711,7 @@ describe("owned process tree termination", () => {
       pid: number,
       signal?: number | NodeJS.Signals
     ) => {
-      expect(pid).toBe(-4_321);
+      expect(pid).toBe(-4321);
       if (signal === 0) {
         if (alive) return true;
         throw errno("ESRCH");

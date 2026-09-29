@@ -22,22 +22,22 @@ export const PageHeader = ({
 }: PageHeaderProps) => (
   <header
     {...props}
-    data-variant={variant}
     className={cn(
-      "grid gap-6 border-b border-border md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
+      "grid gap-6 border-border border-b md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
       variant === "public" ? "pb-10" : "pb-6",
       className
     )}
+    data-variant={variant}
   >
     <div className="min-w-0 space-y-3">
       {eyebrow === undefined ? null : (
-        <p className="font-body text-xs font-semibold uppercase tracking-wide text-primary">
+        <p className="font-body font-semibold text-primary text-xs uppercase tracking-wide">
           {eyebrow}
         </p>
       )}
       <h1
         className={cn(
-          "font-heading font-semibold tracking-tight text-foreground",
+          "font-heading font-semibold text-foreground tracking-tight",
           variant === "public" ? "text-4xl" : "text-2xl"
         )}
       >
@@ -88,17 +88,17 @@ export const SectionHeader = ({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-end sm:justify-between",
+        "flex flex-col gap-4 border-border border-b pb-4 sm:flex-row sm:items-end sm:justify-between",
         className
       )}
       {...props}
     >
       <div className="min-w-0 space-y-1">
-        <Heading className="font-heading text-xl font-semibold tracking-tight text-foreground">
+        <Heading className="font-heading font-semibold text-foreground text-xl tracking-tight">
           {title}
         </Heading>
         {description === undefined ? null : (
-          <p className="max-w-reading text-sm leading-5 text-muted-foreground">
+          <p className="max-w-reading text-muted-foreground text-sm leading-5">
             {description}
           </p>
         )}

@@ -1,28 +1,23 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
 import {
-  createApiClient,
   type ApiClient,
   type ApiClientOptions,
+  createApiClient,
   type ThemePreferenceOutput,
   type UpdateThemePreferenceInput,
 } from "@darkfactory/api";
-
 import type { UiStore } from "@darkfactory/state/client";
 import { ThemePicker } from "@darkfactory/ui/client/theme";
-
-import { useThemeAuthority } from "./theme-controller.tsx";
-import {
-  type AnonymousThemePreference,
-  type ThemeAuthority,
-} from "../lib/theme.ts";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { AnonymousThemePreference, ThemeAuthority } from "../lib/theme.ts";
 import { fetchThemeApiRequest } from "../lib/theme-api-timeout.ts";
 import {
-  updateTrustedThemePreference,
   type ThemeUpdateSequence,
+  updateTrustedThemePreference,
 } from "../lib/theme-update.ts";
 import { useUiStoreApi } from "../lib/ui-store.tsx";
+import { useThemeAuthority } from "./theme-controller.tsx";
 
 export type ThemePreferenceClient = Readonly<{
   get: () => Promise<ThemePreferenceOutput>;

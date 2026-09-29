@@ -50,12 +50,12 @@ export const RunTimeline = ({
     </CardHeader>
     <CardContent>
       {entries.length === 0 ? (
-        <div className="flex gap-3 py-3 text-sm text-muted-foreground">
+        <div className="flex gap-3 py-3 text-muted-foreground text-sm">
           <Clock3 aria-hidden="true" className="size-5 shrink-0" />
           No run history yet.
         </div>
       ) : (
-        <ol className="relative border-l border-border pl-5">
+        <ol className="relative border-border border-l pl-5">
           {entries.map((entry) => (
             <li
               className="relative pb-7 last:pb-0"
@@ -63,27 +63,27 @@ export const RunTimeline = ({
             >
               <span
                 aria-hidden="true"
-                className="absolute -left-7 top-1 size-3 rounded-pill border border-primary-border bg-primary-subtle"
+                className="absolute top-1 -left-7 size-3 rounded-pill border border-primary-border bg-primary-subtle"
               />
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status="info">
                   {eventLabel(entry.eventType)}
                 </StatusBadge>
                 <time
-                  className="text-xs text-muted-foreground"
+                  className="text-muted-foreground text-xs"
                   dateTime={entry.createdAt.toISOString()}
                 >
                   {formatOperatorDate(entry.createdAt)}
                 </time>
               </div>
-              <p className="mt-2 text-sm leading-6 text-foreground">
+              <p className="mt-2 text-foreground text-sm leading-6">
                 {entry.summary}
               </p>
               <details className="mt-2">
-                <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-muted-foreground text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   Integrity details
                 </summary>
-                <code className="block break-all font-mono text-xs leading-5 text-muted-foreground">
+                <code className="block break-all font-mono text-muted-foreground text-xs leading-5">
                   Sequence {entry.sequence} · {entry.hash}
                 </code>
               </details>

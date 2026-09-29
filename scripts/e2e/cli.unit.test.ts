@@ -1,16 +1,16 @@
 import { constants } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
 import {
   chmod,
-  readFile,
-  realpath,
   mkdir,
   mkdtemp,
+  readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { delimiter, dirname, join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -19,17 +19,17 @@ import {
   createArtifactScannerInvocation,
   createPlaywrightEnvironment,
   discoverJourneySpecs,
+  type JourneyCliDependencies,
   parseExternalScannerReport,
   parseScannerReport,
   redactProcessOutput,
-  runArtifactScannerCli,
   resolveTrustedNodeExecutable,
   resolveTrustedParentNodeExecutable,
   resolveTrustedPnpmExecutable,
+  runArtifactScannerCli,
   runJourneyCli,
   serializeJourneyFailureSummary,
   serializeJourneyProgress,
-  type JourneyCliDependencies,
 } from "./cli.ts";
 import type {
   JourneyDependencies,
@@ -446,7 +446,7 @@ describe("CLI argument and environment forwarding", () => {
     ]);
     expect(invocation.options).toMatchObject({
       cwd: "/workspace",
-      maxOutputBytes: 1_024 * 1_024,
+      maxOutputBytes: 1024 * 1024,
       timeoutMillis: 45_000,
     });
     return expect(invocation.options.env).toEqual({
@@ -862,7 +862,7 @@ writeFileSync(reportPath, '{"config":{"webServer":{}}}\\n', "utf8")
       expect(cli.output).toEqual([]);
       expect(cli.errors.join("")).toMatch(/SyntaxError/u);
       expect(Buffer.byteLength(cli.errors.join(""), "utf8")).toBeLessThan(
-        20 * 1_024
+        20 * 1024
       );
       return expect(
         cli.errors.find((value) => {
@@ -1378,7 +1378,7 @@ describe("process output redaction", () => {
     expect(redactProcessOutput("x".repeat(16 * 1024 + 1))).toBe(
       "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
     );
-    return expect(redactProcessOutput("\u00e9".repeat(8_193))).toBe(
+    return expect(redactProcessOutput("\u00e9".repeat(8193))).toBe(
       "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
     );
   });
@@ -1388,7 +1388,7 @@ describe("bounded CLI serialization", () => {
   it("rejects an oversized progress event", () => {
     return expect(() =>
       serializeJourneyProgress({
-        spec: `tests/e2e/${"a".repeat(1_100)}.spec.ts`,
+        spec: `tests/e2e/${"a".repeat(1100)}.spec.ts`,
         runId: "safe_run",
         stage: "created",
       })
@@ -1552,7 +1552,7 @@ describe("scanner envelope parsing", () => {
     };
     expect(parseScannerReport(scannerEnvelope(clean), "short")).toBeUndefined();
     expect(
-      parseScannerReport("x".repeat(1_024 * 1_024 + 1), REPORT_NONCE)
+      parseScannerReport("x".repeat(1024 * 1024 + 1), REPORT_NONCE)
     ).toBeUndefined();
     expect(parseScannerReport("{", REPORT_NONCE)).toBeUndefined();
     expect(parseScannerReport("[]", REPORT_NONCE)).toBeUndefined();

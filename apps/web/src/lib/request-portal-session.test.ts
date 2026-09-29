@@ -5,56 +5,48 @@ type SessionLoader = (
   cfConnectingIp: string | null
 ) => unknown;
 
-const mocks = vi.hoisted(function () {
+const mocks = vi.hoisted(() => {
   const cacheEntries = new Map<string, unknown>();
   return {
     cacheEntries,
-    cache: vi.fn(function (loader: SessionLoader) {
-      return function (
-        cookieHeader: string | null,
-        cfConnectingIp: string | null
-      ) {
-        const key = JSON.stringify([cookieHeader, cfConnectingIp]);
-        if (!cacheEntries.has(key)) {
-          cacheEntries.set(key, loader(cookieHeader, cfConnectingIp));
+    cache: vi.fn(
+      (loader: SessionLoader) =>
+        (cookieHeader: string | null, cfConnectingIp: string | null) => {
+          const key = JSON.stringify([cookieHeader, cfConnectingIp]);
+          if (!cacheEntries.has(key)) {
+            cacheEntries.set(key, loader(cookieHeader, cfConnectingIp));
+          }
+          return cacheEntries.get(key);
         }
-        return cacheEntries.get(key);
-      };
-    }),
+    ),
     dispatchInternalAuthRequest: vi.fn(),
     getPortalSession: vi.fn(),
   };
 });
 
-vi.mock("react", function () {
-  return { cache: mocks.cache };
-});
-vi.mock("./server-internal-dispatch.ts", function () {
-  return {
-    dispatchInternalAuthRequest: mocks.dispatchInternalAuthRequest,
-  };
-});
-vi.mock("./server-session.ts", function () {
-  return {
-    getPortalSession: mocks.getPortalSession,
-  };
-});
+vi.mock("react", () => ({ cache: mocks.cache }));
+vi.mock("./server-internal-dispatch.ts", () => ({
+  dispatchInternalAuthRequest: mocks.dispatchInternalAuthRequest,
+}));
+vi.mock("./server-session.ts", () => ({
+  getPortalSession: mocks.getPortalSession,
+}));
 
 import { getRequestPortalSession } from "./request-portal-session.ts";
 
-describe("getRequestPortalSession", function () {
-  beforeEach(function () {
+describe("getRequestPortalSession", () => {
+  beforeEach(() => {
     mocks.cacheEntries.clear();
     return mocks.getPortalSession.mockReset();
   });
 
-  it("is wrapped once by React request cache", function () {
+  it("is wrapped once by React request cache", () => {
     expect(mocks.cache).toHaveBeenCalledOnce();
     return expect(getRequestPortalSession).toBe(
       mocks.cache.mock.results[0]?.value
     );
   });
-  it("shares one in-flight resolution for identical primitive keys", function () {
+  it("shares one in-flight resolution for identical primitive keys", () => {
     const pendingSession = Promise.resolve(null);
     mocks.getPortalSession.mockReturnValueOnce(pendingSession);
 
@@ -77,7 +69,7 @@ describe("getRequestPortalSession", function () {
     ["better-auth.session_token=opaque", "203.0.113.42"],
     [null, null],
     ["   ", null],
-  ])("uses primitive cookie and edge IP inputs with the fixed internal dispatcher", function (cookieHeader, cfConnectingIp) {
+  ])("uses primitive cookie and edge IP inputs with the fixed internal dispatcher", (cookieHeader, cfConnectingIp) => {
     const pendingSession = Promise.resolve(null);
     mocks.getPortalSession.mockReturnValueOnce(pendingSession);
 

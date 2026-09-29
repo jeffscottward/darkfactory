@@ -285,7 +285,7 @@ export const runJourneySuite = async (
     try {
       const candidateRunId = dependencies.createRunId();
       const candidateHmacKey = dependencies.createHmacKey();
-      if (!RUN_ID.test(candidateRunId) || !HMAC_KEY.test(candidateHmacKey)) {
+      if (!(RUN_ID.test(candidateRunId) && HMAC_KEY.test(candidateHmacKey))) {
         throw new Error("Unsafe generated E2E credentials");
       }
       runId = candidateRunId;
@@ -339,9 +339,9 @@ export const runJourneySuite = async (
       );
       if (
         prepared.adoption.length === 0 ||
-        prepared.adoption.length > 8_192 ||
+        prepared.adoption.length > 8192 ||
         prepared.ownership.length === 0 ||
-        prepared.ownership.length > 8_192
+        prepared.ownership.length > 8192
       )
         throw new Error("Invalid prepared run capability");
     } catch {
@@ -548,7 +548,7 @@ export const runJourneySuite = async (
         lifecycleObservation: observedLifecycleObservation,
         lifecycleObservationReason: observedLifecycleObservationReason,
         processState: "terminated",
-        stage: !scan.ok ? "scan" : executionFailed ? "execute" : "complete",
+        stage: scan.ok ? (executionFailed ? "execute" : "complete") : "scan",
         processTreeTerminated: true,
         scan,
       })

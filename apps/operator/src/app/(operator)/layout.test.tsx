@@ -32,20 +32,20 @@ vi.mock("../../components/operator-shell.tsx", () => ({
 
 import OperatorLayout from "./layout.tsx";
 
-describe("operator administrator boundary", function () {
-  beforeEach(function () {
+describe("operator administrator boundary", () => {
+  beforeEach(() => {
     mocks.getOperatorAdministrator.mockReset();
     return mocks.redirect.mockClear();
   });
 
-  it("redirects an anonymous or non-administrator request", async function () {
+  it("redirects an anonymous or non-administrator request", async () => {
     mocks.getOperatorAdministrator.mockResolvedValueOnce(null);
     return await expect(
       OperatorLayout({ children: "protected" })
     ).rejects.toThrow("REDIRECT:/sign-in?callbackURL=%2Foperator");
   });
 
-  return it("renders the standalone shell for the seeded administrator", async function () {
+  return it("renders the standalone shell for the seeded administrator", async () => {
     mocks.getOperatorAdministrator.mockResolvedValueOnce({
       userId: "admin-1",
       name: "Development Administrator",

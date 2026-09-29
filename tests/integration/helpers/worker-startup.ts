@@ -31,7 +31,7 @@ export const startWorkerWithRetry = async (
         server.signalCode === null;
       // Cleanup also drains the failed child's output before classifying it.
       await options.stop(server);
-      if (!(error instanceof WorkerExitedBeforeReadinessError) || !failedExit) {
+      if (!(error instanceof WorkerExitedBeforeReadinessError && failedExit)) {
         throw error;
       }
       const bindFailure = options

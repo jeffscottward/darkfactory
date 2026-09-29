@@ -2,35 +2,35 @@ import {
   encodeWorkflowRunsCursor,
   StaleWorkflowApprovalError,
   WorkflowConcurrencyError,
+  WorkflowMessageCapacityError,
   WorkflowPersistenceInputError,
   WorkflowProjectionIntegrityError,
-  WorkflowRunNotFoundError,
+  type WorkflowRepository,
   WorkflowRunCapacityError,
+  WorkflowRunNotFoundError,
   WorkflowRunSubmissionRateError,
   WorkflowRunTerminalError,
-  WorkflowMessageCapacityError,
-  type WorkflowRepository,
 } from "@darkfactory/db/server/workflow";
 import {
-  WorkflowPlanEvidenceError,
   parseWorkflowPlanEvidenceV1,
+  WorkflowPlanEvidenceError,
 } from "@darkfactory/jobs/server/plan-evidence";
 import {
-  WorkflowProjectionVerificationError,
   createWorkflowApplication,
-  workflowApprovalIdFor,
-  type WorkflowApplication,
   type VerifiedWorkflowProjection,
+  type WorkflowApplication,
+  WorkflowProjectionVerificationError,
+  workflowApprovalIdFor,
 } from "@darkfactory/jobs/server/workflow-runtime";
 import {
-  WorkflowRetryLimitReachedError,
   canonicalJsonV1,
-  createWorkflowApprovalBindingV1,
   createInitialWorkflowSnapshotV1,
+  createWorkflowApprovalBindingV1,
   hashWorkflowApprovalV1,
   parseWorkflowEffectScopeV1,
   replayWorkflowV1,
   sha256Hex,
+  WorkflowRetryLimitReachedError,
 } from "@darkfactory/state/workflow";
 
 import type {
@@ -38,10 +38,10 @@ import type {
   OperatorListInput,
 } from "../contract.ts";
 import {
-  OperatorWorkflowPortError,
-  operatorServiceErrorMessage,
   type OperatorActionContext,
   type OperatorWorkflowPort,
+  OperatorWorkflowPortError,
+  operatorServiceErrorMessage,
   type WorkflowOperatorDetail,
   type WorkflowOperatorRunSummary,
 } from "./operator-service.ts";
@@ -222,7 +222,7 @@ export const projectWorkflowPlanRevisions = (
           createdAt: new Date(entry.event.occurredAt),
         })
       );
-      if (revisions.length === 1_000) break;
+      if (revisions.length === 1000) break;
     }
   }
   return Object.freeze(revisions);

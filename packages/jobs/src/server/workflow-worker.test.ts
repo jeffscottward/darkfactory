@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
 import {
+  canonicalJsonV1,
   MAX_WORKFLOW_SCOPE_BYTES,
   MAX_WORKFLOW_SCOPE_PATH_BYTES,
-  canonicalJsonV1,
 } from "@darkfactory/state/workflow";
 
 import { describe, expect, it, vi } from "vitest";
@@ -13,22 +13,22 @@ import {
   OMP_VERIFIER_ARGV_IDENTITY,
   OMP_VERIFIER_COMMAND_IDENTITY,
   OMP_VERIFIER_CONFIG_DIGEST,
-  OmpProcessTerminationError,
-  OmpWorkspaceCleanupError,
   type OmpCliAdapter,
   type OmpExecutionResult,
+  OmpProcessTerminationError,
+  OmpWorkspaceCleanupError,
 } from "./omp.ts";
 import {
-  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
   hashWorkflowPlanEvidenceV1,
+  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
 } from "./plan-evidence.ts";
 import {
+  type ClaimedWorkflowEffect,
+  createWorkflowOutboxWorker,
   DEFAULT_WORKFLOW_HEARTBEAT_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
   WORKFLOW_EFFECT_HANDLER_V1,
   WORKFLOW_EFFECT_HANDLER_V2,
-  createWorkflowOutboxWorker,
-  type ClaimedWorkflowEffect,
   type WorkflowOutboxPort,
   WorkflowWorkerConfigurationError,
 } from "./workflow-worker.ts";

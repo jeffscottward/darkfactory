@@ -1,13 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
 import { build } from "vite";
+import { describe, expect, it } from "vitest";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
-describe("API server browser bundle", function () {
-  it("preserves browser poison for a side-effect-only server import", async function () {
+describe("API server browser bundle", () => {
+  it("preserves browser poison for a side-effect-only server import", async () => {
     const tempDir = await mkdtemp(join(packageRoot, ".server-browser-bundle-"));
     const entry = join(tempDir, "entry.mjs");
 
@@ -55,9 +55,8 @@ describe("API server browser bundle", function () {
     }
   });
 
-  return it("throws when the browser-only server poison module is evaluated directly", async function () {
-    return await expect(import("./server/unsupported.ts")).rejects.toThrow(
+  return it("throws when the browser-only server poison module is evaluated directly", async () =>
+    await expect(import("./server/unsupported.ts")).rejects.toThrow(
       "@darkfactory/api/server is unavailable in browser bundles"
-    );
-  });
+    ));
 });

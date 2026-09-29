@@ -33,13 +33,13 @@ const gatewayWith = (
   ),
 });
 
-afterEach(function () {
+afterEach(() => {
   cleanup();
   return vi.clearAllMocks();
 });
 
-describe("Wayfinder first-time planning journey", function () {
-  it("leads with one planning action and explains approval before code changes", async function () {
+describe("Wayfinder first-time planning journey", () => {
+  it("leads with one planning action and explains approval before code changes", async () => {
     const gateway = gatewayWith("unavailable");
     render(<WayfinderPanel gateway={gateway} />);
 
@@ -65,7 +65,7 @@ describe("Wayfinder first-time planning journey", function () {
     return expect(gateway.startWayfinder).not.toHaveBeenCalled();
   });
 
-  it("shows installed status and durably queues the bounded request before execution", async function () {
+  it("shows installed status and durably queues the bounded request before execution", async () => {
     const gateway = gatewayWith("installed");
     render(<WayfinderPanel gateway={gateway} />);
 
@@ -102,7 +102,7 @@ describe("Wayfinder first-time planning journey", function () {
     );
   });
 
-  it("uses shared loading semantics while planning is being queued", async function () {
+  it("uses shared loading semantics while planning is being queued", async () => {
     let resolveStart: (
       result: Awaited<ReturnType<WayfinderGateway["startWayfinder"]>>
     ) => void;
@@ -146,7 +146,7 @@ describe("Wayfinder first-time planning journey", function () {
     ).toBeDefined();
   });
 
-  it("rejects a planning request above the UTF-8 byte limit before the gateway call", async function () {
+  it("rejects a planning request above the UTF-8 byte limit before the gateway call", async () => {
     const gateway = gatewayWith("installed");
     render(<WayfinderPanel gateway={gateway} />);
     expect(await screen.findByText("Wayfinder is ready")).toBeDefined();
@@ -192,7 +192,7 @@ describe("Wayfinder first-time planning journey", function () {
     );
   });
 
-  it("rejects a multiline planning request before the gateway call", async function () {
+  it("rejects a multiline planning request before the gateway call", async () => {
     const gateway = gatewayWith("installed");
     render(<WayfinderPanel gateway={gateway} />);
     expect(await screen.findByText("Wayfinder is ready")).toBeDefined();
@@ -234,7 +234,7 @@ describe("Wayfinder first-time planning journey", function () {
     });
   });
 
-  it("fails closed when the availability request fails", async function () {
+  it("fails closed when the availability request fails", async () => {
     const gateway = gatewayWith("installed");
     vi.mocked(gateway.wayfinderStatus).mockRejectedValueOnce(
       new Error("status failed")
@@ -246,7 +246,7 @@ describe("Wayfinder first-time planning journey", function () {
     return expect(gateway.startWayfinder).not.toHaveBeenCalled();
   });
 
-  it("does not update state from settled availability work after unmount", async function () {
+  it("does not update state from settled availability work after unmount", async () => {
     let resolveStatus: WayfinderGateway["wayfinderStatus"] extends () => Promise<
       infer Result
     >
@@ -276,7 +276,7 @@ describe("Wayfinder first-time planning journey", function () {
     return await Promise.resolve();
   });
 
-  return it("shows a bounded request failure and permits a retry", async function () {
+  return it("shows a bounded request failure and permits a retry", async () => {
     const gateway = gatewayWith("installed");
     vi.mocked(gateway.startWayfinder)
       .mockRejectedValueOnce(new Error("private provider detail"))

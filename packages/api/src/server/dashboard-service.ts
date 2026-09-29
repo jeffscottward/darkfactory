@@ -1,9 +1,9 @@
 import type { SafePrincipal } from "@darkfactory/auth/types";
+import type { FeatureItem } from "@darkfactory/db/schema";
 import {
   DashboardPersistenceError,
   type DashboardRepository,
 } from "@darkfactory/db/server";
-import type { FeatureItem } from "@darkfactory/db/schema";
 
 import type { CapabilityProjection } from "../contract.ts";
 

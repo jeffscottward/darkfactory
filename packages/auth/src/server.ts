@@ -1,28 +1,30 @@
-import { eq } from "drizzle-orm";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import * as databaseSchema from "@darkfactory/db/schema";
 import {
-  withTransaction,
+  profiles,
+  USER_ROLES,
+  USER_STATUSES,
+  type UserRole,
+  type UserStatus,
+  userPreferences,
+  users,
+} from "@darkfactory/db/schema";
+import {
   type Database,
   type DatabaseExecutor,
   type Transaction,
+  withTransaction,
 } from "@darkfactory/db/server";
-import {
-  USER_ROLES,
-  USER_STATUSES,
-  profiles,
-  userPreferences,
-  users,
-  type UserRole,
-  type UserStatus,
-} from "@darkfactory/db/schema";
-import * as databaseSchema from "@darkfactory/db/schema";
 import type { EmailPort } from "@darkfactory/email";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
+import { eq } from "drizzle-orm";
 
 import { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.ts";
+
 export { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.ts";
+
 import {
   AUTH_BASE_URL,
   AUTHORIZATION_ERROR_CODES,
@@ -201,10 +203,7 @@ const inactiveStatusError = (status: unknown): APIError | undefined => {
 const MISSING_PLAIN_DATA_PROPERTY = Symbol("missing plain-data property");
 const INVALID_PLAIN_DATA = Symbol("invalid plain data");
 
-const readPlainDataProperty = function (
-  value: unknown,
-  key: PropertyKey
-): unknown {
+const readPlainDataProperty = (value: unknown, key: PropertyKey): unknown => {
   try {
     if (
       typeof value !== "object" ||
@@ -226,7 +225,7 @@ const readPlainDataProperty = function (
   }
 };
 
-const sessionUserStatus = function (session: unknown): unknown {
+const sessionUserStatus = (session: unknown): unknown => {
   const user = readPlainDataProperty(session, "user");
   if (user === MISSING_PLAIN_DATA_PROPERTY || user === INVALID_PLAIN_DATA) {
     return INVALID_PLAIN_DATA;
@@ -283,7 +282,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
         : {}),
     },
     hooks: {
-      before: createAuthMiddleware(async function (context) {
+      before: createAuthMiddleware(async (context) => {
         if (context.path !== "/sign-out") {
           const currentSession = readPlainDataProperty(
             context.context,
@@ -333,7 +332,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
       storage: "database",
       customStorage: rateLimitStorage,
       window: 60,
-      max: 1_000,
+      max: 1000,
       customRules: {
         "/request-password-reset": {
           window: 60,
@@ -570,35 +569,7 @@ export const ensureDevelopmentSeedIdentity = async (
       context = await createDevelopmentSeedAuth(database, options).$context;
     }
 
-    if (!exists) {
-      const created = await context.internalAdapter.createUser({
-        id: identity.userId,
-        name: identity.name,
-        email: identity.email,
-        emailVerified: true,
-        image: identity.image,
-        role: identity.role,
-        status: "active",
-      });
-      if (created.id !== identity.userId) {
-        throw new Error("Seed user received an unexpected identifier");
-      }
-      const account = await context.internalAdapter.linkAccount({
-        id: identity.accountId,
-        userId: identity.userId,
-        providerId: "credential",
-        accountId: identity.userId,
-        password: entry.passwordHash,
-      });
-      if (
-        account.id !== identity.accountId ||
-        account.userId !== identity.userId ||
-        account.providerId !== "credential" ||
-        account.accountId !== identity.userId
-      ) {
-        throw new Error("Seed credential received an unexpected identifier");
-      }
-    } else {
+    if (exists) {
       const current = await context.internalAdapter.findUserById(
         identity.userId
       );
@@ -650,6 +621,34 @@ export const ensureDevelopmentSeedIdentity = async (
         await context.internalAdapter.updateAccount(credential.id, {
           password: entry.passwordHash,
         });
+      }
+    } else {
+      const created = await context.internalAdapter.createUser({
+        id: identity.userId,
+        name: identity.name,
+        email: identity.email,
+        emailVerified: true,
+        image: identity.image,
+        role: identity.role,
+        status: "active",
+      });
+      if (created.id !== identity.userId) {
+        throw new Error("Seed user received an unexpected identifier");
+      }
+      const account = await context.internalAdapter.linkAccount({
+        id: identity.accountId,
+        userId: identity.userId,
+        providerId: "credential",
+        accountId: identity.userId,
+        password: entry.passwordHash,
+      });
+      if (
+        account.id !== identity.accountId ||
+        account.userId !== identity.userId ||
+        account.providerId !== "credential" ||
+        account.accountId !== identity.userId
+      ) {
+        throw new Error("Seed credential received an unexpected identifier");
       }
     }
 

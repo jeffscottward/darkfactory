@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { isE2eFixtureEnabled } from "../../../lib/e2e-fixtures.ts";
 import { PublicPage } from "../_components/public-content.tsx";
 
-const fixtureDelayMilliseconds = 1_500;
+const fixtureDelayMilliseconds = 1500;
 
 export default async function LoadingSmokePage() {
   if (!isE2eFixtureEnabled()) notFound();
@@ -16,7 +16,7 @@ export default async function LoadingSmokePage() {
       eyebrow="E2E fixture"
       title="The loading fixture completed."
     >
-      <p className="py-16 text-base leading-7 text-muted-foreground">
+      <p className="py-16 text-base text-muted-foreground leading-7">
         This route is available only to the isolated end-to-end server.
       </p>
     </PublicPage>

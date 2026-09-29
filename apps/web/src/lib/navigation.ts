@@ -7,15 +7,15 @@ import {
   Gauge,
   House,
   Info,
-  LayoutList,
   KeyRound,
+  LayoutList,
   LockKeyhole,
-  MapPin,
   Mail,
+  MapPin,
   Settings,
   Sparkles,
-  UserRound,
   UserPlus,
+  UserRound,
   Wrench,
 } from "lucide-react";
 import {

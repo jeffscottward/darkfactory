@@ -35,17 +35,17 @@ export const PublicErrorContent = ({ reset }: PublicErrorContentProps) => (
       aria-labelledby="public-error-actions-title"
       autoFocus
       className="grid gap-8 py-16 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background md:grid-cols-12 md:py-20"
-      tabIndex={-1}
       ref={focusErrorActions}
+      tabIndex={-1}
     >
       <div className="md:col-span-7">
         <h2
-          className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+          className="font-heading font-semibold text-3xl text-foreground tracking-tight"
           id="public-error-actions-title"
         >
           Retry the current route
         </h2>
-        <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
+        <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
           Try the render again. If the problem continues, the source index
           remains available as a separate destination.
         </p>

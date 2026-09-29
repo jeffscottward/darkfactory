@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -18,8 +18,8 @@ const resolveServerWith = (conditions: readonly string[]) => {
   );
 };
 
-describe("database package boundaries", function () {
-  it("poisons browser-only resolution without importing Node or database vendors", async function () {
+describe("database package boundaries", () => {
+  it("poisons browser-only resolution without importing Node or database vendors", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     );
@@ -52,7 +52,7 @@ describe("database package boundaries", function () {
     );
   });
 
-  it("resolves the real server for workerd or worker before browser", function () {
+  it("resolves the real server for workerd or worker before browser", () => {
     const workerd = resolveServerWith(["workerd", "browser"]);
     const worker = resolveServerWith(["worker", "browser"]);
 
@@ -68,7 +68,7 @@ describe("database package boundaries", function () {
     return expect(worker.stdout).toMatch(/\/src\/server\/index\.ts$/);
   });
 
-  it("keeps Node-only migration code out of the Worker runtime entry", async function () {
+  it("keeps Node-only migration code out of the Worker runtime entry", async () => {
     const [entrySource, clientSource] = await Promise.all([
       readFile(new URL("./index.ts", import.meta.url), "utf8"),
       readFile(new URL("./client.ts", import.meta.url), "utf8"),
@@ -79,7 +79,7 @@ describe("database package boundaries", function () {
     );
   });
 
-  return it("keeps the schema export free of Node and PostgreSQL client imports", async function () {
+  return it("keeps the schema export free of Node and PostgreSQL client imports", async () => {
     const schemaSource = await readFile(
       new URL("../schema/index.ts", import.meta.url),
       "utf8"

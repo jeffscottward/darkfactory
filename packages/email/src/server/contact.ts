@@ -11,13 +11,13 @@ import {
   type PreviewContactEmailPortOptions,
 } from "./contact-preview.ts";
 import {
-  renderContactEmail,
-  type RenderedContactEmail,
-} from "./render-contact.ts";
-import {
   createRemotePreviewContactEmailPort,
   type RemotePreviewPortOptions,
 } from "./remote-preview.ts";
+import {
+  type RenderedContactEmail,
+  renderContactEmail,
+} from "./render-contact.ts";
 
 const MAILBOX_PATTERN =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -134,7 +134,7 @@ export const createResendContactEmailPort = (
       contactFailure("disabled", "CONTACT_RECIPIENT_INVALID")
     );
   }
-  if (!apiKey || !from || /[\r\n]/.test(from)) {
+  if (!(apiKey && from) || /[\r\n]/.test(from)) {
     return fixedContactPort(
       contactFailure("disabled", "CONTACT_PROVIDER_NOT_CONFIGURED")
     );

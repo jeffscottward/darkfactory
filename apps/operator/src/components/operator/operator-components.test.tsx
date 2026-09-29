@@ -24,8 +24,8 @@ import {
   operatorRunTitle,
 } from "./operator-format.ts";
 import {
-  OperatorSubmitFormView,
   type OperatorSubmitFeedback,
+  OperatorSubmitFormView,
 } from "./operator-workspace.tsx";
 import { RunMonitor, runsByWorkflowState } from "./run-monitor.tsx";
 import { RunTimeline } from "./run-timeline.tsx";
@@ -60,8 +60,8 @@ const implementationPlan = {
   redacted: true,
 } as const;
 
-describe("operator workflow components", function () {
-  it("groups runs into a plain-language monitor and omits empty stages", function () {
+describe("operator workflow components", () => {
+  it("groups runs into a plain-language monitor and omits empty stages", () => {
     const runs = [
       run({ id: "older", updatedAt: new Date("2026-07-28T12:00:00.000Z") }),
       run({
@@ -103,12 +103,12 @@ describe("operator workflow components", function () {
     expect(markup).toContain('aria-current="true"');
     return expect(markup).toContain("bg-accent");
   });
-  it("shows the exact approval binding and fails closed for a stale conflict", function () {
+  it("shows the exact approval binding and fails closed for a stale conflict", () => {
     const markup = renderToStaticMarkup(
       <ApprovalPanel
         approval={{ ...approval, stale: true }}
-        implementationPlan={implementationPlan}
         busyAction={null}
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -126,7 +126,7 @@ describe("operator workflow components", function () {
     return expect(markup).toContain("Reload plan");
   });
 
-  it("renders only the bounded redacted evidence projection and exact journal metadata", function () {
+  it("renders only the bounded redacted evidence projection and exact journal metadata", () => {
     const evidence = [
       {
         id: "evidence-1",
@@ -161,7 +161,7 @@ describe("operator workflow components", function () {
     return expect(markup).toContain("Redacted");
   });
 
-  it("keeps the bounded submission form labelled, stackable, and disabled while pending", function () {
+  it("keeps the bounded submission form labelled, stackable, and disabled while pending", () => {
     const feedback: OperatorSubmitFeedback = {
       tone: "error",
       message: "The operator request could not be completed. Try again.",
@@ -194,12 +194,14 @@ describe("operator workflow components", function () {
     return expect(markup).toContain("Advanced");
   });
 
-  it("renders the human request, planner plan, and non-executing operator notes as one conversation", function () {
+  it("renders the human request, planner plan, and non-executing operator notes as one conversation", () => {
     const markup = renderToStaticMarkup(
       <ConversationPanel
         busy={false}
         implementationPlan={implementationPlan}
-        runState="awaitingApproval"
+        messages={[]}
+        onSend={vi.fn(async () => true)}
+        originalRequest="Plan a safe operator cutover"
         planRevisions={[
           {
             message: "Keep the release steps explicit.",
@@ -210,9 +212,7 @@ describe("operator workflow components", function () {
             createdAt: new Date("2026-07-29T12:10:00.000Z"),
           },
         ]}
-        messages={[]}
-        onSend={vi.fn(async () => true)}
-        originalRequest="Plan a safe operator cutover"
+        runState="awaitingApproval"
       />
     );
     expect(markup).toContain("Conversation");
@@ -244,17 +244,17 @@ describe("operator workflow components", function () {
       <ConversationPanel
         busy={false}
         implementationPlan={implementationPlan}
-        runState="awaitingApproval"
         messages={[]}
         onSend={vi.fn(async () => true)}
         originalRequest="Plan a safe operator cutover"
         planRevisions={[]}
+        runState="awaitingApproval"
       />
     );
     return expect(withoutRevisions).not.toContain("You requested changes");
   });
 
-  it("describes a missing plan from the authoritative run lifecycle", function () {
+  it("describes a missing plan from the authoritative run lifecycle", () => {
     const missingPlanMarkup = (state: OperatorRunSummary["state"]): string => {
       return renderToStaticMarkup(
         <ConversationPanel
@@ -292,12 +292,12 @@ describe("operator workflow components", function () {
     return results;
   });
 
-  it("renders absent, fresh, conflicted, and busy approval checkpoints", function () {
+  it("renders absent, fresh, conflicted, and busy approval checkpoints", () => {
     const absent = renderToStaticMarkup(
       <ApprovalPanel
         approval={null}
-        implementationPlan={null}
         busyAction={null}
+        implementationPlan={null}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -309,8 +309,8 @@ describe("operator workflow components", function () {
     const fresh = renderToStaticMarkup(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction={null}
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -324,8 +324,8 @@ describe("operator workflow components", function () {
     const truncatedPlan = renderToStaticMarkup(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={{ ...implementationPlan, truncated: true }}
         busyAction={null}
+        implementationPlan={{ ...implementationPlan, truncated: true }}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -337,9 +337,9 @@ describe("operator workflow components", function () {
     const conflicted = renderToStaticMarkup(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction={null}
         conflictMessage="A newer journal head is available."
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -351,8 +351,8 @@ describe("operator workflow components", function () {
     const approving = renderToStaticMarkup(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction="approve"
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -361,8 +361,8 @@ describe("operator workflow components", function () {
     const rejecting = renderToStaticMarkup(
       <ApprovalPanel
         approval={approval}
-        implementationPlan={implementationPlan}
         busyAction="reject"
+        implementationPlan={implementationPlan}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onReload={vi.fn()}
@@ -372,7 +372,7 @@ describe("operator workflow components", function () {
     return expect(rejecting).toContain("Rejecting plan");
   });
 
-  it("renders evidence empty, storage-safe, redacted, and policy-removed projections", function () {
+  it("renders evidence empty, storage-safe, redacted, and policy-removed projections", () => {
     const safeEvidence: readonly OperatorEvidenceItem[] = [
       {
         id: "safe",
@@ -405,7 +405,7 @@ describe("operator workflow components", function () {
     return expect(populated).toContain("summary");
   });
 
-  it("distinguishes a queued submission from the planning lifecycle state", function () {
+  it("distinguishes a queued submission from the planning lifecycle state", () => {
     const markup = renderToStaticMarkup(
       <>
         <WorkflowStatus state="planning" />
@@ -429,7 +429,7 @@ describe("operator workflow components", function () {
     return expect(markup).not.toContain("Start planning");
   });
 
-  it("renders an empty timeline and normalizes event labels including empty segments", function () {
+  it("renders an empty timeline and normalizes event labels including empty segments", () => {
     const empty = renderToStaticMarkup(<RunTimeline entries={[]} />);
     const populated = renderToStaticMarkup(
       <RunTimeline
@@ -451,7 +451,7 @@ describe("operator workflow components", function () {
     return expect(populated).toContain("Sequence 8 · event-hash");
   });
 
-  it("formats run titles, UTC dates, and short and long journal hashes", function () {
+  it("formats run titles, UTC dates, and short and long journal hashes", () => {
     const timestamp = new Date("2026-07-29T12:00:00.000Z");
     expect(operatorRunTitle({ id: "fallback", title: undefined })).toBe(
       "fallback"
@@ -470,7 +470,7 @@ describe("operator workflow components", function () {
     );
   });
 
-  return it("renders warning, success, and absent submission feedback without an error role", function () {
+  return it("renders warning, success, and absent submission feedback without an error role", () => {
     const values = {
       title: "Pilot run",
       repositoryId: "darkfactory",

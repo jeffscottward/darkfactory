@@ -5,10 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { AccountFeedback } from "./account-feedback.tsx";
 import {
+  type ChangePasswordInput,
   createBrowserSecurityGateway,
   safeSecurityFeedback,
   securityFailureKind,
-  type ChangePasswordInput,
 } from "./security-client.ts";
 import {
   PasswordForm,
@@ -111,7 +111,7 @@ export const SecurityPageClient = () => {
       />
       <section
         aria-labelledby="change-password"
-        className="space-y-6 border-t border-border pt-8"
+        className="space-y-6 border-border border-t pt-8"
       >
         <SectionHeader
           description="Changing the password requires the current password. Password values are never displayed after entry."

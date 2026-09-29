@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
-
+import { runGraphCli } from "./cli.ts";
 import {
   calculateContentDigest,
   calculateGraphDigest,
   calculateSourceFingerprint,
-  parseGraphConfig,
-  runGraphAction,
   type GraphDependencies,
   type GraphFileSystem,
+  parseGraphConfig,
+  runGraphAction,
 } from "./graph.ts";
-import { runGraphCli } from "./cli.ts";
 
 const CONFIG = JSON.stringify(
   {

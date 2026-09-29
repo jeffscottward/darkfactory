@@ -1,9 +1,9 @@
+import type { UserPreferences } from "../schema/index.ts";
 import type { DatabaseExecutor } from "../server/client.ts";
 import {
   createUserPreferencesRepository,
   type UpsertUserPreferencesInput,
 } from "../server/repositories.ts";
-import type { UserPreferences } from "../schema/index.ts";
 
 export const DEVELOPMENT_PREFERENCES: readonly UpsertUserPreferencesInput[] =
   Object.freeze([
@@ -60,7 +60,7 @@ export const convergeDevelopmentPreferences = async (
   const repository = createUserPreferencesRepository(database);
   for (const preferences of DEVELOPMENT_PREFERENCES) {
     const current = await repository.findByUserId(preferences.userId);
-    if (!current || !matchesPreferences(current, preferences)) {
+    if (!(current && matchesPreferences(current, preferences))) {
       await repository.upsert(preferences);
     }
   }

@@ -7,15 +7,16 @@ var range: (start: number, end: number) => number[] = (start, end) => {
   }
   return arr;
 };
+
 import { describe, expect, it } from "vitest";
 
 import type { SemanticEvent } from "./port.ts";
 import {
-  REDACTED,
-  TRUNCATED,
   freezeSnapshot,
+  REDACTED,
   redact,
   redactSemanticEvent,
+  TRUNCATED,
 } from "./redaction.ts";
 
 const makeSemanticEvent = (
@@ -49,8 +50,8 @@ const expectInvalidSemanticEvent = (input: unknown, secret: string): void => {
   expect(String(thrown)).not.toContain(secret);
 };
 
-describe("redact", function () {
-  it("recursively removes every prohibited observability field without mutating the input", function () {
+describe("redact", () => {
+  it("recursively removes every prohibited observability field without mutating the input", () => {
     const input = {
       safe: "kept",
       password: "password-value",
@@ -101,7 +102,7 @@ describe("redact", function () {
     );
   });
 
-  it("scrubs secret patterns even when an attacker hides them under an innocent key", function () {
+  it("scrubs secret patterns even when an attacker hides them under an innocent key", () => {
     const output = redact({
       note: "Authorization: Bearer abc.def.ghi token=hidden password: hunter2 contact member@domain.test",
       jwt: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
@@ -115,7 +116,7 @@ describe("redact", function () {
     return expect(serialized).not.toContain("eyJhbGci");
   });
 
-  it("redacts only valid bounded bare Basic credentials", function () {
+  it("redacts only valid bounded bare Basic credentials", () => {
     const standardCredential = "dXNlcjpwYXNz";
     const urlCredential = "-zpwYXNz";
     const emptyUsernameCredential = "OnBhc3M=";
@@ -155,7 +156,7 @@ describe("redact", function () {
     });
     const raisedBoundOutput = redact(
       `before Basic ${raisedBoundCredential}! after`,
-      { maxStringLength: 4_096 }
+      { maxStringLength: 4096 }
     );
 
     expectNoSecrets(output, [
@@ -194,7 +195,7 @@ describe("redact", function () {
     return expect(raisedBoundOutput).toBe(`before Basic ${REDACTED}! after`);
   });
 
-  it("redacts embedded compound credentials while preserving adjacent prose", function () {
+  it("redacts embedded compound credentials while preserving adjacent prose", () => {
     const secrets = [
       "raw-access-snake",
       "raw-access-camel",
@@ -390,7 +391,7 @@ describe("redact", function () {
     });
   });
 
-  it("preserves assignment quotes and removes URI userinfo credentials", function () {
+  it("preserves assignment quotes and removes URI userinfo credentials", () => {
     const safeUri = "before custom+ssh://host.example/path after";
     const output = redact({
       singleQuoted: "before webhookSecret='raw-single-quoted-secret' after",
@@ -419,12 +420,12 @@ describe("redact", function () {
     ]);
   });
 
-  it("terminates cycles, throwing getters, excessive depth, entries, and strings with deterministic markers", function () {
+  it("terminates cycles, throwing getters, excessive depth, entries, and strings with deterministic markers", () => {
     const cyclic: Record<string, unknown> = { safe: "ok" };
     cyclic["self"] = cyclic;
     Object.defineProperty(cyclic, "throwing", {
       enumerable: true,
-      get: function () {
+      get() {
         throw new Error("raw-provider-body");
       },
     });
@@ -447,11 +448,11 @@ describe("redact", function () {
     return expect(JSON.stringify(output)).not.toContain("secret-tail");
   });
 
-  it("contains revoked proxies, hostile array lengths, oversized objects, and sensitive key names", function () {
+  it("contains revoked proxies, hostile array lengths, oversized objects, and sensitive key names", () => {
     const revoked = Proxy.revocable([], {});
     revoked.revoke();
     const hostileArray = new Proxy([1, 2, 3], {
-      get: function (target, key, receiver) {
+      get(target, key, receiver) {
         if (key === "length") {
           throw new Error("raw-array-secret");
         }
@@ -462,7 +463,7 @@ describe("redact", function () {
     const accessorArray = [1];
     Object.defineProperty(accessorArray, "0", {
       enumerable: true,
-      get: function () {
+      get() {
         accessorReads += 1;
         throw new Error("raw-array-accessor-secret");
       },
@@ -495,7 +496,7 @@ describe("redact", function () {
     return expect(serialized).toContain(TRUNCATED);
   });
 
-  it("freezes only bounded data-property snapshots and rejects unsafe object graphs", function () {
+  it("freezes only bounded data-property snapshots and rejects unsafe object graphs", () => {
     const safe = { nested: { value: "kept" }, list: [1, 2] };
     expect(freezeSnapshot(safe)).toBe(safe);
     expect(Object.isFrozen(safe)).toBe(true);
@@ -505,7 +506,7 @@ describe("redact", function () {
     const getter = {};
     Object.defineProperty(getter, "value", {
       enumerable: true,
-      get: function () {
+      get() {
         throw new Error("raw-getter-secret");
       },
     });
@@ -517,9 +518,7 @@ describe("redact", function () {
     revoked.revoke();
 
     for (const unsafe of [getter, customPrototype, revoked.proxy]) {
-      expect(function () {
-        return freezeSnapshot(unsafe);
-      }).toThrow("Unsafe snapshot value");
+      expect(() => freezeSnapshot(unsafe)).toThrow("Unsafe snapshot value");
     }
 
     const symbolKey = Symbol("raw-freeze-symbol-secret");
@@ -544,12 +543,10 @@ describe("redact", function () {
       excessive["child"] = child;
       excessive = child;
     }
-    return expect(function () {
-      return freezeSnapshot(root);
-    }).toThrow("Unsafe snapshot value");
+    return expect(() => freezeSnapshot(root)).toThrow("Unsafe snapshot value");
   });
 
-  it("fails closed on revoked identity checks, oversized snapshots, and descriptor traps", function () {
+  it("fails closed on revoked identity checks, oversized snapshots, and descriptor traps", () => {
     const revoked = Proxy.revocable(
       { value: "raw-revoked-array-check-secret" },
       {}
@@ -562,7 +559,7 @@ describe("redact", function () {
     let descriptorReads = 0;
     const safeTarget = { child: { value: "kept" } };
     const safeProxy = new Proxy(safeTarget, {
-      getOwnPropertyDescriptor: function (target, key) {
+      getOwnPropertyDescriptor(target, key) {
         descriptorReads += 1;
         return Reflect.getOwnPropertyDescriptor(target, key);
       },
@@ -591,7 +588,7 @@ describe("redact", function () {
     const descriptorFailure = new Proxy(
       { child: { value: "raw-freeze-descriptor-secret" } },
       {
-        getOwnPropertyDescriptor: function (target, key) {
+        getOwnPropertyDescriptor(target, key) {
           if (key === "child") {
             throw new Error("descriptor unavailable");
           }
@@ -612,7 +609,7 @@ describe("redact", function () {
     );
   });
 
-  it("handles primitives and unsupported values without leaking descriptions", function () {
+  it("handles primitives and unsupported values without leaking descriptions", () => {
     const secretSymbol = Symbol("raw-secret-description");
     const output = redact({
       nil: null,
@@ -622,7 +619,7 @@ describe("redact", function () {
       positiveInfinity: Number.POSITIVE_INFINITY,
       negativeInfinity: Number.NEGATIVE_INFINITY,
       symbol: secretSymbol,
-      fn: function () {
+      fn() {
         return "raw-function-body";
       },
     });
@@ -640,7 +637,7 @@ describe("redact", function () {
     return expect(JSON.stringify(output)).not.toContain("raw-secret");
   });
 
-  it("honors exact depth, entry, key, node, and string boundaries before truncating overflow", function () {
+  it("honors exact depth, entry, key, node, and string boundaries before truncating overflow", () => {
     const output = redact(
       {
         exactDepth: { value: "kept" },
@@ -672,7 +669,7 @@ describe("redact", function () {
     ]);
   });
 
-  it("fails closed when a string bound splits a credential pattern", function () {
+  it("fails closed when a string bound splits a credential pattern", () => {
     const uriSecret = "cross-boundary-password";
     const uriPrefix = "postgresql://user:";
     const uri = `${uriPrefix}${uriSecret}@host.example/database`;
@@ -758,7 +755,7 @@ describe("redact", function () {
     return expectNoSecrets(zeroDepth, ["raw-zero-depth-secret"]);
   });
 
-  it("uses stable safe markers for sparse arrays, symbols, and non-plain prototypes", function () {
+  it("uses stable safe markers for sparse arrays, symbols, and non-plain prototypes", () => {
     const sparse: unknown[] = new Array(3);
     sparse[1] = {
       safe: "kept",
@@ -822,11 +819,11 @@ describe("redact", function () {
     ]);
   });
 
-  it("contains proxy traps with deterministic markers and never invokes array accessors", function () {
+  it("contains proxy traps with deterministic markers and never invokes array accessors", () => {
     const prototypeFailure = new Proxy(
       { value: "raw-prototype-proxy-value" },
       {
-        getPrototypeOf: function () {
+        getPrototypeOf() {
           throw new Error("raw-prototype-proxy-secret");
         },
       }
@@ -834,13 +831,13 @@ describe("redact", function () {
     const enumerationFailure = new Proxy(
       { value: "raw-enumeration-proxy-value" },
       {
-        ownKeys: function () {
+        ownKeys() {
           throw new Error("raw-enumeration-proxy-secret");
         },
       }
     );
     const descriptorFailure = new Proxy(["raw-descriptor-proxy-secret"], {
-      getOwnPropertyDescriptor: function (target, key) {
+      getOwnPropertyDescriptor(target, key) {
         if (key === "0") {
           throw new Error("descriptor unavailable");
         }
@@ -851,7 +848,7 @@ describe("redact", function () {
     const accessor = [1];
     Object.defineProperty(accessor, "0", {
       enumerable: true,
-      get: function () {
+      get() {
         accessorReads += 1;
         return "raw-accessor-value";
       },
@@ -879,7 +876,7 @@ describe("redact", function () {
     return expectNoSecrets(accessorOutput, ["raw-accessor-value"]);
   });
 
-  it("marks only active circular paths while safely revisiting shared objects", function () {
+  it("marks only active circular paths while safely revisiting shared objects", () => {
     const shared = {
       value: "kept",
       password: "raw-shared-secret",
@@ -909,7 +906,7 @@ describe("redact", function () {
     ]);
   });
 
-  return it("freezes circular plain snapshots and rejects symbol or proxy freeze failures", function () {
+  return it("freezes circular plain snapshots and rejects symbol or proxy freeze failures", () => {
     const root: Record<string, unknown> = {};
     const child: Record<string, unknown> = { parent: root };
     root["child"] = child;
@@ -926,22 +923,22 @@ describe("redact", function () {
     const freezeFailure = new Proxy(
       {},
       {
-        preventExtensions: function () {
+        preventExtensions() {
           throw new Error("raw-freeze-proxy-secret");
         },
       }
     );
-    expect(function () {
-      return freezeSnapshot(symbolSnapshot);
-    }).toThrowError(new TypeError("Unsafe snapshot value"));
-    return expect(function () {
-      return freezeSnapshot(freezeFailure);
-    }).toThrowError(new TypeError("Unsafe snapshot value"));
+    expect(() => freezeSnapshot(symbolSnapshot)).toThrowError(
+      new TypeError("Unsafe snapshot value")
+    );
+    return expect(() => freezeSnapshot(freezeFailure)).toThrowError(
+      new TypeError("Unsafe snapshot value")
+    );
   });
 });
 
-describe("redactSemanticEvent", function () {
-  it("emits a frozen canonical correlation and redacts every retained text field", function () {
+describe("redactSemanticEvent", () => {
+  it("emits a frozen canonical correlation and redacts every retained text field", () => {
     const correlation = Object.create(null) as Record<string, unknown>;
     Object.assign(correlation, {
       requestId: "request member@domain.test",
@@ -1031,7 +1028,7 @@ describe("redactSemanticEvent", function () {
     ]);
   });
 
-  it("preserves exact correlation field limits and truncates only overflow", function () {
+  it("preserves exact correlation field limits and truncates only overflow", () => {
     const exactCorrelation = {
       requestId: "r".repeat(256),
       traceId: "t".repeat(32),
@@ -1074,7 +1071,7 @@ describe("redactSemanticEvent", function () {
     ]);
   });
 
-  it("rejects missing, primitive, array, prototype, and revoked correlation containers", function () {
+  it("rejects missing, primitive, array, prototype, and revoked correlation containers", () => {
     const missingCorrelation = {
       ...makeSemanticEvent(),
       ignored: "raw-missing-correlation-secret",
@@ -1105,7 +1102,7 @@ describe("redactSemanticEvent", function () {
     const prototypeFailure = new Proxy(
       { requestId: "request-1" },
       {
-        getPrototypeOf: function () {
+        getPrototypeOf() {
           throw new Error("raw-correlation-prototype-trap-secret");
         },
       }
@@ -1133,7 +1130,7 @@ describe("redactSemanticEvent", function () {
     return results;
   });
 
-  it("rejects missing or invalid request IDs and omits invalid optional correlation fields", function () {
+  it("rejects missing or invalid request IDs and omits invalid optional correlation fields", () => {
     const symbolRequestId = Symbol("raw-request-symbol-secret");
     const invalid: ReadonlyArray<readonly [Record<string, unknown>, string]> = [
       [{ ignored: "raw-missing-request-secret" }, "raw-missing-request-secret"],
@@ -1176,12 +1173,12 @@ describe("redactSemanticEvent", function () {
     ]);
   });
 
-  it("rejects correlation and event data accessors or descriptor proxy failures without invoking accessors", function () {
+  it("rejects correlation and event data accessors or descriptor proxy failures without invoking accessors", () => {
     let correlationReads = 0;
     const accessorCorrelation: Record<string, unknown> = {};
     Object.defineProperty(accessorCorrelation, "requestId", {
       enumerable: true,
-      get: function () {
+      get() {
         correlationReads += 1;
         return "raw-correlation-accessor-secret";
       },
@@ -1195,7 +1192,7 @@ describe("redactSemanticEvent", function () {
     const descriptorCorrelation = new Proxy(
       { requestId: "request-1" },
       {
-        getOwnPropertyDescriptor: function (target, key) {
+        getOwnPropertyDescriptor(target, key) {
           if (key === "requestId") {
             throw new Error("raw-correlation-descriptor-secret");
           }
@@ -1215,7 +1212,7 @@ describe("redactSemanticEvent", function () {
     } as unknown as Record<string, unknown>;
     Object.defineProperty(accessorEvent, "name", {
       enumerable: true,
-      get: function () {
+      get() {
         eventReads += 1;
         return "raw-event-accessor-secret";
       },
@@ -1228,7 +1225,7 @@ describe("redactSemanticEvent", function () {
         ignored: "raw-attribute-descriptor-secret",
       }),
       {
-        getOwnPropertyDescriptor: function (target, key) {
+        getOwnPropertyDescriptor(target, key) {
           if (key === "attributes") {
             throw new Error("raw-attribute-descriptor-secret");
           }
@@ -1242,7 +1239,7 @@ describe("redactSemanticEvent", function () {
     );
   });
 
-  it("sanitizes own data-property attributes and omits missing attributes", function () {
+  it("sanitizes own data-property attributes and omits missing attributes", () => {
     const sparse: unknown[] = new Array(2);
     sparse[1] = "member@domain.test";
     const attributes: Record<string, unknown> = {
@@ -1276,7 +1273,7 @@ describe("redactSemanticEvent", function () {
     ]);
   });
 
-  it("rejects own attributes accessors without invoking throwing or pending getters", function () {
+  it("rejects own attributes accessors without invoking throwing or pending getters", () => {
     let throwingReads = 0;
     const throwing = {
       ...makeSemanticEvent(),
@@ -1284,7 +1281,7 @@ describe("redactSemanticEvent", function () {
     } as unknown as Record<string, unknown>;
     Object.defineProperty(throwing, "attributes", {
       enumerable: true,
-      get: function () {
+      get() {
         throwingReads += 1;
         throw new Error("raw-throwing-attributes-secret");
       },
@@ -1299,11 +1296,9 @@ describe("redactSemanticEvent", function () {
     } as unknown as Record<string, unknown>;
     Object.defineProperty(pending, "attributes", {
       enumerable: true,
-      get: function () {
+      get() {
         pendingReads += 1;
-        return new Promise<never>(function () {
-          return undefined;
-        });
+        return new Promise<never>(() => undefined);
       },
     });
     expectInvalidSemanticEvent(pending, "raw-pending-attributes-secret");
@@ -1315,7 +1310,7 @@ describe("redactSemanticEvent", function () {
     } as unknown as Record<string, unknown>;
     Object.defineProperty(setterOnly, "attributes", {
       enumerable: true,
-      set: function (_value: unknown) {
+      set(_value: unknown) {
         return undefined;
       },
     });
@@ -1325,7 +1320,7 @@ describe("redactSemanticEvent", function () {
     );
   });
 
-  it("omits unsafe attribute containers and invalid optional event fields", function () {
+  it("omits unsafe attribute containers and invalid optional event fields", () => {
     const revokedAttributes = Proxy.revocable(
       { password: "raw-revoked-attribute-secret" },
       {}
@@ -1367,7 +1362,7 @@ describe("redactSemanticEvent", function () {
     ]);
   });
 
-  it("retains each canonical source and both outcomes", function () {
+  it("retains each canonical source and both outcomes", () => {
     const results1 = [];
     for (const source of ["api", "system", "web", "worker"] as const) {
       const output = redactSemanticEvent(
@@ -1384,13 +1379,13 @@ describe("redactSemanticEvent", function () {
     return results1;
   });
 
-  it("rejects non-numeric, fractional, and negative reflective array lengths", function () {
+  it("rejects non-numeric, fractional, and negative reflective array lengths", () => {
     const hostileLengths = ["1", 1.5, -1] as const;
 
     const results2 = [];
     for (const length of hostileLengths) {
       const array = new Proxy([0], {
-        get: function (target, key, receiver) {
+        get(target, key, receiver) {
           return key === "length" ? length : Reflect.get(target, key, receiver);
         },
       });
@@ -1400,7 +1395,7 @@ describe("redactSemanticEvent", function () {
     return results2;
   });
 
-  return it("skips inherited enumeration and contains a disappearing own descriptor", function () {
+  return it("skips inherited enumeration and contains a disappearing own descriptor", () => {
     const inheritedKey = "__observability_coverage_inherited__";
     Object.defineProperty(Object.prototype, inheritedKey, {
       configurable: true,
@@ -1419,7 +1414,7 @@ describe("redactSemanticEvent", function () {
     const disappearing = new Proxy(
       { value: "raw-disappearing-secret" },
       {
-        getOwnPropertyDescriptor: function (target, key) {
+        getOwnPropertyDescriptor(target, key) {
           if (key === "value") {
             descriptorReads += 1;
             if (descriptorReads === 3) {

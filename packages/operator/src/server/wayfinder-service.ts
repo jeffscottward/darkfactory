@@ -5,9 +5,9 @@ import {
   type OmpCliAdapterOptions,
 } from "@darkfactory/jobs/server/omp";
 import {
-  WayfinderRequestError,
   createLocalWayfinderExecutionAdapter,
   createWayfinderWorkflowService,
+  WayfinderRequestError,
 } from "@darkfactory/jobs/server/wayfinder";
 import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime";
 
@@ -19,8 +19,8 @@ import {
 } from "../contract.ts";
 import {
   OperatorServiceError,
-  operatorServiceErrorMessage,
   type OperatorServiceErrorCode,
+  operatorServiceErrorMessage,
 } from "./operator-service.ts";
 
 export type OperatorWayfinderPort = Readonly<{

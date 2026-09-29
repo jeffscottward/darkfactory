@@ -1,20 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  OPERATOR_APP_ORIGIN,
   assertLocalOperatorEnvironment,
   isOperatorMutationDenied,
+  OPERATOR_APP_ORIGIN,
   safeOperatorCallbackPath,
 } from "./operator-environment.ts";
 
-describe("local operator environment", function () {
-  it("uses the dedicated HTTPS operator origin", function () {
-    return expect(OPERATOR_APP_ORIGIN).toBe(
-      "https://operator.darkfactory.localhost"
-    );
-  });
+describe("local operator environment", () => {
+  it("uses the dedicated HTTPS operator origin", () =>
+    expect(OPERATOR_APP_ORIGIN).toBe("https://operator.darkfactory.localhost"));
 
-  it("rejects production assembly", function () {
+  it("rejects production assembly", () => {
     expect(() =>
       assertLocalOperatorEnvironment({ APP_ENV: "production" })
     ).toThrow("Operator app is development-only");
@@ -26,7 +23,7 @@ describe("local operator environment", function () {
     ).not.toThrow();
   });
 
-  it("allows reads but denies cross-origin or cross-site mutations", function () {
+  it("allows reads but denies cross-origin or cross-site mutations", () => {
     expect(
       isOperatorMutationDenied(
         new Request(`${OPERATOR_APP_ORIGIN}/api/orpc/operator/workspace`)
@@ -64,7 +61,7 @@ describe("local operator environment", function () {
     ).toBe(true);
   });
 
-  it("accepts only local operator callbacks", function () {
+  it("accepts only local operator callbacks", () => {
     expect(safeOperatorCallbackPath("/operator/runs/run-1?view=timeline")).toBe(
       "/operator/runs/run-1?view=timeline"
     );
@@ -73,8 +70,8 @@ describe("local operator environment", function () {
     return expect(safeOperatorCallbackPath("/dashboard")).toBe("/operator");
   });
 
-  it("rejects every unsafe callback shape before navigation", function () {
-    const tooLong = `/operator/${"a".repeat(2_048)}`;
+  it("rejects every unsafe callback shape before navigation", () => {
+    const tooLong = `/operator/${"a".repeat(2048)}`;
     const results = [];
     for (const value of [
       undefined,
@@ -91,12 +88,12 @@ describe("local operator environment", function () {
     return results;
   });
 
-  it("accepts the workspace root but rejects an adjacent path prefix", function () {
+  it("accepts the workspace root but rejects an adjacent path prefix", () => {
     expect(safeOperatorCallbackPath("/operator")).toBe("/operator");
     return expect(safeOperatorCallbackPath("/operatorish")).toBe("/operator");
   });
 
-  return it("fails closed when URL parsing fails or resolves to another origin", function () {
+  return it("fails closed when URL parsing fails or resolves to another origin", () => {
     const originalURL = URL;
     try {
       vi.stubGlobal(

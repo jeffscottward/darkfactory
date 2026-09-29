@@ -12,41 +12,41 @@ import { implement } from "@orpc/server";
 
 import {
   appContract,
-  type FeatureItemInput,
-  type ThemePreferenceOutput,
   type ContactSubmitInput,
   type ContactSubmitOutput,
+  type FeatureItemInput,
+  type ThemePreferenceOutput,
 } from "../contract.ts";
+import { generatedFeatureRouters } from "../generated/router-registry.ts";
 import {
   AccountServiceError,
-  createAccountService,
   type AccountServiceErrorCode,
+  createAccountService,
 } from "./account-service.ts";
 import {
   AdminUsersServiceError,
-  createAdminUsersService,
   type AdminUsersServiceErrorCode,
+  createAdminUsersService,
 } from "./admin-users-service.ts";
 import {
   ContactServiceError,
-  createContactService,
   type ContactServiceErrorCode,
+  createContactService,
 } from "./contact-service.ts";
-import {
-  DashboardServiceError,
-  createDashboardService,
-  type DashboardServiceErrorCode,
-} from "./dashboard-service.ts";
 import type { ApiContext } from "./context.ts";
 import {
-  FeatureServiceError,
-  ThemePreferenceServiceError,
+  createDashboardService,
+  DashboardServiceError,
+  type DashboardServiceErrorCode,
+} from "./dashboard-service.ts";
+import {
   createFeatureItemService,
   createThemePreferenceService,
+  FeatureServiceError,
   type FeatureServiceErrorCode,
+  ThemePreferenceServiceError,
   type ThemePreferenceServiceErrorCode,
 } from "./service.ts";
-import { generatedFeatureRouters } from "../generated/router-registry.ts";
 
 const api = implement(appContract).$context<ApiContext>();
 

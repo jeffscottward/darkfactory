@@ -1,11 +1,10 @@
+import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import * as client from "@darkfactory/auth/client";
 import * as databaseAuth from "@darkfactory/auth/db";
 import * as server from "@darkfactory/auth/server";
 import * as types from "@darkfactory/auth/types";
-
-import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -14,8 +13,8 @@ const browserError =
 const forbiddenServerDependencies =
   /better-auth|drizzle|\bpg\b|resend|node:fs|DATABASE_URL|BETTER_AUTH_SECRET/i;
 
-describe("auth package boundaries", function () {
-  it("routes browser server imports to a dependency-free poison module", async function () {
+describe("auth package boundaries", () => {
+  it("routes browser server imports to a dependency-free poison module", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8")
     );
@@ -80,7 +79,7 @@ describe("auth package boundaries", function () {
     return undefined;
   });
 
-  it("keeps normal server imports and client/type subpaths operational", function () {
+  it("keeps normal server imports and client/type subpaths operational", () => {
     expect(server.createAuth).toBeTypeOf("function");
     expect(server.createAuthHandler).toBeTypeOf("function");
     expect(databaseAuth.createDatabaseConfirmedSignOutHandler).toBeTypeOf(
@@ -94,7 +93,7 @@ describe("auth package boundaries", function () {
     ]);
   });
 
-  return it("executes the dependency-free browser poison in the instrumented runtime", async function () {
+  return it("executes the dependency-free browser poison in the instrumented runtime", async () => {
     const specifier: string = "./server/unsupported.js";
     return await expect(import(specifier)).rejects.toThrowError(browserError);
   });

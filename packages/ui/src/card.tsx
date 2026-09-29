@@ -17,7 +17,7 @@ export const CardHeader = ({
   ...props
 }: ComponentPropsWithRef<"div">) => (
   <div
-    className={cn("space-y-2 border-b border-border p-6", className)}
+    className={cn("space-y-2 border-border border-b p-6", className)}
     {...props}
   />
 );
@@ -41,7 +41,7 @@ export const CardTitle = ({
   return (
     <Heading
       className={cn(
-        "font-heading text-xl font-semibold tracking-tight",
+        "font-heading font-semibold text-xl tracking-tight",
         className
       )}
       {...props}
@@ -54,7 +54,7 @@ export const CardDescription = ({
   ...props
 }: ComponentPropsWithRef<"p">) => (
   <p
-    className={cn("text-sm leading-5 text-muted-foreground", className)}
+    className={cn("text-muted-foreground text-sm leading-5", className)}
     {...props}
   />
 );
@@ -72,7 +72,7 @@ export const CardFooter = ({
 }: ComponentPropsWithRef<"div">) => (
   <div
     className={cn(
-      "flex flex-wrap items-center gap-3 border-t border-border p-6",
+      "flex flex-wrap items-center gap-3 border-border border-t p-6",
       className
     )}
     {...props}

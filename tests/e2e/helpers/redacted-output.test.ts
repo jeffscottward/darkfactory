@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import { createSensitiveOutputRedactor } from "./redacted-output.ts";
 import {
   E2E_SENSITIVE_BINDING_KEYS,
-  redactSensitiveBindingValues,
   type E2EProcessEnvironment,
+  redactSensitiveBindingValues,
 } from "./runtime.ts";
 
 const sensitiveEnvironment = (): E2EProcessEnvironment => ({

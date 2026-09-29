@@ -16,14 +16,14 @@ const canonicalPalettes = [
   "violet",
 ] as const;
 
-describe("persisted palette contract", function () {
-  it("keeps database, client state, and UI identifiers identical", function () {
+describe("persisted palette contract", () => {
+  it("keeps database, client state, and UI identifiers identical", () => {
     expect(COLOR_SCHEMES).toEqual(canonicalPalettes);
     expect(PALETTES).toEqual(canonicalPalettes);
     return expect(PALETTE_NAMES).toEqual(canonicalPalettes);
   });
 
-  return it("keeps neutral as the shared default", function () {
+  return it("keeps neutral as the shared default", () => {
     expect(DEFAULT_UI_PREFERENCES.palette).toBe("neutral");
     return expect(DEFAULT_PALETTE).toBe("neutral");
   });

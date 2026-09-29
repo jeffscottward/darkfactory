@@ -1,15 +1,15 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import { describe, expect, it } from "vitest";
 
 const serverEntry = fileURLToPath(new URL("./groq.ts", import.meta.url));
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-describe("Groq Worker bundle", function () {
-  it("bundles the SDK without leaving a bare provider import", async function () {
+describe("Groq Worker bundle", () => {
+  it("bundles the SDK without leaving a bare provider import", async () => {
     const outDir = await mkdtemp(
       join(tmpdir(), "darkfactory-ai-worker-bundle-")
     );
@@ -59,7 +59,7 @@ describe("Groq Worker bundle", function () {
     }
   });
 
-  return it("preserves the browser poison for a side-effect-only server import", async function () {
+  return it("preserves the browser poison for a side-effect-only server import", async () => {
     const tempDir = await mkdtemp(join(packageRoot, ".groq-browser-bundle-"));
     const entry = join(tempDir, "entry.mjs");
 

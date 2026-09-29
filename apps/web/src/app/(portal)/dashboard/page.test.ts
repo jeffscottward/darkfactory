@@ -1,9 +1,9 @@
-import { Children, isValidElement, type ReactElement } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createEvlogSink,
   initializeEvlog,
 } from "@darkfactory/observability/server/evlog";
+import { Children, isValidElement, type ReactElement } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dispatchInternalOrpcRequest: vi.fn(),
@@ -37,8 +37,8 @@ vi.mock("../../../lib/server-internal-dispatch.ts", () => ({
   dispatchInternalOrpcRequest: mocks.dispatchInternalOrpcRequest,
 }));
 
-import DashboardPage, { loadDashboardSummaryState, metadata } from "./page.tsx";
 import { DashboardContent } from "../../../components/portal/dashboard-content.tsx";
+import DashboardPage, { loadDashboardSummaryState, metadata } from "./page.tsx";
 
 const DASHBOARD_EXPIRY = new Date("2030-01-01T00:00:00.000Z");
 const dashboardSummary = {
@@ -95,7 +95,7 @@ const dashboardCapacityResponse = (): Response =>
     { status: 503, headers: { "retry-after": "1" } }
   );
 
-beforeEach(function () {
+beforeEach(() => {
   vi.clearAllMocks();
   mocks.headers.mockResolvedValue(
     new Headers({
@@ -108,13 +108,13 @@ beforeEach(function () {
   );
 });
 
-afterEach(function () {
+afterEach(() => {
   vi.useRealTimers();
   return vi.unstubAllGlobals();
 });
 
-describe("dashboard summary loader", function () {
-  it("fails closed to an unavailable state when the internal oRPC request stalls", async function () {
+describe("dashboard summary loader", () => {
+  it("fails closed to an unavailable state when the internal oRPC request stalls", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(
       (request: Request) =>
@@ -143,7 +143,7 @@ describe("dashboard summary loader", function () {
     );
   });
 
-  it("fails closed to an unavailable state when a chunked oRPC response exceeds the byte cap", async function () {
+  it("fails closed to an unavailable state when a chunked oRPC response exceeds the byte cap", async () => {
     const oversized = new ReadableStream<Uint8Array>({
       start: (controller) => {
         controller.enqueue(new Uint8Array(40_000));
@@ -162,21 +162,20 @@ describe("dashboard summary loader", function () {
     ).resolves.toEqual({ type: "error" });
   });
 
-  it("keeps request-local oRPC work inside its longer bounded deadline", async function () {
+  it("keeps request-local oRPC work inside its longer bounded deadline", async () => {
     vi.useFakeTimers();
     mocks.dispatchInternalOrpcRequest.mockImplementationOnce(async () => {
       return await new Promise<Response>((resolve) => {
-        return setTimeout(() => resolve(dashboardResponse()), 3_001);
+        return setTimeout(() => resolve(dashboardResponse()), 3001);
       });
     });
 
     const resultPromise = DashboardPage();
-    await vi.advanceTimersByTimeAsync(3_001);
+    await vi.advanceTimersByTimeAsync(3001);
     const result = await resultPromise;
     const content = Children.toArray(result.props.children).find(
-      function (child): child is ReactElement {
-        return isValidElement(child) && child.type === DashboardContent;
-      }
+      (child): child is ReactElement =>
+        isValidElement(child) && child.type === DashboardContent
     );
 
     expect(content?.props).toMatchObject({
@@ -185,7 +184,7 @@ describe("dashboard summary loader", function () {
     return expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();
   });
 
-  it("returns a ready state for one bounded oRPC dashboard response", async function () {
+  it("returns a ready state for one bounded oRPC dashboard response", async () => {
     const fetcher = vi.fn(async () => dashboardResponse());
 
     await expect(
@@ -195,7 +194,7 @@ describe("dashboard summary loader", function () {
     return expect(mocks.emit).not.toHaveBeenCalled();
   });
 
-  it("honors capacity backpressure and serializes a fresh authenticated summary request for each attempt", async function () {
+  it("honors capacity backpressure and serializes a fresh authenticated summary request for each attempt", async () => {
     vi.useFakeTimers();
     const requests: Request[] = [];
     const bodies: unknown[] = [];
@@ -233,7 +232,7 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("stops persistent capacity backpressure after exactly three attempts and diagnoses only the final failure", async function () {
+  it("stops persistent capacity backpressure after exactly three attempts and diagnoses only the final failure", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(async () => dashboardCapacityResponse());
     const result = loadDashboardSummaryState(null, fetcher);
@@ -256,7 +255,7 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("does not dispatch when the original deadline has already elapsed during request construction", async function () {
+  it("does not dispatch when the original deadline has already elapsed during request construction", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(async () => dashboardResponse());
 
@@ -267,24 +266,24 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("spends the original default deadline across the request and capacity wait without starting another request", async function () {
+  it("spends the original default deadline across the request and capacity wait without starting another request", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 2_500));
+      await new Promise<void>((resolve) => setTimeout(resolve, 2500));
       return dashboardCapacityResponse();
     });
     const result = loadDashboardSummaryState(null, fetcher);
 
-    await vi.advanceTimersByTimeAsync(2_999);
+    await vi.advanceTimersByTimeAsync(2999);
     expect(fetcher).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1);
     await expect(result).resolves.toEqual({ type: "error" });
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(fetcher).toHaveBeenCalledOnce();
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps a later attempt inside the original request deadline rather than resetting its transport budget", async function () {
+  it("keeps a later attempt inside the original request deadline rather than resetting its transport budget", async () => {
     vi.useFakeTimers();
     const fetcher = vi
       .fn()
@@ -299,9 +298,9 @@ describe("dashboard summary loader", function () {
             );
           })
       );
-    const result = loadDashboardSummaryState(null, fetcher, 1_500);
+    const result = loadDashboardSummaryState(null, fetcher, 1500);
 
-    await vi.advanceTimersByTimeAsync(1_499);
+    await vi.advanceTimersByTimeAsync(1499);
     expect(fetcher).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
     await expect(result).resolves.toEqual({ type: "error" });
@@ -309,7 +308,7 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("cancels the capacity wait immediately without any later summary request", async function () {
+  it("cancels the capacity wait immediately without any later summary request", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
     const fetcher = vi.fn(async () => dashboardCapacityResponse());
@@ -324,12 +323,12 @@ describe("dashboard summary loader", function () {
     expect(fetcher).toHaveBeenCalledOnce();
     controller.abort();
     await expect(result).resolves.toEqual({ type: "error" });
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(fetcher).toHaveBeenCalledOnce();
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("does not dispatch when the caller has already cancelled", async function () {
+  it("does not dispatch when the caller has already cancelled", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
     controller.abort();
@@ -342,7 +341,7 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("never retries noncapacity errors or a missing, malformed, or different Retry-After", async function () {
+  it("never retries noncapacity errors or a missing, malformed, or different Retry-After", async () => {
     vi.useFakeTimers();
     const responses = [
       dashboardErrorResponse(
@@ -414,7 +413,7 @@ describe("dashboard summary loader", function () {
     return results;
   });
 
-  it("immediately honors authentication invalidation after an initial capacity response", async function () {
+  it("immediately honors authentication invalidation after an initial capacity response", async () => {
     vi.useFakeTimers();
     const unauthorized = dashboardErrorResponse(
       { defined: true, code: "UNAUTHORIZED", status: 401 },
@@ -427,9 +426,9 @@ describe("dashboard summary loader", function () {
       .mockResolvedValueOnce(unauthorized);
     const result = loadDashboardSummaryState(null, fetcher);
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1000);
     await expect(result).resolves.toEqual({ type: "unauthorized" });
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(mocks.emit).toHaveBeenCalledOnce();
     expect(mocks.emit).toHaveBeenCalledWith(
@@ -440,7 +439,7 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("does not reuse an earlier capacity response when the next dispatch fails", async function () {
+  it("does not reuse an earlier capacity response when the next dispatch fails", async () => {
     vi.useFakeTimers();
     const fetcher = vi
       .fn()
@@ -450,7 +449,7 @@ describe("dashboard summary loader", function () {
       });
     const result = loadDashboardSummaryState(null, fetcher);
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1000);
     await expect(result).resolves.toEqual({ type: "error" });
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(mocks.emit).toHaveBeenCalledOnce();
@@ -462,7 +461,7 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("rejects a capacity body failure with hostile descriptor traps without retrying or leaking it", async function () {
+  it("rejects a capacity body failure with hostile descriptor traps without retrying or leaking it", async () => {
     vi.useFakeTimers();
     const failure = new Proxy(
       {
@@ -502,8 +501,8 @@ describe("dashboard summary loader", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("classifies only an exact defined oRPC 401 as unauthorized", async function () {
-    return await expect(
+  it("classifies only an exact defined oRPC 401 as unauthorized", async () =>
+    await expect(
       loadDashboardSummaryState(null, async () =>
         dashboardErrorResponse(
           {
@@ -514,10 +513,9 @@ describe("dashboard summary loader", function () {
           401
         )
       )
-    ).resolves.toEqual({ type: "unauthorized" });
-  });
+    ).resolves.toEqual({ type: "unauthorized" }));
 
-  it("classifies every non-exact oRPC or transport failure as generic error", async function () {
+  it("classifies every non-exact oRPC or transport failure as generic error", async () => {
     const failures = [
       [{ defined: false, code: "UNAUTHORIZED", status: 401 }, 401],
       [{ defined: true, code: "FORBIDDEN", status: 401 }, 401],
@@ -540,7 +538,7 @@ describe("dashboard summary loader", function () {
         await expect(
           loadDashboardSummaryState(
             "better-auth.session_token=opaque",
-            async function () {
+            async () => {
               throw failure;
             }
           )
@@ -558,7 +556,7 @@ describe("dashboard summary loader", function () {
     ["CONFLICT", 409],
     ["VALIDATION_ERROR", 422],
     ["STORAGE_ERROR", 503],
-  ] as const)("reports only the defined %s status without private error data", async function (code, status) {
+  ] as const)("reports only the defined %s status without private error data", async (code, status) => {
     await loadDashboardSummaryState(
       "better-auth.session_token=private-cookie",
       async () =>
@@ -592,7 +590,7 @@ describe("dashboard summary loader", function () {
     );
   });
 
-  it("distinguishes raw capacity responses from decoded undeclared server failures", async function () {
+  it("distinguishes raw capacity responses from decoded undeclared server failures", async () => {
     for (const [response, category] of [
       [
         Response.json(
@@ -673,7 +671,7 @@ describe("dashboard summary loader", function () {
     [new DOMException("private-error-message", "TimeoutError"), "unknown"],
     [new DOMException("private-error-message", "AbortError"), "unknown"],
     [new Error("Dashboard request was cancelled"), "abort"],
-  ] as const)("bounds transport failure classification %# without forwarding its contents", async function (failure, category) {
+  ] as const)("bounds transport failure classification %# without forwarding its contents", async (failure, category) => {
     await expect(
       loadDashboardSummaryState(
         "better-auth.session_token=private-cookie",
@@ -697,7 +695,7 @@ describe("dashboard summary loader", function () {
   it.each([
     "own",
     "inherited",
-  ])("preserves the original authorization decision with %s accessors", async function (location) {
+  ])("preserves the original authorization decision with %s accessors", async (location) => {
     const reads = { defined: 0, code: 0, status: 0 };
     const properties = {
       defined: {
@@ -736,7 +734,7 @@ describe("dashboard summary loader", function () {
     );
   });
 
-  it("ignores inherited data and diagnostic-only getters", async function () {
+  it("ignores inherited data and diagnostic-only getters", async () => {
     const inherited = Object.create({
       defined: true,
       code: "UNAUTHORIZED",
@@ -780,7 +778,7 @@ describe("dashboard summary loader", function () {
     );
   });
 
-  it("creates a header-free fixed-route diagnostic request", async function () {
+  it("creates a header-free fixed-route diagnostic request", async () => {
     await loadDashboardSummaryState(
       "better-auth.session_token=private-cookie",
       async () => {
@@ -798,7 +796,7 @@ describe("dashboard summary loader", function () {
   it.each([
     "runtime",
     "sink",
-  ])("preserves the original decision when diagnostic %s creation fails", async function (stage) {
+  ])("preserves the original decision when diagnostic %s creation fails", async (stage) => {
     const failure = () => {
       throw new Error("private-diagnostic-setup");
     };
@@ -823,7 +821,7 @@ describe("dashboard summary loader", function () {
     return expect(mocks.emit).not.toHaveBeenCalled();
   });
 
-  it("preserves the summary failure when diagnostic configuration or emission fails", async function () {
+  it("preserves the summary failure when diagnostic configuration or emission fails", async () => {
     mocks.parseServerEnv.mockImplementationOnce(() => {
       throw new Error("private-configuration");
     });
@@ -852,7 +850,7 @@ describe("dashboard summary loader", function () {
     );
   });
 
-  it("redirects only an exact defined unauthorized summary response", async function () {
+  it("redirects only an exact defined unauthorized summary response", async () => {
     mocks.dispatchInternalOrpcRequest.mockResolvedValueOnce(
       dashboardErrorResponse(
         {
@@ -874,7 +872,7 @@ describe("dashboard summary loader", function () {
     return expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();
   });
 
-  it("makes the summary request without a cookie and redirects its typed 401", async function () {
+  it("makes the summary request without a cookie and redirects its typed 401", async () => {
     mocks.headers.mockResolvedValueOnce(new Headers());
     mocks.dispatchInternalOrpcRequest.mockImplementationOnce(
       async (request: Request) => {
@@ -896,7 +894,7 @@ describe("dashboard summary loader", function () {
     return expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();
   });
 
-  it("renders a generic error instead of redirecting another failure", async function () {
+  it("renders a generic error instead of redirecting another failure", async () => {
     mocks.dispatchInternalOrpcRequest.mockResolvedValueOnce(
       dashboardErrorResponse(
         {
@@ -910,9 +908,8 @@ describe("dashboard summary loader", function () {
 
     const result = await DashboardPage();
     const content = Children.toArray(result.props.children).find(
-      function (child): child is ReactElement {
-        return isValidElement(child) && child.type === DashboardContent;
-      }
+      (child): child is ReactElement =>
+        isValidElement(child) && child.type === DashboardContent
     );
 
     expect(content?.props).toMatchObject({
@@ -922,7 +919,7 @@ describe("dashboard summary loader", function () {
     return expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();
   });
 
-  return it("DashboardPage loads identity and summary through one internal oRPC request without public fetch", async function () {
+  return it("DashboardPage loads identity and summary through one internal oRPC request without public fetch", async () => {
     const publicFetch = vi.fn(async (): Promise<Response> => {
       throw new Error("public fetch must not serve request-local SSR");
     });
@@ -930,9 +927,8 @@ describe("dashboard summary loader", function () {
 
     const result = await DashboardPage();
     const content = Children.toArray(result.props.children).find(
-      function (child): child is ReactElement {
-        return isValidElement(child) && child.type === DashboardContent;
-      }
+      (child): child is ReactElement =>
+        isValidElement(child) && child.type === DashboardContent
     );
 
     expect(metadata).toEqual({ title: "Dashboard" });

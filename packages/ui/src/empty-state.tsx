@@ -33,12 +33,12 @@ export const EmptyState = ({
   return (
     <section
       {...props}
-      role="region"
       aria-labelledby={titleId}
       className={cn(
-        "mx-auto flex max-w-reading flex-col items-start gap-4 border-y border-border py-10 text-left",
+        "mx-auto flex max-w-reading flex-col items-start gap-4 border-border border-y py-10 text-left",
         className
       )}
+      role="region"
     >
       {icon === undefined ? null : (
         <span
@@ -50,12 +50,12 @@ export const EmptyState = ({
       )}
       <div className="space-y-2">
         <Heading
+          className="font-heading font-semibold text-2xl text-foreground tracking-tight"
           id={titleId}
-          className="font-heading text-2xl font-semibold tracking-tight text-foreground"
         >
           {title}
         </Heading>
-        <p className="max-w-reading text-base leading-6 text-muted-foreground">
+        <p className="max-w-reading text-base text-muted-foreground leading-6">
           {description}
         </p>
       </div>

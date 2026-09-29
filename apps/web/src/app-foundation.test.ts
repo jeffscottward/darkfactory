@@ -1,10 +1,10 @@
 import { access } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import {
+  type AnchorHTMLAttributes,
   Children,
   createElement,
   isValidElement,
-  type AnchorHTMLAttributes,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -16,6 +16,7 @@ type MockLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
 };
 
 import { PALETTES } from "@darkfactory/state";
+
 const layoutMocks = vi.hoisted(() => ({
   dispatchInternalOrpcRequest: vi.fn(),
   headers: vi.fn(async () => new Headers()),
@@ -64,15 +65,15 @@ vi.mock("@darkfactory/ui/client/dialog", () => ({
   DialogTrigger: ({ children }: { children: ReactNode }) => children,
 }));
 
+import HomePage from "./app/(public)/page.tsx";
 import RootLayout, {
-  RootDocument,
   metadata,
+  RootDocument,
   themeRootAttributes,
   viewport,
 } from "./app/layout.tsx";
-import { GET as getThemeBootstrap } from "./app/theme-bootstrap.js/route.ts";
 import robots from "./app/robots.ts";
-import HomePage from "./app/(public)/page.tsx";
+import { GET as getThemeBootstrap } from "./app/theme-bootstrap.js/route.ts";
 import { AuthShell } from "./components/auth-shell.tsx";
 import { NavigationLinks } from "./components/navigation-links.tsx";
 import {
@@ -81,22 +82,22 @@ import {
   PortalTopbar,
 } from "./components/portal-shell.tsx";
 import {
+  getPublicNavigationModel,
   PublicFooter,
   PublicShell,
-  getPublicNavigationModel,
 } from "./components/public-shell.tsx";
 import {
-  ALL_NAVIGATION,
   ACCOUNT_NAVIGATION,
   ADMIN_NAVIGATION,
+  ALL_NAVIGATION,
   AUTH_NAVIGATION,
   EXPOSED_ROUTE_PATHS,
-  PORTAL_NAVIGATION,
-  PUBLIC_NAVIGATION,
-  SUPPORT_NAVIGATION,
-  ROUTE_PAGE_FILES,
   isNavigationItemActive,
   isRouteExposed,
+  PORTAL_NAVIGATION,
+  PUBLIC_NAVIGATION,
+  ROUTE_PAGE_FILES,
+  SUPPORT_NAVIGATION,
 } from "./lib/navigation.ts";
 import {
   INDETERMINATE_THEME,
@@ -106,24 +107,24 @@ import {
   DEFAULT_ANONYMOUS_THEME,
   MAX_COOKIE_HEADER_LENGTH,
   MAX_THEME_COOKIE_VALUE_LENGTH,
+  parseThemeCookieHeader,
+  serializeThemeCookie,
+  shouldPersistAnonymousLocalState,
   THEME_BOOTSTRAP_PATH,
   THEME_BOOTSTRAP_SCRIPT,
-  serializeThemeCookie,
-  parseThemeCookieHeader,
   themeDomAttributes,
-  shouldPersistAnonymousLocalState,
 } from "./lib/theme.ts";
 import {
   createAnonymousUiStateSnapshot,
-  parseAnonymousThemeSnapshot,
   parseAnonymousThemePreference,
+  parseAnonymousThemeSnapshot,
   serializeAnonymousThemePreference,
+  UiStateProvider,
   useUiState,
   useUiStoreApi,
 } from "./lib/ui-store.tsx";
-import { UiStateProvider } from "./lib/ui-store.tsx";
 
-afterEach(function () {
+afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   layoutMocks.headers.mockResolvedValue(new Headers());
@@ -214,8 +215,8 @@ const runThemeBootstrap = ({
     snapshot: windowObject["__DARKFACTORY_THEME__"],
   };
 };
-describe("application navigation manifest", function () {
-  it("contains every public, portal, account, and admin destination exactly once per group", function () {
+describe("application navigation manifest", () => {
+  it("contains every public, portal, account, and admin destination exactly once per group", () => {
     expect(PUBLIC_NAVIGATION.map((item) => item.href)).toEqual([
       "/",
       "/features",
@@ -264,7 +265,7 @@ describe("application navigation manifest", function () {
     return results;
   });
 
-  it("maps every exposed destination to a real page while future definitions remain non-navigable", async function () {
+  it("maps every exposed destination to a real page while future definitions remain non-navigable", async () => {
     const exposedRoutes = ALL_NAVIGATION.filter((item) =>
       isRouteExposed(item.href)
     ).map((item) => item.href);
@@ -281,7 +282,7 @@ describe("application navigation manifest", function () {
     return results1;
   });
 
-  return it("marks exact and nested destinations without falsely selecting sibling routes", function () {
+  return it("marks exact and nested destinations without falsely selecting sibling routes", () => {
     const dashboard = PORTAL_NAVIGATION[0];
     const featureItems = PORTAL_NAVIGATION[1];
     expect(dashboard).toBeDefined();
@@ -299,8 +300,8 @@ describe("application navigation manifest", function () {
   });
 });
 
-describe("root metadata and theme contract", function () {
-  it("publishes metadata and resolves trusted server preference ahead of cookies", async function () {
+describe("root metadata and theme contract", () => {
+  it("publishes metadata and resolves trusted server preference ahead of cookies", async () => {
     expect(metadata.title).toEqual({
       default: "DarkFactory",
       template: "%s | DarkFactory",
@@ -363,7 +364,7 @@ describe("root metadata and theme contract", function () {
     for (const malformedTrustedPreference of [
       {
         themeMode: {
-          toString: function () {
+          toString() {
             throw new Error("must not coerce");
           },
         },
@@ -407,7 +408,7 @@ describe("root metadata and theme contract", function () {
     );
   });
 
-  it("rejects malformed anonymous persistence and fails closed to canonical defaults", function () {
+  it("rejects malformed anonymous persistence and fails closed to canonical defaults", () => {
     for (const malformed of [
       null,
       "",
@@ -437,7 +438,7 @@ describe("root metadata and theme contract", function () {
     });
   });
 
-  it("accepts one bounded canonical preference cookie and rejects malformed, oversized, or duplicate values", function () {
+  it("accepts one bounded canonical preference cookie and rejects malformed, oversized, or duplicate values", () => {
     expect(
       parseThemeCookieHeader("other=1; darkfactory-theme=dark%3Arose")
     ).toEqual({
@@ -446,7 +447,7 @@ describe("root metadata and theme contract", function () {
     });
     expect(
       parseThemeCookieHeader(
-        `other=${"x".repeat(5_000)}; darkfactory-theme=dark%3Arose`
+        `other=${"x".repeat(5000)}; darkfactory-theme=dark%3Arose`
       )
     ).toEqual({
       status: "valid",
@@ -481,7 +482,7 @@ describe("root metadata and theme contract", function () {
     });
   });
 
-  it("uses a CSP-safe parser-blocking DF-088 bootstrap with no inline style escape hatch", async function () {
+  it("uses a CSP-safe parser-blocking DF-088 bootstrap with no inline style escape hatch", async () => {
     const response = getThemeBootstrap();
     expect(response.headers.get("Content-Type")).toBe(
       "text/javascript; charset=utf-8"
@@ -535,7 +536,7 @@ describe("root metadata and theme contract", function () {
     return expect(html).not.toContain("unsafe-inline");
   });
 
-  it("applies every canonical palette while keeping mode and color-scheme independent", function () {
+  it("applies every canonical palette while keeping mode and color-scheme independent", () => {
     for (const palette of PALETTES) {
       expect(themeDomAttributes({ themeMode: "dark", palette })).toEqual({
         "data-mode": "dark",
@@ -550,8 +551,8 @@ describe("root metadata and theme contract", function () {
     ).toBe("light dark");
   });
 
-  return it("keeps private, portal, authentication, admin, and API routes out of robots", function () {
-    return expect(robots().rules.disallow).toEqual([
+  return it("keeps private, portal, authentication, admin, and API routes out of robots", () =>
+    expect(robots().rules.disallow).toEqual([
       "/account",
       "/account/",
       "/admin/",
@@ -562,11 +563,10 @@ describe("root metadata and theme contract", function () {
       "/reset-password",
       "/sign-in",
       "/sign-up",
-    ]);
-  });
+    ]));
 });
-describe("shared shell semantics", function () {
-  it("renders exposed public navigation without guessing the active SSR link", function () {
+describe("shared shell semantics", () => {
+  it("renders exposed public navigation without guessing the active SSR link", () => {
     const html = markup(
       createElement(RootDocument, {
         children: createElement(PublicShell, {
@@ -608,7 +608,7 @@ describe("shared shell semantics", function () {
     expect(fanoutHtml).not.toContain('href="/legal/privacy"');
     return expect(fanoutHtml).not.toContain('href="/legal/terms"');
   });
-  it("renders an explicitly active link with accessible current-page state", function () {
+  it("renders an explicitly active link with accessible current-page state", () => {
     const dashboard = PORTAL_NAVIGATION[0];
     expect(dashboard).toBeDefined();
     const html = markup(
@@ -624,7 +624,7 @@ describe("shared shell semantics", function () {
     return expect(html).toContain(", current page");
   });
 
-  it("disables prefetch for every desktop and mobile authenticated navigation group", function () {
+  it("disables prefetch for every desktop and mobile authenticated navigation group", () => {
     const availableRoutes = [
       PORTAL_NAVIGATION[0]!.href,
       ACCOUNT_NAVIGATION[0]!.href,
@@ -661,7 +661,7 @@ describe("shared shell semantics", function () {
     ).toBe(true);
   });
 
-  it("forwards an explicit prefetch value to every link without changing public defaults", function () {
+  it("forwards an explicit prefetch value to every link without changing public defaults", () => {
     const items = [PORTAL_NAVIGATION[0]!, ACCOUNT_NAVIGATION[0]!];
     const privateLinks = collectPortalElements(
       NavigationLinks({ items, prefetch: false }),
@@ -692,7 +692,7 @@ describe("shared shell semantics", function () {
     ).toBe(true);
   });
 
-  it("leaves links inactive when neither the caller nor framework supplies a path", function () {
+  it("leaves links inactive when neither the caller nor framework supplies a path", () => {
     navigationMocks.pathname = null;
     const dashboard = PORTAL_NAVIGATION[0];
     expect(dashboard).toBeDefined();
@@ -708,7 +708,7 @@ describe("shared shell semantics", function () {
     return expect(html).not.toContain(", current page");
   });
 
-  it("links the hero CTA to a substantive, focusable capability section", function () {
+  it("links the hero CTA to a substantive, focusable capability section", () => {
     const home = markup(createElement(HomePage));
     expect(home).toContain('href="#foundation-capabilities"');
     expect(home).toContain('id="foundation-capabilities"');
@@ -720,7 +720,7 @@ describe("shared shell semantics", function () {
     return expect(home).toContain("Observable operations");
   });
 
-  it("renders portal and auth shells with semantic role-gated landmarks", function () {
+  it("renders portal and auth shells with semantic role-gated landmarks", () => {
     const portal = markup(
       withUiState(
         createElement(PortalShell, {
@@ -774,7 +774,7 @@ describe("shared shell semantics", function () {
     return expect(auth).toContain("<main");
   });
 
-  it("keeps the portal shell useful while no destinations are exposed", function () {
+  it("keeps the portal shell useful while no destinations are exposed", () => {
     const portal = markup(
       withUiState(
         createElement(PortalShell, {
@@ -791,7 +791,7 @@ describe("shared shell semantics", function () {
     return expect(portal).not.toContain('href="/dashboard"');
   });
 
-  return it("closes mobile navigation only when the popover exposes a hide method", function () {
+  return it("closes mobile navigation only when the popover exposes a hide method", () => {
     const mobileNavigation = findPortalElement(
       PortalTopbar({ availableRoutes: ["/dashboard"] }),
       (element) => element.props.mobile === true
@@ -844,8 +844,8 @@ describe("shared shell semantics", function () {
   });
 });
 
-describe("root layout request composition", function () {
-  it("loads the trusted request theme with bounded request identity", async function () {
+describe("root layout request composition", () => {
+  it("loads the trusted request theme with bounded request identity", async () => {
     vi.stubEnv("APP_URL", "https://darkfactory.example");
     layoutMocks.headers.mockResolvedValueOnce(
       new Headers({
@@ -876,7 +876,7 @@ describe("root layout request composition", function () {
     });
   });
 
-  return it("uses the canonical origin for blank configuration and rejects HTTP", async function () {
+  return it("uses the canonical origin for blank configuration and rejects HTTP", async () => {
     vi.stubEnv("APP_URL", "   ");
     const canonical = await RootLayout({ children: "canonical" });
 
@@ -894,8 +894,8 @@ describe("root layout request composition", function () {
   });
 });
 
-describe("theme and UI runtime boundaries", function () {
-  it("rejects anonymous snapshot type, size, shape, and version mismatches", function () {
+describe("theme and UI runtime boundaries", () => {
+  it("rejects anonymous snapshot type, size, shape, and version mismatches", () => {
     for (const malformed of [
       1,
       "x".repeat(129),
@@ -916,7 +916,7 @@ describe("theme and UI runtime boundaries", function () {
     });
   });
 
-  it("requires provider context and projects selected state through the store hook", function () {
+  it("requires provider context and projects selected state through the store hook", () => {
     expect(() => markup(createElement(MissingUiStateProviderProbe))).toThrow(
       "UiStateProvider is required."
     );
@@ -925,7 +925,7 @@ describe("theme and UI runtime boundaries", function () {
     );
   });
 
-  it("covers missing, malformed, empty, and extra-field theme cookies", function () {
+  it("covers missing, malformed, empty, and extra-field theme cookies", () => {
     for (const missing of [undefined, null, ""]) {
       expect(parseThemeCookieHeader(missing)).toEqual({ status: "missing" });
     }
@@ -947,7 +947,7 @@ describe("theme and UI runtime boundaries", function () {
     });
   });
 
-  it("fails closed for non-record and invalid-date trusted preferences", async function () {
+  it("fails closed for non-record and invalid-date trusted preferences", async () => {
     const results2 = [];
     for (const preference of [
       null,
@@ -978,7 +978,7 @@ describe("theme and UI runtime boundaries", function () {
     return results2;
   });
 
-  return it("evaluates route exposure against an explicit runtime manifest", function () {
+  return it("evaluates route exposure against an explicit runtime manifest", () => {
     expect(isRouteExposed("/future", ["/future"])).toBe(true);
     return expect(isRouteExposed("/future", [])).toBe(false);
   });

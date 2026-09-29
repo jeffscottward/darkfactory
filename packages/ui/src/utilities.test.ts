@@ -3,14 +3,13 @@ import { describe, expect, it } from "vitest";
 import { buttonVariants } from "./button.tsx";
 import { cn } from "./utilities.ts";
 
-describe("cn", function () {
-  it("merges conditional classes and resolves Tailwind conflicts", function () {
-    return expect(
-      cn("px-2 text-sm", false && "hidden", ["px-4", "font-medium"])
-    ).toBe("text-sm px-4 font-medium");
-  });
+describe("cn", () => {
+  it("merges conditional classes and resolves Tailwind conflicts", () =>
+    expect(cn("px-2 text-sm", false, ["px-4", "font-medium"])).toBe(
+      "text-sm px-4 font-medium"
+    ));
 
-  it("lets callers extend component variants without duplicate conflicts", function () {
+  it("lets callers extend component variants without duplicate conflicts", () => {
     const classes = cn(
       buttonVariants({ variant: "primary", size: "default" }),
       "h-12"
@@ -21,7 +20,7 @@ describe("cn", function () {
     return expect(classes.split(" ")).not.toContain("h-11");
   });
 
-  return it("provides named ghost and link action variants", function () {
+  return it("provides named ghost and link action variants", () => {
     expect(buttonVariants({ variant: "ghost" })).toContain("hover:bg-accent");
     return expect(buttonVariants({ variant: "link" })).toContain(
       "underline-offset-4"

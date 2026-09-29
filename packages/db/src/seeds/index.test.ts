@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { accounts, users } from "../schema/index.ts";
 import type { Database } from "../server/client.ts";
@@ -23,15 +23,15 @@ vi.mock("./content.ts", () => ({
 
 import {
   DevelopmentSeedError,
-  SeedIdentityCollisionError,
-  seedDevelopment,
   type EnsureSeedIdentity,
   type PrepareSeedIdentities,
+  SeedIdentityCollisionError,
+  seedDevelopment,
 } from "./index.ts";
 import {
   DEVELOPMENT_PERSONAS,
-  seedIdentityInput,
   type DevelopmentPersona,
+  seedIdentityInput,
 } from "./users.ts";
 
 const QUERY_DIALECT = new PgDialect();
@@ -62,7 +62,7 @@ const createSeedDatabase = (configuredOutcomes: QueryOutcome[]) => {
     select: vi.fn(() => {
       const operation: QueryOperation = {};
       selects.push(operation);
-      let builder = {} as QueryBuilder;
+      const builder = {} as QueryBuilder;
       builder.from = vi.fn((table: unknown) => {
         operation.table =
           table === users
@@ -171,7 +171,7 @@ const preparedIdentity = () => {
   return { ensureIdentity, prepareIdentity };
 };
 
-beforeEach(function () {
+beforeEach(() => {
   convergence.profiles.mockReset();
   convergence.preferences.mockReset();
   convergence.content.mockReset();
@@ -180,8 +180,8 @@ beforeEach(function () {
   return convergence.content.mockResolvedValue(undefined);
 });
 
-describe("development seed orchestration", function () {
-  it("rejects production before preparing or opening a transaction", async function () {
+describe("development seed orchestration", () => {
+  it("rejects production before preparing or opening a transaction", async () => {
     const prepareIdentity = vi.fn();
     const database = { transaction: vi.fn() } as unknown as Database;
 
@@ -199,19 +199,19 @@ describe("development seed orchestration", function () {
     return expect(database.transaction).not.toHaveBeenCalled();
   });
 
-  it("converges existing identities and application rows without creating identities", async function () {
+  it("converges existing identities and application rows without creating identities", async () => {
     const double = createSeedDatabase(allExistingOutcomes());
     const identity = preparedIdentity();
     const applicationOrder: string[] = [];
-    convergence.profiles.mockImplementation(async function () {
-      return applicationOrder.push("profiles");
-    });
-    convergence.preferences.mockImplementation(async function () {
-      return applicationOrder.push("preferences");
-    });
-    convergence.content.mockImplementation(async function () {
-      return applicationOrder.push("content");
-    });
+    convergence.profiles.mockImplementation(async () =>
+      applicationOrder.push("profiles")
+    );
+    convergence.preferences.mockImplementation(async () =>
+      applicationOrder.push("preferences")
+    );
+    convergence.content.mockImplementation(async () =>
+      applicationOrder.push("content")
+    );
 
     const result = await seedDevelopment(double.database, {
       environment: "test",
@@ -258,7 +258,7 @@ describe("development seed orchestration", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("reports each absent identity created after the assurer persists it", async function () {
+  it("reports each absent identity created after the assurer persists it", async () => {
     const double = createSeedDatabase(allCreatedOutcomes());
     const identity = preparedIdentity();
 
@@ -274,7 +274,7 @@ describe("development seed orchestration", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("rejects an orphaned deterministic account before invoking the assurer", async function () {
+  it("rejects an orphaned deterministic account before invoking the assurer", async () => {
     const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([[], [credentialRow(persona)]]);
     const identity = preparedIdentity();
@@ -307,7 +307,7 @@ describe("development seed orchestration", function () {
       "a different normalized email",
       [userRow(DEVELOPMENT_PERSONAS[0]!, { email: "other@domain.test" })],
     ],
-  ] as const)("rejects when %s match a persona lookup", async function (_label, matchedUsers) {
+  ] as const)("rejects when %s match a persona lookup", async (_label, matchedUsers) => {
     const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([
       [...matchedUsers],
@@ -333,7 +333,7 @@ describe("development seed orchestration", function () {
     ["user ID", { userId: "different-user" }],
     ["provider", { providerId: "oauth" }],
     ["provider account ID", { accountId: "different-user" }],
-  ] as const)("rejects a credential with a mismatched %s", async function (_label, override) {
+  ] as const)("rejects a credential with a mismatched %s", async (_label, override) => {
     const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([
       [userRow(persona)],
@@ -358,7 +358,7 @@ describe("development seed orchestration", function () {
     ["a non-string value", null],
     ["an unstructured string", "not-a-password-hash"],
     ["uppercase hexadecimal", `${"A".repeat(32)}:${"B".repeat(128)}`],
-  ] as const)("rejects %s as a persisted credential hash", async function (_label, password) {
+  ] as const)("rejects %s as a persisted credential hash", async (_label, password) => {
     const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([
       [userRow(persona)],
@@ -377,7 +377,7 @@ describe("development seed orchestration", function () {
     });
   });
 
-  it("fails and rolls back when the assurer does not persist an absent identity", async function () {
+  it("fails and rolls back when the assurer does not persist an absent identity", async () => {
     const initialAbsence = DEVELOPMENT_PERSONAS.flatMap(
       () => [[], []] as QueryRows[]
     );
@@ -400,7 +400,7 @@ describe("development seed orchestration", function () {
     return expect(double.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  return it("exposes distinct public error types for policy denial and collisions", function () {
+  return it("exposes distinct public error types for policy denial and collisions", () => {
     expect(new DevelopmentSeedError("denied")).toMatchObject({
       name: "DevelopmentSeedError",
       message: "denied",

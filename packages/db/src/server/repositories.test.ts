@@ -1,29 +1,29 @@
-import { describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
-import { PgDialect } from "drizzle-orm/pg-core";
 import { DrizzleQueryError } from "drizzle-orm/errors";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, it, vi } from "vitest";
 import {
-  COLOR_SCHEMES,
-  PREFERENCE_MODES,
+  type Address,
   addresses,
   auditRecords,
+  COLOR_SCHEMES,
   featureItems,
   outboxEvents,
+  PREFERENCE_MODES,
   profiles,
   userPreferences,
-  type Address,
 } from "../schema/index.ts";
 import type { Database } from "./client.ts";
 import {
-  DatabaseConflictError,
-  DatabasePersistenceError,
-  InvalidRepositoryInputError,
-  OptimisticConcurrencyError,
   createAddressRepository,
   createFeatureItemRepository,
   createProfileRepository,
   createRepositories,
   createUserPreferencesRepository,
+  DatabaseConflictError,
+  DatabasePersistenceError,
+  InvalidRepositoryInputError,
+  OptimisticConcurrencyError,
 } from "./repositories.ts";
 
 const FIXED_NOW = new Date("2026-01-02T03:04:05.000Z");
@@ -172,7 +172,7 @@ const createQueryDatabaseDouble = (
     operation: QueryOperation,
     outcome: QueryOutcome
   ): QueryBuilder => {
-    let builder = {} as QueryBuilder;
+    const builder = {} as QueryBuilder;
     builder.from = vi.fn((table: unknown) => {
       operation.table = tableName(table);
       return builder;
@@ -342,7 +342,7 @@ const createStatefulAddressDatabaseDouble = (
     operation: QueryOperation,
     currentRows: () => Address[]
   ): QueryBuilder => {
-    let builder = {} as QueryBuilder;
+    const builder = {} as QueryBuilder;
     builder.from = vi.fn((table: unknown) => {
       operation.table = tableName(table);
       return builder;
@@ -512,8 +512,8 @@ const FEATURE_ROW = {
   updatedAt: FIXED_NOW,
 };
 
-describe("feature item mutation repository", function () {
-  it("writes feature state, redacted audit context, and an outbox event atomically", async function () {
+describe("feature item mutation repository", () => {
+  it("writes feature state, redacted audit context, and an outbox event atomically", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -576,7 +576,7 @@ describe("feature item mutation repository", function () {
     });
   });
 
-  it("rolls back the whole mutation when a companion write fails", async function () {
+  it("rolls back the whole mutation when a companion write fails", async () => {
     const double = createDatabaseDouble({ failOnTable: "outbox_events" });
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -598,7 +598,7 @@ describe("feature item mutation repository", function () {
     return expect(double.lifecycle).not.toContain("commit");
   });
 
-  it("maps unique violations without exposing a driver-specific public error", async function () {
+  it("maps unique violations without exposing a driver-specific public error", async () => {
     const double = createDatabaseDouble({
       transactionError: wrappedDatabaseError("23505", "feature_items_pkey"),
     });
@@ -628,7 +628,7 @@ describe("feature item mutation repository", function () {
     ).rejects.not.toThrow("provider detail");
   });
 
-  it("does not misreport companion-write conflicts as feature conflicts", async function () {
+  it("does not misreport companion-write conflicts as feature conflicts", async () => {
     const double = createDatabaseDouble({
       transactionError: wrappedDatabaseError("23505", "outbox_events_pkey"),
     });
@@ -658,7 +658,7 @@ describe("feature item mutation repository", function () {
     ).rejects.not.toThrow("provider detail");
   });
 
-  it("maps wrapped metadata checks without leaking query parameters", async function () {
+  it("maps wrapped metadata checks without leaking query parameters", async () => {
     const double = createDatabaseDouble({
       transactionError: wrappedDatabaseError(
         "23514",
@@ -687,7 +687,7 @@ describe("feature item mutation repository", function () {
     return expect(String(thrown)).not.toContain("provider detail");
   });
 
-  it("rejects empty feature patches without writing audit or outbox events", async function () {
+  it("rejects empty feature patches without writing audit or outbox events", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
 
@@ -703,7 +703,7 @@ describe("feature item mutation repository", function () {
     return expect(double.lifecycle).toEqual([]);
   });
 
-  it("rejects non-object or oversized metadata before opening a transaction", async function () {
+  it("rejects non-object or oversized metadata before opening a transaction", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
 
@@ -733,11 +733,11 @@ describe("feature item mutation repository", function () {
     return expect(double.lifecycle).toEqual([]);
   });
 
-  it("uses canonical jsonb text size for punctuation and exponent numbers", async function () {
+  it("uses canonical jsonb text size for punctuation and exponent numbers", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
     const punctuationHeavy: Record<string, [number, number]> = {};
-    for (let index = 0; index < 1_030; index += 1) {
+    for (let index = 0; index < 1030; index += 1) {
       punctuationHeavy[`key_${index}`] = [0, 1];
     }
 
@@ -762,7 +762,7 @@ describe("feature item mutation repository", function () {
     return expect(double.lifecycle).toEqual([]);
   });
 
-  it("accepts nested strict JSON metadata without coercion", async function () {
+  it("accepts nested strict JSON metadata without coercion", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -774,11 +774,11 @@ describe("feature item mutation repository", function () {
     const metadata = {
       enabled: true,
       ratio: 1.5,
-      fractionalExponent: -1.2345678901234567e100,
+      fractionalExponent: -1.234_567_890_123_456_7e100,
       nested: {
         values: [null, "value", 0, false],
         nullPrototype,
-        label: "é".repeat(8_000),
+        label: "é".repeat(8000),
       },
     } as const;
 
@@ -797,7 +797,7 @@ describe("feature item mutation repository", function () {
     return expect(double.lifecycle.at(-1)).toBe("commit");
   });
 
-  it("preserves the live finite-number and top-level object normalization paths", async function () {
+  it("preserves the live finite-number and top-level object normalization paths", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -834,7 +834,7 @@ describe("feature item mutation repository", function () {
     ]);
   });
 
-  it("persists a detached metadata snapshot across deferred proxy mutation", async function () {
+  it("persists a detached metadata snapshot across deferred proxy mutation", async () => {
     const target = { nested: { value: "before" } };
     const metadata = new Proxy(target, {});
     const double = createDatabaseDouble({
@@ -862,7 +862,7 @@ describe("feature item mutation repository", function () {
     return expect(target.nested.value).toBe("after");
   });
 
-  it("rejects coercive, non-finite, sparse, cyclic, and non-JSON metadata", async function () {
+  it("rejects coercive, non-finite, sparse, cyclic, and non-JSON metadata", async () => {
     const double = createDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
     const cyclic: Record<string, unknown> = {};
@@ -953,7 +953,7 @@ describe("feature item mutation repository", function () {
     return expect(double.lifecycle).toEqual([]);
   });
 
-  it("projects only theme fields and returns null when preferences are missing", async function () {
+  it("projects only theme fields and returns null when preferences are missing", async () => {
     const limit = vi.fn(async () => []);
     const where = vi.fn(() => ({ limit }));
     const from = vi.fn(() => ({ where }));
@@ -973,7 +973,7 @@ describe("feature item mutation repository", function () {
     return expect(limit).toHaveBeenCalledWith(1);
   });
 
-  it("creates versioned theme fields without touching unrelated preferences", async function () {
+  it("creates versioned theme fields without touching unrelated preferences", async () => {
     const returning = vi.fn(async () => [
       {
         mode: "dark" as const,
@@ -1016,7 +1016,7 @@ describe("feature item mutation repository", function () {
     });
   });
 
-  it("rejects blank owners and non-canonical theme values before persistence", async function () {
+  it("rejects blank owners and non-canonical theme values before persistence", async () => {
     const insert = vi.fn();
     const database = { insert } as unknown as Database;
     const repository = createUserPreferencesRepository(database);
@@ -1048,7 +1048,7 @@ describe("feature item mutation repository", function () {
     ]);
   });
 
-  return it("constructs the complete repository set without exposing drivers", function () {
+  return it("constructs the complete repository set without exposing drivers", () => {
     const double = createDatabaseDouble();
     const repositories = createRepositories(double.database);
 
@@ -1066,8 +1066,8 @@ describe("feature item mutation repository", function () {
   });
 });
 
-describe("profile repository", function () {
-  it("returns null for a missing profile and scopes the lookup to the owner", async function () {
+describe("profile repository", () => {
+  it("returns null for a missing profile and scopes the lookup to the owner", async () => {
     const double = createQueryDatabaseDouble({ select: [[]] });
     const repository = createProfileRepository(double.database);
 
@@ -1083,7 +1083,7 @@ describe("profile repository", function () {
     return expect(queryParameters(lookup)).toEqual(["user_missing"]);
   });
 
-  it("upserts nullable profile fields on the user conflict", async function () {
+  it("upserts nullable profile fields on the user conflict", async () => {
     const double = createQueryDatabaseDouble({ insert: [[PROFILE_ROW]] });
     const repository = createProfileRepository(double.database, {
       now: () => FIXED_NOW,
@@ -1114,7 +1114,7 @@ describe("profile repository", function () {
     });
   });
 
-  it("creates a profile only when the optimistic initial version is still absent", async function () {
+  it("creates a profile only when the optimistic initial version is still absent", async () => {
     const createdDouble = createQueryDatabaseDouble({
       insert: [[PROFILE_ROW]],
     });
@@ -1150,7 +1150,7 @@ describe("profile repository", function () {
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
   });
 
-  it("advances the profile version and scopes optimistic updates to owner and version", async function () {
+  it("advances the profile version and scopes optimistic updates to owner and version", async () => {
     const updatedProfile = { ...PROFILE_ROW, updatedAt: NEXT_VERSION };
     const double = createQueryDatabaseDouble({ update: [[updatedProfile]] });
     const repository = createProfileRepository(double.database, {
@@ -1174,7 +1174,7 @@ describe("profile repository", function () {
     return expect(queryParameters(update)).toEqual(["user_alice", FIXED_NOW]);
   });
 
-  it("rejects stale profile versions without returning another owner's row", async function () {
+  it("rejects stale profile versions without returning another owner's row", async () => {
     const double = createQueryDatabaseDouble({ update: [[]] });
     const repository = createProfileRepository(double.database, {
       now: () => FIXED_NOW,
@@ -1192,7 +1192,7 @@ describe("profile repository", function () {
     ]);
   });
 
-  return it("rejects blank profile identity and locale fields before querying", async function () {
+  return it("rejects blank profile identity and locale fields before querying", async () => {
     const double = createQueryDatabaseDouble();
     const repository = createProfileRepository(double.database);
     const invalidProfiles = [
@@ -1216,8 +1216,8 @@ describe("profile repository", function () {
   });
 });
 
-describe("address repository", function () {
-  it("caps and scopes address reads and returns null for a missing owned address", async function () {
+describe("address repository", () => {
+  it("caps and scopes address reads and returns null for a missing owned address", async () => {
     const double = createQueryDatabaseDouble({
       select: [[ADDRESS_ROW], []],
     });
@@ -1249,7 +1249,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("creates default address fields inside the propagated transaction", async function () {
+  it("creates default address fields inside the propagated transaction", async () => {
     const createdAddress = {
       ...ADDRESS_ROW,
       id: "generated_address",
@@ -1309,7 +1309,7 @@ describe("address repository", function () {
     });
   });
 
-  it("moves a primary address version past the current primary before replacement", async function () {
+  it("moves a primary address version past the current primary before replacement", async () => {
     const primaryVersion = new Date(NEXT_VERSION.getTime() + 1);
     const createdAddress = {
       ...ADDRESS_ROW,
@@ -1363,7 +1363,7 @@ describe("address repository", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("enforces the per-owner address quota and rolls back without inserting", async function () {
+  it("enforces the per-owner address quota and rolls back without inserting", async () => {
     const double = createQueryDatabaseDouble({
       select: [[{ value: 20 }]],
     });
@@ -1391,7 +1391,7 @@ describe("address repository", function () {
     return expect(queryParameters(count)).toEqual(["user_alice"]);
   });
 
-  it("maps unique address conflicts after the transaction rolls back", async function () {
+  it("maps unique address conflicts after the transaction rolls back", async () => {
     const double = createQueryDatabaseDouble({
       select: [[{ value: 0 }]],
       insert: [wrappedDatabaseError("23505", "addresses_pkey")],
@@ -1415,7 +1415,7 @@ describe("address repository", function () {
     return expect(double.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  it("propagates non-conflict transaction failures unchanged", async function () {
+  it("propagates non-conflict transaction failures unchanged", async () => {
     const failure = new Error("advisory lock unavailable");
     const double = createQueryDatabaseDouble({ executeError: failure });
     const repository = createAddressRepository(double.database);
@@ -1439,7 +1439,7 @@ describe("address repository", function () {
     });
   });
 
-  it("rejects invalid create and update fields before opening a transaction", async function () {
+  it("rejects invalid create and update fields before opening a transaction", async () => {
     const double = createQueryDatabaseDouble();
     const repository = createAddressRepository(double.database);
     const validCreate = {
@@ -1508,7 +1508,7 @@ describe("address repository", function () {
     return expect(double.operations).toEqual([]);
   });
 
-  it("returns null when an address update cannot find that owner's row", async function () {
+  it("returns null when an address update cannot find that owner's row", async () => {
     const double = createQueryDatabaseDouble({ select: [[]] });
     const repository = createAddressRepository(double.database);
 
@@ -1531,7 +1531,7 @@ describe("address repository", function () {
     ).toBe(false);
   });
 
-  it("updates only supplied address fields within the owner's transaction", async function () {
+  it("updates only supplied address fields within the owner's transaction", async () => {
     const updatedAddress = {
       ...ADDRESS_ROW,
       line2: "Suite 5",
@@ -1573,7 +1573,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("clears the prior primary before atomically applying a normal primary patch", async function () {
+  it("clears the prior primary before atomically applying a normal primary patch", async () => {
     const primaryVersion = new Date(NEXT_VERSION.getTime() + 1);
     const primaryAddress = {
       ...ADDRESS_ROW,
@@ -1632,7 +1632,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("advances, normalizes, and owner-scopes a false optimistic address update", async function () {
+  it("advances, normalizes, and owner-scopes a false optimistic address update", async () => {
     const updatedAddress = {
       ...ADDRESS_ROW,
       line1: "456 Oak Avenue",
@@ -1675,7 +1675,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("distinguishes a missing optimistic address from a stale owned address", async function () {
+  it("distinguishes a missing optimistic address from a stale owned address", async () => {
     const missingDouble = createQueryDatabaseDouble({
       update: [[]],
       select: [[]],
@@ -1725,7 +1725,7 @@ describe("address repository", function () {
     return results;
   });
 
-  it("atomically applies every supplied field while replacing the primary optimistically", async function () {
+  it("atomically applies every supplied field while replacing the primary optimistically", async () => {
     const primaryVersion = new Date(NEXT_VERSION.getTime() + 1);
     const primaryAddress = {
       ...ADDRESS_ROW,
@@ -1802,7 +1802,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("keeps an already-primary optimistic target primary without invalidating its version", async function () {
+  it("keeps an already-primary optimistic target primary without invalidating its version", async () => {
     const alreadyPrimary: Address = {
       ...ADDRESS_ROW,
       isPrimary: true,
@@ -1854,7 +1854,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("returns null without mutation for a missing optimistic primary target", async function () {
+  it("returns null without mutation for a missing optimistic primary target", async () => {
     const double = createQueryDatabaseDouble({ select: [[]] });
     const repository = createAddressRepository(double.database);
 
@@ -1884,7 +1884,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("rolls back optimistic primary patches for stale and raced versions", async function () {
+  it("rolls back optimistic primary patches for stale and raced versions", async () => {
     const staleDouble = createQueryDatabaseDouble({
       select: [[ADDRESS_ROW]],
     });
@@ -1940,7 +1940,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("maps provider conflicts for normal and optimistic primary patches", async function () {
+  it("maps provider conflicts for normal and optimistic primary patches", async () => {
     const normalDouble = createQueryDatabaseDouble({
       select: [[ADDRESS_ROW], []],
       update: [
@@ -1982,7 +1982,7 @@ describe("address repository", function () {
     return expect(optimisticDouble.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  it("returns removal status while keeping deletes owner-scoped", async function () {
+  it("returns removal status while keeping deletes owner-scoped", async () => {
     const double = createQueryDatabaseDouble({
       delete: [[{ id: "address_home" }], []],
     });
@@ -2005,7 +2005,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("distinguishes successful, missing, and stale optimistic removals", async function () {
+  it("distinguishes successful, missing, and stale optimistic removals", async () => {
     const removedDouble = createQueryDatabaseDouble({
       delete: [[{ id: "address_home" }]],
     });
@@ -2061,7 +2061,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("returns null when primary selection cannot find the owner's address", async function () {
+  it("returns null when primary selection cannot find the owner's address", async () => {
     const double = createQueryDatabaseDouble({ select: [[]] });
     const repository = createAddressRepository(double.database);
 
@@ -2103,7 +2103,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("sets the owner's primary address with monotonic versioning", async function () {
+  it("sets the owner's primary address with monotonic versioning", async () => {
     const primaryAddress = {
       ...ADDRESS_ROW,
       isPrimary: true,
@@ -2144,7 +2144,7 @@ describe("address repository", function () {
     ]);
   });
 
-  it("maps a primary-selection uniqueness failure after rolling back", async function () {
+  it("maps a primary-selection uniqueness failure after rolling back", async () => {
     const providerFailure = wrappedDatabaseError(
       "23505",
       "addresses_one_primary_per_user_idx"
@@ -2166,7 +2166,7 @@ describe("address repository", function () {
     ).toEqual([]);
   });
 
-  it("sets primary optimistically with monotonic versioning in one transaction", async function () {
+  it("sets primary optimistically with monotonic versioning in one transaction", async () => {
     const primaryAddress = {
       ...ADDRESS_ROW,
       isPrimary: true,
@@ -2215,7 +2215,7 @@ describe("address repository", function () {
     ]);
   });
 
-  return it("rolls back optimistic primary changes for stale and raced versions", async function () {
+  return it("rolls back optimistic primary changes for stale and raced versions", async () => {
     const staleDouble = createQueryDatabaseDouble({
       select: [[ADDRESS_ROW]],
     });
@@ -2258,8 +2258,8 @@ describe("address repository", function () {
   });
 });
 
-describe("user preferences repository", function () {
-  it("returns null for missing preferences and scopes the lookup to the user", async function () {
+describe("user preferences repository", () => {
+  it("returns null for missing preferences and scopes the lookup to the user", async () => {
     const double = createQueryDatabaseDouble({ select: [[]] });
     const repository = createUserPreferencesRepository(double.database);
 
@@ -2275,7 +2275,7 @@ describe("user preferences repository", function () {
     return expect(queryParameters(lookup)).toEqual(["user_missing"]);
   });
 
-  it("rejects a blank theme owner and maps provider read failures", async function () {
+  it("rejects a blank theme owner and maps provider read failures", async () => {
     const blankDouble = createQueryDatabaseDouble();
     const blankRepository = createUserPreferencesRepository(
       blankDouble.database
@@ -2306,7 +2306,7 @@ describe("user preferences repository", function () {
     ]);
   });
 
-  it("advances and user-scopes an optimistic theme update", async function () {
+  it("advances and user-scopes an optimistic theme update", async () => {
     const updatedTheme = {
       mode: "light" as const,
       colorScheme: "blue" as const,
@@ -2346,7 +2346,7 @@ describe("user preferences repository", function () {
     });
   });
 
-  it("reports both initial theme conflicts and stale theme versions", async function () {
+  it("reports both initial theme conflicts and stale theme versions", async () => {
     const initialConflictDouble = createQueryDatabaseDouble({ insert: [[]] });
     const initialRepository = createUserPreferencesRepository(
       initialConflictDouble.database,
@@ -2385,7 +2385,7 @@ describe("user preferences repository", function () {
     ]);
   });
 
-  it("maps theme write failures without leaking provider details", async function () {
+  it("maps theme write failures without leaking provider details", async () => {
     const double = createQueryDatabaseDouble({
       insert: [new Error("provider insert detail")],
     });
@@ -2410,7 +2410,7 @@ describe("user preferences repository", function () {
     );
   });
 
-  it("upserts all preference and consent fields on the user conflict", async function () {
+  it("upserts all preference and consent fields on the user conflict", async () => {
     const input = {
       userId: "user_alice",
       mode: "system" as const,
@@ -2447,7 +2447,7 @@ describe("user preferences repository", function () {
     });
   });
 
-  it("creates consent preferences only while the initial version is absent", async function () {
+  it("creates consent preferences only while the initial version is absent", async () => {
     const initialInput = {
       userId: "user_alice",
       emailNotifications: true,
@@ -2497,7 +2497,7 @@ describe("user preferences repository", function () {
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
   });
 
-  it("advances and user-scopes optimistic consent updates", async function () {
+  it("advances and user-scopes optimistic consent updates", async () => {
     const updatedPreferences = {
       ...PREFERENCES_ROW,
       emailNotifications: false,
@@ -2535,7 +2535,7 @@ describe("user preferences repository", function () {
     return expect(queryParameters(update)).toEqual(["user_alice", FIXED_NOW]);
   });
 
-  return it("rejects stale consent versions and blank owners before persistence", async function () {
+  return it("rejects stale consent versions and blank owners before persistence", async () => {
     const staleDouble = createQueryDatabaseDouble({ update: [[]] });
     const staleRepository = createUserPreferencesRepository(
       staleDouble.database,
@@ -2588,8 +2588,8 @@ describe("user preferences repository", function () {
   });
 });
 
-describe("feature item query and mutation contracts", function () {
-  it("uses the default list cap and owner-scopes escaped search and status filters", async function () {
+describe("feature item query and mutation contracts", () => {
+  it("uses the default list cap and owner-scopes escaped search and status filters", async () => {
     const double = createQueryDatabaseDouble({
       select: [[FEATURE_ROW], [FEATURE_ROW]],
     });
@@ -2627,7 +2627,7 @@ describe("feature item query and mutation contracts", function () {
     ]);
   });
 
-  it("rejects invalid feature list bounds and queries before touching the database", async function () {
+  it("rejects invalid feature list bounds and queries before touching the database", async () => {
     const double = createQueryDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
 
@@ -2645,7 +2645,7 @@ describe("feature item query and mutation contracts", function () {
     return expect(double.operations).toEqual([]);
   });
 
-  it("returns null when an owner-scoped feature lookup has no row", async function () {
+  it("returns null when an owner-scoped feature lookup has no row", async () => {
     const double = createQueryDatabaseDouble({ select: [[]] });
     const repository = createFeatureItemRepository(double.database);
 
@@ -2665,7 +2665,7 @@ describe("feature item query and mutation contracts", function () {
     ]);
   });
 
-  it("creates default feature state and companion records in one transaction", async function () {
+  it("creates default feature state and companion records in one transaction", async () => {
     const createdFeature = {
       ...FEATURE_ROW,
       id: "feature_generated",
@@ -2743,7 +2743,7 @@ describe("feature item query and mutation contracts", function () {
     });
   });
 
-  it("rejects invalid feature owners, names, and mutation contexts before transactions", async function () {
+  it("rejects invalid feature owners, names, and mutation contexts before transactions", async () => {
     const double = createQueryDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
     const validInput = {
@@ -2782,7 +2782,7 @@ describe("feature item query and mutation contracts", function () {
     return expect(double.operations).toEqual([]);
   });
 
-  it("returns null without companion writes when an owned feature update misses", async function () {
+  it("returns null without companion writes when an owned feature update misses", async () => {
     const double = createQueryDatabaseDouble({ update: [[]] });
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -2816,7 +2816,7 @@ describe("feature item query and mutation contracts", function () {
     ]);
   });
 
-  it("updates supplied feature fields and records the public change set atomically", async function () {
+  it("updates supplied feature fields and records the public change set atomically", async () => {
     const updatedFeature = {
       ...FEATURE_ROW,
       name: "Updated item",
@@ -2888,7 +2888,7 @@ describe("feature item query and mutation contracts", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("updates only a supplied name and records the minimal public change set", async function () {
+  it("updates only a supplied name and records the minimal public change set", async () => {
     const renamedFeature = {
       ...FEATURE_ROW,
       name: "Renamed item",
@@ -2927,7 +2927,7 @@ describe("feature item query and mutation contracts", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("returns null for a missing archive target and writes no companions", async function () {
+  it("returns null for a missing archive target and writes no companions", async () => {
     const double = createQueryDatabaseDouble({ update: [[]] });
     const repository = createFeatureItemRepository(double.database, {
       now: () => FIXED_NOW,
@@ -2944,7 +2944,7 @@ describe("feature item query and mutation contracts", function () {
     ]);
   });
 
-  it("archives the owner's feature with audit and outbox records atomically", async function () {
+  it("archives the owner's feature with audit and outbox records atomically", async () => {
     const archivedFeature = {
       ...FEATURE_ROW,
       status: "archived" as const,
@@ -2994,7 +2994,7 @@ describe("feature item query and mutation contracts", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("maps an archive provider failure and rolls back without companion writes", async function () {
+  it("maps an archive provider failure and rolls back without companion writes", async () => {
     const providerFailure = Object.assign(
       new Error("provider archive detail"),
       { code: "XX000" }
@@ -3020,7 +3020,7 @@ describe("feature item query and mutation contracts", function () {
     ]);
   });
 
-  return it("rolls back a feature update when a companion transaction write fails", async function () {
+  return it("rolls back a feature update when a companion transaction write fails", async () => {
     const failure = new Error("outbox unavailable");
     const updatedFeature = {
       ...FEATURE_ROW,
@@ -3051,8 +3051,8 @@ describe("feature item query and mutation contracts", function () {
   });
 });
 
-describe("repository residual boundaries", function () {
-  it("rejects null and primitive top-level metadata before persistence", async function () {
+describe("repository residual boundaries", () => {
+  it("rejects null and primitive top-level metadata before persistence", async () => {
     const double = createQueryDatabaseDouble();
     const repository = createFeatureItemRepository(double.database);
 
@@ -3072,7 +3072,7 @@ describe("repository residual boundaries", function () {
     return expect(double.operations).toEqual([]);
   });
 
-  it("accepts the exact feature query and limit maxima", async function () {
+  it("accepts the exact feature query and limit maxima", async () => {
     const double = createQueryDatabaseDouble({ select: [[FEATURE_ROW]] });
     const repository = createFeatureItemRepository(double.database);
     const query = "x".repeat(200);
@@ -3092,7 +3092,7 @@ describe("repository residual boundaries", function () {
     ]);
   });
 
-  it("creates the first primary address without a prior version", async function () {
+  it("creates the first primary address without a prior version", async () => {
     const createdAddress = {
       ...ADDRESS_ROW,
       id: "address_first_primary",
@@ -3137,7 +3137,7 @@ describe("repository residual boundaries", function () {
     return expect(double.lifecycle).toEqual(["begin", "commit"]);
   });
 
-  it("persists every supported optimistic address patch field", async function () {
+  it("persists every supported optimistic address patch field", async () => {
     const updatedAddress = {
       ...ADDRESS_ROW,
       type: "work" as const,
@@ -3182,7 +3182,7 @@ describe("repository residual boundaries", function () {
     });
   });
 
-  it("terminates cyclic provider causes and preserves the original failure", async function () {
+  it("terminates cyclic provider causes and preserves the original failure", async () => {
     const providerFailure = new Error("cyclic provider failure") as Error & {
       cause?: unknown;
     };
@@ -3209,7 +3209,7 @@ describe("repository residual boundaries", function () {
     return expect(double.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  it("preserves repository input errors raised by a theme provider", async function () {
+  it("preserves repository input errors raised by a theme provider", async () => {
     const providerFailure = new InvalidRepositoryInputError(
       "provider rejected canonical input"
     );
@@ -3230,7 +3230,7 @@ describe("repository residual boundaries", function () {
     ).rejects.toBe(providerFailure);
   });
 
-  return it("returns null when non-optimistic address writes lose a row after lookup", async function () {
+  return it("returns null when non-optimistic address writes lose a row after lookup", async () => {
     const updateDouble = createQueryDatabaseDouble({
       select: [[ADDRESS_ROW]],
       update: [[]],

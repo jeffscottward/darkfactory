@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { ensureDevelopmentSeedIdentity } from "@darkfactory/auth/server";
 import {
   createNodeDatabase,
+  type PrepareSeedIdentities,
   resetDevelopment,
   seedDevelopment,
-  type PrepareSeedIdentities,
 } from "@darkfactory/db/server";
 import { migrate } from "@darkfactory/db/server/migration";
 import {
@@ -147,7 +147,7 @@ const runCli = async (
   );
 };
 
-describe.sequential("DF-040 development database lifecycle", function () {
+describe.sequential("DF-040 development database lifecycle", () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

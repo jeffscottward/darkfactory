@@ -2,12 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createOperatorClient } from "./client.ts";
 
-describe("operator client", function () {
-  afterEach(function () {
-    return vi.unstubAllGlobals();
-  });
+describe("operator client", () => {
+  afterEach(() => vi.unstubAllGlobals());
 
-  return it("uses the default fetch boundary at the fixed RPC prefix", async function () {
+  return it("uses the default fetch boundary at the fixed RPC prefix", async () => {
     const fetch = vi.fn(async (_request: Request) => {
       return new Response("Not Found", { status: 404 });
     });

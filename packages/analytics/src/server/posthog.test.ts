@@ -131,7 +131,7 @@ const malformedCaptureCases: ReadonlyArray<
     "excess fields",
     () => {
       const capture = plainCapture() as Record<string, unknown>;
-      for (let index = 0; index < 1_000; index += 1) {
+      for (let index = 0; index < 1000; index += 1) {
         capture[`extra-${index}`] = index;
       }
       return capture as AnalyticsCapture;
@@ -329,7 +329,7 @@ describe("createPostHogAnalyticsPort", () => {
     return expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("gives refused consent precedence over missing provider configuration", async function () {
+  it("gives refused consent precedence over missing provider configuration", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const analytics = createPostHogAnalyticsPort({ fetch });
 

@@ -6,73 +6,34 @@ import {
 } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(function () {
-  return {
-    getRequestPortalSession: vi.fn(),
-    headers: vi.fn(async function () {
-      return new Headers({
+const mocks = vi.hoisted(() => ({
+  getRequestPortalSession: vi.fn(),
+  headers: vi.fn(
+    async () =>
+      new Headers({
         cookie: "better-auth.session_token=opaque",
         "cf-connecting-ip": "203.0.113.42",
         "x-pathname": "/feature-items",
-      });
-    }),
-    portalSignInHref: vi.fn(function () {
-      return "/sign-in?callbackURL=%2Ffeature-items";
-    }),
-    redirect: vi.fn(function (href: string) {
-      throw new Error(`REDIRECT:${href}`);
-    }),
-  };
-});
+      })
+  ),
+  portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Ffeature-items"),
+  redirect: vi.fn((href: string) => {
+    throw new Error(`REDIRECT:${href}`);
+  }),
+}));
 
-vi.mock("next/headers", function () {
-  return { headers: mocks.headers };
-});
-vi.mock("next/navigation", function () {
-  return { redirect: mocks.redirect };
-});
-vi.mock("../../lib/request-portal-session.ts", function () {
-  return {
-    getRequestPortalSession: mocks.getRequestPortalSession,
-  };
-});
-vi.mock("../../lib/server-session.ts", function () {
-  return {
-    portalSignInHref: mocks.portalSignInHref,
-  };
-});
-vi.mock("../../components/portal-shell.tsx", function () {
-  return {
-    PortalShell: "portal-shell",
-  };
-});
+vi.mock("next/headers", () => ({ headers: mocks.headers }));
+vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
+vi.mock("../../lib/request-portal-session.ts", () => ({
+  getRequestPortalSession: mocks.getRequestPortalSession,
+}));
+vi.mock("../../lib/server-session.ts", () => ({
+  portalSignInHref: mocks.portalSignInHref,
+}));
+vi.mock("../../components/portal-shell.tsx", () => ({
+  PortalShell: "portal-shell",
+}));
 
-import PortalLayout from "./layout.tsx";
-import AccountPage from "./account/page.tsx";
-import AccountError from "./account/error.tsx";
-import AccountLayout from "./account/layout.tsx";
-import AccountLoading from "./account/loading.tsx";
-import AddressPage from "./account/address/page.tsx";
-import PreferencesPage from "./account/preferences/page.tsx";
-import ProfilePage from "./account/profile/page.tsx";
-import SecurityPage from "./account/security/page.tsx";
-import AdminError from "./admin/error.tsx";
-import AdminLoading from "./admin/loading.tsx";
-import AdminPage from "./admin/page.ts";
-import AdminUsersPage from "./admin/users/page.tsx";
-import DashboardError from "./dashboard/error.tsx";
-import DashboardLoading from "./dashboard/loading.tsx";
-import FeatureItemsError from "./feature-items/error.tsx";
-import FeatureItemsLoading from "./feature-items/loading.tsx";
-import FeatureItemsPage, {
-  metadata as featureItemsMetadata,
-} from "./feature-items/page.tsx";
-import FeatureItemPage, {
-  metadata as featureItemMetadata,
-} from "./feature-items/[id]/page.tsx";
-import NewFeatureItemPage, {
-  metadata as newFeatureItemMetadata,
-} from "./feature-items/new/page.tsx";
 import { AccountNavigationClient } from "../../components/account/account-navigation-client.tsx";
 import { AddressPageClient } from "../../components/account/address-page-client.tsx";
 import { PreferencesPageClient } from "../../components/account/preferences-page-client.tsx";
@@ -82,6 +43,32 @@ import { AdminUsersPageClient } from "../../components/admin/admin-users-page-cl
 import { FeatureItemCreateWorkflow } from "../../components/portal/feature-item-create-workflow.tsx";
 import { FeatureItemEditor } from "../../components/portal/feature-item-editor.tsx";
 import { FeatureItemsWorkspace } from "../../components/portal/feature-items-workspace.tsx";
+import AddressPage from "./account/address/page.tsx";
+import AccountError from "./account/error.tsx";
+import AccountLayout from "./account/layout.tsx";
+import AccountLoading from "./account/loading.tsx";
+import AccountPage from "./account/page.tsx";
+import PreferencesPage from "./account/preferences/page.tsx";
+import ProfilePage from "./account/profile/page.tsx";
+import SecurityPage from "./account/security/page.tsx";
+import AdminError from "./admin/error.tsx";
+import AdminLoading from "./admin/loading.tsx";
+import AdminPage from "./admin/page.ts";
+import AdminUsersPage from "./admin/users/page.tsx";
+import DashboardError from "./dashboard/error.tsx";
+import DashboardLoading from "./dashboard/loading.tsx";
+import FeatureItemPage, {
+  metadata as featureItemMetadata,
+} from "./feature-items/[id]/page.tsx";
+import FeatureItemsError from "./feature-items/error.tsx";
+import FeatureItemsLoading from "./feature-items/loading.tsx";
+import NewFeatureItemPage, {
+  metadata as newFeatureItemMetadata,
+} from "./feature-items/new/page.tsx";
+import FeatureItemsPage, {
+  metadata as featureItemsMetadata,
+} from "./feature-items/page.tsx";
+import PortalLayout from "./layout.tsx";
 
 type RuntimeElement = ReactElement<{
   readonly action?: ReactNode;
@@ -111,12 +98,10 @@ const runtimeElement = (
   return runtimeElements(node).find((element) => element.type === type);
 };
 
-beforeEach(function () {
-  return vi.clearAllMocks();
-});
+beforeEach(() => vi.clearAllMocks());
 
-describe("PortalLayout", function () {
-  it("redirects an anonymous server request before returning protected content", async function () {
+describe("PortalLayout", () => {
+  it("redirects an anonymous server request before returning protected content", async () => {
     mocks.getRequestPortalSession.mockResolvedValueOnce(null);
 
     await expect(PortalLayout({ children: "protected" })).rejects.toThrow(
@@ -157,7 +142,7 @@ describe("PortalLayout", function () {
         "/admin/users",
       ],
     ],
-  ])("renders role-gated routes for an active %s session", async function (role, isAdmin, availableRoutes) {
+  ])("renders role-gated routes for an active %s session", async (role, isAdmin, availableRoutes) => {
     mocks.getRequestPortalSession.mockResolvedValueOnce({
       userId: "user-1",
       name: "Example User",
@@ -175,8 +160,8 @@ describe("PortalLayout", function () {
   });
 });
 
-describe("portal route leaf composition", function () {
-  it("renders the account index, layout, and all account client leaves", function () {
+describe("portal route leaf composition", () => {
+  it("renders the account index, layout, and all account client leaves", () => {
     const account = AccountPage();
     expect(
       runtimeElements(account)
@@ -203,15 +188,14 @@ describe("portal route leaf composition", function () {
     ).toBeDefined();
   });
 
-  it("renders feature-item list, detail, and creation leaves with metadata", async function () {
+  it("renders feature-item list, detail, and creation leaves with metadata", async () => {
     const list = FeatureItemsPage();
     expect(runtimeElement(list, FeatureItemsWorkspace)).toBeDefined();
     expect(
-      runtimeElements(list).some(function (element) {
-        return (
+      runtimeElements(list).some(
+        (element) =>
           element.type === "a" && element.props.href === "/feature-items/new"
-        );
-      })
+      )
     ).toBe(true);
 
     const detail = await FeatureItemPage({
@@ -230,7 +214,7 @@ describe("portal route leaf composition", function () {
     });
   });
 
-  it("renders the administrator directory and redirects its index", function () {
+  it("renders the administrator directory and redirects its index", () => {
     expect(
       runtimeElement(AdminUsersPage(), AdminUsersPageClient)
     ).toBeDefined();
@@ -238,7 +222,7 @@ describe("portal route leaf composition", function () {
     return expect(mocks.redirect).toHaveBeenCalledWith("/admin/users");
   });
 
-  it("wires every portal error boundary to its supplied retry action", function () {
+  it("wires every portal error boundary to its supplied retry action", () => {
     const reset = vi.fn();
     const boundaries = [
       AccountError({ error: new Error("account"), reset }),
@@ -257,7 +241,7 @@ describe("portal route leaf composition", function () {
     return expect(reset).toHaveBeenCalledTimes(boundaries.length);
   });
 
-  return it("announces every portal loading boundary without exposing live data", function () {
+  return it("announces every portal loading boundary without exposing live data", () => {
     const results = [];
     for (const loading of [
       AccountLoading(),

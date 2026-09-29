@@ -6,12 +6,12 @@ import { ORPCError } from "@orpc/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApiClient } from "./client.ts";
-import { createApiContext } from "./server/context.ts";
-import { handleApiRequest } from "./server/handler.ts";
 import type {
   ContactDeliveryPort,
   ContactThrottlePort,
 } from "./server/contact-service.ts";
+import { createApiContext } from "./server/context.ts";
+import { handleApiRequest } from "./server/handler.ts";
 
 const input = {
   name: "Ada Lovelace",
@@ -89,7 +89,7 @@ const expectError = async (
   }
 };
 
-describe("DF-076 contact handler", function () {
+describe("DF-076 contact handler", () => {
   it.each([
     {
       result: { status: "sent", provider: "resend", messageId: "message-1" },
@@ -112,10 +112,10 @@ describe("DF-076 contact handler", function () {
       },
       expected: { status: "not-delivered" },
     },
-  ] as const)("returns $expected.status without authentication or provider details", async function ({
+  ] as const)("returns $expected.status without authentication or provider details", async ({
     result,
     expected,
-  }) {
+  }) => {
     const events: SemanticEvent[] = [];
     const sendContact = vi.fn(async () => result);
     const client = clientFor({ sendContact }, allowThrottle(), events);
@@ -125,7 +125,7 @@ describe("DF-076 contact handler", function () {
     return expect(events).toHaveLength(1);
   });
 
-  it("emits only PII-free contact outcome metadata", async function () {
+  it("emits only PII-free contact outcome metadata", async () => {
     const events: SemanticEvent[] = [];
     const client = clientFor(
       {
@@ -168,7 +168,7 @@ describe("DF-076 contact handler", function () {
     return expect(serialized).not.toContain("203.0.113.42");
   });
 
-  it("returns a typed 429 before contacting the provider", async function () {
+  it("returns a typed 429 before contacting the provider", async () => {
     const wireResponses: Response[] = [];
     const sendContact = vi.fn();
     const client = clientFor(
@@ -195,7 +195,7 @@ describe("DF-076 contact handler", function () {
     return expect(sendContact).not.toHaveBeenCalled();
   });
 
-  it("returns a typed 503 for configured provider failure without fake success", async function () {
+  it("returns a typed 503 for configured provider failure without fake success", async () => {
     const client = clientFor(
       {
         sendContact: vi.fn(
@@ -219,7 +219,7 @@ describe("DF-076 contact handler", function () {
     );
   });
 
-  return it("does not start throttle or delivery for the honeypot", async function () {
+  return it("does not start throttle or delivery for the honeypot", async () => {
     const sendContact = vi.fn();
     const consume = vi.fn();
     const client = clientFor({ sendContact }, { consume }, []);

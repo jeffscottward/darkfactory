@@ -1,12 +1,12 @@
 "use client";
 
-import { type ProfileOutput, type ProfileUpdateInput } from "@darkfactory/api";
-import { useForm } from "@tanstack/react-form";
+import type { ProfileOutput, ProfileUpdateInput } from "@darkfactory/api";
 import { Button, Input, Label, Textarea } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
 
 import {
-  AccountFeedbackMessage,
   type AccountFeedback,
+  AccountFeedbackMessage,
 } from "./account-feedback.tsx";
 
 type ProfileFieldName =
@@ -228,9 +228,9 @@ export const ProfileForm = ({
                   {definition.multiline === true ? (
                     <Textarea
                       aria-describedby={describedBy}
+                      aria-invalid={error !== undefined}
                       aria-required={definition.required === true}
                       autoComplete={definition.autoComplete}
-                      aria-invalid={error !== undefined}
                       id={field.name}
                       maxLength={definition.maximum}
                       name={field.name}
@@ -262,7 +262,7 @@ export const ProfileForm = ({
                   {error === undefined ? null : (
                     <p
                       aria-live="assertive"
-                      className="text-sm text-destructive"
+                      className="text-destructive text-sm"
                       id={describedBy}
                       role="alert"
                     >
@@ -282,7 +282,7 @@ export const ProfileForm = ({
       >
         {([canSubmit, isDirty, isSubmitting]) => (
           <Button
-            disabled={!canSubmit || !isDirty || isSubmitting}
+            disabled={!(canSubmit && isDirty) || isSubmitting}
             loading={isSubmitting}
             loadingLabel="Saving profile"
             type="submit"

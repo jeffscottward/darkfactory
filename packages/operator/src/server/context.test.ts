@@ -8,8 +8,8 @@ const request = (): Request =>
     headers: { "x-request-id": "untrusted-request-id" },
   });
 
-describe("operator context", function () {
-  it("uses only the injected request authority and forwards request headers", async function () {
+describe("operator context", () => {
+  it("uses only the injected request authority and forwards request headers", async () => {
     const requireSession = vi.fn(
       async (_headers: Headers) =>
         ({
@@ -33,7 +33,7 @@ describe("operator context", function () {
     return expect(requireSession).toHaveBeenCalledWith(input.headers);
   });
 
-  it("prefers an explicit safe identifier over generation", function () {
+  it("prefers an explicit safe identifier over generation", () => {
     const generateRequestId = vi.fn(() => "unused-generated-id");
     expect(
       resolveOperatorRequestId(request(), {
@@ -44,7 +44,7 @@ describe("operator context", function () {
     return expect(generateRequestId).not.toHaveBeenCalled();
   });
 
-  it("rejects unsafe explicit and generated identifiers", function () {
+  it("rejects unsafe explicit and generated identifiers", () => {
     expect(() =>
       resolveOperatorRequestId(request(), {
         requestId: "unsafe request id",
@@ -57,9 +57,8 @@ describe("operator context", function () {
     ).toThrow("generated requestId must be 1-128 safe correlation characters");
   });
 
-  return it("generates a safe identifier when no authority is injected", function () {
-    return expect(resolveOperatorRequestId(request())).toMatch(
+  return it("generates a safe identifier when no authority is injected", () =>
+    expect(resolveOperatorRequestId(request())).toMatch(
       /^[A-Za-z0-9._:-]{1,128}$/
-    );
-  });
+    ));
 });

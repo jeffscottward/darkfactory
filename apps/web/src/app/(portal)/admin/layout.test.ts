@@ -25,8 +25,8 @@ vi.mock("../../../lib/server-session.ts", () => ({
 
 import AdminLayout from "./layout.tsx";
 
-describe("server-authorized admin layout", function () {
-  beforeEach(function () {
+describe("server-authorized admin layout", () => {
+  beforeEach(() => {
     mocks.getRequestPortalSession.mockReset();
     mocks.headers.mockResolvedValue(
       new Headers({
@@ -41,7 +41,7 @@ describe("server-authorized admin layout", function () {
     return mocks.redirect.mockReset();
   });
 
-  it("fails closed for an anonymous direct request", async function () {
+  it("fails closed for an anonymous direct request", async () => {
     mocks.getRequestPortalSession.mockResolvedValueOnce(null);
     await AdminLayout({ children: "private directory" });
     expect(mocks.redirect).toHaveBeenCalledWith(
@@ -53,7 +53,7 @@ describe("server-authorized admin layout", function () {
     );
   });
 
-  it("fails closed for a member before rendering admin content", async function () {
+  it("fails closed for a member before rendering admin content", async () => {
     mocks.getRequestPortalSession.mockResolvedValueOnce({
       userId: "member-1",
       name: "Example Member",
@@ -65,7 +65,7 @@ describe("server-authorized admin layout", function () {
     return expect(mocks.redirect).toHaveBeenCalledWith("/dashboard");
   });
 
-  return it("renders read-only admin content for a trusted active admin", async function () {
+  return it("renders read-only admin content for a trusted active admin", async () => {
     mocks.getRequestPortalSession.mockResolvedValueOnce({
       userId: "admin-1",
       name: "Example Admin",

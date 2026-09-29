@@ -5,8 +5,8 @@ import { createRequestDatabase } from "@darkfactory/db/server";
 import { selectEmailPort } from "@darkfactory/email/server";
 
 import {
-  OPERATOR_APP_ORIGIN,
   assertLocalOperatorEnvironment,
+  OPERATOR_APP_ORIGIN,
 } from "./operator-environment.ts";
 
 export type OperatorBackgroundTaskScheduler = (task: Promise<unknown>) => void;

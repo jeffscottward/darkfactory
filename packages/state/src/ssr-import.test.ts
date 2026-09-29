@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-describe("client entrypoint SSR safety", function () {
-  return it("imports and creates a store without reading browser persistence globals", async function () {
+describe("client entrypoint SSR safety", () =>
+  it("imports and creates a store without reading browser persistence globals", async () => {
     const existingDescriptor = Object.getOwnPropertyDescriptor(
       globalThis,
       "localStorage"
@@ -26,5 +26,4 @@ describe("client entrypoint SSR safety", function () {
         Reflect.deleteProperty(globalThis, "localStorage");
       }
     }
-  });
-});
+  }));

@@ -1,4 +1,4 @@
-import { createApiClient, type ApiClient } from "@darkfactory/api";
+import { type ApiClient, createApiClient } from "@darkfactory/api";
 import { createApiContext, handleApiRequest } from "@darkfactory/api/server";
 import {
   createAuth,
@@ -155,8 +155,8 @@ const expectedError = async (
   throw new Error("Expected the API operation to fail");
 };
 
-describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", function () {
-  beforeAll(async function () {
+describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", () => {
+  beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
@@ -165,7 +165,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     return await migrate(databaseResource.db);
   }, 60_000);
 
-  beforeEach(async function () {
+  beforeEach(async () => {
     await resetDatabase();
     backgroundTasks = [];
     auth = createAuth({
@@ -184,7 +184,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     return undefined;
   });
 
-  afterAll(async function () {
+  afterAll(async () => {
     try {
       if (databaseResource !== undefined) return await databaseResource.close();
       return;
@@ -194,7 +194,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     }
   }, 60_000);
 
-  it("runs owner-scoped lifecycle mutations through atomic audit and outbox writes", async function () {
+  it("runs owner-scoped lifecycle mutations through atomic audit and outbox writes", async () => {
     const memberCookie = await createIdentity("member-api@domain.test");
     const otherCookie = await createIdentity("other-api@domain.test");
     const member = apiClient(memberCookie);
@@ -243,7 +243,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     ]);
   });
 
-  it("uses real auth boundaries to deny anonymous/member admin access and accept admin", async function () {
+  it("uses real auth boundaries to deny anonymous/member admin access and accept admin", async () => {
     const memberCookie = await createIdentity("member-admin-proof@domain.test");
     const adminCookie = await createIdentity(
       "admin-proof@domain.test",
@@ -294,7 +294,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     );
   });
 
-  it("persists authenticated theme preferences with defaults, isolation, reload, and one semantic event", async function () {
+  it("persists authenticated theme preferences with defaults, isolation, reload, and one semantic event", async () => {
     const memberCookie = await createIdentity("theme-member@domain.test");
     const otherCookie = await createIdentity("theme-other@domain.test");
 
@@ -426,7 +426,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     return expect(JSON.stringify(events[0])).not.toContain("dark");
   });
 
-  it("persists owner-scoped profile, addresses, and complete preferences with PII-free events", async function () {
+  it("persists owner-scoped profile, addresses, and complete preferences with PII-free events", async () => {
     const memberCookie = await createIdentity("account-member@domain.test");
     const otherCookie = await createIdentity("account-other@domain.test");
     const events: SemanticEvent[] = [];
@@ -569,7 +569,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", functi
     return results;
   });
 
-  return it("enforces admin directory policy and serves bounded owner dashboard/search filters", async function () {
+  return it("enforces admin directory policy and serves bounded owner dashboard/search filters", async () => {
     const memberCookie = await createIdentity("directory-member@domain.test");
     const otherCookie = await createIdentity("directory-other@domain.test");
     const adminCookie = await createIdentity(

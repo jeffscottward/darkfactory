@@ -32,8 +32,8 @@ const unavailableCapabilities = {
   errorTracking: false,
 } as const;
 
-describe("DashboardContent", function () {
-  it("derives current identity from the ready owner summary", function () {
+describe("DashboardContent", () => {
+  it("derives current identity from the ready owner summary", () => {
     const html = renderToStaticMarkup(
       <DashboardContent
         summaryState={{
@@ -71,7 +71,7 @@ describe("DashboardContent", function () {
     return expect(html).not.toMatch(/revenue|growth|customers|conversion/i);
   });
 
-  it("derives administrator identity only from a ready summary", function () {
+  it("derives administrator identity only from a ready summary", () => {
     const html = renderToStaticMarkup(
       <DashboardContent
         summaryState={{
@@ -100,7 +100,7 @@ describe("DashboardContent", function () {
     return expect(html).toContain("Welcome back, Example Administrator");
   });
 
-  it("keeps unavailable and unauthorized rendering identity-neutral", function () {
+  it("keeps unavailable and unauthorized rendering identity-neutral", () => {
     const results = [];
     for (const summaryState of [
       { type: "error" },
@@ -122,7 +122,7 @@ describe("DashboardContent", function () {
     return results;
   });
 
-  return it("renders honest empty data without inventing an unavailable metric", function () {
+  return it("renders honest empty data without inventing an unavailable metric", () => {
     const emptyHtml = renderToStaticMarkup(
       <DashboardContent
         summaryState={{

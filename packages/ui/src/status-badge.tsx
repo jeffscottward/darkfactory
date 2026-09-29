@@ -1,11 +1,11 @@
-import type { ComponentPropsWithRef } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
+import type { ComponentPropsWithRef } from "react";
 
 import { cn } from "./utilities.ts";
 
 export const statusBadgeVariants = cva(
-  "inline-flex min-h-6 items-center gap-1.5 rounded-pill border px-2.5 py-0.5 font-body text-xs font-semibold leading-4 before:size-1.5 before:rounded-pill before:bg-current",
+  "inline-flex min-h-6 items-center gap-1.5 rounded-pill border px-2.5 py-0.5 font-body font-semibold text-xs leading-4 before:size-1.5 before:rounded-pill before:bg-current",
   {
     variants: {
       status: {
@@ -36,8 +36,8 @@ export const StatusBadge = ({
   ...props
 }: StatusBadgeProps) => (
   <span
-    data-status={status}
     className={cn(statusBadgeVariants({ status }), className)}
+    data-status={status}
     {...props}
   >
     <span className="sr-only">Status:</span>

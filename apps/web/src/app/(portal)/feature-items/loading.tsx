@@ -4,7 +4,7 @@ export default function FeatureItemsLoading() {
   return (
     <div aria-busy="true" className="space-y-10" role="status">
       <span className="sr-only">Loading feature items page</span>
-      <div className="space-y-3 border-b border-border pb-6">
+      <div className="space-y-3 border-border border-b pb-6">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-5 w-full max-w-xl" />

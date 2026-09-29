@@ -1,23 +1,22 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it, vi } from "vitest";
-
+import { runDevelopmentCli } from "./cli.ts";
 import {
+  type CommandOptions,
+  type CommandResult,
+  type DevelopmentProfile,
+  inspectDevelopmentState,
   OPERATOR_DEVELOPMENT_PROFILE,
   PM2_ENVIRONMENT_VERSION,
   PM2_ENVIRONMENT_VERSION_KEY,
   POST_START_READINESS_MAX_RETRIES,
   POST_START_READINESS_RETRY_DELAY_MS,
-  WEB_DEVELOPMENT_PROFILE,
-  inspectDevelopmentState,
+  type ProcessAdapter,
   parsePm2ProcessList,
   runDevelopmentAction,
-  type CommandOptions,
-  type CommandResult,
-  type DevelopmentProfile,
-  type ProcessAdapter,
+  WEB_DEVELOPMENT_PROFILE,
 } from "./lifecycle.ts";
-import { runDevelopmentCli } from "./cli.ts";
 
 const TEST_CWD = "/workspace/darkfactory";
 

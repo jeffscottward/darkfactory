@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import RootLayout, { metadata, viewport } from "./layout.tsx";
 
-describe("operator document layout", function () {
-  it("publishes the standalone operator metadata", function () {
+describe("operator document layout", () => {
+  it("publishes the standalone operator metadata", () => {
     expect(metadata).toEqual({
       applicationName: "DarkFactory Operator",
       title: {
@@ -17,7 +17,7 @@ describe("operator document layout", function () {
     return expect(viewport).toEqual({ colorScheme: "light dark" });
   });
 
-  return it("renders the accessible document wrapper", function () {
+  return it("renders the accessible document wrapper", () => {
     const markup = renderToStaticMarkup(
       <RootLayout>
         <p>Operator content</p>

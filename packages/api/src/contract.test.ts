@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
+import { appContract, FeatureItemMetadataSchema } from "./contract.ts";
 import { buildOpenApiDocument, serializeOpenApiDocument } from "./openapi.ts";
-import { FeatureItemMetadataSchema, appContract } from "./contract.ts";
 
 const expectedOperations = [
   ["get", "/feature-items", "featureItems.list"],
@@ -17,8 +16,8 @@ const expectedOperations = [
 
 const expectedErrorStatuses = ["400", "401", "403", "404", "409", "422", "503"];
 
-describe("DF-051/052 oRPC application contract", function () {
-  it("does not expose development operator procedures or routes", async function () {
+describe("DF-051/052 oRPC application contract", () => {
+  it("does not expose development operator procedures or routes", async () => {
     expect(appContract).not.toHaveProperty("operator");
     const document = await buildOpenApiDocument();
     return expect(
@@ -28,7 +27,7 @@ describe("DF-051/052 oRPC application contract", function () {
     ).toEqual([]);
   });
 
-  it("publishes every feature operation and the real admin operation", async function () {
+  it("publishes every feature operation and the real admin operation", async () => {
     const document = await buildOpenApiDocument();
 
     const results = [];
@@ -45,7 +44,7 @@ describe("DF-051/052 oRPC application contract", function () {
     return results;
   });
 
-  it("documents authenticated theme read and exact update operations", async function () {
+  it("documents authenticated theme read and exact update operations", async () => {
     const document = await buildOpenApiDocument();
 
     const results1 = [];
@@ -63,7 +62,7 @@ describe("DF-051/052 oRPC application contract", function () {
     return results1;
   });
 
-  it("documents typed expected errors for every owner-scoped feature operation", async function () {
+  it("documents typed expected errors for every owner-scoped feature operation", async () => {
     const document = await buildOpenApiDocument();
 
     const results2 = [];
@@ -78,7 +77,7 @@ describe("DF-051/052 oRPC application contract", function () {
     return results2;
   });
 
-  it("documents authentication, authorization, and storage failures for admin", async function () {
+  it("documents authentication, authorization, and storage failures for admin", async () => {
     const document = await buildOpenApiDocument();
     const responses = document.paths!["/admin/feature-items"]?.get?.responses;
 
@@ -87,7 +86,7 @@ describe("DF-051/052 oRPC application contract", function () {
     );
   });
 
-  it("serializes the generated OpenAPI document deterministically", async function () {
+  it("serializes the generated OpenAPI document deterministically", async () => {
     const first = serializeOpenApiDocument(await buildOpenApiDocument());
     const second = serializeOpenApiDocument(await buildOpenApiDocument());
 
@@ -95,7 +94,7 @@ describe("DF-051/052 oRPC application contract", function () {
     return expect(first.endsWith("\n")).toBe(true);
   });
 
-  return it("round-trips nested JSON metadata and rejects non-JSON values", function () {
+  return it("round-trips nested JSON metadata and rejects non-JSON values", () => {
     const metadata = {
       label: "release",
       nested: { enabled: true, count: 3, values: [null, "stable"] },

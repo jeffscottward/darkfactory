@@ -8,8 +8,8 @@ import {
 } from "@darkfactory/db/server";
 import {
   createOperatorContext,
-  createOperatorWorkflowPort,
   createOperatorWayfinderWorkflowService,
+  createOperatorWorkflowPort,
   handleOperatorRequest,
 } from "@darkfactory/operator/server";
 import {

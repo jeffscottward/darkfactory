@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createDisabledAnalyticsPort, type AnalyticsCapture } from "./index.ts";
+import { type AnalyticsCapture, createDisabledAnalyticsPort } from "./index.ts";
 import {
   createAnalyticsCapture,
   createRecordingAnalyticsPort,
@@ -121,7 +121,7 @@ const malformedCaptureCases: ReadonlyArray<
     "excess fields",
     () => {
       const capture = plainCapture() as Record<string, unknown>;
-      for (let index = 0; index < 1_000; index += 1) {
+      for (let index = 0; index < 1000; index += 1) {
         capture[`extra-${index}`] = index;
       }
       return capture as AnalyticsCapture;
@@ -297,7 +297,7 @@ describe("AnalyticsPort contract", () => {
     return expect(snapshotAnalyticsCapture(input)).toBeUndefined();
   });
 
-  it("accepts only canonical ISO timestamps", function () {
+  it("accepts only canonical ISO timestamps", () => {
     const canonical = "2026-07-23T12:34:56.000Z";
 
     expect(
@@ -320,25 +320,23 @@ describe("AnalyticsPort contract", () => {
     ).toBeUndefined();
   });
 
-  it("rejects unknown consent before snapshotting", function () {
-    return expect(
+  it("rejects unknown consent before snapshotting", () =>
+    expect(
       snapshotAnalyticsCapture({
         ...plainCapture(),
         consent: "maybe",
       })
-    ).toBeUndefined();
-  });
+    ).toBeUndefined());
 
-  it("rejects unsafe event identifiers before snapshotting", function () {
-    return expect(
+  it("rejects unsafe event identifiers before snapshotting", () =>
+    expect(
       snapshotAnalyticsCapture({
         ...plainCapture(),
         eventId: "event id",
       })
-    ).toBeUndefined();
-  });
+    ).toBeUndefined());
 
-  it("omits absent optional properties from the canonical snapshot", function () {
+  it("omits absent optional properties from the canonical snapshot", () => {
     const snapshot = snapshotAnalyticsCapture({
       ...plainCapture(),
       properties: {},
@@ -376,7 +374,7 @@ describe("AnalyticsPort contract", () => {
     return expect(analytics.captures).toEqual([]);
   });
 
-  return it("rejects disappearing and non-enumerable data fields without reading them", function () {
+  return it("rejects disappearing and non-enumerable data fields without reading them", () => {
     const disappearing = new Proxy(plainCapture(), {
       getOwnPropertyDescriptor: (target, key) => {
         if (key === "event") return undefined;

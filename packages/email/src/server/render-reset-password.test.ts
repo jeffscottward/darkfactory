@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { PasswordResetEmailInput } from "../index.ts";
-import { renderPasswordResetEmail } from "./render-reset-password.ts";
 import { createPasswordResetEmailInput } from "../test.ts";
+import { renderPasswordResetEmail } from "./render-reset-password.ts";
 
 const resetToken = "raw-reset-token";
 const callbackUrl = "https://darkfactory.localhost/reset-password";
@@ -16,8 +16,8 @@ const resetInput: PasswordResetEmailInput = {
   expiresInMinutes: 60,
 };
 
-describe("renderPasswordResetEmail", function () {
-  it("renders accessible semantic HTML and useful plain text", async function () {
+describe("renderPasswordResetEmail", () => {
+  it("renders accessible semantic HTML and useful plain text", async () => {
     const rendered = await renderPasswordResetEmail(resetInput);
 
     expect(rendered.subject).toBe("Reset your DarkFactory password");
@@ -35,7 +35,7 @@ describe("renderPasswordResetEmail", function () {
     return expect(rendered.text).toContain(resetInput.resetUrl);
   });
 
-  it("includes explicit expiry and ignored-request guidance", async function () {
+  it("includes explicit expiry and ignored-request guidance", async () => {
     const rendered = await renderPasswordResetEmail({
       ...resetInput,
       expiresInMinutes: 15,
@@ -48,7 +48,7 @@ describe("renderPasswordResetEmail", function () {
     );
   });
 
-  it("uses singular expiry guidance for one minute", async function () {
+  it("uses singular expiry guidance for one minute", async () => {
     const rendered = await renderPasswordResetEmail({
       ...resetInput,
       expiresInMinutes: 1,
@@ -58,7 +58,7 @@ describe("renderPasswordResetEmail", function () {
     return expect(rendered.text).not.toContain("1 minutes");
   });
 
-  it("escapes recipient content and confines the reset token to the URL", async function () {
+  it("escapes recipient content and confines the reset token to the URL", async () => {
     const dangerousName = '<img src=x onerror="alert(1)">';
     const rendered = await renderPasswordResetEmail({
       ...resetInput,
@@ -76,7 +76,7 @@ describe("renderPasswordResetEmail", function () {
     return expect(rendered.text).not.toMatch(/reset token/i);
   });
 
-  it("rejects attacker origins, credentials, fragments, unsafe paths, and callbacks", async function () {
+  it("rejects attacker origins, credentials, fragments, unsafe paths, and callbacks", async () => {
     const unsafeUrls = [
       resetUrl.replace("darkfactory.localhost", "attacker.test"),
       resetUrl.replace("https://", "https://user:password@"),
@@ -100,7 +100,7 @@ describe("renderPasswordResetEmail", function () {
     return results;
   });
 
-  it("accepts Better Auth's exact relative reset callback", async function () {
+  it("accepts Better Auth's exact relative reset callback", async () => {
     const relativeCallbackUrl = resetUrl.replace(
       encodeURIComponent(callbackUrl),
       encodeURIComponent("/reset-password")
@@ -113,7 +113,7 @@ describe("renderPasswordResetEmail", function () {
     });
   });
 
-  it("accepts an explicitly configured trusted application origin", async function () {
+  it("accepts an explicitly configured trusted application origin", async () => {
     const trustedAppOrigin = "https://app.domain.test";
     const configuredInput = {
       ...resetInput,
@@ -132,7 +132,7 @@ describe("renderPasswordResetEmail", function () {
     return expect(rendered.html).toContain(configuredInput.resetUrl);
   });
 
-  it("rejects non-positive or fractional expiry windows", async function () {
+  it("rejects non-positive or fractional expiry windows", async () => {
     await expect(
       renderPasswordResetEmail({ ...resetInput, expiresInMinutes: 0 })
     ).rejects.toThrowError("expiresInMinutes must be a positive integer");
@@ -141,7 +141,7 @@ describe("renderPasswordResetEmail", function () {
     ).rejects.toThrowError("expiresInMinutes must be a positive integer");
   });
 
-  it("uses a generic greeting when no recipient name is available", async function () {
+  it("uses a generic greeting when no recipient name is available", async () => {
     const rendered = await renderPasswordResetEmail({
       to: resetInput.to,
       resetUrl: resetInput.resetUrl,
@@ -151,7 +151,7 @@ describe("renderPasswordResetEmail", function () {
     return expect(rendered.text).toContain("Hello,");
   });
 
-  return it("rejects malformed configured origins, reset URLs, and callback URLs", async function () {
+  return it("rejects malformed configured origins, reset URLs, and callback URLs", async () => {
     for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"]) {
       await expect(
         renderPasswordResetEmail(resetInput, {
@@ -180,8 +180,8 @@ describe("renderPasswordResetEmail", function () {
   });
 });
 
-describe("createPasswordResetEmailInput", function () {
-  return it("returns a frozen safe default and applies explicit overrides", function () {
+describe("createPasswordResetEmailInput", () =>
+  it("returns a frozen safe default and applies explicit overrides", () => {
     const defaultInput = createPasswordResetEmailInput();
     const overridden = createPasswordResetEmailInput({
       to: "other@domain.test",
@@ -203,5 +203,4 @@ describe("createPasswordResetEmailInput", function () {
       recipientName: "Example Member",
     });
     return expect(Object.isFrozen(overridden)).toBe(true);
-  });
-});
+  }));

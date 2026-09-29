@@ -27,14 +27,14 @@ vi.mock("better-auth/crypto", () => ({
 
 import {
   AUTHORIZATION_ERROR_CODES,
-  PASSWORD_RESET_DELIVERY_ERROR_CODE,
   createAuth,
   createAuthHandler,
-  ensureDevelopmentSeedIdentity,
-  requireRole,
-  requireSession,
   type DarkFactoryAuth,
   type DevelopmentSeedIdentity,
+  ensureDevelopmentSeedIdentity,
+  PASSWORD_RESET_DELIVERY_ERROR_CODE,
+  requireRole,
+  requireSession,
 } from "./server.ts";
 
 const BASE_URL = "https://darkfactory.localhost";
@@ -49,7 +49,7 @@ const SAFE_RESET_RESPONSE = {
     "If this email exists in our system, check your email for the reset link",
 };
 
-beforeEach(function () {
+beforeEach(() => {
   mocks.context = undefined;
   mocks.betterAuth.mockReset();
   mocks.createAuthMiddleware.mockReset();
@@ -72,7 +72,7 @@ beforeEach(function () {
   return undefined;
 });
 
-afterEach(function () {
+afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   return undefined;
@@ -126,9 +126,8 @@ const createResourceDatabase = (
             return state.profiles.set(userId, String(value["displayName"]));
           }
           return;
-        } else {
-          return state.preferences.add(userId);
         }
+        return state.preferences.add(userId);
       }),
     })),
   }));
@@ -220,8 +219,8 @@ const jsonBody = async (response: Response) => {
   return (await response.json()) as Record<string, unknown>;
 };
 
-describe("safe authorization sessions", function () {
-  it("rejects a missing session with the stable authentication error", async function () {
+describe("safe authorization sessions", () => {
+  it("rejects a missing session with the stable authentication error", async () => {
     const headers = new Headers({
       cookie: "better-auth.session_token=missing",
     });
@@ -239,22 +238,21 @@ describe("safe authorization sessions", function () {
     return expect(getSession).toHaveBeenCalledWith({ headers });
   });
 
-  it("returns an authenticated active session", async function () {
-    return await expect(
+  it("returns an authenticated active session", async () =>
+    await expect(
       requireSession(
         authWithSession(sessionValue("admin", "active")),
         new Headers()
       )
     ).resolves.toMatchObject({
       principal: { userId: "user-1", role: "admin", status: "active" },
-    });
-  });
+    }));
 
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
-  ] as const)("rejects a %s session before returning private identity data", async function (status, code) {
-    return await expect(
+  ] as const)("rejects a %s session before returning private identity data", async (status, code) =>
+    await expect(
       requireSession(
         authWithSession(sessionValue("member", status)),
         new Headers()
@@ -264,8 +262,7 @@ describe("safe authorization sessions", function () {
       message: code,
       code,
       status: 403,
-    });
-  });
+    }));
 
   it.each([
     ["role", sessionValue("owner", "active"), "Auth user has an invalid role"],
@@ -274,13 +271,12 @@ describe("safe authorization sessions", function () {
       sessionValue("member", "invited"),
       "Auth user has an invalid status",
     ],
-  ] as const)("rejects an invalid session %s", async function (_field, value, message) {
-    return await expect(
+  ] as const)("rejects an invalid session %s", async (_field, value, message) =>
+    await expect(
       requireSession(authWithSession(value), new Headers())
-    ).rejects.toThrowError(message);
-  });
+    ).rejects.toThrowError(message));
 
-  it("returns only the normalized safe session contract", async function () {
+  it("returns only the normalized safe session contract", async () => {
     const result = await requireSession(
       authWithSession(sessionValue("member", "active")),
       new Headers()
@@ -316,7 +312,7 @@ describe("safe authorization sessions", function () {
     return expect(JSON.stringify(result)).not.toContain("must-not-escape");
   });
 
-  return it("requires the exact role after validating the session", async function () {
+  return it("requires the exact role after validating the session", async () => {
     const auth = authWithSession(sessionValue("member", "active"));
 
     await expect(
@@ -335,61 +331,35 @@ describe("safe authorization sessions", function () {
 });
 
 const malformedPresentSessionCases = [
-  [
-    "primitive",
-    function () {
-      return { session: "active", traps: [] };
-    },
-  ],
-  [
-    "array",
-    function () {
-      return { session: [], traps: [] };
-    },
-  ],
-  [
-    "missing user",
-    function () {
-      return { session: {}, traps: [] };
-    },
-  ],
-  [
-    "null user",
-    function () {
-      return { session: { user: null }, traps: [] };
-    },
-  ],
+  ["primitive", () => ({ session: "active", traps: [] })],
+  ["array", () => ({ session: [], traps: [] })],
+  ["missing user", () => ({ session: {}, traps: [] })],
+  ["null user", () => ({ session: { user: null }, traps: [] })],
   [
     "non-plain session",
-    function () {
-      return {
-        session: Object.create({ user: { status: "active" } }),
-        traps: [],
-      };
-    },
+    () => ({
+      session: Object.create({ user: { status: "active" } }),
+      traps: [],
+    }),
   ],
   [
     "non-plain user",
-    function () {
-      return {
-        session: { user: Object.create({ status: "active" }) },
-        traps: [],
-      };
-    },
+    () => ({
+      session: { user: Object.create({ status: "active" }) },
+      traps: [],
+    }),
   ],
   [
     "non-plain status container",
-    function () {
-      return {
-        session: { user: { status: Object("active") } },
-        traps: [],
-      };
-    },
+    () => ({
+      session: { user: { status: Object("active") } },
+      traps: [],
+    }),
   ],
   [
     "session user accessor",
-    function () {
-      const accessor = vi.fn(function () {
+    () => {
+      const accessor = vi.fn(() => {
         throw new Error("private session user accessor");
       });
       const session = {};
@@ -402,8 +372,8 @@ const malformedPresentSessionCases = [
   ],
   [
     "user status accessor",
-    function () {
-      const accessor = vi.fn(function () {
+    () => {
+      const accessor = vi.fn(() => {
         throw new Error("private user status accessor");
       });
       const user = {};
@@ -416,8 +386,8 @@ const malformedPresentSessionCases = [
   ],
   [
     "session proxy",
-    function () {
-      const trap = vi.fn(function () {
+    () => {
+      const trap = vi.fn(() => {
         throw new Error("private session proxy trap");
       });
       const session = new Proxy(
@@ -433,8 +403,8 @@ const malformedPresentSessionCases = [
   ],
   [
     "user proxy",
-    function () {
-      const trap = vi.fn(function () {
+    () => {
+      const trap = vi.fn(() => {
         throw new Error("private user proxy trap");
       });
       const user = new Proxy(
@@ -451,13 +421,13 @@ const malformedPresentSessionCases = [
   ],
 ] as const;
 
-describe("createAuth hooks", function () {
+describe("createAuth hooks", () => {
   it.each([
     "/sign-up/email",
     "/sign-in/email",
     "/request-password-reset",
     "/send-verification-email",
-  ])("normalizes an email for %s without mutating the caller body", async function (path) {
+  ])("normalizes an email for %s without mutating the caller body", async (path) => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
     const body = { email: "  Member@Domain.TEST  ", password: "unchanged" };
@@ -482,7 +452,7 @@ describe("createAuth hooks", function () {
     ["missing email", "/sign-up/email", { name: "Member" }],
     ["non-string email", "/request-password-reset", { email: null }],
     ["already normalized", "/sign-in/email", { email: "member@domain.test" }],
-  ] as const)("leaves %s request bodies unchanged", async function (_case, path, body) {
+  ] as const)("leaves %s request bodies unchanged", async (_case, path, body) => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
 
@@ -491,7 +461,7 @@ describe("createAuth hooks", function () {
     ).resolves.toBeUndefined();
   });
 
-  it("normalizes email after admitting an active current session", async function () {
+  it("normalizes email after admitting an active current session", async () => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
 
@@ -513,7 +483,7 @@ describe("createAuth hooks", function () {
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
-  ] as const)("blocks a %s current session inside Better Auth", async function (status, code) {
+  ] as const)("blocks a %s current session inside Better Auth", async (status, code) => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
 
@@ -531,7 +501,7 @@ describe("createAuth hooks", function () {
     ["missing status", undefined],
     ["unknown status", "pending"],
     ["non-string status", null],
-  ] as const)("fails closed for a current session with %s inside Better Auth", async function (_case, status) {
+  ] as const)("fails closed for a current session with %s inside Better Auth", async (_case, status) => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
 
@@ -551,7 +521,7 @@ describe("createAuth hooks", function () {
   it.each([
     ["undefined", undefined],
     ["null", null],
-  ] as const)("admits a canonically absent %s current session", async function (_case, session) {
+  ] as const)("admits a canonically absent %s current session", async (_case, session) => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
 
@@ -565,7 +535,7 @@ describe("createAuth hooks", function () {
 
   it.each(
     malformedPresentSessionCases
-  )("fails closed for a malformed %s current session without leaking private failures", async function (_case, createCase) {
+  )("fails closed for a malformed %s current session without leaking private failures", async (_case, createCase) => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
     const { session, traps } = createCase();
@@ -589,7 +559,7 @@ describe("createAuth hooks", function () {
     return undefined;
   });
 
-  it("allows an inactive current session to sign out", async function () {
+  it("allows an inactive current session to sign out", async () => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
 
@@ -601,10 +571,10 @@ describe("createAuth hooks", function () {
     ).resolves.toBeUndefined();
   });
 
-  it("exempts sign out before reading a current-session accessor", async function () {
+  it("exempts sign out before reading a current-session accessor", async () => {
     const { database } = createResourceDatabase();
     const before = createConfiguredAuth(database).options.hooks.before;
-    const accessor = vi.fn(function () {
+    const accessor = vi.fn(() => {
       throw new Error("private sign-out session accessor");
     });
     const context = {};
@@ -622,7 +592,7 @@ describe("createAuth hooks", function () {
     return expect(accessor).not.toHaveBeenCalled();
   });
 
-  it("provisions application resources after an email sign-in only", async function () {
+  it("provisions application resources after an email sign-in only", async () => {
     const { database, state } = createResourceDatabase();
     const after = createConfiguredAuth(database).options.hooks.after;
 
@@ -645,7 +615,7 @@ describe("createAuth hooks", function () {
     return expect([...state.preferences]).toEqual(["user-2"]);
   });
 
-  it("provisions application resources after Better Auth persists a new user", async function () {
+  it("provisions application resources after Better Auth persists a new user", async () => {
     const { database, state } = createResourceDatabase();
     const afterUserCreate =
       createConfiguredAuth(database).options.databaseHooks.user.create.after;
@@ -666,7 +636,7 @@ describe("createAuth hooks", function () {
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
     ["unknown", AUTHORIZATION_ERROR_CODES.FORBIDDEN],
     [null, AUTHORIZATION_ERROR_CODES.FORBIDDEN],
-  ] as const)("applies the session-create status gate for %s", async function (status, errorCode) {
+  ] as const)("applies the session-create status gate for %s", async (status, errorCode) => {
     const rows = status === undefined ? [] : [{ status }];
     const database = {
       select: vi.fn(() => ({
@@ -692,7 +662,7 @@ describe("createAuth hooks", function () {
     return undefined;
   });
 
-  return it("fails closed when the session user lookup returns no row", async function () {
+  return it("fails closed when the session user lookup returns no row", async () => {
     const database = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -717,7 +687,7 @@ describe("createAuth hooks", function () {
   });
 });
 
-describe("fetch-native auth handler status gate", function () {
+describe("fetch-native auth handler status gate", () => {
   it.each([
     "/api/auth/ok",
     "/api/auth/sign-up/email",
@@ -728,7 +698,7 @@ describe("fetch-native auth handler status gate", function () {
     "/api/auth/verify-email",
     "/api/auth/reset-password",
     "/api/auth/reset-password/opaque-reset-token",
-  ])("exempts %s so an inactive user can reach the recovery operation", async function (path) {
+  ])("exempts %s so an inactive user can reach the recovery operation", async (path) => {
     const { auth, getSession, handler } = handlerAuth(
       new Response("delegated", { status: 422 }),
       { user: { status: "suspended" } }
@@ -774,7 +744,7 @@ describe("fetch-native auth handler status gate", function () {
     ],
     ["null", "null", 200, "Session Missing"],
     ["empty", "   ", 200, "Session Missing"],
-  ] as const)("uses one handler resolution for a %s GET session response", async function (_case, body, status, statusText) {
+  ] as const)("uses one handler resolution for a %s GET session response", async (_case, body, status, statusText) => {
     const { auth, getSession, handler } = handlerAuth(
       sessionHandlerResponse(body, status, statusText),
       { user: { status: "suspended" } }
@@ -816,7 +786,7 @@ describe("fetch-native auth handler status gate", function () {
       { user: { status: "pending" } },
       AUTHORIZATION_ERROR_CODES.FORBIDDEN,
     ],
-  ] as const)("fails closed for a %s present GET session without a second lookup", async function (_case, session, code) {
+  ] as const)("fails closed for a %s present GET session without a second lookup", async (_case, session, code) => {
     const { auth, getSession, handler } = handlerAuth(
       sessionHandlerResponse(JSON.stringify(session)),
       null
@@ -836,7 +806,7 @@ describe("fetch-native auth handler status gate", function () {
     return undefined;
   });
 
-  it("normalizes the JSON media type before applying the GET session gate", async function () {
+  it("normalizes the JSON media type before applying the GET session gate", async () => {
     const { auth, getSession, handler } = handlerAuth(
       sessionHandlerResponse(
         JSON.stringify({
@@ -894,7 +864,7 @@ describe("fetch-native auth handler status gate", function () {
       },
       "application/json ; charset=utf-8",
     ],
-  ] as const)("preserves metadata while sanitizing the %s GET session response", async function (_case, status, statusText, body, expectedBody, contentType) {
+  ] as const)("preserves metadata while sanitizing the %s GET session response", async (_case, status, statusText, body, expectedBody, contentType) => {
     const { auth, getSession, handler } = handlerAuth(
       sessionHandlerResponse(
         JSON.stringify(body),
@@ -921,7 +891,7 @@ describe("fetch-native auth handler status gate", function () {
     return undefined;
   });
 
-  it("preserves the redacted JSON parse failure for GET session", async function () {
+  it("preserves the redacted JSON parse failure for GET session", async () => {
     const { auth, getSession, handler } = handlerAuth(
       sessionHandlerResponse("{not-json"),
       null
@@ -937,7 +907,7 @@ describe("fetch-native auth handler status gate", function () {
   it.each([
     ["plain text", "text/plain"],
     ["missing content type", null],
-  ] as const)("rejects a nonempty successful %s GET session response", async function (_case, contentType) {
+  ] as const)("rejects a nonempty successful %s GET session response", async (_case, contentType) => {
     const { auth, getSession, handler } = handlerAuth(
       sessionHandlerResponse(
         JSON.stringify({
@@ -963,7 +933,7 @@ describe("fetch-native auth handler status gate", function () {
     ["POST method", "/api/auth/get-session", "POST"],
     ["suffix path", "/api/auth/get-session/extra", "GET"],
     ["prefixed path", "/internal/api/auth/get-session", "GET"],
-  ] as const)("requires the exact GET session method and path for %s", async function (_case, path, method) {
+  ] as const)("requires the exact GET session method and path for %s", async (_case, path, method) => {
     const { auth, getSession, handler } = handlerAuth(
       new Response("must not run"),
       { user: { status: "suspended" } }
@@ -980,7 +950,7 @@ describe("fetch-native auth handler status gate", function () {
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
-  ] as const)("rejects a protected request for a %s session", async function (status, code) {
+  ] as const)("rejects a protected request for a %s session", async (status, code) => {
     const { auth, handler } = handlerAuth(new Response("must not run"), {
       user: { status },
     });
@@ -1000,7 +970,7 @@ describe("fetch-native auth handler status gate", function () {
   it.each([
     ["canonical missing session", null],
     ["plain active user", { user: { status: "active" } }],
-  ] as const)("delegates a protected request for %s", async function (_case, session) {
+  ] as const)("delegates a protected request for %s", async (_case, session) => {
     const { auth, getSession } = handlerAuth(
       new Response("delegated", { status: 207 }),
       session
@@ -1019,7 +989,7 @@ describe("fetch-native auth handler status gate", function () {
     ["missing status", { user: {} }],
     ["unknown status", { user: { status: "pending" } }],
     ["non-string status", { user: { status: null } }],
-  ] as const)("fails closed for an authenticated user with %s", async function (_case, session) {
+  ] as const)("fails closed for an authenticated user with %s", async (_case, session) => {
     const { auth, getSession, handler } = handlerAuth(
       new Response("must not run"),
       session
@@ -1039,14 +1009,9 @@ describe("fetch-native auth handler status gate", function () {
   });
 
   it.each([
-    [
-      "undefined",
-      function () {
-        return { session: undefined, traps: [] };
-      },
-    ],
+    ["undefined", () => ({ session: undefined, traps: [] })],
     ...malformedPresentSessionCases,
-  ] as const)("fails closed for a malformed %s without leaking private failures", async function (_case, createCase) {
+  ] as const)("fails closed for a malformed %s without leaking private failures", async (_case, createCase) => {
     const { session, traps } = createCase();
     const { auth, getSession, handler } = handlerAuth(
       new Response("must not run"),
@@ -1072,7 +1037,7 @@ describe("fetch-native auth handler status gate", function () {
     return undefined;
   });
 
-  return it("propagates a status lookup failure before invoking Better Auth", async function () {
+  return it("propagates a status lookup failure before invoking Better Auth", async () => {
     const failure = new Error("session adapter unavailable");
     const getSession = vi.fn().mockRejectedValue(failure);
     const handler = vi.fn();
@@ -1085,14 +1050,14 @@ describe("fetch-native auth handler status gate", function () {
   });
 });
 
-describe("fetch-native auth response normalization", function () {
+describe("fetch-native auth response normalization", () => {
   it.each([
     [200, { user: { id: "new-user" }, token: "signup-token" }],
     [
       422,
       { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message: "duplicate" },
     ],
-  ] as const)("normalizes an accepted signup response from status %s after the response floor", async function (status, body) {
+  ] as const)("normalizes an accepted signup response from status %s after the response floor", async (status, body) => {
     vi.useFakeTimers();
     const { auth } = handlerAuth(Response.json(body, { status }));
     const pending = createAuthHandler(auth)(request("/api/auth/sign-up/email"));
@@ -1113,7 +1078,7 @@ describe("fetch-native auth response normalization", function () {
     );
   });
 
-  it("skips an extra delay after the delegated signup already consumed the response floor", async function () {
+  it("skips an extra delay after the delegated signup already consumed the response floor", async () => {
     const { auth } = handlerAuth(
       Response.json(
         { user: { id: "new-user" }, token: "signup-token" },
@@ -1123,8 +1088,8 @@ describe("fetch-native auth response normalization", function () {
     const signUpRequest = request("/api/auth/sign-up/email");
     const now = vi
       .spyOn(Date, "now")
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(1_300);
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1300);
 
     const response = await createAuthHandler(auth)(signUpRequest);
 
@@ -1133,7 +1098,7 @@ describe("fetch-native auth response normalization", function () {
     return expect(now).toHaveBeenCalledTimes(2);
   });
 
-  it("reports malformed duplicate-signup JSON instead of treating it as a duplicate", async function () {
+  it("reports malformed duplicate-signup JSON instead of treating it as a duplicate", async () => {
     const { auth } = handlerAuth(
       new Response("{not-json", {
         status: 422,
@@ -1146,7 +1111,7 @@ describe("fetch-native auth response normalization", function () {
     ).rejects.toThrowError("Authentication JSON response is malformed");
   });
 
-  it("preserves a non-duplicate signup rejection", async function () {
+  it("preserves a non-duplicate signup rejection", async () => {
     const original = {
       code: "PASSWORD_TOO_SHORT",
       message: "Use a longer password",
@@ -1161,7 +1126,7 @@ describe("fetch-native auth response normalization", function () {
     return await expect(jsonBody(response)).resolves.toEqual(original);
   });
 
-  it("does not parse or relabel a headerless signup rejection", async function () {
+  it("does not parse or relabel a headerless signup rejection", async () => {
     const original = "unprocessable signup response";
     const { auth } = handlerAuth(
       new Response(new TextEncoder().encode(original), { status: 422 })
@@ -1176,7 +1141,7 @@ describe("fetch-native auth response normalization", function () {
     return await expect(response.text()).resolves.toBe(original);
   });
 
-  it("makes a reset delivery outage indistinguishable from ordinary success", async function () {
+  it("makes a reset delivery outage indistinguishable from ordinary success", async () => {
     const { auth: ordinaryAuth } = handlerAuth(
       new Response(
         JSON.stringify({
@@ -1261,7 +1226,7 @@ describe("fetch-native auth response normalization", function () {
   it.each([
     ["wrong status", 502, { code: PASSWORD_RESET_DELIVERY_ERROR_CODE }],
     ["wrong code", 503, { code: "EMAIL_PROVIDER_UNAVAILABLE" }],
-  ] as const)("preserves a reset response with the %s", async function (_case, status, body) {
+  ] as const)("preserves a reset response with the %s", async (_case, status, body) => {
     const { auth } = handlerAuth(Response.json(body, { status }));
 
     const response = await createAuthHandler(auth)(
@@ -1272,7 +1237,7 @@ describe("fetch-native auth response normalization", function () {
     return await expect(jsonBody(response)).resolves.toEqual(body);
   });
 
-  it("preserves a non-JSON reset delivery response", async function () {
+  it("preserves a non-JSON reset delivery response", async () => {
     const { auth } = handlerAuth(
       new Response("provider unavailable", {
         status: 503,
@@ -1288,7 +1253,7 @@ describe("fetch-native auth response normalization", function () {
     return await expect(response.text()).resolves.toBe("provider unavailable");
   });
 
-  it("does not parse or relabel a headerless reset rejection", async function () {
+  it("does not parse or relabel a headerless reset rejection", async () => {
     const original = "provider unavailable";
     const { auth } = handlerAuth(
       new Response(new TextEncoder().encode(original), { status: 503 })
@@ -1332,7 +1297,7 @@ describe("fetch-native auth response normalization", function () {
       503,
       { code: PASSWORD_RESET_DELIVERY_ERROR_CODE },
     ],
-  ] as const)("does not hide a Better Auth method/path error for %s", async function (_case, path, method, status, body) {
+  ] as const)("does not hide a Better Auth method/path error for %s", async (_case, path, method, status, body) => {
     const { auth } = handlerAuth(Response.json(body, { status }));
 
     const response = await createAuthHandler(auth)(request(path, method));
@@ -1341,7 +1306,7 @@ describe("fetch-native auth response normalization", function () {
     return await expect(jsonBody(response)).resolves.toEqual(body);
   });
 
-  return it("propagates a Better Auth handler failure unchanged", async function () {
+  return it("propagates a Better Auth handler failure unchanged", async () => {
     const failure = new Error("Better Auth route failed");
     const getSession = vi.fn();
     const handler = vi.fn().mockRejectedValue(failure);
@@ -1354,8 +1319,8 @@ describe("fetch-native auth response normalization", function () {
   });
 });
 
-describe("fetch-native auth token sanitization", function () {
-  it("removes token fields recursively while preserving callback destinations and response metadata", async function () {
+describe("fetch-native auth token sanitization", () => {
+  it("removes token fields recursively while preserving callback destinations and response metadata", async () => {
     const { auth } = handlerAuth(
       new Response(
         JSON.stringify({
@@ -1419,7 +1384,7 @@ describe("fetch-native auth token sanitization", function () {
       }),
       '{"callbackURL":"/dashboard"}',
     ],
-  ] as const)("returns a %s response body unchanged", async function (_case, original, expectedBody) {
+  ] as const)("returns a %s response body unchanged", async (_case, original, expectedBody) => {
     const { auth } = handlerAuth(original);
 
     const response = await createAuthHandler(auth)(
@@ -1429,7 +1394,7 @@ describe("fetch-native auth token sanitization", function () {
     return await expect(response.text()).resolves.toBe(expectedBody);
   });
 
-  it("reports malformed JSON with a stable redacted error", async function () {
+  it("reports malformed JSON with a stable redacted error", async () => {
     const { auth } = handlerAuth(
       new Response("{not-json", {
         status: 502,
@@ -1442,7 +1407,7 @@ describe("fetch-native auth token sanitization", function () {
     ).rejects.toThrowError("Authentication JSON response is malformed");
   });
 
-  return it("does not relabel malformed reset-provider JSON", async function () {
+  return it("does not relabel malformed reset-provider JSON", async () => {
     const { auth } = handlerAuth(
       new Response("{not-json", {
         status: 503,
@@ -1535,8 +1500,8 @@ const seedCredential = (
   password,
 });
 
-describe("development seed identity preparation", function () {
-  it("creates a prepared user, credential, profile, and preferences", async function () {
+describe("development seed identity preparation", () => {
+  it("creates a prepared user, credential, profile, and preferences", async () => {
     const seed = createSeedAdapter();
     const { database, state } = createResourceDatabase();
     mocks.context = { internalAdapter: seed.adapter };
@@ -1575,7 +1540,7 @@ describe("development seed identity preparation", function () {
     return expect(mocks.hashPassword).toHaveBeenCalledWith(IDENTITY.password);
   });
 
-  it("repairs a changed existing identity and credential without overwriting its profile choice", async function () {
+  it("repairs a changed existing identity and credential without overwriting its profile choice", async () => {
     const adminIdentity: DevelopmentSeedIdentity = {
       ...IDENTITY,
       role: "admin",
@@ -1621,7 +1586,7 @@ describe("development seed identity preparation", function () {
     });
   });
 
-  it("leaves an exact existing identity and matching credential unchanged", async function () {
+  it("leaves an exact existing identity and matching credential unchanged", async () => {
     const seed = createSeedAdapter(exactExistingSeedUser(), [seedCredential()]);
     const { database, state } = createResourceDatabase();
     mocks.context = { internalAdapter: seed.adapter };
@@ -1653,7 +1618,7 @@ describe("development seed identity preparation", function () {
     ["image", { image: "https://assets.domain.test/other.png" }],
     ["role", { role: "admin" }],
     ["password", { password: "AnotherPassword!42" }],
-  ] as const)("rejects an unprepared identity with a changed %s", async function (_field, override) {
+  ] as const)("rejects an unprepared identity with a changed %s", async (_field, override) => {
     const seed = createSeedAdapter();
     const { database, state } = createResourceDatabase();
     mocks.context = { internalAdapter: seed.adapter };
@@ -1674,7 +1639,7 @@ describe("development seed identity preparation", function () {
     return expect(state.preferences.size).toBe(0);
   });
 
-  it("rejects duplicate prepared user ids before creating an auth context", async function () {
+  it("rejects duplicate prepared user ids before creating an auth context", async () => {
     await expect(
       ensureDevelopmentSeedIdentity(
         {
@@ -1693,7 +1658,7 @@ describe("development seed identity preparation", function () {
     undefined,
     "production",
     "preview",
-  ] as const)("rejects the %s environment before hashing credentials", async function (environment) {
+  ] as const)("rejects the %s environment before hashing credentials", async (environment) => {
     await expect(
       ensureDevelopmentSeedIdentity(
         {
@@ -1708,7 +1673,7 @@ describe("development seed identity preparation", function () {
     return expect(mocks.hashPassword).not.toHaveBeenCalled();
   });
 
-  it("binds a prepared batch to one transaction", async function () {
+  it("binds a prepared batch to one transaction", async () => {
     const secondIdentity: DevelopmentSeedIdentity = {
       ...IDENTITY,
       userId: "seed-user-2",
@@ -1740,7 +1705,7 @@ describe("development seed identity preparation", function () {
     return expect(second.state.profiles.size).toBe(0);
   });
 
-  it("rejects an unexpected created user identifier before linking credentials", async function () {
+  it("rejects an unexpected created user identifier before linking credentials", async () => {
     const seed = createSeedAdapter();
     seed.adapter.createUser.mockResolvedValue({ id: "unexpected-user" });
     const { database, state } = createResourceDatabase();
@@ -1760,7 +1725,7 @@ describe("development seed identity preparation", function () {
     return expect(state.profiles.size).toBe(0);
   });
 
-  it("rejects malformed identifiers returned for a created credential", async function () {
+  it("rejects malformed identifiers returned for a created credential", async () => {
     const seed = createSeedAdapter();
     seed.adapter.linkAccount.mockResolvedValue({
       id: "unexpected-account",
@@ -1784,7 +1749,7 @@ describe("development seed identity preparation", function () {
     return expect(state.profiles.size).toBe(0);
   });
 
-  it("reports an existing user that disappeared from the adapter", async function () {
+  it("reports an existing user that disappeared from the adapter", async () => {
     const seed = createSeedAdapter();
     const { database, state } = createResourceDatabase();
     mocks.context = { internalAdapter: seed.adapter };
@@ -1802,7 +1767,7 @@ describe("development seed identity preparation", function () {
     return expect(state.profiles.size).toBe(0);
   });
 
-  it("reports a missing or passwordless credential without creating resources", async function () {
+  it("reports a missing or passwordless credential without creating resources", async () => {
     const results1 = [];
     for (const accounts of [
       [],
@@ -1830,7 +1795,7 @@ describe("development seed identity preparation", function () {
     return results1;
   });
 
-  it("redacts a malformed credential hash failure", async function () {
+  it("redacts a malformed credential hash failure", async () => {
     const seed = createSeedAdapter(exactExistingSeedUser(), [
       seedCredential(IDENTITY, "malformed-secret-hash"),
     ]);
@@ -1853,7 +1818,7 @@ describe("development seed identity preparation", function () {
     return expect(state.profiles.size).toBe(0);
   });
 
-  return it("propagates an adapter failure without claiming resources were provisioned", async function () {
+  return it("propagates an adapter failure without claiming resources were provisioned", async () => {
     const failure = new Error("seed database unavailable");
     const seed = createSeedAdapter();
     seed.adapter.createUser.mockRejectedValue(failure);

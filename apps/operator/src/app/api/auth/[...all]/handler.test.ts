@@ -17,8 +17,8 @@ vi.mock("../../../../server/operator-auth.ts", () => ({
 
 import { handleOperatorAuthRequest } from "./handler.ts";
 
-describe("operator auth composition", function () {
-  beforeEach(function () {
+describe("operator auth composition", () => {
+  beforeEach(() => {
     mocks.close.mockClear();
     mocks.delegate.mockReset().mockResolvedValue(new Response("ok"));
     mocks.createAuthHandler.mockReset().mockReturnValue(mocks.delegate);
@@ -28,7 +28,7 @@ describe("operator auth composition", function () {
     });
   });
 
-  it("delegates to Better Auth and closes the request database", async function () {
+  it("delegates to Better Auth and closes the request database", async () => {
     const request = new Request(
       "https://operator.darkfactory.localhost/api/auth/get-session"
     );
@@ -39,7 +39,7 @@ describe("operator auth composition", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  return it("closes the request database when Better Auth fails", async function () {
+  return it("closes the request database when Better Auth fails", async () => {
     mocks.delegate.mockRejectedValueOnce(new Error("handler failed"));
     await expect(
       handleOperatorAuthRequest(

@@ -3,8 +3,8 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
+  readFile,
   realpath,
   rm,
   symlink,
@@ -106,7 +106,7 @@ const createTemporaryDirectory = async (): Promise<string> => {
   return canonicalDirectory;
 };
 
-afterEach(async function () {
+afterEach(async () => {
   vi.restoreAllMocks();
   return await Promise.all(
     temporaryDirectories.splice(0).map((directory) => {
@@ -115,8 +115,8 @@ afterEach(async function () {
   );
 });
 
-describe("createPreviewEmailPort", function () {
-  it("renders a password reset through the delivery closure with complete artifacts", async function () {
+describe("createPreviewEmailPort", () => {
+  it("renders a password reset through the delivery closure with complete artifacts", async () => {
     const directory = await createTemporaryDirectory();
     const canonicalDirectory = await realpath(directory);
     const email = createPreviewEmailPortForTest({
@@ -191,7 +191,7 @@ describe("createPreviewEmailPort", function () {
       )
     ).not.toBe(metadata.binding.hmac);
     expect(metadata.binding.hmac).toBe(metadataHmac(metadata, resetInput.to));
-    expect(metadataText.length).toBeLessThanOrEqual(1_024);
+    expect(metadataText.length).toBeLessThanOrEqual(1024);
     expect(metadataText).not.toContain(resetInput.to);
     expect(metadataText).not.toContain(resetInput.recipientName);
     expect(metadataText).not.toContain(resetInput.resetUrl);
@@ -199,7 +199,7 @@ describe("createPreviewEmailPort", function () {
     return expect(metadataText).not.toContain("preview-raw-token");
   });
 
-  it("binds verification metadata to its normalized recipient and operation", async function () {
+  it("binds verification metadata to its normalized recipient and operation", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPort({
       environment: "test",
@@ -217,7 +217,7 @@ describe("createPreviewEmailPort", function () {
     );
   });
 
-  it("creates a mode-0700 directory and mode-0600 artifact unit", async function () {
+  it("creates a mode-0700 directory and mode-0600 artifact unit", async () => {
     const parent = await createTemporaryDirectory();
     const directory = join(parent, "private-previews");
     const email = createPreviewEmailPort({
@@ -240,7 +240,7 @@ describe("createPreviewEmailPort", function () {
     return results;
   });
 
-  it("keeps traversal-shaped internal names and recipient data out of filenames", async function () {
+  it("keeps traversal-shaped internal names and recipient data out of filenames", async () => {
     const directory = await createTemporaryDirectory();
     const canonicalDirectory = await realpath(directory);
     const email = createPreviewEmailPortForTest({
@@ -262,7 +262,7 @@ describe("createPreviewEmailPort", function () {
     return expect(result.artifactPath).not.toContain("victim");
   });
 
-  it("never cross-binds concurrent same-name previews for different recipients", async function () {
+  it("never cross-binds concurrent same-name previews for different recipients", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -302,7 +302,7 @@ describe("createPreviewEmailPort", function () {
     ).toEqual([]);
   });
 
-  it("bounds retained preview messages", async function () {
+  it("bounds retained preview messages", async () => {
     const directory = await createTemporaryDirectory();
     const artifactNames = ["001", "002", "003"];
     const email = createPreviewEmailPortForTest({
@@ -332,7 +332,7 @@ describe("createPreviewEmailPort", function () {
     ).toHaveLength(2);
   });
 
-  it("bounds concurrent distinct-name groups without leaving incomplete units", async function () {
+  it("bounds concurrent distinct-name groups without leaving incomplete units", async () => {
     const directory = await createTemporaryDirectory();
     let artifactIndex = 0;
     const email = createPreviewEmailPortForTest({
@@ -362,7 +362,7 @@ describe("createPreviewEmailPort", function () {
     return results1;
   });
 
-  it("rejects a preview group larger than its byte retention bound", async function () {
+  it("rejects a preview group larger than its byte retention bound", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPort({
       environment: "test",
@@ -379,7 +379,7 @@ describe("createPreviewEmailPort", function () {
     return expect(await readdir(directory)).toEqual([]);
   });
 
-  it("removes legacy and crash-orphaned content even while under the retention bound", async function () {
+  it("removes legacy and crash-orphaned content even while under the retention bound", async () => {
     const directory = await createTemporaryDirectory();
     await Promise.all([
       writeFile(join(directory, "legacy.html"), resetInput.resetUrl, "utf8"),
@@ -403,7 +403,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("keeps failed cleanup discoverable and retries it on the next write", async function () {
+  it("keeps failed cleanup discoverable and retries it on the next write", async () => {
     const directory = await createTemporaryDirectory();
     await Promise.all([
       writeFile(join(directory, "partial.html"), resetInput.resetUrl, "utf8"),
@@ -443,7 +443,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("sweeps stale locks and temporary files before orphan cleanup", async function () {
+  it("sweeps stale locks and temporary files before orphan cleanup", async () => {
     const directory = await createTemporaryDirectory();
     const lockPath = join(directory, ".abandoned.preview.lock");
     const temporaryPath = join(
@@ -477,7 +477,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("retains the just-written artifact even when its name sorts first", async function () {
+  it("retains the just-written artifact even when its name sorts first", async () => {
     const directory = await createTemporaryDirectory();
     const artifactNames = ["zzz", "aaa"];
     const email = createPreviewEmailPortForTest({
@@ -502,7 +502,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("rejects an empty normalized recipient without creating artifacts", async function () {
+  it("rejects an empty normalized recipient without creating artifacts", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPort({
       environment: "test",
@@ -523,7 +523,7 @@ describe("createPreviewEmailPort", function () {
     return expect(await readdir(directory)).toEqual([]);
   });
 
-  it("maps artifact-name generation errors to a typed failure", async function () {
+  it("maps artifact-name generation errors to a typed failure", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -541,15 +541,14 @@ describe("createPreviewEmailPort", function () {
     });
   });
 
-  it("rejects direct preview construction for production", function () {
-    return expect(() => {
+  it("rejects direct preview construction for production", () =>
+    expect(() => {
       return createPreviewEmailPort({
         environment: "production",
       });
-    }).toThrowError("Preview email transport is unavailable in production");
-  });
+    }).toThrowError("Preview email transport is unavailable in production"));
 
-  it("rejects a symlink preview directory without writing into its target", async function () {
+  it("rejects a symlink preview directory without writing into its target", async () => {
     const parent = await createTemporaryDirectory();
     const target = join(parent, "target");
     const linkedDirectory = join(parent, "linked");
@@ -569,7 +568,7 @@ describe("createPreviewEmailPort", function () {
     return expect(await readdir(target)).toEqual([]);
   });
 
-  it("rejects a symlinked preview ancestor before creating its child directory", async function () {
+  it("rejects a symlinked preview ancestor before creating its child directory", async () => {
     const parent = await createTemporaryDirectory();
     const target = join(parent, "target");
     const linkedAncestor = join(parent, "linked");
@@ -589,7 +588,7 @@ describe("createPreviewEmailPort", function () {
     return expect(await readdir(target)).toEqual(["nested"]);
   });
 
-  it("cleans every partial artifact after an atomic publish collision", async function () {
+  it("cleans every partial artifact after an atomic publish collision", async () => {
     const directory = await createTemporaryDirectory();
     const collidingTextPath = join(directory, "collision.txt");
     await writeFile(collidingTextPath, "pre-existing", "utf8");
@@ -612,7 +611,7 @@ describe("createPreviewEmailPort", function () {
     return expect((await readdir(directory)).sort()).toEqual(["collision.txt"]);
   });
 
-  it("rolls back html and text when metadata publication fails without logging secrets", async function () {
+  it("rolls back html and text when metadata publication fails without logging secrets", async () => {
     const directory = await createTemporaryDirectory();
     const collidingMetadataPath = join(directory, "collision.metadata.json");
     await writeFile(collidingMetadataPath, "pre-existing", { mode: 0o600 });
@@ -649,7 +648,7 @@ describe("createPreviewEmailPort", function () {
     return consoleLog.mockRestore();
   });
 
-  it("returns a typed failure when the preview cannot be persisted", async function () {
+  it("returns a typed failure when the preview cannot be persisted", async () => {
     const parent = await createTemporaryDirectory();
     const filePath = join(parent, "not-a-directory");
     await writeFile(filePath, "occupied", "utf8");
@@ -668,7 +667,7 @@ describe("createPreviewEmailPort", function () {
     });
   });
 
-  it("resolves the default preview directory before rejecting an invalid recipient", async function () {
+  it("resolves the default preview directory before rejecting an invalid recipient", async () => {
     const email = createPreviewEmailPort({ environment: "test" });
 
     return await expect(
@@ -684,7 +683,7 @@ describe("createPreviewEmailPort", function () {
     });
   });
 
-  it("uses an opaque fallback when sanitization removes the entire artifact name", async function () {
+  it("uses an opaque fallback when sanitization removes the entire artifact name", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPortForTest({
       environment: "test",
@@ -700,7 +699,7 @@ describe("createPreviewEmailPort", function () {
     );
   });
 
-  it("validates retention bounds independently before constructing the port", function () {
+  it("validates retention bounds independently before constructing the port", () => {
     const results2 = [];
     for (const options of [
       { maxArtifacts: 0 },
@@ -722,7 +721,7 @@ describe("createPreviewEmailPort", function () {
     return results2;
   });
 
-  it("normalizes a valid run identifier and rejects malformed bindings", async function () {
+  it("normalizes a valid run identifier and rejects malformed bindings", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPort({
       environment: "test",
@@ -770,7 +769,7 @@ describe("createPreviewEmailPort", function () {
     return results3;
   });
 
-  it("maps renderer rejection to a typed failure without touching the directory", async function () {
+  it("maps renderer rejection to a typed failure without touching the directory", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPort({
       environment: "test",
@@ -794,12 +793,12 @@ describe("createPreviewEmailPort", function () {
     return expect(await readdir(directory)).toEqual([]);
   });
 
-  it("rejects oversized metadata before deriving filesystem paths", async function () {
+  it("rejects oversized metadata before deriving filesystem paths", async () => {
     const directory = await createTemporaryDirectory();
     const email = createPreviewEmailPortForTest({
       environment: "test",
       directory,
-      artifactName: () => "a".repeat(2_000),
+      artifactName: () => "a".repeat(2000),
     });
 
     await expect(email.sendPasswordReset(resetInput)).resolves.toMatchObject({
@@ -809,7 +808,7 @@ describe("createPreviewEmailPort", function () {
     return expect(await readdir(directory)).toEqual([]);
   });
 
-  it("preserves active locks and fresh partials while cleaning unrelated orphans", async function () {
+  it("preserves active locks and fresh partials while cleaning unrelated orphans", async () => {
     const directory = await createTemporaryDirectory();
     await Promise.all([
       writeFile(join(directory, ".active.preview.lock"), "", "utf8"),
@@ -837,7 +836,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("finishes quarantined deletion units and ignores unrelated entries", async function () {
+  it("finishes quarantined deletion units and ignores unrelated entries", async () => {
     const directory = await createTemporaryDirectory();
     await Promise.all([
       writeFile(join(directory, "retired.html"), "html", "utf8"),
@@ -864,7 +863,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("evicts by aggregate bytes even when the artifact-count bound is satisfied", async function () {
+  it("evicts by aggregate bytes even when the artifact-count bound is satisfied", async () => {
     const directory = await createTemporaryDirectory();
     const firstEmail = createPreviewEmailPortForTest({
       environment: "test",
@@ -899,7 +898,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  it("uses artifact names as the deterministic retention tie-breaker", async function () {
+  it("uses artifact names as the deterministic retention tie-breaker", async () => {
     const directory = await createTemporaryDirectory();
     const oldDate = new Date(Date.now() - 60_000);
     const existingPaths = [
@@ -936,7 +935,7 @@ describe("createPreviewEmailPort", function () {
     ]);
   });
 
-  return it("rolls back text publication when the html destination collides", async function () {
+  return it("rolls back text publication when the html destination collides", async () => {
     const directory = await createTemporaryDirectory();
     const collidingHtmlPath = join(directory, "collision.html");
     await writeFile(collidingHtmlPath, "pre-existing", "utf8");

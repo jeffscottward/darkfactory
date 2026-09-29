@@ -13,8 +13,8 @@ vi.mock("../../../components/operator-sign-in.tsx", () => ({
 
 import SignInPage, { metadata } from "./page.tsx";
 
-describe("operator sign-in route", function () {
-  it("publishes sign-in metadata and renders without a callback", async function () {
+describe("operator sign-in route", () => {
+  it("publishes sign-in metadata and renders without a callback", async () => {
     const markup = renderToStaticMarkup(
       await SignInPage({
         searchParams: Promise.resolve({}),
@@ -25,7 +25,7 @@ describe("operator sign-in route", function () {
     return expect(markup).toContain('data-callback-url="none"');
   });
 
-  it("passes a scalar callback to the sign-in form", async function () {
+  it("passes a scalar callback to the sign-in form", async () => {
     const markup = renderToStaticMarkup(
       await SignInPage({
         searchParams: Promise.resolve({ callbackURL: "/operator/runs/run-1" }),
@@ -34,7 +34,7 @@ describe("operator sign-in route", function () {
     return expect(markup).toContain('data-callback-url="/operator/runs/run-1"');
   });
 
-  return it("uses the first callback when the query parameter repeats", async function () {
+  return it("uses the first callback when the query parameter repeats", async () => {
     const markup = renderToStaticMarkup(
       await SignInPage({
         searchParams: Promise.resolve({

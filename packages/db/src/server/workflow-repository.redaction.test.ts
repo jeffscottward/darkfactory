@@ -31,8 +31,8 @@ afterEach(() => {
   return vi.resetModules();
 });
 
-describe("workflow persistence redaction failures", function () {
-  it("rejects a text redaction that does not remain text", async function () {
+describe("workflow persistence redaction failures", () => {
+  it("rejects a text redaction that does not remain text", async () => {
     const { execute, repository, WorkflowPersistenceInputError } =
       await repositoryWithRedaction({ redacted: true });
 
@@ -47,7 +47,7 @@ describe("workflow persistence redaction failures", function () {
     return expect(execute).not.toHaveBeenCalled();
   });
 
-  return it("rejects text that expands beyond its limit during redaction", async function () {
+  return it("rejects text that expands beyond its limit during redaction", async () => {
     const { execute, repository, WorkflowPersistenceInputError } =
       await repositoryWithRedaction("x".repeat(4 * 1024 + 1));
 

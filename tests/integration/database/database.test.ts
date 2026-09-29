@@ -1,30 +1,30 @@
 import { createAtomicAuthRateLimitStorage } from "@darkfactory/auth/server";
 import {
-  createAddressRepository,
-  createAdminUsersRepository,
-  createFeatureItemRepository,
-  createDashboardRepository,
-  createNodeDatabase,
-  createProfileRepository,
-  OptimisticConcurrencyError,
-  InvalidRepositoryInputError,
-  createUserPreferencesRepository,
-  withTransaction,
-  type Database,
-  type Transaction,
-} from "@darkfactory/db/server";
-import { migrate } from "@darkfactory/db/server/migration";
-import {
   ADDRESS_TYPES,
+  addresses,
   COLOR_SCHEMES,
   FEATURE_ITEM_STATUSES,
   PREFERENCE_MODES,
   PROFILE_VISIBILITIES,
   USER_ROLES,
   USER_STATUSES,
-  addresses,
   users,
 } from "@darkfactory/db/schema";
+import {
+  createAddressRepository,
+  createAdminUsersRepository,
+  createDashboardRepository,
+  createFeatureItemRepository,
+  createNodeDatabase,
+  createProfileRepository,
+  createUserPreferencesRepository,
+  type Database,
+  InvalidRepositoryInputError,
+  OptimisticConcurrencyError,
+  type Transaction,
+  withTransaction,
+} from "@darkfactory/db/server";
+import { migrate } from "@darkfactory/db/server/migration";
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
@@ -222,8 +222,8 @@ const columnNames = async (tableName: string): Promise<string[]> => {
   return rows.map((row) => row.column_name);
 };
 
-describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", function () {
-  beforeAll(async function () {
+describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () => {
+  beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
@@ -232,7 +232,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return await migrate(databaseResource.db);
   }, 60_000);
 
-  afterAll(async function () {
+  afterAll(async () => {
     try {
       if (databaseResource !== undefined) {
         return await databaseResource.close();
@@ -245,7 +245,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     }
   }, 60_000);
 
-  it("DF-031/032 migrates cleanly on ordinary provider-neutral Postgres", async function () {
+  it("DF-031/032 migrates cleanly on ordinary provider-neutral Postgres", async () => {
     const rows = await testDatabase.query<{
       database_name: string;
       migration_table: string | null;
@@ -261,7 +261,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ]);
   });
 
-  it("DF-033 creates the structural auth-table prerequisite without a user password column", async function () {
+  it("DF-033 creates the structural auth-table prerequisite without a user password column", async () => {
     const rows = await testDatabase.query<{ table_name: string }>(
       "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
     );
@@ -277,7 +277,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return expect(tableNames).not.toContain("passwords");
   });
 
-  it("atomically admits only one simultaneous request at a max-one auth threshold", async function () {
+  it("atomically admits only one simultaneous request at a max-one auth threshold", async () => {
     const key = "integration-atomic-auth-rate-limit";
     await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key]);
     const storage = createAtomicAuthRateLimitStorage(databaseResource.db);
@@ -296,7 +296,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return expect(rows).toEqual([{ count: 1 }]);
   });
 
-  it("returns a denial after a first-use uniqueness wait crosses its statement snapshot", async function () {
+  it("returns a denial after a first-use uniqueness wait crosses its statement snapshot", async () => {
     const key = "integration-first-use-auth-rate-limit";
     await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key]);
     const storage = createAtomicAuthRateLimitStorage(databaseResource.db);
@@ -309,7 +309,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
         ["integration-rate-limit-blocker", key, 1, Date.now()]
       );
       const pendingDecision = storage.consume(key, { window: 60, max: 1 });
-      const deadline = Date.now() + 2_000;
+      const deadline = Date.now() + 2000;
       let blocked = false;
       while (!blocked && Date.now() < deadline) {
         const [activity] = await testDatabase.query<{ blocked: boolean }>(`
@@ -341,7 +341,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     }
   });
 
-  it("DF-033/039 rejects duplicate auth identities, tokens, and provider keys", async function () {
+  it("DF-033/039 rejects duplicate auth identities, tokens, and provider keys", async () => {
     const userId = "auth-unique-user-01";
     await createAuthUser(userId, "auth-unique-01@example.test");
     await expect(
@@ -404,7 +404,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).rejects.toThrow();
   });
 
-  it("DF-034 through DF-038 creates every domain column and excludes superseded preferences", async function () {
+  it("DF-034 through DF-038 creates every domain column and excludes superseded preferences", async () => {
     expect(await columnNames("profiles")).toEqual(PROFILE_COLUMNS);
     expect(await columnNames("addresses")).toEqual(ADDRESS_COLUMNS);
     expect(await columnNames("user_preferences")).toEqual(PREFERENCE_COLUMNS);
@@ -419,7 +419,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-035/037/039 installs every deliberate named index on its intended table", async function () {
+  it("DF-035/037/039 installs every deliberate named index on its intended table", async () => {
     const rows = await testDatabase.query<{
       indexname: string;
       tablename: string;
@@ -516,7 +516,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-033 through DF-039 installs exact primary and unique key matrices", async function () {
+  it("DF-033 through DF-039 installs exact primary and unique key matrices", async () => {
     const rows = await testDatabase.query<{
       table_name: string;
       constraint_type: "p" | "u";
@@ -550,7 +550,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return expect(actualKeys).toEqual(expectedKeys);
   });
 
-  it("DF-033 through DF-039 maps each CHECK to the intended table", async function () {
+  it("DF-033 through DF-039 maps each CHECK to the intended table", async () => {
     const rows = await testDatabase.query<{
       constraint_name: string;
       table_name: string;
@@ -626,7 +626,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).toBe("contact_rate_limits");
   });
 
-  it("DF-033 through DF-039 rejects every invalid checked boundary and orphan FK", async function () {
+  it("DF-033 through DF-039 rejects every invalid checked boundary and orphan FK", async () => {
     const userId = "constraint-user-01";
     await createAuthUser(userId, "constraint-user-01@example.test");
     const expectRejected = async (
@@ -756,7 +756,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-039 makes FK targets and delete behavior inspectable and deliberate", async function () {
+  it("DF-039 makes FK targets and delete behavior inspectable and deliberate", async () => {
     const rows = await testDatabase.query<{
       source_table: string;
       definition: string;
@@ -794,7 +794,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-034 through DF-039 preserves explicit nullability and Postgres-native types", async function () {
+  it("DF-034 through DF-039 preserves explicit nullability and Postgres-native types", async () => {
     const rows = await testDatabase.query<{
       table_name: string;
       column_name: string;
@@ -919,7 +919,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return results1;
   });
 
-  it("DF-039 stores offset timestamps as the same UTC instant", async function () {
+  it("DF-039 stores offset timestamps as the same UTC instant", async () => {
     await testDatabase.query(
       "INSERT INTO audit_records (id, action, entity_type, entity_id, request_id, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)",
       [
@@ -942,7 +942,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-034 persists complete profiles including a nullable date of birth", async function () {
+  it("DF-034 persists complete profiles including a nullable date of birth", async () => {
     const userId = "profile-user-01";
     await createAuthUser(userId, "profile-01@example.test");
     const profiles = createProfileRepository(databaseResource.db);
@@ -987,7 +987,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return expect(updated.updatedAt.toISOString()).toMatch(/Z$/);
   });
 
-  it("DF-035 persists typed addresses and transactionally changes the sole primary", async function () {
+  it("DF-035 persists typed addresses and transactionally changes the sole primary", async () => {
     const userId = "address-user-01";
     await createAuthUser(userId, "address-01@example.test");
     const repository = createAddressRepository(databaseResource.db);
@@ -1065,7 +1065,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).rejects.toThrow();
   });
 
-  it("DF-035 leaves at most one primary address under concurrent attempts", async function () {
+  it("DF-035 leaves at most one primary address under concurrent attempts", async () => {
     const userId = "address-concurrency-user-01";
     await createAuthUser(userId, "address-concurrency-01@example.test");
     const repository = createAddressRepository(databaseResource.db);
@@ -1102,7 +1102,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).toHaveLength(1);
   });
 
-  it("DF-035 serializes overlapping optimistic primary updates by owner and version", async function () {
+  it("DF-035 serializes overlapping optimistic primary updates by owner and version", async () => {
     const initialVersion = new Date("2027-01-01T00:00:00.000Z");
     const winnerVersion = new Date(initialVersion.getTime() + 1);
     const userId = "address-optimistic-concurrency-user-01";
@@ -1259,7 +1259,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     });
   });
 
-  it("bounds concurrent address creation to the atomic per-user quota", async function () {
+  it("bounds concurrent address creation to the atomic per-user quota", async () => {
     const userId = "address-quota-user-01";
     await createAuthUser(userId, "address-quota-01@example.test");
     const repository = createAddressRepository(databaseResource.db);
@@ -1296,7 +1296,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-036 persists concrete preferences and all ten settled color schemes", async function () {
+  it("DF-036 persists concrete preferences and all ten settled color schemes", async () => {
     const userId = "preferences-user-01";
     await createAuthUser(userId, "preferences-01@example.test");
     const repository = createUserPreferencesRepository(databaseResource.db);
@@ -1328,7 +1328,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     );
   });
 
-  it("DF-033 through DF-039 applies every deliberate cascade and audit SET NULL", async function () {
+  it("DF-033 through DF-039 applies every deliberate cascade and audit SET NULL", async () => {
     const userId = "cascade-user-01";
     await createAuthUser(userId, "cascade-01@example.test");
     const profiles = createProfileRepository(databaseResource.db);
@@ -1421,7 +1421,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ]);
   });
 
-  it("DF-037/038 commits feature state, audit context, and outbox event atomically", async function () {
+  it("DF-037/038 commits feature state, audit context, and outbox event atomically", async () => {
     const ownerId = "feature-owner-01";
     await createAuthUser(ownerId, "feature-owner-01@example.test");
     const repository = createFeatureItemRepository(databaseResource.db);
@@ -1566,7 +1566,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).toEqual([{ audit_count: "1", outbox_count: "1" }]);
   });
 
-  it("DF-038 rolls feature and audit back when the outbox companion write fails", async function () {
+  it("DF-038 rolls feature and audit back when the outbox companion write fails", async () => {
     const ownerId = "feature-owner-companion-failure-01";
     const featureId = "feature-item-companion-failure-01";
     const generatedIds = [
@@ -1611,7 +1611,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).toEqual([{ feature_count: "0", audit_count: "0", outbox_count: "0" }]);
   });
 
-  it("DF-038 rolls feature, audit, and outbox writes back as one transaction", async function () {
+  it("DF-038 rolls feature, audit, and outbox writes back as one transaction", async () => {
     const ownerId = "feature-owner-rollback-01";
     const featureId = "feature-item-rollback-01";
     await createAuthUser(ownerId, "feature-rollback-01@example.test");
@@ -1647,7 +1647,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ]);
   });
 
-  it("searches escaped admin user text with deterministic opaque keyset pages", async function () {
+  it("searches escaped admin user text with deterministic opaque keyset pages", async () => {
     const directory = createAdminUsersRepository(databaseResource.db);
     for (const suffix of ["a", "b", "c"]) {
       await createAuthUser(
@@ -1761,7 +1761,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     return expect(microThird.nextCursor).toBeNull();
   });
 
-  it("filters and caps feature lists and computes owner-only dashboard counts/recent order", async function () {
+  it("filters and caps feature lists and computes owner-only dashboard counts/recent order", async () => {
     const ownerId = "dashboard-owner-01";
     const otherOwnerId = "dashboard-other-01";
     await createAuthUser(ownerId, "dashboard-owner-01@example.test");
@@ -1852,7 +1852,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ]);
   });
 
-  it("rolls back primary clearing when the selected address update fails", async function () {
+  it("rolls back primary clearing when the selected address update fails", async () => {
     const userId = "address-rollback-user-01";
     await createAuthUser(userId, "address-rollback-01@example.test");
     const repository = createAddressRepository(databaseResource.db);
@@ -1908,7 +1908,7 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", funct
     ).toEqual(["address-rollback-primary"]);
   });
 
-  return it("rejects stale account writes from a second session without losing the winner", async function () {
+  return it("rejects stale account writes from a second session without losing the winner", async () => {
     const userId = "optimistic-account-user-01";
     await createAuthUser(userId, "optimistic-account-01@example.test");
     const instant = new Date("2026-03-01T00:00:00.000Z");

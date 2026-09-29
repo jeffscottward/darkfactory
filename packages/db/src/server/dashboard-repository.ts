@@ -1,9 +1,9 @@
 import { count, desc, eq } from "drizzle-orm";
 
 import {
-  featureItems,
   type FeatureItem,
   type FeatureItemStatus,
+  featureItems,
 } from "../schema/index.ts";
 import type { DatabaseExecutor } from "./client.ts";
 

@@ -11,14 +11,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-
+import { runDocsCli } from "./cli.ts";
 import {
   buildArchitectureInventory,
+  type DocsDependencies,
   runDocsAction,
   serializeArchitectureInventory,
-  type DocsDependencies,
 } from "./docs.ts";
-import { runDocsCli } from "./cli.ts";
 import { createDocsFileSystem } from "./system.ts";
 
 const manifests = new Map([

@@ -10,7 +10,7 @@ import {
   snapshotAnalyticsCapture,
 } from "../validation.ts";
 
-const defaultTimeoutMs = 3_000;
+const defaultTimeoutMs = 3000;
 const maximumTimeoutMs = 10_000;
 
 export type PostHogAnalyticsOptions = Readonly<{
@@ -89,7 +89,7 @@ export const createPostHogAnalyticsPort = (
 
   const apiKey = options.apiKey?.trim();
   const host = options.host?.trim();
-  if (!apiKey || !host) {
+  if (!(apiKey && host)) {
     return {
       capture: async (input): Promise<AnalyticsResult> => {
         const snapshot = snapshotAnalyticsCapture(input);

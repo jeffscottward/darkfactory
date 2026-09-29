@@ -12,7 +12,7 @@ import { createRecordingStoragePort } from "./test.ts";
 
 const bytes = (...values: number[]) => new Uint8Array(values);
 
-describe("storage port", function () {
+describe("storage port", () => {
   it.each([
     ["capability-disabled", "disabled"],
     ["provider-unconfigured", "unconfigured"],
@@ -30,7 +30,7 @@ describe("storage port", function () {
     ]);
   });
 
-  return it("keeps the Postgres metadata boundary provider-neutral", async function () {
+  return it("keeps the Postgres metadata boundary provider-neutral", async () => {
     const metadata: ObjectMetadata = {
       key: "objects/report.pdf",
       size: 3,
@@ -52,8 +52,8 @@ describe("storage port", function () {
   });
 });
 
-describe("recording storage adapter", function () {
-  it("records deterministic put/get/delete behavior without recording bodies", async function () {
+describe("recording storage adapter", () => {
+  it("records deterministic put/get/delete behavior without recording bodies", async () => {
     const storage = createRecordingStoragePort({
       now: () => "2026-01-02T03:04:05.000Z",
     });
@@ -103,7 +103,7 @@ describe("recording storage adapter", function () {
     );
   });
 
-  it("copies bytes without invoking a Uint8Array subclass override", async function () {
+  it("copies bytes without invoking a Uint8Array subclass override", async () => {
     let sliceCalls = 0;
     class OverriddenBytes extends Uint8Array {
       override slice(_start?: number, _end?: number): Uint8Array<ArrayBuffer> {
@@ -133,7 +133,7 @@ describe("recording storage adapter", function () {
     return expect(sliceCalls).toBe(0);
   });
 
-  it("captures every put input property exactly once", async function () {
+  it("captures every put input property exactly once", async () => {
     const reads = { key: 0, body: 0, contentType: 0, checksum: 0 };
     const input: PutObjectInput = {
       get key() {
@@ -174,7 +174,7 @@ describe("recording storage adapter", function () {
     });
   });
 
-  it("replaces an object while preserving its creation time", async function () {
+  it("replaces an object while preserving its creation time", async () => {
     const timestamps = ["2026-01-02T03:04:05.000Z", "2026-01-03T03:04:05.000Z"];
     const storage = createRecordingStoragePort({
       now: () => timestamps.shift()!,
@@ -194,7 +194,7 @@ describe("recording storage adapter", function () {
     });
   });
 
-  return it("returns not-found when deleting a missing key and still records the attempt", async function () {
+  return it("returns not-found when deleting a missing key and still records the attempt", async () => {
     const storage = createRecordingStoragePort();
 
     await expect(storage.delete("missing/object")).resolves.toEqual({
@@ -206,8 +206,8 @@ describe("recording storage adapter", function () {
   });
 });
 
-describe("storage dependency inventory", function () {
-  return it("contains no runtime, optional, or peer dependencies", async function () {
+describe("storage dependency inventory", () =>
+  it("contains no runtime, optional, or peer dependencies", async () => {
     const manifestText = await readFile(
       new URL("../package.json", import.meta.url),
       "utf8"
@@ -224,5 +224,4 @@ describe("storage dependency inventory", function () {
       peerDependencies: {},
     });
     return expect(Object.keys(manifest.exports)).toEqual([".", "./test"]);
-  });
-});
+  }));

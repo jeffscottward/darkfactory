@@ -102,14 +102,14 @@ vi.mock("drizzle-orm/node-postgres/migrator", () => ({
   migrate: driver.runMigrations,
 }));
 
+import { migrate } from "@darkfactory/db/server/migration";
 import {
-  REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
-  RequestDatabaseCapacityError,
   createNodeDatabase,
   createRequestDatabase,
+  REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
+  RequestDatabaseCapacityError,
   withTransaction,
 } from "./client.ts";
-import { migrate } from "@darkfactory/db/server/migration";
 
 const CONNECTION_STRING = "postgresql://localhost/darkfactory_test";
 const PLANETSCALE_SYSTEM_ROOT_CONNECTION_STRING =
@@ -117,8 +117,8 @@ const PLANETSCALE_SYSTEM_ROOT_CONNECTION_STRING =
 const NORMALIZED_PLANETSCALE_CONNECTION_STRING =
   "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&application_name=darkfactory";
 
-describe("database client factories", function () {
-  beforeEach(function () {
+describe("database client factories", () => {
+  beforeEach(() => {
     driver.databases.length = 0;
     driver.clients.length = 0;
     driver.pools.length = 0;
@@ -127,12 +127,12 @@ describe("database client factories", function () {
     return driver.resetFailures();
   });
 
-  it("creates one private Node pool and closes it through a neutral resource", async function () {
+  it("creates one private Node pool and closes it through a neutral resource", async () => {
     const resource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
       maxConnections: 7,
       idleTimeoutMillis: 12_000,
-      connectionTimeoutMillis: 4_000,
+      connectionTimeoutMillis: 4000,
     });
 
     expect(driver.pools).toHaveLength(1);
@@ -140,7 +140,7 @@ describe("database client factories", function () {
       connectionString: CONNECTION_STRING,
       max: 7,
       idleTimeoutMillis: 12_000,
-      connectionTimeoutMillis: 4_000,
+      connectionTimeoutMillis: 4000,
     });
     expect(resource.db).toBe(driver.databases[0]);
     expect(resource).not.toHaveProperty("pool");
@@ -261,26 +261,26 @@ describe("database client factories", function () {
     return expect(driver.drizzle).not.toHaveBeenCalled();
   });
 
-  it("creates one client per production request and ends each socket on close", async function () {
+  it("creates one client per production request and ends each socket on close", async () => {
     const first = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
-      connectionTimeoutMillis: 3_000,
+      connectionTimeoutMillis: 3000,
     });
     const second = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
-      connectionTimeoutMillis: 3_000,
+      connectionTimeoutMillis: 3000,
     });
 
     expect(driver.pools).toHaveLength(0);
     expect(driver.clients.map(({ options }) => options)).toEqual([
       {
         connectionString: CONNECTION_STRING,
-        connectionTimeoutMillis: 3_000,
+        connectionTimeoutMillis: 3000,
         query_timeout: 10_000,
       },
       {
         connectionString: CONNECTION_STRING,
-        connectionTimeoutMillis: 3_000,
+        connectionTimeoutMillis: 3000,
         query_timeout: 10_000,
       },
     ]);
@@ -294,7 +294,7 @@ describe("database client factories", function () {
     return expect(driver.clients[1]?.end).toHaveBeenCalledOnce();
   });
 
-  it("contains production client background errors through a fixed secret-safe diagnostic", async function () {
+  it("contains production client background errors through a fixed secret-safe diagnostic", async () => {
     const diagnosticSink = vi.fn();
     const resource = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
@@ -330,7 +330,7 @@ describe("database client factories", function () {
     return await resource.close();
   });
 
-  it("isolates diagnostics between concurrent request resources", async function () {
+  it("isolates diagnostics between concurrent request resources", async () => {
     const firstSink = vi.fn();
     const secondSink = vi.fn();
     const [first, second] = await Promise.all([
@@ -358,7 +358,7 @@ describe("database client factories", function () {
     return await Promise.all([first.close(), second.close()]);
   });
 
-  it("releases production capacity only after a successful close", async function () {
+  it("releases production capacity only after a successful close", async () => {
     const resources = await Promise.all(
       Array.from({ length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS }, () =>
         createRequestDatabase({ connectionString: CONNECTION_STRING })
@@ -397,7 +397,7 @@ describe("database client factories", function () {
     ]);
   });
 
-  it("preserves connection failures and releases admission after confirmed end", async function () {
+  it("preserves connection failures and releases admission after confirmed end", async () => {
     const connectionFailure = new Error("connection failed");
     driver.failNextConnection(connectionFailure);
 
@@ -414,7 +414,7 @@ describe("database client factories", function () {
     return await Promise.all(resources.map(({ close }) => close()));
   });
 
-  it("preserves production initialization failures after confirmed client end", async function () {
+  it("preserves production initialization failures after confirmed client end", async () => {
     const databaseFailure = new Error("database initialization failed");
     driver.drizzle.mockImplementationOnce(() => {
       throw databaseFailure;
@@ -431,7 +431,7 @@ describe("database client factories", function () {
     return await replacement.close();
   });
 
-  it("retains admission and reports secret-safe diagnostics when client end is unconfirmed", async function () {
+  it("retains admission and reports secret-safe diagnostics when client end is unconfirmed", async () => {
     const diagnosticSink = vi.fn();
     const resources = await Promise.all(
       Array.from({ length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS }, () =>
@@ -536,7 +536,7 @@ describe("database client factories", function () {
     return await Promise.all(remainingCapacity.map(({ close }) => close()));
   });
 
-  it("runs migrations from the package folder unless explicitly overridden", async function () {
+  it("runs migrations from the package folder unless explicitly overridden", async () => {
     const resource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
     });
@@ -557,7 +557,7 @@ describe("database client factories", function () {
     });
   });
 
-  it("returns transaction results and preserves rollback rejections", async function () {
+  it("returns transaction results and preserves rollback rejections", async () => {
     const successfulDatabase = {
       transaction: vi.fn(
         async (operation: (tx: { marker: string }) => unknown) => {
@@ -583,7 +583,7 @@ describe("database client factories", function () {
     ).rejects.toBe(rollbackError);
   });
 
-  it("propagates private Node pool close failures", async function () {
+  it("propagates private Node pool close failures", async () => {
     const poolResource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
     });
@@ -592,7 +592,7 @@ describe("database client factories", function () {
     return await expect(poolResource.close()).rejects.toBe(poolFailure);
   });
 
-  return it("propagates migration-provider failures without rewriting them", async function () {
+  return it("propagates migration-provider failures without rewriting them", async () => {
     const resource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
     });

@@ -20,15 +20,15 @@ const expectedPalettes = [
   "violet",
 ];
 
-describe("palette catalog", function () {
-  it("keeps exactly the shared ordered ten-palette contract", function () {
+describe("palette catalog", () => {
+  it("keeps exactly the shared ordered ten-palette contract", () => {
     expect(PALETTE_NAMES).toEqual(expectedPalettes);
     expect(PALETTE_NAMES).toHaveLength(10);
     expect(new Set(PALETTE_NAMES).size).toBe(10);
     return expect(DEFAULT_PALETTE).toBe("neutral");
   });
 
-  return it("keeps light, dark, and system as independent mode attributes", function () {
+  return it("keeps light, dark, and system as independent mode attributes", () => {
     expect(THEME_MODES).toEqual(["light", "dark", "system"]);
     expect(themeAttributes("neutral", "system")).toEqual({
       "data-palette": "neutral",

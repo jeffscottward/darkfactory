@@ -41,7 +41,7 @@ const canonicalIpv6 = (value: string): string | undefined => {
   }
   try {
     const hostname = new URL(`http://[${value}]/`).hostname;
-    if (!hostname.startsWith("[") || !hostname.endsWith("]")) return undefined;
+    if (!(hostname.startsWith("[") && hostname.endsWith("]"))) return undefined;
     return hostname.slice(1, -1);
   } catch {
     return undefined;

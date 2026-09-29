@@ -7,6 +7,7 @@ var range: (start: number, end: number) => number[] = (start, end) => {
   }
   return arr;
 };
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -39,27 +40,25 @@ const baseEvent: SemanticEvent = {
   attributes: { status: "draft", password: "raw-password" },
 };
 
-const createSpan = function () {
+const createSpan = () => {
   const events: SemanticEvent[] = [];
   const metrics: MetricObservation[] = [];
   const span: SpanHandle = {
     correlation,
-    addEvent: function (event) {
+    addEvent(event) {
       return events.push(event);
     },
-    recordMetric: function (metric) {
+    recordMetric(metric) {
       return metrics.push(metric);
     },
   };
   return { span, events, metrics };
 };
 
-afterEach(function () {
-  return vi.restoreAllMocks();
-});
+afterEach(() => vi.restoreAllMocks());
 
-describe("createSemanticEventFanout", function () {
-  it("snapshots and redacts once, then performs exactly one sink, span-event, metric, and consented analytics call", async function () {
+describe("createSemanticEventFanout", () => {
+  it("snapshots and redacts once, then performs exactly one sink, span-event, metric, and consented analytics call", async () => {
     const sinkEvents: SemanticEvent[] = [];
     const sink: StructuredEventSink = {
       emit: vi.fn((event: SemanticEvent) => {
@@ -67,27 +66,19 @@ describe("createSemanticEventFanout", function () {
         return undefined;
       }),
     };
-    const analyticsCapture = vi.fn(async function () {
-      return {
-        status: "captured" as const,
-        eventId: "event_01",
-      };
-    });
-    const resolveConsent = vi.fn(async function () {
-      return "granted" as const;
-    });
-    const waitUntil = vi.fn(function (promise: Promise<unknown>) {
-      return void promise;
-    });
+    const analyticsCapture = vi.fn(async () => ({
+      status: "captured" as const,
+      eventId: "event_01",
+    }));
+    const resolveConsent = vi.fn(async () => "granted" as const);
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise);
     const { span, events: spanEvents, metrics } = createSpan();
-    const consoleLog = vi.spyOn(console, "log").mockImplementation(function () {
-      return undefined;
-    });
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
     const consoleError = vi
       .spyOn(console, "error")
-      .mockImplementation(function () {
-        return undefined;
-      });
+      .mockImplementation(() => undefined);
     const event = { ...baseEvent } as SemanticEvent;
     Object.defineProperty(event, "attributes", {
       enumerable: true,
@@ -144,15 +135,11 @@ describe("createSemanticEventFanout", function () {
     });
   });
 
-  it("does not call analytics for denied, unknown, absent actor, or failed consent", async function () {
+  it("does not call analytics for denied, unknown, absent actor, or failed consent", async () => {
     for (const resolveConsent of [
-      vi.fn(async function () {
-        return "denied" as const;
-      }),
-      vi.fn(async function () {
-        return "unknown" as const;
-      }),
-      vi.fn(async function () {
+      vi.fn(async () => "denied" as const),
+      vi.fn(async () => "unknown" as const),
+      vi.fn(async () => {
         throw new Error("raw-consent-provider-body");
       }),
     ]) {
@@ -174,9 +161,7 @@ describe("createSemanticEventFanout", function () {
     const fanout = createSemanticEventFanout({
       sink: { emit: vi.fn() },
       analytics: { capture: analyticsCapture },
-      resolveConsent: vi.fn(async function () {
-        return "granted" as const;
-      }),
+      resolveConsent: vi.fn(async () => "granted" as const),
     });
     await fanout.emit({
       ...baseEvent,
@@ -198,22 +183,20 @@ describe("createSemanticEventFanout", function () {
     return expect(analyticsCapture).not.toHaveBeenCalled();
   });
 
-  it("contains adapter failures as safe result states without retrying or duplicating calls", async function () {
+  it("contains adapter failures as safe result states without retrying or duplicating calls", async () => {
     const sink = {
-      emit: vi.fn(function () {
+      emit: vi.fn(() => {
         throw new Error("raw-provider-payload secret=hidden");
       }),
     };
-    const analyticsCapture = vi.fn(async function () {
+    const analyticsCapture = vi.fn(async () => {
       throw new Error("raw-analytics-body");
     });
     const { span, events, metrics } = createSpan();
     const fanout = createSemanticEventFanout({
       sink,
       analytics: { capture: analyticsCapture },
-      resolveConsent: vi.fn(async function () {
-        return "granted" as const;
-      }),
+      resolveConsent: vi.fn(async () => "granted" as const),
     });
 
     const result = await fanout.emit(baseEvent, { span });
@@ -232,16 +215,17 @@ describe("createSemanticEventFanout", function () {
     );
   });
 
-  it("canonicalizes required event fields before bounded optional data despite key floods", async function () {
+  it("canonicalizes required event fields before bounded optional data despite key floods", async () => {
     const flooded: Record<string, unknown> = {};
     for (const index in range(0, 100)) {
       flooded[`attacker_${index.toString().padStart(3, "0")}`] = "ignored";
     }
     Object.assign(flooded, baseEvent, {
       attributes: Object.fromEntries(
-        Array.from({ length: 100 }, function (_, index) {
-          return [`optional_${index.toString().padStart(3, "0")}`, index];
-        })
+        Array.from({ length: 100 }, (_, index) => [
+          `optional_${index.toString().padStart(3, "0")}`,
+          index,
+        ])
       ),
     });
     const sink = { emit: vi.fn() };
@@ -264,11 +248,11 @@ describe("createSemanticEventFanout", function () {
     return expect(JSON.stringify(events[0])).not.toContain("optional_099");
   });
 
-  it("rejects unsafe required-field access before any partial fanout", async function () {
+  it("rejects unsafe required-field access before any partial fanout", async () => {
     const unsafe = { ...baseEvent };
     Object.defineProperty(unsafe, "name", {
       enumerable: true,
-      get: function () {
+      get() {
         throw new Error("raw-required-field-secret");
       },
     });
@@ -278,9 +262,7 @@ describe("createSemanticEventFanout", function () {
     const fanout = createSemanticEventFanout({
       sink,
       analytics: { capture: analyticsCapture },
-      resolveConsent: vi.fn(async function () {
-        return "granted" as const;
-      }),
+      resolveConsent: vi.fn(async () => "granted" as const),
     });
 
     await expect(fanout.emit(unsafe, { span })).rejects.toThrow(
@@ -292,7 +274,7 @@ describe("createSemanticEventFanout", function () {
     return expect(analyticsCapture).not.toHaveBeenCalled();
   });
 
-  it("emits to the required sink when no optional targets exist", async function () {
+  it("emits to the required sink when no optional targets exist", async () => {
     const sink = { emit: vi.fn() };
     const fanout = createSemanticEventFanout({ sink });
 
@@ -307,7 +289,7 @@ describe("createSemanticEventFanout", function () {
     return expect(Object.isFrozen(result)).toBe(true);
   });
 
-  it("maps skipped and failed analytics adapter results onto the fanout contract", async function () {
+  it("maps skipped and failed analytics adapter results onto the fanout contract", async () => {
     const cases = [
       [
         {
@@ -345,7 +327,7 @@ describe("createSemanticEventFanout", function () {
     return results;
   });
 
-  it("records span failure while still attempting both span operations", async function () {
+  it("records span failure while still attempting both span operations", async () => {
     const results1 = [];
     for (const failingOperation of ["event", "metric"] as const) {
       const addEvent = vi.fn((_event: SemanticEvent) => {
@@ -384,7 +366,7 @@ describe("createSemanticEventFanout", function () {
     return results1;
   });
 
-  it("contains an asynchronous sink failure and a broken lifetime hook", async function () {
+  it("contains an asynchronous sink failure and a broken lifetime hook", async () => {
     const sink = {
       emit: vi.fn(async () => {
         throw new Error("structured transport unavailable");
@@ -418,7 +400,7 @@ describe("createSemanticEventFanout", function () {
     );
   });
 
-  it("maps a required-only event to minimal analytics and metric payloads", async function () {
+  it("maps a required-only event to minimal analytics and metric payloads", async () => {
     const capture = vi.fn(async () => ({
       status: "captured" as const,
       eventId: "event_minimal",
@@ -461,7 +443,7 @@ describe("createSemanticEventFanout", function () {
     ]);
   });
 
-  return it("skips analytics when a capture adapter has no consent resolver", async function () {
+  return it("skips analytics when a capture adapter has no consent resolver", async () => {
     const capture = vi.fn();
     const fanout = createSemanticEventFanout({
       sink: { emit: vi.fn() },

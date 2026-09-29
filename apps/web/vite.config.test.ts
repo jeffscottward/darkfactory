@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { Plugin } from "vite";
 import ts from "typescript";
+import type { Plugin } from "vite";
 import { describe, expect, it, vi } from "vitest";
 import viteConfig from "./vite.config";
 

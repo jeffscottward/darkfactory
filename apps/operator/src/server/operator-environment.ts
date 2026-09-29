@@ -32,7 +32,7 @@ export const safeOperatorCallbackPath = (
     value === null ||
     value === "/" ||
     value.length === 0 ||
-    value.length > 2_048 ||
+    value.length > 2048 ||
     !value.startsWith("/") ||
     value.startsWith("//") ||
     value.includes("\\") ||

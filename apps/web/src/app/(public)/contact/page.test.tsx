@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import ContactPage, { metadata } from "./page.tsx";
 
-describe("ContactPage", function () {
-  return it("provides route metadata and a single clearly described contact task", function () {
+describe("ContactPage", () =>
+  it("provides route metadata and a single clearly described contact task", () => {
     const html = renderToStaticMarkup(<ContactPage />);
 
     expect(metadata).toEqual({
@@ -19,5 +19,4 @@ describe("ContactPage", function () {
       '<section aria-labelledby="contact-expectations-title"'
     );
     return expect(html).toContain('id="contact-form"');
-  });
-});
+  }));

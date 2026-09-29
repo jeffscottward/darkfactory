@@ -12,23 +12,22 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   WorkflowRepository,
   WorkflowRetainedResourceClaim,
 } from "@darkfactory/db/server/workflow";
 import { canonicalJsonV1 } from "@darkfactory/state/workflow";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
-  OmpRequestError,
-  OmpWorkspaceBusyError,
   applyOmpImplementationArtifact,
   decodeOmpImplementationArtifact,
+  OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
   type OmpCliAdapter,
   type OmpImplementationArtifact,
   type OmpImplementationArtifactEntry,
+  OmpRequestError,
+  OmpWorkspaceBusyError,
 } from "./omp.ts";
 import {
   createWorkflowRuntime,
@@ -377,9 +376,8 @@ describe("terminal OMP resource reconciliation", () => {
               () => {
                 if (cleanupRejects) {
                   return reject(new Error("cleanup aborted"));
-                } else {
-                  return resolve();
                 }
+                return resolve();
               },
               once
             );

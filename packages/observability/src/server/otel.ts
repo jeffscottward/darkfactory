@@ -1,12 +1,12 @@
 import {
+  type Attributes,
+  type Counter,
+  isValidSpanId,
+  isValidTraceId,
   ROOT_CONTEXT,
   SpanStatusCode,
   TraceFlags,
-  isValidSpanId,
-  isValidTraceId,
   trace,
-  type Attributes,
-  type Counter,
 } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -157,7 +157,7 @@ export const resolveOtlpSignalUrls = (
       base.password.length > 0 ||
       base.search.length > 0 ||
       base.hash.length > 0 ||
-      base.pathname.length > 1_024
+      base.pathname.length > 1024
     ) {
       return undefined;
     }
@@ -167,9 +167,8 @@ export const resolveOtlpSignalUrls = (
     if (!allowedHosts.has(hostname)) return undefined;
 
     const loopback = isLoopbackHost(hostname);
-    if (isPrivateHost(hostname)) {
-      if (!loopback || !policy.allowInsecureLocalhost) return undefined;
-    }
+    if (isPrivateHost(hostname) && !(loopback && policy.allowInsecureLocalhost))
+      return undefined;
     if (
       base.protocol !== "https:" &&
       !(base.protocol === "http:" && loopback && policy.allowInsecureLocalhost)
@@ -224,7 +223,7 @@ const snapshotOtlpHeaders = (
       if (
         typeof value !== "string" ||
         value.length === 0 ||
-        value.length > 4_096 ||
+        value.length > 4096 ||
         /[\r\n]/.test(value)
       ) {
         return Object.freeze({ valid: false });
@@ -467,8 +466,10 @@ export const initializeTelemetry = (
       },
       recordMetric: (metric: MetricObservation) => {
         if (
-          !ALLOWED_METRIC_NAMES.has(metric.name) ||
-          !Number.isFinite(metric.value) ||
+          !(
+            ALLOWED_METRIC_NAMES.has(metric.name) &&
+            Number.isFinite(metric.value)
+          ) ||
           metric.value < 0
         ) {
           return;

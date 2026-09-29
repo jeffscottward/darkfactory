@@ -4,13 +4,14 @@ import AxeBuilder from "@axe-core/playwright";
 import type { BrowserContext, Cookie, Page, TestInfo } from "@playwright/test";
 
 import {
-  E2E_IDENTITIES,
   axeArtifactPath,
+  E2E_IDENTITIES,
+  type E2EIdentity,
   expect,
   signInAs,
   test,
-  type E2EIdentity,
 } from "./fixtures.ts";
+
 const CREDENTIAL_ARTIFACT_POLICY = {
   screenshot: "off",
   trace: "off",

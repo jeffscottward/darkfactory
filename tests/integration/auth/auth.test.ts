@@ -1,11 +1,10 @@
-import { handleAuthRequest } from "../../../apps/web/src/app/api/auth/[...all]/handler.ts";
 import {
   AUTHORIZATION_ERROR_CODES,
   AuthAuthorizationError,
-  PASSWORD_RESET_DELIVERY_ERROR_CODE,
   createAuth,
   createAuthHandler,
   ensureUserResources,
+  PASSWORD_RESET_DELIVERY_ERROR_CODE,
   requireRole,
   requireSession,
 } from "@darkfactory/auth/server";
@@ -31,6 +30,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { handleAuthRequest } from "../../../apps/web/src/app/api/auth/[...all]/handler.ts";
 
 const BASE_URL = "https://darkfactory.localhost";
 const AUTH_SECRET = "integration-auth-secret-with-at-least-32-characters";
@@ -161,8 +161,8 @@ const resetTokenFrom = (delivery: ResetDelivery): string => {
   return match[1];
 };
 
-describe.sequential("DF-041 through DF-045 Better Auth integration", function () {
-  beforeAll(async function () {
+describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
+  beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
@@ -171,7 +171,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return await migrate(databaseResource.db);
   }, 60_000);
 
-  beforeEach(async function () {
+  beforeEach(async () => {
     await resetDatabase();
     backgroundTasks = [];
     deliveries = [];
@@ -214,11 +214,9 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return undefined;
   });
 
-  afterEach(async function () {
-    return await Promise.all(backgroundTasks);
-  });
+  afterEach(async () => await Promise.all(backgroundTasks));
 
-  afterAll(async function () {
+  afterAll(async () => {
     try {
       if (databaseResource !== undefined) return await databaseResource.close();
       return;
@@ -228,7 +226,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     }
   }, 60_000);
 
-  it("DF-041 signs up through Better Auth hashing and reliably provisions defaults", async function () {
+  it("DF-041 signs up through Better Auth hashing and reliably provisions defaults", async () => {
     const { response, body } = await signUp();
 
     expect(response.status).toBe(200);
@@ -295,7 +293,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     });
   });
 
-  it("rolls back Better Auth user creation when credential account creation fails", async function () {
+  it("rolls back Better Auth user creation when credential account creation fails", async () => {
     await testDatabase.query(
       `CREATE FUNCTION auth_test_reject_account() RETURNS trigger AS $$
        BEGIN
@@ -331,7 +329,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     }
   });
 
-  it("rolls back both provisioning rows while leaving the committed auth user repairable", async function () {
+  it("rolls back both provisioning rows while leaving the committed auth user repairable", async () => {
     await testDatabase.query(
       `CREATE FUNCTION auth_test_reject_preferences() RETURNS trigger AS $$
        BEGIN
@@ -411,7 +409,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(repaired).toEqual({ profile_count: 1, preference_count: 1 });
   });
 
-  it("DF-041 makes accepted and duplicate signup responses enumeration-safe", async function () {
+  it("DF-041 makes accepted and duplicate signup responses enumeration-safe", async () => {
     const first = await signUp("Mixed.Member@Example.Test", {
       role: "admin",
       status: "suspended",
@@ -435,7 +433,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(rows).toEqual([{ role: "member", status: "active" }]);
   });
 
-  it("denies unverified sign-in safely and supports a generic resend path", async function () {
+  it("denies unverified sign-in safely and supports a generic resend path", async () => {
     const signup = await call(
       jsonRequest("/sign-up/email", {
         name: "Unverified Member",
@@ -468,7 +466,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(verificationDeliveries).toHaveLength(2);
   });
 
-  it("DF-042 signs in, restores a session, signs out, and emits canonical secure cookies", async function () {
+  it("DF-042 signs in, restores a session, signs out, and emits canonical secure cookies", async () => {
     await signUp();
     const signedIn = await signIn();
 
@@ -523,7 +521,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(afterSignOut.body).toBeNull();
   });
 
-  it("DF-042 returns the trusted HTTPS sign-in callback for redirect-back", async function () {
+  it("DF-042 returns the trusted HTTPS sign-in callback for redirect-back", async () => {
     await signUp();
     const callbackURL = `${BASE_URL}/dashboard?from=sign-in`;
     const signedIn = await call(
@@ -542,7 +540,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(signedIn.body).not.toHaveProperty("token");
   });
 
-  it("DF-042 returns Better Auth's exact credential error code", async function () {
+  it("DF-042 returns Better Auth's exact credential error code", async () => {
     await signUp();
     const rejected = await signIn("member@example.test", "wrong-password");
 
@@ -552,7 +550,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     });
   });
 
-  it("DF-045 enforces member, admin, unauthenticated, and inactive guards directly", async function () {
+  it("DF-045 enforces member, admin, unauthenticated, and inactive guards directly", async () => {
     await signUp();
     const memberCookie = cookieFrom((await signIn()).response);
     const memberHeaders = new Headers({ cookie: memberCookie });
@@ -623,7 +621,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     });
   });
 
-  it("DF-043 keeps reset requests enumeration-safe and sends only through the injected port", async function () {
+  it("DF-043 keeps reset requests enumeration-safe and sends only through the injected port", async () => {
     await signUp();
     const known = await call(
       jsonRequest("/request-password-reset", {
@@ -654,7 +652,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     ).toBe(`${BASE_URL}/reset-password`);
   });
 
-  it("schedules reset delivery without coupling the generic response to provider latency", async function () {
+  it("schedules reset delivery without coupling the generic response to provider latency", async () => {
     await signUp();
     let releaseDelivery: (() => void) | undefined;
     const scheduled: Promise<unknown>[] = [];
@@ -706,7 +704,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return await Promise.all(scheduled);
   });
 
-  it("DF-043 rejects expired and consumed reset tokens with Better Auth's exact code", async function () {
+  it("DF-043 rejects expired and consumed reset tokens with Better Auth's exact code", async () => {
     await signUp();
     const oldCookie = cookieFrom((await signIn()).response);
     await call(
@@ -773,7 +771,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(oldSession.body).toBeNull();
   });
 
-  it("DF-043 treats typed delivery failure as a hook error while the Fetch bridge stays enumeration-safe", async function () {
+  it("DF-043 treats typed delivery failure as a hook error while the Fetch bridge stays enumeration-safe", async () => {
     await signUp();
     const failingEmail: EmailPort = {
       sendPasswordReset: async () => ({
@@ -849,7 +847,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(await unknown.json()).toEqual(SAFE_RESET_RESPONSE);
   });
 
-  it("DF-041 repairs partially missing provisioning idempotently without claiming signup atomicity", async function () {
+  it("DF-041 repairs partially missing provisioning idempotently without claiming signup atomicity", async () => {
     await signUp();
     const [user] = await testDatabase.query<{ id: string; name: string }>(
       'SELECT id, name FROM "user" LIMIT 1'
@@ -872,7 +870,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     return expect(counts).toEqual({ profile_count: 1, preference_count: 1 });
   });
 
-  it("creates and closes a request database in the direct auth route", async function () {
+  it("creates and closes a request database in the direct auth route", async () => {
     vi.stubEnv("DATABASE_URL", testDatabase.databaseUrl);
     vi.stubEnv("BETTER_AUTH_SECRET", AUTH_SECRET);
     vi.stubEnv(
@@ -901,7 +899,7 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", function ()
     }
   });
 
-  return it("bridges Better Auth through Web Request/Response and rejects untrusted origins", async function () {
+  return it("bridges Better Auth through Web Request/Response and rejects untrusted origins", async () => {
     const ok = await handler(new Request(`${BASE_URL}/api/auth/ok`));
     expect(ok).toBeInstanceOf(Response);
     expect(ok.status).toBe(200);

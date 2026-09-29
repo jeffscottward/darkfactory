@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Button } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "@tanstack/react-form";
-import { Button } from "@darkfactory/ui";
+import { useEffect, useState } from "react";
 
 import {
+  type AuthFlowClient,
+  type AuthFlowResult,
   browserAuthClient,
   submitResetPassword,
   validatePassword,
   validatePasswordConfirmation,
-  type AuthFlowClient,
-  type AuthFlowResult,
 } from "./auth-flow.ts";
 import { FormStatus } from "./form-status.tsx";
 import { PasswordField } from "./password-field.tsx";
@@ -64,7 +64,7 @@ export const ResetPasswordForm = ({
   if (!token) {
     return (
       <div className="grid gap-5" role="alert">
-        <p className="text-sm leading-6 text-destructive">
+        <p className="text-destructive text-sm leading-6">
           This password reset link is invalid or has expired.
         </p>
         <Link
@@ -104,9 +104,9 @@ export const ResetPasswordForm = ({
       >
         {(field) => (
           <PasswordField
-            disabled={isPending}
             autoComplete="new-password"
             description="Use 12 to 128 characters."
+            disabled={isPending}
             error={
               field.state.meta.isTouched
                 ? firstError(field.state.meta.errors)
@@ -150,8 +150,8 @@ export const ResetPasswordForm = ({
       >
         {(field) => (
           <PasswordField
-            disabled={isPending}
             autoComplete="new-password"
+            disabled={isPending}
             error={
               field.state.meta.isTouched
                 ? firstError(field.state.meta.errors)

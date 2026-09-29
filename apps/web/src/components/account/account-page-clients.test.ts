@@ -242,7 +242,7 @@ const mount = (renderComponent: () => ReactElement) => ({
   },
 });
 
-const flushMicrotasks = async function (): Promise<void> {
+const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -351,13 +351,13 @@ class FocusTarget {
   readonly focus = vi.fn();
 }
 
-const stubFocusEnvironment = function ({
+const stubFocusEnvironment = ({
   activeElement = null,
   addAddress = null,
 }: {
   readonly activeElement?: FocusTarget | null;
   readonly addAddress?: FocusTarget | null;
-} = {}): void {
+} = {}): void => {
   vi.stubGlobal("HTMLElement", FocusTarget);
   vi.stubGlobal("document", {
     activeElement,
@@ -371,7 +371,7 @@ const stubFocusEnvironment = function ({
   });
 };
 
-afterEach(function () {
+afterEach(() => {
   hookRuntime.reset();
   gatewayRuntime.current = null;
   storeRuntime.current = null;
@@ -379,8 +379,8 @@ afterEach(function () {
   return vi.unstubAllGlobals();
 });
 
-describe("profile page client", function () {
-  it("moves from accessible loading to owner data and publishes a successful versioned save", async function () {
+describe("profile page client", () => {
+  it("moves from accessible loading to owner data and publishes a successful versioned save", async () => {
     const updatedAccount = {
       ...account,
       profile: {
@@ -431,7 +431,7 @@ describe("profile page client", function () {
     ],
     ["forbidden", "/dashboard", "This account cannot open that profile."],
     ["not-found", "/account", "The profile is no longer available."],
-  ] as const)("renders the owner-safe %s load recovery", async function (code, href, description) {
+  ] as const)("renders the owner-safe %s load recovery", async (code, href, description) => {
     gatewayRuntime.current = gatewayWith({
       getProfile: vi.fn(async () =>
         Promise.reject({
@@ -453,7 +453,7 @@ describe("profile page client", function () {
     ).toBeDefined();
   });
 
-  it("retries transient profile loads without mutating any field", async function () {
+  it("retries transient profile loads without mutating any field", async () => {
     const getProfile = vi
       .fn()
       .mockRejectedValueOnce(new Error("network unavailable"))
@@ -479,7 +479,7 @@ describe("profile page client", function () {
     return expect(getProfile).toHaveBeenCalledTimes(2);
   });
 
-  it("reconciles authoritative owner data after a version conflict without remounting unsaved inputs", async function () {
+  it("reconciles authoritative owner data after a version conflict without remounting unsaved inputs", async () => {
     const refreshed = {
       ...account,
       profile: { ...profile, displayName: "Alice Authoritative" },
@@ -513,7 +513,7 @@ describe("profile page client", function () {
     });
   });
 
-  it("preserves loaded profile data when conflict reconciliation is unavailable and sanitizes ordinary failures", async function () {
+  it("preserves loaded profile data when conflict reconciliation is unavailable and sanitizes ordinary failures", async () => {
     const getProfile = vi
       .fn()
       .mockResolvedValueOnce(account)
@@ -552,7 +552,7 @@ describe("profile page client", function () {
     });
   });
 
-  it("preserves the profile form and reports the conflict after a primitive reconciliation failure", async function () {
+  it("preserves the profile form and reports the conflict after a primitive reconciliation failure", async () => {
     const reconciliationFailure = "profile reconciliation failed";
     const getProfile = vi
       .fn()
@@ -583,7 +583,7 @@ describe("profile page client", function () {
     });
   });
 
-  it("keeps an overlapping profile load failure authoritative when a save finishes later", async function () {
+  it("keeps an overlapping profile load failure authoritative when a save finishes later", async () => {
     const earlierRetry = deferred<typeof account>();
     const laterRetry = deferred<typeof account>();
     const update = deferred<typeof account>();
@@ -632,7 +632,7 @@ describe("profile page client", function () {
     ).toBeUndefined();
   });
 
-  return it("keeps an overlapping profile load failure authoritative when conflict reconciliation finishes later", async function () {
+  return it("keeps an overlapping profile load failure authoritative when conflict reconciliation finishes later", async () => {
     const earlierRetry = deferred<typeof account>();
     const laterRetry = deferred<typeof account>();
     const reconciliation = deferred<typeof account>();
@@ -688,8 +688,8 @@ describe("profile page client", function () {
   });
 });
 
-describe("preferences page client", function () {
-  it("loads owner preferences and replaces the form version only after a successful save", async function () {
+describe("preferences page client", () => {
+  it("loads owner preferences and replaces the form version only after a successful save", async () => {
     const saved = {
       ...preferences,
       productUpdates: true,
@@ -740,7 +740,7 @@ describe("preferences page client", function () {
       "/account",
       "No saved preferences were found for this account.",
     ],
-  ] as const)("renders the accessible %s preferences recovery", async function (code, href, description) {
+  ] as const)("renders the accessible %s preferences recovery", async (code, href, description) => {
     gatewayRuntime.current = gatewayWith({
       getPreferences: vi.fn(async () => Promise.reject({ code })),
     });
@@ -759,7 +759,7 @@ describe("preferences page client", function () {
     ).toBeDefined();
   });
 
-  it("retries a transient preferences load and restores the owner form", async function () {
+  it("retries a transient preferences load and restores the owner form", async () => {
     const getPreferences = vi
       .fn()
       .mockRejectedValueOnce(new Error("offline"))
@@ -779,7 +779,7 @@ describe("preferences page client", function () {
     return expect(getPreferences).toHaveBeenCalledTimes(2);
   });
 
-  it("reconciles conflicting theme authority without remounting preserved choices", async function () {
+  it("reconciles conflicting theme authority without remounting preserved choices", async () => {
     const refreshed = {
       ...preferences,
       themeMode: "light" as const,
@@ -816,7 +816,7 @@ describe("preferences page client", function () {
     ).toContain("choices are preserved");
   });
 
-  it("keeps loaded preferences when reconciliation fails and provides safe ordinary failure feedback", async function () {
+  it("keeps loaded preferences when reconciliation fails and provides safe ordinary failure feedback", async () => {
     const getPreferences = vi
       .fn()
       .mockResolvedValueOnce(preferences)
@@ -856,7 +856,7 @@ describe("preferences page client", function () {
     });
   });
 
-  it("preserves the preferences form and reports the conflict after a primitive reconciliation failure", async function () {
+  it("preserves the preferences form and reports the conflict after a primitive reconciliation failure", async () => {
     const reconciliationFailure = "preferences reconciliation failed";
     const getPreferences = vi
       .fn()
@@ -890,7 +890,7 @@ describe("preferences page client", function () {
     });
   });
 
-  it("keeps an overlapping preferences load failure authoritative when a save finishes later", async function () {
+  it("keeps an overlapping preferences load failure authoritative when a save finishes later", async () => {
     const earlierRetry = deferred<typeof preferences>();
     const laterRetry = deferred<typeof preferences>();
     const update = deferred<typeof preferences>();
@@ -940,7 +940,7 @@ describe("preferences page client", function () {
     ).toBeUndefined();
   });
 
-  return it("keeps an overlapping preferences load failure authoritative when conflict reconciliation finishes later", async function () {
+  return it("keeps an overlapping preferences load failure authoritative when conflict reconciliation finishes later", async () => {
     const earlierRetry = deferred<typeof preferences>();
     const laterRetry = deferred<typeof preferences>();
     const reconciliation = deferred<typeof preferences>();
@@ -996,8 +996,8 @@ describe("preferences page client", function () {
   });
 });
 
-describe("address page client", function () {
-  it("locks duplicate creates, publishes an optimistic address, and then accepts authoritative refresh", async function () {
+describe("address page client", () => {
+  it("locks duplicate creates, publishes an optimistic address, and then accepts authoritative refresh", async () => {
     stubFocusEnvironment();
     const create = deferred<typeof address>();
     const refresh = deferred<readonly (typeof address)[]>();
@@ -1063,7 +1063,7 @@ describe("address page client", function () {
     });
   });
 
-  it("refreshes a conflicting edit in place while preserving the mounted form version", async function () {
+  it("refreshes a conflicting edit in place while preserving the mounted form version", async () => {
     stubFocusEnvironment();
     const authoritative = {
       ...address,
@@ -1102,7 +1102,7 @@ describe("address page client", function () {
     });
   });
 
-  it("closes an ambiguous create only after a successful list reconciliation", async function () {
+  it("closes an ambiguous create only after a successful list reconciliation", async () => {
     stubFocusEnvironment();
     const listAddresses = vi
       .fn()
@@ -1144,7 +1144,7 @@ describe("address page client", function () {
     });
   });
 
-  it("requires confirmation before removal, restores focus, and removes optimistically", async function () {
+  it("requires confirmation before removal, restores focus, and removes optimistically", async () => {
     const origin = new FocusTarget();
     const addAddress = new FocusTarget();
     stubFocusEnvironment({ activeElement: origin, addAddress });
@@ -1191,7 +1191,7 @@ describe("address page client", function () {
     return await flushMicrotasks();
   });
 
-  return it("updates primary ownership optimistically and retries a failed initial load", async function () {
+  return it("updates primary ownership optimistically and retries a failed initial load", async () => {
     const refresh =
       deferred<readonly (typeof address | typeof secondAddress)[]>();
     const listAddresses = vi
@@ -1236,8 +1236,8 @@ describe("address page client", function () {
   });
 });
 
-describe("security panel interaction", function () {
-  it("confirms revocation, blocks dismissal while pending, and restores trigger focus on completion", function () {
+describe("security panel interaction", () => {
+  it("confirms revocation, blocks dismissal while pending, and restores trigger focus on completion", () => {
     vi.stubGlobal("window", {
       setTimeout: (callback: () => void) => {
         callback();
@@ -1312,7 +1312,7 @@ describe("security panel interaction", function () {
     return expect(trigger.focus).toHaveBeenCalledOnce();
   });
 
-  return it("supports Escape and explicit cancel when no revocation is running", function () {
+  return it("supports Escape and explicit cancel when no revocation is running", () => {
     vi.stubGlobal("window", {
       setTimeout: (callback: () => void) => {
         callback();
@@ -1395,8 +1395,8 @@ const securityGatewayWith = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-describe("security page client", function () {
-  it("moves from accessible loading through safe failure recovery to the session list", async function () {
+describe("security page client", () => {
+  it("moves from accessible loading through safe failure recovery to the session list", async () => {
     const listSessions = vi
       .fn()
       .mockRejectedValueOnce({ code: "UNAUTHORIZED" })
@@ -1432,7 +1432,7 @@ describe("security page client", function () {
     return expect(listSessions).toHaveBeenCalledTimes(2);
   });
 
-  it("locks repeated session revocation and publishes the refreshed success state", async function () {
+  it("locks repeated session revocation and publishes the refreshed success state", async () => {
     const revoke = deferred<void>();
     const currentOnly = [securitySessions[0]];
     const listSessions = vi
@@ -1471,7 +1471,7 @@ describe("security page client", function () {
     });
   });
 
-  it("distinguishes a saved revocation with a failed refresh from a rejected revocation", async function () {
+  it("distinguishes a saved revocation with a failed refresh from a rejected revocation", async () => {
     const listSessions = vi
       .fn()
       .mockResolvedValueOnce({ sessions: securitySessions })
@@ -1507,7 +1507,7 @@ describe("security page client", function () {
     });
   });
 
-  return it("resets the password form after saves and preserves safe feedback across refresh and save failures", async function () {
+  return it("resets the password form after saves and preserves safe feedback across refresh and save failures", async () => {
     const currentOnly = [securitySessions[0]];
     const listSessions = vi
       .fn()
@@ -1568,8 +1568,8 @@ describe("security page client", function () {
   });
 });
 
-describe("mounted sign-out action", function () {
-  it("hydrates, locks repeat activation, and uses browser history replacement after confirmation", async function () {
+describe("mounted sign-out action", () => {
+  it("hydrates, locks repeat activation, and uses browser history replacement after confirmation", async () => {
     const replace = vi.fn();
     vi.stubGlobal("window", { location: { replace } });
     const result = deferred<{ readonly ok: true }>();
@@ -1594,7 +1594,7 @@ describe("mounted sign-out action", function () {
     return expect(replace).toHaveBeenCalledWith("/sign-in");
   });
 
-  return it("commits an accessible retry state when current-session revocation is uncertain", async function () {
+  return it("commits an accessible retry state when current-session revocation is uncertain", async () => {
     const replace = vi.fn();
     const mounted = mount(() =>
       SignOutAction({
@@ -1621,8 +1621,8 @@ describe("mounted sign-out action", function () {
   });
 });
 
-describe("security panel exceptional dismissal", function () {
-  return it("ignores unrelated dialog keys and safely restores when no trigger target exists", function () {
+describe("security panel exceptional dismissal", () =>
+  it("ignores unrelated dialog keys and safely restores when no trigger target exists", () => {
     vi.stubGlobal("window", {
       setTimeout: (callback: () => void) => {
         callback();
@@ -1654,11 +1654,10 @@ describe("security panel exceptional dismissal", function () {
     return expect(
       findElement(tree, (element) => element.props["role"] === "alertdialog")
     ).toBeUndefined();
-  });
-});
+  }));
 
-describe("address page exceptional mutations", function () {
-  it("restores form focus, updates an existing address, and warns when the saved list cannot refresh", async function () {
+describe("address page exceptional mutations", () => {
+  it("restores form focus, updates an existing address, and warns when the saved list cannot refresh", async () => {
     const origin = new FocusTarget();
     stubFocusEnvironment({ activeElement: origin });
     const updatedAddress = {
@@ -1718,7 +1717,7 @@ describe("address page exceptional mutations", function () {
     });
   });
 
-  it("blocks another create after an ambiguous result when reconciliation also fails", async function () {
+  it("blocks another create after an ambiguous result when reconciliation also fails", async () => {
     stubFocusEnvironment();
     const listAddresses = vi
       .fn()
@@ -1759,7 +1758,7 @@ describe("address page exceptional mutations", function () {
     });
   });
 
-  it("preserves an edit and sanitizes a non-ambiguous save rejection", async function () {
+  it("preserves an edit and sanitizes a non-ambiguous save rejection", async () => {
     stubFocusEnvironment();
     gatewayRuntime.current = gatewayWith({
       listAddresses: vi.fn(async () => [address]),
@@ -1790,7 +1789,7 @@ describe("address page exceptional mutations", function () {
     });
   });
 
-  it("locks primary mutation, reconciles a conflict, and handles an ordinary retry safely", async function () {
+  it("locks primary mutation, reconciles a conflict, and handles an ordinary retry safely", async () => {
     const primary = deferred<typeof address>();
     const authoritative = [
       { ...address, isPrimary: false },
@@ -1837,7 +1836,7 @@ describe("address page exceptional mutations", function () {
     });
   });
 
-  it("locks confirmed removal and preserves the address across conflict and ordinary failures", async function () {
+  it("locks confirmed removal and preserves the address across conflict and ordinary failures", async () => {
     stubFocusEnvironment();
     const removal = deferred<Readonly<{ removed: true }>>();
     const listAddresses = vi
@@ -1883,7 +1882,7 @@ describe("address page exceptional mutations", function () {
     });
   });
 
-  return it("ignores a late refresh after a newer mutation has already committed authority", async function () {
+  return it("ignores a late refresh after a newer mutation has already committed authority", async () => {
     stubFocusEnvironment();
     const firstRefresh =
       deferred<readonly (typeof address | typeof secondAddress)[]>();
@@ -1930,8 +1929,8 @@ describe("address page exceptional mutations", function () {
   });
 });
 
-describe("preferences palette reconciliation", function () {
-  return it("leaves an already-authoritative mode untouched while applying a conflicting palette", async function () {
+describe("preferences palette reconciliation", () =>
+  it("leaves an already-authoritative mode untouched while applying a conflicting palette", async () => {
     const refreshed = {
       ...preferences,
       themeMode: "light" as const,
@@ -1964,11 +1963,10 @@ describe("preferences palette reconciliation", function () {
     return expect(
       component(tree, PreferencesForm).props["initialPreferences"]
     ).toBe(refreshed);
-  });
-});
+  }));
 
-describe("address request ordering", function () {
-  it("ignores an older retry rejection after a newer retry has restored the list", async function () {
+describe("address request ordering", () => {
+  it("ignores an older retry rejection after a newer retry has restored the list", async () => {
     const olderRetry = deferred<readonly AddressOutput[]>();
     const newerRetry = deferred<readonly AddressOutput[]>();
     const listAddresses = vi
@@ -1998,7 +1996,7 @@ describe("address request ordering", function () {
     return expect(listAddresses).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps a newer retry result when an older retry resolves later", async function () {
+  it("keeps a newer retry result when an older retry resolves later", async () => {
     const olderRetry = deferred<readonly AddressOutput[]>();
     const newerRetry = deferred<readonly AddressOutput[]>();
     const listAddresses = vi
@@ -2033,7 +2031,7 @@ describe("address request ordering", function () {
     return expect(listAddresses).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps the owner edit mounted when conflict reconciliation no longer contains that address", async function () {
+  it("keeps the owner edit mounted when conflict reconciliation no longer contains that address", async () => {
     stubFocusEnvironment();
     const listAddresses = vi
       .fn()
@@ -2066,7 +2064,7 @@ describe("address request ordering", function () {
     return expect(preservedForm.key).toBe(originalForm.key);
   });
 
-  return it("keeps a newly opened form mounted while an earlier mutation refresh commits", async function () {
+  return it("keeps a newly opened form mounted while an earlier mutation refresh commits", async () => {
     stubFocusEnvironment();
     const refreshedAddress = { ...address, city: "Authoritative City" };
     const refresh = deferred<readonly (typeof address)[]>();
@@ -2106,8 +2104,8 @@ describe("address request ordering", function () {
   });
 });
 
-describe("account page mutation recovery", function () {
-  it("clears a profile server error before a successful owner retry resets the form", async function () {
+describe("account page mutation recovery", () => {
+  it("clears a profile server error before a successful owner retry resets the form", async () => {
     const saved = {
       ...account,
       profile: {
@@ -2150,7 +2148,7 @@ describe("account page mutation recovery", function () {
     return expect(form.key).toBe("1");
   });
 
-  return it("clears a preferences storage error before a successful retry resets the form", async function () {
+  return it("clears a preferences storage error before a successful retry resets the form", async () => {
     const saved = {
       ...preferences,
       profileVisibility: "members" as const,

@@ -22,21 +22,22 @@ const session = {
   userId: "user-1",
 };
 
-describe("supported Better Auth security gateway", function () {
-  it("uses typed session, revoke-other, and change-password methods", async function () {
+describe("supported Better Auth security gateway", () => {
+  it("uses typed session, revoke-other, and change-password methods", async () => {
     const auth = {
-      getSession: vi.fn(async function () {
-        return { data: { session, user: {} }, error: null };
-      }),
-      listSessions: vi.fn(async function () {
-        return { data: [session], error: null };
-      }),
-      revokeOtherSessions: vi.fn(async function () {
-        return { data: { status: true }, error: null };
-      }),
-      changePassword: vi.fn(async function () {
-        return { data: { token: null }, error: null };
-      }),
+      getSession: vi.fn(async () => ({
+        data: { session, user: {} },
+        error: null,
+      })),
+      listSessions: vi.fn(async () => ({ data: [session], error: null })),
+      revokeOtherSessions: vi.fn(async () => ({
+        data: { status: true },
+        error: null,
+      })),
+      changePassword: vi.fn(async () => ({
+        data: { token: null },
+        error: null,
+      })),
     };
     const gateway = createSecurityGateway(auth as never);
 
@@ -62,7 +63,7 @@ describe("supported Better Auth security gateway", function () {
     });
   });
 
-  it("correlates current identity through the real Better Auth browser client", async function () {
+  it("correlates current identity through the real Better Auth browser client", async () => {
     const observedUrls: URL[] = [];
     const fetchRequest = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(
@@ -104,14 +105,14 @@ describe("supported Better Auth security gateway", function () {
     }
   });
 
-  it("maps raw session records to metadata that cannot render tokens", function () {
+  it("maps raw session records to metadata that cannot render tokens", () => {
     const safe = toSafeSessions([session], "session-current");
     expect(safe[0]).toMatchObject({ id: "session-current", isCurrent: true });
     expect(JSON.stringify(safe)).not.toContain(session.token);
     return expect(JSON.stringify(safe)).not.toContain("token");
   });
 
-  it("sanitizes authentication failures", function () {
+  it("sanitizes authentication failures", () => {
     expect(
       safeSecurityFeedback(new Error("password=secret token=opaque"))
     ).not.toContain("secret");
@@ -120,7 +121,7 @@ describe("supported Better Auth security gateway", function () {
     );
   });
 
-  it("drops malformed sessions, normalizes supported dates, and marks only the correlated session current", function () {
+  it("drops malformed sessions, normalizes supported dates, and marks only the correlated session current", () => {
     const safe = toSafeSessions(
       [
         null,
@@ -150,20 +151,15 @@ describe("supported Better Auth security gateway", function () {
     return expect(safe[0]?.expiresAt).toBeInstanceOf(Date);
   });
 
-  it("tolerates missing session data but rejects every Better Auth operation failure", async function () {
+  it("tolerates missing session data but rejects every Better Auth operation failure", async () => {
     const emptyGateway = createSecurityGateway({
-      getSession: vi.fn(async function () {
-        return { data: null, error: null };
-      }),
-      listSessions: vi.fn(async function () {
-        return { data: { unexpected: true }, error: null };
-      }),
-      revokeOtherSessions: vi.fn(async function () {
-        return { data: null, error: null };
-      }),
-      changePassword: vi.fn(async function () {
-        return { data: null, error: null };
-      }),
+      getSession: vi.fn(async () => ({ data: null, error: null })),
+      listSessions: vi.fn(async () => ({
+        data: { unexpected: true },
+        error: null,
+      })),
+      revokeOtherSessions: vi.fn(async () => ({ data: null, error: null })),
+      changePassword: vi.fn(async () => ({ data: null, error: null })),
     } as never);
     await expect(emptyGateway.listSessions()).resolves.toEqual({
       currentSessionId: null,
@@ -173,42 +169,36 @@ describe("supported Better Auth security gateway", function () {
     const currentFailure = { code: "UNAUTHORIZED" };
     await expect(
       createSecurityGateway({
-        getSession: vi.fn(async function () {
-          return { data: null, error: currentFailure };
-        }),
-        listSessions: vi.fn(async function () {
-          return { data: [], error: null };
-        }),
+        getSession: vi.fn(async () => ({ data: null, error: currentFailure })),
+        listSessions: vi.fn(async () => ({ data: [], error: null })),
       } as never).listSessions()
     ).rejects.toBe(currentFailure);
 
     const sessionsFailure = { code: "FORBIDDEN" };
     await expect(
       createSecurityGateway({
-        getSession: vi.fn(async function () {
-          return { data: null, error: null };
-        }),
-        listSessions: vi.fn(async function () {
-          return { data: [], error: sessionsFailure };
-        }),
+        getSession: vi.fn(async () => ({ data: null, error: null })),
+        listSessions: vi.fn(async () => ({ data: [], error: sessionsFailure })),
       } as never).listSessions()
     ).rejects.toBe(sessionsFailure);
 
     const revokeFailure = { status: 403 };
     await expect(
       createSecurityGateway({
-        revokeOtherSessions: vi.fn(async function () {
-          return { data: null, error: revokeFailure };
-        }),
+        revokeOtherSessions: vi.fn(async () => ({
+          data: null,
+          error: revokeFailure,
+        })),
       } as never).revokeOtherSessions()
     ).rejects.toBe(revokeFailure);
 
     const passwordFailure = { status: 401 };
     return await expect(
       createSecurityGateway({
-        changePassword: vi.fn(async function () {
-          return { data: null, error: passwordFailure };
-        }),
+        changePassword: vi.fn(async () => ({
+          data: null,
+          error: passwordFailure,
+        })),
       } as never).changePassword({
         currentPassword: "current-password",
         newPassword: "new-password-long-enough",
@@ -223,18 +213,17 @@ describe("supported Better Auth security gateway", function () {
     [{ status: 403 }, "forbidden", "not permitted"],
     [{ code: 401 }, "retryable", "Try again"],
     [null, "retryable", "Try again"],
-  ] as const)("maps supported security failure %j to %s", function (error, kind, message) {
+  ] as const)("maps supported security failure %j to %s", (error, kind, message) => {
     expect(securityFailureKind(error)).toBe(kind);
     return expect(safeSecurityFeedback(error)).toContain(message);
   });
 
-  return it("constructs the browser security gateway without starting a request", function () {
-    return expect(() => createBrowserSecurityGateway()).not.toThrow();
-  });
+  return it("constructs the browser security gateway without starting a request", () =>
+    expect(() => createBrowserSecurityGateway()).not.toThrow());
 });
 
-describe("security page states and actions", function () {
-  it("marks the current session and never offers to revoke it", function () {
+describe("security page states and actions", () => {
+  it("marks the current session and never offers to revoke it", () => {
     const html = renderToStaticMarkup(
       <SecurityPanel
         state={{
@@ -266,17 +255,16 @@ describe("security page states and actions", function () {
       { type: "ready", sessions: [] } as const,
       "No active sessions were returned",
     ],
-  ])("renders supported %s state", function (state, expected) {
-    return expect(
-      renderToStaticMarkup(<SecurityPanel state={state} />)
-    ).toContain(expected);
-  });
+  ])("renders supported %s state", (state, expected) =>
+    expect(renderToStaticMarkup(<SecurityPanel state={state} />)).toContain(
+      expected
+    ));
 
   it.each([
     ["unauthorized", "/sign-in?callbackURL=%2Faccount%2Fsecurity", "Sign in"],
     ["forbidden", 'href="/account"', "Back to account"],
     ["retryable", "Try again", "Try again"],
-  ] as const)("renders the accessible %s recovery path", function (kind, destination, action) {
+  ] as const)("renders the accessible %s recovery path", (kind, destination, action) => {
     const html = renderToStaticMarkup(
       <SecurityPanel
         state={{
@@ -292,7 +280,7 @@ describe("security page states and actions", function () {
     return expect(html).toContain(action);
   });
 
-  it("renders unknown agents safely and disables bulk revocation for the only active session", function () {
+  it("renders unknown agents safely and disables bulk revocation for the only active session", () => {
     const html = renderToStaticMarkup(
       <SecurityPanel
         state={{
@@ -311,7 +299,7 @@ describe("security page states and actions", function () {
     return expect(html).toContain("disabled");
   });
 
-  return it("renders supported password fields without ever echoing values", function () {
+  return it("renders supported password fields without ever echoing values", () => {
     const html = renderToStaticMarkup(<PasswordForm onSave={vi.fn()} />);
     expect(html).toContain('name="currentPassword"');
     expect(html).toContain('name="newPassword"');

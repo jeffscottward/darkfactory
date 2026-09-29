@@ -12,29 +12,29 @@ import {
 } from "../schema/index.ts";
 import type { DatabaseExecutor } from "./client.ts";
 import {
-  MAX_ACTIVE_WORKFLOW_RUNS_GLOBAL,
-  MAX_ACTIVE_WORKFLOW_RUNS_PER_OWNER,
-  MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER,
-  WORKFLOW_RUN_SUBMISSION_WINDOW_SECONDS,
-  MAX_WORKFLOW_MESSAGES_PER_RUN,
-  StaleWorkflowApprovalError,
-  WorkflowRunTerminalError,
-  WorkflowMessageCapacityError,
-  WorkflowConcurrencyError,
-  WorkflowPersistenceInputError,
-  WorkflowProjectionIntegrityError,
-  WorkflowRunNotFoundError,
-  WorkflowRunCapacityError,
-  WorkflowRunSubmissionRateError,
+  type AddWorkflowMessageAndAppendInput,
+  type AppendWorkflowInput,
   canonicalWorkflowJson,
   createWorkflowRepository,
   decodeWorkflowRunsCursor,
   encodeWorkflowRunsCursor,
   hashWorkflowJournalEntryV1,
-  type AppendWorkflowInput,
-  type AddWorkflowMessageAndAppendInput,
+  MAX_ACTIVE_WORKFLOW_RUNS_GLOBAL,
+  MAX_ACTIVE_WORKFLOW_RUNS_PER_OWNER,
+  MAX_WORKFLOW_MESSAGES_PER_RUN,
+  MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER,
   type PersistedWorkflowEvent,
+  StaleWorkflowApprovalError,
+  WORKFLOW_RUN_SUBMISSION_WINDOW_SECONDS,
+  WorkflowConcurrencyError,
+  WorkflowMessageCapacityError,
+  WorkflowPersistenceInputError,
   type WorkflowProjection,
+  WorkflowProjectionIntegrityError,
+  WorkflowRunCapacityError,
+  WorkflowRunNotFoundError,
+  WorkflowRunSubmissionRateError,
+  WorkflowRunTerminalError,
 } from "./workflow-repository.ts";
 
 const EVENT: PersistedWorkflowEvent = {
@@ -359,17 +359,16 @@ const cursorFor = (value: unknown): string => {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
 };
 
-describe("workflow persistence primitives", function () {
-  it("canonicalizes nested objects deterministically without changing array order", function () {
-    return expect(
+describe("workflow persistence primitives", () => {
+  it("canonicalizes nested objects deterministically without changing array order", () =>
+    expect(
       canonicalWorkflowJson({
         z: [{ second: 2, first: 1 }],
         a: true,
       })
-    ).toBe('{"a":true,"z":[{"first":1,"second":2}]}');
-  });
+    ).toBe('{"a":true,"z":[{"first":1,"second":2}]}'));
 
-  it("rejects cyclic, non-finite, and non-plain JSON values", function () {
+  it("rejects cyclic, non-finite, and non-plain JSON values", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
 
@@ -388,7 +387,7 @@ describe("workflow persistence primitives", function () {
     return results;
   });
 
-  it("hashes the exact versioned machine, sequence, predecessor, and event material", function () {
+  it("hashes the exact versioned machine, sequence, predecessor, and event material", () => {
     const material = canonicalWorkflowJson({
       machineId: "darkfactory-pilot",
       machineVersion: 1,
@@ -407,7 +406,7 @@ describe("workflow persistence primitives", function () {
     ).toBe(expected);
   });
 
-  it("round-trips a bounded opaque workflow run cursor with its immutable order key", function () {
+  it("round-trips a bounded opaque workflow run cursor with its immutable order key", () => {
     const key = {
       id: "run-1",
       updatedAt: new Date("2026-07-29T12:00:00.000Z"),
@@ -445,7 +444,7 @@ describe("workflow persistence primitives", function () {
     );
   });
 
-  it("round-trips a cursor without a state", function () {
+  it("round-trips a cursor without a state", () => {
     const key = {
       id: "run-unfiltered",
       updatedAt: new Date("2026-07-29T12:00:00.000Z"),
@@ -526,7 +525,7 @@ describe("workflow persistence primitives", function () {
     );
   });
 
-  it("canonicalizes every strict JSON primitive and null-prototype object", function () {
+  it("canonicalizes every strict JSON primitive and null-prototype object", () => {
     const record = Object.create(null) as Record<string, unknown>;
     record["b"] = null;
     record["a"] = [1, "two", false];
@@ -546,7 +545,7 @@ describe("workflow persistence primitives", function () {
     );
   });
 
-  it("allows the same object in sibling branches while rejecting ancestor cycles", function () {
+  it("allows the same object in sibling branches while rejecting ancestor cycles", () => {
     const child = { value: 1 };
     return expect(canonicalWorkflowJson([child, child])).toBe(
       '[{"value":1},{"value":1}]'
@@ -571,7 +570,7 @@ describe("workflow persistence primitives", function () {
     ).toThrow(WorkflowPersistenceInputError);
   });
 
-  it("builds one atomic SKIP LOCKED claim with bounded fenced leases", async function () {
+  it("builds one atomic SKIP LOCKED claim with bounded fenced leases", async () => {
     const execute = vi.fn(async (_statement: SQL) => ({ rows: [] }));
     const database = { execute } as unknown as DatabaseExecutor;
     const repository = createWorkflowRepository(database);
@@ -606,7 +605,7 @@ describe("workflow persistence primitives", function () {
     return expect(compiled.params).toEqual(["omp", 7, "worker-a", 30_000]);
   });
 
-  it("renews retained cleanup leases with the run, owner, and fence", async function () {
+  it("renews retained cleanup leases with the run, owner, and fence", async () => {
     const execute = vi.fn(async (_statement: SQL) => ({
       rows: [{ run_id: "run-1" }],
     }));
@@ -641,7 +640,7 @@ describe("workflow persistence primitives", function () {
     ]);
   });
 
-  it("releases or reschedules a fenced cleanup lease without consuming attempts", async function () {
+  it("releases or reschedules a fenced cleanup lease without consuming attempts", async () => {
     const execute = vi.fn(async (_statement: SQL) => ({
       rows: [{ run_id: "run-1" }],
     }));
@@ -675,7 +674,7 @@ describe("workflow persistence primitives", function () {
     ]);
   });
 
-  it("rejects unsafe lease and claim bounds before touching the database", async function () {
+  it("rejects unsafe lease and claim bounds before touching the database", async () => {
     const execute = vi.fn();
     const database = { execute } as unknown as DatabaseExecutor;
     const repository = createWorkflowRepository(database);
@@ -693,7 +692,7 @@ describe("workflow persistence primitives", function () {
     return expect(execute).not.toHaveBeenCalled();
   });
 
-  it("maps immutable retained-resource cleanup claims with default bounds", async function () {
+  it("maps immutable retained-resource cleanup claims with default bounds", async () => {
     const row = {
       run_id: "run-1",
       owner_id: "owner-1",
@@ -735,7 +734,7 @@ describe("workflow persistence primitives", function () {
     return expect(fake.executed).toHaveLength(0);
   });
 
-  it("releases a retained resource immediately when no retry date is supplied", async function () {
+  it("releases a retained resource immediately when no retry date is supplied", async () => {
     const { fake, repository } = repositoryFor({ executes: [[]] });
 
     await expect(
@@ -843,8 +842,8 @@ describe("workflow persistence primitives", function () {
   });
 });
 
-describe("workflow projection reads", function () {
-  it("returns null for a run outside the owner scope", async function () {
+describe("workflow projection reads", () => {
+  it("returns null for a run outside the owner scope", async () => {
     const { fake, repository } = repositoryFor({ selects: [[]] });
     await expect(
       repository.findProjectionByOwner("run-1", "owner-1")
@@ -857,7 +856,7 @@ describe("workflow projection reads", function () {
     ]);
   });
 
-  it("returns an immutable verified projection", async function () {
+  it("returns an immutable verified projection", async () => {
     const projection = projectionFixture();
     const { repository } = repositoryFor({
       selects: projectionSelects(projection),
@@ -868,7 +867,7 @@ describe("workflow projection reads", function () {
     return expect(Object.isFrozen(result!.journal)).toBe(true);
   });
 
-  it("rejects a projection with no snapshot", async function () {
+  it("rejects a projection with no snapshot", async () => {
     const projection = projectionFixture();
     const { repository } = repositoryFor({
       selects: [[projection.run], []],
@@ -928,8 +927,8 @@ describe("workflow projection reads", function () {
   });
 });
 
-describe("workflow creation", function () {
-  it("atomically creates a run, journal, snapshot, and redacted effect", async function () {
+describe("workflow creation", () => {
+  it("atomically creates a run, journal, snapshot, and redacted effect", async () => {
     const now = new Date("2026-07-29T14:00:00.000Z");
     const corrected = projectionFixture([EVENT], {
       run: {
@@ -1152,7 +1151,7 @@ describe("workflow creation", function () {
     return expect(fake.lifecycle.rollbacks).toBe(1);
   });
 
-  return it("rolls back when any persistence write fails", async function () {
+  return it("rolls back when any persistence write fails", async () => {
     const failure = new Error("insert failed");
     const { fake, repository } = repositoryFor({
       executes: [
@@ -1175,8 +1174,8 @@ describe("workflow creation", function () {
   });
 });
 
-describe("workflow appends", function () {
-  it("appends an event and advances the snapshot and run atomically", async function () {
+describe("workflow appends", () => {
+  it("appends an event and advances the snapshot and run atomically", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const input = appendInput(before);
@@ -1198,7 +1197,7 @@ describe("workflow appends", function () {
     return expect(fake.lifecycle).toEqual({ commits: 1, rollbacks: 0 });
   });
 
-  it("inserts a scheduled effect and fences unfinished effects on cancellation", async function () {
+  it("inserts a scheduled effect and fences unfinished effects on cancellation", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT], {
       run: { state: "cancelled" },
@@ -1240,7 +1239,7 @@ describe("workflow appends", function () {
     ).toHaveLength(4);
   });
 
-  it("returns the durable projection for an exact duplicate event", async function () {
+  it("returns the durable projection for an exact duplicate event", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const first = repositoryFor({
@@ -1305,7 +1304,7 @@ describe("workflow appends", function () {
     ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
   });
 
-  it("rejects an append for a run outside the owner scope", async function () {
+  it("rejects an append for a run outside the owner scope", async () => {
     const { repository } = repositoryFor({
       executes: [[]],
       selects: [[]],
@@ -1409,7 +1408,7 @@ describe("workflow appends", function () {
     return expect(fake.lifecycle.rollbacks).toBe(1);
   });
 
-  return it("rolls back when effect idempotency conflicts", async function () {
+  return it("rolls back when effect idempotency conflicts", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const { fake, repository } = repositoryFor({
@@ -1467,8 +1466,8 @@ const approvalInput = (
   ...overrides,
 });
 
-describe("workflow owner-scoped lists", function () {
-  it("lists bounded evidence and message pages", async function () {
+describe("workflow owner-scoped lists", () => {
+  it("lists bounded evidence and message pages", async () => {
     const evidence = { id: "evidence-1", runId: "run-1" };
     const message = { id: "message-1", runId: "run-1" };
     const evidenceRepository = repositoryFor({
@@ -1497,7 +1496,7 @@ describe("workflow owner-scoped lists", function () {
     ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
   });
 
-  it("lists unfiltered runs with the default page bound", async function () {
+  it("lists unfiltered runs with the default page bound", async () => {
     const rows = [projectionFixture().run];
     const { fake, repository } = repositoryFor({ selects: [rows] });
     await expect(repository.listRunsByOwner("owner-1")).resolves.toEqual(rows);
@@ -1505,7 +1504,7 @@ describe("workflow owner-scoped lists", function () {
     return expect(limit?.arguments).toEqual([50]);
   });
 
-  it("lists state-filtered runs after a known matching cursor", async function () {
+  it("lists state-filtered runs after a known matching cursor", async () => {
     const updatedAt = new Date("2026-07-29T12:00:00.000Z");
     const cursor = encodeWorkflowRunsCursor({
       id: "run-cursor",
@@ -1544,7 +1543,7 @@ describe("workflow owner-scoped lists", function () {
     ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
   });
 
-  it("rejects a cursor from a different filter", async function () {
+  it("rejects a cursor from a different filter", async () => {
     const cursor = encodeWorkflowRunsCursor({
       id: "run-cursor",
       updatedAt: new Date("2026-07-29T12:00:00.000Z"),
@@ -1558,7 +1557,7 @@ describe("workflow owner-scoped lists", function () {
     ).rejects.toThrow("does not match the requested state");
   });
 
-  return it("rejects a cursor whose run is outside the owner scope", async function () {
+  return it("rejects a cursor whose run is outside the owner scope", async () => {
     const cursor = encodeWorkflowRunsCursor({
       id: "run-cursor",
       updatedAt: new Date("2026-07-29T12:00:00.000Z"),
@@ -1572,8 +1571,8 @@ describe("workflow owner-scoped lists", function () {
   });
 });
 
-describe("workflow approvals", function () {
-  it("creates a pending approval bound to the current snapshot", async function () {
+describe("workflow approvals", () => {
+  it("creates a pending approval bound to the current snapshot", async () => {
     const projection = projectionFixture();
     const bound = projectionFixture([EVENT], {
       run: { state: "planning" },
@@ -1610,7 +1609,7 @@ describe("workflow approvals", function () {
     });
   });
 
-  it("preserves an explicit approval identifier", async function () {
+  it("preserves an explicit approval identifier", async () => {
     const bound = projectionFixture([EVENT], {
       run: { state: "planning" },
       snapshot: {
@@ -1649,7 +1648,7 @@ describe("workflow approvals", function () {
     return expect(fake.executed).toHaveLength(0);
   });
 
-  it("enforces approval ownership", async function () {
+  it("enforces approval ownership", async () => {
     const { repository } = repositoryFor({
       executes: [[]],
       selects: [[]],
@@ -1695,8 +1694,8 @@ describe("workflow approvals", function () {
   });
 });
 
-describe("workflow evidence and messages", function () {
-  it("adds trimmed, redacted evidence to an owned run", async function () {
+describe("workflow evidence and messages", () => {
+  it("adds trimmed, redacted evidence to an owned run", async () => {
     const projection = projectionFixture();
     const saved = {
       id: "generated-evidence",
@@ -1759,7 +1758,7 @@ describe("workflow evidence and messages", function () {
     ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
   });
 
-  it("rejects evidence for a run outside the owner scope", async function () {
+  it("rejects evidence for a run outside the owner scope", async () => {
     const { repository } = repositoryFor({
       executes: [[]],
       selects: [[]],
@@ -1776,7 +1775,7 @@ describe("workflow evidence and messages", function () {
     ).rejects.toBeInstanceOf(WorkflowRunNotFoundError);
   });
 
-  it("rolls back a duplicate evidence identifier", async function () {
+  it("rolls back a duplicate evidence identifier", async () => {
     const failure = new Error("duplicate evidence");
     const projection = projectionFixture();
     const { fake, repository } = repositoryFor({
@@ -1824,7 +1823,7 @@ describe("workflow evidence and messages", function () {
     return expect(fake.queries).toHaveLength(0);
   });
 
-  describe("atomic operator message append", function () {
+  describe("atomic operator message append", () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT], {
       snapshot: {
@@ -1854,7 +1853,7 @@ describe("workflow evidence and messages", function () {
       createdAt: new Date("2026-07-29T17:00:00.000Z"),
     };
 
-    it("commits the message, journal event, snapshot count, and run head together", async function () {
+    it("commits the message, journal event, snapshot count, and run head together", async () => {
       const { fake, repository } = repositoryFor(
         {
           executes: [[]],
@@ -1897,7 +1896,7 @@ describe("workflow evidence and messages", function () {
       return expect(fake.lifecycle.commits).toBe(1);
     });
 
-    it("returns the current post-message projection for an exact replay", async function () {
+    it("returns the current post-message projection for an exact replay", async () => {
       const { fake, repository } = repositoryFor({
         executes: [[]],
         selects: [
@@ -1948,7 +1947,7 @@ describe("workflow evidence and messages", function () {
       return expect(fake.lifecycle.rollbacks).toBe(1);
     });
 
-    it("rejects a replay whose matching canonical event is missing", async function () {
+    it("rejects a replay whose matching canonical event is missing", async () => {
       const { fake, repository } = repositoryFor({
         executes: [[]],
         selects: [[after.run], [saved], []],
@@ -1984,7 +1983,7 @@ describe("workflow evidence and messages", function () {
       return expect(fake.lifecycle.rollbacks).toBe(1);
     });
 
-    it("rejects noncanonical operator snapshots and effects before any write", async function () {
+    it("rejects noncanonical operator snapshots and effects before any write", async () => {
       const canonical = messageAppendInput(before).append!;
       const invalidAppends = [
         {
@@ -2038,7 +2037,7 @@ describe("workflow evidence and messages", function () {
       return results1;
     });
 
-    it("allows the exact message cap and rejects the next fresh message", async function () {
+    it("allows the exact message cap and rejects the next fresh message", async () => {
       const atPenultimate = projectionFixture([EVENT], {
         snapshot: {
           context: {
@@ -2096,7 +2095,7 @@ describe("workflow evidence and messages", function () {
       return expect(rejected.fake.lifecycle.rollbacks).toBe(1);
     });
 
-    it("still returns an exact replay at the message cap", async function () {
+    it("still returns an exact replay at the message cap", async () => {
       const atCap = projectionFixture([EVENT, SECOND_EVENT], {
         snapshot: {
           context: {
@@ -2126,7 +2125,7 @@ describe("workflow evidence and messages", function () {
       ).toHaveLength(0);
     });
 
-    it("rejects a message for a run outside the owner scope", async function () {
+    it("rejects a message for a run outside the owner scope", async () => {
       const { fake, repository } = repositoryFor({
         executes: [[]],
         selects: [[]],
@@ -2241,7 +2240,7 @@ describe("workflow evidence and messages", function () {
       return expect(fake.lifecycle.rollbacks).toBe(1);
     });
 
-    it("rejects a fresh operator message without its atomic append", async function () {
+    it("rejects a fresh operator message without its atomic append", async () => {
       const { fake, repository } = repositoryFor({
         executes: [[]],
         selects: [[before.run], [], [before.snapshot]],
@@ -2256,7 +2255,7 @@ describe("workflow evidence and messages", function () {
       return expect(fake.lifecycle.rollbacks).toBe(1);
     });
 
-    it("rejects an append that resolves as an exact duplicate", async function () {
+    it("rejects an append that resolves as an exact duplicate", async () => {
       const seeded = repositoryFor({
         executes: [[]],
         selects: [
@@ -2282,7 +2281,7 @@ describe("workflow evidence and messages", function () {
       return expect(duplicate.fake.lifecycle.rollbacks).toBe(1);
     });
 
-    return it("rolls back when the message insert returns no row", async function () {
+    return it("rolls back when the message insert returns no row", async () => {
       const { fake, repository } = repositoryFor({
         executes: [[]],
         selects: [
@@ -2305,8 +2304,8 @@ describe("workflow evidence and messages", function () {
   return;
 });
 
-describe("workflow outbox leases", function () {
-  it("maps every claimed outbox column and applies default bounds", async function () {
+describe("workflow outbox leases", () => {
+  it("maps every claimed outbox column and applies default bounds", async () => {
     const occurredAt = new Date("2026-07-29T12:00:00.000Z");
     const availableAt = new Date("2026-07-29T12:01:00.000Z");
     const leaseExpiresAt = new Date("2026-07-29T12:02:00.000Z");
@@ -2395,7 +2394,7 @@ describe("workflow outbox leases", function () {
     return expect(compiled.params).toEqual([30_000, "effect-1", "worker-1", 2]);
   });
 
-  it("uses an explicit heartbeat lease duration", async function () {
+  it("uses an explicit heartbeat lease duration", async () => {
     const { fake, repository } = repositoryFor({ executes: [[]] });
     await repository.heartbeatEffect({
       id: "effect-1",
@@ -2503,8 +2502,8 @@ const pendingApproval = (
   ...overrides,
 });
 
-describe("workflow approval decisions", function () {
-  it("decides a current approval and appends the bound event atomically", async function () {
+describe("workflow approval decisions", () => {
+  it("decides a current approval and appends the bound event atomically", async () => {
     const before = projectionFixture([EVENT], {
       run: { state: "planning" },
       snapshot: {
@@ -2555,7 +2554,7 @@ describe("workflow approval decisions", function () {
     return expect(fake.lifecycle).toEqual({ commits: 1, rollbacks: 0 });
   });
 
-  it("returns an exact durable approval-decision replay", async function () {
+  it("returns an exact durable approval-decision replay", async () => {
     const before = projectionFixture([EVENT], {
       run: { state: "planning" },
       snapshot: {
@@ -2620,7 +2619,7 @@ describe("workflow approval decisions", function () {
     ).resolves.toEqual({ duplicate: true, projection: after });
   });
 
-  it("distinguishes every conflicting approval-decision replay field", async function () {
+  it("distinguishes every conflicting approval-decision replay field", async () => {
     const before = projectionFixture([EVENT], {
       run: { state: "planning" },
       snapshot: {
@@ -2787,7 +2786,7 @@ describe("workflow approval decisions", function () {
     return expect(fake.lifecycle.rollbacks).toBe(1);
   });
 
-  return it("rolls back when a concurrent decision wins the update", async function () {
+  return it("rolls back when a concurrent decision wins the update", async () => {
     const before = projectionFixture([EVENT], {
       run: { state: "planning" },
       snapshot: {
@@ -2832,7 +2831,7 @@ const finalizationInput = (
   ...overrides,
 });
 
-describe("workflow effect finalization", function () {
+describe("workflow effect finalization", () => {
   it.each([
     ["completed", null],
     ["dead", "effect failed"],
@@ -2865,7 +2864,7 @@ describe("workflow effect finalization", function () {
     return expect(fake.lifecycle).toEqual({ commits: 1, rollbacks: 0 });
   });
 
-  it("persists an immutable retained resource for implementation evidence", async function () {
+  it("persists an immutable retained resource for implementation evidence", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const timestamp = new Date("2026-07-29T18:00:00.000Z");
@@ -2900,7 +2899,7 @@ describe("workflow effect finalization", function () {
     });
   });
 
-  it("accepts an idempotent retained-resource insert conflict", async function () {
+  it("accepts an idempotent retained-resource insert conflict", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const { repository } = repositoryFor({
@@ -2954,7 +2953,7 @@ describe("workflow effect finalization", function () {
     return expect(fake.lifecycle.rollbacks).toBe(1);
   });
 
-  it("acknowledges an exact already-applied durable finalization", async function () {
+  it("acknowledges an exact already-applied durable finalization", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const seed = repositoryFor({
@@ -3019,7 +3018,7 @@ describe("workflow effect finalization", function () {
     ).resolves.toEqual({ status: "stale", projection: null });
   });
 
-  it("checks dead-at durability for a stale dead finalization", async function () {
+  it("checks dead-at durability for a stale dead finalization", async () => {
     const before = projectionFixture();
     const { fake, repository } = repositoryFor({
       executes: [[], []],
@@ -3110,7 +3109,7 @@ describe("workflow effect finalization", function () {
     ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
   });
 
-  it("accepts an idempotent evidence insert conflict during first finalization", async function () {
+  it("accepts an idempotent evidence insert conflict during first finalization", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const seed = repositoryFor({
@@ -3219,7 +3218,7 @@ describe("workflow effect finalization", function () {
     ).rejects.toThrow("must identify one owned run");
   });
 
-  it("requires terminal error text for a dead effect", async function () {
+  it("requires terminal error text for a dead effect", async () => {
     const input = finalizationInput(projectionFixture(), "dead", {
       error: undefined,
     });
@@ -3229,7 +3228,7 @@ describe("workflow effect finalization", function () {
     ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
   });
 
-  it("rejects finalization outside the owner scope", async function () {
+  it("rejects finalization outside the owner scope", async () => {
     const { repository } = repositoryFor({
       executes: [[]],
       selects: [[]],
@@ -3239,7 +3238,7 @@ describe("workflow effect finalization", function () {
     ).rejects.toBeInstanceOf(WorkflowRunNotFoundError);
   });
 
-  it("creates an approval bound to the finalized projection", async function () {
+  it("creates an approval bound to the finalized projection", async () => {
     const before = projectionFixture();
     const effectHash = "4".repeat(64);
     const effectScope = "packages/db";
@@ -3353,7 +3352,7 @@ describe("workflow effect finalization", function () {
     return expect(fake.lifecycle.rollbacks).toBe(1);
   });
 
-  it("accepts an exact approval insert conflict", async function () {
+  it("accepts an exact approval insert conflict", async () => {
     const before = projectionFixture();
     const effectHash = "4".repeat(64);
     const effectScope = "packages/db";
@@ -3527,7 +3526,7 @@ describe("workflow effect finalization", function () {
     return expect(fake.lifecycle.rollbacks).toBe(1);
   });
 
-  it("acknowledges an exact finalization replay with its durable approval", async function () {
+  it("acknowledges an exact finalization replay with its durable approval", async () => {
     const before = projectionFixture();
     const effectHash = "4".repeat(64);
     const effectScope = "packages/db";
@@ -3606,7 +3605,7 @@ describe("workflow effect finalization", function () {
     });
   });
 
-  it("rejects every conflicting approval on a durable finalization replay", async function () {
+  it("rejects every conflicting approval on a durable finalization replay", async () => {
     const before = projectionFixture();
     const effectHash = "4".repeat(64);
     const effectScope = "packages/db";
@@ -3698,7 +3697,7 @@ describe("workflow effect finalization", function () {
     return results3;
   });
 
-  it("maps an exact duplicate append after lease finalization to already-applied", async function () {
+  it("maps an exact duplicate append after lease finalization to already-applied", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const seed = repositoryFor({
@@ -3751,7 +3750,7 @@ describe("workflow effect finalization", function () {
   });
 });
 
-describe("workflow run capacity admission", function () {
+describe("workflow run capacity admission", () => {
   const admissionRows = (
     ownerCount: number,
     globalCount: number,
@@ -3784,12 +3783,12 @@ describe("workflow run capacity admission", function () {
       inserts: [[], [], []],
     });
 
-  it("exports conservative durable submission admission bounds", function () {
+  it("exports conservative durable submission admission bounds", () => {
     expect(WORKFLOW_RUN_SUBMISSION_WINDOW_SECONDS).toBe(60 * 60);
     return expect(MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER).toBe(20);
   });
 
-  it("admits a new run immediately below every conservative cap", async function () {
+  it("admits a new run immediately below every conservative cap", async () => {
     const projection = projectionFixture();
     const { fake, repository } = admittedRepository(
       projection,
@@ -3825,7 +3824,7 @@ describe("workflow run capacity admission", function () {
     return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
   });
 
-  it("uses database time and owner-created index predicates across terminal states", async function () {
+  it("uses database time and owner-created index predicates across terminal states", async () => {
     const projection = projectionFixture();
     const { fake, repository } = admittedRepository(
       projection,
@@ -3847,7 +3846,7 @@ describe("workflow run capacity admission", function () {
     );
   });
 
-  it("releases old-window submissions according to the database count", async function () {
+  it("releases old-window submissions according to the database count", async () => {
     const projection = projectionFixture();
     const { repository } = admittedRepository(
       projection,
@@ -3884,7 +3883,7 @@ describe("workflow run capacity admission", function () {
     return expect(methodValues(fake, "insert")).toHaveLength(0);
   });
 
-  it("rejects at the per-owner active cap without writing or exposing counts", async function () {
+  it("rejects at the per-owner active cap without writing or exposing counts", async () => {
     const { fake, repository } = repositoryFor({
       executes: [
         [],
@@ -3905,7 +3904,7 @@ describe("workflow run capacity admission", function () {
     return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
   });
 
-  it("rejects at the global active cap even when the owner has room", async function () {
+  it("rejects at the global active cap even when the owner has room", async () => {
     const { fake, repository } = repositoryFor({
       executes: [[], [], [], admissionRows(0, MAX_ACTIVE_WORKFLOW_RUNS_GLOBAL)],
     });
@@ -3916,7 +3915,7 @@ describe("workflow run capacity admission", function () {
     return expect(methodValues(fake, "insert")).toHaveLength(0);
   });
 
-  it("detects an owned replay before evaluating any admission cap", async function () {
+  it("detects an owned replay before evaluating any admission cap", async () => {
     const projection = projectionFixture();
     const { fake, repository } = repositoryFor({
       executes: [[], [], [{ owner_id: projection.run.ownerId }]],
@@ -3929,7 +3928,7 @@ describe("workflow run capacity admission", function () {
     return expect(methodValues(fake, "insert")).toHaveLength(0);
   });
 
-  it("preserves active filtering independently of durable submissions", async function () {
+  it("preserves active filtering independently of durable submissions", async () => {
     const projection = projectionFixture();
     const { fake, repository } = admittedRepository(projection);
 
@@ -3940,7 +3939,7 @@ describe("workflow run capacity admission", function () {
     );
   });
 
-  it("isolates durable counts by the submitting owner", async function () {
+  it("isolates durable counts by the submitting owner", async () => {
     const ownerOneProjection = projectionFixture();
     const ownerTwoProjection = projectionFixture([EVENT], {
       run: { id: "run-2", ownerId: "owner-2" },
@@ -3966,7 +3965,7 @@ describe("workflow run capacity admission", function () {
     return expect(ownerTwoAdmission.params).not.toContain("owner-1");
   });
 
-  return it("serializes concurrent distinct keys with global then deterministic owner locks", async function () {
+  return it("serializes concurrent distinct keys with global then deterministic owner locks", async () => {
     const first = admittedRepository(projectionFixture());
     const secondProjection = projectionFixture([EVENT], {
       run: { id: "run-2" },
@@ -3990,7 +3989,7 @@ describe("workflow run capacity admission", function () {
   });
 });
 
-describe("workflow bounded owner-scoped read paths", function () {
+describe("workflow bounded owner-scoped read paths", () => {
   const evidenceAt = (sequence: number) => ({
     id: `evidence-${String(sequence).padStart(4, "0")}`,
     runId: "run-1",
@@ -4023,7 +4022,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     });
   };
 
-  it("keeps evidence newest-first and keyset-pages more than 500 rows without gaps", async function () {
+  it("keeps evidence newest-first and keyset-pages more than 500 rows without gaps", async () => {
     const all = Array.from({ length: 501 }, (_, index) =>
       evidenceAt(501 - index)
     );
@@ -4071,7 +4070,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     );
   });
 
-  it("returns exactly the requested message limit with explicit continuation", async function () {
+  it("returns exactly the requested message limit with explicit continuation", async () => {
     const rows = [messageAt(4), messageAt(3), messageAt(2), messageAt(1)];
     const { fake, repository } = repositoryFor({
       selects: [rows.map((message) => ({ message }))],
@@ -4092,7 +4091,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     ).toEqual([4]);
   });
 
-  it("returns an empty bounded page for the wrong owner", async function () {
+  it("returns an empty bounded page for the wrong owner", async () => {
     const { fake, repository } = repositoryFor({ selects: [[]] });
 
     await expect(
@@ -4115,7 +4114,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     return expect(fake.queries).toHaveLength(0);
   });
 
-  it("rejects a record cursor for a different resource or run before querying", async function () {
+  it("rejects a record cursor for a different resource or run before querying", async () => {
     const rows = [evidenceAt(2), evidenceAt(1)];
     const { fake, repository } = repositoryFor({
       selects: [rows.map((evidence) => ({ evidence }))],
@@ -4137,7 +4136,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     return expect(fake.queries).toHaveLength(1);
   });
 
-  it("bulk-loads owned projections in input order in one repeatable-read transaction", async function () {
+  it("bulk-loads owned projections in input order in one repeatable-read transaction", async () => {
     const third = projectionWithId("run-3");
     const first = projectionWithId("run-1");
     const { fake, repository } = repositoryFor({
@@ -4165,7 +4164,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     return expect(fake.queries).toHaveLength(3);
   });
 
-  it("handles empty, missing, and wrong-owner bulk projection reads", async function () {
+  it("handles empty, missing, and wrong-owner bulk projection reads", async () => {
     const empty = repositoryFor();
     await expect(
       empty.repository.listProjectionsByOwner("owner-1", [])
@@ -4184,7 +4183,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     return results4;
   });
 
-  it("preserves projection integrity validation in the bulk path", async function () {
+  it("preserves projection integrity validation in the bulk path", async () => {
     const projection = projectionWithId("run-1");
     const { fake, repository } = repositoryFor({
       selects: [[projection.run], [], [...projection.journal]],
@@ -4203,7 +4202,7 @@ describe("workflow bounded owner-scoped read paths", function () {
     ).rejects.toThrow("journal length does not match run head");
   });
 
-  return it("bounds bulk projection identifiers before opening a transaction", async function () {
+  return it("bounds bulk projection identifiers before opening a transaction", async () => {
     const { fake, repository } = repositoryFor();
     await expect(
       repository.listProjectionsByOwner(
@@ -4215,7 +4214,7 @@ describe("workflow bounded owner-scoped read paths", function () {
   });
 });
 
-describe("workflow record cursor edge coverage", function () {
+describe("workflow record cursor edge coverage", () => {
   const validRecordCursor = {
     v: 1,
     kind: "evidence",
@@ -4252,7 +4251,7 @@ describe("workflow record cursor edge coverage", function () {
     return expect(fake.queries).toHaveLength(0);
   });
 
-  it("rejects a continuation cursor that cannot remain bounded", async function () {
+  it("rejects a continuation cursor that cannot remain bounded", async () => {
     const createdAt = new Date("2026-07-29T12:00:00.000Z");
     const rows = [
       {
@@ -4285,7 +4284,7 @@ describe("workflow record cursor edge coverage", function () {
     return expect(fake.queries).toHaveLength(1);
   });
 
-  it("returns an exact default evidence page without continuation", async function () {
+  it("returns an exact default evidence page without continuation", async () => {
     const evidence = {
       id: "evidence-1",
       runId: "run-1",
@@ -4306,7 +4305,7 @@ describe("workflow record cursor edge coverage", function () {
     ).toEqual([101]);
   });
 
-  return it("keyset-pages messages with a matching message cursor", async function () {
+  return it("keyset-pages messages with a matching message cursor", async () => {
     const message = (id: string, createdAt: string) => ({
       id,
       runId: "run-1",
@@ -4347,7 +4346,7 @@ describe("workflow record cursor edge coverage", function () {
   });
 });
 
-describe("workflow bulk projection edge coverage", function () {
+describe("workflow bulk projection edge coverage", () => {
   it.each([
     ["", ["run-1"]],
     ["owner-1", [" "]],
@@ -4359,7 +4358,7 @@ describe("workflow bulk projection edge coverage", function () {
     return expect(fake.transactionOptions).toHaveLength(0);
   });
 
-  return it("preserves duplicate input order and groups multi-entry journals", async function () {
+  return it("preserves duplicate input order and groups multi-entry journals", async () => {
     const projection = projectionFixture([EVENT, SECOND_EVENT]);
     const { fake, repository } = repositoryFor({
       selects: [
@@ -4379,7 +4378,7 @@ describe("workflow bulk projection edge coverage", function () {
   });
 });
 
-describe("workflow capacity integrity edge coverage", function () {
+describe("workflow capacity integrity edge coverage", () => {
   const validAdmission = (overrides: Record<string, unknown> = {}) => ({
     submission_count: "0",
     retry_after_seconds: null,
@@ -4418,7 +4417,7 @@ describe("workflow capacity integrity edge coverage", function () {
     return expect(methodValues(fake, "insert")).toHaveLength(3);
   });
 
-  it("fails closed when the admission query returns no row", async function () {
+  it("fails closed when the admission query returns no row", async () => {
     const { fake, repository } = repositoryFor({
       executes: [[], [], [], []],
     });
@@ -4495,13 +4494,13 @@ describe("workflow capacity integrity edge coverage", function () {
   });
 });
 
-describe("workflow finalization evidence integrity", function () {
+describe("workflow finalization evidence integrity", () => {
   const evidenceEnvelope = (bytes: number) => {
     const shell = canonicalWorkflowJson({ artifact: "" });
     return { artifact: "x".repeat(bytes - Buffer.byteLength(shell)) };
   };
 
-  it("rejects digest-covered unsafe evidence without sanitizing or writing", async function () {
+  it("rejects digest-covered unsafe evidence without sanitizing or writing", async () => {
     const before = projectionFixture();
     const unsafeData = { password: "digest-covered-secret" };
     const base = finalizationInput(before);
@@ -4518,7 +4517,7 @@ describe("workflow finalization evidence integrity", function () {
     return expect(methodValues(fake, "insert")).toHaveLength(0);
   });
 
-  it("persists an exact 48 KiB safe evidence envelope unchanged", async function () {
+  it("persists an exact 48 KiB safe evidence envelope unchanged", async () => {
     const before = projectionFixture();
     const after = projectionFixture([EVENT, SECOND_EVENT]);
     const data = evidenceEnvelope(48 * 1024);
@@ -4546,7 +4545,7 @@ describe("workflow finalization evidence integrity", function () {
     ).toBe(48 * 1024);
   });
 
-  return it("rejects a 48 KiB plus one evidence envelope before opening a transaction", async function () {
+  return it("rejects a 48 KiB plus one evidence envelope before opening a transaction", async () => {
     const before = projectionFixture();
     const data = evidenceEnvelope(48 * 1024 + 1);
     expect(Buffer.byteLength(canonicalWorkflowJson(data))).toBe(48 * 1024 + 1);

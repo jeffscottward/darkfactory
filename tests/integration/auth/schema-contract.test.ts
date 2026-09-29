@@ -1,19 +1,19 @@
 import {
+  accounts,
+  sessions,
+  USER_ROLES,
+  USER_STATUSES,
+  users,
+  verifications,
+} from "@darkfactory/db/schema";
+import { describe, expect, it } from "vitest";
+import {
   account as generatedAccount,
   session as generatedSession,
   user as generatedUser,
   verification as generatedVerification,
 } from "../../../packages/auth/generated/better-auth-schema.ts";
 import { tableContract } from "../../../packages/auth/scripts/schema-contract.ts";
-import {
-  USER_ROLES,
-  USER_STATUSES,
-  accounts,
-  sessions,
-  users,
-  verifications,
-} from "@darkfactory/db/schema";
-import { describe, expect, it } from "vitest";
 
 // Admin keyset cursors serialize JavaScript Dates at millisecond precision, so
 // only this physical column may narrow Better Auth's unbounded timestamp.
@@ -91,8 +91,8 @@ const compareRequiredContract = (
   return results;
 };
 
-describe("Better Auth 1.6.24 generated schema contract", function () {
-  it("matches required physical tables, columns, constraints, defaults, hooks, FKs, and indexes", function () {
+describe("Better Auth 1.6.24 generated schema contract", () => {
+  it("matches required physical tables, columns, constraints, defaults, hooks, FKs, and indexes", () => {
     compareRequiredContract(generatedUser, users);
     compareRequiredContract(generatedSession, sessions);
     compareRequiredContract(generatedAccount, accounts);
@@ -125,7 +125,7 @@ describe("Better Auth 1.6.24 generated schema contract", function () {
     });
   });
 
-  it("allows millisecond precision only for the user creation cursor", function () {
+  it("allows millisecond precision only for the user creation cursor", () => {
     expect(PHYSICAL_SQL_TYPE_COMPATIBILITY).toEqual({
       "user.created_at": {
         generated: "timestamp",
@@ -144,10 +144,10 @@ describe("Better Auth 1.6.24 generated schema contract", function () {
     ).toBe("timestamp (3)");
   });
 
-  return it("requires explicit opt-in before ignoring extra SQL index expressions", function () {
-    expect(function () {
-      return tableContract(users);
-    }).toThrowError("Auth schema indexes must reference named columns");
+  return it("requires explicit opt-in before ignoring extra SQL index expressions", () => {
+    expect(() => tableContract(users)).toThrowError(
+      "Auth schema indexes must reference named columns"
+    );
     return expect(
       tableContract(users, { ignoreExtraIndexExpressions: true }).indexes
     ).toEqual([

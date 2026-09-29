@@ -24,13 +24,13 @@ import {
   type OperatorSignInGateway,
 } from "./operator-sign-in.tsx";
 
-afterEach(function () {
+afterEach(() => {
   cleanup();
   return vi.clearAllMocks();
 });
 
-describe("operator development sign in", function () {
-  it("signs in the seeded administrator and uses a bounded callback", async function () {
+describe("operator development sign in", () => {
+  it("signs in the seeded administrator and uses a bounded callback", async () => {
     const signIn = vi.fn(async () => ({ error: null }));
     const onAuthenticated = vi.fn();
     const gateway: OperatorSignInGateway = { signIn };
@@ -59,7 +59,7 @@ describe("operator development sign in", function () {
     return expect(onAuthenticated).toHaveBeenCalledWith("/operator/runs/run-1");
   });
 
-  it("shows a safe error without exposing provider details", async function () {
+  it("shows a safe error without exposing provider details", async () => {
     const gateway: OperatorSignInGateway = {
       signIn: vi.fn(async () => ({ error: { message: "database detail" } })),
     };
@@ -81,7 +81,7 @@ describe("operator development sign in", function () {
     return expect(screen.queryByText("database detail")).toBeNull();
   });
 
-  it("uses the browser authentication gateway and location replacement defaults", async function () {
+  it("uses the browser authentication gateway and location replacement defaults", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -103,7 +103,7 @@ describe("operator development sign in", function () {
     return consoleError.mockRestore();
   });
 
-  it("shows the bounded failure message when the gateway throws", async function () {
+  it("shows the bounded failure message when the gateway throws", async () => {
     const gateway: OperatorSignInGateway = {
       signIn: vi.fn(async () => {
         throw new Error("provider unavailable");
@@ -122,7 +122,7 @@ describe("operator development sign in", function () {
     );
   });
 
-  return it("ignores a repeated submission while authentication is pending", async function () {
+  return it("ignores a repeated submission while authentication is pending", async () => {
     let resolveSignIn: ((result: { readonly error: null }) => void) | undefined;
     const signIn = vi.fn(
       () =>

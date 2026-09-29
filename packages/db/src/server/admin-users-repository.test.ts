@@ -1,15 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, it, vi } from "vitest";
 
 import { profiles, users } from "../schema/index.ts";
-import type { Database } from "./client.ts";
 import {
-  InvalidAdminUsersCursorError,
   createAdminUsersRepository,
   decodeAdminUsersCursor,
   encodeAdminUsersCursor,
+  InvalidAdminUsersCursorError,
 } from "./admin-users-repository.ts";
+import type { Database } from "./client.ts";
 
 const QUERY_DIALECT = new PgDialect();
 const CREATED_AT = new Date("2026-01-02T03:04:05.000Z");
@@ -58,7 +58,7 @@ const createAdminDatabase = (options: AdminDatabaseOptions = {}) => {
     select: vi.fn((selection?: Record<string, unknown>) => {
       const operation: SelectOperation = { selection, joins: [] };
       selects.push(operation);
-      let builder = {} as QueryBuilder;
+      const builder = {} as QueryBuilder;
       builder.from = vi.fn((table: unknown) => {
         operation.table =
           table === users

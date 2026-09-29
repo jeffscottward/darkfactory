@@ -15,8 +15,8 @@ const verificationInput: EmailVerificationEmailInput = {
   expiresInMinutes: 60,
 };
 
-describe("renderEmailVerificationEmail", function () {
-  it("renders an accessible verification action and honest expiry guidance", async function () {
+describe("renderEmailVerificationEmail", () => {
+  it("renders an accessible verification action and honest expiry guidance", async () => {
     const rendered = await renderEmailVerificationEmail(verificationInput);
 
     expect(rendered.subject).toBe("Verify your DarkFactory email");
@@ -34,7 +34,7 @@ describe("renderEmailVerificationEmail", function () {
     );
   });
 
-  it("escapes recipient content and confines the token to the verification URL", async function () {
+  it("escapes recipient content and confines the token to the verification URL", async () => {
     const dangerousName = '<img src=x onerror="alert(1)">';
     const rendered = await renderEmailVerificationEmail({
       ...verificationInput,
@@ -62,7 +62,7 @@ describe("renderEmailVerificationEmail", function () {
     return expect(rendered.text).not.toMatch(/verification token/i);
   });
 
-  it("rejects attacker origins, credentials, fragments, unsafe paths, duplicate queries, and callbacks", async function () {
+  it("rejects attacker origins, credentials, fragments, unsafe paths, duplicate queries, and callbacks", async () => {
     const unsafeUrls = [
       verificationUrl.replace("darkfactory.localhost", "attacker.test"),
       verificationUrl.replace("https://", "https://user:password@"),
@@ -92,7 +92,7 @@ describe("renderEmailVerificationEmail", function () {
     return results;
   });
 
-  it("accepts an explicitly configured trusted application origin", async function () {
+  it("accepts an explicitly configured trusted application origin", async () => {
     const trustedAppOrigin = "https://app.domain.test";
     const configuredInput = {
       ...verificationInput,
@@ -109,7 +109,7 @@ describe("renderEmailVerificationEmail", function () {
     return expect(rendered.text).toContain(configuredInput.verificationUrl);
   });
 
-  it("rejects non-positive or fractional expiry windows", async function () {
+  it("rejects non-positive or fractional expiry windows", async () => {
     await expect(
       renderEmailVerificationEmail({
         ...verificationInput,
@@ -124,7 +124,7 @@ describe("renderEmailVerificationEmail", function () {
     ).rejects.toThrowError("expiresInMinutes must be a positive integer");
   });
 
-  it("uses a generic greeting and singular expiry guidance when no name is available", async function () {
+  it("uses a generic greeting and singular expiry guidance when no name is available", async () => {
     const rendered = await renderEmailVerificationEmail({
       to: verificationInput.to,
       verificationUrl: verificationInput.verificationUrl,
@@ -136,7 +136,7 @@ describe("renderEmailVerificationEmail", function () {
     return expect(rendered.text).not.toContain("1 minutes");
   });
 
-  return it("rejects malformed configured origins, verification URLs, and callback URLs", async function () {
+  return it("rejects malformed configured origins, verification URLs, and callback URLs", async () => {
     for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"]) {
       await expect(
         renderEmailVerificationEmail(verificationInput, {

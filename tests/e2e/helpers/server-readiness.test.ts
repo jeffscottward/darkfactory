@@ -9,14 +9,14 @@ import {
   allocateE2EServerPort,
   classifyE2EServerExit,
   createPromiseResolvers,
+  type E2EReadinessProbeContext,
+  type E2EServerExitState,
+  type PromiseResolvers,
   probeE2EServerPort,
-  probeE2EServerTarget,
   probeE2EServerRoutes,
+  probeE2EServerTarget,
   waitForE2ELifecycleReady,
   waitForE2EServerReady,
-  type E2EReadinessProbeContext,
-  type PromiseResolvers,
-  type E2EServerExitState,
 } from "./server-readiness.ts";
 
 const BLOCKING_CHILD_SOURCE =

@@ -64,8 +64,8 @@ vi.mock("../../../../server/operator-auth.ts", () => ({
 
 import { handleOperatorOrpcRequest } from "./handler.ts";
 
-describe("standalone operator oRPC composition", function () {
-  beforeEach(function () {
+describe("standalone operator oRPC composition", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "/srv/repositories");
     mocks.parseServerEnv.mockReturnValue({
@@ -87,11 +87,9 @@ describe("standalone operator oRPC composition", function () {
     return mocks.handleOperatorRequest.mockResolvedValue(new Response("ok"));
   });
 
-  afterEach(function () {
-    return vi.unstubAllEnvs();
-  });
+  afterEach(() => vi.unstubAllEnvs());
 
-  it("builds an administrator-only operator context and closes the request database", async function () {
+  it("builds an administrator-only operator context and closes the request database", async () => {
     const request = new Request(
       "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
       { headers: { origin: "https://operator.darkfactory.localhost" } }
@@ -127,7 +125,7 @@ describe("standalone operator oRPC composition", function () {
     return expect(mocks.wayfinder.start).not.toHaveBeenCalled();
   });
 
-  it("rejects cross-origin mutations before opening a database", async function () {
+  it("rejects cross-origin mutations before opening a database", async () => {
     const response = await handleOperatorOrpcRequest(
       new Request(
         "https://operator.darkfactory.localhost/api/orpc/operator/runs",
@@ -141,7 +139,7 @@ describe("standalone operator oRPC composition", function () {
     return expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
   });
 
-  it("rejects unsupported methods without opening a database", async function () {
+  it("rejects unsupported methods without opening a database", async () => {
     const response = await handleOperatorOrpcRequest(
       new Request(
         "https://operator.darkfactory.localhost/api/orpc/operator/workspace",
@@ -153,7 +151,7 @@ describe("standalone operator oRPC composition", function () {
     return expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
   });
 
-  it("fails closed before opening a database when the repository root is missing", async function () {
+  it("fails closed before opening a database when the repository root is missing", async () => {
     vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "");
     await expect(
       handleOperatorOrpcRequest(
@@ -165,7 +163,7 @@ describe("standalone operator oRPC composition", function () {
     return expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
   });
 
-  it("uses empty grants and delegates repository authorization", async function () {
+  it("uses empty grants and delegates repository authorization", async () => {
     mocks.parseServerEnv.mockReturnValueOnce({
       APP_ENV: "development",
       WORKFLOW_REPOSITORY_GRANTS: undefined,
@@ -188,7 +186,7 @@ describe("standalone operator oRPC composition", function () {
     );
   });
 
-  it("waits for rejected background work before closing the database", async function () {
+  it("waits for rejected background work before closing the database", async () => {
     let rejectTask: ((error: Error) => void) | undefined;
     const task = new Promise<never>((_resolve, reject) => {
       return (rejectTask = reject);
@@ -213,7 +211,7 @@ describe("standalone operator oRPC composition", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  return it("rejects missing and relative repository roots", async function () {
+  return it("rejects missing and relative repository roots", async () => {
     vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", undefined);
     await expect(
       handleOperatorOrpcRequest(

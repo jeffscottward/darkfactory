@@ -59,12 +59,12 @@ export const createContactThrottleRepository = (
   );
   const cleanupBatchSize = positiveBoundedInteger(
     options.cleanupBatchSize ?? DEFAULT_CLEANUP_BATCH_SIZE,
-    1_000,
+    1000,
     "cleanupBatchSize"
   );
   const maxRequests = positiveBoundedInteger(
     options.maxRequests ?? DEFAULT_MAX_REQUESTS,
-    1_000,
+    1000,
     "maxRequests"
   );
 

@@ -34,25 +34,25 @@ export default function ContactPage() {
     >
       <section className="grid gap-12 py-16 md:grid-cols-12 md:gap-8 md:py-20">
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">
+          <p className="font-semibold text-primary text-sm tracking-wide">
             Before you send
           </p>
           <h2
-            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="mt-4 font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="contact-expectations-title"
           >
             Clear context makes a useful reply possible.
           </h2>
           <section
             aria-labelledby="contact-expectations-title"
-            className="mt-8 divide-y divide-border border-y border-border"
+            className="mt-8 divide-y divide-border border-border border-y"
           >
             {expectations.map((expectation) => (
               <div className="py-6" key={expectation.title}>
-                <h3 className="font-heading text-lg font-semibold text-foreground">
+                <h3 className="font-heading font-semibold text-foreground text-lg">
                   {expectation.title}
                 </h3>
-                <p className="mt-2 text-base leading-7 text-muted-foreground">
+                <p className="mt-2 text-base text-muted-foreground leading-7">
                   {expectation.description}
                 </p>
               </div>

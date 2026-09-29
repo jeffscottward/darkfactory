@@ -141,17 +141,17 @@ vi.mock("next/navigation", () => ({ useRouter: () => navigationHarness }));
 vi.mock("next/link", () => ({ default: "a" }));
 
 import {
-  SAFE_ACCOUNT_EMAIL_MESSAGE,
   type AuthFlowClient,
   type AuthFlowResult,
+  SAFE_ACCOUNT_EMAIL_MESSAGE,
 } from "./auth-flow.ts";
-import { FormStatus } from "./form-status.tsx";
 import { EmailActionForm } from "./email-action-form.tsx";
+import { FormStatus } from "./form-status.tsx";
 import { PasswordField } from "./password-field.tsx";
 import { ResetPasswordEntry } from "./reset-password-entry.tsx";
 import { ResetPasswordForm } from "./reset-password-form.tsx";
-import { SignUpForm } from "./sign-up-form.tsx";
 import { SignInForm } from "./sign-in-form.tsx";
+import { SignUpForm } from "./sign-up-form.tsx";
 
 type ElementRecord = Readonly<{
   type: unknown;
@@ -337,7 +337,7 @@ const buttonView = (tree: unknown): ElementRecord => {
 const markup = (tree: unknown): string =>
   renderToStaticMarkup(tree as ReactElement);
 
-const flushMicrotasks = async function (): Promise<void> {
+const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
 };
@@ -464,15 +464,15 @@ const submitRootForm = async (
   return preventDefault;
 };
 
-afterEach(function () {
+afterEach(() => {
   reactHarness.reset();
   formHarness.reset();
   vi.clearAllMocks();
   return vi.unstubAllGlobals();
 });
 
-describe("SignUpForm", function () {
-  it("exposes accessible errors, delegates every validator, and clears stale server feedback on edits", function () {
+describe("SignUpForm", () => {
+  it("exposes accessible errors, delegates every validator, and clears stale server feedback on edits", () => {
     const serverError: AuthFlowResult = {
       status: "error",
       message: "We could not complete the request.",
@@ -554,7 +554,7 @@ describe("SignUpForm", function () {
     ).toBeUndefined();
   });
 
-  it("focuses the first invalid control after submission and tolerates a missing focus target", async function () {
+  it("focuses the first invalid control after submission and tolerates a missing focus target", async () => {
     const focus = vi.fn();
     const querySelector: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
@@ -579,7 +579,7 @@ describe("SignUpForm", function () {
     return expect(validQuery).not.toHaveBeenCalled();
   });
 
-  it("moves from pending to safe success or denial feedback without leaking provider details", async function () {
+  it("moves from pending to safe success or denial feedback without leaking provider details", async () => {
     const gate = deferred<Readonly<{ data: unknown; error: null }>>();
     const signUpEmail = vi.fn(() => gate.promise);
     const success = mountSignUp({ auth: authClient({ signUpEmail }) });
@@ -631,7 +631,7 @@ describe("SignUpForm", function () {
     return expect(denial.setIsPending).toHaveBeenLastCalledWith(false);
   });
 
-  return it("disables controls and names every idle, submitting, and pending state truthfully", function () {
+  return it("disables controls and names every idle, submitting, and pending state truthfully", () => {
     const idle = mountSignUp();
     expect(buttonView(idle.tree).props["disabled"]).toBe(false);
     expect(textOf(buttonView(idle.tree))).toBe("Create account");
@@ -650,8 +650,8 @@ describe("SignUpForm", function () {
   });
 });
 
-describe("ResetPasswordForm", function () {
-  it("renders malformed or missing tokens only as an alert with a recovery action", function () {
+describe("ResetPasswordForm", () => {
+  it("renders malformed or missing tokens only as an alert with a recovery action", () => {
     reactHarness.begin([]);
     formHarness.begin();
     const html = markup(
@@ -665,7 +665,7 @@ describe("ResetPasswordForm", function () {
     return expect(html).not.toContain('name="newPassword"');
   });
 
-  it("validates both password fields accessibly and clears stale server feedback on edits", function () {
+  it("validates both password fields accessibly and clears stale server feedback on edits", () => {
     const { setResult, tree } = mountReset({
       result: {
         status: "error",
@@ -719,7 +719,7 @@ describe("ResetPasswordForm", function () {
     ).toBe("Confirm your password.");
   });
 
-  it("focuses invalid reset input after submission and skips focus work for a valid form", async function () {
+  it("focuses invalid reset input after submission and skips focus work for a valid form", async () => {
     const focus = vi.fn();
     const invalidQuery: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
@@ -744,7 +744,7 @@ describe("ResetPasswordForm", function () {
     return expect(validQuery).not.toHaveBeenCalled();
   });
 
-  it("redirects only after a successful reset and renders a denied token as recovery", async function () {
+  it("redirects only after a successful reset and renders a denied token as recovery", async () => {
     const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null });
     const success = mountReset({ auth: authClient({ resetPassword }) });
     await formHarness.options().onSubmit({
@@ -791,7 +791,7 @@ describe("ResetPasswordForm", function () {
     return expect(denied.setIsPending).toHaveBeenLastCalledWith(false);
   });
 
-  it("suppresses redirect and state commits when an in-flight reset form unmounts", async function () {
+  it("suppresses redirect and state commits when an in-flight reset form unmounts", async () => {
     const gate = deferred<Readonly<{ data: unknown; error: null }>>();
     const mounted = mountReset({
       auth: authClient({ resetPassword: vi.fn(() => gate.promise) }),
@@ -815,7 +815,7 @@ describe("ResetPasswordForm", function () {
     return expect(navigationHarness.replace).not.toHaveBeenCalled();
   });
 
-  return it("disables reset controls for invalid, submitting, and pending states", function () {
+  return it("disables reset controls for invalid, submitting, and pending states", () => {
     const ready = mountReset();
     expect(buttonView(ready.tree).props["disabled"]).toBe(false);
     expect(textOf(buttonView(ready.tree))).toBe("Update password");
@@ -840,8 +840,8 @@ describe("ResetPasswordForm", function () {
   });
 });
 
-describe("SignInForm", function () {
-  it("exposes touched validation, delegates validators, and clears stale feedback on edits", function () {
+describe("SignInForm", () => {
+  it("exposes touched validation, delegates validators, and clears stale feedback on edits", () => {
     const serverError: AuthFlowResult = {
       status: "error",
       message: "The email or password was not accepted.",
@@ -933,7 +933,7 @@ describe("SignInForm", function () {
     ).toBeUndefined();
   });
 
-  it("focuses the first invalid sign-in field and skips focus for valid or missing targets", async function () {
+  it("focuses the first invalid sign-in field and skips focus for valid or missing targets", async () => {
     const focus = vi.fn();
     const invalidQuery: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
@@ -958,7 +958,7 @@ describe("SignInForm", function () {
     return expect(validQuery).not.toHaveBeenCalled();
   });
 
-  it("submits normalized credentials and replaces browser history only after success", async function () {
+  it("submits normalized credentials and replaces browser history only after success", async () => {
     const replace = vi.fn();
     vi.stubGlobal("window", { location: { replace } });
     const signInEmail = vi.fn().mockResolvedValue({
@@ -992,7 +992,7 @@ describe("SignInForm", function () {
     return expect(mounted.setIsPending).toHaveBeenLastCalledWith(false);
   });
 
-  it("renders actionable server denial and recoverable transport failure without redirecting", async function () {
+  it("renders actionable server denial and recoverable transport failure without redirecting", async () => {
     const deniedReplace = vi.fn();
     const denied = mountSignIn({
       auth: authClient({
@@ -1043,7 +1043,7 @@ describe("SignInForm", function () {
     return expect(offline.setIsPending).toHaveBeenLastCalledWith(false);
   });
 
-  it("suppresses redirect, result, and pending-state commits after unmount", async function () {
+  it("suppresses redirect, result, and pending-state commits after unmount", async () => {
     const gate = deferred<Readonly<{ data: unknown; error: null }>>();
     const replace = vi.fn();
     const mounted = mountSignIn({
@@ -1069,7 +1069,7 @@ describe("SignInForm", function () {
     return expect(replace).not.toHaveBeenCalled();
   });
 
-  it("renders an idle form with the default browser client", function () {
+  it("renders an idle form with the default browser client", () => {
     reactHarness.begin([
       [null, vi.fn()],
       [false, vi.fn()],
@@ -1081,7 +1081,7 @@ describe("SignInForm", function () {
     return expect(textOf(buttonView(tree))).toBe("Sign in");
   });
 
-  return it("disables controls and identifies invalid, submitting, and guarded pending states", function () {
+  return it("disables controls and identifies invalid, submitting, and guarded pending states", () => {
     const idle = mountSignIn();
     expect(buttonView(idle.tree).props["disabled"]).toBe(false);
     expect(textOf(buttonView(idle.tree))).toBe("Sign in");
@@ -1110,8 +1110,8 @@ describe("SignInForm", function () {
   });
 });
 
-describe("EmailActionForm", function () {
-  it("renders touched email errors, delegates validation, and clears stale feedback", function () {
+describe("EmailActionForm", () => {
+  it("renders touched email errors, delegates validation, and clears stale feedback", () => {
     const serverError: AuthFlowResult = {
       status: "error",
       message: "We could not complete the request.",
@@ -1163,7 +1163,7 @@ describe("EmailActionForm", function () {
     ).toBeUndefined();
   });
 
-  it("focuses invalid email actions and tolerates valid forms or absent focus targets", async function () {
+  it("focuses invalid email actions and tolerates valid forms or absent focus targets", async () => {
     const focus = vi.fn();
     const invalidQuery: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
@@ -1188,7 +1188,7 @@ describe("EmailActionForm", function () {
     return expect(validQuery).not.toHaveBeenCalled();
   });
 
-  it("runs both enumeration-safe email operations and reports their success", async function () {
+  it("runs both enumeration-safe email operations and reports their success", async () => {
     const requestPasswordReset = vi
       .fn()
       .mockResolvedValue({ data: {}, error: null });
@@ -1230,7 +1230,7 @@ describe("EmailActionForm", function () {
     });
   });
 
-  it("recovers from provider denial and thrown transport failures with generic feedback", async function () {
+  it("recovers from provider denial and thrown transport failures with generic feedback", async () => {
     const genericFailure: AuthFlowResult = {
       status: "error",
       message:
@@ -1264,7 +1264,7 @@ describe("EmailActionForm", function () {
     return expect(offline.setResult).toHaveBeenLastCalledWith(genericFailure);
   });
 
-  it("renders an idle email action with the default browser client", function () {
+  it("renders an idle email action with the default browser client", () => {
     reactHarness.begin([[null, vi.fn()]]);
     formHarness.begin();
     const tree = EmailActionForm({ operation: "password-reset" });
@@ -1273,7 +1273,7 @@ describe("EmailActionForm", function () {
     return expect(textOf(buttonView(tree))).toBe("Send reset link");
   });
 
-  return it("uses truthful idle and loading labels while disabling invalid or submitting actions", function () {
+  return it("uses truthful idle and loading labels while disabling invalid or submitting actions", () => {
     const reset = mountEmailAction({ operation: "password-reset" });
     expect(buttonView(reset.tree).props["disabled"]).toBe(false);
     expect(textOf(buttonView(reset.tree))).toBe("Send reset link");
@@ -1300,8 +1300,8 @@ describe("EmailActionForm", function () {
   });
 });
 
-describe("PasswordField state", function () {
-  return it("toggles visibility and preserves default and explicit accessibility metadata", function () {
+describe("PasswordField state", () =>
+  it("toggles visibility and preserves default and explicit accessibility metadata", () => {
     const hiddenSetter = vi.fn();
     reactHarness.begin([[false, hiddenSetter]]);
     const hidden = PasswordField({
@@ -1375,11 +1375,10 @@ describe("PasswordField state", function () {
     return expect((hideUpdate as (current: boolean) => boolean)(true)).toBe(
       false
     );
-  });
-});
+  }));
 
-describe("ResetPasswordEntry", function () {
-  it("starts with safe loading UI then captures, scrubs, and stores the reset token", function () {
+describe("ResetPasswordEntry", () => {
+  it("starts with safe loading UI then captures, scrubs, and stores the reset token", () => {
     const token = "one-time-reset-token";
     const replaceState = vi.fn();
     const sensitiveScript = {
@@ -1425,7 +1424,7 @@ describe("ResetPasswordEntry", function () {
     return expect(setReady).toHaveBeenCalledWith(true);
   });
 
-  return it("renders token and recovery branches with truthful panel copy and form input", function () {
+  return it("renders token and recovery branches with truthful panel copy and form input", () => {
     reactHarness.begin([
       [true, vi.fn()],
       ["one-time-reset-token", vi.fn()],

@@ -1,15 +1,15 @@
+import type { FeatureItem } from "@darkfactory/db/schema";
 import {
   DatabaseConflictError,
   DatabasePersistenceError,
-  InvalidRepositoryInputError,
   type FeatureItemRepository,
+  InvalidRepositoryInputError,
 } from "@darkfactory/db/server";
-import type { FeatureItem } from "@darkfactory/db/schema";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  FeatureServiceError,
   createFeatureItemService,
+  FeatureServiceError,
 } from "./server/service.ts";
 
 const item = (overrides: Partial<FeatureItem> = {}): FeatureItem => ({
@@ -41,8 +41,8 @@ const repository = (
   ...overrides,
 });
 
-describe("DF-063 feature service policy", function () {
-  it("forces members to their authenticated owner scope", async function () {
+describe("DF-063 feature service policy", () => {
+  it("forces members to their authenticated owner scope", async () => {
     const listByOwner = vi.fn(async () => [item()]);
     const service = createFeatureItemService(repository({ listByOwner }));
 
@@ -54,7 +54,7 @@ describe("DF-063 feature service policy", function () {
     return expect(listByOwner).toHaveBeenLastCalledWith("member-1");
   });
 
-  it("rejects a member requesting a different owner", async function () {
+  it("rejects a member requesting a different owner", async () => {
     const service = createFeatureItemService(repository());
 
     return await expect(
@@ -62,7 +62,7 @@ describe("DF-063 feature service policy", function () {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("allows an administrator to act within an explicit owner scope", async function () {
+  it("allows an administrator to act within an explicit owner scope", async () => {
     const findByIdForOwner = vi.fn(async () => item({ ownerId: "member-2" }));
     const service = createFeatureItemService(repository({ findByIdForOwner }));
 
@@ -72,7 +72,7 @@ describe("DF-063 feature service policy", function () {
     return expect(findByIdForOwner).toHaveBeenCalledWith("item-1", "member-2");
   });
 
-  it("uses the repository atomic mutation port with actor and request correlation", async function () {
+  it("uses the repository atomic mutation port with actor and request correlation", async () => {
     const create = vi.fn(async (input) => item(input));
     const service = createFeatureItemService(repository({ create }));
 
@@ -98,7 +98,7 @@ describe("DF-063 feature service policy", function () {
     ["draft", "archived"],
     ["active", "draft"],
     ["active", "archived"],
-  ] as const)("allows the %s to %s transition", async function (from, to) {
+  ] as const)("allows the %s to %s transition", async (from, to) => {
     const update = vi.fn(async (input) => item({ status: input.status }));
     const service = createFeatureItemService(
       repository({
@@ -119,7 +119,7 @@ describe("DF-063 feature service policy", function () {
     );
   });
 
-  it("rejects transitions from archived items", async function () {
+  it("rejects transitions from archived items", async () => {
     const service = createFeatureItemService(
       repository({
         findByIdForOwner: vi.fn(async () => item({ status: "archived" })),
@@ -135,7 +135,7 @@ describe("DF-063 feature service policy", function () {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
-  it("maps a missing record to the expected not-found failure", async function () {
+  it("maps a missing record to the expected not-found failure", async () => {
     const service = createFeatureItemService(
       repository({ findByIdForOwner: vi.fn(async () => null) })
     );
@@ -145,7 +145,7 @@ describe("DF-063 feature service policy", function () {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("passes every supplied list filter to the authenticated owner scope", async function () {
+  it("passes every supplied list filter to the authenticated owner scope", async () => {
     const listByOwner = vi.fn(async () => [item({ status: "active" })]);
     const service = createFeatureItemService(repository({ listByOwner }));
 
@@ -163,7 +163,7 @@ describe("DF-063 feature service policy", function () {
     });
   });
 
-  it("omits undefined filters from a scoped repository query", async function () {
+  it("omits undefined filters from a scoped repository query", async () => {
     const listByOwner = vi.fn(async () => [item()]);
     const service = createFeatureItemService(repository({ listByOwner }));
 
@@ -177,7 +177,7 @@ describe("DF-063 feature service policy", function () {
     });
   });
 
-  it("denies a cross-owner mutation before invoking the repository", async function () {
+  it("denies a cross-owner mutation before invoking the repository", async () => {
     const create = vi.fn(async (input) => item(input));
     const service = createFeatureItemService(repository({ create }));
 
@@ -198,7 +198,7 @@ describe("DF-063 feature service policy", function () {
     return expect(create).not.toHaveBeenCalled();
   });
 
-  it("omits absent metadata while retaining actor and request correlation", async function () {
+  it("omits absent metadata while retaining actor and request correlation", async () => {
     const create = vi.fn(async (input) => item(input));
     const service = createFeatureItemService(repository({ create }));
 
@@ -218,7 +218,7 @@ describe("DF-063 feature service policy", function () {
     );
   });
 
-  it("forwards complete and partial updates without inventing fields", async function () {
+  it("forwards complete and partial updates without inventing fields", async () => {
     const update = vi.fn(async (input) => item(input));
     const service = createFeatureItemService(repository({ update }));
 
@@ -258,7 +258,7 @@ describe("DF-063 feature service policy", function () {
     );
   });
 
-  it("archives an active item in the authenticated owner scope", async function () {
+  it("archives an active item in the authenticated owner scope", async () => {
     const archive = vi.fn(async () => item({ status: "archived" }));
     const service = createFeatureItemService(
       repository({
@@ -276,7 +276,7 @@ describe("DF-063 feature service policy", function () {
     });
   });
 
-  it("rejects a redundant archive without writing again", async function () {
+  it("rejects a redundant archive without writing again", async () => {
     const archive = vi.fn(async () => item({ status: "archived" }));
     const service = createFeatureItemService(
       repository({
@@ -294,7 +294,7 @@ describe("DF-063 feature service policy", function () {
     return expect(archive).not.toHaveBeenCalled();
   });
 
-  it("reports missing results from update and archive ports", async function () {
+  it("reports missing results from update and archive ports", async () => {
     const service = createFeatureItemService(
       repository({
         findByIdForOwner: vi.fn(async () => item({ status: "active" })),
@@ -328,10 +328,10 @@ describe("DF-063 feature service policy", function () {
       failure: new DatabasePersistenceError("list feature items"),
       code: "STORAGE_ERROR",
     },
-  ] as const)("maps repository failures to the stable $code service contract", async function ({
+  ] as const)("maps repository failures to the stable $code service contract", async ({
     failure,
     code,
-  }) {
+  }) => {
     const service = createFeatureItemService(
       repository({
         listByOwner: vi.fn(async () => {
@@ -346,7 +346,7 @@ describe("DF-063 feature service policy", function () {
     });
   });
 
-  it("sanitizes persistence details but preserves unexpected adapter failures", async function () {
+  it("sanitizes persistence details but preserves unexpected adapter failures", async () => {
     const persistenceService = createFeatureItemService(
       repository({
         listByOwner: vi.fn(async () => {
@@ -374,7 +374,7 @@ describe("DF-063 feature service policy", function () {
     );
   });
 
-  it("preserves an already classified feature failure", async function () {
+  it("preserves an already classified feature failure", async () => {
     const failure = new FeatureServiceError(
       "NOT_FOUND",
       "Feature item not found"
@@ -390,7 +390,7 @@ describe("DF-063 feature service policy", function () {
     return await expect(service.list(principal(), {})).rejects.toBe(failure);
   });
 
-  return it("preserves the typed feature service error shape", function () {
+  return it("preserves the typed feature service error shape", () => {
     const error = new FeatureServiceError("VALIDATION_ERROR", "Invalid item");
 
     return expect(error).toMatchObject({

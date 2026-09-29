@@ -1,23 +1,24 @@
 type AutoPromise<T> = Promise<Awaited<T>>;
+
 import { createHash, randomUUID } from "node:crypto";
 import {
-  StaleWorkflowApprovalError,
-  WorkflowConcurrencyError,
-  WorkflowPersistenceInputError,
-  WorkflowProjectionIntegrityError,
+  GENESIS_WORKFLOW_JOURNAL_HASH,
+  type OutboxEvent,
+  users,
+} from "@darkfactory/db/schema";
+import {
   createNodeDatabase,
   createWorkflowRepository,
   hashWorkflowJournalEntryV1,
   type PersistedWorkflowEvent,
+  StaleWorkflowApprovalError,
+  WorkflowConcurrencyError,
+  WorkflowPersistenceInputError,
   type WorkflowProjection,
+  WorkflowProjectionIntegrityError,
   type WorkflowRepository,
 } from "@darkfactory/db/server";
 import { migrate } from "@darkfactory/db/server/migration";
-import {
-  GENESIS_WORKFLOW_JOURNAL_HASH,
-  users,
-  type OutboxEvent,
-} from "@darkfactory/db/schema";
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime";
 import { WORKFLOW_EFFECT_HANDLER_V2 } from "@darkfactory/jobs/server/workflow-worker";
@@ -319,8 +320,8 @@ const finalizationFor = (
   };
 };
 
-describe.sequential("workflow durability on real PostgreSQL", function () {
-  beforeAll(async function () {
+describe.sequential("workflow durability on real PostgreSQL", () => {
+  beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
@@ -330,7 +331,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return (repository = createWorkflowRepository(databaseResource.db));
   }, 60_000);
 
-  afterAll(async function () {
+  afterAll(async () => {
     try {
       if (databaseResource !== undefined) return await databaseResource.close();
       return;
@@ -341,7 +342,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     }
   }, 60_000);
 
-  it("atomically commits sequence, head, snapshot, and idempotent effects", async function () {
+  it("atomically commits sequence, head, snapshot, and idempotent effects", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "atomic",
@@ -383,7 +384,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows[0]!.head_hash).toBe(rows[0]!.snapshot_hash);
   });
 
-  it("rolls back the run when a handler-scoped idempotency conflict mismatches", async function () {
+  it("rolls back the run when a handler-scoped idempotency conflict mismatches", async () => {
     const ownerId = await createOwner();
     await createRun(ownerId, {
       handler: "dedupe",
@@ -428,7 +429,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows[0]!.count).toBe("0");
   });
 
-  it("deduplicates an identical effect request without dropping the state append", async function () {
+  it("deduplicates an identical effect request without dropping the state append", async () => {
     const ownerId = await createOwner();
     const idempotencyKey = nextId("duplicate-effect");
     const projection = await createRun(ownerId, {
@@ -490,7 +491,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows).toEqual([{ head_sequence: "2", effect_count: "1" }]);
   });
 
-  it("scopes the same idempotency key independently per handler", async function () {
+  it("scopes the same idempotency key independently per handler", async () => {
     const ownerId = await createOwner();
     const idempotencyKey = nextId("handler-scoped-effect");
     await createRun(ownerId, {
@@ -510,7 +511,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows[0]!.count).toBe("2");
   });
 
-  it("dead-letters cancellation effects before they can be claimed", async function () {
+  it("dead-letters cancellation effects before they can be claimed", async () => {
     const ownerId = await createOwner();
     const handler = nextId("cancel-before-claim");
     const cancelled = await createRun(ownerId, {
@@ -562,7 +563,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(row?.dead_at).not.toBeNull();
   });
 
-  it("invalidates an in-flight lease when its run is cancelled", async function () {
+  it("invalidates an in-flight lease when its run is cancelled", async () => {
     const ownerId = await createOwner();
     const handler = nextId("cancel-after-claim");
     const projection = await createRun(ownerId, {
@@ -623,7 +624,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(row?.dead_at).not.toBeNull();
   });
 
-  it("claims only current owner-matching effects and reconciles stale rows", async function () {
+  it("claims only current owner-matching effects and reconciles stale rows", async () => {
     const ownerId = await createOwner();
     const otherOwnerId = await createOwner();
     const handler = nextId("current-effect");
@@ -684,7 +685,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(stale.every((row) => row.lease_owner === null)).toBe(true);
   });
 
-  it("removes workflow outbox rows when their owner is deleted", async function () {
+  it("removes workflow outbox rows when their owner is deleted", async () => {
     const ownerId = await createOwner();
     const handler = nextId("deleted-owner");
     const projection = await createRun(ownerId, {
@@ -709,7 +710,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).toEqual([]);
   });
 
-  it("excludes competing claims and recovers an expired lease with a new fence", async function () {
+  it("excludes competing claims and recovers an expired lease with a new fence", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "recovery",
@@ -803,7 +804,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).rejects.toThrow(WorkflowConcurrencyError);
   });
 
-  it("heartbeats, fails, reclaims, and dead-letters only a live matching fence", async function () {
+  it("heartbeats, fails, reclaims, and dead-letters only a live matching fence", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "failure",
@@ -851,7 +852,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows[0]!.last_error).not.toContain("another-secret");
   });
 
-  it("atomically supersedes a Wayfinder approval and replays concurrent revisions", async function () {
+  it("atomically supersedes a Wayfinder approval and replays concurrent revisions", async () => {
     const ownerId = await createOwner();
     const scope = {
       repositoryId: "darkfactory",
@@ -1030,7 +1031,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     });
   });
 
-  it("rejects a stale approval after the bound projection advances", async function () {
+  it("rejects a stale approval after the bound projection advances", async () => {
     const ownerId = await createOwner();
     const effectHash = "b".repeat(64);
     const projection = await createRun(ownerId, {
@@ -1066,7 +1067,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).rejects.toThrow(StaleWorkflowApprovalError);
   });
 
-  it("atomically appends one canonical event for concurrent and lost-response replays", async function () {
+  it("atomically appends one canonical event for concurrent and lost-response replays", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId);
     const input = messageInputFor(projection, ownerId, {
@@ -1138,7 +1139,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).toHaveLength(0);
   });
 
-  it("rejects an owner miss and rolls a late message failure back through the run head", async function () {
+  it("rejects an owner miss and rolls a late message failure back through the run head", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId);
     const input = messageInputFor(projection, ownerId);
@@ -1170,7 +1171,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).toHaveLength(0);
   });
 
-  it("rolls a stale snapshot append back without persisting the message", async function () {
+  it("rolls a stale snapshot append back without persisting the message", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId);
     const staleInput = messageInputFor(projection, ownerId);
@@ -1185,7 +1186,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).toHaveLength(0);
   });
 
-  it("scopes message idempotency independently to each owned run", async function () {
+  it("scopes message idempotency independently to each owned run", async () => {
     const firstOwnerId = await createOwner();
     const secondOwnerId = await createOwner();
     const first = await createRun(firstOwnerId);
@@ -1222,7 +1223,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).toHaveLength(1);
   });
 
-  it("rolls back an approval decision and projection when its outbox insert fails", async function () {
+  it("rolls back an approval decision and projection when its outbox insert fails", async () => {
     const ownerId = await createOwner();
     const effectHash = "f".repeat(64);
     const effectScope = "implement packages/db";
@@ -1306,7 +1307,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     });
   });
 
-  it("acknowledges an exact plan finalization replay after its approval advances", async function () {
+  it("acknowledges an exact plan finalization replay after its approval advances", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "approval-replay",
@@ -1377,7 +1378,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(replayed.projection?.run.headSequence).toBe(3);
   });
 
-  it("rolls back outbox, journal, snapshot, evidence, and approval on a late failure", async function () {
+  it("rolls back outbox, journal, snapshot, evidence, and approval on a late failure", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "rollback",
@@ -1466,7 +1467,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     });
   });
 
-  it("acknowledges a durable terminal journal effect without reclaiming it", async function () {
+  it("acknowledges a durable terminal journal effect without reclaiming it", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "legacy-recovery",
@@ -1502,7 +1503,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(row?.lease_owner).toBeNull();
   });
 
-  it("returns only a complete old or new projection during concurrent appends", async function () {
+  it("returns only a complete old or new projection during concurrent appends", async () => {
     const ownerId = await createOwner();
     let projection = await createRun(ownerId);
     const results = [];
@@ -1527,7 +1528,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return results;
   });
 
-  it("stores only redacted bounded effect, evidence, message, and error content", async function () {
+  it("stores only redacted bounded effect, evidence, message, and error content", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "redaction",
@@ -1571,7 +1572,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows[0]!.persisted).toContain("[REDACTED]");
   });
 
-  it("never persists sensitive event or snapshot material", async function () {
+  it("never persists sensitive event or snapshot material", async () => {
     const ownerId = await createOwner();
     const event = {
       ...eventFor(nextId("event")),
@@ -1609,7 +1610,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     );
   });
 
-  it("fails closed on a corrupted chain and keeps the journal directly immutable", async function () {
+  it("fails closed on a corrupted chain and keeps the journal directly immutable", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId);
     await expect(
@@ -1643,7 +1644,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     ).rejects.toThrow(WorkflowProjectionIntegrityError);
   });
 
-  it("allows verified owner cascade deletion while rejecting direct journal deletion", async function () {
+  it("allows verified owner cascade deletion while rejecting direct journal deletion", async () => {
     const ownerId = await createOwner();
     const projection = await createRun(ownerId);
     await testDatabase.query('DELETE FROM "user" WHERE id = $1', [ownerId]);
@@ -1659,7 +1660,7 @@ describe.sequential("workflow durability on real PostgreSQL", function () {
     return expect(rows).toEqual([{ run_count: "0", journal_count: "0" }]);
   });
 
-  return it("enforces owner scope for projections, evidence, messages, and listings", async function () {
+  return it("enforces owner scope for projections, evidence, messages, and listings", async () => {
     const ownerId = await createOwner();
     const otherOwnerId = await createOwner();
     const projection = await createRun(ownerId);

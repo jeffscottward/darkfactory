@@ -851,9 +851,9 @@ describe("serialized E2E journey runner", () => {
     }));
     const invalidCapabilities = [
       { adoption: "", ownership: "ownership" },
-      { adoption: "a".repeat(8_193), ownership: "ownership" },
+      { adoption: "a".repeat(8193), ownership: "ownership" },
       { adoption: "adoption", ownership: "" },
-      { adoption: "adoption", ownership: "o".repeat(8_193) },
+      { adoption: "adoption", ownership: "o".repeat(8193) },
     ];
     for (const prepared of invalidCapabilities) {
       await expect(

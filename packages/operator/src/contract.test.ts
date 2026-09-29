@@ -1,7 +1,7 @@
 import {
+  canonicalJsonV1,
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_SCOPE_BYTES,
-  canonicalJsonV1,
 } from "@darkfactory/state/workflow";
 import { describe, expect, it } from "vitest";
 
@@ -36,7 +36,7 @@ const utf8Bytes = (value: string): number => {
   return new TextEncoder().encode(value).byteLength;
 };
 
-describe("operator implementation plan contract", function () {
+describe("operator implementation plan contract", () => {
   const plan = (summary: string) => ({
     summary,
     digest: "a".repeat(64),
@@ -44,7 +44,7 @@ describe("operator implementation plan contract", function () {
     redacted: true,
   });
 
-  it("accepts the exact multibyte byte boundary", function () {
+  it("accepts the exact multibyte byte boundary", () => {
     const summary = "é".repeat(MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES / 2);
     expect(utf8Bytes(summary)).toBe(MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES);
     return expect(
@@ -52,7 +52,7 @@ describe("operator implementation plan contract", function () {
     ).toBe(true);
   });
 
-  return it("rejects an oversized or empty plan and an invalid digest", function () {
+  return it("rejects an oversized or empty plan and an invalid digest", () => {
     expect(
       OperatorImplementationPlanSchema.safeParse(
         plan(`${"é".repeat(MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES / 2)}é`)
@@ -70,8 +70,8 @@ describe("operator implementation plan contract", function () {
   });
 });
 
-describe("operator approval effect-scope contracts", function () {
-  it("accepts an exact-boundary multibyte submit scope in binding input and output", function () {
+describe("operator approval effect-scope contracts", () => {
+  it("accepts an exact-boundary multibyte submit scope in binding input and output", () => {
     const scope = boundaryScope();
     const effectScope = canonicalJsonV1(scope);
     const binding = approvalBinding(effectScope);
@@ -95,7 +95,7 @@ describe("operator approval effect-scope contracts", function () {
     ).toBe(true);
   });
 
-  it("rejects a one-byte-over multibyte scope in submit and binding contracts", function () {
+  it("rejects a one-byte-over multibyte scope in submit and binding contracts", () => {
     const scope = boundaryScope();
     scope.paths[scope.paths.length - 1] += "a";
     const effectScope = canonicalJsonV1(scope);
@@ -120,16 +120,15 @@ describe("operator approval effect-scope contracts", function () {
     ).toBe(false);
   });
 
-  return it("rejects malformed JSON in an approval binding effect scope", function () {
-    return expect(
+  return it("rejects malformed JSON in an approval binding effect scope", () =>
+    expect(
       OperatorApprovalBindingInputSchema.safeParse(
         approvalBinding("{not-json}")
       ).success
-    ).toBe(false);
-  });
+    ).toBe(false));
 });
 
-describe("operator run detail capability contract", function () {
+describe("operator run detail capability contract", () => {
   const output = {
     run: {
       id: "run-1",
@@ -155,7 +154,7 @@ describe("operator run detail capability contract", function () {
     messages: [],
   };
 
-  return it("requires bounded durable conversation projection fields", function () {
+  return it("requires bounded durable conversation projection fields", () => {
     expect(OperatorRunDetailSchema.safeParse(output).success).toBe(true);
     const { originalRequest: _request, ...missingRequest } = output;
     expect(OperatorRunDetailSchema.safeParse(missingRequest).success).toBe(
@@ -184,8 +183,8 @@ describe("operator run detail capability contract", function () {
   });
 });
 
-describe("operator Wayfinder contract", function () {
-  it("accepts installed and unavailable local-markdown status only", function () {
+describe("operator Wayfinder contract", () => {
+  it("accepts installed and unavailable local-markdown status only", () => {
     expect(
       OperatorWayfinderStatusSchema.safeParse({
         availability: "installed",
@@ -206,7 +205,7 @@ describe("operator Wayfinder contract", function () {
     ).toBe(false);
   });
 
-  it("trims an exact-boundary human request and preserves bounded scope", function () {
+  it("trims an exact-boundary human request and preserves bounded scope", () => {
     const request = "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2);
     const result = OperatorWayfinderStartInputSchema.parse({
       scope: { repositoryId: "darkfactory", paths: ["packages/operator"] },
@@ -220,7 +219,7 @@ describe("operator Wayfinder contract", function () {
     });
   });
 
-  it("rejects oversized, control-bearing, or non-canonical requests", function () {
+  it("rejects oversized, control-bearing, or non-canonical requests", () => {
     const validScope = {
       repositoryId: "darkfactory",
       paths: ["packages/operator"],
@@ -249,7 +248,7 @@ describe("operator Wayfinder contract", function () {
     return results;
   });
 
-  return it("trims and bounds plan revision clarification", function () {
+  return it("trims and bounds plan revision clarification", () => {
     const message = "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2);
     const idempotencyKey = "revision-attempt-1";
     expect(

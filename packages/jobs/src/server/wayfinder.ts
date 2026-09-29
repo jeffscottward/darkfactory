@@ -9,28 +9,28 @@ import {
   readlink,
   realpath,
   rm,
-  symlink,
   stat,
+  symlink,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
-  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   canonicalJsonV1,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   parseWorkflowEffectScopeV1,
   type WorkflowEventV1,
 } from "@darkfactory/state/workflow";
 
 import {
   captureOmpWayfinderTrackerArtifact,
-  redactEffectiveOmpOutput,
-  truncateOmpUtf8,
-  sanitizeOmpWayfinderTrackerArtifact,
   type OmpCliAdapter,
   type OmpCommand,
   type OmpExecutionResult,
   type OmpWayfinderTrackerArtifact,
+  redactEffectiveOmpOutput,
+  sanitizeOmpWayfinderTrackerArtifact,
+  truncateOmpUtf8,
 } from "./omp.ts";
 import { MAX_WORKFLOW_PLAN_SUMMARY_BYTES } from "./plan-evidence.ts";
 
@@ -43,7 +43,7 @@ export const WAYFINDER_SKILL_PATH = join(
   "SKILL.md"
 );
 
-const MAX_WAYFINDER_SKILL_BYTES = 256 * 1_024;
+const MAX_WAYFINDER_SKILL_BYTES = 256 * 1024;
 const SAFE_WORKFLOW_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const SAFE_WAYFINDER_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const WAYFINDER_STAGING_UUID =

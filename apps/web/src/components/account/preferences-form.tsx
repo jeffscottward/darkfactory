@@ -1,15 +1,15 @@
 "use client";
 
-import {
-  type PreferencesOutput,
-  type PreferencesUpdateInput,
+import type {
+  PreferencesOutput,
+  PreferencesUpdateInput,
 } from "@darkfactory/api";
-import { useForm } from "@tanstack/react-form";
 import { Button, Label } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
 
 import {
-  AccountFeedbackMessage,
   type AccountFeedback,
+  AccountFeedbackMessage,
 } from "./account-feedback.tsx";
 
 const visibilities = ["private", "members", "public"] as const;
@@ -94,22 +94,22 @@ export const PreferencesForm = ({
       <AccountFeedbackMessage feedback={feedback} />
       <section aria-labelledby="appearance-summary" className="space-y-2">
         <h2
-          className="font-heading text-lg font-semibold text-foreground"
+          className="font-heading font-semibold text-foreground text-lg"
           id="appearance-summary"
         >
           Appearance
         </h2>
-        <p className="text-sm text-foreground">
+        <p className="text-foreground text-sm">
           Current appearance: {labelFor(initialPreferences.themeMode)} mode with
           the {labelFor(initialPreferences.palette)} palette.
         </p>
-        <p className="max-w-reading text-sm text-muted-foreground">
+        <p className="max-w-reading text-muted-foreground text-sm">
           Use Theme settings in the top bar to change mode or palette.
         </p>
       </section>
 
-      <fieldset className="space-y-3 border-t border-border pt-6">
-        <legend className="font-heading text-lg font-semibold text-foreground">
+      <fieldset className="space-y-3 border-border border-t pt-6">
+        <legend className="font-heading font-semibold text-foreground text-lg">
           Notifications and consent
         </legend>
         {preferenceToggles.map((definition) => (
@@ -129,10 +129,10 @@ export const PreferencesForm = ({
                   type="checkbox"
                 />
                 <span>
-                  <span className="block text-sm font-medium text-foreground">
+                  <span className="block font-medium text-foreground text-sm">
                     {definition.label}
                   </span>
-                  <span className="block text-sm text-muted-foreground">
+                  <span className="block text-muted-foreground text-sm">
                     {definition.help}
                   </span>
                 </span>
@@ -144,10 +144,10 @@ export const PreferencesForm = ({
 
       <form.Field name="profileVisibility">
         {(field) => (
-          <div className="max-w-md space-y-2 border-t border-border pt-6">
+          <div className="max-w-md space-y-2 border-border border-t pt-6">
             <Label htmlFor="profileVisibility">Profile visibility</Label>
             <p
-              className="text-sm text-muted-foreground"
+              className="text-muted-foreground text-sm"
               id="profileVisibility-help"
             >
               Choose who may see your non-sensitive profile summary.
@@ -182,7 +182,7 @@ export const PreferencesForm = ({
       >
         {([canSubmit, isDirty, isSubmitting]) => (
           <Button
-            disabled={!canSubmit || !isDirty || isSubmitting}
+            disabled={!(canSubmit && isDirty) || isSubmitting}
             loading={isSubmitting}
             loadingLabel="Saving preferences"
             type="submit"

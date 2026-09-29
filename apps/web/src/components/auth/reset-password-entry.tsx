@@ -59,7 +59,7 @@ export const ResetPasswordEntry = () => {
     return (
       <div
         aria-live="polite"
-        className="flex min-h-11 items-center text-sm text-muted-foreground"
+        className="flex min-h-11 items-center text-muted-foreground text-sm"
         role="status"
       >
         Opening the reset link…

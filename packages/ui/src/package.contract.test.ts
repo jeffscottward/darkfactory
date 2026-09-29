@@ -5,8 +5,8 @@ import * as serverSafeUi from "./index.ts";
 
 const packageUrl = new URL("../package.json", import.meta.url);
 
-describe("UI package boundaries", function () {
-  it("points every export at an existing TypeScript source or stylesheet", async function () {
+describe("UI package boundaries", () => {
+  it("points every export at an existing TypeScript source or stylesheet", async () => {
     const manifest = JSON.parse(await readFile(packageUrl, "utf8")) as {
       exports: Record<string, string | { import?: string }>;
     };
@@ -29,7 +29,7 @@ describe("UI package boundaries", function () {
     );
   });
 
-  it("publishes the semantic theme client boundary", async function () {
+  it("publishes the semantic theme client boundary", async () => {
     const manifest = JSON.parse(await readFile(packageUrl, "utf8")) as {
       exports: Record<string, unknown>;
     };
@@ -37,7 +37,7 @@ describe("UI package boundaries", function () {
     return expect(manifest.exports).toHaveProperty("./client/theme");
   });
 
-  return it("keeps client-only wrappers out of the server-safe root", function () {
+  return it("keeps client-only wrappers out of the server-safe root", () => {
     expect(serverSafeUi).not.toHaveProperty("Dialog");
     expect(serverSafeUi).not.toHaveProperty("DropdownMenu");
     expect(serverSafeUi).not.toHaveProperty("Tabs");

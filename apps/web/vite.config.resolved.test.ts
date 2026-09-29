@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
 import { resolveConfig } from "vite";
+import { describe, expect, it } from "vitest";
 import viteConfig from "./vite.config";
 
 const SERVER_OPTIMIZE_DEPS_INCLUDE = [

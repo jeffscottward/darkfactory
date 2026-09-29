@@ -17,17 +17,17 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  applyGenerationPlan,
   type ApplyGenerationDependencies,
   type ApplyGenerationOptions,
+  applyGenerationPlan,
 } from "../../scripts/generate-feature/apply.ts";
+import { parseGeneratorArguments } from "../../scripts/generate-feature/parse.ts";
 import {
   assertNoSymlinkPath,
   hasIdentity,
   identityAt,
   pathExists,
 } from "../../scripts/generate-feature/path-safety.ts";
-import { parseGeneratorArguments } from "../../scripts/generate-feature/parse.ts";
 import { createGenerationPlan } from "../../scripts/generate-feature/plan.ts";
 import {
   createGenerationReport,
@@ -43,6 +43,7 @@ import {
   readGeneratedFiles,
   replaceFeaturesDirectoryWithSymlink,
 } from "./fixture.ts";
+
 type RunFeatureGeneratorCli =
   typeof import("../../scripts/generate-feature/cli.ts")["runFeatureGeneratorCli"];
 const runFeatureGeneratorCli = (
@@ -82,25 +83,23 @@ const registryPaths = [
   "packages/db/src/generated/schema-registry.ts",
 ] as const;
 
-describe("DF-069/DF-070 arguments and canonical names", function () {
-  it("parses one name with plan-derived report options", function () {
-    return expect(
+describe("DF-069/DF-070 arguments and canonical names", () => {
+  it("parses one name with plan-derived report options", () =>
+    expect(
       parseGeneratorArguments(["order-item", "--dry-run", "--json"])
     ).toEqual({
       name: "order-item",
       dryRun: true,
       json: true,
-    });
-  });
+    }));
 
   it.each([
     { arguments_: [] },
     { arguments_: ["one", "two"] },
     { arguments_: ["--unknown", "order-item"] },
     { arguments_: ["order-item", "--dry-run", "--dry-run"] },
-  ])("rejects ambiguous invocation %#", function ({ arguments_ }) {
-    return expect(() => parseGeneratorArguments(arguments_)).toThrow();
-  });
+  ])("rejects ambiguous invocation %#", ({ arguments_ }) =>
+    expect(() => parseGeneratorArguments(arguments_)).toThrow());
 
   it.each([
     "../escape",
@@ -126,19 +125,18 @@ describe("DF-069/DF-070 arguments and canonical names", function () {
     "com9",
     "lpt1",
     "lpt9",
-  ])("rejects unsafe/nonportable name %j", function (name) {
-    return expect(() => validateFeatureName(name)).toThrow();
-  });
+  ])("rejects unsafe/nonportable name %j", (name) =>
+    expect(() => validateFeatureName(name)).toThrow());
 
-  it("rejects empty and non-string feature names", function () {
+  it("rejects empty and non-string feature names", () => {
     expect(() => validateFeatureName("")).toThrow("Feature name is invalid");
     return expect(() => validateFeatureName(undefined as never)).toThrow(
       "Feature name is invalid"
     );
   });
 
-  it("derives stable identifiers", function () {
-    return expect(validateFeatureName("order-item")).toEqual({
+  it("derives stable identifiers", () =>
+    expect(validateFeatureName("order-item")).toEqual({
       kebab: "order-item",
       pluralKebab: "order-items",
       camel: "orderItem",
@@ -147,19 +145,17 @@ describe("DF-069/DF-070 arguments and canonical names", function () {
       pluralPascal: "OrderItems",
       snake: "order_item",
       pluralSnake: "order_items",
-    });
-  });
+    }));
 
-  it("pluralizes consonant-y feature names without losing canonical forms", function () {
-    return expect(validateFeatureName("activity")).toMatchObject({
+  it("pluralizes consonant-y feature names without losing canonical forms", () =>
+    expect(validateFeatureName("activity")).toMatchObject({
       kebab: "activity",
       pluralKebab: "activities",
       pluralCamel: "activities",
       pluralPascal: "Activities",
       pluralSnake: "activities",
-    });
-  });
-  return it("bounds derived PostgreSQL identifiers", function () {
+    }));
+  return it("bounds derived PostgreSQL identifiers", () => {
     const maximumSafe = validateFeatureName("a".repeat(49));
     expect(maximumSafe.pluralSnake).toHaveLength(50);
     expect(`${maximumSafe.pluralSnake}_owner_id_idx`).toHaveLength(63);
@@ -177,8 +173,8 @@ describe("DF-069/DF-070 arguments and canonical names", function () {
   });
 });
 
-describe("DF-069 issued deterministic planning", function () {
-  it("produces the same plan and report across workspace paths", async function () {
+describe("DF-069 issued deterministic planning", () => {
+  it("produces the same plan and report across workspace paths", async () => {
     const firstFixture = await fixture();
     const secondFixture = await fixture();
     const first = await createGenerationPlan(
@@ -202,7 +198,7 @@ describe("DF-069 issued deterministic planning", function () {
     return expect(first.files.every(Object.isFrozen)).toBe(true);
   });
 
-  it("performs no writes when a live leaf collides", async function () {
+  it("performs no writes when a live leaf collides", async () => {
     const { root } = await fixture();
     const collision = join(root, "apps/web/src/features/order-item");
     await mkdir(collision);
@@ -228,7 +224,7 @@ describe("DF-069 issued deterministic planning", function () {
     "outbox-event",
     "audit-record",
     "preference",
-  ])("rejects reserved core identity %j without writes", async function (name) {
+  ])("rejects reserved core identity %j without writes", async (name) => {
     const { root } = await fixture();
     const before = await listFixtureEntries(root);
 
@@ -243,7 +239,7 @@ describe("DF-069 issued deterministic planning", function () {
     "address-book",
     "account-link",
     "audit-entry",
-  ])("allows near-safe identity %j", async function (name) {
+  ])("allows near-safe identity %j", async (name) => {
     const { root } = await fixture();
     return await expect(
       createGenerationPlan(root, validateFeatureName(name))
@@ -252,7 +248,7 @@ describe("DF-069 issued deterministic planning", function () {
     });
   });
 
-  it("does not read a generated registry through an outside symlink", async function () {
+  it("does not read a generated registry through an outside symlink", async () => {
     const { root } = await fixture();
     const outside = await mkdtemp(
       join(tmpdir(), "darkfactory-registry-outside-")
@@ -337,7 +333,7 @@ describe("DF-069 issued deterministic planning", function () {
       },
       undefined,
     ],
-  ])("rejects tampered registry metadata: %s", async function (_label, mutateRegistry, mutateJournal) {
+  ])("rejects tampered registry metadata: %s", async (_label, mutateRegistry, mutateJournal) => {
     const { root } = await fixture();
     const initial = await createGenerationPlan(
       root,
@@ -368,7 +364,7 @@ describe("DF-069 issued deterministic planning", function () {
     return expect(await listFixtureEntries(root)).toEqual(before);
   });
 
-  return it("rejects unissued and rebound structural plans without writes", async function () {
+  return it("rejects unissued and rebound structural plans without writes", async () => {
     const first = await fixture();
     const second = await fixture();
     const plan = await createGenerationPlan(
@@ -393,8 +389,8 @@ describe("DF-069 issued deterministic planning", function () {
   });
 });
 
-describe("DF-069 transactional live apply and verification", function () {
-  it("supports dry-run with no writes", async function () {
+describe("DF-069 transactional live apply and verification", () => {
+  it("supports dry-run with no writes", async () => {
     const { root } = await fixture();
     const before = await listFixtureEntries(root);
     const result = await generateFeature(["order-item", "--dry-run"], {
@@ -405,7 +401,7 @@ describe("DF-069 transactional live apply and verification", function () {
     return expect(await listFixtureEntries(root)).toEqual(before);
   });
 
-  it("applies, verifies, and reports through the complete workflow", async function () {
+  it("applies, verifies, and reports through the complete workflow", async () => {
     const { root } = await fixture();
     const result = await generateFeature(["order-item"], { targetRoot: root });
 
@@ -429,7 +425,7 @@ describe("DF-069 transactional live apply and verification", function () {
       ".darkfactory/.generate-feature.lock"
     );
   });
-  it("does not follow a feature-directory symlink outside the workspace", async function () {
+  it("does not follow a feature-directory symlink outside the workspace", async () => {
     const { root } = await fixture();
     const outside = await mkdtemp(
       join(tmpdir(), "darkfactory-generator-outside-")
@@ -445,7 +441,7 @@ describe("DF-069 transactional live apply and verification", function () {
     );
   });
 
-  it("preserves a lock it did not acquire", async function () {
+  it("preserves a lock it did not acquire", async () => {
     const { root } = await fixture();
     const lock = join(root, ".darkfactory/.generate-feature.lock");
     await mkdir(lock);
@@ -461,7 +457,7 @@ describe("DF-069 transactional live apply and verification", function () {
     ).resolves.toBe("preserve me");
   });
 
-  it("rejects a workspace rebound after planning without writing through the alias", async function () {
+  it("rejects a workspace rebound after planning without writing through the alias", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -479,7 +475,7 @@ describe("DF-069 transactional live apply and verification", function () {
     return expect(await listFixtureEntries(movedRoot)).toEqual(before);
   });
 
-  it("rejects a create target introduced after planning and preserves it", async function () {
+  it("rejects a create target introduced after planning and preserves it", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -502,7 +498,7 @@ describe("DF-069 transactional live apply and verification", function () {
     ).toBe(false);
   });
 
-  it("rejects missing and stale replacement targets after planning", async function () {
+  it("rejects missing and stale replacement targets after planning", async () => {
     const results = [];
     for (const mutation of ["missing", "stale"] as const) {
       const { root } = await fixture();
@@ -537,7 +533,7 @@ describe("DF-069 transactional live apply and verification", function () {
     return results;
   });
 
-  it("serializes different features that share generated registries", async function () {
+  it("serializes different features that share generated registries", async () => {
     const { root } = await fixture();
     const firstPlan = await createGenerationPlan(
       root,
@@ -574,7 +570,7 @@ describe("DF-069 transactional live apply and verification", function () {
     });
   });
 
-  it("refuses occupied feature-owned directories without writing", async function () {
+  it("refuses occupied feature-owned directories without writing", async () => {
     const results1 = [];
     for (const relativeDirectory of [
       "apps/web/src/features/order-item",
@@ -595,7 +591,7 @@ describe("DF-069 transactional live apply and verification", function () {
     }
     return results1;
   });
-  it("refuses feature-owned directory occupancy introduced after planning", async function () {
+  it("refuses feature-owned directory occupancy introduced after planning", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -613,7 +609,7 @@ describe("DF-069 transactional live apply and verification", function () {
     ).resolves.toBe("preserve");
   });
 
-  it("fails closed when a generated parent identity changes before promotion", async function () {
+  it("fails closed when a generated parent identity changes before promotion", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -633,7 +629,7 @@ describe("DF-069 transactional live apply and verification", function () {
     return expect(await listFixtureEntries(featureDirectory)).toEqual([]);
   });
 
-  it("does not acquire its global lock through an outside symlink", async function () {
+  it("does not acquire its global lock through an outside symlink", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -654,7 +650,7 @@ describe("DF-069 transactional live apply and verification", function () {
     });
     return expect(await listFixtureEntries(outside)).toEqual(before);
   });
-  it("refuses a raced-in destination and restores registries", async function () {
+  it("refuses a raced-in destination and restores registries", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -682,7 +678,7 @@ describe("DF-069 transactional live apply and verification", function () {
     );
   });
 
-  it("does not delete replacement work when rollback ownership changes", async function () {
+  it("does not delete replacement work when rollback ownership changes", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -704,7 +700,7 @@ describe("DF-069 transactional live apply and verification", function () {
       "replacement user work"
     );
   });
-  it("does not delete a same-byte replacement with a different inode", async function () {
+  it("does not delete a same-byte replacement with a different inode", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -728,7 +724,7 @@ describe("DF-069 transactional live apply and verification", function () {
     );
   });
 
-  it("preserves a promoted artifact when rollback ownership validation faults", async function () {
+  it("preserves a promoted artifact when rollback ownership validation faults", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -780,7 +776,7 @@ describe("DF-069 transactional live apply and verification", function () {
     ).toEqual(registriesBefore);
   });
 
-  it("restores promoted work when a replacement changes during promotion", async function () {
+  it("restores promoted work when a replacement changes during promotion", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -822,7 +818,7 @@ describe("DF-069 transactional live apply and verification", function () {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rolls back when a staged destination parent disappears before linking", async function () {
+  it("rolls back when a staged destination parent disappears before linking", async () => {
     const { root } = await fixture();
     const beforeEntries = await listFixtureEntries(root);
     const beforeRegistries = await readGeneratedFiles(root, registryPaths);
@@ -851,7 +847,7 @@ describe("DF-069 transactional live apply and verification", function () {
     );
   });
 
-  it("reports manual cleanup when its staging identity disappears after commit", async function () {
+  it("reports manual cleanup when its staging identity disappears after commit", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -883,7 +879,7 @@ describe("DF-069 transactional live apply and verification", function () {
       )
     ).toBe(false);
   });
-  it("emits valid Drizzle SQL interpolation in generated schemas", async function () {
+  it("emits valid Drizzle SQL interpolation in generated schemas", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -891,12 +887,12 @@ describe("DF-069 transactional live apply and verification", function () {
     );
     const schema = plan.files.find((file) => file.path.endsWith("/schema.ts"))!;
 
-    expect(schema.content).toContain("\${table.status}");
-    expect(schema.content).toContain("\${table.name}");
+    expect(schema.content).toContain("${table.status}");
+    expect(schema.content).toContain("${table.name}");
     return expect(schema.content).not.toContain("4{table.");
   });
 
-  it("fails safe rather than replacing a registry when backup tracking is unavailable", async function () {
+  it("fails safe rather than replacing a registry when backup tracking is unavailable", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -936,7 +932,7 @@ describe("DF-069 transactional live apply and verification", function () {
     }
   });
 
-  it("detects generated registry tampering", async function () {
+  it("detects generated registry tampering", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -954,7 +950,7 @@ describe("DF-069 transactional live apply and verification", function () {
     });
   });
 
-  it("distinguishes non-files from missing artifacts during verification", async function () {
+  it("distinguishes non-files from missing artifacts during verification", async () => {
     const nonFileFixture = await fixture();
     const nonFilePlan = await createGenerationPlan(
       nonFileFixture.root,
@@ -989,7 +985,7 @@ describe("DF-069 transactional live apply and verification", function () {
     });
   });
 
-  it("uses portable verification flags when O_NOFOLLOW is unavailable", async function () {
+  it("uses portable verification flags when O_NOFOLLOW is unavailable", async () => {
     const { root } = await fixture();
     vi.doMock("node:fs", () => ({
       constants: { ...constants, O_NOFOLLOW: undefined },
@@ -1021,7 +1017,7 @@ describe("DF-069 transactional live apply and verification", function () {
     }
   });
 
-  return it("fails closed if application returns without running verification", async function () {
+  return it("fails closed if application returns without running verification", async () => {
     const { root } = await fixture();
     const before = await listFixtureEntries(root);
     vi.doMock("../../scripts/generate-feature/apply.ts", () => ({
@@ -1049,8 +1045,8 @@ describe("DF-069 transactional live apply and verification", function () {
   });
 });
 
-describe("DF-070 deterministic reports and thin CLI", function () {
-  it("renders deterministic human and machine reports", async function () {
+describe("DF-070 deterministic reports and thin CLI", () => {
+  it("renders deterministic human and machine reports", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -1067,7 +1063,7 @@ describe("DF-070 deterministic reports and thin CLI", function () {
     );
   });
 
-  it("sanitizes control-bearing options and filesystem paths", async function () {
+  it("sanitizes control-bearing options and filesystem paths", async () => {
     const { root } = await fixture();
     const dangerous = "--bad\u001b[31m";
     const errors: string[] = [];
@@ -1090,7 +1086,7 @@ describe("DF-070 deterministic reports and thin CLI", function () {
     return expect(errors.join(" ")).not.toContain(root);
   });
 
-  it("renders the applied human-report branches and default cleanup", async function () {
+  it("renders the applied human-report branches and default cleanup", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -1107,7 +1103,7 @@ describe("DF-070 deterministic reports and thin CLI", function () {
     return expect(human).not.toContain("No files were written.");
   });
 
-  it("writes successful human and JSON CLI reports", async function () {
+  it("writes successful human and JSON CLI reports", async () => {
     const { root } = await fixture();
     const humanOutput: string[] = [];
     const humanErrors: string[] = [];
@@ -1143,7 +1139,7 @@ describe("DF-070 deterministic reports and thin CLI", function () {
     });
   });
 
-  return it("writes human typed failures and sanitizes an unexpected output-sink failure", async function () {
+  return it("writes human typed failures and sanitizes an unexpected output-sink failure", async () => {
     const { root } = await fixture();
     const humanErrors: string[] = [];
     const typedCode = await runFeatureGeneratorCli(["OrderItem"], {
@@ -1179,8 +1175,8 @@ describe("DF-070 deterministic reports and thin CLI", function () {
   });
 });
 
-describe("DF-069 deterministic filesystem fault handling", function () {
-  return it("covers safe-parent, lock, owned-root, cleanup, and removal races", async function () {
+describe("DF-069 deterministic filesystem fault handling", () =>
+  it("covers safe-parent, lock, owned-root, cleanup, and removal races", async () => {
     const faults = {
       kind: "none",
       target: "",
@@ -1487,5 +1483,4 @@ describe("DF-069 deterministic filesystem fault handling", function () {
         entry.startsWith(".generate-feature-")
       )
     ).toBe(true);
-  });
-});
+  }));

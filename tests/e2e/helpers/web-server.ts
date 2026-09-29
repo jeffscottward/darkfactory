@@ -6,51 +6,47 @@ import type { PrepareSeedIdentities } from "@darkfactory/db/server";
 import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres";
 
 import {
-  spawnOwnedProcess,
   type OwnedProcess,
+  spawnOwnedProcess,
 } from "../../../scripts/e2e/owned-process-tree.ts";
 import {
-  acquireRouteOwnerLock,
-  releaseRouteOwnerLock,
-  type RouteOwnerLock,
-} from "./owner-lock.ts";
-import {
   acquireOwnedDevVars,
+  type OwnedDevVarsLease,
   releaseOwnedDevVarsLock,
   removeOwnedDevVarsFile,
-  type OwnedDevVarsLease,
 } from "./dev-vars.ts";
 import { cleanupE2ELifecycle } from "./lifecycle.ts";
 import {
-  formatE2ELifecycleFailure,
-  type E2ELifecycleDiagnosticStage,
-} from "./lifecycle-diagnostics.ts";
-import {
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_WEB_SERVER_PORT_ACCEPTING_MARKER,
+  E2E_WEB_SERVER_READY_MARKER,
   E2E_WEB_SERVER_ROUTE_ERROR_MARKER,
   E2E_WEB_SERVER_ROUTE_REQUEST_MARKER,
   E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER,
-  E2E_WEB_SERVER_READY_MARKER,
 } from "./lifecycle-budgets.ts";
 import {
-  createSerializedLifecycle,
-  isIntentionalLifecycleShutdownInterruption,
-  type LifecycleControl,
-} from "./serialized-lifecycle.ts";
+  type E2ELifecycleDiagnosticStage,
+  formatE2ELifecycleFailure,
+} from "./lifecycle-diagnostics.ts";
+import { removeE2EOptimizerCache } from "./optimizer-cache.ts";
+import {
+  acquireRouteOwnerLock,
+  type RouteOwnerLock,
+  releaseRouteOwnerLock,
+} from "./owner-lock.ts";
+import type { PreviewCaptureServer } from "./preview-capture.ts";
+import { createSensitiveOutputRedactor } from "./redacted-output.ts";
 import {
   assertOwnedE2ERunRootsReady,
   createOwnedE2ELifecycleStateWriter,
+  type E2ELifecycleStage,
+  type E2ELifecycleStateWriter,
+  type E2ERunPaths,
   e2eRunPathsFromEnvironment,
   prepareOwnedE2EPreviewDirectories,
   removeOwnedE2EPreviewArtifacts,
   removeOwnedE2ERunArtifacts,
-  type E2ERunPaths,
-  type E2ELifecycleStage,
-  type E2ELifecycleStateWriter,
 } from "./run-artifacts.ts";
-import { createSensitiveOutputRedactor } from "./redacted-output.ts";
-import { removeE2EOptimizerCache } from "./optimizer-cache.ts";
 import {
   canonicalBaseURL,
   createE2EServerEnvironment,
@@ -58,15 +54,20 @@ import {
   parsePortlessPort,
 } from "./runtime.ts";
 import {
+  createSerializedLifecycle,
+  isIntentionalLifecycleShutdownInterruption,
+  type LifecycleControl,
+} from "./serialized-lifecycle.ts";
+import {
   allocateE2EServerPort,
   classifyE2EServerExit,
   createPromiseResolvers,
+  type E2EReadinessProbeContext,
+  type E2EServerExitState,
   probeE2EServerTarget,
   waitForE2EServerReady,
-  type E2EServerExitState,
-  type E2EReadinessProbeContext,
 } from "./server-readiness.ts";
-import type { PreviewCaptureServer } from "./preview-capture.ts";
+
 const WEB_DIRECTORY = fileURLToPath(
   new URL("../../../apps/web/", import.meta.url)
 );

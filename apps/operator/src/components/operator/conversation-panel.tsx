@@ -116,61 +116,61 @@ export const ConversationPanel = ({
       </CardHeader>
       <CardContent className="space-y-6">
         <ol
-          className="border-y border-border"
           aria-label="Planning conversation"
+          className="border-border border-y"
         >
           <li className="py-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
               Your request
             </p>
-            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+            <p className="mt-2 whitespace-pre-wrap break-words text-foreground text-sm leading-6">
               {originalRequest}
             </p>
           </li>
           {planRevisions.map((revision, index) => (
             <li
-              className="border-t border-border py-5"
+              className="border-border border-t py-5"
               key={`${revision.createdAt.toISOString()}-${index}`}
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                   You requested changes
                 </p>
                 <time
-                  className="text-xs text-muted-foreground"
+                  className="text-muted-foreground text-xs"
                   dateTime={revision.createdAt.toISOString()}
                 >
                   {formatOperatorDate(revision.createdAt)}
                 </time>
               </div>
-              <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+              <p className="mt-2 whitespace-pre-wrap break-words text-foreground text-sm leading-6">
                 {revision.message}
               </p>
             </li>
           ))}
-          <li className="border-t border-border py-5">
+          <li className="border-border border-t py-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                 Wayfinder
               </p>
-              <span className="text-xs text-muted-foreground">Latest plan</span>
+              <span className="text-muted-foreground text-xs">Latest plan</span>
             </div>
             {implementationPlan === null ? (
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              <p className="mt-2 text-muted-foreground text-sm leading-6">
                 {missingPlanMessage(runState)}
               </p>
             ) : (
-              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
+              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-foreground text-sm leading-6">
                 {implementationPlan.summary}
               </pre>
             )}
           </li>
-          <li className="border-t border-border py-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <li className="border-border border-t py-5">
+            <p className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
               Operator notes
             </p>
             {messages.length === 0 ? (
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              <p className="mt-2 text-muted-foreground text-sm leading-6">
                 No notes have been added.
               </p>
             ) : (
@@ -181,17 +181,17 @@ export const ConversationPanel = ({
                     key={message.id}
                   >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="break-words text-sm font-semibold text-foreground">
+                      <span className="break-words font-semibold text-foreground text-sm">
                         {message.authorLabel}
                       </span>
                       <time
-                        className="text-xs text-muted-foreground"
+                        className="text-muted-foreground text-xs"
                         dateTime={message.createdAt.toISOString()}
                       >
                         {formatOperatorDate(message.createdAt)}
                       </time>
                     </div>
-                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                    <p className="mt-2 whitespace-pre-wrap break-words text-foreground text-sm leading-6">
                       {message.body}
                     </p>
                   </li>
@@ -211,7 +211,7 @@ export const ConversationPanel = ({
               }
               disabled={mutationDisabled}
               id="operator-message"
-              maxLength={2_000}
+              maxLength={2000}
               onChange={(event) => changeBody(event.currentTarget.value)}
               placeholder="Add context for the next review"
               required
@@ -219,7 +219,7 @@ export const ConversationPanel = ({
               value={body}
             />
             <p
-              className="text-xs leading-5 text-muted-foreground"
+              className="text-muted-foreground text-xs leading-5"
               id="operator-message-hint"
             >
               Notes add context only. They do not start or change work. Do not
@@ -228,7 +228,7 @@ export const ConversationPanel = ({
           </div>
           {failureMessage === undefined ? null : (
             <p
-              className="text-sm text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="text-destructive text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               id="operator-message-error"
               ref={failureRef}
               role="alert"

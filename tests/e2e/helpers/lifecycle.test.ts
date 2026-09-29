@@ -1,13 +1,12 @@
 import { createConnection } from "node:net";
-import { describe, expect, it, vi } from "vitest";
-
 import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres";
-import { cleanupE2ELifecycle } from "./lifecycle.ts";
+import { describe, expect, it, vi } from "vitest";
 import {
   processExists,
   spawnOwnedProcess,
   terminateOwnedProcessTree,
 } from "../../../scripts/e2e/owned-process-tree.ts";
+import { cleanupE2ELifecycle } from "./lifecycle.ts";
 
 const pause = (milliseconds: number): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -79,7 +78,7 @@ const fixtureAddress = async (
   new Promise((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error("Timed out waiting for E2E process-tree fixture")),
-      5_000
+      5000
     );
     let output = "";
     fixture.stdout.on("data", (chunk: Buffer) => {
@@ -236,8 +235,8 @@ describe("E2E lifecycle cleanup", () => {
         dropDatabase: async () => undefined,
         server: child,
         termination: {
-          forceTimeoutMillis: 1_000,
-          gracefulTimeoutMillis: 1_000,
+          forceTimeoutMillis: 1000,
+          gracefulTimeoutMillis: 1000,
         },
       });
       return expect(cleanup).toHaveBeenCalledOnce();

@@ -110,7 +110,7 @@ export const AdminUsersPageClient = () => {
       {paginationError === null ? null : (
         <p
           aria-live="assertive"
-          className="border-l-2 border-destructive py-2 pl-3 text-sm text-destructive"
+          className="border-destructive border-l-2 py-2 pl-3 text-destructive text-sm"
           role="alert"
         >
           {paginationError}

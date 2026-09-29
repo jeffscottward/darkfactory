@@ -2,8 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle, cn } from "@darkfactory/ui";
 import Link from "next/link";
 
 import {
-  WORKFLOW_STATES,
   type OperatorRunSummary,
+  WORKFLOW_STATES,
   type WorkflowState,
 } from "./operator-client.ts";
 import { formatOperatorDate, operatorRunTitle } from "./operator-format.ts";
@@ -49,7 +49,7 @@ const RunLink = ({
   readonly run: OperatorRunSummary;
   readonly selected: boolean;
 }) => (
-  <li className="border-t border-border first:border-t-0">
+  <li className="border-border border-t first:border-t-0">
     <Link
       aria-current={selected ? "true" : undefined}
       aria-label={`Open ${operatorRunTitle(run)}, ${workflowStateLabel(run.state)}`}
@@ -59,27 +59,27 @@ const RunLink = ({
       )}
       href={`/operator/runs/${encodeURIComponent(run.id)}`}
     >
-      <span className="block break-words text-sm font-semibold text-foreground">
+      <span className="block break-words font-semibold text-foreground text-sm">
         {operatorRunTitle(run)}
       </span>
       <span className="mt-2 flex flex-wrap items-center gap-2">
         <WorkflowStatus state={run.state} />
         <time
-          className="text-xs text-muted-foreground"
+          className="text-muted-foreground text-xs"
           dateTime={run.updatedAt.toISOString()}
         >
           {formatOperatorDate(run.updatedAt)}
         </time>
       </span>
       {run.blockedReason === undefined ? null : (
-        <span className="mt-3 block border-y border-destructive-border bg-destructive-subtle px-3 py-3">
-          <span className="block text-xs font-semibold text-destructive">
+        <span className="mt-3 block border-destructive-border border-y bg-destructive-subtle px-3 py-3">
+          <span className="block font-semibold text-destructive text-xs">
             Why it needs attention
           </span>
-          <span className="mt-1 block text-xs leading-5 text-destructive">
+          <span className="mt-1 block text-destructive text-xs leading-5">
             {run.blockedReason}
           </span>
-          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+          <span className="mt-1 block text-muted-foreground text-xs leading-5">
             Open this run to review the next action.
           </span>
         </span>
@@ -103,14 +103,14 @@ export const RunMonitor = ({ runs, selectedRunId }: RunMonitorProps) => {
   })).filter((stage) => stage.runs.length > 0);
   return (
     <section aria-labelledby="run-monitor-title" className="space-y-4">
-      <div className="border-b border-border pb-4">
+      <div className="border-border border-b pb-4">
         <h2
-          className="font-heading text-xl font-semibold tracking-tight text-foreground"
+          className="font-heading font-semibold text-foreground text-xl tracking-tight"
           id="run-monitor-title"
         >
           Work monitor
         </h2>
-        <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+        <p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-5">
           Follow each run through planning, review, active work, and completion.
           This board reports workflow state; moving a card does not change work.
         </p>
@@ -123,8 +123,8 @@ export const RunMonitor = ({ runs, selectedRunId }: RunMonitorProps) => {
                 {stage.label}
               </CardTitle>
               <span
-                className="text-xs tabular-nums text-muted-foreground"
                 aria-label={`${stage.runs.length} runs`}
+                className="text-muted-foreground text-xs tabular-nums"
               >
                 {stage.runs.length}
               </span>

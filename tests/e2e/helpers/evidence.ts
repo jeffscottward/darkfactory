@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 
@@ -8,8 +8,8 @@ import type { Page, TestInfo } from "@playwright/test";
 import {
   consumeEvidenceArtifacts,
   discardEvidenceArtifacts,
-  evidenceArtifactsFor,
   type EvidenceArtifact,
+  evidenceArtifactsFor,
 } from "./artifacts.ts";
 import { e2eRunPathsFromEnvironment } from "./run-artifacts.ts";
 

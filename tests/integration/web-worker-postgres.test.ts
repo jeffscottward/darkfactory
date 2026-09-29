@@ -13,22 +13,22 @@ import {
 } from "@darkfactory/testkit/postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  type OwnedProcess,
   ownedProcessTreeExists,
   spawnOwnedProcess,
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
-  type OwnedProcess,
 } from "../../scripts/e2e/owned-process-tree.ts";
 import {
   acquireOwnedDevVars,
+  type OwnedDevVarsLease,
   releaseOwnedDevVarsLock,
   removeOwnedDevVarsFile,
-  type OwnedDevVarsLease,
 } from "../e2e/helpers/dev-vars.ts";
 import {
   createE2EExecutionEnvironment,
-  redactSensitiveBindingValues,
   type E2EProcessEnvironment,
+  redactSensitiveBindingValues,
 } from "../e2e/helpers/runtime.ts";
 import {
   startWorkerWithRetry,
@@ -41,11 +41,11 @@ const VINEXT_CLI_PATH = join(WEB_DIRECTORY, "node_modules/vinext/dist/cli.js");
 const AUTH_SECRET = "worker-runtime-test-secret-at-least-32-chars";
 const PASSWORD = "CorrectHorseBatteryStaple!42";
 const APP_ORIGIN = "https://darkfactory-worker-test.localhost";
-const READINESS_ATTEMPT_TIMEOUT_MILLIS = 5_000;
+const READINESS_ATTEMPT_TIMEOUT_MILLIS = 5000;
 const READINESS_TIMEOUT_MILLIS = 150_000;
 const WORKER_TERMINATION_OPTIONS = {
-  forceTimeoutMillis: 3_000,
-  gracefulTimeoutMillis: 3_000,
+  forceTimeoutMillis: 3000,
+  gracefulTimeoutMillis: 3000,
 } as const;
 
 let database: PostgresTestDatabase;
@@ -100,7 +100,7 @@ const runLockContender = async (
   const contender = spawnOwnedProcess(
     process.execPath,
     ["--input-type=module", "--eval", script],
-    { signal: AbortSignal.timeout(5_000) }
+    { signal: AbortSignal.timeout(5000) }
   );
   let stderr = "";
   let stdout = "";

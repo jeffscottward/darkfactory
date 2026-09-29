@@ -1,4 +1,6 @@
 import { access } from "node:fs/promises";
+import { Button } from "@darkfactory/ui";
+import { notFound, redirect } from "next/navigation";
 import {
   Children,
   createElement,
@@ -7,10 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { notFound, redirect } from "next/navigation";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { Button } from "@darkfactory/ui";
 
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((href: string): never => {
@@ -22,23 +21,23 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/link", () => ({ default: "a" }));
 
+import { PublicShell } from "../../components/public-shell.tsx";
 import AboutPage from "./about/page.tsx";
+import PublicError, { PublicErrorContent } from "./error.tsx";
+import ErrorSmokePage from "./error-smoke/page.tsx";
+import { RecoverableErrorFixture } from "./error-smoke/recoverable-error-fixture.tsx";
 import FeaturesPage from "./features/page.tsx";
-import HomePage from "./page.tsx";
-import ResourcesPage from "./resources/page.tsx";
-import SolutionsPage from "./solutions/page.tsx";
-import PrivacyPage from "./privacy/page.ts";
-import TermsPage from "./terms/page.ts";
+import PublicLayout from "./layout.tsx";
 import LegalPrivacyPage from "./legal/privacy/page.tsx";
 import LegalTermsPage from "./legal/terms/page.tsx";
 import PublicLoading from "./loading.tsx";
-import PublicNotFound from "./not-found.tsx";
-import PublicError, { PublicErrorContent } from "./error.tsx";
-import PublicLayout from "./layout.tsx";
-import ErrorSmokePage from "./error-smoke/page.tsx";
 import LoadingSmokePage from "./loading-smoke/page.tsx";
-import { RecoverableErrorFixture } from "./error-smoke/recoverable-error-fixture.tsx";
-import { PublicShell } from "../../components/public-shell.tsx";
+import PublicNotFound from "./not-found.tsx";
+import HomePage from "./page.tsx";
+import PrivacyPage from "./privacy/page.ts";
+import ResourcesPage from "./resources/page.tsx";
+import SolutionsPage from "./solutions/page.tsx";
+import TermsPage from "./terms/page.ts";
 
 const markup = (
   component: Parameters<typeof renderToStaticMarkup>[0]
@@ -46,7 +45,7 @@ const markup = (
   return renderToStaticMarkup(component);
 };
 
-afterEach(function () {
+afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
   return vi.clearAllMocks();
@@ -151,8 +150,8 @@ const assertLinksResolve = (html: string): void => {
   }
 };
 
-describe("public route identity and semantics", function () {
-  it("renders a distinct, hierarchical page identity for every non-legal route", function () {
+describe("public route identity and semantics", () => {
+  it("renders a distinct, hierarchical page identity for every non-legal route", () => {
     const identities = publicPages.map(({ Page, route }) => {
       const html = renderPage(Page);
       assertHeadingHierarchy(html);
@@ -168,7 +167,7 @@ describe("public route identity and semantics", function () {
     return expect(new Set(identities).size).toBe(publicPages.length);
   });
 
-  it("keeps the home story substantive and every CTA on a real destination", function () {
+  it("keeps the home story substantive and every CTA on a real destination", () => {
     const html = renderPage(HomePage);
     expect(html).toContain("Build the product. Keep the foundation legible.");
     expect(html).toContain("Stable core");
@@ -180,7 +179,7 @@ describe("public route identity and semantics", function () {
     return expect(html).toContain('href="/sign-in"');
   });
 
-  return it("labels example archetypes instead of presenting fictional solutions as shipped products", function () {
+  return it("labels example archetypes instead of presenting fictional solutions as shipped products", () => {
     const html = renderPage(SolutionsPage);
     expect(html.match(/Example archetype/g)).toHaveLength(3);
     expect(html).toContain(
@@ -190,8 +189,8 @@ describe("public route identity and semantics", function () {
   });
 });
 
-describe("public resource and legal contracts", function () {
-  it("declares stable GitHub URLs for locally tracked repository artifacts", async function () {
+describe("public resource and legal contracts", () => {
+  it("declares stable GitHub URLs for locally tracked repository artifacts", async () => {
     const html = renderPage(ResourcesPage);
     const requiredDestinations = [
       "https://github.com/jeffscottward/darkfactory/blob/main/ARCHITECTURE.md",
@@ -222,7 +221,7 @@ describe("public resource and legal contracts", function () {
     return expect(pageHeader).not.toContain('target="_blank"');
   });
 
-  it("marks both canonical legal documents as starters requiring legal review", function () {
+  it("marks both canonical legal documents as starters requiring legal review", () => {
     for (const { Page, route } of legalPages) {
       const html = renderPage(Page);
       assertHeadingHierarchy(html);
@@ -238,7 +237,7 @@ describe("public resource and legal contracts", function () {
     );
   });
 
-  return it("redirects short legal aliases to one canonical page each", function () {
+  return it("redirects short legal aliases to one canonical page each", () => {
     const redirectMock = vi.mocked(redirect);
     redirectMock.mockClear();
     expect(() => PrivacyPage()).toThrow("redirect:/legal/privacy");
@@ -248,8 +247,8 @@ describe("public resource and legal contracts", function () {
   });
 });
 
-describe("public route states", function () {
-  it("announces loading and marks its visual skeleton as decorative", function () {
+describe("public route states", () => {
+  it("announces loading and marks its visual skeleton as decorative", () => {
     const html = renderPage(PublicLoading);
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
@@ -257,7 +256,7 @@ describe("public route states", function () {
     return expect(html).toContain('aria-hidden="true"');
   });
 
-  it("autofocuses and announces failure while wiring real recovery actions", function () {
+  it("autofocuses and announces failure while wiring real recovery actions", () => {
     const reset = vi.fn();
     const errorContent = PublicErrorContent({ reset });
     const resetButton = findButton(errorContent);
@@ -292,14 +291,14 @@ describe("public route states", function () {
     return expect(guardedError).not.toContain("private provider payload");
   });
 
-  it("composes public children through the shared shell", function () {
+  it("composes public children through the shared shell", () => {
     const result = PublicLayout({ children: "public content" });
 
     expect(result.type).toBe(PublicShell);
     return expect(result.props.children).toBe("public content");
   });
 
-  it("hides smoke fixtures outside the isolated E2E process", async function () {
+  it("hides smoke fixtures outside the isolated E2E process", async () => {
     vi.stubEnv("APP_ENV", "production");
     vi.stubEnv("E2E_FIXTURES", "0");
     vi.stubEnv("NODE_ENV", "production");
@@ -309,7 +308,7 @@ describe("public route states", function () {
     return expect(vi.mocked(notFound)).toHaveBeenCalledTimes(2);
   });
 
-  return it("renders enabled error and delayed loading smoke fixtures", async function () {
+  return it("renders enabled error and delayed loading smoke fixtures", async () => {
     vi.useFakeTimers();
     vi.stubEnv("APP_ENV", "test");
     vi.stubEnv("E2E_FIXTURES", "1");
@@ -319,7 +318,7 @@ describe("public route states", function () {
     expect(error.type).toBe(RecoverableErrorFixture);
 
     const pending = LoadingSmokePage();
-    await vi.advanceTimersByTimeAsync(1_500);
+    await vi.advanceTimersByTimeAsync(1500);
     const loading = markup(await pending);
     expect(loading).toContain("The loading fixture completed.");
     return expect(loading).toContain(

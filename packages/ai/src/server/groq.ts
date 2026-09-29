@@ -1,12 +1,12 @@
-import { createDisabledAiPort } from "../index.ts";
 import type {
   AiFailureCategory,
   AiPort,
   AiRequest,
   AiResult,
 } from "../index.ts";
+import { createDisabledAiPort } from "../index.ts";
 
-const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 1;
 const CALL_ABORTED = Symbol("AI_CALL_ABORTED");
@@ -187,7 +187,7 @@ const runBounded = async <Result>(
 export const createGroqAiPort = (options: GroqAiPortOptions): AiPort => {
   const apiKey = options.apiKey?.trim();
   const model = options.model?.trim();
-  if (!apiKey || !model) return createDisabledAiPort("not_configured");
+  if (!(apiKey && model)) return createDisabledAiPort("not_configured");
 
   const timeoutMs = normalizeTimeout(options.timeoutMs);
   const clientFactory = options.clientFactory ?? createDefaultClient;

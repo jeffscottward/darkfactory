@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
 import type { SemanticEvent } from "@darkfactory/observability";
+import { describe, expect, it, vi } from "vitest";
 
 import { createRequestDatabaseDiagnosticSink } from "./request-database-diagnostics.ts";
 
-describe("createRequestDatabaseDiagnosticSink", function () {
+describe("createRequestDatabaseDiagnosticSink", () => {
   it.each([
     ["REQUEST_DATABASE_CLIENT_ERROR", "request-database.client-failed"],
     [
@@ -50,7 +50,7 @@ describe("createRequestDatabaseDiagnosticSink", function () {
     return expect(JSON.stringify(events)).not.toContain("token");
   });
 
-  it("rejects forged diagnostic codes without scheduling or emitting", function () {
+  it("rejects forged diagnostic codes without scheduling or emitting", () => {
     const emit = vi.fn();
     const scheduleBackgroundTask = vi.fn();
     const diagnosticSink = createRequestDatabaseDiagnosticSink({
@@ -67,7 +67,7 @@ describe("createRequestDatabaseDiagnosticSink", function () {
     return expect(emit).not.toHaveBeenCalled();
   });
 
-  it("contains emission failure in the tracked background task", async function () {
+  it("contains emission failure in the tracked background task", async () => {
     const emissionFailure = new Error("private provider failure");
     const scheduled: Promise<unknown>[] = [];
     const diagnosticSink = createRequestDatabaseDiagnosticSink({
@@ -92,7 +92,7 @@ describe("createRequestDatabaseDiagnosticSink", function () {
     ]);
   });
 
-  return it("contains emission rejection when background scheduling throws", async function () {
+  return it("contains emission rejection when background scheduling throws", async () => {
     const emissionFailure = new Error("private provider failure");
     const schedulingFailure = new Error("background scheduling unavailable");
     const emit = vi.fn(async () => {

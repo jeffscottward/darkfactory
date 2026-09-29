@@ -1,9 +1,9 @@
+import type { Profile } from "../schema/index.ts";
 import type { DatabaseExecutor } from "../server/client.ts";
 import {
   createProfileRepository,
   type UpsertProfileInput,
 } from "../server/repositories.ts";
-import type { Profile } from "../schema/index.ts";
 
 export const DEVELOPMENT_PROFILES: readonly UpsertProfileInput[] =
   Object.freeze([
@@ -79,7 +79,7 @@ export const convergeDevelopmentProfiles = async (
   const repository = createProfileRepository(database);
   for (const profile of DEVELOPMENT_PROFILES) {
     const current = await repository.findByUserId(profile.userId);
-    if (!current || !matchesProfile(current, profile)) {
+    if (!(current && matchesProfile(current, profile))) {
       await repository.upsert(profile);
     }
   }

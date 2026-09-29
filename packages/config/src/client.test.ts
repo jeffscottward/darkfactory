@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   CANONICAL_APP_URL,
-  toClientEnv,
   type ClientEnv,
   type ClientEnvironmentSource,
+  toClientEnv,
 } from "./client.ts";
 
-describe("client environment contract", function () {
-  it("returns only the public environment allowlist", function () {
+describe("client environment contract", () => {
+  it("returns only the public environment allowlist", () => {
     const source: ClientEnvironmentSource = {
       APP_ENV: "test",
       APP_URL: CANONICAL_APP_URL,
@@ -23,7 +23,7 @@ describe("client environment contract", function () {
     ]);
   });
 
-  return it("returns a new immutable-shaped value instead of the source object", function () {
+  return it("returns a new immutable-shaped value instead of the source object", () => {
     const source: ClientEnvironmentSource = {
       APP_ENV: "development",
       APP_URL: CANONICAL_APP_URL,

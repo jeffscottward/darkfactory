@@ -1,7 +1,7 @@
-import type { ComponentPropsWithRef } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
 import { LoaderCircle } from "lucide-react";
+import type { ComponentPropsWithRef } from "react";
 
 import { cn } from "./utilities.ts";
 
@@ -44,12 +44,12 @@ export const IconButton = ({
 }: IconButtonProps) => (
   <button
     {...props}
-    type={type}
     aria-busy={loading || undefined}
     aria-label={loading ? (loadingLabel ?? `Loading: ${ariaLabel}`) : ariaLabel}
+    className={cn(iconButtonVariants({ variant }), className)}
     data-loading={loading || undefined}
     disabled={disabled || loading}
-    className={cn(iconButtonVariants({ variant }), className)}
+    type={type}
   >
     <span className={cn("inline-flex", loading && "invisible")}>
       {children}

@@ -7,10 +7,11 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+
 type SystemFixtureModule = Readonly<{
   encodeOwnedRunAdoption: (proof: unknown) => string;
   prepareOwnedRun: (
@@ -27,11 +28,11 @@ const { encodeOwnedRunAdoption, prepareOwnedRun } = (await import(
 import {
   assertOwnedE2ERunRootsReady,
   createE2ERunPaths,
+  type E2ERunAdoption,
+  type E2ERunPaths,
   prepareOwnedE2EPreviewDirectories,
   removeOwnedE2EPreviewArtifacts,
   removeOwnedE2ERunArtifacts,
-  type E2ERunAdoption,
-  type E2ERunPaths,
 } from "./run-artifacts.ts";
 
 const OWNER_FILE_NAME = ".darkfactory-e2e-owner.json";

@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  WorkflowRepositoryGrantError,
   isWorkflowRepositoryGranted,
   parseWorkflowRepositoryGrants,
+  WorkflowRepositoryGrantError,
 } from "./grants.ts";
 
-describe("workflow repository grants", function () {
-  it("authorizes only exact owner and canonical repository pairs", function () {
+describe("workflow repository grants", () => {
+  it("authorizes only exact owner and canonical repository pairs", () => {
     const grants = parseWorkflowRepositoryGrants(
       "owner-1=darkfactory, owner-2=sample.repo,owner-1=darkfactory"
     );
@@ -27,7 +27,7 @@ describe("workflow repository grants", function () {
     ).toBe(false);
   });
 
-  it("fails closed for absent and malformed grants", function () {
+  it("fails closed for absent and malformed grants", () => {
     expect(() => parseWorkflowRepositoryGrants(undefined)).toThrow(
       WorkflowRepositoryGrantError
     );
@@ -53,7 +53,7 @@ describe("workflow repository grants", function () {
     return results;
   });
 
-  it("bounds grant count and encoded bytes", function () {
+  it("bounds grant count and encoded bytes", () => {
     const tooMany = Array.from(
       { length: 129 },
       (_, index) => `owner-${index}=darkfactory`
@@ -66,7 +66,7 @@ describe("workflow repository grants", function () {
     ).toThrow(WorkflowRepositoryGrantError);
   });
 
-  it("accepts exact identifier and aggregate byte boundaries", function () {
+  it("accepts exact identifier and aggregate byte boundaries", () => {
     const owner = "o".repeat(128);
     const repository = `r${"x".repeat(62)}z`;
     const grants = parseWorkflowRepositoryGrants(
@@ -82,12 +82,12 @@ describe("workflow repository grants", function () {
     ).toThrow("oversized");
   });
 
-  it("counts UTF-8 bytes portably before parsing grants", function () {
+  it("counts UTF-8 bytes portably before parsing grants", () => {
     const results1 = [];
     for (const oversized of [
-      "é".repeat(8_193),
-      "€".repeat(5_462),
-      "😀".repeat(4_097),
+      "é".repeat(8193),
+      "€".repeat(5462),
+      "😀".repeat(4097),
     ]) {
       results1.push(
         expect(() => parseWorkflowRepositoryGrants(oversized)).toThrow(
@@ -98,7 +98,7 @@ describe("workflow repository grants", function () {
     return results1;
   });
 
-  it("falls back safely when a UTF-16 character has no code point", function () {
+  it("falls back safely when a UTF-16 character has no code point", () => {
     const codePointAt = vi
       .spyOn(String.prototype, "codePointAt")
       .mockReturnValue(undefined);
@@ -111,7 +111,7 @@ describe("workflow repository grants", function () {
     }
   });
 
-  return it("accepts exactly 128 unique grants and rejects invalid identifier endings", function () {
+  return it("accepts exactly 128 unique grants and rejects invalid identifier endings", () => {
     const maximum = Array.from(
       { length: 128 },
       (_, index) => `owner-${index}=repository-${index}`

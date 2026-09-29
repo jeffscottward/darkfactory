@@ -34,16 +34,17 @@ const createTemporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
-afterEach(async function () {
-  return await Promise.all(
-    temporaryDirectories.splice(0).map((directory) => {
-      return rm(directory, { force: true, recursive: true });
-    })
-  );
-});
+afterEach(
+  async () =>
+    await Promise.all(
+      temporaryDirectories.splice(0).map((directory) => {
+        return rm(directory, { force: true, recursive: true });
+      })
+    )
+);
 
-describe("generate-feature path safety", function () {
-  it("classifies the root, descendants, parents, siblings, and absolute offsets", function () {
+describe("generate-feature path safety", () => {
+  it("classifies the root, descendants, parents, siblings, and absolute offsets", () => {
     const root = resolve(sep, "workspace", "root");
 
     expect(isPathInside(root, root)).toBe(true);
@@ -66,7 +67,7 @@ describe("generate-feature path safety", function () {
     ).toBe(false);
   });
 
-  it("asserts containment with a typed fail-closed error", function () {
+  it("asserts containment with a typed fail-closed error", () => {
     const root = resolve(sep, "workspace");
     expect(() => assertPathInside(root, join(root, "inside"))).not.toThrow();
     return expect(() =>
@@ -74,7 +75,7 @@ describe("generate-feature path safety", function () {
     ).toThrowError("Generated path escapes its workspace");
   });
 
-  it("accepts portable relative paths and rejects every unsafe shape", function () {
+  it("accepts portable relative paths and rejects every unsafe shape", () => {
     expect(() =>
       assertSafeRelativePath("apps/web/src/features/item.ts")
     ).not.toThrow();
@@ -98,7 +99,7 @@ describe("generate-feature path safety", function () {
     return results;
   });
 
-  it("captures immutable identities and distinguishes every identity mismatch", async function () {
+  it("captures immutable identities and distinguishes every identity mismatch", async () => {
     const root = await createTemporaryDirectory();
     const file = join(root, "artifact");
     await writeFile(file, "content", "utf8");
@@ -135,7 +136,7 @@ describe("generate-feature path safety", function () {
     });
   });
 
-  it("canonicalizes a workspace alias and validates the root and marker types", async function () {
+  it("canonicalizes a workspace alias and validates the root and marker types", async () => {
     const parent = await createTemporaryDirectory();
     const workspace = join(parent, "workspace");
     const alias = join(parent, "workspace-alias");
@@ -183,7 +184,7 @@ describe("generate-feature path safety", function () {
     });
   });
 
-  it("walks existing and missing paths without following symbolic links", async function () {
+  it("walks existing and missing paths without following symbolic links", async () => {
     const root = await createTemporaryDirectory();
     await mkdir(join(root, "safe", "nested"), { recursive: true });
     await writeFile(join(root, "safe", "nested", "file"), "content", "utf8");
@@ -218,7 +219,7 @@ describe("generate-feature path safety", function () {
     });
   });
 
-  it("captures and revalidates a frozen safe directory chain", async function () {
+  it("captures and revalidates a frozen safe directory chain", async () => {
     const root = await realpath(await createTemporaryDirectory());
     const first = join(root, "first");
     const second = join(first, "second");
@@ -249,7 +250,7 @@ describe("generate-feature path safety", function () {
     );
   });
 
-  it("rejects non-directory and symbolic-link directory-chain members", async function () {
+  it("rejects non-directory and symbolic-link directory-chain members", async () => {
     const root = await createTemporaryDirectory();
     await writeFile(join(root, "file"), "content", "utf8");
     await expect(captureDirectoryChain(root, "file")).rejects.toMatchObject({
@@ -272,7 +273,7 @@ describe("generate-feature path safety", function () {
     });
   });
 
-  return it("reports present, missing, and invalid traversal paths without swallowing errors", async function () {
+  return it("reports present, missing, and invalid traversal paths without swallowing errors", async () => {
     const root = await createTemporaryDirectory();
     const file = join(root, "file");
     await writeFile(file, "content", "utf8");

@@ -2,8 +2,8 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { accountContract, preferencesContract } from "./contracts/account.ts";
 import { adminUsersContract } from "./contracts/admin-users.ts";
-import { createDashboardContract } from "./contracts/dashboard.ts";
 import { contactContract } from "./contracts/contact.ts";
+import { createDashboardContract } from "./contracts/dashboard.ts";
 import { generatedFeatureContracts } from "./generated/contract-registry.ts";
 
 export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const;
@@ -263,23 +263,6 @@ export type UpdateThemePreferenceInput = z.input<
   typeof UpdateThemePreferenceSchema
 >;
 
-export {
-  ACCOUNT_ERRORS,
-  ADDRESS_TYPES,
-  PROFILE_VISIBILITIES,
-  AccountProfileSchema,
-  AddressCreateSchema,
-  AddressIdSchema,
-  AddressSchema,
-  AddressUpdateSchema,
-  IsoDateSchema,
-  PreferenceFieldsSchema,
-  PreferencesSchema,
-  PreferencesUpdateSchema,
-  ProfileSchema,
-  ProfileFieldsSchema,
-  ProfileUpdateSchema,
-} from "./contracts/account.ts";
 export type {
   AccountProfileOutput,
   AddressCreateInput,
@@ -291,27 +274,44 @@ export type {
   ProfileUpdateInput,
 } from "./contracts/account.ts";
 export {
-  ADMIN_USERS_ERRORS,
-  AdminUserSummarySchema,
-  AdminUsersListInputSchema,
-  AdminUsersListOutputSchema,
-} from "./contracts/admin-users.ts";
+  ACCOUNT_ERRORS,
+  AccountProfileSchema,
+  ADDRESS_TYPES,
+  AddressCreateSchema,
+  AddressIdSchema,
+  AddressSchema,
+  AddressUpdateSchema,
+  IsoDateSchema,
+  PROFILE_VISIBILITIES,
+  PreferenceFieldsSchema,
+  PreferencesSchema,
+  PreferencesUpdateSchema,
+  ProfileFieldsSchema,
+  ProfileSchema,
+  ProfileUpdateSchema,
+} from "./contracts/account.ts";
 export type {
   AdminUserSummaryOutput,
   AdminUsersListInput,
   AdminUsersListOutput,
 } from "./contracts/admin-users.ts";
 export {
-  DASHBOARD_ERRORS,
-  CapabilityProjectionSchema,
-} from "./contracts/dashboard.ts";
-export type { CapabilityProjection } from "./contracts/dashboard.ts";
+  ADMIN_USERS_ERRORS,
+  AdminUserSummarySchema,
+  AdminUsersListInputSchema,
+  AdminUsersListOutputSchema,
+} from "./contracts/admin-users.ts";
+export type {
+  ContactSubmitInput,
+  ContactSubmitOutput,
+} from "./contracts/contact.ts";
 export {
   CONTACT_ERRORS,
   ContactSubmitInputSchema,
   ContactSubmitOutputSchema,
 } from "./contracts/contact.ts";
-export type {
-  ContactSubmitInput,
-  ContactSubmitOutput,
-} from "./contracts/contact.ts";
+export type { CapabilityProjection } from "./contracts/dashboard.ts";
+export {
+  CapabilityProjectionSchema,
+  DASHBOARD_ERRORS,
+} from "./contracts/dashboard.ts";

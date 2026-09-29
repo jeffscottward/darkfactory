@@ -1,6 +1,5 @@
-import type { Transaction } from "../server/client.ts";
-
 import type { UserRole } from "../schema/index.ts";
+import type { Transaction } from "../server/client.ts";
 
 const DEVELOPMENT_PASSWORD = "Development123!";
 

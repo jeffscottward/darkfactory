@@ -278,7 +278,7 @@ describe("v0.1 capability manifest", () => {
       },
     ],
     ["key length", async () => `${"k".repeat(300)}: true\n`],
-    ["string length", async () => `extra: "${"x".repeat(5_000)}"\n`],
+    ["string length", async () => `extra: "${"x".repeat(5000)}"\n`],
   ])("rejects YAML exceeding the $0 budget before conversion", async (_label, source) => {
     const error = captureManifestError(await source());
     expect(error.issues).toEqual([
@@ -325,7 +325,7 @@ describe("v0.1 capability manifest", () => {
     }
   });
 
-  it("sanitizes an untrusted schema issue path before returning it", function () {
+  it("sanitizes an untrusted schema issue path before returning it", () => {
     const privatePath = "PRIVATE-SCHEMA-PATH";
     const privateValue = "private-schema-failure-detail";
     const validation = vi
@@ -364,7 +364,7 @@ describe("v0.1 capability manifest", () => {
     return expect(JSON.stringify(failure)).not.toContain(privateValue);
   });
 
-  it("rejects non-string and empty manifest sources with one stable issue", function () {
+  it("rejects non-string and empty manifest sources with one stable issue", () => {
     const results = [];
     for (const source of [null as never, "   "]) {
       results.push(
@@ -382,26 +382,24 @@ describe("v0.1 capability manifest", () => {
 
   it.each([
     ["multi-byte key", `${"é".repeat(65)}: true\n`],
-    ["multi-byte string", `extra: "${"é".repeat(2_049)}"\n`],
-  ])("enforces the UTF-8 byte budget for a $0", function (_label, source) {
-    return expect(captureManifestError(source).issues).toEqual([
+    ["multi-byte string", `extra: "${"é".repeat(2049)}"\n`],
+  ])("enforces the UTF-8 byte budget for a $0", (_label, source) =>
+    expect(captureManifestError(source).issues).toEqual([
       {
         code: "resource_limit",
         path: "yaml",
         message: "Manifest exceeds safe parsing limits",
       },
-    ]);
-  });
+    ]));
 
-  it("rejects non-finite YAML scalars before schema validation", function () {
-    return expect(captureManifestError("value: .inf\n").issues).toEqual([
+  it("rejects non-finite YAML scalars before schema validation", () =>
+    expect(captureManifestError("value: .inf\n").issues).toEqual([
       {
         code: "invalid_yaml",
         path: "yaml",
         message: "Manifest must contain valid, unique-key YAML",
       },
-    ]);
-  });
+    ]));
 
   it.each([
     [
@@ -410,7 +408,7 @@ describe("v0.1 capability manifest", () => {
       "provider-secret-value",
     ],
     ["number", "    provider: 982451653", "982451653"],
-  ])("classifies a wrong-type $0 without reflecting it", async function (_label, replacement, secretValue) {
+  ])("classifies a wrong-type $0 without reflecting it", async (_label, replacement, secretValue) => {
     const source = (await readManifest()).replace(
       "    provider: mintlify",
       replacement
@@ -425,7 +423,7 @@ describe("v0.1 capability manifest", () => {
     return expect(JSON.stringify(error)).not.toContain(secretValue);
   });
 
-  it("classifies a null literal value as an invalid type", async function () {
+  it("classifies a null literal value as an invalid type", async () => {
     const source = (await readManifest()).replace(
       "    provider: mintlify",
       "    provider:"
@@ -453,7 +451,7 @@ describe("v0.1 capability manifest", () => {
       "database.extensions_first",
       "false",
     ],
-  ])("classifies an unsupported same-type $0 without reflecting it", async function (_label, supported, unsupported, path, secretValue) {
+  ])("classifies an unsupported same-type $0 without reflecting it", async (_label, supported, unsupported, path, secretValue) => {
     const source = (await readManifest()).replace(supported, unsupported);
     const error = captureManifestError(source);
 
@@ -465,7 +463,7 @@ describe("v0.1 capability manifest", () => {
     return expect(JSON.stringify(error)).not.toContain(secretValue);
   });
 
-  it("uses the generic classification for tuple cardinality failures", async function () {
+  it("uses the generic classification for tuple cardinality failures", async () => {
     const source = (await readManifest()).replace(
       'fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1"]',
       'fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1", extra]'
@@ -479,7 +477,7 @@ describe("v0.1 capability manifest", () => {
     });
   });
 
-  it("preserves allowlisted tuple indexes while sanitizing schema paths", async function () {
+  it("preserves allowlisted tuple indexes while sanitizing schema paths", async () => {
     const source = (await readManifest()).replace(
       "users: [admin, alice, bob]",
       "users: [admin, alice, mallory]"
@@ -492,13 +490,13 @@ describe("v0.1 capability manifest", () => {
     });
   });
 
-  it("accepts null scalar structure before reporting the schema contract", function () {
+  it("accepts null scalar structure before reporting the schema contract", () => {
     const error = captureManifestError("value:\n");
     expect(error).toBeInstanceOf(CapabilityManifestValidationError);
     return expect(error.issues.length).toBeGreaterThan(0);
   });
 
-  it("rejects a comments-only manifest without reflecting its contents", function () {
+  it("rejects a comments-only manifest without reflecting its contents", () => {
     const privateComment = "private-comment-content";
     const error = captureManifestError(`# ${privateComment}\n`);
 
@@ -513,41 +511,38 @@ describe("v0.1 capability manifest", () => {
     return expect(JSON.stringify(error)).not.toContain(privateComment);
   });
 
-  it("treats unresolved YAML tag warnings as invalid input", function () {
-    return expect(
-      captureManifestError("value: !untrusted tagged\n").issues
-    ).toEqual([
+  it("treats unresolved YAML tag warnings as invalid input", () =>
+    expect(captureManifestError("value: !untrusted tagged\n").issues).toEqual([
       {
         code: "invalid_yaml",
         path: "yaml",
         message: "Manifest must contain valid, unique-key YAML",
       },
-    ]);
-  });
+    ]));
 
   it.each([
     ["an empty document", "---\n"],
     ["a finite numeric scalar", "value: 1\n"],
-  ])("accepts safe YAML structure for $0 before schema rejection", function (_case, source) {
+  ])("accepts safe YAML structure for $0 before schema rejection", (_case, source) => {
     const error = captureManifestError(source);
     expect(error).toBeInstanceOf(CapabilityManifestValidationError);
     return expect(error.issues.length).toBeGreaterThan(0);
   });
 
-  it("rejects an unknown parser node without reflecting its properties", async function () {
+  it("rejects an unknown parser node without reflecting its properties", async () => {
     const privateDetail = "private-parser-node-detail";
     vi.doUnmock("yaml");
     vi.resetModules();
-    vi.doMock("yaml", async function (importOriginal) {
+    vi.doMock("yaml", async (importOriginal) => {
       const actual = await importOriginal<typeof import("yaml")>();
       return {
         ...actual,
-        parseDocument: function () {
+        parseDocument() {
           return {
             errors: [],
             warnings: [],
             contents: { privateDetail },
-            toJS: function () {
+            toJS() {
               return {};
             },
           };
@@ -581,15 +576,15 @@ describe("v0.1 capability manifest", () => {
     return expect(JSON.stringify(failure)).not.toContain(privateDetail);
   });
 
-  it("sanitizes an unexpected YAML parser failure", async function () {
+  it("sanitizes an unexpected YAML parser failure", async () => {
     const privateDetail = "private-parser-failure-detail";
     vi.doUnmock("yaml");
     vi.resetModules();
-    vi.doMock("yaml", async function (importOriginal) {
+    vi.doMock("yaml", async (importOriginal) => {
       const actual = await importOriginal<typeof import("yaml")>();
       return {
         ...actual,
-        parseDocument: function () {
+        parseDocument() {
           throw new Error(privateDetail);
         },
       };

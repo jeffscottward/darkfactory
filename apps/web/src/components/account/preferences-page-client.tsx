@@ -4,14 +4,14 @@ import type {
   PreferencesOutput,
   PreferencesUpdateInput,
 } from "@darkfactory/api";
-import { Button, EmptyState, Skeleton, buttonVariants } from "@darkfactory/ui";
+import { Button, buttonVariants, EmptyState, Skeleton } from "@darkfactory/ui";
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useUiStoreApi } from "../../lib/ui-store.tsx";
 import {
-  accountFailureKind,
   type AccountFailureKind,
+  accountFailureKind,
   createBrowserAccountGateway,
   safeAccountFeedback,
 } from "./account-client.ts";

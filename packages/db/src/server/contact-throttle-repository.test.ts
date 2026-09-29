@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "./client.ts";
 import {
-  createContactThrottleRepository,
   type ContactThrottleRepositoryOptions,
+  createContactThrottleRepository,
 } from "./contact-throttle-repository.ts";
 
 const QUERY_DIALECT = new PgDialect();
@@ -86,15 +86,15 @@ const existingKeyScenario = (
   ...(decision === undefined ? [rows()] : [rows([decision])]),
 ];
 
-describe("contact throttle repository", function () {
+describe("contact throttle repository", () => {
   it.each([
     ["maxRows", 0, 100_000],
     ["maxRows", 100_001, 100_000],
-    ["cleanupBatchSize", -1, 1_000],
-    ["cleanupBatchSize", 1_001, 1_000],
-    ["maxRequests", 1.5, 1_000],
-    ["maxRequests", Number.POSITIVE_INFINITY, 1_000],
-  ] as const)("rejects invalid %s value %s", function (name, value, maximum) {
+    ["cleanupBatchSize", -1, 1000],
+    ["cleanupBatchSize", 1001, 1000],
+    ["maxRequests", 1.5, 1000],
+    ["maxRequests", Number.POSITIVE_INFINITY, 1000],
+  ] as const)("rejects invalid %s value %s", (name, value, maximum) => {
     const options = { [name]: value } as ContactThrottleRepositoryOptions;
 
     return expect(() =>
@@ -110,7 +110,7 @@ describe("contact throttle repository", function () {
     ["too long", "a".repeat(65)],
     ["non-hex", `${"a".repeat(63)}g`],
     ["null", null],
-  ] as const)("rejects %s keys before opening a transaction", async function (_label, keyHash) {
+  ] as const)("rejects %s keys before opening a transaction", async (_label, keyHash) => {
     const double = createThrottleDatabase([]);
     const repository = createContactThrottleRepository(double.database);
 
@@ -120,7 +120,7 @@ describe("contact throttle repository", function () {
     return expect(double.database.transaction).not.toHaveBeenCalled();
   });
 
-  it("inserts a new key below capacity using the default cleanup and quota policy", async function () {
+  it("inserts a new key below capacity using the default cleanup and quota policy", async () => {
     const double = createThrottleDatabase([
       newKeyScenario(
         { row_count: 0, retry_after_seconds: null },
@@ -166,7 +166,7 @@ describe("contact throttle repository", function () {
     );
   });
 
-  it("updates an expired existing key into a fresh custom-sized window", async function () {
+  it("updates an expired existing key into a fresh custom-sized window", async () => {
     const double = createThrottleDatabase([
       existingKeyScenario({
         allowed: true,
@@ -199,7 +199,7 @@ describe("contact throttle repository", function () {
     );
   });
 
-  it("returns the database quota denial for an active existing key", async function () {
+  it("returns the database quota denial for an active existing key", async () => {
     const double = createThrottleDatabase([
       existingKeyScenario({
         allowed: false,
@@ -230,7 +230,7 @@ describe("contact throttle repository", function () {
   it.each([
     [null, 1],
     [37, 37],
-  ] as const)("denies a new key at table capacity with retry %s normalized to %s", async function (databaseRetry, expectedRetry) {
+  ] as const)("denies a new key at table capacity with retry %s normalized to %s", async (databaseRetry, expectedRetry) => {
     const double = createThrottleDatabase([
       newKeyScenario({
         row_count: 2,
@@ -249,7 +249,7 @@ describe("contact throttle repository", function () {
     return expect(double.records[0]!.statements).toHaveLength(5);
   });
 
-  it("fails closed when the capacity query returns no row", async function () {
+  it("fails closed when the capacity query returns no row", async () => {
     const double = createThrottleDatabase([
       [rows(), rows(), rows(), rows(), rows()],
     ]);
@@ -260,7 +260,7 @@ describe("contact throttle repository", function () {
     return expect(double.records[0]!.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  it("fails closed when the atomic attempt returns no decision", async function () {
+  it("fails closed when the atomic attempt returns no decision", async () => {
     const double = createThrottleDatabase([existingKeyScenario()]);
 
     await expect(
@@ -269,7 +269,7 @@ describe("contact throttle repository", function () {
     return expect(double.records[0]!.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  it("propagates transaction failures without issuing later operations", async function () {
+  it("propagates transaction failures without issuing later operations", async () => {
     const failure = new Error("database unavailable");
     const double = createThrottleDatabase([[failure]]);
 
@@ -280,7 +280,7 @@ describe("contact throttle repository", function () {
     return expect(double.records[0]!.lifecycle).toEqual(["begin", "rollback"]);
   });
 
-  return it("preserves independent adapter decisions and key-lock statements across parallel callers", async function () {
+  return it("preserves independent adapter decisions and key-lock statements across parallel callers", async () => {
     const double = createThrottleDatabase([
       existingKeyScenario({
         allowed: true,

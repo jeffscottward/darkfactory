@@ -188,13 +188,13 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
-import { FeatureItemsCollection } from "./feature-items-collection.tsx";
 import type {
   FeatureItemGateway,
   FeatureItemListInput,
 } from "./feature-items-client.ts";
-import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
+import { FeatureItemsCollection } from "./feature-items-collection.tsx";
 import { FeatureItemsWorkspace } from "./feature-items-workspace.tsx";
+import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
 
 type ElementRecord = Readonly<{
   props: Record<string, unknown>;
@@ -353,7 +353,7 @@ const mountWorkspace = (gateway: FeatureItemGateway) => ({
   unmount: hookRuntime.cleanup,
 });
 
-const flushMicrotasks = async function (): Promise<void> {
+const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -363,8 +363,8 @@ afterEach(() => {
   return hookRuntime.reset();
 });
 
-describe("feature item workspace", function () {
-  it("applies bounded filters, ignores an obsolete load, and resets every filter", async function () {
+describe("feature item workspace", () => {
+  it("applies bounded filters, ignores an obsolete load, and resets every filter", async () => {
     const initialRequest = deferred<FeatureItemOutput[]>();
     const filteredRequest = deferred<FeatureItemOutput[]>();
     const list = vi
@@ -440,7 +440,7 @@ describe("feature item workspace", function () {
     return expect(markup(tree)).toContain("Archived result");
   });
 
-  it("renders a safe load error and retries into a ready collection", async function () {
+  it("renders a safe load error and retries into a ready collection", async () => {
     const list = vi
       .fn()
       .mockRejectedValueOnce({ code: "STORAGE_ERROR" })
@@ -467,7 +467,7 @@ describe("feature item workspace", function () {
     return expect(list).toHaveBeenCalledTimes(2);
   });
 
-  it("suppresses a rejected load after the workspace unmounts", async function () {
+  it("suppresses a rejected load after the workspace unmounts", async () => {
     const request = deferred<FeatureItemOutput[]>();
     const mount = mountWorkspace(
       gatewayWith({ list: vi.fn(() => request.promise) })
@@ -486,7 +486,7 @@ describe("feature item workspace", function () {
     );
   });
 
-  it("focuses archive confirmation and restores the initiating control on escape and cancel", async function () {
+  it("focuses archive confirmation and restores the initiating control on escape and cancel", async () => {
     const record = item();
     const mount = mountWorkspace(
       gatewayWith({ list: vi.fn(async () => [record]) })
@@ -534,7 +534,7 @@ describe("feature item workspace", function () {
     return expect(trigger.focus).toHaveBeenCalledTimes(2);
   });
 
-  it("completes archive feedback when transient DOM refs are unavailable", async function () {
+  it("completes archive feedback when transient DOM refs are unavailable", async () => {
     hookRuntime.setAssignRenderedRefs(false);
     const record = item();
     const list = vi
@@ -565,7 +565,7 @@ describe("feature item workspace", function () {
     return expect(hookRuntime.lastFocus()).toBeUndefined();
   });
 
-  it("locks filters and archive requests while archiving, then preserves the newest reload", async function () {
+  it("locks filters and archive requests while archiving, then preserves the newest reload", async () => {
     const first = item();
     const second = item({ id: "item-2", name: "Second item" });
     const manualRefresh = deferred<FeatureItemOutput[]>();
@@ -658,7 +658,7 @@ describe("feature item workspace", function () {
     return expect(hookRuntime.lastFocus()).toBe("feedback");
   });
 
-  return it("offers retry after an archive failure and removes the item after recovery", async function () {
+  return it("offers retry after an archive failure and removes the item after recovery", async () => {
     const record = item();
     const list = vi
       .fn()

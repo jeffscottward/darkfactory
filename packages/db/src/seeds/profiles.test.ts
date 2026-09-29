@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { profiles } from "../schema/index.ts";
 import type { Database } from "../server/client.ts";
 import {
-  DEVELOPMENT_PROFILES,
   convergeDevelopmentProfiles,
+  DEVELOPMENT_PROFILES,
 } from "./profiles.ts";
 
 type QueryRows = ReadonlyArray<Record<string, unknown>>;
@@ -32,7 +32,7 @@ const createProfileSeedDatabase = (selectOutcomes: QueryRows[]) => {
   const pendingSelects = [...selectOutcomes];
 
   const builderFor = (operation: QueryOperation): QueryBuilder => {
-    let builder = {} as QueryBuilder;
+    const builder = {} as QueryBuilder;
     builder.from = vi.fn((table: unknown) => {
       operation.table = table === profiles ? "profiles" : "unknown";
       return builder;
@@ -83,8 +83,8 @@ const profileRows = () => {
   return DEVELOPMENT_PROFILES.map((profile) => [{ ...profile }]);
 };
 
-describe("development profile seeds", function () {
-  it("publishes three frozen deterministic profiles with explicit locale defaults", function () {
+describe("development profile seeds", () => {
+  it("publishes three frozen deterministic profiles with explicit locale defaults", () => {
     expect(Object.isFrozen(DEVELOPMENT_PROFILES)).toBe(true);
     expect(DEVELOPMENT_PROFILES.every(Object.isFrozen)).toBe(true);
     expect(DEVELOPMENT_PROFILES.map((profile) => profile.userId)).toEqual([
@@ -113,7 +113,7 @@ describe("development profile seeds", function () {
     ]);
   });
 
-  it("inserts every missing profile with the authored seed values", async function () {
+  it("inserts every missing profile with the authored seed values", async () => {
     const double = createProfileSeedDatabase([[], [], []]);
 
     await convergeDevelopmentProfiles(double.database);
@@ -134,7 +134,7 @@ describe("development profile seeds", function () {
     ).toBe(true);
   });
 
-  it("leaves profiles unchanged when every authored field already matches", async function () {
+  it("leaves profiles unchanged when every authored field already matches", async () => {
     const double = createProfileSeedDatabase(profileRows());
 
     await convergeDevelopmentProfiles(double.database);
@@ -159,7 +159,7 @@ describe("development profile seeds", function () {
     ["timezone", "Europe/London"],
     ["locale", "fr-FR"],
     ["dateOfBirth", "2000-01-01"],
-  ] as const)("repairs a profile whose %s drifted", async function (field, replacement) {
+  ] as const)("repairs a profile whose %s drifted", async (field, replacement) => {
     const outcomes = profileRows();
     outcomes[0] = [{ ...DEVELOPMENT_PROFILES[0]!, [field]: replacement }];
     const double = createProfileSeedDatabase(outcomes);

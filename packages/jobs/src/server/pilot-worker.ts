@@ -13,10 +13,10 @@ import {
 } from "@darkfactory/state/workflow";
 
 import {
-  OMP_VERIFIER_COMMAND_IDENTITY,
   createOmpCliAdapter,
-  type OmpCliAdapter,
+  OMP_VERIFIER_COMMAND_IDENTITY,
   type OmpApprovedVerifierId,
+  type OmpCliAdapter,
 } from "./omp.ts";
 import {
   createLocalWayfinderExecutionAdapter,
@@ -27,7 +27,7 @@ import {
   type WorkflowRuntime,
 } from "./workflow-runtime.ts";
 
-export const DEFAULT_PILOT_POLL_INTERVAL_MS = 1_000;
+export const DEFAULT_PILOT_POLL_INTERVAL_MS = 1000;
 export const DEFAULT_PILOT_SHUTDOWN_TIMEOUT_MS = 10_000;
 const MAX_PILOT_INTERVAL_MS = 60_000;
 const MIN_PILOT_SHUTDOWN_TIMEOUT_MS = 100;

@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-
 import { parseWorkflowRepositoryGrants } from "@darkfactory/state/workflow";
+import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
@@ -32,6 +31,7 @@ vi.mock("./workflow-runtime.ts", () => ({
 }));
 
 import { createPilotWorker, runPilotWorkerMain } from "./pilot-worker.ts";
+
 const VERIFIER_IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 
 describe("pilot worker default dependencies", () => {
@@ -58,7 +58,7 @@ describe("pilot worker default dependencies", () => {
       repositoriesRoot: "/srv/repositories",
       leaseOwner: "pilot-defaults",
       pollIntervalMs: 60_000,
-      shutdownTimeoutMs: 1_000,
+      shutdownTimeoutMs: 1000,
       repositoryGrants: parseWorkflowRepositoryGrants("owner-1=darkfactory"),
       verifierId: "darkfactory-verify-core-v2",
       verifierImageDigest: VERIFIER_IMAGE_DIGEST,

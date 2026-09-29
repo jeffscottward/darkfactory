@@ -2,18 +2,18 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import {
   chmod,
+  type FileHandle,
   link,
   lstat,
   mkdir,
   open,
   readdir,
-  rename,
   realpath,
+  rename,
   rm,
-  type FileHandle,
 } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { basename, dirname, join, parse, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   EmailDeliveryResult,
@@ -23,14 +23,14 @@ import type {
 } from "../index.ts";
 import { normalizeRecipient } from "../recipient.ts";
 import {
-  renderEmailVerificationEmail,
-  type RenderedEmailVerificationEmail,
   type RenderEmailVerificationEmailOptions,
+  type RenderedEmailVerificationEmail,
+  renderEmailVerificationEmail,
 } from "./render-email-verification.ts";
 import {
-  renderPasswordResetEmail,
   type RenderedPasswordResetEmail,
   type RenderPasswordResetEmailOptions,
+  renderPasswordResetEmail,
 } from "./render-reset-password.ts";
 
 const DEFAULT_MAX_ARTIFACTS = 20;
@@ -118,7 +118,7 @@ const DELETING_SUFFIX = ".deleting.json";
 const LOCK_SUFFIX = ".preview.lock";
 const STALE_PARTIAL_MILLISECONDS = 5 * 60 * 1000;
 
-const MAX_METADATA_BYTES = 1_024;
+const MAX_METADATA_BYTES = 1024;
 
 type ArtifactInventory = {
   artifactName: string;

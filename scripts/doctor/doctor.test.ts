@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-
 import {
-  runDoctor,
-  type DoctorDependencies,
-  type DoctorFileSystem,
-} from "./doctor.ts";
-import { parseCapabilityManifest } from "./manifest.ts";
+  PM2_ENVIRONMENT_VERSION,
+  PM2_ENVIRONMENT_VERSION_KEY,
+} from "../dev/lifecycle.ts";
 import { runDoctorCli } from "./cli.ts";
 import {
-  PM2_ENVIRONMENT_VERSION_KEY,
-  PM2_ENVIRONMENT_VERSION,
-} from "../dev/lifecycle.ts";
+  type DoctorDependencies,
+  type DoctorFileSystem,
+  runDoctor,
+} from "./doctor.ts";
+import { parseCapabilityManifest } from "./manifest.ts";
 
 const MANIFEST = `
 project:

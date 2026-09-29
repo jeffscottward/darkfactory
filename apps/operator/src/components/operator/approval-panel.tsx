@@ -24,8 +24,8 @@ import type {
   OperatorImplementationPlan,
 } from "./operator-client.ts";
 import {
-  MAX_OPERATOR_REQUEST_BYTES,
   hasOperatorControlCharacters,
+  MAX_OPERATOR_REQUEST_BYTES,
   trimmedUtf8ByteLength,
 } from "./operator-text-limit.ts";
 
@@ -45,7 +45,7 @@ export interface ApprovalPanelProps {
 }
 
 const BindingValue = ({ children }: { readonly children: string | number }) => (
-  <dd className="min-w-0 break-all font-mono text-xs leading-5 text-foreground">
+  <dd className="min-w-0 break-all font-mono text-foreground text-xs leading-5">
     {children}
   </dd>
 );
@@ -112,13 +112,13 @@ export const ApprovalPanel = ({
         {implementationPlan === null ? (
           approval === null ? null : (
             <div
-              className="border-y border-destructive-border bg-destructive-subtle px-4 py-4"
+              className="border-destructive-border border-y bg-destructive-subtle px-4 py-4"
               role="alert"
             >
-              <h3 className="font-heading text-base font-semibold text-foreground">
+              <h3 className="font-heading font-semibold text-base text-foreground">
                 Plan unavailable
               </h3>
-              <p className="mt-1 text-sm leading-6 text-destructive">
+              <p className="mt-1 text-destructive text-sm leading-6">
                 Implementation plan evidence is unavailable. Approval is
                 disabled.
               </p>
@@ -127,28 +127,28 @@ export const ApprovalPanel = ({
         ) : (
           <section
             aria-labelledby="implementation-plan-title"
-            className="min-w-0 border-y border-border py-4"
+            className="min-w-0 border-border border-y py-4"
           >
             <h3
-              className="font-heading text-base font-semibold text-foreground"
+              className="font-heading font-semibold text-base text-foreground"
               id="implementation-plan-title"
             >
               Latest plan
             </h3>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            <p className="mt-1 text-muted-foreground text-sm leading-6">
               Read every step before you choose an action.
             </p>
-            <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
+            <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-foreground text-sm leading-6">
               {implementationPlan.summary}
             </pre>
             {implementationPlan.redacted ? (
-              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              <p className="mt-3 text-muted-foreground text-xs leading-5">
                 Sensitive values were redacted.
               </p>
             ) : null}
             {implementationPlan.truncated ? (
               <p
-                className="mt-2 text-xs leading-5 text-destructive"
+                className="mt-2 text-destructive text-xs leading-5"
                 role="alert"
               >
                 This plan is incomplete and cannot be approved. Regenerate a
@@ -158,14 +158,14 @@ export const ApprovalPanel = ({
           </section>
         )}
         {approval === null ? (
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p className="text-muted-foreground text-sm leading-6">
             No plan is waiting for your review.
           </p>
         ) : (
           <>
             {approval.stale || conflictMessage !== undefined ? (
               <div
-                className="border-y border-warning-border bg-warning-subtle px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="border-warning-border border-y bg-warning-subtle px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 ref={conflictRef}
                 role="alert"
                 tabIndex={-1}
@@ -176,10 +176,10 @@ export const ApprovalPanel = ({
                     className="mt-0.5 size-5 shrink-0 text-warning-foreground"
                   />
                   <div>
-                    <h3 className="font-heading text-base font-semibold text-foreground">
+                    <h3 className="font-heading font-semibold text-base text-foreground">
                       Plan changed
                     </h3>
-                    <p className="mt-1 text-sm leading-6 text-warning-foreground">
+                    <p className="mt-1 text-sm text-warning-foreground leading-6">
                       {conflictMessage ??
                         "A newer plan or journal entry is available. Reload before you decide."}
                     </p>
@@ -197,26 +197,26 @@ export const ApprovalPanel = ({
                 </Button>
               </div>
             ) : null}
-            <details className="border-y border-border">
+            <details className="border-border border-y">
               <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 Integrity details
               </summary>
-              <div className="pb-4 pt-2">
-                <p className="mb-4 text-xs leading-5 text-muted-foreground">
+              <div className="pt-2 pb-4">
+                <p className="mb-4 text-muted-foreground text-xs leading-5">
                   These values bind approval to this exact plan and journal
                   version.
                 </p>
                 <dl className="grid min-w-0 gap-x-6 gap-y-4 sm:grid-cols-2">
                   {implementationPlan === null ? null : (
                     <div className="min-w-0 sm:col-span-2">
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                         Plan digest
                       </dt>
                       <BindingValue>{implementationPlan.digest}</BindingValue>
                     </div>
                   )}
                   <div className="min-w-0">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       Machine
                     </dt>
                     <BindingValue>
@@ -224,31 +224,31 @@ export const ApprovalPanel = ({
                     </BindingValue>
                   </div>
                   <div className="min-w-0">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       Event version
                     </dt>
                     <BindingValue>{approval.eventVersion}</BindingValue>
                   </div>
                   <div className="min-w-0">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       Snapshot sequence
                     </dt>
                     <BindingValue>{approval.snapshotSequence}</BindingValue>
                   </div>
                   <div className="min-w-0 sm:col-span-2">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       Journal head hash
                     </dt>
                     <BindingValue>{approval.journalHeadHash}</BindingValue>
                   </div>
                   <div className="min-w-0 sm:col-span-2">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       Effect hash
                     </dt>
                     <BindingValue>{approval.effectHash}</BindingValue>
                   </div>
                   <div className="min-w-0 sm:col-span-2">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <dt className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       Effect scope
                     </dt>
                     <BindingValue>{approval.effectScope}</BindingValue>
@@ -256,7 +256,7 @@ export const ApprovalPanel = ({
                 </dl>
               </div>
             </details>
-            <div className="flex flex-col gap-2 border-t border-border pt-5 sm:flex-row sm:flex-wrap">
+            <div className="flex flex-col gap-2 border-border border-t pt-5 sm:flex-row sm:flex-wrap">
               <Button
                 aria-describedby="approval-confirmation-hint"
                 disabled={
@@ -289,7 +289,7 @@ export const ApprovalPanel = ({
               </Button>
             </div>
             <p
-              className="text-xs leading-5 text-muted-foreground"
+              className="text-muted-foreground text-xs leading-5"
               id="approval-confirmation-hint"
             >
               Approving this button confirms the exact latest plan shown above.
@@ -299,7 +299,7 @@ export const ApprovalPanel = ({
         )}
         {canRequestChanges && onRequestChanges !== undefined ? (
           <form
-            className="space-y-3 border-t border-border pt-5"
+            className="space-y-3 border-border border-t pt-5"
             onSubmit={submitRevision}
           >
             <div className="space-y-2">
@@ -322,7 +322,7 @@ export const ApprovalPanel = ({
                 value={revisionMessage}
               />
               <p
-                className="text-xs leading-5 text-muted-foreground"
+                className="text-muted-foreground text-xs leading-5"
                 id="plan-revision-hint"
               >
                 Requesting changes replaces the current plan and approval.
@@ -331,8 +331,8 @@ export const ApprovalPanel = ({
               <p
                 className={
                   revisionError !== null
-                    ? "text-xs leading-5 text-destructive"
-                    : "text-xs leading-5 text-muted-foreground"
+                    ? "text-destructive text-xs leading-5"
+                    : "text-muted-foreground text-xs leading-5"
                 }
                 id="plan-revision-count"
               >
@@ -341,7 +341,7 @@ export const ApprovalPanel = ({
               </p>
               {revisionError === null ? null : (
                 <p
-                  className="text-sm text-destructive"
+                  className="text-destructive text-sm"
                   id="plan-revision-error"
                   role="alert"
                 >

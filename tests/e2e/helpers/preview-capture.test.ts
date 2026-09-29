@@ -1,12 +1,12 @@
-import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  startPreviewCaptureServer,
   type PreviewCaptureServer,
+  startPreviewCaptureServer,
 } from "./preview-capture.ts";
 
 const temporaryDirectories = new Set<string>();
@@ -31,7 +31,7 @@ const createFixture = async () => {
   return { root, binding, server };
 };
 
-afterEach(async function () {
+afterEach(async () => {
   await Promise.all([...servers].map((server) => server.close()));
   servers.clear();
   await Promise.all(
@@ -45,8 +45,8 @@ afterEach(async function () {
   return temporaryDirectories.clear();
 });
 
-describe("preview capture server", function () {
-  it("accepts one authenticated loopback capture and persists signed artifacts", async function () {
+describe("preview capture server", () => {
+  it("accepts one authenticated loopback capture and persists signed artifacts", async () => {
     const { root, binding, server } = await createFixture();
     const response = await fetch(server.endpoint, {
       method: "POST",
@@ -89,7 +89,7 @@ describe("preview capture server", function () {
     });
   });
 
-  return it("rejects a wrong bearer, run, path, and content type without writing files", async function () {
+  return it("rejects a wrong bearer, run, path, and content type without writing files", async () => {
     const { root, binding, server } = await createFixture();
     const payload = JSON.stringify({
       version: 1,

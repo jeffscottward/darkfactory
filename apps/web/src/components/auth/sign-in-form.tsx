@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useForm } from "@tanstack/react-form";
 import { Button, Input, Label } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import {
+  type AuthFlowClient,
+  type AuthFlowResult,
   browserAuthClient,
   submitSignIn,
   validateEmail,
   validatePasswordPresent,
-  type AuthFlowClient,
-  type AuthFlowResult,
 } from "./auth-flow.ts";
 import { FormStatus } from "./form-status.tsx";
 import { PasswordField } from "./password-field.tsx";
@@ -124,13 +124,13 @@ export const SignInForm = ({
                   setResult(null);
                   return field.handleChange(event.target.value);
                 }}
-                type="email"
                 required
+                type="email"
                 value={field.state.value}
               />
               {error ? (
                 <p
-                  className="text-sm font-medium text-destructive"
+                  className="font-medium text-destructive text-sm"
                   id={errorId}
                   role="alert"
                 >

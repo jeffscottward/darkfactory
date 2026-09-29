@@ -1,5 +1,5 @@
 const MAX_DASHBOARD_RESPONSE_BYTES = 65_536;
-export const DEFAULT_DASHBOARD_TIMEOUT_MS = 3_000;
+export const DEFAULT_DASHBOARD_TIMEOUT_MS = 3000;
 
 export type DashboardTransportFetch = (request: Request) => Promise<Response>;
 

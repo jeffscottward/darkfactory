@@ -1,12 +1,12 @@
-import Link from "next/link";
 import { CircleAlert, CircleCheck } from "lucide-react";
+import Link from "next/link";
 
 import { AuthPanel } from "../../../components/auth/auth-panel.tsx";
 import { EmailActionForm } from "../../../components/auth/email-action-form.tsx";
 import { SessionRedirect } from "../../../components/auth/session-redirect.tsx";
 import {
-  firstSearchParam,
   type AuthSearchParams,
+  firstSearchParam,
 } from "../auth-search-params.ts";
 
 export const metadata = {
@@ -45,7 +45,7 @@ export default async function VerifyEmailPage({
       <SessionRedirect callbackURL="/dashboard">
         {wasProcessed ? (
           <div className="grid gap-6" role="status">
-            <p className="grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-foreground">
+            <p className="grid grid-cols-[auto_1fr] gap-2 text-foreground text-sm leading-6">
               <CircleCheck
                 aria-hidden="true"
                 className="mt-1 text-primary"
@@ -64,7 +64,7 @@ export default async function VerifyEmailPage({
           <div className="grid gap-6">
             {verificationError ? (
               <p
-                className="grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-destructive"
+                className="grid grid-cols-[auto_1fr] gap-2 text-destructive text-sm leading-6"
                 role="alert"
               >
                 <CircleAlert aria-hidden="true" className="mt-1" size={16} />

@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { type ReactNode, useEffect, useState } from "react";
 
 import {
-  browserAuthClient,
-  normalizeAuthDestination,
   type AuthError,
   type AuthFlowClient,
+  browserAuthClient,
+  normalizeAuthDestination,
 } from "./auth-flow.ts";
 
 export const destinationForSession = (
@@ -62,7 +62,7 @@ export const SessionRedirect = ({
     return (
       <div
         aria-live="polite"
-        className="flex min-h-11 items-center text-sm text-muted-foreground"
+        className="flex min-h-11 items-center text-muted-foreground text-sm"
         role="status"
       >
         Checking your session…

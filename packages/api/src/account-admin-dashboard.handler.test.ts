@@ -3,12 +3,12 @@ import {
   AuthAuthorizationError,
   type SafeAuthSession,
 } from "@darkfactory/auth/server";
+import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 import {
   InvalidAdminUsersCursorError,
   OptimisticConcurrencyError,
   type Repositories,
 } from "@darkfactory/db/server";
-import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 import type { SemanticEvent } from "@darkfactory/observability/port";
 import { ORPCError } from "@orpc/client";
 import { describe, expect, it, vi } from "vitest";
@@ -229,8 +229,8 @@ const expectError = async (
   }
 };
 
-describe("account/admin/dashboard router", function () {
-  it("requires an active session for account and full preferences", async function () {
+describe("account/admin/dashboard router", () => {
+  it("requires an active session for account and full preferences", async () => {
     await expectError(
       clientFor(null).account.profile.get({}),
       "UNAUTHORIZED",
@@ -249,7 +249,7 @@ describe("account/admin/dashboard router", function () {
     );
   });
 
-  it("returns identity/profile and strips repository-only owner fields from addresses", async function () {
+  it("returns identity/profile and strips repository-only owner fields from addresses", async () => {
     const client = clientFor(memberSession);
     await expect(client.account.profile.get({})).resolves.toMatchObject({
       identity: { email: "private@example.test", emailVerified: true },
@@ -259,7 +259,7 @@ describe("account/admin/dashboard router", function () {
     return expect(listed[0]).not.toHaveProperty("userId");
   });
 
-  it("emits one correlated PII-free event only after a successful mutation", async function () {
+  it("emits one correlated PII-free event only after a successful mutation", async () => {
     const events: SemanticEvent[] = [];
     await clientFor(memberSession, { events }).account.profile.update({
       expectedUpdatedAt: NOW,
@@ -284,7 +284,7 @@ describe("account/admin/dashboard router", function () {
     return results;
   });
 
-  it("maps stale account writes to typed 409 without emitting success", async function () {
+  it("maps stale account writes to typed 409 without emitting success", async () => {
     const repos = repositories();
     vi.mocked(repos.profiles.updateOptimistic).mockRejectedValue(
       new OptimisticConcurrencyError("profile")
@@ -304,7 +304,7 @@ describe("account/admin/dashboard router", function () {
     return expect(events).toEqual([]);
   });
 
-  it("requires server-side admin role and maps cursor rejection to safe 400", async function () {
+  it("requires server-side admin role and maps cursor rejection to safe 400", async () => {
     await expectError(
       clientFor(memberSession).admin.users.list({}),
       "FORBIDDEN",
@@ -323,15 +323,14 @@ describe("account/admin/dashboard router", function () {
     );
   });
 
-  it("rejects a feature list limit above 100 at the API boundary", async function () {
-    return await expectError(
+  it("rejects a feature list limit above 100 at the API boundary", async () =>
+    await expectError(
       clientFor(memberSession).featureItems.list({ limit: 101 } as never),
       "BAD_REQUEST",
       400
-    );
-  });
+    ));
 
-  return it("returns the owner summary with an exact safe session projection", async function () {
+  return it("returns the owner summary with an exact safe session projection", async () => {
     const result = await clientFor(memberSession).dashboard.summary({});
 
     expect(result).toEqual({

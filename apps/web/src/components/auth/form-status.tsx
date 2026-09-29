@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { CheckCircle2, CircleAlert } from "lucide-react";
+import Link from "next/link";
 
 import type { AuthFlowResult } from "./auth-flow.ts";
 
@@ -13,8 +13,8 @@ export const FormStatus = ({
       <div
         className={
           result.status === "error"
-            ? "grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-destructive"
-            : "grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-foreground"
+            ? "grid grid-cols-[auto_1fr] gap-2 text-destructive text-sm leading-6"
+            : "grid grid-cols-[auto_1fr] gap-2 text-foreground text-sm leading-6"
         }
         role={result.status === "error" ? "alert" : "status"}
       >

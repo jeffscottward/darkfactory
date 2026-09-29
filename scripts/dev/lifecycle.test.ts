@@ -1,18 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { runDevelopmentCli } from "./cli.ts";
 import {
   CANONICAL_URL,
-  PROCESS_NAME,
-  PM2_ENVIRONMENT_VERSION,
-  ROUTE_NAME,
+  type CommandResult,
   inspectDevelopmentState,
   isCanonicalRouteOutput,
-  parsePm2ProcessList,
-  runDevelopmentAction,
-  type CommandResult,
+  PM2_ENVIRONMENT_VERSION,
+  PROCESS_NAME,
   type ProcessAdapter,
+  parsePm2ProcessList,
+  ROUTE_NAME,
+  runDevelopmentAction,
 } from "./lifecycle.ts";
-import { runDevelopmentCli } from "./cli.ts";
 
 const result = (stdout = "", exitCode = 0, stderr = ""): CommandResult => ({
   exitCode,

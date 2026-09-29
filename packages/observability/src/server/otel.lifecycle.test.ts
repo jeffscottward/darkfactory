@@ -69,8 +69,8 @@ beforeEach(() => {
   return (otlp.metricExporters.length = 0);
 });
 
-describe("OpenTelemetry exporter lifecycle", function () {
-  it("uses fake exporters for normalized configuration and resources", async function () {
+describe("OpenTelemetry exporter lifecycle", () => {
+  it("uses fake exporters for normalized configuration and resources", async () => {
     const authorization = "credential-marker";
     const team = "team-marker";
     const headers = Object.assign(Object.create(null), {
@@ -168,7 +168,7 @@ describe("OpenTelemetry exporter lifecycle", function () {
     return expect(metricExporter.shutdown).toHaveBeenCalledOnce();
   });
 
-  it("memoizes shutdown and routes later flushes through the disposal promise", async function () {
+  it("memoizes shutdown and routes later flushes through the disposal promise", async () => {
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-worker",
@@ -196,7 +196,7 @@ describe("OpenTelemetry exporter lifecycle", function () {
     );
   });
 
-  return it("contains exporter lifecycle failures in deterministic runtime promises", async function () {
+  return it("contains exporter lifecycle failures in deterministic runtime promises", async () => {
     const flushRuntime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-worker",

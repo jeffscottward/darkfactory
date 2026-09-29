@@ -40,7 +40,7 @@ const fixtureAddress = async (
   new Promise((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error("Timed out waiting for process-tree fixture")),
-      5_000
+      5000
     );
     let output = "";
     fixture.stdout.on("data", (chunk: Buffer) => {
@@ -129,7 +129,7 @@ describe("owned process-tree lifecycle", () => {
   }, 15_000);
 
   it("rejects live Windows termination without signaling the process", async () => {
-    const child = shortLivedOwnedProcess(5_000);
+    const child = shortLivedOwnedProcess(5000);
     try {
       const startedAt = Date.now();
       await expect(
@@ -137,7 +137,7 @@ describe("owned process-tree lifecycle", () => {
           platform: "win32",
         })
       ).rejects.toThrow(/termination is unproven on Windows/i);
-      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect(Date.now() - startedAt).toBeLessThan(1000);
       return expect(processExists(child.pid!)).toBe(true);
     } finally {
       await terminateOwnedProcessTree(child).catch(() => undefined);
@@ -155,7 +155,7 @@ describe("owned process-tree lifecycle", () => {
   });
 
   it("retains resources when Windows containment is unproven", async () => {
-    const child = shortLivedOwnedProcess(5_000);
+    const child = shortLivedOwnedProcess(5000);
     let cleaned = false;
     try {
       await expect(

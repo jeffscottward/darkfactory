@@ -2,23 +2,22 @@ import type { ApiClient, FeatureItemOutput } from "@darkfactory/api";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-
+import { CreateWorkflowStep } from "./feature-item-create-workflow.tsx";
+import {
+  ArchivedFeatureItemDetails,
+  ArchivedFeatureItemNotice,
+  createEditorMutationGuard,
+  EditorNameField,
+  isEditorMutationLocked,
+} from "./feature-item-editor.tsx";
 import {
   classifyFeatureFailure,
   createFeatureItemGateway,
   restorePortalFocus,
   synchronizeRetainedFeatureItem,
 } from "./feature-items-client.ts";
-import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
 import { FeatureItemsCollection } from "./feature-items-collection.tsx";
-import { CreateWorkflowStep } from "./feature-item-create-workflow.tsx";
-import {
-  ArchivedFeatureItemDetails,
-  ArchivedFeatureItemNotice,
-  EditorNameField,
-  createEditorMutationGuard,
-  isEditorMutationLocked,
-} from "./feature-item-editor.tsx";
+import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
 
 const item = (
   overrides: Partial<FeatureItemOutput> = {}
@@ -77,14 +76,14 @@ const findElement = (
   return visit(tree);
 };
 
-describe("partial create recovery", function () {
-  it("updates a retained durable draft with current edits before activation retry", async function () {
-    const update = vi.fn(async function (input) {
-      return item({
+describe("partial create recovery", () => {
+  it("updates a retained durable draft with current edits before activation retry", async () => {
+    const update = vi.fn(async (input) =>
+      item({
         name: input.name,
         description: input.description,
-      });
-    });
+      })
+    );
     const gateway = createFeatureItemGateway({
       featureItems: {
         list: vi.fn(),
@@ -112,7 +111,7 @@ describe("partial create recovery", function () {
     });
   });
 
-  it("reuses an unchanged retained draft without issuing an update", async function () {
+  it("reuses an unchanged retained draft without issuing an update", async () => {
     const update = vi.fn();
     const gateway = createFeatureItemGateway({
       featureItems: {
@@ -135,7 +134,7 @@ describe("partial create recovery", function () {
     return expect(update).not.toHaveBeenCalled();
   });
 
-  it("labels activation failure as a persisted draft and an unknown create outcome as non-retryable", function () {
+  it("labels activation failure as a persisted draft and an unknown create outcome as non-retryable", () => {
     const partial = renderToStaticMarkup(
       <CreateWorkflowStep
         description="Current description"
@@ -164,7 +163,7 @@ describe("partial create recovery", function () {
     );
   });
 
-  return it("uses safe fallback copy for a retained draft with no description or transport message", function () {
+  return it("uses safe fallback copy for a retained draft with no description or transport message", () => {
     const html = renderToStaticMarkup(
       <CreateWorkflowStep
         description=""
@@ -180,8 +179,8 @@ describe("partial create recovery", function () {
   });
 });
 
-describe("archive serialization", function () {
-  it("keeps the pending row visible and disables every archive action", function () {
+describe("archive serialization", () => {
+  it("keeps the pending row visible and disables every archive action", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection
         archiveBusy
@@ -198,7 +197,7 @@ describe("archive serialization", function () {
     return expect(html.match(/disabled=""/g) ?? []).toHaveLength(2);
   });
 
-  return it("invokes reset and archive actions while preserving optional no-op handlers", function () {
+  return it("invokes reset and archive actions while preserving optional no-op handlers", () => {
     const resetFilters = vi.fn();
     const filteredTree = FeatureItemsCollection({
       isFiltered: true,
@@ -254,8 +253,8 @@ describe("archive serialization", function () {
   });
 });
 
-describe("single editor mutation lock", function () {
-  it("locks every editor surface while any mutation is pending", function () {
+describe("single editor mutation lock", () => {
+  it("locks every editor surface while any mutation is pending", () => {
     expect(
       isEditorMutationLocked({
         saving: true,
@@ -286,7 +285,7 @@ describe("single editor mutation lock", function () {
     ).toBe(false);
   });
 
-  it("rejects a second mutation while a delayed save owns the lock", async function () {
+  it("rejects a second mutation while a delayed save owns the lock", async () => {
     const guard = createEditorMutationGuard();
     let releaseSave: (() => void) | undefined;
     const delayedSave = new Promise<void>((resolve) => {
@@ -305,7 +304,7 @@ describe("single editor mutation lock", function () {
     return expect(guard.isLocked()).toBe(false);
   });
 
-  return it("associates the empty-name error with the field and exposes invalid state", function () {
+  return it("associates the empty-name error with the field and exposes invalid state", () => {
     const html = renderToStaticMarkup(
       <EditorNameField
         disabled={false}
@@ -319,8 +318,8 @@ describe("single editor mutation lock", function () {
   });
 });
 
-describe("typed recovery actions", function () {
-  it("preserves unauthorized, forbidden, not-found, and transient recovery kinds", function () {
+describe("typed recovery actions", () => {
+  it("preserves unauthorized, forbidden, not-found, and transient recovery kinds", () => {
     expect(classifyFeatureFailure({ code: "UNAUTHORIZED" }).kind).toBe(
       "unauthorized"
     );
@@ -371,7 +370,7 @@ describe("typed recovery actions", function () {
     return expect(dashboardReturn).toContain('href="/dashboard"');
   });
 
-  return it("restores focus to the initiating control after inline confirmation closes", async function () {
+  return it("restores focus to the initiating control after inline confirmation closes", async () => {
     const focus = vi.fn();
     restorePortalFocus({ focus });
     await Promise.resolve();
@@ -382,8 +381,8 @@ describe("typed recovery actions", function () {
   });
 });
 
-describe("archived and session recovery states", function () {
-  it("renders archived records as read-only views without a redundant archive action", function () {
+describe("archived and session recovery states", () => {
+  it("renders archived records as read-only views without a redundant archive action", () => {
     const archived = item({ name: "Archived record", status: "archived" });
     const collection = renderToStaticMarkup(
       <FeatureItemsCollection state={{ type: "ready", items: [archived] }} />
@@ -407,7 +406,7 @@ describe("archived and session recovery states", function () {
     return expect(detail).not.toContain("Archive feature item");
   });
 
-  return it("returns an expired list session to the fixed feature-items callback", function () {
+  return it("returns an expired list session to the fixed feature-items callback", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection
         state={{
@@ -421,8 +420,8 @@ describe("archived and session recovery states", function () {
   });
 });
 
-describe("mobile content resilience", function () {
-  return it("wraps long user content and includes description in final review", function () {
+describe("mobile content resilience", () =>
+  it("wraps long user content and includes description in final review", () => {
     const unbroken = "x".repeat(200);
     const collection = renderToStaticMarkup(
       <FeatureItemsCollection
@@ -445,5 +444,4 @@ describe("mobile content resilience", function () {
     expect(review).toContain("Description");
     expect(review).toContain("None provided");
     return expect(review).toContain("overflow-wrap:anywhere");
-  });
-});
+  }));

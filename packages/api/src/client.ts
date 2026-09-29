@@ -2,7 +2,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { ContractRouterClient } from "@orpc/contract";
 
-import { appContract } from "./contract.ts";
+import type { appContract } from "./contract.ts";
 
 export type ApiClient = ContractRouterClient<typeof appContract>;
 

@@ -8,8 +8,8 @@ vi.mock("./handler.ts", () => ({ handleOperatorAuthRequest }));
 
 import { GET, POST } from "./route.ts";
 
-describe("operator auth route exports", function () {
-  return it("delegates GET and POST to the bounded auth handler", async function () {
+describe("operator auth route exports", () =>
+  it("delegates GET and POST to the bounded auth handler", async () => {
     const getRequest = new Request(
       "https://operator.darkfactory.localhost/api/auth/session"
     );
@@ -26,5 +26,4 @@ describe("operator auth route exports", function () {
       2,
       postRequest
     );
-  });
-});
+  }));

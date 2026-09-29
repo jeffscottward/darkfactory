@@ -1,9 +1,9 @@
+import { z } from "zod";
 import { CANONICAL_APP_URL } from "./client.ts";
 import {
   RequestDatabaseEndpointError,
   validateRequestDatabaseEndpoint,
 } from "./database.ts";
-import { z } from "zod";
 
 const emptyStringToUndefined = (value: unknown): unknown => {
   return typeof value === "string" && value.trim() === "" ? undefined : value;

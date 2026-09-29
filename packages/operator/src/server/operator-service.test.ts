@@ -7,17 +7,18 @@ var range: (start: number, end: number) => number[] = (start, end) => {
   }
   return arr;
 };
+
 import type { SafePrincipal } from "@darkfactory/auth/types";
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import { describe, expect, it, vi } from "vitest";
 
 import { OperatorRunDetailSchema } from "../contract.ts";
 import {
-  OperatorServiceError,
-  OperatorWorkflowPortError,
   createOperatorService,
-  operatorServiceErrorMessage,
+  OperatorServiceError,
   type OperatorWorkflowPort,
+  OperatorWorkflowPortError,
+  operatorServiceErrorMessage,
   type WorkflowOperatorDetail,
   type WorkflowOperatorRunSummary,
 } from "./operator-service.ts";
@@ -103,8 +104,8 @@ const expectServiceError = async (
   );
 };
 
-describe("operator service projection boundary", function () {
-  it("fails closed when the workflow port is unavailable", async function () {
+describe("operator service projection boundary", () => {
+  it("fails closed when the workflow port is unavailable", async () => {
     const service = createOperatorService(undefined);
     return await expectServiceError(
       service.workspace(principal, { limit: 1 }),
@@ -133,7 +134,7 @@ describe("operator service projection boundary", function () {
     );
   });
 
-  it("enforces owner scope for workspace, list, and both detail owner fields", async function () {
+  it("enforces owner scope for workspace, list, and both detail owner fields", async () => {
     const results = [];
     for (const operation of [
       createOperatorService(
@@ -170,7 +171,7 @@ describe("operator service projection boundary", function () {
     return results;
   });
 
-  it("rejects missing and unverified details", async function () {
+  it("rejects missing and unverified details", async () => {
     const missing = createOperatorService(
       portFor({
         detail: vi.fn(async () => null),
@@ -191,10 +192,10 @@ describe("operator service projection boundary", function () {
     });
   });
 
-  it("round-trips exact multibyte title, author, and note contract boundaries", async function () {
+  it("round-trips exact multibyte title, author, and note contract boundaries", async () => {
     const title = "😀".repeat(100);
     const authorLabel = "界".repeat(200);
-    const body = "😀".repeat(1_000);
+    const body = "😀".repeat(1000);
     const service = createOperatorService(
       portFor({
         detail: vi.fn(async () =>
@@ -216,7 +217,7 @@ describe("operator service projection boundary", function () {
     const projected = await service.detail(principal, "run-1");
     expect(title).toHaveLength(200);
     expect(authorLabel).toHaveLength(200);
-    expect(body).toHaveLength(2_000);
+    expect(body).toHaveLength(2000);
     expect(projected.run.title).toBe(title);
     expect(projected.messages[0]?.authorLabel).toBe(authorLabel);
     expect(projected.messages[0]?.body).toBe(body);
@@ -225,7 +226,7 @@ describe("operator service projection boundary", function () {
     );
   });
 
-  it("bounds oversized legacy text without splitting surrogate pairs", async function () {
+  it("bounds oversized legacy text without splitting surrogate pairs", async () => {
     const service = createOperatorService(
       portFor({
         detail: vi.fn(async () =>
@@ -235,7 +236,7 @@ describe("operator service projection boundary", function () {
               {
                 id: "message-legacy",
                 authorLabel: `${"a".repeat(199)}😀legacy`,
-                body: `${"b".repeat(1_999)}😀legacy`,
+                body: `${"b".repeat(1999)}😀legacy`,
                 createdAt: NOW,
               },
             ],
@@ -247,14 +248,14 @@ describe("operator service projection boundary", function () {
     const projected = await service.detail(principal, "run-1");
     expect(projected.run.title).toBe("😀".repeat(100));
     expect(projected.messages[0]?.authorLabel).toBe("a".repeat(199));
-    expect(projected.messages[0]?.body).toBe("b".repeat(1_999));
+    expect(projected.messages[0]?.body).toBe("b".repeat(1999));
     return expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(
       true
     );
   });
 
-  it("redacts secrets, caps UTF-8 safely, and bounds projected collections", async function () {
-    const longTimeline = Array.from({ length: 1_001 }, (_, index) => ({
+  it("redacts secrets, caps UTF-8 safely, and bounds projected collections", async () => {
+    const longTimeline = Array.from({ length: 1001 }, (_, index) => ({
       sequence: index + 1,
       eventType: "EVENT",
       summary: `Bearer token-${index} password=private`,
@@ -277,12 +278,12 @@ describe("operator service projection boundary", function () {
     const longMessages = Array.from({ length: 501 }, (_, index) => ({
       id: `message-${index}`,
       authorLabel: "Operator",
-      body: index === 0 ? `${"a".repeat(1_999)}😀` : "safe",
+      body: index === 0 ? `${"a".repeat(1999)}😀` : "safe",
       createdAt: NOW,
     }));
     const exactRevision =
       "Keep password=literal in the exact clarification text.";
-    const longPlanRevisions = Array.from({ length: 1_001 }, (_, index) => ({
+    const longPlanRevisions = Array.from({ length: 1001 }, (_, index) => ({
       message: index === 0 ? exactRevision : `Revision ${index}`,
       createdAt: NOW,
     }));
@@ -306,7 +307,7 @@ describe("operator service projection boundary", function () {
     const projected = await service.detail(principal, "run-1");
     expect(projected.run.title).toHaveLength(200);
     expect(projected.run.blockedReason).toHaveLength(500);
-    expect(projected.timeline).toHaveLength(1_000);
+    expect(projected.timeline).toHaveLength(1000);
     expect(projected.timeline[0]?.summary).toBe(
       "Bearer [REDACTED] password=[REDACTED]"
     );
@@ -320,9 +321,9 @@ describe("operator service projection boundary", function () {
       redactedContent: '{"password":"[REDACTED]"}',
     });
     expect(projected.messages).toHaveLength(500);
-    expect(projected.messages[0]?.body).toBe("a".repeat(1_999));
+    expect(projected.messages[0]?.body).toBe("a".repeat(1999));
     expect(projected.originalRequest).toBe("Plan the bounded operator change");
-    expect(projected.planRevisions).toHaveLength(1_000);
+    expect(projected.planRevisions).toHaveLength(1000);
     expect(projected.planRevisions[0]).toEqual({
       message: exactRevision,
       createdAt: NOW,
@@ -331,7 +332,7 @@ describe("operator service projection boundary", function () {
     return expect(Object.isFrozen(projected.planRevisions[0])).toBe(true);
   });
 
-  it("redacts exact normalized sensitive keys across JSON and plain evidence", async function () {
+  it("redacts exact normalized sensitive keys across JSON and plain evidence", async () => {
     const nestedJson = JSON.stringify({
       outer: {
         client_secret: "fixture-one",
@@ -465,7 +466,7 @@ describe("operator service projection boundary", function () {
     });
   });
 
-  it("covers bounded JSON traversal and decoder fallbacks", async function () {
+  it("covers bounded JSON traversal and decoder fallbacks", async () => {
     const sentinel = "fixture-secret-sentinel";
     const invalidQuotedKey = `"client\\_secret"=${sentinel}`;
     const malformedUnicodeKey = `"client\\u005fsecret\\_"=${sentinel}`;
@@ -606,7 +607,7 @@ describe("operator service projection boundary", function () {
     return results1;
   });
 
-  it("fails closed for sensitive structured JSON values", async function () {
+  it("fails closed for sensitive structured JSON values", async () => {
     const service = createOperatorService(
       portFor({
         detail: vi.fn(async () =>
@@ -641,7 +642,7 @@ describe("operator service projection boundary", function () {
     ]);
   });
 
-  it("projects the authoritative plan-revision capability", async function () {
+  it("projects the authoritative plan-revision capability", async () => {
     const service = createOperatorService(
       portFor({
         detail: vi.fn(async () => detail({ canRequestPlanRevision: true })),
@@ -655,7 +656,7 @@ describe("operator service projection boundary", function () {
     });
   });
 
-  it("projects the exact digest-bound plan and rejects a tampered port value", async function () {
+  it("projects the exact digest-bound plan and rejects a tampered port value", async () => {
     const service = createOperatorService(
       portFor({
         detail: vi.fn(async () => detail({ implementationPlan: PLAN })),
@@ -688,7 +689,7 @@ describe("operator service projection boundary", function () {
     );
   });
 
-  it("preserves an unexpected implementation-plan projection failure", async function () {
+  it("preserves an unexpected implementation-plan projection failure", async () => {
     const failure = new Error("unexpected plan projection failure");
     const poisonedPlan = Object.defineProperty({ ...PLAN }, "digest", {
       get: () => {
@@ -706,7 +707,7 @@ describe("operator service projection boundary", function () {
     );
   });
 
-  return it("omits optional summary fields and preserves pagination", async function () {
+  return it("omits optional summary fields and preserves pagination", async () => {
     const withoutOptional: WorkflowOperatorRunSummary = {
       id: "run-1",
       ownerId: "owner-1",
@@ -740,10 +741,10 @@ describe("operator service projection boundary", function () {
   });
 });
 
-describe("operator service action forwarding", function () {
-  return it("forwards owner-scoped submit, approval, and action contexts", async function () {
+describe("operator service action forwarding", () =>
+  it("forwards owner-scoped submit, approval, and action contexts", async () => {
     const port = portFor();
-    const exactNote = "😀".repeat(1_000);
+    const exactNote = "😀".repeat(1000);
     const service = createOperatorService(port);
     const approval = {
       machineId: "darkfactory-pilot",
@@ -831,6 +832,5 @@ describe("operator service action forwarding", function () {
     );
     return expect(
       new TextEncoder().encode(exactNote).byteLength
-    ).toBeLessThanOrEqual(8 * 1_024);
-  });
-});
+    ).toBeLessThanOrEqual(8 * 1024);
+  }));

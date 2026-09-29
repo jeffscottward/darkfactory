@@ -1,12 +1,12 @@
 import type { SafeAuthSession, SafePrincipal } from "@darkfactory/auth/types";
+import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 import {
+  type AddressRepository,
   DatabaseConflictError,
   InvalidRepositoryInputError,
-  type AddressRepository,
   type ProfileRepository,
   type UserPreferencesRepository,
 } from "@darkfactory/db/server";
-import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 
 import type {
   AccountProfileOutput,

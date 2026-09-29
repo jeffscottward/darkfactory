@@ -52,8 +52,8 @@ afterEach(async () => {
   );
 });
 
-describe("development Worker bindings", function () {
-  it("atomically replaces a regular file and enforces mode 0600", async function () {
+describe("development Worker bindings", () => {
+  it("atomically replaces a regular file and enforces mode 0600", async () => {
     const root = await directory();
     const target = join(root, ".dev.vars");
     await writeFile(target, "stale", { mode: 0o644 });
@@ -66,7 +66,7 @@ describe("development Worker bindings", function () {
     return expect(await listTemporaryBindingFiles(root)).toEqual([]);
   });
 
-  it("rejects symlink targets without changing their destination", async function () {
+  it("rejects symlink targets without changing their destination", async () => {
     const root = await directory();
     const destination = join(root, "destination");
     const target = join(root, ".dev.vars");
@@ -80,7 +80,7 @@ describe("development Worker bindings", function () {
     return expect(await listTemporaryBindingFiles(root)).toEqual([]);
   });
 
-  it("rejects malformed output before creating a file", async function () {
+  it("rejects malformed output before creating a file", async () => {
     const root = await directory();
     const target = join(root, ".dev.vars");
 
@@ -95,7 +95,7 @@ describe("development Worker bindings", function () {
     });
   });
 
-  it("accepts the exact byte boundary and rejects empty, oversized, and malformed assignments", async function () {
+  it("accepts the exact byte boundary and rejects empty, oversized, and malformed assignments", async () => {
     const root = await directory();
     const target = join(root, ".dev.vars");
     const prefix = `${validBindings}PADDING=`;
@@ -126,7 +126,7 @@ describe("development Worker bindings", function () {
     return results;
   });
 
-  it("rejects directory and multiply-linked targets", async function () {
+  it("rejects directory and multiply-linked targets", async () => {
     const root = await directory();
     const directoryTarget = join(root, "directory-target");
     await mkdir(directoryTarget);
@@ -144,7 +144,7 @@ describe("development Worker bindings", function () {
     return expect(await readFile(source, "utf8")).toBe("unchanged");
   });
 
-  it("returns only temporary binding files with both required name boundaries", async function () {
+  it("returns only temporary binding files with both required name boundaries", async () => {
     const root = await directory();
     await Promise.all([
       writeFile(join(root, ".dev.vars.first.tmp"), ""),
@@ -159,7 +159,7 @@ describe("development Worker bindings", function () {
     ]);
   });
 
-  it("materializes validated Varlock output at the repository boundary", async function () {
+  it("materializes validated Varlock output at the repository boundary", async () => {
     const root = await directory();
     await mkdir(join(root, "apps", "web"), { recursive: true });
     mocks.spawnSync.mockReturnValueOnce({
@@ -189,7 +189,7 @@ describe("development Worker bindings", function () {
     ).toEqual([]);
   });
 
-  it("materializes operator bindings separately without changing web bindings", async function () {
+  it("materializes operator bindings separately without changing web bindings", async () => {
     const root = await directory();
     await mkdir(join(root, "apps", "web"), { recursive: true });
     await mkdir(join(root, "apps", "operator"), { recursive: true });
@@ -212,7 +212,7 @@ describe("development Worker bindings", function () {
     ).toEqual([]);
   });
 
-  it("rejects an operator binding parent that resolves outside the repository", async function () {
+  it("rejects an operator binding parent that resolves outside the repository", async () => {
     const root = await directory();
     const outside = await directory();
     await mkdir(join(root, "apps"), { recursive: true });
@@ -233,7 +233,7 @@ describe("development Worker bindings", function () {
     });
   });
 
-  return it("rejects both nonzero and spawn-error Varlock outcomes without writing output", async function () {
+  return it("rejects both nonzero and spawn-error Varlock outcomes without writing output", async () => {
     const root = await directory();
     await mkdir(join(root, "apps", "web"), { recursive: true });
     mocks.spawnSync.mockReturnValueOnce({

@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
-
+import { type OmpSanitizedOutput, redactOmpOutput } from "./omp.ts";
 import {
-  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
-  WorkflowPlanEvidenceError,
   createWorkflowPlanEvidenceV1,
   hashWorkflowPlanEvidenceV1,
+  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
   parseWorkflowPlanEvidenceV1,
+  WorkflowPlanEvidenceError,
 } from "./plan-evidence.ts";
-import { redactOmpOutput, type OmpSanitizedOutput } from "./omp.ts";
 
 const output = (
   stdout: string,

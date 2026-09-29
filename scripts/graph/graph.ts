@@ -282,7 +282,7 @@ const canonicalizeHyperedge = (
     );
 
   const memberKeys = ["nodes", "members"].filter((key) => {
-    return Object.prototype.hasOwnProperty.call(hyperedge, key);
+    return Object.hasOwn(hyperedge, key);
   });
   if (memberKeys.length !== 1)
     throw new Error("Graph output has invalid hyperedge members");
@@ -323,7 +323,7 @@ export const calculateGraphDigest = (content: string): string => {
   const hyperedges = graph?.["hyperedges"] ?? [];
   if (!Array.isArray(nodes) || nodes.length === 0)
     throw new Error("Graph output has no nodes");
-  if (!Array.isArray(links) || !Array.isArray(hyperedges))
+  if (!(Array.isArray(links) && Array.isArray(hyperedges)))
     throw new Error("Graph output has an invalid shape");
 
   const nodeIds = new Map<string, string>();

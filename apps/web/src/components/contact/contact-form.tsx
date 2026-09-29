@@ -1,17 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useForm } from "@tanstack/react-form";
 import { Button, Input, Label, Textarea } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
+import { useRef, useState } from "react";
 
 import {
+  type ContactFeedback,
+  type ContactFieldName,
+  type ContactGateway,
   contactFeedbackForOutput,
   createBrowserContactGateway,
   safeContactFailure,
   validateContactField,
-  type ContactFeedback,
-  type ContactFieldName,
-  type ContactGateway,
 } from "./contact-client.ts";
 
 const fieldDefinitions = [
@@ -50,7 +50,7 @@ export const ContactStatus = ({
   const isError = feedback.tone === "error";
   return (
     <p
-      className={`border-l-2 py-3 pl-4 pr-4 text-sm leading-6 ${
+      className={`border-l-2 py-3 pr-4 pl-4 text-sm leading-6 ${
         feedback.tone === "error"
           ? "border-destructive bg-destructive-subtle text-destructive"
           : feedback.tone === "warning"
@@ -112,7 +112,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
   return (
     <form
       aria-labelledby="contact-form-title"
-      className="relative space-y-6 border-y border-border py-8"
+      className="relative space-y-6 border-border border-y py-8"
       id="contact-form"
       noValidate
       onSubmit={(event) => {
@@ -135,12 +135,12 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
     >
       <div>
         <h2
-          className="font-heading text-2xl font-semibold tracking-tight text-foreground"
+          className="font-heading font-semibold text-2xl text-foreground tracking-tight"
           id="contact-form-title"
         >
           Send a message
         </h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        <p className="mt-2 text-muted-foreground text-sm leading-6">
           All fields marked required must be completed. Your entries stay in the
           form if delivery fails.
         </p>
@@ -148,7 +148,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
 
       {validationSummary === null ? null : (
         <p
-          className="border-l-2 border-destructive py-3 pl-4 text-sm leading-6 text-destructive"
+          className="border-destructive border-l-2 py-3 pl-4 text-destructive text-sm leading-6"
           id="contact-validation-summary"
           role="alert"
         >
@@ -197,28 +197,28 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
                     aria-invalid={error === undefined ? undefined : true}
                     aria-required="true"
                     autoComplete={definition.autoComplete}
+                    id={field.name}
                     inputMode={
                       definition.name === "email" ? "email" : undefined
                     }
-                    id={field.name}
                     name={field.name}
-                    type={definition.name === "email" ? "email" : "text"}
                     onBlur={field.handleBlur}
                     onChange={(event) => {
                       setValidationSummary(null);
                       return field.handleChange(event.target.value);
                     }}
                     required
+                    type={definition.name === "email" ? "email" : "text"}
                     value={field.state.value}
                   />
                   <p
-                    className="text-sm leading-6 text-muted-foreground"
+                    className="text-muted-foreground text-sm leading-6"
                     id={helpId}
                   >
                     {definition.help}
                   </p>
                   {error === undefined ? null : (
-                    <p className="text-sm text-destructive" id={errorId}>
+                    <p className="text-destructive text-sm" id={errorId}>
                       {String(error)}
                     </p>
                   )}
@@ -260,14 +260,14 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
                   value={field.state.value}
                 />
                 <p
-                  className="text-sm leading-6 text-muted-foreground"
+                  className="text-muted-foreground text-sm leading-6"
                   id={helpId}
                 >
                   Include enough context to understand the request. Maximum
                   5,000 characters.
                 </p>
                 {error === undefined ? null : (
-                  <p className="text-sm text-destructive" id={errorId}>
+                  <p className="text-destructive text-sm" id={errorId}>
                     {String(error)}
                   </p>
                 )}

@@ -1,5 +1,9 @@
 "use client";
 
+import { isPalette, isThemeMode } from "@darkfactory/state";
+import type { UiStore } from "@darkfactory/state/client";
+import { ThemeProvider } from "@darkfactory/ui/client/theme";
+import { Toaster } from "@darkfactory/ui/client/toaster";
 import {
   createContext,
   type ReactNode,
@@ -10,17 +14,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { isPalette, isThemeMode } from "@darkfactory/state";
-import type { UiStore } from "@darkfactory/state/client";
-import { ThemeProvider } from "@darkfactory/ui/client/theme";
-import { Toaster } from "@darkfactory/ui/client/toaster";
 
 import {
+  type AnonymousThemePreference,
   serializeThemeCookie,
   THEME_STORAGE_KEY,
-  themeDomAttributes,
-  type AnonymousThemePreference,
   type ThemeAuthority,
+  themeDomAttributes,
 } from "../lib/theme.ts";
 import {
   serializeAnonymousThemePreference,

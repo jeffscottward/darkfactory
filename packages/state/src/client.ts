@@ -3,11 +3,11 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import {
+  type ConsentState,
   DEFAULT_UI_PREFERENCES,
   isConsentState,
   isPalette,
   isThemeMode,
-  type ConsentState,
   type Palette,
   type SidebarState,
   type ThemeMode,
@@ -58,7 +58,7 @@ const hasExactKeys = (
   const actualKeys = Object.keys(value);
   return (
     actualKeys.length === keys.length &&
-    keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    keys.every((key) => Object.hasOwn(value, key))
   );
 };
 
@@ -143,9 +143,8 @@ export const createUiStore = (): UiStore =>
     setMobileNavigationOpen: (mobileNavigationOpen) => {
       if (typeof mobileNavigationOpen === "boolean") {
         return set({ mobileNavigationOpen });
-      } else {
-        return;
       }
+      return;
     },
     closeMobileNavigation: () => set({ mobileNavigationOpen: false }),
     setThemeMode: (themeMode) => {
@@ -165,10 +164,9 @@ export const createUiStore = (): UiStore =>
       const snapshot = parseUiStateSnapshot(serializedSnapshot);
       if (snapshot === null) {
         return false;
-      } else {
-        set(copyPreferences(snapshot.state));
-        return true;
       }
+      set(copyPreferences(snapshot.state));
+      return true;
     },
     dehydrate: () => ({
       version: UI_STATE_VERSION,

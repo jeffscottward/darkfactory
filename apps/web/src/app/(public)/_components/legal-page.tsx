@@ -93,16 +93,16 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
     >
       <aside
         aria-labelledby={`${kind}-legal-status-title`}
-        className="my-12 border-y border-border-strong bg-muted py-8 md:my-16"
+        className="my-12 border-border-strong border-y bg-muted py-8 md:my-16"
       >
         <div className="max-w-reading">
           <h2
-            className="font-heading text-2xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-2xl text-foreground tracking-tight"
             id={`${kind}-legal-status-title`}
           >
             Starter placeholder — legal review required
           </h2>
-          <p className="mt-3 text-base leading-7 text-muted-foreground">
+          <p className="mt-3 text-base text-muted-foreground leading-7">
             This page is not legal advice and is not ready for production use. A
             qualified lawyer must adapt it to the actual operator, product
             behavior, enabled providers, users, jurisdictions, and risk profile
@@ -117,33 +117,33 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
       >
         <div className="md:col-span-4">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id={`${kind}-review-outline-title`}
           >
             Review outline
           </h2>
-          <p className="mt-4 text-base leading-7 text-muted-foreground">
+          <p className="mt-4 text-base text-muted-foreground leading-7">
             Keep only provisions that match the deployed system. Confirm the
             final language against the implementation and capability manifest.
           </p>
         </div>
-        <div className="divide-y divide-border border-y border-border md:col-span-7 md:col-start-6">
+        <div className="divide-y divide-border border-border border-y md:col-span-7 md:col-start-6">
           {sections.map((section, index) => (
             <section
               aria-labelledby={`${kind}-section-${index + 1}`}
               className="py-8"
               key={section.title}
             >
-              <p className="text-sm font-semibold text-muted-foreground">
+              <p className="font-semibold text-muted-foreground text-sm">
                 0{index + 1}
               </p>
               <h3
-                className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground"
+                className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight"
                 id={`${kind}-section-${index + 1}`}
               >
                 {section.title}
               </h3>
-              <p className="mt-3 text-base leading-7 text-muted-foreground">
+              <p className="mt-3 text-base text-muted-foreground leading-7">
                 {section.body}
               </p>
             </section>
@@ -153,27 +153,27 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
 
       <section
         aria-labelledby={`${kind}-before-publishing-title`}
-        className="mt-16 border-t border-border pt-12 md:mt-20"
+        className="mt-16 border-border border-t pt-12 md:mt-20"
       >
         <h2
-          className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+          className="font-heading font-semibold text-3xl text-foreground tracking-tight"
           id={`${kind}-before-publishing-title`}
         >
           Before publishing
         </h2>
-        <ul className="mt-6 grid gap-4 text-base leading-7 text-muted-foreground md:grid-cols-2">
-          <li className="border-t border-border pt-4">
+        <ul className="mt-6 grid gap-4 text-base text-muted-foreground leading-7 md:grid-cols-2">
+          <li className="border-border border-t pt-4">
             Verify every statement against configured behavior and data flows.
           </li>
-          <li className="border-t border-border pt-4">
+          <li className="border-border border-t pt-4">
             Replace starter language, dates, operator details, and contact
             channels.
           </li>
-          <li className="border-t border-border pt-4">
+          <li className="border-border border-t pt-4">
             Review enabled providers, retention, user controls, and
             jurisdictional duties.
           </li>
-          <li className="border-t border-border pt-4">
+          <li className="border-border border-t pt-4">
             Record approval from qualified counsel and schedule periodic review.
           </li>
         </ul>

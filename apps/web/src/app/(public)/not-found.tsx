@@ -14,12 +14,12 @@ export default function PublicNotFound() {
       >
         <div className="md:col-span-7">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="not-found-next-title"
           >
             Continue with a real destination
           </h2>
-          <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
+          <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
             Resources links the architecture, generated OpenAPI document,
             capability manifest, and repository source.
           </p>

@@ -29,7 +29,6 @@ import {
   snapshotTypeScriptSource,
 } from "./corpus.ts";
 import type {
-  GraphCommandOptions,
   GraphConfig,
   GraphFileInfo,
   GraphFileSystem,
@@ -342,8 +341,10 @@ const collectDirectory = async (
       /^\.\//,
       ""
     );
-    return !isGraphSourceExcluded(path, config.source.excludes) &&
-      !entry.isSymbolicLink() &&
+    return !(
+      isGraphSourceExcluded(path, config.source.excludes) ||
+      entry.isSymbolicLink()
+    ) &&
       entry.isFile() &&
       config.source.extensions.includes(extname(entry.name).toLowerCase())
       ? count + 1
@@ -501,8 +502,10 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem =>
         try {
           const stats = await base.handle.stat();
           if (
-            !isTrustedTemporaryDirectory(stats) ||
-            !sameGraphIdentity(base.identity, stats)
+            !(
+              isTrustedTemporaryDirectory(stats) &&
+              sameGraphIdentity(base.identity, stats)
+            )
           )
             throw new Error("Graph source snapshot temporary base changed");
           return stats;
@@ -521,8 +524,10 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem =>
           throw new Error("Graph source snapshot temporary base changed");
         }
         if (
-          !isTrustedTemporaryDirectory(current) ||
-          !sameGraphIdentity(pinned, current)
+          !(
+            isTrustedTemporaryDirectory(current) &&
+            sameGraphIdentity(pinned, current)
+          )
         )
           throw new Error("Graph source snapshot temporary base changed");
       };
@@ -564,8 +569,9 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem =>
         try {
           const stats = await snapshot.handle.stat();
           if (
-            !stats.isDirectory() ||
-            !sameGraphIdentity(snapshot.identity, stats)
+            !(
+              stats.isDirectory() && sameGraphIdentity(snapshot.identity, stats)
+            )
           ) {
             throw new Error("Graph source snapshot ownership changed");
           }
@@ -773,9 +779,11 @@ const graphFileSystemAt = (snapshotRoot: string): GraphFileSystem =>
         const pinnedTemporaryBase = await openedTemporaryBase.stat();
         const currentTemporaryBase = await lstat(canonicalTemporaryBase);
         if (
-          !isTrustedTemporaryDirectory(pinnedTemporaryBase) ||
-          !isTrustedTemporaryDirectory(currentTemporaryBase) ||
-          !sameGraphIdentity(pinnedTemporaryBase, currentTemporaryBase)
+          !(
+            isTrustedTemporaryDirectory(pinnedTemporaryBase) &&
+            isTrustedTemporaryDirectory(currentTemporaryBase) &&
+            sameGraphIdentity(pinnedTemporaryBase, currentTemporaryBase)
+          )
         )
           throw new Error("Graph source snapshot temporary base changed");
         const base: PinnedTemporaryBase = Object.freeze({

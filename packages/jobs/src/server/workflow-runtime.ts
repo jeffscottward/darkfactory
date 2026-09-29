@@ -1,33 +1,33 @@
+import type { OutboxEvent } from "@darkfactory/db/schema";
 import {
-  WorkflowConcurrencyError,
-  WorkflowRunNotFoundError,
-  WorkflowRunTerminalError,
   type AddWorkflowMessageInput,
-  type PersistedWorkflowEvent,
   type DecideWorkflowApprovalInput,
+  type PersistedWorkflowEvent,
   type PersistedWorkflowSnapshot,
+  WorkflowConcurrencyError,
   type WorkflowEffectInput,
   type WorkflowProjection,
   type WorkflowRepository,
   type WorkflowRetainedResourceClaim,
+  WorkflowRunNotFoundError,
+  WorkflowRunTerminalError,
 } from "@darkfactory/db/server/workflow";
-import type { OutboxEvent } from "@darkfactory/db/schema";
 import {
-  WORKFLOW_MACHINE_ID,
-  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
-  WORKFLOW_MACHINE_VERSION,
   canonicalJsonV1,
   createInitialWorkflowSnapshotV1,
   createWorkflowApprovalBindingV1,
   hashWorkflowEffectProposalV1,
+  isWorkflowRelativePathV1,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
+  parseWorkflowEffectScopeV1,
   sha256Hex,
   transitionWorkflowV1,
-  parseWorkflowEffectScopeV1,
-  isWorkflowRelativePathV1,
   verifyWorkflowProjectionV1,
-  type WorkflowEffectV1,
+  WORKFLOW_MACHINE_ID,
+  WORKFLOW_MACHINE_VERSION,
   type WorkflowEffectKindV1,
   type WorkflowEffectScopeV1,
+  type WorkflowEffectV1,
   type WorkflowEventV1,
   type WorkflowJournalEntryV1,
   type WorkflowSnapshotV1,
@@ -38,34 +38,35 @@ import {
   MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,
   OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
   OMP_VERIFIER_ARGV_IDENTITY,
-  OMP_VERIFIER_CONFIG_DIGEST,
-  ompVerificationDigestFor,
   OMP_VERIFIER_COMMAND_IDENTITY,
-  OmpWorkspaceBusyError,
+  OMP_VERIFIER_CONFIG_DIGEST,
   type OmpCliAdapter,
+  OmpWorkspaceBusyError,
+  ompVerificationDigestFor,
 } from "./omp.ts";
 import {
-  WorkflowPlanEvidenceError,
   parseWorkflowPlanEvidenceV1,
+  WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
+import type { WayfinderExecutionPort } from "./wayfinder.ts";
 import {
+  type ClaimedWorkflowEffect,
+  createWorkflowOutboxWorker,
   WORKFLOW_EFFECT_HANDLER_V1,
   WORKFLOW_EFFECT_HANDLER_V2,
-  createWorkflowOutboxWorker,
-  workflowImplementationRecoveryFromEvidence,
-  type ClaimedWorkflowEffect,
   type WorkflowEffectCompletion,
   type WorkflowEffectFailure,
   type WorkflowEffectHandler,
   type WorkflowOutboxPort,
   type WorkflowWorkerItemResult,
+  workflowImplementationRecoveryFromEvidence,
 } from "./workflow-worker.ts";
-import type { WayfinderExecutionPort } from "./wayfinder.ts";
-const MAX_WORKFLOW_FINALIZATION_EVIDENCE_BYTES = 48 * 1_024;
+
+const MAX_WORKFLOW_FINALIZATION_EVIDENCE_BYTES = 48 * 1024;
 
 const MAX_EFFECT_ATTEMPTS = 3;
-const BASE_RETRY_MILLISECONDS = 1_000;
+const BASE_RETRY_MILLISECONDS = 1000;
 
 export class WorkflowProjectionVerificationError extends Error {
   readonly reason: string;
@@ -243,16 +244,15 @@ export const workflowApprovalIdFor = (snapshot: WorkflowSnapshotV1): string => {
     throw new Error(
       "Workflow approval requires an awaiting implementation effect"
     );
-  } else {
-    return `approval-${sha256Hex(
-      canonicalJsonV1({
-        runId: snapshot.context.runId,
-        sequence: snapshot.sequence,
-        journalHeadHash: snapshot.journalHeadHash,
-        effectHash: hashWorkflowEffectProposalV1(pending),
-      })
-    )}`;
   }
+  return `approval-${sha256Hex(
+    canonicalJsonV1({
+      runId: snapshot.context.runId,
+      sequence: snapshot.sequence,
+      journalHeadHash: snapshot.journalHeadHash,
+      effectHash: hashWorkflowEffectProposalV1(pending),
+    })
+  )}`;
 };
 
 const completionEventId = (effectId: string): string =>
@@ -330,7 +330,7 @@ const validImplementationArtifact = (
       kind === "symlink" &&
       (keys !== "kind,path,target" ||
         typeof entry["target"] !== "string" ||
-        Buffer.byteLength(entry["target"]) > 4_096 ||
+        Buffer.byteLength(entry["target"]) > 4096 ||
         /[\u0000]/u.test(entry["target"]))
     ) {
       return false;
@@ -461,9 +461,8 @@ export const createWorkflowApplication = (
         throw new WorkflowProjectionVerificationError(
           "Digest-bound plan evidence is invalid"
         );
-      } else {
-        throw error;
       }
+      throw error;
     }
   };
 
@@ -778,7 +777,7 @@ export const createWorkflowApplication = (
         input.result.changedPaths.length === 0 ||
         input.result.changedPaths.length > 512 ||
         Buffer.byteLength(JSON.stringify(input.result.changedPaths)) >
-          8 * 1_024 ||
+          8 * 1024 ||
         !input.result.changedPaths.every(isWorkflowRelativePathV1) ||
         !validImplementationArtifact(input.result)
       ) {
@@ -829,8 +828,7 @@ export const createWorkflowApplication = (
   ): Promise<VerifiedWorkflowProjection | null> => {
     if (
       input.result.changedPaths.length > 512 ||
-      Buffer.byteLength(JSON.stringify(input.result.changedPaths)) >
-        8 * 1_024 ||
+      Buffer.byteLength(JSON.stringify(input.result.changedPaths)) > 8 * 1024 ||
       (input.result.changedPaths.length > 0 &&
         input.result.changeHash === null) ||
       (input.result.changeHash !== null &&
@@ -889,7 +887,7 @@ const isRecord = (
 };
 
 const requiredString = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || value.length === 0 || value.length > 1_024) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 1024) {
     throw new TypeError(`Invalid workflow effect ${field}`);
   }
   return value;
@@ -899,13 +897,12 @@ const requiredTaskTitle = (value: unknown): string => {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
-    new TextEncoder().encode(value).byteLength > 1_024 ||
+    new TextEncoder().encode(value).byteLength > 1024 ||
     /[\u0000-\u001F\u007F]/u.test(value)
   ) {
     throw new TypeError("Invalid workflow effect task title");
-  } else {
-    return value;
   }
+  return value;
 };
 
 const workflowExecutionMetadataFor = (

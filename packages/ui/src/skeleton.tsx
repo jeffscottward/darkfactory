@@ -28,9 +28,9 @@ export const SkeletonGroup = ({
 }: SkeletonGroupProps) => (
   <div
     {...props}
-    role="status"
-    aria-live="polite"
     aria-label={label}
+    aria-live="polite"
     className={cn("space-y-3", className)}
+    role="status"
   />
 );

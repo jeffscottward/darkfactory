@@ -21,7 +21,7 @@ export const Avatar = ({
   <span
     {...props}
     className={cn(
-      "relative inline-flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-pill border border-border bg-muted font-body text-sm font-semibold text-foreground",
+      "relative inline-flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-pill border border-border bg-muted font-body font-semibold text-foreground text-sm",
       className
     )}
     {...(src === undefined ? { role: "img", "aria-label": name } : {})}
@@ -30,9 +30,9 @@ export const Avatar = ({
       <span aria-hidden="true">{fallback}</span>
     ) : (
       <img
+        alt={name}
         className="size-full object-cover"
         src={src}
-        alt={name}
         {...imageProps}
       />
     )}

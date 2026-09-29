@@ -1,14 +1,14 @@
-import {
-  CANONICAL_URL,
-  PROCESS_NAME,
-  ROUTE_NAME,
-  isCanonicalRouteOutput,
-  parsePm2ProcessList,
-} from "../dev/lifecycle.ts";
 import { inspectBunRuntime } from "../ci/bun-runtime.ts";
 import {
-  parseCapabilityManifest,
+  CANONICAL_URL,
+  isCanonicalRouteOutput,
+  PROCESS_NAME,
+  parsePm2ProcessList,
+  ROUTE_NAME,
+} from "../dev/lifecycle.ts";
+import {
   type CapabilityClassification,
+  parseCapabilityManifest,
 } from "./manifest.ts";
 
 const MAX_OUTPUT_BYTES = 1_048_576;

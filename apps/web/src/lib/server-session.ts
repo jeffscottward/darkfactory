@@ -21,7 +21,7 @@ export interface GetPortalSessionOptions {
 }
 
 const MAX_SESSION_RESPONSE_BYTES = 16_384;
-const DEFAULT_SESSION_TIMEOUT_MS = 3_000;
+const DEFAULT_SESSION_TIMEOUT_MS = 3000;
 const PORTAL_PATH_ROOTS = [
   "/dashboard",
   "/feature-items",
@@ -75,9 +75,7 @@ export const parsePortalSession = (
   now = new Date()
 ): PortalSession | null => {
   if (
-    !isRecord(value) ||
-    !isRecord(value["user"]) ||
-    !isRecord(value["session"])
+    !(isRecord(value) && isRecord(value["user"]) && isRecord(value["session"]))
   ) {
     return null;
   }
@@ -91,9 +89,11 @@ export const parsePortalSession = (
   const expiresAtValue = session["expiresAt"];
 
   if (
-    !boundedString(userId, 256) ||
-    !boundedString(name, 200) ||
-    !isPortalRole(role) ||
+    !(
+      boundedString(userId, 256) &&
+      boundedString(name, 200) &&
+      isPortalRole(role)
+    ) ||
     status !== "active" ||
     !(typeof expiresAtValue === "string" || expiresAtValue instanceof Date)
   ) {
@@ -237,7 +237,7 @@ export const safePortalCallbackPath = (value: string | null): string | null => {
   if (
     value === null ||
     value.length === 0 ||
-    value.length > 2_048 ||
+    value.length > 2048 ||
     !value.startsWith("/") ||
     value.startsWith("//") ||
     value.includes("\\") ||

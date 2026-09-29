@@ -1,7 +1,7 @@
 import {
-  runDoctor,
   type DoctorDependencies,
   type DoctorReport,
+  runDoctor,
 } from "./doctor.ts";
 
 export type DoctorCliDependencies = Readonly<{

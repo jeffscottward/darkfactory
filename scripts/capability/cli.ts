@@ -1,7 +1,7 @@
 import {
+  type CapabilityDependencies,
   parseCapabilityArguments,
   runCapabilityAddition,
-  type CapabilityDependencies,
 } from "./capability.ts";
 
 export type CapabilityCliOutput = Readonly<{
@@ -9,7 +9,8 @@ export type CapabilityCliOutput = Readonly<{
   writeError: (value: string) => void;
 }>;
 
-const HELP = `Usage: pnpm capability:add <name> --provider <provider> [--apply]\n\nSupported descriptors: uptime, error-tracking, storage.\nPlans a supported disabled capability descriptor by default. --apply publishes one descriptor only after validating that the existing strict v0.1 manifest entry is disabled; manifest bytes are unchanged and existing descriptors are never overwritten.\n`;
+const HELP =
+  "Usage: pnpm capability:add <name> --provider <provider> [--apply]\n\nSupported descriptors: uptime, error-tracking, storage.\nPlans a supported disabled capability descriptor by default. --apply publishes one descriptor only after validating that the existing strict v0.1 manifest entry is disabled; manifest bytes are unchanged and existing descriptors are never overwritten.\n";
 
 export const runCapabilityCli = async (
   arguments_: readonly string[],

@@ -7,6 +7,7 @@ var range: (start: number, end: number) => number[] = (start, end) => {
   }
   return arr;
 };
+
 import { randomUUID } from "node:crypto";
 import {
   createPostgresTestDatabase,
@@ -16,8 +17,8 @@ import {
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 
-describe.sequential("real Postgres test database lifecycle", function () {
-  it("rejects remote, production-like, routed, and already-isolated URLs before connecting", async function () {
+describe.sequential("real Postgres test database lifecycle", () => {
+  it("rejects remote, production-like, routed, and already-isolated URLs before connecting", async () => {
     await expect(
       createPostgresTestDatabase({
         databaseUrl:
@@ -66,15 +67,15 @@ describe.sequential("real Postgres test database lifecycle", function () {
     ).rejects.toThrow(/postgres or postgresql protocol/);
   });
 
-  it("refuses cleanup for a handle the harness did not create", async function () {
+  it("refuses cleanup for a handle the harness did not create", async () => {
     const forgedDatabase = Object.freeze({
       databaseUrl: "postgresql://localhost/darkfactory_test_forged",
       databaseName: "darkfactory_test_forged",
       runId: "forged",
-      query: async function () {
+      async query() {
         return [];
       },
-      openConnection: async function () {
+      async openConnection() {
         throw new Error("not a real connection");
       },
     }) as PostgresTestDatabase;
@@ -84,7 +85,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
     ).rejects.toThrow(/unowned or already-dropped/);
   });
 
-  it("drops its isolated database and terminates another owned live client", async function () {
+  it("drops its isolated database and terminates another owned live client", async () => {
     const runId = `lifecycle_${randomUUID()}`;
     const database = await createPostgresTestDatabase({ runId });
     const liveConnection = await database.openConnection();
@@ -133,7 +134,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
     );
   });
 
-  it("proves cross-role signaling is forbidden and waits for that client to close", async function () {
+  it("proves cross-role signaling is forbidden and waits for that client to close", async () => {
     const runId = `cross_role_${randomUUID()}`;
     const database = await createPostgresTestDatabase({ runId });
     const runnerUrl = new URL(database.databaseUrl);
@@ -143,11 +144,11 @@ describe.sequential("real Postgres test database lifecycle", function () {
     appUrl.password = "darkfactory-app-local-only";
     const runner = new Client({
       connectionString: runnerUrl.toString(),
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 5000,
     });
     const differentRole = new Client({
       connectionString: appUrl.toString(),
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 5000,
     });
     let cleanup: Promise<void> | undefined;
     let cleanupSettled = false;
@@ -196,7 +197,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
     }
   }, 15_000);
 
-  it("serializes a same-name recreation behind the original cleanup lock", async function () {
+  it("serializes a same-name recreation behind the original cleanup lock", async () => {
     const runId = `replacement_lock_${randomUUID()}`;
     const original = await createPostgresTestDatabase({ runId });
     const appUrl = new URL(original.databaseUrl);
@@ -206,11 +207,11 @@ describe.sequential("real Postgres test database lifecycle", function () {
     runnerUrl.pathname = "/darkfactory_test_maintenance";
     const blocker = new Client({
       connectionString: appUrl.toString(),
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 5000,
     });
     const monitor = new Client({
       connectionString: runnerUrl.toString(),
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 5000,
     });
     let cleanup: Promise<void> | undefined;
     let originalDropped = false;
@@ -279,13 +280,13 @@ describe.sequential("real Postgres test database lifecycle", function () {
     }
   }, 15_000);
 
-  it("reports a real prepared transaction through preflight diagnostics", async function () {
+  it("reports a real prepared transaction through preflight diagnostics", async () => {
     const database = await createPostgresTestDatabase({
       runId: `prepared_${randomUUID()}`,
     });
     const transaction = new Client({
       connectionString: database.databaseUrl,
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 5000,
     });
     const gid = `darkfactory_${randomUUID()}`;
     let prepared = false;
@@ -315,7 +316,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
 
       const rollback = new Client({
         connectionString: database.databaseUrl,
-        connectionTimeoutMillis: 5_000,
+        connectionTimeoutMillis: 5000,
       });
       try {
         await rollback.connect();
@@ -332,7 +333,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
       if (prepared) {
         const rollback = new Client({
           connectionString: database.databaseUrl,
-          connectionTimeoutMillis: 5_000,
+          connectionTimeoutMillis: 5000,
         });
         try {
           await rollback.connect();
@@ -345,7 +346,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
     }
   }, 15_000);
 
-  it("hashes the full run ID so long shared prefixes remain isolated", async function () {
+  it("hashes the full run ID so long shared prefixes remain isolated", async () => {
     const sharedPrefix = `long_${randomUUID()}_${"x".repeat(200)}`;
     const first = await createPostgresTestDatabase({
       runId: `${sharedPrefix}_a`,
@@ -363,7 +364,7 @@ describe.sequential("real Postgres test database lifecycle", function () {
     }
   });
 
-  return it("reports a concurrent normalized run-ID collision without dropping the winner", async function () {
+  return it("reports a concurrent normalized run-ID collision without dropping the winner", async () => {
     const runId = `collision_${randomUUID()}`;
     const results = await Promise.allSettled([
       createPostgresTestDatabase({ runId }),

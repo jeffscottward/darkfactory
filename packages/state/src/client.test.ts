@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  MAX_UI_STATE_SNAPSHOT_LENGTH,
-  UI_STATE_VERSION,
   createUiStore,
+  MAX_UI_STATE_SNAPSHOT_LENGTH,
   parseUiStateSnapshot,
+  UI_STATE_VERSION,
 } from "./client.ts";
 
 const hydratedPreferences = {
@@ -22,8 +22,8 @@ const hydratedSnapshot = {
 
 const hydratedSnapshotJson = JSON.stringify(hydratedSnapshot);
 
-describe("createUiStore", function () {
-  it("updates navigation and sidebar state", function () {
+describe("createUiStore", () => {
+  it("updates navigation and sidebar state", () => {
     const store = createUiStore();
 
     store.getState().toggleSidebar();
@@ -39,7 +39,7 @@ describe("createUiStore", function () {
     return expect(store.getState().mobileNavigationOpen).toBe(false);
   });
 
-  it("updates theme mode, palette, and consent immutably", function () {
+  it("updates theme mode, palette, and consent immutably", () => {
     const store = createUiStore();
     const initialState = store.getState();
 
@@ -58,7 +58,7 @@ describe("createUiStore", function () {
     return expect(consentState.consent).toBe("denied");
   });
 
-  it("resets every preference to a fresh deterministic default state", function () {
+  it("resets every preference to a fresh deterministic default state", () => {
     const store = createUiStore();
     store.getState().hydrate(hydratedSnapshotJson);
     const hydratedState = store.getState();
@@ -78,7 +78,7 @@ describe("createUiStore", function () {
     });
   });
 
-  it("hydrates a valid versioned snapshot deterministically", function () {
+  it("hydrates a valid versioned snapshot deterministically", () => {
     const store = createUiStore();
 
     expect(store.getState().hydrate(hydratedSnapshotJson)).toBe(true);
@@ -89,7 +89,7 @@ describe("createUiStore", function () {
     );
   });
 
-  it("fails closed without changing state for malformed hydration", function () {
+  it("fails closed without changing state for malformed hydration", () => {
     const validState = hydratedSnapshot.state;
     const malformedSnapshots: readonly unknown[] = [
       null,
@@ -140,7 +140,7 @@ describe("createUiStore", function () {
     return results;
   });
 
-  it("does not execute hostile accessors or proxy traps during hydration", function () {
+  it("does not execute hostile accessors or proxy traps during hydration", () => {
     let accessorReads = 0;
     const accessorSnapshot = Object.defineProperty({}, "state", {
       enumerable: true,
@@ -160,7 +160,7 @@ describe("createUiStore", function () {
     return expect(store.getState()).toBe(before);
   });
 
-  it("notifies subscribers with previous state and honors unsubscribe", function () {
+  it("notifies subscribers with previous state and honors unsubscribe", () => {
     const store = createUiStore();
     const initialState = store.getState();
     const updates: Array<{
@@ -183,7 +183,7 @@ describe("createUiStore", function () {
     return expect(updates).toHaveLength(1);
   });
 
-  it("parses exactly the bounded versioned client UI preference schema", function () {
+  it("parses exactly the bounded versioned client UI preference schema", () => {
     const first = parseUiStateSnapshot(hydratedSnapshotJson);
     const second = parseUiStateSnapshot(hydratedSnapshotJson);
 
@@ -194,7 +194,7 @@ describe("createUiStore", function () {
     return expect(UI_STATE_VERSION).toBe(1);
   });
 
-  return it("toggles from both sidebar states and ignores invalid runtime setter input", function () {
+  return it("toggles from both sidebar states and ignores invalid runtime setter input", () => {
     const store = createUiStore();
     const initialSnapshot = store.getState().dehydrate();
 

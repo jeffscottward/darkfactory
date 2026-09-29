@@ -1,13 +1,13 @@
-import { createElement, type ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createUiStore, type UiStore } from "@darkfactory/state/client";
 import type {
   ApiClient,
   ApiClientOptions,
   ThemePreferenceOutput,
 } from "@darkfactory/api";
+import { createUiStore, type UiStore } from "@darkfactory/state/client";
 import { useTheme } from "@darkfactory/ui/client/theme";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const themeHookRuntime = vi.hoisted(() => {
   type Effect = () => void | (() => void);
@@ -331,6 +331,11 @@ vi.mock("./components/navigation-links.tsx", async (importOriginal) => {
 });
 
 import {
+  PublicFooter,
+  PublicHeader,
+  PublicShell,
+} from "./components/public-shell.tsx";
+import {
   consumeInitialThemeBootstrap,
   reconcileThemeAuthorityTransition,
   ThemeController,
@@ -342,14 +347,9 @@ import {
   ThemeMenu,
 } from "./components/theme-menu.tsx";
 import {
-  PublicFooter,
-  PublicHeader,
-  PublicShell,
-} from "./components/public-shell.tsx";
-import {
   DEFAULT_ANONYMOUS_THEME,
-  THEME_STORAGE_KEY,
   serializeThemeCookie,
+  THEME_STORAGE_KEY,
 } from "./lib/theme.ts";
 import {
   serializeAnonymousThemePreference,
@@ -403,7 +403,7 @@ const installThemeBrowser = (
   Object.defineProperty(documentStub, "cookie", {
     configurable: true,
     get: () => cookieWrites.at(-1) ?? "",
-    set: function (value: string) {
+    set(value: string) {
       if (cookieFailure !== undefined) throw cookieFailure;
       if (cookieThrows) {
         throw new Error("cookie unavailable");
@@ -411,7 +411,7 @@ const installThemeBrowser = (
       return cookieWrites.push(value);
     },
   });
-  const setItem = vi.fn(function (key: string, value: string) {
+  const setItem = vi.fn((key: string, value: string) => {
     if (storageFailure !== undefined) throw storageFailure;
     if (storageThrows) {
       throw new Error("storage unavailable");
@@ -491,8 +491,8 @@ afterEach(() => {
   return void vi.restoreAllMocks();
 });
 
-describe("trusted theme controls", function () {
-  it("keeps trusted and indeterminate ownership controls discoverable", function () {
+describe("trusted theme controls", () => {
+  it("keeps trusted and indeterminate ownership controls discoverable", () => {
     const trusted = renderToStaticMarkup(
       createElement(ThemeController, {
         children: createElement(ThemeMenu),
@@ -515,7 +515,7 @@ describe("trusted theme controls", function () {
     );
   });
 
-  it("composes the app store through the public semantic theme provider", function () {
+  it("composes the app store through the public semantic theme provider", () => {
     const markup = renderToStaticMarkup(
       createElement(ThemeController, {
         children: createElement(ThemeProbe),
@@ -528,7 +528,7 @@ describe("trusted theme controls", function () {
     return expect(markup).toContain('data-palette="cyan"');
   });
 
-  it("projects the same selected state through the client external-store snapshot", function () {
+  it("projects the same selected state through the client external-store snapshot", () => {
     const markup = renderToStaticMarkup(
       createElement(UiStateProvider, {
         children: createElement(UiStateSelectionProbe),
@@ -540,7 +540,7 @@ describe("trusted theme controls", function () {
     return expect(themeHookRuntime.clientSnapshot()).toBe("dark:cyan");
   });
 
-  it("fails closed when the semantic callback lacks anonymous authority", function () {
+  it("fails closed when the semantic callback lacks anonymous authority", () => {
     const results = [];
     for (const authority of ["trusted", "indeterminate"] as const) {
       let store: ReturnType<typeof useUiStoreApi> | undefined;
@@ -572,7 +572,7 @@ describe("trusted theme controls", function () {
     return results;
   });
 
-  it("keeps anonymous selection local and clears stale account feedback without a client", async function () {
+  it("keeps anonymous selection local and clears stale account feedback without a client", async () => {
     const store = createUiStore();
     const createClient = vi.fn();
     const errors: Array<string | null> = ["stale trusted error"];
@@ -599,7 +599,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("binds trusted GET then PATCH to the bounded same-origin transport", async function () {
+  it("binds trusted GET then PATCH to the bounded same-origin transport", async () => {
     const store = createUiStore();
     const requests: Request[] = [];
     const fetchRequest: typeof globalThis.fetch = async (input, init) => {
@@ -667,7 +667,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("clears trusted failure state before a later anonymous selection", async function () {
+  it("clears trusted failure state before a later anonymous selection", async () => {
     const store = createUiStore();
     const errors: Array<string | null> = [];
     const pending: boolean[] = [];
@@ -687,7 +687,7 @@ describe("trusted theme controls", function () {
           }
           throw new Error("reconciliation unavailable");
         },
-        update: async function () {
+        async update() {
           throw new Error("response lost");
         },
       }),
@@ -724,7 +724,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("keeps pending owned by the newest overlapping trusted selection", async function () {
+  it("keeps pending owned by the newest overlapping trusted selection", async () => {
     const store = createUiStore();
     const requestSequence = { current: 0 };
     const pending: boolean[] = [];
@@ -782,7 +782,7 @@ describe("trusted theme controls", function () {
     return expect(pending.at(-1)).toBe(false);
   });
 
-  it("neutralizes anonymous subscriptions before a soft transition applies trusted state", function () {
+  it("neutralizes anonymous subscriptions before a soft transition applies trusted state", () => {
     const store = createUiStore();
     const writes: string[] = [];
     const unsubscribe = store.subscribe(() =>
@@ -807,7 +807,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("consumes pre-hydration bootstrap once and never reverts a soft refresh", function () {
+  it("consumes pre-hydration bootstrap once and never reverts a soft refresh", () => {
     const store = createUiStore();
     const consumption = { consumed: false };
     const bootstrapA = { themeMode: "dark", palette: "blue" } as const;
@@ -847,7 +847,7 @@ describe("trusted theme controls", function () {
     return expect(store.getState()).toMatchObject(preferenceB);
   });
 
-  it("consumes non-anonymous bootstrap authority once without exposing the payload", function () {
+  it("consumes non-anonymous bootstrap authority once without exposing the payload", () => {
     const results1 = [];
     for (const authority of ["trusted", "indeterminate"] as const) {
       const consumption = { consumed: false };
@@ -870,7 +870,7 @@ describe("trusted theme controls", function () {
     return results1;
   });
 
-  it("rejects every malformed bootstrap shape and avoids redundant store writes", function () {
+  it("rejects every malformed bootstrap shape and avoids redundant store writes", () => {
     const initialPreference = {
       themeMode: "system",
       palette: "neutral",
@@ -929,7 +929,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("defaults to anonymous authority and applies semantic theme selections locally", function () {
+  it("defaults to anonymous authority and applies semantic theme selections locally", () => {
     let store: ReturnType<typeof useUiStoreApi> | undefined;
     let selectPreference:
       | ReturnType<typeof useTheme>["onPreferenceChange"]
@@ -954,7 +954,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("ignores menu selection while theme authority is indeterminate", async function () {
+  it("ignores menu selection while theme authority is indeterminate", async () => {
     const store = createUiStore();
     const createClient = vi.fn();
     const setError = vi.fn();
@@ -978,14 +978,14 @@ describe("trusted theme controls", function () {
     return expect(store.getState()).toMatchObject(DEFAULT_ANONYMOUS_THEME);
   });
 
-  it("surfaces failed and reconciled trusted selections with deterministic feedback", async function () {
+  it("surfaces failed and reconciled trusted selections with deterministic feedback", async () => {
     const cases = [
       {
         expected: "Could not save theme settings. Try again.",
-        get: vi.fn(async function () {
+        get: vi.fn(async () => {
           throw new Error("account unavailable");
         }),
-        update: vi.fn(async function () {
+        update: vi.fn(async () => {
           throw new Error("update must not run after a failed read");
         }),
       },
@@ -1004,7 +1004,7 @@ describe("trusted theme controls", function () {
             palette: "blue",
             updatedAt: new Date("2026-07-23T10:00:00.001Z"),
           }),
-        update: vi.fn(async function () {
+        update: vi.fn(async () => {
           throw new Error("write response unavailable");
         }),
       },
@@ -1035,7 +1035,7 @@ describe("trusted theme controls", function () {
     return results2;
   });
 
-  it("leaves stale trusted requests pending for their replacement owner", async function () {
+  it("leaves stale trusted requests pending for their replacement owner", async () => {
     const results3 = [];
     for (const staleBoundary of ["authority", "epoch", "sequence"] as const) {
       const store = createUiStore();
@@ -1093,7 +1093,7 @@ describe("trusted theme controls", function () {
     return results3;
   });
 
-  it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", function () {
+  it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", () => {
     const initialPreference = { themeMode: "light", palette: "rose" } as const;
     const bootstrap = { themeMode: "dark", palette: "blue" } as const;
     const browser = installThemeBrowser({ bootstrap });
@@ -1159,7 +1159,7 @@ describe("trusted theme controls", function () {
     return expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps browser persistence best-effort for blocked and non-anonymous authorities", function () {
+  it("keeps browser persistence best-effort for blocked and non-anonymous authorities", () => {
     const initialPreference = { themeMode: "dark", palette: "rose" } as const;
     const cases = [
       {
@@ -1226,7 +1226,7 @@ describe("trusted theme controls", function () {
     return results4;
   });
 
-  it("propagates non-object browser persistence failures", function () {
+  it("propagates non-object browser persistence failures", () => {
     const initialPreference = { themeMode: "dark", palette: "rose" } as const;
     const observeFailure = (
       options: Readonly<{
@@ -1277,7 +1277,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("renders trusted save, failure, and retry states through the menu controller", async function () {
+  it("renders trusted save, failure, and retry states through the menu controller", async () => {
     installThemeBrowser();
     const firstGet = deferred<ThemePreferenceOutput>();
     let getCount = 0;
@@ -1376,7 +1376,7 @@ describe("trusted theme controls", function () {
     });
   });
 
-  it("invalidates an in-flight trusted menu request when authority changes or unmounts", async function () {
+  it("invalidates an in-flight trusted menu request when authority changes or unmounts", async () => {
     installThemeBrowser();
     const getGate = deferred<ThemePreferenceOutput>();
     const update = vi.fn(async () => ({
@@ -1462,7 +1462,7 @@ describe("trusted theme controls", function () {
     return themeHookRuntime.reset();
   });
 
-  it("makes only the public shell inert while mobile navigation is open and restores it on cleanup", function () {
+  it("makes only the public shell inert while mobile navigation is open and restores it on cleanup", () => {
     let publicStore: UiStore | undefined;
     const requiredPublicStore = (store: UiStore | undefined): UiStore => {
       if (store === undefined)
@@ -1552,7 +1552,7 @@ describe("trusted theme controls", function () {
     return expect(openShell.inert).toBe(false);
   });
 
-  return it("renders public header, footer, sign-in, and navigation suppression branches", function () {
+  return it("renders public header, footer, sign-in, and navigation suppression branches", () => {
     const renderRoutes = (availableRoutes?: readonly string[]): string => {
       themeHookRuntime.begin();
       const shell =

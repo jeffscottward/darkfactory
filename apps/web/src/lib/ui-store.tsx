@@ -1,13 +1,6 @@
 "use client";
 
 import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import {
   DEFAULT_UI_PREFERENCES,
   isPalette,
   isThemeMode,
@@ -16,14 +9,21 @@ import {
   createUiStore,
   UI_STATE_VERSION,
   type UiState,
-  type UiStore,
   type UiStateSnapshot,
+  type UiStore,
 } from "@darkfactory/state/client";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import {
+  type AnonymousThemePreference,
   DEFAULT_ANONYMOUS_THEME,
   MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH,
-  type AnonymousThemePreference,
 } from "./theme.ts";
 
 interface AnonymousThemeSnapshot extends AnonymousThemePreference {

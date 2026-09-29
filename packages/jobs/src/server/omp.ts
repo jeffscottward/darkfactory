@@ -1,14 +1,14 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, constants } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import {
   access,
-  copyFile,
   chmod,
+  copyFile,
   lstat,
   mkdir,
-  open,
   mkdtemp,
+  open,
   readdir,
   readFile,
   readlink,
@@ -32,15 +32,15 @@ import {
 } from "node:path";
 
 import {
-  MAX_WORKFLOW_SCOPE_PATHS,
   isWorkflowRelativePathV1,
+  MAX_WORKFLOW_SCOPE_PATHS,
 } from "@darkfactory/state/workflow";
 
-export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1_000;
-export const DEFAULT_OMP_MAX_OUTPUT_BYTES = 32 * 1_024;
-export const MAX_OMP_INSTRUCTION_BYTES = 32 * 1_024;
+export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_OMP_MAX_OUTPUT_BYTES = 32 * 1024;
+export const MAX_OMP_INSTRUCTION_BYTES = 32 * 1024;
 export const MAX_OMP_REDACTIONS = 64;
-export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1_024;
+export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1024;
 export const OMP_VERIFIER_COMMAND_IDENTITY = "darkfactory-verify-core-v2";
 export const OMP_VERIFIER_CONFIG_DIGEST =
   "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d";
@@ -76,10 +76,10 @@ export const OMP_IMPLEMENTATION_ARTIFACT_IDENTITY =
   "workflow-implementation-artifact-v1";
 export const OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY =
   "wayfinder-local-markdown-v1";
-export const MAX_OMP_WAYFINDER_MAP_BYTES = 128 * 1_024;
-export const MAX_OMP_WAYFINDER_ISSUE_BYTES = 64 * 1_024;
+export const MAX_OMP_WAYFINDER_MAP_BYTES = 128 * 1024;
+export const MAX_OMP_WAYFINDER_ISSUE_BYTES = 64 * 1024;
 export const MAX_OMP_WAYFINDER_ISSUES = 64;
-export const MAX_OMP_WAYFINDER_TRACKER_BYTES = 512 * 1_024;
+export const MAX_OMP_WAYFINDER_TRACKER_BYTES = 512 * 1024;
 const SAFE_WAYFINDER_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const SAFE_WAYFINDER_ISSUE_PATH =
   /^issues\/(?:0[1-9]|[1-9][0-9])-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$/u;
@@ -717,7 +717,7 @@ const validateOmpImplementationArtifactEntries = (
         Object.keys(entry).join(",") !== "path,kind,target" ||
         typeof targetValue !== "string" ||
         Buffer.byteLength(targetValue) === 0 ||
-        Buffer.byteLength(targetValue) > 4_096 ||
+        Buffer.byteLength(targetValue) > 4096 ||
         targetValue.includes("\0") ||
         posix.isAbsolute(targetValue)
       ) {
@@ -951,7 +951,7 @@ const DEFAULT_APPLE_DEVELOPER_DIRECTORIES = Object.freeze([
   "/Applications/Xcode.app/Contents/Developer",
 ]);
 const OMP_WORKTREES_DIRECTORY = join(tmpdir(), "darkfactory-omp-worktrees");
-const MAX_GIT_OUTPUT_BYTES = 64 * 1_024;
+const MAX_GIT_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS = 10_000;
 const GIT_SAFE_CONFIG_ARGUMENTS = Object.freeze([
   "-c",
@@ -967,7 +967,7 @@ const GIT_SAFE_CONFIG_ARGUMENTS = Object.freeze([
   "-c",
   "submodule.recurse=false",
 ] as const);
-export const MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES = 16 * 1_024;
+export const MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES = 16 * 1024;
 const OMP_TOOLS_BY_EFFECT = Object.freeze({
   plan: Object.freeze(["read", "grep", "glob"]),
   implement: Object.freeze(["read", "grep", "glob", "edit", "write"]),
@@ -993,7 +993,7 @@ const OMP_WAYFINDER_TOOLS = Object.freeze([
   "web_search",
 ] as const);
 const MAX_OMP_SKILL_BUNDLE_ENTRIES = 512;
-const MAX_OMP_SKILL_BUNDLE_BYTES = 2 * 1_024 * 1_024;
+const MAX_OMP_SKILL_BUNDLE_BYTES = 2 * 1024 * 1024;
 const SANDBOX_SYSTEM_READ_DIRECTORIES = Object.freeze([
   "/System",
   "/Library/Apple",
@@ -1009,11 +1009,11 @@ const SANDBOX_SYSTEM_READ_FILES = Object.freeze([
   "/private/etc/resolv.conf",
 ] as const);
 const MAX_OMP_MANIFEST_ENTRIES = 20_000;
-const MAX_OMP_MANIFEST_BYTES = 256 * 1_024 * 1_024;
+const MAX_OMP_MANIFEST_BYTES = 256 * 1024 * 1024;
 const MAX_OMP_CHANGED_PATHS = 512;
-const MAX_OMP_CHANGED_PATH_BYTES = 8 * 1_024;
-const VERIFIER_MANIFEST_MAX_ENTRIES = 4_096;
-const VERIFIER_MANIFEST_MAX_BYTES = 32 * 1_024 * 1_024;
+const MAX_OMP_CHANGED_PATH_BYTES = 8 * 1024;
+const VERIFIER_MANIFEST_MAX_ENTRIES = 4096;
+const VERIFIER_MANIFEST_MAX_BYTES = 32 * 1024 * 1024;
 const VERIFIER_MANIFEST_SKIPPED_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -1269,9 +1269,9 @@ const validateRedactions = (redactions: readonly string[]): void => {
     throw new OmpRequestError("Too many redaction values");
   }
   for (const redaction of redactions) {
-    if (redaction.length === 0 || Buffer.byteLength(redaction) > 4_096) {
+    if (redaction.length === 0 || Buffer.byteLength(redaction) > 4096) {
       throw new OmpRequestError("Redaction values must be 1-4096 UTF-8 bytes");
-    } else continue;
+    }
   }
 };
 
@@ -1352,17 +1352,16 @@ export const truncateOmpUtf8 = (
   const buffer = Buffer.from(value);
   if (buffer.byteLength <= maximumBytes) {
     return Object.freeze({ value, bytes: buffer.byteLength, truncated: false });
-  } else {
-    const truncated = buffer
-      .subarray(0, maximumBytes)
-      .toString("utf8")
-      .replace(/\uFFFD$/u, "");
-    return Object.freeze({
-      value: truncated,
-      bytes: Buffer.byteLength(truncated),
-      truncated: true,
-    });
   }
+  const truncated = buffer
+    .subarray(0, maximumBytes)
+    .toString("utf8")
+    .replace(/\uFFFD$/u, "");
+  return Object.freeze({
+    value: truncated,
+    bytes: Buffer.byteLength(truncated),
+    truncated: true,
+  });
 };
 
 const sanitizeOutput = (
@@ -1440,8 +1439,9 @@ const resolveExecutionCwd = async (
     const candidate = await realpath(resolve(canonicalRoot, cwd));
     const candidateStat = await stat(candidate);
     if (
-      !candidateStat.isDirectory() ||
-      !isContainedPath(canonicalRoot, candidate)
+      !(
+        candidateStat.isDirectory() && isContainedPath(canonicalRoot, candidate)
+      )
     ) {
       throw new OmpRequestError("OMP cwd is invalid");
     }
@@ -1626,9 +1626,7 @@ const resolveOmpExecutable = async (executable: string): Promise<string> => {
       await access(candidate, constants.X_OK);
       const canonical = await realpath(candidate);
       if ((await stat(canonical)).isFile()) return canonical;
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   throw new OmpConfigurationError("OMP executable is unavailable");
 };
@@ -1986,9 +1984,7 @@ const resolveGitExecutable = async (): Promise<string> => {
       if (await isSecureRootOwnedGitPath(gitExecutable)) {
         return gitExecutable;
       }
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   throw new OmpConfigurationError("OMP git executable is unavailable");
 };
@@ -2100,7 +2096,7 @@ const runGit = async (
           }
           void terminateOwnedProcessTree(
             child,
-            Math.max(1, Math.min(1_000, operationTimeoutMs))
+            Math.max(1, Math.min(1000, operationTimeoutMs))
           ).then(
             () =>
               rejectGit(
@@ -3077,7 +3073,8 @@ const signalOwnedProcessGroup = (
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
       throw error;
-    } else return;
+    }
+    return;
   }
 };
 
@@ -3253,10 +3250,8 @@ const resolveDockerExecutable = async (): Promise<string> => {
       const canonical = await realpath(candidate);
       if ((await stat(canonical)).isFile()) {
         return canonical;
-      } else continue;
-    } catch {
-      continue;
-    }
+      }
+    } catch {}
   }
   throw new OmpConfigurationError("OMP Docker verifier backend is unavailable");
 };
@@ -3278,8 +3273,7 @@ export const dockerVerifierArgumentsFor = (
   containerName: string
 ): readonly string[] => {
   if (
-    !isAbsolute(workspace) ||
-    !isAbsolute(cidPath) ||
+    !(isAbsolute(workspace) && isAbsolute(cidPath)) ||
     workspace.includes("\0") ||
     cidPath.includes("\0") ||
     !DOCKER_IMAGE_DIGEST_PATTERN.test(imageDigest) ||
@@ -3336,8 +3330,7 @@ export const dockerCleanupBudgetFor = (
 ): Readonly<{ timeoutMs: number; shutdownTimeoutMs: number }> => {
   const remaining = deadlineAtMs - nowMs;
   if (
-    !Number.isSafeInteger(deadlineAtMs) ||
-    !Number.isSafeInteger(nowMs) ||
+    !(Number.isSafeInteger(deadlineAtMs) && Number.isSafeInteger(nowMs)) ||
     remaining < 2
   ) {
     throw new OmpProcessTerminationError();
@@ -3381,7 +3374,7 @@ export const runDockerVerifier = async (
     ...(input.signal === undefined ? {} : { signal: input.signal }),
     timeoutMs: Math.min(input.timeoutMs, 30_000),
     shutdownTimeoutMs: input.shutdownTimeoutMs,
-    maximumOutputBytes: 4_096,
+    maximumOutputBytes: 4096,
     redactions: input.redactions,
     now: input.now,
     startError: "OMP Docker verifier inspection failed to start",
@@ -3442,7 +3435,7 @@ export const runDockerVerifier = async (
         environment,
         timeoutMs: cleanupBudget.timeoutMs,
         shutdownTimeoutMs: cleanupBudget.shutdownTimeoutMs,
-        maximumOutputBytes: 4_096,
+        maximumOutputBytes: 4096,
         redactions: input.redactions,
         now: input.now,
         startError: "OMP Docker verifier cleanup failed to start",
@@ -3463,7 +3456,7 @@ export const runDockerVerifier = async (
           environment,
           timeoutMs: probeBudget.timeoutMs,
           shutdownTimeoutMs: probeBudget.shutdownTimeoutMs,
-          maximumOutputBytes: 4_096,
+          maximumOutputBytes: 4096,
           redactions: input.redactions,
           now: input.now,
           startError: "OMP Docker verifier cleanup probe failed to start",
@@ -3532,12 +3525,12 @@ export const createOmpCliAdapter = (
   const timeoutMs = requireBoundedInteger(
     options.timeoutMs ?? DEFAULT_OMP_TIMEOUT_MS,
     "timeoutMs",
-    60 * 60 * 1_000
+    60 * 60 * 1000
   );
   const maxOutputBytes = requireBoundedInteger(
     options.maxOutputBytes ?? DEFAULT_OMP_MAX_OUTPUT_BYTES,
     "maxOutputBytes",
-    1_024 * 1_024
+    1024 * 1024
   );
   const shutdownTimeoutMs = requireBoundedInteger(
     options.shutdownTimeoutMs ?? DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS,
@@ -3547,7 +3540,7 @@ export const createOmpCliAdapter = (
   const verifierMaxResultBytes = requireBoundedInteger(
     options.verifierMaxResultBytes ?? DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES,
     "verifierMaxResultBytes",
-    1_024 * 1_024
+    1024 * 1024
   );
   const now = options.now ?? Date.now;
   const filesystemSandboxBackend =
@@ -4108,7 +4101,7 @@ export const createOmpCliAdapter = (
     const workspacePresent = await pathExists(workspaceCwd);
     const markerPresent = await pathExists(markerPath);
     const lockPresent = await pathExists(lockDirectory);
-    if (!workspacePresent && !markerPresent && !lockPresent) return;
+    if (!(workspacePresent || markerPresent || lockPresent)) return;
     if (workspacePresent !== markerPresent) {
       throw new OmpRequestError("OMP workspace cleanup ownership changed");
     }
@@ -4155,8 +4148,7 @@ export const createOmpCliAdapter = (
     const lock = await acquireWorkspaceLock(lockDirectory, recovery.ownerNonce);
     try {
       if (
-        !(await pathExists(workspaceCwd)) &&
-        !(await pathExists(markerPath))
+        !((await pathExists(workspaceCwd)) || (await pathExists(markerPath)))
       ) {
         await lock.release();
         return;

@@ -1,21 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { INDETERMINATE_THEME } from "./lib/server-theme.ts";
 import {
   forwardThemeApiRequest,
   loadApiThemePreference,
   type ThemeApiRequestOptions,
 } from "./lib/server-theme-api.ts";
-import { INDETERMINATE_THEME } from "./lib/server-theme.ts";
 
 const ACTIVE_SESSION_COOKIE = "better-auth.session_token=trusted";
 const SECURE_SESSION_COOKIE = "__Secure-better-auth.session_token=trusted";
 
-describe("server theme API forwarding", function () {
-  afterEach(function () {
-    return vi.useRealTimers();
-  });
+describe("server theme API forwarding", () => {
+  afterEach(() => vi.useRealTimers());
 
-  it("forwards only explicit request identity with no-store semantics", async function () {
+  it("forwards only explicit request identity with no-store semantics", async () => {
     const requests: Request[] = [];
     const fetchRequest: typeof globalThis.fetch = async (input, init) => {
       requests.push(
@@ -56,7 +53,7 @@ describe("server theme API forwarding", function () {
     return expect(forwarded.redirect).toBe("manual");
   });
 
-  it("rebuilds structurally compatible Worker requests from their URL", async function () {
+  it("rebuilds structurally compatible Worker requests from their URL", async () => {
     let forwarded: Request | undefined;
     const source = new Request("https://darkfactory.example/api/orpc", {
       method: "POST",
@@ -91,7 +88,7 @@ describe("server theme API forwarding", function () {
     );
   });
 
-  it("aborts a stalled request and clears its timeout", async function () {
+  it("aborts a stalled request and clears its timeout", async () => {
     vi.useFakeTimers();
     let aborted = false;
     const fetchRequest: typeof globalThis.fetch = async (input, init) => {
@@ -125,7 +122,7 @@ describe("server theme API forwarding", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("rejects cross-origin requests before forwarding credentials", async function () {
+  it("rejects cross-origin requests before forwarding credentials", async () => {
     const fetchRequest = vi.fn(async () => new Response("{}"));
     await expect(
       forwardThemeApiRequest({
@@ -144,7 +141,7 @@ describe("server theme API forwarding", function () {
     return expect(fetchRequest).not.toHaveBeenCalled();
   });
 
-  it("cancels an oversized chunked theme response", async function () {
+  it("cancels an oversized chunked theme response", async () => {
     const cancel = vi.fn();
     const body = new ReadableStream<Uint8Array>({
       start: (controller) => {
@@ -166,7 +163,7 @@ describe("server theme API forwarding", function () {
     return expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it("skips trusted theme transport without a session cookie", async function () {
+  it("skips trusted theme transport without a session cookie", async () => {
     const clientFactory = vi.fn(() => {
       throw new Error("anonymous requests must not create an API client");
     }) as unknown as NonNullable<ThemeApiRequestOptions["clientFactory"]>;
@@ -191,7 +188,7 @@ describe("server theme API forwarding", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("maps unauthorized, trusted, and infrastructure outcomes to distinct authorities", async function () {
+  it("maps unauthorized, trusted, and infrastructure outcomes to distinct authorities", async () => {
     const load = async (get: () => Promise<unknown>) =>
       loadApiThemePreference({
         appUrl: "https://darkfactory.example",
@@ -203,7 +200,7 @@ describe("server theme API forwarding", function () {
       });
 
     await expect(
-      load(async function () {
+      load(async () => {
         throw { status: 401, code: "UNAUTHORIZED" };
       })
     ).resolves.toBeUndefined();
@@ -214,13 +211,13 @@ describe("server theme API forwarding", function () {
       }))
     ).resolves.toEqual({ themeMode: "dark", palette: "rose" });
     return await expect(
-      load(async function () {
+      load(async () => {
         throw new Error("upstream unavailable");
       })
     ).resolves.toBe(INDETERMINATE_THEME);
   });
 
-  it("requires the forwarding origin to be one clean HTTPS origin", async function () {
+  it("requires the forwarding origin to be one clean HTTPS origin", async () => {
     const fetchRequest = vi.fn(async () => new Response(null, { status: 204 }));
     for (const trustedOrigin of [
       "http://darkfactory.example",
@@ -239,7 +236,7 @@ describe("server theme API forwarding", function () {
     return expect(fetchRequest).not.toHaveBeenCalled();
   });
 
-  it("executes the client transport through bounded same-origin forwarding", async function () {
+  it("executes the client transport through bounded same-origin forwarding", async () => {
     const fetchRequest = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input, init);
@@ -288,14 +285,14 @@ describe("server theme API forwarding", function () {
     return expect(fetchRequest).toHaveBeenCalledOnce();
   });
 
-  return it("does not treat partial or primitive failures as unauthorized", async function () {
+  return it("does not treat partial or primitive failures as unauthorized", async () => {
     const load = (failure: unknown) =>
       loadApiThemePreference({
         appUrl: "https://darkfactory.example",
         clientFactory: (() => ({
           preferences: {
             theme: {
-              get: async function () {
+              async get() {
                 throw failure;
               },
             },

@@ -25,20 +25,20 @@ vi.mock("@darkfactory/api", async (importOriginal) => {
 
 import { createSetupFlowActor } from "@darkfactory/state/flow";
 import {
-  createFeatureItemGateway,
-  createBrowserFeatureItemGateway,
-  safeFeatureFeedback,
-  upsertFeatureItem,
-  withoutFeatureItem,
-  type FeatureItemGateway,
-} from "./feature-items-client.ts";
-import { FeatureItemsCollection } from "./feature-items-collection.tsx";
-import { FeatureItemsWorkspace } from "./feature-items-workspace.tsx";
-import {
   CreateWorkflowStep,
   FeatureItemCreateWorkflow,
 } from "./feature-item-create-workflow.tsx";
 import { FeatureItemEditor } from "./feature-item-editor.tsx";
+import {
+  createBrowserFeatureItemGateway,
+  createFeatureItemGateway,
+  type FeatureItemGateway,
+  safeFeatureFeedback,
+  upsertFeatureItem,
+  withoutFeatureItem,
+} from "./feature-items-client.ts";
+import { FeatureItemsCollection } from "./feature-items-collection.tsx";
+import { FeatureItemsWorkspace } from "./feature-items-workspace.tsx";
 
 const item = (
   overrides: Partial<FeatureItemOutput> = {}
@@ -60,27 +60,15 @@ afterEach(() => {
   return vi.unstubAllGlobals();
 });
 
-describe("typed feature item gateway", function () {
-  it("drives list, get, create, update, status, and archive through oRPC", async function () {
+describe("typed feature item gateway", () => {
+  it("drives list, get, create, update, status, and archive through oRPC", async () => {
     const featureItems = {
-      list: vi.fn(async function () {
-        return [item()];
-      }),
-      get: vi.fn(async function () {
-        return item();
-      }),
-      create: vi.fn(async function (input) {
-        return item({ name: input.name });
-      }),
-      update: vi.fn(async function (input) {
-        return item({ name: input.name ?? item().name });
-      }),
-      changeStatus: vi.fn(async function (input) {
-        return item({ status: input.status });
-      }),
-      archive: vi.fn(async function () {
-        return item({ status: "archived" });
-      }),
+      list: vi.fn(async () => [item()]),
+      get: vi.fn(async () => item()),
+      create: vi.fn(async (input) => item({ name: input.name })),
+      update: vi.fn(async (input) => item({ name: input.name ?? item().name })),
+      changeStatus: vi.fn(async (input) => item({ status: input.status })),
+      archive: vi.fn(async () => item({ status: "archived" })),
     };
     const gateway = createFeatureItemGateway({
       featureItems,
@@ -128,29 +116,21 @@ describe("typed feature item gateway", function () {
     return expect(featureItems.archive).toHaveBeenCalledWith({ id: "item-1" });
   });
 
-  it("lazily shares one browser client across every feature item operation", async function () {
+  it("lazily shares one browser client across every feature item operation", async () => {
     const featureItems = {
-      list: vi.fn(async function () {
-        return [item()];
-      }),
-      get: vi.fn(async function () {
-        return item();
-      }),
-      create: vi.fn(async function (input) {
-        return item({ name: input.name, description: input.description });
-      }),
-      update: vi.fn(async function (input) {
-        return item({
+      list: vi.fn(async () => [item()]),
+      get: vi.fn(async () => item()),
+      create: vi.fn(async (input) =>
+        item({ name: input.name, description: input.description })
+      ),
+      update: vi.fn(async (input) =>
+        item({
           name: input.name ?? item().name,
           description: input.description ?? item().description,
-        });
-      }),
-      changeStatus: vi.fn(async function (input) {
-        return item({ status: input.status });
-      }),
-      archive: vi.fn(async function () {
-        return item({ status: "archived" });
-      }),
+        })
+      ),
+      changeStatus: vi.fn(async (input) => item({ status: input.status })),
+      archive: vi.fn(async () => item({ status: "archived" })),
     };
     browserApiRuntime.client = { featureItems } as unknown as ApiClient;
     vi.stubGlobal("window", { location: { origin: "https://portal.example" } });
@@ -202,7 +182,7 @@ describe("typed feature item gateway", function () {
     return expect(featureItems.archive).toHaveBeenCalledWith({ id: "item-1" });
   });
 
-  it("constructs and server-renders default loading workflows without a browser window", function () {
+  it("constructs and server-renders default loading workflows without a browser window", () => {
     expect("window" in globalThis).toBe(false);
     expect(() => createBrowserFeatureItemGateway()).not.toThrow();
     expect(renderToStaticMarkup(<FeatureItemsWorkspace />)).toContain(
@@ -216,7 +196,7 @@ describe("typed feature item gateway", function () {
     ).toContain("Describe the item");
   });
 
-  it("maps failures to safe actionable feedback without exposing raw details", function () {
+  it("maps failures to safe actionable feedback without exposing raw details", () => {
     expect(safeFeatureFeedback({ code: "VALIDATION_ERROR" })).toBe(
       "Check the highlighted fields and try again."
     );
@@ -225,43 +205,35 @@ describe("typed feature item gateway", function () {
     ).toBe("The request could not be completed. Try again.");
   });
 
-  return it("supports exact optimistic rollback snapshots", function () {
+  return it("supports exact optimistic rollback snapshots", () => {
     const original = [item(), item({ id: "item-2", name: "Second" })];
     const updated = upsertFeatureItem(original, item({ name: "Changed" }));
+    expect(updated.map((entry) => entry.name)).toEqual(["Changed", "Second"]);
     expect(
-      updated.map(function (entry) {
-        return entry.name;
-      })
-    ).toEqual(["Changed", "Second"]);
-    expect(
-      withoutFeatureItem(updated, "item-1").map(function (entry) {
-        return entry.id;
-      })
+      withoutFeatureItem(updated, "item-1").map((entry) => entry.id)
     ).toEqual(["item-2"]);
-    expect(
-      original.map(function (entry) {
-        return entry.name;
-      })
-    ).toEqual(["Starter checklist", "Second"]);
+    expect(original.map((entry) => entry.name)).toEqual([
+      "Starter checklist",
+      "Second",
+    ]);
     const inserted = upsertFeatureItem(
       original,
       item({ id: "item-3", name: "Newest" })
     );
-    expect(
-      inserted.map(function (entry) {
-        return entry.id;
-      })
-    ).toEqual(["item-3", "item-1", "item-2"]);
-    return expect(
-      original.map(function (entry) {
-        return entry.id;
-      })
-    ).toEqual(["item-1", "item-2"]);
+    expect(inserted.map((entry) => entry.id)).toEqual([
+      "item-3",
+      "item-1",
+      "item-2",
+    ]);
+    return expect(original.map((entry) => entry.id)).toEqual([
+      "item-1",
+      "item-2",
+    ]);
   });
 });
 
-describe("feature item collection states", function () {
-  it("renders a geometry-preserving loading state", function () {
+describe("feature item collection states", () => {
+  it("renders a geometry-preserving loading state", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection state={{ type: "loading" }} />
     );
@@ -269,7 +241,7 @@ describe("feature item collection states", function () {
     return expect(html).toContain('aria-busy="true"');
   });
 
-  it("renders an instructive empty state with a valid next action", function () {
+  it("renders an instructive empty state with a valid next action", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection state={{ type: "ready", items: [] }} />
     );
@@ -277,7 +249,7 @@ describe("feature item collection states", function () {
     return expect(html).toContain("/feature-items/new");
   });
 
-  it("distinguishes a filtered empty result and offers reset", function () {
+  it("distinguishes a filtered empty result and offers reset", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection isFiltered state={{ type: "ready", items: [] }} />
     );
@@ -285,7 +257,7 @@ describe("feature item collection states", function () {
     return expect(html).toContain("Reset filters");
   });
 
-  it("renders server-backed search and status controls", function () {
+  it("renders server-backed search and status controls", () => {
     const gateway = {
       list: vi.fn(),
       get: vi.fn(),
@@ -302,7 +274,7 @@ describe("feature item collection states", function () {
     return expect(html).toContain("All statuses");
   });
 
-  it("renders safe load failure feedback and retry control", function () {
+  it("renders safe load failure feedback and retry control", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection
         state={{
@@ -317,7 +289,7 @@ describe("feature item collection states", function () {
     return expect(html).not.toContain("postgres");
   });
 
-  return it("renders real item fields and an accessible edit action", function () {
+  return it("renders real item fields and an accessible edit action", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection state={{ type: "ready", items: [item()] }} />
     );
@@ -328,8 +300,8 @@ describe("feature item collection states", function () {
   });
 });
 
-describe("feature item setup workflow", function () {
-  it("server-renders the initial workflow with the actor snapshot bound", function () {
+describe("feature item setup workflow", () => {
+  it("server-renders the initial workflow with the actor snapshot bound", () => {
     const gateway = {
       list: vi.fn(),
       get: vi.fn(),
@@ -344,12 +316,12 @@ describe("feature item setup workflow", function () {
     return expect(html).toContain("Describe the item");
   });
 
-  return it("changes the visible task across details, options, review, and failure recovery", function () {
+  return it("changes the visible task across details, options, review, and failure recovery", () => {
     const actor = createSetupFlowActor().start();
     let html = renderToStaticMarkup(
       <CreateWorkflowStep
-        state={actor.getSnapshot().value}
         name="Example item"
+        state={actor.getSnapshot().value}
         status="draft"
       />
     );
@@ -359,8 +331,8 @@ describe("feature item setup workflow", function () {
     actor.send({ type: "NEXT" });
     html = renderToStaticMarkup(
       <CreateWorkflowStep
-        state={actor.getSnapshot().value}
         name="Example item"
+        state={actor.getSnapshot().value}
         status="draft"
       />
     );
@@ -371,8 +343,8 @@ describe("feature item setup workflow", function () {
     actor.send({ type: "NEXT" });
     html = renderToStaticMarkup(
       <CreateWorkflowStep
-        state={actor.getSnapshot().value}
         name="Example item"
+        state={actor.getSnapshot().value}
         status="draft"
       />
     );
@@ -386,10 +358,10 @@ describe("feature item setup workflow", function () {
     });
     html = renderToStaticMarkup(
       <CreateWorkflowStep
-        state={actor.getSnapshot().value}
-        name="Example item"
-        status="draft"
         error={actor.getSnapshot().context.error}
+        name="Example item"
+        state={actor.getSnapshot().value}
+        status="draft"
       />
     );
     expect(html).toContain("Creation was interrupted");

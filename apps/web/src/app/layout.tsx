@@ -1,14 +1,14 @@
-import type { ReactNode } from "react";
-import { headers } from "next/headers";
 import { CANONICAL_APP_URL } from "@darkfactory/config";
+import { headers } from "next/headers";
+import type { ReactNode } from "react";
 
 import { ThemeController } from "../components/theme-controller.tsx";
+import { dispatchInternalOrpcRequest } from "../lib/server-internal-dispatch.ts";
 import { resolveRequestTheme } from "../lib/server-theme.ts";
 import { loadApiThemePreference } from "../lib/server-theme-api.ts";
-import { dispatchInternalOrpcRequest } from "../lib/server-internal-dispatch.ts";
 import {
-  THEME_BOOTSTRAP_PATH,
   type AnonymousThemePreference,
+  THEME_BOOTSTRAP_PATH,
   type ThemeAuthority,
   type ThemeCookieStatus,
 } from "../lib/theme.ts";

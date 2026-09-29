@@ -1,15 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
-
 import { canonicalJsonV1 } from "@darkfactory/state/workflow";
-
-import {
-  WORKFLOW_EFFECT_HANDLER_V2,
-  createWorkflowOutboxWorker,
-  type ClaimedWorkflowEffect,
-  type WorkflowOutboxPort,
-} from "./workflow-worker.ts";
+import { describe, expect, it, vi } from "vitest";
 import type { OmpCliAdapter, OmpExecutionResult } from "./omp.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
+import {
+  type ClaimedWorkflowEffect,
+  createWorkflowOutboxWorker,
+  WORKFLOW_EFFECT_HANDLER_V2,
+  type WorkflowOutboxPort,
+} from "./workflow-worker.ts";
 
 const wayfinderClaim = (
   overrides: Partial<ClaimedWorkflowEffect> = {}
@@ -72,7 +70,7 @@ const baseAdapter = (
 
 const repositoryFor = (
   claim: ClaimedWorkflowEffect,
-  failResult: boolean = true
+  failResult = true
 ): WorkflowOutboxPort &
   Readonly<{
     completeEffect: ReturnType<typeof vi.fn>;
@@ -143,7 +141,7 @@ describe("Wayfinder workflow worker dispatch", () => {
     return expect(operations).toEqual(["publish", "complete"]);
   });
 
-  it("dispatches a revised plan to a fresh tracker with the original request", async function () {
+  it("dispatches a revised plan to a fresh tracker with the original request", async () => {
     const revisedClaim = wayfinderClaim({
       effectId: "effect-revision-2",
       idempotencyKey: "effect-revision-2",

@@ -1,12 +1,12 @@
 "use client";
 
+import { cn, Input, Label } from "@darkfactory/ui";
+import { Eye, EyeOff } from "lucide-react";
 import {
-  useState,
   type ChangeEventHandler,
   type FocusEventHandler,
+  useState,
 } from "react";
-import { Eye, EyeOff } from "lucide-react";
-import { Input, Label, cn } from "@darkfactory/ui";
 
 export type PasswordFieldProps = Readonly<{
   id: string;
@@ -46,7 +46,7 @@ export const PasswordField = ({
       <Label htmlFor={id}>{label}</Label>
       {description ? (
         <p
-          className="text-sm leading-5 text-muted-foreground"
+          className="text-muted-foreground text-sm leading-5"
           id={descriptionId}
         >
           {description}
@@ -56,17 +56,17 @@ export const PasswordField = ({
         <Input
           aria-describedby={describedBy}
           aria-invalid={error ? true : undefined}
+          aria-required={required}
           autoComplete={autoComplete}
           className="min-h-11 pr-12"
-          aria-required={required}
           disabled={disabled}
           id={id}
           name={name}
           onBlur={onBlur}
           onChange={onChange}
+          required={required}
           type={isVisible ? "text" : "password"}
           value={value}
-          required={required}
         />
         <button
           aria-label={isVisible ? "Hide password" : "Show password"}
@@ -89,7 +89,7 @@ export const PasswordField = ({
       </div>
       {error ? (
         <p
-          className="text-sm font-medium text-destructive"
+          className="font-medium text-destructive text-sm"
           id={errorId}
           role="alert"
         >

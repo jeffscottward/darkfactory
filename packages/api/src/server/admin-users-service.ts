@@ -1,7 +1,7 @@
 import {
   AdminUsersPersistenceError,
-  InvalidAdminUsersCursorError,
   type AdminUsersRepository,
+  InvalidAdminUsersCursorError,
 } from "@darkfactory/db/server";
 
 import type { AdminUsersListInput, AdminUsersListOutput } from "../contract.ts";

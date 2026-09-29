@@ -59,7 +59,7 @@ const decodeNumericEntityForAssertion = (
     hexadecimal ?? decimal ?? "",
     hexadecimal ? 16 : 10
   );
-  return Number.isSafeInteger(code) && code >= 0 && code <= 0x10ffff
+  return Number.isSafeInteger(code) && code >= 0 && code <= 0x10_ff_ff
     ? String.fromCodePoint(code)
     : source;
 };
@@ -138,8 +138,8 @@ afterEach(() => {
   return vi.restoreAllMocks();
 });
 
-describe("Playwright JSON report redaction", function () {
-  it("removes configuration secrets and redacts known values recursively", async function () {
+describe("Playwright JSON report redaction", () => {
+  it("removes configuration secrets and redacts known values recursively", async () => {
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-"));
     temporaryDirectories.add(directory);
     const path = join(directory, "playwright-report.json");
@@ -189,7 +189,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(content).not.toContain(hmacKey);
   });
 
-  it("redacts encoded and separator-fragmented secrets from values and attachments", async function () {
+  it("redacts encoded and separator-fragmented secrets from values and attachments", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-encoded-")
     );
@@ -248,7 +248,7 @@ describe("Playwright JSON report redaction", function () {
     return results1;
   });
 
-  it("fails closed for short values and preserves overlapping literal redaction", async function () {
+  it("fails closed for short values and preserves overlapping literal redaction", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-ambiguous-")
     );
@@ -326,7 +326,7 @@ describe("Playwright JSON report redaction", function () {
     return results2;
   });
 
-  it("renames sensitive member names deterministically without key collisions", async function () {
+  it("renames sensitive member names deterministically without key collisions", async () => {
     const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-keys-"));
     temporaryDirectories.add(directory);
     const path = join(directory, "playwright-report.json");
@@ -388,7 +388,7 @@ describe("Playwright JSON report redaction", function () {
     return await expect(readFile(path, "utf8")).resolves.toBe(content);
   });
 
-  it("fails before writing when every bounded redacted-key candidate is sensitive", async function () {
+  it("fails before writing when every bounded redacted-key candidate is sensitive", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-key-exhaustion-")
     );
@@ -406,7 +406,7 @@ describe("Playwright JSON report redaction", function () {
     return await expect(readFile(path, "utf8")).resolves.toBe(original);
   });
 
-  it("never reconstructs a short secret through the scalar redaction marker", async function () {
+  it("never reconstructs a short secret through the scalar redaction marker", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-marker-")
     );
@@ -434,7 +434,7 @@ describe("Playwright JSON report redaction", function () {
     });
     return expect(content).not.toContain("RED");
   });
-  it("fails closed for malformed reports and symbolic links", async function () {
+  it("fails closed for malformed reports and symbolic links", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-invalid-")
     );
@@ -453,7 +453,7 @@ describe("Playwright JSON report redaction", function () {
       sanitizePlaywrightJsonReport(linked, [])
     ).rejects.toThrow("Playwright report file is invalid");
   });
-  it("supports web server arrays and canonicalizes overlapping secrets", async function () {
+  it("supports web server arrays and canonicalizes overlapping secrets", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-array-")
     );
@@ -502,7 +502,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(content.endsWith("\n")).toBe(true);
   });
 
-  it("rejects empty, oversized, non-file, and malformed configurations", async function () {
+  it("rejects empty, oversized, non-file, and malformed configurations", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-bounds-")
     );
@@ -557,7 +557,7 @@ describe("Playwright JSON report redaction", function () {
     return results4;
   });
 
-  it("fails closed when redaction would expand the report beyond its bound", async function () {
+  it("fails closed when redaction would expand the report beyond its bound", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-rendered-bound-")
     );
@@ -576,7 +576,7 @@ describe("Playwright JSON report redaction", function () {
     ).rejects.toThrow("Redacted Playwright report exceeds its bound");
   });
 
-  it("rejects aggregate replacement growth before mutating the report", async function () {
+  it("rejects aggregate replacement growth before mutating the report", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "darkfactory-report-aggregate-bound-")
     );
@@ -595,7 +595,7 @@ describe("Playwright JSON report redaction", function () {
     return await expect(readFile(path, "utf8")).resolves.toBe(original);
   });
 
-  it("rejects a file-reported symbolic link before opening it", async function () {
+  it("rejects a file-reported symbolic link before opening it", async () => {
     const open = vi.fn();
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => ({
@@ -614,7 +614,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(open).not.toHaveBeenCalled();
   });
 
-  it("uses the portable open flags when no no-follow flag is available", async function () {
+  it("uses the portable open flags when no no-follow flag is available", async () => {
     const handle = mockedFileHandle();
     const open = vi.fn(async () => handle);
     vi.doMock("node:fs", () => ({
@@ -637,7 +637,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(handle.close).toHaveBeenCalledOnce();
   });
 
-  it("closes the report when the opened descriptor is not a file", async function () {
+  it("closes the report when the opened descriptor is not a file", async () => {
     const handle = mockedFileHandle({
       stat: vi.fn(async () => ({
         ...fileStats(),
@@ -659,7 +659,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(handle.readFile).not.toHaveBeenCalled();
   });
 
-  it("closes the report when its identity changes before redaction", async function () {
+  it("closes the report when its identity changes before redaction", async () => {
     const handle = mockedFileHandle({
       stat: vi.fn(async () => fileStats(1, 99)),
     });
@@ -678,7 +678,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(handle.readFile).not.toHaveBeenCalled();
   });
 
-  it("closes the report when its opened content exceeds the read bound", async function () {
+  it("closes the report when its opened content exceeds the read bound", async () => {
     const handle = mockedFileHandle({
       readFile: vi.fn(async () => "x".repeat(16 * 1024 * 1024 + 1)),
     });
@@ -697,7 +697,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(handle.write).not.toHaveBeenCalled();
   });
 
-  it("fails and closes the report when a redaction write makes no progress", async function () {
+  it("fails and closes the report when a redaction write makes no progress", async () => {
     const handle = mockedFileHandle({
       write: vi.fn(async () => ({ bytesWritten: 0 })),
     });
@@ -716,7 +716,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(handle.truncate).not.toHaveBeenCalled();
   });
 
-  it("detects replacement after a complete redaction and cleanup", async function () {
+  it("detects replacement after a complete redaction and cleanup", async () => {
     const handle = mockedFileHandle();
     const lstat = vi
       .fn()
@@ -738,7 +738,7 @@ describe("Playwright JSON report redaction", function () {
     return expect(handle.close).toHaveBeenCalledOnce();
   });
 
-  return it("rejects non-file and symbolic-link identities after redaction", async function () {
+  return it("rejects non-file and symbolic-link identities after redaction", async () => {
     const handle = mockedFileHandle();
     const afterStats = [
       {

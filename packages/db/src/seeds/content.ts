@@ -1,14 +1,14 @@
+import type { Address, FeatureItem } from "../schema/index.ts";
 import type { DatabaseExecutor } from "../server/client.ts";
 import {
-  createAddressRepository,
-  createFeatureItemRepository,
   type CreateAddressInput,
   type CreateFeatureItemInput,
+  createAddressRepository,
+  createFeatureItemRepository,
   type FeatureMutationContext,
   type UpdateAddressInput,
   type UpdateFeatureItemInput,
 } from "../server/repositories.ts";
-import type { Address, FeatureItem } from "../schema/index.ts";
 
 export const DEVELOPMENT_ADDRESSES: readonly CreateAddressInput[] =
   Object.freeze([

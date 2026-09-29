@@ -10,9 +10,8 @@ vi.mock("next/navigation", () => ({ redirect }));
 
 import OperatorLandingPage from "./page.ts";
 
-describe("standalone operator landing", function () {
-  return it("routes the dedicated origin to the authenticated workspace", function () {
+describe("standalone operator landing", () =>
+  it("routes the dedicated origin to the authenticated workspace", () => {
     expect(() => OperatorLandingPage()).toThrow("REDIRECT:/operator");
     return expect(redirect).toHaveBeenCalledWith("/operator");
-  });
-});
+  }));

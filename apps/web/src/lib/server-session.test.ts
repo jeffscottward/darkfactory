@@ -4,8 +4,8 @@ import {
   getPortalSession,
   parsePortalSession,
   portalSignInHref,
-  resolvePortalCallbackPath,
   resolvePortalAppUrl,
+  resolvePortalCallbackPath,
   safePortalCallbackPath,
 } from "./server-session.ts";
 
@@ -20,12 +20,10 @@ const activeSession = {
     expiresAt: "2030-01-01T00:00:00.000Z",
   },
 };
-afterEach(function () {
-  return vi.unstubAllEnvs();
-});
+afterEach(() => vi.unstubAllEnvs());
 
-describe("resolvePortalAppUrl", function () {
-  return it("uses one validated HTTPS application origin", function () {
+describe("resolvePortalAppUrl", () =>
+  it("uses one validated HTTPS application origin", () => {
     expect(resolvePortalAppUrl("https://portal.example.test").href).toBe(
       "https://portal.example.test/"
     );
@@ -35,12 +33,11 @@ describe("resolvePortalAppUrl", function () {
     return expect(() =>
       resolvePortalAppUrl("https://user:secret@portal.example.test")
     ).toThrow("Portal application URL must be a clean HTTPS origin");
-  });
-});
+  }));
 
-describe("parsePortalSession", function () {
-  it("accepts only an active Better Auth session with a known role", function () {
-    return expect(
+describe("parsePortalSession", () => {
+  it("accepts only an active Better Auth session with a known role", () =>
+    expect(
       parsePortalSession(activeSession, new Date("2029-01-01T00:00:00.000Z"))
     ).toEqual({
       userId: "user-1",
@@ -48,8 +45,7 @@ describe("parsePortalSession", function () {
       role: "member",
       status: "active",
       expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-    });
-  });
+    }));
 
   return it.each([
     null,
@@ -62,15 +58,14 @@ describe("parsePortalSession", function () {
     },
     { ...activeSession, session: { expiresAt: "not-a-date" } },
     { ...activeSession, session: { expiresAt: "2028-01-01T00:00:00.000Z" } },
-  ])("rejects malformed, inactive, or expired session data", function (value) {
-    return expect(
+  ])("rejects malformed, inactive, or expired session data", (value) =>
+    expect(
       parsePortalSession(value, new Date("2029-01-01T00:00:00.000Z"))
-    ).toBeNull();
-  });
+    ).toBeNull());
 });
 
-describe("portal callback paths", function () {
-  it("preserves a safe relative portal path and encodes it for sign in", function () {
+describe("portal callback paths", () => {
+  it("preserves a safe relative portal path and encodes it for sign in", () => {
     const headers = new Headers({
       "x-pathname": "/feature-items/item-1?mode=edit",
     });
@@ -89,17 +84,16 @@ describe("portal callback paths", function () {
     "/features",
     "/feature-items/../../sign-in",
     "\\attacker.invalid\\steal",
-  ])("falls back when the request path is unsafe", function (pathname) {
-    return expect(
+  ])("falls back when the request path is unsafe", (pathname) =>
+    expect(
       resolvePortalCallbackPath(new Headers({ "x-pathname": pathname }))
-    ).toBe("/dashboard");
-  });
+    ).toBe("/dashboard"));
 });
 
-describe("getPortalSession", function () {
-  it("forwards only the request cookie and trusted edge IP before validating the response", async function () {
+describe("getPortalSession", () => {
+  it("forwards only the request cookie and trusted edge IP before validating the response", async () => {
     vi.stubEnv("APP_URL", "https://darkfactory.localhost");
-    const fetchSession = vi.fn(async function (request: Request) {
+    const fetchSession = vi.fn(async (request: Request) => {
       expect(request.url).toBe(
         "https://darkfactory.localhost/api/auth/get-session"
       );
@@ -131,31 +125,27 @@ describe("getPortalSession", function () {
   it.each([
     new Response(null, { status: 401 }),
     Response.json({ unexpected: true }),
-  ])("fails closed for missing or invalid session responses", async function (response) {
-    return await expect(
+  ])("fails closed for missing or invalid session responses", async (response) =>
+    await expect(
       getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
-        fetch: vi.fn(async function () {
-          return response;
-        }),
+        fetch: vi.fn(async () => response),
         now: new Date("2029-01-01T00:00:00.000Z"),
       })
-    ).resolves.toBeNull();
-  });
+    ).resolves.toBeNull());
 
-  it("fails closed when the session endpoint cannot be reached", async function () {
-    return await expect(
+  it("fails closed when the session endpoint cannot be reached", async () =>
+    await expect(
       getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
-        fetch: vi.fn(async function () {
+        fetch: vi.fn(async () => {
           throw new Error("connection details must stay private");
         }),
         now: new Date("2029-01-01T00:00:00.000Z"),
       })
-    ).resolves.toBeNull();
-  });
+    ).resolves.toBeNull());
 
-  it("bounds a streaming response even when content-length is absent", async function () {
+  it("bounds a streaming response even when content-length is absent", async () => {
     const oversized = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new Uint8Array(10_000));
@@ -165,15 +155,13 @@ describe("getPortalSession", function () {
     return await expect(
       getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
-        fetch: vi.fn(async function () {
-          return new Response(oversized);
-        }),
+        fetch: vi.fn(async () => new Response(oversized)),
         now: new Date("2029-01-01T00:00:00.000Z"),
       })
     ).resolves.toBeNull();
   });
 
-  it("cancels a stalled response body at the same deadline", async function () {
+  it("cancels a stalled response body at the same deadline", async () => {
     const stalled = new ReadableStream<Uint8Array>({
       start(controller) {
         return controller.enqueue(new TextEncoder().encode("{"));
@@ -182,16 +170,14 @@ describe("getPortalSession", function () {
     return await expect(
       getPortalSession({
         cookieHeader: "better-auth.session_token=opaque",
-        fetch: vi.fn(async function () {
-          return new Response(stalled);
-        }),
+        fetch: vi.fn(async () => new Response(stalled)),
         now: new Date("2029-01-01T00:00:00.000Z"),
         timeoutMs: 5,
       })
     ).resolves.toBeNull();
   });
 
-  it("aborts a hanging session request within the configured deadline", async function () {
+  it("aborts a hanging session request within the configured deadline", async () => {
     const fetchSession = vi.fn(
       (request: Request) =>
         new Promise<Response>((resolve) => {
@@ -212,7 +198,7 @@ describe("getPortalSession", function () {
     return expect(fetchSession.mock.calls[0]?.[0].signal.aborted).toBe(true);
   });
 
-  it("accepts the canonical fallback and rejects every non-origin URL shape", function () {
+  it("accepts the canonical fallback and rejects every non-origin URL shape", () => {
     expect(resolvePortalAppUrl("").protocol).toBe("https:");
     const results = [];
     for (const configured of [
@@ -230,7 +216,7 @@ describe("getPortalSession", function () {
     return results;
   });
 
-  it("accepts Date expirations and trims bounded administrator names", function () {
+  it("accepts Date expirations and trims bounded administrator names", () => {
     const expiresAt = new Date("2030-01-01T00:00:00.000Z");
     return expect(
       parsePortalSession(
@@ -274,13 +260,12 @@ describe("getPortalSession", function () {
       ...activeSession,
       session: { expiresAt: "2029-01-01T00:00:00.000Z" },
     },
-  ])("rejects malformed session field boundaries", function (value) {
-    return expect(
+  ])("rejects malformed session field boundaries", (value) =>
+    expect(
       parsePortalSession(value, new Date("2029-01-01T00:00:00.000Z"))
-    ).toBeNull();
-  });
+    ).toBeNull());
 
-  it("validates callback values directly and selects the first safe request header", function () {
+  it("validates callback values directly and selects the first safe request header", () => {
     for (const value of [
       null,
       "",
@@ -289,7 +274,7 @@ describe("getPortalSession", function () {
       "/dashboard#fragment",
       "/dashboard\\nested",
       "/dashboard\u0000",
-      `/${"x".repeat(2_048)}`,
+      `/${"x".repeat(2048)}`,
     ]) {
       expect(safePortalCallbackPath(value)).toBeNull();
     }
@@ -314,7 +299,7 @@ describe("getPortalSession", function () {
     );
   });
 
-  it("does not call the session endpoint without a usable cookie", async function () {
+  it("does not call the session endpoint without a usable cookie", async () => {
     const fetchSession = vi.fn(async () => Response.json(activeSession));
 
     await expect(
@@ -332,7 +317,7 @@ describe("getPortalSession", function () {
     return expect(fetchSession).not.toHaveBeenCalled();
   });
 
-  it("fails closed for bodyless, empty, malformed, and declared-oversized responses", async function () {
+  it("fails closed for bodyless, empty, malformed, and declared-oversized responses", async () => {
     const responses = [
       () => new Response(null),
       () =>
@@ -362,7 +347,7 @@ describe("getPortalSession", function () {
     return results1;
   });
 
-  it("clamps finite deadlines and uses the default for non-finite input", async function () {
+  it("clamps finite deadlines and uses the default for non-finite input", async () => {
     const results2 = [];
     for (const timeoutMs of [-10, 20_000, Number.NaN]) {
       results2.push(
@@ -387,7 +372,7 @@ describe("getPortalSession", function () {
     return results2;
   });
 
-  it("uses the global session transport when no fetch override is supplied", async function () {
+  it("uses the global session transport when no fetch override is supplied", async () => {
     const fetchSession = vi.fn(async () => Response.json(activeSession));
     vi.stubGlobal("fetch", fetchSession);
     try {
@@ -403,7 +388,7 @@ describe("getPortalSession", function () {
     }
   });
 
-  it("cancels a response body that arrives only after the session deadline", async function () {
+  it("cancels a response body that arrives only after the session deadline", async () => {
     vi.useFakeTimers();
     const cancel = vi.fn();
     try {
@@ -433,7 +418,7 @@ describe("getPortalSession", function () {
     }
   });
 
-  return it("fails closed if URL parsing throws after callback prevalidation", function () {
+  return it("fails closed if URL parsing throws after callback prevalidation", () => {
     const NativeUrl = URL;
     class ThrowingUrl extends NativeUrl {
       constructor(value: string | URL, base?: string | URL) {

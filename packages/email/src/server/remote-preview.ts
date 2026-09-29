@@ -10,7 +10,7 @@ import type {
 import type { PreviewEmailBinding } from "./preview.ts";
 
 const CAPTURE_PATH = "/v1/capture";
-const CAPTURE_TIMEOUT_MS = 5_000;
+const CAPTURE_TIMEOUT_MS = 5000;
 const HMAC_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -33,8 +33,10 @@ const assertCaptureOptions = (options: RemotePreviewPortOptions): URL => {
     throw new Error("Remote preview transport is available only in tests");
   }
   if (
-    !RUN_ID_PATTERN.test(options.binding.runId) ||
-    !HMAC_KEY_PATTERN.test(options.binding.hmacKey) ||
+    !(
+      RUN_ID_PATTERN.test(options.binding.runId) &&
+      HMAC_KEY_PATTERN.test(options.binding.hmacKey)
+    ) ||
     Buffer.from(options.binding.hmacKey, "base64url").length !== 32
   ) {
     throw new Error("Remote preview binding is invalid");

@@ -12,8 +12,8 @@ const deferred = () => {
   return { promise, release };
 };
 
-describe("inline job adapter", function () {
-  it("returns a typed result from inline execution", async function () {
+describe("inline job adapter", () => {
+  it("returns a typed result from inline execution", async () => {
     const jobs = createInlineJobPort({
       now: () => "2026-01-02T03:04:05.000Z",
     });
@@ -38,7 +38,7 @@ describe("inline job adapter", function () {
     });
   });
 
-  it("executes concurrent enqueue calls sequentially in enqueue order", async function () {
+  it("executes concurrent enqueue calls sequentially in enqueue order", async () => {
     const jobs = createInlineJobPort();
     const firstGate = deferred();
     const order: string[] = [];
@@ -75,7 +75,7 @@ describe("inline job adapter", function () {
     ]);
   });
 
-  it("captures the handler and payload snapshot synchronously at enqueue", async function () {
+  it("captures the handler and payload snapshot synchronously at enqueue", async () => {
     const jobs = createInlineJobPort();
     const gate = deferred();
     const callerPayload = { nested: { value: "original" } };
@@ -109,7 +109,7 @@ describe("inline job adapter", function () {
     });
   });
 
-  it("normalizes invalid payloads without invoking the handler and continues", async function () {
+  it("normalizes invalid payloads without invoking the handler and continues", async () => {
     const jobs = createInlineJobPort();
     let executions = 0;
     const definition: JobDefinition<"validated", JsonObject, string> = {
@@ -134,7 +134,7 @@ describe("inline job adapter", function () {
     return expect(executions).toBe(1);
   });
 
-  return it("normalizes execution failures without exposing thrown messages and continues", async function () {
+  return it("normalizes execution failures without exposing thrown messages and continues", async () => {
     const jobs = createInlineJobPort();
     const failing: JobDefinition<"failing", JsonObject, never> = {
       name: "failing",

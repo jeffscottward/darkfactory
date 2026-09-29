@@ -1,30 +1,3 @@
-export { createApiContext, resolveApiRequestId } from "./context.ts";
-export type {
-  ApiContext,
-  ApiRequestIdOptions,
-  ApiContextDependencies,
-} from "./context.ts";
-
-export {
-  ORPC_OPENAPI_PREFIX,
-  ORPC_RPC_PREFIX,
-  handleApiRequest,
-  handleOpenApiRequest,
-} from "./handler.ts";
-
-export { appRouter } from "./router.ts";
-export type { AuthenticatedApiContext } from "./router.ts";
-
-export {
-  FeatureServiceError,
-  ThemePreferenceServiceError,
-  createFeatureItemService,
-  createThemePreferenceService,
-} from "./service.ts";
-export {
-  AccountServiceError,
-  createAccountService,
-} from "./account-service.ts";
 export type {
   AccountRepositories,
   AccountService,
@@ -33,17 +6,17 @@ export type {
   RemoveAddressResult,
 } from "./account-service.ts";
 export {
-  AdminUsersServiceError,
-  createAdminUsersService,
-} from "./admin-users-service.ts";
+  AccountServiceError,
+  createAccountService,
+} from "./account-service.ts";
 export type {
   AdminUsersService,
   AdminUsersServiceErrorCode,
 } from "./admin-users-service.ts";
 export {
-  ContactServiceError,
-  createContactService,
-} from "./contact-service.ts";
+  AdminUsersServiceError,
+  createAdminUsersService,
+} from "./admin-users-service.ts";
 export type {
   ContactDeliveryPort,
   ContactDeliveryResult,
@@ -52,15 +25,32 @@ export type {
   ContactThrottleResult,
 } from "./contact-service.ts";
 export {
-  DashboardServiceError,
-  createDashboardService,
-} from "./dashboard-service.ts";
+  ContactServiceError,
+  createContactService,
+} from "./contact-service.ts";
+export type {
+  ApiContext,
+  ApiContextDependencies,
+  ApiRequestIdOptions,
+} from "./context.ts";
+export { createApiContext, resolveApiRequestId } from "./context.ts";
 export type {
   DashboardService,
   DashboardServiceErrorCode,
   DashboardSummaryOutput,
 } from "./dashboard-service.ts";
-
+export {
+  createDashboardService,
+  DashboardServiceError,
+} from "./dashboard-service.ts";
+export {
+  handleApiRequest,
+  handleOpenApiRequest,
+  ORPC_OPENAPI_PREFIX,
+  ORPC_RPC_PREFIX,
+} from "./handler.ts";
+export type { AuthenticatedApiContext } from "./router.ts";
+export { appRouter } from "./router.ts";
 export type {
   ChangeFeatureStatusInput,
   CreateFeatureInput,
@@ -71,4 +61,10 @@ export type {
   ThemePreferenceService,
   ThemePreferenceServiceErrorCode,
   UpdateFeatureInput,
+} from "./service.ts";
+export {
+  createFeatureItemService,
+  createThemePreferenceService,
+  FeatureServiceError,
+  ThemePreferenceServiceError,
 } from "./service.ts";

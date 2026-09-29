@@ -37,7 +37,7 @@ const loadPreview = async (overrides: Readonly<Record<string, unknown>>) => {
   return await import("./preview.ts");
 };
 
-afterEach(async function () {
+afterEach(async () => {
   vi.doUnmock("node:fs/promises");
   vi.resetModules();
   return await Promise.all(
@@ -47,7 +47,7 @@ afterEach(async function () {
   );
 });
 
-describe("preview filesystem fault handling", function () {
+describe("preview filesystem fault handling", () => {
   it.each([
     "writeFile",
     "sync",
@@ -93,7 +93,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  it("cleans partial handles and its reservation when a later open fails", async function () {
+  it("cleans partial handles and its reservation when a later open fails", async () => {
     const directory = await createTemporaryDirectory();
     const open = async (...args: Parameters<typeof fileSystem.open>) => {
       if (String(args[0]).endsWith(".html.tmp")) throw injectedError("EIO");
@@ -113,7 +113,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  it("fails closed when a validated ancestor is reported as non-directory", async function () {
+  it("fails closed when a validated ancestor is reported as non-directory", async () => {
     const directory = await createTemporaryDirectory();
     const ancestor = join(directory, "..");
     const realLstat = fileSystem.lstat;
@@ -160,7 +160,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  it("maps canonical-directory permission failure without opening artifacts", async function () {
+  it("maps canonical-directory permission failure without opening artifacts", async () => {
     const directory = await createTemporaryDirectory();
     const chmod = async (
       path: Parameters<typeof fileSystem.chmod>[0],
@@ -183,7 +183,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  it("rolls back a published unit when retention inventory cannot be read", async function () {
+  it("rolls back a published unit when retention inventory cannot be read", async () => {
     const directory = await createTemporaryDirectory();
     const readdir = async (...args: Parameters<typeof fileSystem.readdir>) => {
       if (String(args[0]) === directory) throw injectedError("EIO");
@@ -203,7 +203,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  it("preserves a complete discoverable unit when metadata quarantine faults", async function () {
+  it("preserves a complete discoverable unit when metadata quarantine faults", async () => {
     const directory = await createTemporaryDirectory();
     const metadataPath = join(directory, "fault.metadata.json");
     const deletingPath = join(directory, "fault.deleting.json");
@@ -253,7 +253,7 @@ describe("preview filesystem fault handling", function () {
     ]);
   });
 
-  it("leaves quarantined metadata when published content cleanup is incomplete", async function () {
+  it("leaves quarantined metadata when published content cleanup is incomplete", async () => {
     const directory = await createTemporaryDirectory();
     const htmlPath = join(directory, "fault.html");
     const realReaddir = fileSystem.readdir;
@@ -298,7 +298,7 @@ describe("preview filesystem fault handling", function () {
     ]);
   });
 
-  it("bounds a final quarantined-metadata removal fault", async function () {
+  it("bounds a final quarantined-metadata removal fault", async () => {
     const directory = await createTemporaryDirectory();
     const deletingPath = join(directory, "fault.deleting.json");
     const realReaddir = fileSystem.readdir;
@@ -342,7 +342,7 @@ describe("preview filesystem fault handling", function () {
     ]);
   });
 
-  it("recovers when cleanup and inventory entries disappear before lstat", async function () {
+  it("recovers when cleanup and inventory entries disappear before lstat", async () => {
     const directory = await createTemporaryDirectory();
     const vanishedPaths = [
       join(directory, ".vanished.preview.lock"),
@@ -385,7 +385,7 @@ describe("preview filesystem fault handling", function () {
     ]);
   });
 
-  it("does not misclassify a non-missing inventory lstat failure", async function () {
+  it("does not misclassify a non-missing inventory lstat failure", async () => {
     const directory = await createTemporaryDirectory();
     const faultPath = join(directory, ".fault.tmp");
     await fileSystem.writeFile(faultPath, "partial", "utf8");
@@ -407,7 +407,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([".fault.tmp"]);
   });
 
-  it("rolls back when temporary-file cleanup reports a failure", async function () {
+  it("rolls back when temporary-file cleanup reports a failure", async () => {
     const directory = await createTemporaryDirectory();
     let injected = false;
     const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
@@ -431,7 +431,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  it("retries reservation cleanup after its first removal fault", async function () {
+  it("retries reservation cleanup after its first removal fault", async () => {
     const directory = await createTemporaryDirectory();
     let injected = false;
     const rm = async (...args: Parameters<typeof fileSystem.rm>) => {
@@ -455,7 +455,7 @@ describe("preview filesystem fault handling", function () {
     return expect(await fileSystem.readdir(directory)).toEqual([]);
   });
 
-  return it("ignores a repeated reservation cleanup fault after failing closed", async function () {
+  return it("ignores a repeated reservation cleanup fault after failing closed", async () => {
     const directory = await createTemporaryDirectory();
     let reservationRemovalAttempts = 0;
     const rm = async (...args: Parameters<typeof fileSystem.rm>) => {

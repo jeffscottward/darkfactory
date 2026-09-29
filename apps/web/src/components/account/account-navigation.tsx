@@ -16,7 +16,7 @@ export interface AccountNavigationProps {
 
 export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
   return (
-    <nav aria-label="Account settings" className="border-b border-border">
+    <nav aria-label="Account settings" className="border-border border-b">
       <ul className="flex flex-wrap gap-1" role="list">
         {accountRoutes.map((route) => {
           const isCurrent = currentPath === route.href;
@@ -25,7 +25,7 @@ export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
               <a
                 aria-current={isCurrent ? "page" : undefined}
                 className={cn(
-                  "inline-flex min-h-11 items-center border-b-2 px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "inline-flex min-h-11 items-center border-b-2 px-3 font-medium text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isCurrent
                     ? "border-primary text-foreground"
                     : "border-transparent text-muted-foreground hover:border-border-strong hover:text-foreground"

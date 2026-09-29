@@ -22,6 +22,7 @@ import {
   nodeDoctorProcess,
   probeTrustedHttps,
 } from "./system.ts";
+
 const INJECTED_BUN_VERSION = "1.3.14";
 
 const errno = (code: string, message = code): NodeJS.ErrnoException => {

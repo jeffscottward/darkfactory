@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  CONTACT_REQUEST_MAX_BYTES,
   bufferContactRequest,
+  CONTACT_REQUEST_MAX_BYTES,
   createContactThrottleKey,
 } from "./contact-runtime.ts";
 
@@ -14,8 +14,8 @@ const requestWith = (ip?: string) =>
     ip === undefined ? {} : { headers: { "cf-connecting-ip": ip } }
   );
 
-describe("DF-076 contact throttle hashing", function () {
-  it("uses Web Crypto HMAC and never returns the raw trusted Cloudflare IP", async function () {
+describe("DF-076 contact throttle hashing", () => {
+  it("uses Web Crypto HMAC and never returns the raw trusted Cloudflare IP", async () => {
     const key = await createContactThrottleKey(
       requestWith("203.0.113.42"),
       secret
@@ -38,7 +38,7 @@ describe("DF-076 contact throttle hashing", function () {
     ).not.toBe(key);
   });
 
-  it("uses one fixed unknown bucket for absent or malformed values", async function () {
+  it("uses one fixed unknown bucket for absent or malformed values", async () => {
     const unknown = await createContactThrottleKey(requestWith(), secret);
 
     expect(
@@ -58,7 +58,7 @@ describe("DF-076 contact throttle hashing", function () {
     ).toBe(unknown);
   });
 
-  it("accepts bounded IPv6 text without exposing it", async function () {
+  it("accepts bounded IPv6 text without exposing it", async () => {
     const address = "2001:db8::1";
     const key = await createContactThrottleKey(requestWith(address), secret);
 
@@ -73,7 +73,7 @@ describe("DF-076 contact throttle hashing", function () {
     ).toBe(key);
   });
 
-  return it("fails closed when the runtime URL adapter returns a non-bracketed IPv6 hostname", async function () {
+  return it("fails closed when the runtime URL adapter returns a non-bracketed IPv6 hostname", async () => {
     const candidate = requestWith("2001:db8::1");
     const absent = requestWith();
     vi.stubGlobal(
@@ -93,8 +93,8 @@ describe("DF-076 contact throttle hashing", function () {
   });
 });
 
-describe("DF-076 bounded contact request body", function () {
-  it("rebuilds a bounded request when Content-Length is absent", async function () {
+describe("DF-076 bounded contact request body", () => {
+  it("rebuilds a bounded request when Content-Length is absent", async () => {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
@@ -111,7 +111,7 @@ describe("DF-076 bounded contact request body", function () {
       name: "😀".repeat(100),
       email: `${"a".repeat(240)}@example.test`,
       subject: "😀".repeat(200),
-      message: "😀".repeat(5_000),
+      message: "😀".repeat(5000),
       website: "",
     });
     expect(
@@ -120,7 +120,7 @@ describe("DF-076 bounded contact request body", function () {
     return expect(await result.request.text()).toBe('{"message":"bounded"}');
   });
 
-  it("rebuilds structurally compatible Worker requests from their URL", async function () {
+  it("rebuilds structurally compatible Worker requests from their URL", async () => {
     const source = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       { method: "POST", body: '{"message":"worker"}' }
@@ -141,7 +141,7 @@ describe("DF-076 bounded contact request body", function () {
     return expect(await result.request.text()).toBe('{"message":"worker"}');
   });
 
-  it("stops an oversized chunked stream before handing it to oRPC", async function () {
+  it("stops an oversized chunked stream before handing it to oRPC", async () => {
     const chunk = new Uint8Array(CONTACT_REQUEST_MAX_BYTES);
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -164,7 +164,7 @@ describe("DF-076 bounded contact request body", function () {
     });
   });
 
-  it("rejects a declared oversized body without consuming it", async function () {
+  it("rejects a declared oversized body without consuming it", async () => {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
@@ -179,15 +179,14 @@ describe("DF-076 bounded contact request body", function () {
     });
   });
 
-  it("rejects throttle secrets that cannot provide the required entropy", async function () {
-    return await expect(
+  it("rejects throttle secrets that cannot provide the required entropy", async () =>
+    await expect(
       createContactThrottleKey(requestWith("203.0.113.42"), "too-short")
     ).rejects.toThrow(
       "contact throttle secret must contain at least 32 characters"
-    );
-  });
+    ));
 
-  it("canonicalizes IPv4 and fails closed for malformed IP address shapes", async function () {
+  it("canonicalizes IPv4 and fails closed for malformed IP address shapes", async () => {
     const canonical = await createContactThrottleKey(
       requestWith("203.000.113.042"),
       secret
@@ -214,7 +213,7 @@ describe("DF-076 bounded contact request body", function () {
     return results;
   });
 
-  it("passes through bodyless requests without manufacturing a payload", async function () {
+  it("passes through bodyless requests without manufacturing a payload", async () => {
     const request = requestWith("203.0.113.42");
 
     return await expect(bufferContactRequest(request)).resolves.toEqual({
@@ -223,7 +222,7 @@ describe("DF-076 bounded contact request body", function () {
     });
   });
 
-  it("fails closed even when oversized stream cancellation rejects", async function () {
+  it("fails closed even when oversized stream cancellation rejects", async () => {
     const declaredCancel = vi.fn(async () => {
       throw new Error("declared cancellation unavailable");
     });
@@ -273,7 +272,7 @@ describe("DF-076 bounded contact request body", function () {
     return expect(chunkedCancel).toHaveBeenCalledOnce();
   });
 
-  it("streams bodies with bounded or non-numeric declared lengths", async function () {
+  it("streams bodies with bounded or non-numeric declared lengths", async () => {
     const results1 = [];
     for (const declaredLength of ["7", "not-declared"]) {
       const request = new Request(
@@ -295,7 +294,7 @@ describe("DF-076 bounded contact request body", function () {
     return results1;
   });
 
-  return it("rejects a declared oversized request even when it has no body", async function () {
+  return it("rejects a declared oversized request even when it has no body", async () => {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {

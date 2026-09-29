@@ -1,9 +1,9 @@
 import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres";
 
 import {
-  terminateOwnedProcessTreeThen,
   type OwnedProcess,
   type TerminateOwnedProcessOptions,
+  terminateOwnedProcessTreeThen,
 } from "../../../scripts/e2e/owned-process-tree.ts";
 
 export type E2ELifecycleResources = Readonly<{

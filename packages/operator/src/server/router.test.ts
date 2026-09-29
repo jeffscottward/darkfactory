@@ -7,21 +7,20 @@ import type { WorkflowRepository } from "@darkfactory/db/server";
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import { ORPCError } from "@orpc/client";
 import { describe, expect, it, vi } from "vitest";
-
+import { createOperatorClient } from "../client.ts";
 import {
   OPERATOR_ERRORS,
   type OperatorApprovalBindingInput,
 } from "../contract.ts";
-import { createOperatorClient } from "../client.ts";
 import { createOperatorContext } from "./context.ts";
 import { handleOperatorRequest } from "./handler.ts";
 import {
-  OperatorWorkflowPortError,
   type OperatorWorkflowPort,
+  OperatorWorkflowPortError,
   type WorkflowOperatorDetail,
 } from "./operator-service.ts";
-import { createOperatorWorkflowPort } from "./workflow-runtime.ts";
 import type { OperatorWayfinderPort } from "./wayfinder-service.ts";
+import { createOperatorWorkflowPort } from "./workflow-runtime.ts";
 
 const NOW = new Date("2026-07-29T12:00:00.000Z");
 const PLAN = createWorkflowPlanEvidenceV1({
@@ -304,7 +303,7 @@ describe("operator API", () => {
     );
   });
 
-  it("maps forbidden sessions and preserves unexpected authentication failures", async function () {
+  it("maps forbidden sessions and preserves unexpected authentication failures", async () => {
     await expectError(
       clientFor(
         new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.FORBIDDEN, 403),
@@ -340,7 +339,7 @@ describe("operator API", () => {
     });
   });
 
-  it("maps every unavailable runtime action without invoking a missing port", async function () {
+  it("maps every unavailable runtime action without invoking a missing port", async () => {
     const client = clientFor(memberSession("owner-1"), undefined, null);
     await expectError(
       client.operator.submit({
@@ -690,7 +689,7 @@ describe("operator API", () => {
           id: "evidence-1",
           kind: "verification",
           label: "CLI output",
-          content: `api_key=${secret} ${"x".repeat(8_000)}`,
+          content: `api_key=${secret} ${"x".repeat(8000)}`,
           redacted: false,
           createdAt: NOW,
         },
@@ -705,6 +704,6 @@ describe("operator API", () => {
     expect(output.evidence[0]?.redactedContent).not.toContain(secret);
     return expect(
       Buffer.byteLength(output.evidence[0]?.redactedContent ?? "")
-    ).toBeLessThanOrEqual(4_096);
+    ).toBeLessThanOrEqual(4096);
   });
 });

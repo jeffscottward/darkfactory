@@ -1,10 +1,10 @@
 import {
-  snapshotJobPayload,
   type JobDefinition,
   type JobExecutionContext,
+  type JobPayload,
   type JobPort,
   type JobReceipt,
-  type JobPayload,
+  snapshotJobPayload,
 } from "../index.ts";
 
 export type InlineJobPortOptions = Readonly<{

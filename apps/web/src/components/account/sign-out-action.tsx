@@ -1,8 +1,8 @@
 "use client";
 
-import { type Ref, useEffect, useRef, useState } from "react";
-import { LogOut } from "lucide-react";
 import { Button } from "@darkfactory/ui";
+import { LogOut } from "lucide-react";
+import { type Ref, useEffect, useRef, useState } from "react";
 
 import {
   browserCurrentSessionGateway,
@@ -83,13 +83,13 @@ export const SignOutActionView = ({
   return (
     <div className="relative">
       <Button
-        ref={buttonRef}
         aria-describedby={errorId}
         data-hydration-state={isHydrated ? "ready" : "pending"}
         disabled={!isHydrated}
         loading={isPending}
         loadingLabel="Signing out"
         onClick={onSignOut}
+        ref={buttonRef}
         type="button"
         variant="ghost"
       >
@@ -100,7 +100,7 @@ export const SignOutActionView = ({
         <p
           aria-atomic="true"
           aria-live="assertive"
-          className="absolute right-0 top-full z-overlay mt-2 w-64 rounded-md border border-destructive bg-surface p-3 text-sm text-destructive shadow-lg"
+          className="absolute top-full right-0 z-overlay mt-2 w-64 rounded-md border border-destructive bg-surface p-3 text-destructive text-sm shadow-lg"
           id="portal-sign-out-error"
           role="alert"
         >

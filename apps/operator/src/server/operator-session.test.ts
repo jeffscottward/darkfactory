@@ -21,8 +21,8 @@ vi.mock("./operator-auth.ts", () => ({
 
 import { getOperatorAdministrator } from "./operator-session.ts";
 
-describe("operator administrator session", function () {
-  beforeEach(function () {
+describe("operator administrator session", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.withOperatorAuth.mockImplementation(async (operation) =>
       operation(mocks.auth)
@@ -30,7 +30,7 @@ describe("operator administrator session", function () {
     return;
   });
 
-  it("returns the bounded administrator identity", async function () {
+  it("returns the bounded administrator identity", async () => {
     const headers = new Headers({ cookie: "session=opaque" });
     mocks.requireRole.mockResolvedValue({
       principal: { userId: "admin-1" },
@@ -47,7 +47,7 @@ describe("operator administrator session", function () {
     );
   });
 
-  it("maps authorization failures to an anonymous session", async function () {
+  it("maps authorization failures to an anonymous session", async () => {
     mocks.requireRole.mockRejectedValue(
       new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.FORBIDDEN, 403)
     );
@@ -56,7 +56,7 @@ describe("operator administrator session", function () {
     ).resolves.toBeNull();
   });
 
-  return it("preserves unexpected authentication failures", async function () {
+  return it("preserves unexpected authentication failures", async () => {
     mocks.requireRole.mockRejectedValue(new Error("database unavailable"));
     return await expect(
       getOperatorAdministrator(new Headers())

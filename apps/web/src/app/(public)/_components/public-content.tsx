@@ -1,5 +1,5 @@
+import { buttonVariants, cn, PageHeader } from "@darkfactory/ui";
 import type { ComponentPropsWithRef, ReactNode } from "react";
-import { PageHeader, buttonVariants, cn } from "@darkfactory/ui";
 
 export interface PublicLinkProps extends ComponentPropsWithRef<"a"> {
   readonly variant?: "primary" | "secondary" | "link";

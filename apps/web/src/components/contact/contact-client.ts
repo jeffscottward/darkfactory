@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  createApiClient,
   type ApiClient,
   type ContactSubmitInput,
   type ContactSubmitOutput,
+  createApiClient,
 } from "@darkfactory/api";
 
 export type ContactFieldName = "name" | "email" | "subject" | "message";
@@ -54,7 +54,7 @@ export const validateContactField = (
     }
     case "message": {
       if (trimmed.length === 0) return "Enter a message.";
-      if (trimmed.length > 5_000)
+      if (trimmed.length > 5000)
         return "Message must be 5,000 characters or fewer.";
       if (!MESSAGE_TEXT_PATTERN.test(trimmed)) {
         return "Message contains unsupported control characters.";

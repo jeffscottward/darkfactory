@@ -1,7 +1,8 @@
 type AutoPromise<T> = Promise<Awaited<T>>;
+
 import { randomBytes, randomUUID } from "node:crypto";
-import { access, readdir, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
+import { access, readdir, realpath, stat } from "node:fs/promises";
 import {
   delimiter,
   dirname,
@@ -19,45 +20,45 @@ import {
   MINIMUM_PRECISE_KNOWN_VALUE_LENGTH,
   type SensitiveTextRange,
 } from "./known-sensitive-values.ts";
+import { sanitizePlaywrightJsonReport } from "./playwright-report.ts";
+import { runOwnedCommand } from "./process.ts";
 import {
-  createArtifactScannerDependencies,
+  type E2eMode,
+  type JourneyDependencies,
+  type JourneyLifecycleObservation,
+  type JourneyLifecycleObservationReason,
+  type JourneyLifecycleStage,
+  type JourneyLifecycleStatus,
+  type JourneyProgress,
+  type JourneySuiteReport,
+  runJourneySuite,
+} from "./runner.ts";
+import {
+  ARTIFACT_SCANNER_FAILURE_CATEGORIES,
+  type ArtifactScannerFailureCategory,
+  type ArtifactScanReport,
+  classifyArtifactScannerFailure,
+  scanArtifactPaths,
+} from "./scanner.ts";
+import {
+  type E2ERunnerState,
+  persistE2ERunnerState,
+  sanitizeE2ERunnerReport,
+} from "./state.ts";
+import {
   assertOwnedLifecycleRoots,
+  createArtifactScannerDependencies,
   createOwnedLifecyclePaths,
   decodeOwnedRunAdoption,
   decodeOwnedRunProof,
   encodeOwnedRunAdoption,
   encodeOwnedRunProof,
-  prepareOwnedRun,
   finalizeOwnedLifecycleAfterPlaywright,
-  readOwnedLifecycleState,
   type OwnedLifecyclePaths,
   type OwnedRunAdoption,
+  prepareOwnedRun,
+  readOwnedLifecycleState,
 } from "./system.ts";
-import {
-  runJourneySuite,
-  type E2eMode,
-  type JourneyDependencies,
-  type JourneyLifecycleStage,
-  type JourneyLifecycleObservation,
-  type JourneyLifecycleObservationReason,
-  type JourneyLifecycleStatus,
-  type JourneyProgress,
-  type JourneySuiteReport,
-} from "./runner.ts";
-import {
-  ARTIFACT_SCANNER_FAILURE_CATEGORIES,
-  classifyArtifactScannerFailure,
-  scanArtifactPaths,
-  type ArtifactScannerFailureCategory,
-  type ArtifactScanReport,
-} from "./scanner.ts";
-import { runOwnedCommand } from "./process.ts";
-import {
-  persistE2ERunnerState,
-  sanitizeE2ERunnerReport,
-  type E2ERunnerState,
-} from "./state.ts";
-import { sanitizePlaywrightJsonReport } from "./playwright-report.ts";
 
 export type CliStreams = Readonly<{
   writeOutput: (value: string) => void;
@@ -81,7 +82,7 @@ export type JourneyCliDependencies = Readonly<
 >;
 export const serializeJourneyProgress = (progress: JourneyProgress): string => {
   const rendered = JSON.stringify(progress);
-  if (Buffer.byteLength(rendered, "utf8") > 1_024) {
+  if (Buffer.byteLength(rendered, "utf8") > 1024) {
     throw new Error("E2E progress event exceeded its fixed bound");
   }
   return `${rendered}\n`;
@@ -219,9 +220,7 @@ const resolveTrustedExecutable = async (
         command: canonical,
         pathDirectory: canonicalDirectory,
       });
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   throw new Error(`Trusted ${name} executable is unavailable`);
 };
@@ -543,7 +542,7 @@ const PROCESS_OUTPUT_LINES = /[^\n]*\n|[^\n]+$/gu;
 const COMPACT_PROCESS_BOUNDARY = /["',}\];&]/u;
 const SENSITIVE_PROCESS_STRUCTURES = [
   /Browser(?:Auth|Reset)[A-Za-z0-9!@#$%^&*_-]{4,}/giu,
-  /(?:bearer|basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+\/=-]{4,}/giu,
+  /(?:bearer|basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+/=-]{4,}/giu,
   /\/api\/auth\/(?:reset-password|verify-email)(?:\/|[?&](?:amp;)?token=)(?!\[REDACTED\])[^/?&#\s<"']{4,}/giu,
   /https?:\/\/[^\s"'<>]+\/(?:reset-password|verify-email)[^\s"'<>]*[?&](?:amp;)?token=(?!\[REDACTED\])[^&\s"'<>]{4,}/giu,
   /\/(?:reset-password|verify-email)\?(?:token=|[^#\s"'<>]{0,16384}&(?:amp;)?token=)(?!\[REDACTED\])[^&#\s"'<>]{4,}/giu,
@@ -554,7 +553,7 @@ const SENSITIVE_PROCESS_STRUCTURES = [
   /["']?value["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',;\s}]{4,}["'][\s\S]{0,16384}?["']?name["']?\s*[:=]\s*["']?(?:__Secure-)?better-auth\.session[_-]?token["']?/giu,
   /["']?session(?:[_-]?token)?["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
   /["']?session["']?\s*[:=]\s*\{[\s\S]{0,16384}?["']?(?:token|value)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
-  /(?:hmac[_-]?key|(?:access[_-]?)?token|access[_-]?key|api[_-]?key|client[_-]?secret)\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[A-Za-z0-9._~+\/=-]{16,}/giu,
+  /(?:hmac[_-]?key|(?:access[_-]?)?token|access[_-]?key|api[_-]?key|client[_-]?secret)\s*["']?\s*[:=]\s*["']?(?!\[REDACTED\])[A-Za-z0-9._~+/=-]{16,}/giu,
   /(?:cookie|set-cookie)\s*[:=][^\r\n]*better-auth\.session[_-]?token=[^;\s"']{4,}/giu,
   /["']?(?:database_url|password|private[_-]?key|api[_-]?key|secret)["']?\s*[:=]\s*["']?(?!\[REDACTED\])[^"',}\s]{6,}/giu,
   /postgres(?:ql)?:\/\/[^\s"'<>]+/giu,
@@ -617,7 +616,7 @@ const sensitiveProcessRanges = (
       }
       const end = last + 1;
       const endsAtGap = end === gapEnd;
-      if (!endsAtGap && !COMPACT_PROCESS_BOUNDARY.test(value.charAt(end))) {
+      if (!(endsAtGap || COMPACT_PROCESS_BOUNDARY.test(value.charAt(end)))) {
         ranges.push({ start: gapStart, end: gapEnd });
         return;
       }
@@ -1069,8 +1068,7 @@ const parseScannerCandidate = (
           reason ===
             "Sensitive artifact patterns were detected; owned run evidence was purged"
         : scannedEntries === 0 &&
-          ((!hasFailureCategory &&
-            !purged &&
+          ((!(hasFailureCategory || purged) &&
             reason === "E2E run identifier is invalid") ||
             (failureCategory !== undefined &&
               SCANNER_INITIALIZATION_FAILURE_CATEGORIES.has(failureCategory) &&
@@ -1420,9 +1418,9 @@ const runDefaultPlaywright = async (
             result.stderr,
             knownSecrets
           )),
-      ...(!reportSanitized
-        ? ["Owned Playwright JSON report redaction failed safely"]
-        : []),
+      ...(reportSanitized
+        ? []
+        : ["Owned Playwright JSON report redaction failed safely"]),
       ...(lifecycleFinalizationFailed
         ? ["Owned Playwright lifecycle finalization failed safely"]
         : []),

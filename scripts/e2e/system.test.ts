@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import {
   access,
   chmod,
@@ -11,7 +12,6 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -19,6 +19,7 @@ import { deflateSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  type ArtifactScanLimits,
   assertOwnedLifecycleRoots,
   createArtifactScannerDependencies,
   createOwnedLifecyclePaths,
@@ -27,11 +28,10 @@ import {
   encodeOwnedRunAdoption,
   encodeOwnedRunProof,
   finalizeOwnedLifecycleAfterPlaywright,
-  prepareOwnedRun,
-  readOwnedLifecycleState,
-  type ArtifactScanLimits,
   type OwnedLifecyclePaths,
   type OwnedRunProof,
+  prepareOwnedRun,
+  readOwnedLifecycleState,
 } from "./system.ts";
 
 const proofFixture = (): OwnedRunProof =>
@@ -118,7 +118,7 @@ const limits = (
 ): ArtifactScanLimits =>
   Object.freeze({
     maxEntries: 100,
-    maxEntryBytes: 1_024,
+    maxEntryBytes: 1024,
     maxTotalBytes: 16_384,
     maxArchives: 10,
     maxExpandedBytes: 16_384,
@@ -132,16 +132,16 @@ const PNG_SIGNATURE = Buffer.from([
 const PNG_CRC_TABLE = Uint32Array.from({ length: 256 }, (_unused, index) => {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
-    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    value = (value & 1) === 1 ? 0xed_b8_83_20 ^ (value >>> 1) : value >>> 1;
   }
   return value >>> 0;
 });
 const pngCrc32 = (content: Buffer): number => {
-  let crc = 0xffffffff;
+  let crc = 0xff_ff_ff_ff;
   for (const byte of content) {
     crc = (PNG_CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8);
   }
-  return (crc ^ 0xffffffff) >>> 0;
+  return (crc ^ 0xff_ff_ff_ff) >>> 0;
 };
 const pngChunk = (type: string, content: Buffer): Buffer => {
   const length = Buffer.alloc(4);
@@ -313,7 +313,7 @@ describe("owned run capability encoding", () => {
       )
     ).toThrow(SyntaxError);
     return expect(() =>
-      decodeOwnedRunAdoption("A".repeat(2_048), proof.runId)
+      decodeOwnedRunAdoption("A".repeat(2048), proof.runId)
     ).toThrow(SyntaxError);
   });
   it("rejects malformed proof and adoption fields at every identity boundary", () => {
@@ -1632,7 +1632,7 @@ describe("artifact system filesystem fakes", () => {
       const vanished = join(paths.e2e, "vanished");
       const special = join(paths.e2e, "special");
       const specialDirectory = {
-        [Symbol.asyncIterator]: async function* () {
+        async *[Symbol.asyncIterator]() {
           yield { name: "vanished" };
           yield { name: "special" };
         },
@@ -1672,8 +1672,8 @@ describe("artifact system filesystem fakes", () => {
       const entries = await dependencies.collectEntries(scannerPaths(proof));
       return expect(
         entries.every((entry) => {
-          return (
-            !entry.path.endsWith("vanished") && !entry.path.endsWith("special")
+          return !(
+            entry.path.endsWith("vanished") || entry.path.endsWith("special")
           );
         })
       ).toBe(true);
@@ -2925,7 +2925,7 @@ describe("artifact system filesystem fakes", () => {
           const directory = await actual.opendir(path);
           if (path !== paths.e2e) return directory;
           return {
-            [Symbol.asyncIterator]: async function* () {
+            async *[Symbol.asyncIterator]() {
               for await (const entry of directory) {
                 if (entry.name === "late.txt") {
                   now = 111;

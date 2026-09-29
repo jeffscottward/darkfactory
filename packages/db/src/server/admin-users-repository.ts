@@ -5,18 +5,18 @@ import {
   like,
   lt,
   or as orWhere,
-  sql,
   type SQL,
+  sql,
 } from "drizzle-orm";
 import { union } from "drizzle-orm/pg-core";
 
 import {
   profiles,
-  users,
   type UserRole,
   type UserStatus,
+  users,
 } from "../schema/index.ts";
-import { withTransaction, type DatabaseExecutor } from "./client.ts";
+import { type DatabaseExecutor, withTransaction } from "./client.ts";
 
 export class InvalidAdminUsersCursorError extends Error {
   constructor() {

@@ -1,13 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
 import { build } from "vite";
+import { describe, expect, it, vi } from "vitest";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-describe("email server browser bundle", function () {
-  it("preserves browser poison for a side-effect-only server import", async function () {
+describe("email server browser bundle", () => {
+  it("preserves browser poison for a side-effect-only server import", async () => {
     const tempDir = await mkdtemp(join(packageRoot, ".server-browser-bundle-"));
     const entry = join(tempDir, "entry.mjs");
 
@@ -55,7 +55,7 @@ describe("email server browser bundle", function () {
     }
   });
 
-  return it("folds filesystem preview transports closed in a production Worker bundle", async function () {
+  return it("folds filesystem preview transports closed in a production Worker bundle", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const tempDir = await mkdtemp(
       join(packageRoot, ".server-production-bundle-")

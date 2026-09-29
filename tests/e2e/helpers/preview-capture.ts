@@ -4,21 +4,20 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-
-import {
-  createPreviewContactEmailPort,
-  createPreviewEmailPort,
-  type PreviewEmailBinding,
-} from "@darkfactory/email/server";
 import type {
   ContactEmailInput,
   EmailVerificationEmailInput,
   PasswordResetEmailInput,
 } from "@darkfactory/email";
+import {
+  createPreviewContactEmailPort,
+  createPreviewEmailPort,
+  type PreviewEmailBinding,
+} from "@darkfactory/email/server";
 
 const CAPTURE_PATH = "/v1/capture";
 const MAX_REQUEST_BYTES = 64 * 1024;
-const REQUEST_TIMEOUT_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 5000;
 
 type CaptureOperation = "contact" | "reset-password" | "verify-email";
 type CapturePayload = Readonly<{
@@ -58,8 +57,10 @@ const exactKeys = (
 
 const parsePayload = (value: unknown): CapturePayload | null => {
   if (
-    !isRecord(value) ||
-    !exactKeys(value, ["input", "operation", "runId", "version"])
+    !(
+      isRecord(value) &&
+      exactKeys(value, ["input", "operation", "runId", "version"])
+    )
   ) {
     return null;
   }
@@ -177,14 +178,13 @@ export const startPreviewCaptureServer = async (
       }
       return respond(response, 201, "accepted");
     } catch {
-      if (!response.headersSent) {
-        return respond(response, 400, "rejected");
-      } else return response.destroy();
+      if (response.headersSent) return response.destroy();
+      return respond(response, 400, "rejected");
     }
   });
   server.headersTimeout = REQUEST_TIMEOUT_MS;
   server.requestTimeout = REQUEST_TIMEOUT_MS;
-  server.keepAliveTimeout = 1_000;
+  server.keepAliveTimeout = 1000;
   server.maxHeadersCount = 16;
 
   await new Promise<void>((resolve, reject) => {

@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   chmod,
+  type FileHandle,
   lstat,
   mkdir,
   open,
   readdir,
   realpath,
   rm,
-  type FileHandle,
 } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, join, parse, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   ContactEmailDeliveryResult,

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createBackgroundTaskLifecycle } from "./lib/background-task-lifecycle.ts";
 
-describe("request background task lifecycle", function () {
-  it("closes immediately when no task was scheduled", async function () {
+describe("request background task lifecycle", () => {
+  it("closes immediately when no task was scheduled", async () => {
     const close = vi.fn(async () => undefined);
     const scheduleExternal = vi.fn();
     const lifecycle = createBackgroundTaskLifecycle(scheduleExternal, close);
@@ -17,7 +17,7 @@ describe("request background task lifecycle", function () {
     return expect(scheduleExternal).not.toHaveBeenCalled();
   });
 
-  it("keeps finalization behind scheduled tasks and confirmed database close", async function () {
+  it("keeps finalization behind scheduled tasks and confirmed database close", async () => {
     let releaseTask!: () => void;
     const task = new Promise<void>((resolve) => {
       return (releaseTask = resolve);
@@ -56,7 +56,7 @@ describe("request background task lifecycle", function () {
     return expect(close).toHaveBeenCalledOnce();
   });
 
-  it("drains tasks added by an earlier scheduled task", async function () {
+  it("drains tasks added by an earlier scheduled task", async () => {
     let releaseFirst!: () => void;
     const first = new Promise<void>((resolve) => {
       return (releaseFirst = resolve);
@@ -85,7 +85,7 @@ describe("request background task lifecycle", function () {
     return expect(close).toHaveBeenCalledOnce();
   });
 
-  it("memoizes close rejection without closing twice", async function () {
+  it("memoizes close rejection without closing twice", async () => {
     const closeFailure = new Error("close failed");
     const close = vi.fn(async () => {
       throw closeFailure;
@@ -100,7 +100,7 @@ describe("request background task lifecycle", function () {
     return expect(close).toHaveBeenCalledOnce();
   });
 
-  it("rejects tasks added after database close starts", async function () {
+  it("rejects tasks added after database close starts", async () => {
     let releaseClose!: () => void;
     const close = vi.fn(
       () =>
@@ -121,7 +121,7 @@ describe("request background task lifecycle", function () {
     return await finalization;
   });
 
-  return it("settles rejected scheduled work before closing", async function () {
+  return it("settles rejected scheduled work before closing", async () => {
     const close = vi.fn(async () => undefined);
     const scheduleExternal = vi.fn((task: Promise<unknown>) => {
       return void task.catch(() => undefined);

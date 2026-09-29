@@ -31,18 +31,18 @@ export default async function SignInPage({
       >
         <div className="mb-8 flex items-center gap-3 text-muted-foreground">
           <ShieldCheck aria-hidden="true" className="size-5" />
-          <span className="text-sm font-semibold">DarkFactory Operator</span>
+          <span className="font-semibold text-sm">DarkFactory Operator</span>
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
           Local development only
         </p>
         <h1
-          className="mt-3 font-heading text-2xl font-semibold text-foreground"
+          className="mt-3 font-heading font-semibold text-2xl text-foreground"
           id="operator-sign-in-title"
         >
           Administrator sign in
         </h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        <p className="mt-3 text-muted-foreground text-sm leading-6">
           Use the seeded development administrator stored in the existing Better
           Auth database.
         </p>

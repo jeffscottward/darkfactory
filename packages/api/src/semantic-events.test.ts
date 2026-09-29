@@ -3,11 +3,11 @@ import {
   AuthAuthorizationError,
   type SafeAuthSession,
 } from "@darkfactory/auth/server";
+import type { FeatureItem } from "@darkfactory/db/schema";
 import type {
   FeatureItemRepository,
   Repositories,
 } from "@darkfactory/db/server";
-import type { FeatureItem } from "@darkfactory/db/schema";
 import type {
   SemanticEvent,
   SemanticEventPort,
@@ -163,8 +163,8 @@ const expectSafeStableEvent = (
   expect(Object.keys(event.attributes ?? {})).toHaveLength(1);
 };
 
-describe("feature mutation semantic events", function () {
-  it("ignores an untrusted public request ID header at the request boundary", function () {
+describe("feature mutation semantic events", () => {
+  it("ignores an untrusted public request ID header at the request boundary", () => {
     const request = new Request("https://darkfactory.localhost/api/orpc", {
       headers: { "x-request-id": "attacker-controlled" },
     });
@@ -215,7 +215,7 @@ describe("feature mutation semantic events", function () {
       mutate: (client: ReturnType<typeof clientFor>) =>
         client.featureItems.archive({ id: "item-1" }),
     },
-  ])("emits exactly one $name event for $procedure", async function (testCase) {
+  ])("emits exactly one $name event for $procedure", async (testCase) => {
     const recording = recordingPort();
     await expect(
       testCase.mutate(clientFor(repository(), recording.port))
@@ -227,7 +227,7 @@ describe("feature mutation semantic events", function () {
       outcome: "success",
     });
   });
-  it("uses a unique event ID for repeated procedures in one correlation chain", async function () {
+  it("uses a unique event ID for repeated procedures in one correlation chain", async () => {
     const recording = recordingPort();
     const client = clientFor(repository(), recording.port);
     const input = { name: "Neutral item", description: "Neutral description" };
@@ -241,7 +241,7 @@ describe("feature mutation semantic events", function () {
     );
   });
 
-  it("emits one safe failure event without replaying the mutation", async function () {
+  it("emits one safe failure event without replaying the mutation", async () => {
     const create = vi.fn(async () => {
       throw new Error("private provider payload");
     });
@@ -273,7 +273,7 @@ describe("feature mutation semantic events", function () {
     );
   });
 
-  it("does not replay or fail a successful mutation when event emission fails", async function () {
+  it("does not replay or fail a successful mutation when event emission fails", async () => {
     const create = vi.fn(async () => baseItem);
     const semanticEvents: SemanticEventPort = {
       emit: vi.fn(async () => {
@@ -291,7 +291,7 @@ describe("feature mutation semantic events", function () {
     return expect(semanticEvents.emit).toHaveBeenCalledOnce();
   });
 
-  it("passes the request span and Worker lifetime through one emission", async function () {
+  it("passes the request span and Worker lifetime through one emission", async () => {
     const recording = recordingPort();
     const span: SpanHandle = {
       correlation: {
@@ -327,7 +327,7 @@ describe("feature mutation semantic events", function () {
     );
   });
 
-  it("does not emit mutation events for read procedures", async function () {
+  it("does not emit mutation events for read procedures", async () => {
     const recording = recordingPort();
     const client = clientFor(repository(), recording.port);
 
@@ -338,12 +338,11 @@ describe("feature mutation semantic events", function () {
     return expect(recording.port.emit).not.toHaveBeenCalled();
   });
 
-  return it("keeps legacy contexts without observability valid", async function () {
-    return await expect(
+  return it("keeps legacy contexts without observability valid", async () =>
+    await expect(
       clientFor(repository()).featureItems.create({
         name: "Neutral item",
         description: "Neutral description",
       })
-    ).resolves.toEqual(baseItem);
-  });
+    ).resolves.toEqual(baseItem));
 });

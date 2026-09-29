@@ -3,8 +3,8 @@ import {
   MAX_WORKFLOW_SCOPE_BYTES,
   parseWorkflowEffectScopeV1,
 } from "@darkfactory/state/workflow";
-import { oc } from "@orpc/contract";
 import type { ContractRouterClient } from "@orpc/contract";
+import { oc } from "@orpc/contract";
 import { z } from "zod";
 
 export const OPERATOR_WORKFLOW_STATES = [
@@ -20,7 +20,7 @@ export const OPERATOR_WORKFLOW_STATES = [
 
 export const OperatorWorkflowStateSchema = z.enum(OPERATOR_WORKFLOW_STATES);
 const HashSchema = z.string().regex(/^[a-f0-9]{64}$/u);
-export const MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES = 6 * 1_024;
+export const MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES = 6 * 1024;
 
 const utf8Encoder = new TextEncoder();
 const OperatorApprovalEffectScopeSchema = z
@@ -88,7 +88,7 @@ export const OperatorEvidenceSchema = z.object({
   id: z.string().min(1),
   kind: z.string().min(1).max(100),
   label: z.string().min(1).max(200),
-  redactedContent: z.string().max(4_096),
+  redactedContent: z.string().max(4096),
   redacted: z.boolean(),
   createdAt: z.date(),
 });
@@ -121,7 +121,7 @@ export const OperatorImplementationPlanSchema = z
 export const OperatorMessageSchema = z.object({
   id: z.string().min(1),
   authorLabel: z.string().min(1).max(200),
-  body: z.string().max(2_000),
+  body: z.string().max(2000),
   createdAt: z.date(),
 });
 
@@ -154,9 +154,9 @@ export const OperatorRunDetailSchema = z.object({
     machineVersion: z.number().int().positive(),
   }),
   originalRequest: z.string().min(1),
-  planRevisions: z.array(OperatorPlanRevisionSchema).max(1_000).readonly(),
+  planRevisions: z.array(OperatorPlanRevisionSchema).max(1000).readonly(),
   canRequestPlanRevision: z.boolean(),
-  timeline: z.array(OperatorTimelineEntrySchema).max(1_000),
+  timeline: z.array(OperatorTimelineEntrySchema).max(1000),
   approval: OperatorApprovalBindingSchema.nullable(),
   implementationPlan: OperatorImplementationPlanSchema.nullable(),
   evidence: z.array(OperatorEvidenceSchema).max(200),
@@ -355,7 +355,7 @@ const reject = operator
   })
   .input(
     RunIdSchema.extend({
-      reason: z.string().trim().min(1).max(2_000).optional(),
+      reason: z.string().trim().min(1).max(2000).optional(),
     })
   )
   .output(OperatorRunDetailSchema);
@@ -393,7 +393,7 @@ const message = operator
   .input(
     RunIdSchema.extend({
       idempotencyKey: OperatorIdempotencyKeySchema,
-      body: z.string().trim().min(1).max(2_000),
+      body: z.string().trim().min(1).max(2000),
     })
   )
   .output(OperatorRunDetailSchema);

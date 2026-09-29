@@ -1,9 +1,9 @@
 "use client";
 
-import type { ComponentPropsWithRef, ReactElement, ReactNode } from "react";
-import { createElement } from "react";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
+import type { ComponentPropsWithRef, ReactElement, ReactNode } from "react";
+import { createElement } from "react";
 
 import { cn } from "../utilities.ts";
 
@@ -40,7 +40,7 @@ export const DialogContent = ({
       DialogPrimitive.Content,
       {
         className: cn(
-          "fixed left-1/2 top-1/2 z-modal grid max-h-[calc(100dvh-var(--space-8))] w-[calc(100%-var(--space-8))] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-lg border border-border bg-surface-raised p-6 text-foreground shadow-lg focus:outline-none",
+          "fixed top-1/2 left-1/2 z-modal grid max-h-[calc(100dvh-var(--space-8))] w-[calc(100%-var(--space-8))] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-lg border border-border bg-surface-raised p-6 text-foreground shadow-lg focus:outline-none",
           className
         ),
         ...props,
@@ -82,7 +82,7 @@ export const DialogBody = ({
   ComponentPropsWithRef<"div">
 > => {
   return createElement("div", {
-    className: cn("text-sm leading-6 text-foreground", className),
+    className: cn("text-foreground text-sm leading-6", className),
     ...props,
   });
 };
@@ -95,7 +95,7 @@ export const DialogFooter = ({
 > => {
   return createElement("div", {
     className: cn(
-      "flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:justify-end",
+      "flex flex-col-reverse gap-3 border-border border-t pt-5 sm:flex-row sm:justify-end",
       className
     ),
     ...props,

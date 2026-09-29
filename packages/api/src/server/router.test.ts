@@ -3,6 +3,12 @@ import {
   AuthAuthorizationError,
   type SafeAuthSession,
 } from "@darkfactory/auth/server";
+import type {
+  Address,
+  FeatureItem,
+  Profile,
+  UserPreferences,
+} from "@darkfactory/db/schema";
 import {
   AdminUsersPersistenceError,
   DashboardPersistenceError,
@@ -11,22 +17,15 @@ import {
   InvalidRepositoryInputError,
   type Repositories,
 } from "@darkfactory/db/server";
-import type {
-  Address,
-  FeatureItem,
-  Profile,
-  UserPreferences,
-} from "@darkfactory/db/schema";
 import type { SemanticEventPort } from "@darkfactory/observability/port";
 import { ORPCError } from "@orpc/client";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
-
-import type { ApiContext } from "./context.ts";
 import type {
   ContactDeliveryPort,
   ContactThrottlePort,
 } from "./contact-service.ts";
+import type { ApiContext } from "./context.ts";
 import { appRouter } from "./router.ts";
 
 const NOW = new Date("2026-01-02T03:04:05.000Z");
@@ -240,8 +239,8 @@ const contactThrottle = (): ContactThrottlePort => ({
   })),
 });
 
-describe("router authentication context", function () {
-  it("carries the authenticated session into account profile responses", async function () {
+describe("router authentication context", () => {
+  it("carries the authenticated session into account profile responses", async () => {
     const repos = repositories();
     const requireSession = vi.fn(async () => memberSession);
     const client = clientFor(
@@ -273,11 +272,11 @@ describe("router authentication context", function () {
       code: "FORBIDDEN",
       status: 403,
     },
-  ] as const)("maps session denial to $code", async function ({
+  ] as const)("maps session denial to $code", async ({
     failure,
     code,
     status,
-  }) {
+  }) => {
     const client = clientFor(
       contextFor({
         requireSession: vi.fn(async () => {
@@ -293,7 +292,7 @@ describe("router authentication context", function () {
     );
   });
 
-  it("preserves unexpected authentication adapter failures", async function () {
+  it("preserves unexpected authentication adapter failures", async () => {
     const failure = new Error("authentication adapter unavailable");
     const client = clientFor(
       contextFor({
@@ -306,7 +305,7 @@ describe("router authentication context", function () {
     return await expect(client.account.profile.get({})).rejects.toBe(failure);
   });
 
-  it("denies every account mutation when no session is available", async function () {
+  it("denies every account mutation when no session is available", async () => {
     const client = clientFor(
       contextFor({
         requireSession: vi.fn(async () => {
@@ -379,11 +378,11 @@ describe("router authentication context", function () {
       code: "FORBIDDEN",
       status: 403,
     },
-  ] as const)("maps admin denial to $code", async function ({
+  ] as const)("maps admin denial to $code", async ({
     failure,
     code,
     status,
-  }) {
+  }) => {
     const client = clientFor(
       contextFor({
         requireRole: vi.fn(async () => {
@@ -399,7 +398,7 @@ describe("router authentication context", function () {
     );
   });
 
-  it("uses the role adapter for an authorized administrator", async function () {
+  it("uses the role adapter for an authorized administrator", async () => {
     const repos = repositories();
     const requireRole = vi.fn(async () => adminSession);
     const client = clientFor(contextFor({ repositories: repos, requireRole }));
@@ -414,7 +413,7 @@ describe("router authentication context", function () {
     );
   });
 
-  return it("preserves unexpected role adapter failures", async function () {
+  return it("preserves unexpected role adapter failures", async () => {
     const failure = new Error("role adapter unavailable");
     const client = clientFor(
       contextFor({
@@ -430,8 +429,8 @@ describe("router authentication context", function () {
   });
 });
 
-describe("account router behavior", function () {
-  it("returns successful owner-scoped account mutations without repository-only fields", async function () {
+describe("account router behavior", () => {
+  it("returns successful owner-scoped account mutations without repository-only fields", async () => {
     const repos = repositories();
     const client = clientFor(contextFor({ repositories: repos }));
 
@@ -511,11 +510,11 @@ describe("account router behavior", function () {
       code: "STORAGE_ERROR",
       status: 503,
     },
-  ] as const)("maps account adapter failure to $code", async function ({
+  ] as const)("maps account adapter failure to $code", async ({
     failure,
     code,
     status,
-  }) {
+  }) => {
     const repos = repositories();
     vi.mocked(repos.addresses.listByUserId).mockRejectedValue(failure);
     const client = clientFor(contextFor({ repositories: repos }));
@@ -527,7 +526,7 @@ describe("account router behavior", function () {
     );
   });
 
-  it("maps a missing owner-scoped address without leaking whether another owner has it", async function () {
+  it("maps a missing owner-scoped address without leaking whether another owner has it", async () => {
     const repos = repositories();
     vi.mocked(repos.addresses.updateOptimistic).mockResolvedValue(null);
     const client = clientFor(contextFor({ repositories: repos }));
@@ -546,7 +545,7 @@ describe("account router behavior", function () {
     );
   });
 
-  it("rejects owner-bearing account input before persistence", async function () {
+  it("rejects owner-bearing account input before persistence", async () => {
     const repos = repositories();
     const client = clientFor(contextFor({ repositories: repos }));
 
@@ -566,7 +565,7 @@ describe("account router behavior", function () {
     return expect(repos.addresses.create).not.toHaveBeenCalled();
   });
 
-  return it("does not fail a successful account mutation when observability is unavailable", async function () {
+  return it("does not fail a successful account mutation when observability is unavailable", async () => {
     const repos = repositories();
     const semanticEvents: SemanticEventPort = {
       emit: vi.fn().mockRejectedValue(null),
@@ -590,8 +589,8 @@ describe("account router behavior", function () {
   });
 });
 
-describe("feature and theme service error responses", function () {
-  it("denies a member cross-owner scope before reading feature storage", async function () {
+describe("feature and theme service error responses", () => {
+  it("denies a member cross-owner scope before reading feature storage", async () => {
     const repos = repositories();
     const client = clientFor(contextFor({ repositories: repos }));
 
@@ -619,11 +618,11 @@ describe("feature and theme service error responses", function () {
       code: "STORAGE_ERROR",
       status: 503,
     },
-  ] as const)("maps feature adapter failure to $code", async function ({
+  ] as const)("maps feature adapter failure to $code", async ({
     failure,
     code,
     status,
-  }) {
+  }) => {
     const repos = repositories();
     vi.mocked(repos.featureItems.listByOwner).mockRejectedValue(failure);
     const client = clientFor(contextFor({ repositories: repos }));
@@ -631,7 +630,7 @@ describe("feature and theme service error responses", function () {
     return await expectDefinedError(client.featureItems.list({}), code, status);
   });
 
-  it("maps a missing feature and preserves an unexpected adapter failure", async function () {
+  it("maps a missing feature and preserves an unexpected adapter failure", async () => {
     const missingRepos = repositories();
     vi.mocked(missingRepos.featureItems.findByIdForOwner).mockResolvedValue(
       null
@@ -665,11 +664,11 @@ describe("feature and theme service error responses", function () {
       code: "CONFLICT",
       status: 409,
     },
-  ] as const)("maps theme adapter failure to $code", async function ({
+  ] as const)("maps theme adapter failure to $code", async ({
     failure,
     code,
     status,
-  }) {
+  }) => {
     const repos = repositories();
     vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure);
     const client = clientFor(contextFor({ repositories: repos }));
@@ -685,7 +684,7 @@ describe("feature and theme service error responses", function () {
     );
   });
 
-  return it("preserves an unexpected theme adapter failure", async function () {
+  return it("preserves an unexpected theme adapter failure", async () => {
     const failure = new Error("unexpected theme adapter contract violation");
     const repos = repositories();
     vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure);
@@ -701,12 +700,12 @@ describe("feature and theme service error responses", function () {
   });
 });
 
-describe("optional router capabilities", function () {
+describe("optional router capabilities", () => {
   it.each([
     "delivery",
     "throttle",
     "key",
-  ] as const)("returns SERVICE_UNAVAILABLE when the contact %s capability is absent", async function (missing) {
+  ] as const)("returns SERVICE_UNAVAILABLE when the contact %s capability is absent", async (missing) => {
     const delivery = contactDelivery();
     const throttle = contactThrottle();
     const optionalPorts: Partial<ApiContext> = {
@@ -725,7 +724,7 @@ describe("optional router capabilities", function () {
     return expect(throttle.consume).not.toHaveBeenCalled();
   });
 
-  return it("allows the public contact route with all optional adapters and no event port", async function () {
+  return it("allows the public contact route with all optional adapters and no event port", async () => {
     const delivery = contactDelivery();
     const throttle = contactThrottle();
     const client = clientFor(
@@ -744,8 +743,8 @@ describe("optional router capabilities", function () {
   });
 });
 
-describe("router status and serialization boundaries", function () {
-  it("accepts description-only and metadata-only feature updates", async function () {
+describe("router status and serialization boundaries", () => {
+  it("accepts description-only and metadata-only feature updates", async () => {
     const repos = repositories();
     const client = clientFor(contextFor({ repositories: repos }));
 
@@ -774,7 +773,7 @@ describe("router status and serialization boundaries", function () {
     return expect(repos.featureItems.update).toHaveBeenCalledTimes(2);
   });
 
-  it("maps every feature mutation and admin feature read failure", async function () {
+  it("maps every feature mutation and admin feature read failure", async () => {
     const updateRepos = repositories();
     vi.mocked(updateRepos.featureItems.update).mockRejectedValue(
       new DatabaseConflictError("feature item")
@@ -833,7 +832,7 @@ describe("router status and serialization boundaries", function () {
     );
   });
 
-  it("maps remaining account, directory, and dashboard failures", async function () {
+  it("maps remaining account, directory, and dashboard failures", async () => {
     const profileRepos = repositories();
     vi.mocked(profileRepos.profiles.findByUserId).mockRejectedValue(
       new Error("private profile adapter details")
@@ -968,7 +967,7 @@ describe("router status and serialization boundaries", function () {
     );
   });
 
-  return it("preserves unexpected infrastructure and serialization failures", async function () {
+  return it("preserves unexpected infrastructure and serialization failures", async () => {
     const accountFailure = new Error("unexpected address serializer failure");
     const accountRepos = repositories();
     const poisonedAddress = new Proxy(address(), {
@@ -1052,8 +1051,8 @@ describe("router status and serialization boundaries", function () {
   });
 });
 
-describe("router event failure and lifetime boundaries", function () {
-  it("passes account and contact event lifetime context without leaking payloads", async function () {
+describe("router event failure and lifetime boundaries", () => {
+  it("passes account and contact event lifetime context without leaking payloads", async () => {
     const span: NonNullable<ApiContext["span"]> = {
       correlation: {
         requestId: "trace-request",
@@ -1131,7 +1130,7 @@ describe("router event failure and lifetime boundaries", function () {
     ).not.toContain(contactInput.email);
   });
 
-  it("classifies typed feature and unexpected theme event failures", async function () {
+  it("classifies typed feature and unexpected theme event failures", async () => {
     const featureRepos = repositories();
     vi.mocked(featureRepos.featureItems.create).mockRejectedValue(
       new DatabaseConflictError("private feature conflict")
@@ -1208,7 +1207,7 @@ describe("router event failure and lifetime boundaries", function () {
       { span: themeSpan, waitUntil: themeWaitUntil }
     );
   });
-  return it("keeps feature and theme mutations successful when observability rejects", async function () {
+  return it("keeps feature and theme mutations successful when observability rejects", async () => {
     const featureRepos = repositories();
     const featureEmit = vi
       .fn()

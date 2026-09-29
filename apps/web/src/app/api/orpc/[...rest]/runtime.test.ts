@@ -30,7 +30,7 @@ const runtime = (
   dispose: vi.fn(async () => undefined),
 });
 
-describe("Worker oRPC runtime composition", function () {
+describe("Worker oRPC runtime composition", () => {
   it.each([
     [undefined, undefined, "unknown"],
     ["", undefined, "unknown"],
@@ -50,7 +50,7 @@ describe("Worker oRPC runtime composition", function () {
     ],
     ["granted", "analytics_consent=granted; other=value", "granted"],
     ["granted", "analytics_consent=malformed", "unknown"],
-  ] as const)("resolves header %s and cookie %s to fail-closed consent %s", function (header, cookie, expected) {
+  ] as const)("resolves header %s and cookie %s to fail-closed consent %s", (header, cookie, expected) => {
     const headers = new Headers();
     if (header !== undefined) headers.set("x-analytics-consent", header);
     if (cookie !== undefined) headers.set("cookie", cookie);
@@ -61,7 +61,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(resolveAnalyticsConsent(request)).toBe(expected);
   });
 
-  it("returns the completed response without replay when telemetry fails afterward", async function () {
+  it("returns the completed response without replay when telemetry fails afterward", async () => {
     const operation = vi.fn(
       async () => new Response("created", { status: 201 })
     );
@@ -88,7 +88,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(waitUntil).toHaveBeenCalledOnce();
   });
 
-  it("runs the request once when telemetry invokes its callback more than once", async function () {
+  it("runs the request once when telemetry invokes its callback more than once", async () => {
     const operation = vi.fn(async () => "created");
     const telemetry = runtime(async (_input, run) => {
       const results = await Promise.all([run(span), run(span)]);
@@ -106,7 +106,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(operation).toHaveBeenCalledOnce();
   });
 
-  it("runs once with a provider-neutral span when telemetry fails before callback", async function () {
+  it("runs once with a provider-neutral span when telemetry fails before callback", async () => {
     const operation = vi.fn(async (fallbackSpan: SpanHandle) => {
       expect(fallbackSpan.correlation).toEqual({
         requestId: "request-1",
@@ -132,7 +132,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(operation).toHaveBeenCalledOnce();
   });
 
-  it("propagates an application failure without replaying it", async function () {
+  it("propagates an application failure without replaying it", async () => {
     const failure = new Error("application failed");
     const operation = vi.fn(async () => {
       throw failure;
@@ -150,7 +150,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(operation).toHaveBeenCalledOnce();
   });
 
-  it("derives the telemetry allowlist only from the configured endpoint hostname", function () {
+  it("derives the telemetry allowlist only from the configured endpoint hostname", () => {
     expect(
       configuredOtlpAllowedHosts("https://Collector.Example.test:4318/custom")
     ).toEqual(["collector.example.test"]);
@@ -158,7 +158,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(configuredOtlpAllowedHosts("not a url")).toEqual([]);
   });
 
-  it("ignores unrelated and separator-free cookie segments", function () {
+  it("ignores unrelated and separator-free cookie segments", () => {
     const request = new Request("https://darkfactory.localhost/api/orpc", {
       headers: { cookie: "flag; other=value" },
     });
@@ -166,7 +166,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(resolveAnalyticsConsent(request)).toBe("unknown");
   });
 
-  it("falls back when telemetry omits its callback and isolates rejected flushing", async function () {
+  it("falls back when telemetry omits its callback and isolates rejected flushing", async () => {
     const forceFlush = vi.fn(async () => {
       throw new Error("provider flush unavailable");
     });
@@ -204,7 +204,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(waitUntil).toHaveBeenCalledOnce();
   });
 
-  it("rethrows primitive telemetry failures instead of treating them as provider outages", async function () {
+  it("rethrows primitive telemetry failures instead of treating them as provider outages", async () => {
     const failure = "telemetry primitive failure";
     const forceFlush = vi.fn(async () => undefined);
     const telemetry = runtime(async () => {
@@ -226,7 +226,7 @@ describe("Worker oRPC runtime composition", function () {
     return expect(waitUntil).toHaveBeenCalledOnce();
   });
 
-  it("rethrows primitive execution-context failures during flush scheduling", async function () {
+  it("rethrows primitive execution-context failures during flush scheduling", async () => {
     const failure = "execution context primitive failure";
     const telemetry = runtime(async (_input, run) => run(span));
     const waitUntil = vi.fn(() => {
@@ -246,7 +246,6 @@ describe("Worker oRPC runtime composition", function () {
     return expect(waitUntil).toHaveBeenCalledOnce();
   });
 
-  return it("does not derive an allowlist entry from a hostname-free URL", function () {
-    return expect(configuredOtlpAllowedHosts("file:///tmp/traces")).toEqual([]);
-  });
+  return it("does not derive an allowlist entry from a hostname-free URL", () =>
+    expect(configuredOtlpAllowedHosts("file:///tmp/traces")).toEqual([]));
 });

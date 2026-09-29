@@ -1,9 +1,9 @@
 "use client";
 
-import type { ComponentPropsWithRef } from "react";
-import { createElement } from "react";
 import { Check, ChevronRight, Circle } from "lucide-react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
+import type { ComponentPropsWithRef } from "react";
+import { createElement } from "react";
 
 import { cn } from "../utilities.ts";
 
@@ -58,7 +58,7 @@ export const DropdownMenuCheckboxItem = ({
     DropdownMenuPrimitive.CheckboxItem,
     {
       className: cn(
-        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pl-9 pr-3 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
+        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pr-3 pl-9 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
         className
       ),
       ...props,
@@ -88,7 +88,7 @@ export const DropdownMenuRadioItem = ({
     DropdownMenuPrimitive.RadioItem,
     {
       className: cn(
-        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pl-9 pr-3 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
+        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pr-3 pl-9 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
         className
       ),
       ...props,
@@ -121,7 +121,7 @@ export const DropdownMenuLabel = ({
 }) => {
   return createElement(DropdownMenuPrimitive.Label, {
     className: cn(
-      "px-3 py-2 text-xs font-semibold text-muted-foreground",
+      "px-3 py-2 font-semibold text-muted-foreground text-xs",
       inset && "pl-9",
       className
     ),
@@ -151,7 +151,7 @@ export const DropdownMenuSubTrigger = ({
     DropdownMenuPrimitive.SubTrigger,
     {
       className: cn(
-        "flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[state=open]:bg-accent data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
+        "flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[state=open]:bg-accent data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
         inset && "pl-9",
         className
       ),

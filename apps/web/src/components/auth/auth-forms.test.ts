@@ -9,18 +9,18 @@ vi.mock("next/link", () => ({ default: "a" }));
 
 import type { AuthFlowClient } from "./auth-flow.ts";
 import { AuthPanel } from "./auth-panel.tsx";
-import { SessionRedirect, destinationForSession } from "./session-redirect.tsx";
-import {
-  SignInForm,
-  completeSuccessfulSignInNavigation,
-} from "./sign-in-form.tsx";
-import { SignUpForm } from "./sign-up-form.tsx";
-import { ResetPasswordForm } from "./reset-password-form.tsx";
+import { EmailActionForm } from "./email-action-form.tsx";
 import {
   captureAndScrubResetToken,
   scrubResetTokenMarkup,
 } from "./reset-password-entry.tsx";
-import { EmailActionForm } from "./email-action-form.tsx";
+import { ResetPasswordForm } from "./reset-password-form.tsx";
+import { destinationForSession, SessionRedirect } from "./session-redirect.tsx";
+import {
+  completeSuccessfulSignInNavigation,
+  SignInForm,
+} from "./sign-in-form.tsx";
+import { SignUpForm } from "./sign-up-form.tsx";
 
 const client: AuthFlowClient = {
   signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
@@ -37,8 +37,8 @@ const markup = (
   return renderToStaticMarkup(component);
 };
 
-describe("auth form surface", function () {
-  it("provides stable editorial hierarchy without a generic nested card", function () {
+describe("auth form surface", () => {
+  it("provides stable editorial hierarchy without a generic nested card", () => {
     const html = markup(
       createElement(AuthPanel, {
         eyebrow: "Account access",
@@ -55,7 +55,7 @@ describe("auth form surface", function () {
     return expect(html).not.toContain("shadow");
   });
 
-  it("renders sign-in with associated fields, recovery links, status semantics, and full-size controls", function () {
+  it("renders sign-in with associated fields, recovery links, status semantics, and full-size controls", () => {
     const html = markup(
       createElement(SignInForm, {
         auth: client,
@@ -70,11 +70,11 @@ describe("auth form surface", function () {
     expect(html).toContain('href="/sign-up"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain("min-h-11");
-    expect(html.match(/required=\"\"/g)).toHaveLength(2);
-    return expect(html.match(/aria-required=\"true\"/g)).toHaveLength(2);
+    expect(html.match(/required=""/g)).toHaveLength(2);
+    return expect(html.match(/aria-required="true"/g)).toHaveLength(2);
   });
 
-  it("crosses the authenticated layout boundary with a full history-replacing navigation", function () {
+  it("crosses the authenticated layout boundary with a full history-replacing navigation", () => {
     const replace = vi.fn();
 
     completeSuccessfulSignInNavigation(
@@ -86,7 +86,7 @@ describe("auth form surface", function () {
     return expect(replace).toHaveBeenCalledWith("/dashboard");
   });
 
-  it("does not navigate for non-redirecting success or error results", function () {
+  it("does not navigate for non-redirecting success or error results", () => {
     const replace = vi.fn();
 
     completeSuccessfulSignInNavigation(
@@ -100,7 +100,7 @@ describe("auth form surface", function () {
 
     return expect(replace).not.toHaveBeenCalled();
   });
-  it("renders sign-up with name, email, two password controls, and truthful verification guidance", function () {
+  it("renders sign-up with name, email, two password controls, and truthful verification guidance", () => {
     const html = markup(createElement(SignUpForm, { auth: client }));
 
     expect(html).toContain('autoComplete="name"');
@@ -108,11 +108,11 @@ describe("auth form surface", function () {
     expect(html.match(/Show password/g)).toHaveLength(2);
     expect(html).toContain("We will send a verification link");
     expect(html).toContain('href="/sign-in"');
-    expect(html.match(/required=\"\"/g)).toHaveLength(4);
-    return expect(html.match(/aria-required=\"true\"/g)).toHaveLength(4);
+    expect(html.match(/required=""/g)).toHaveLength(4);
+    return expect(html.match(/aria-required="true"/g)).toHaveLength(4);
   });
 
-  it("renders forgot and verification email actions as enumeration-safe forms", function () {
+  it("renders forgot and verification email actions as enumeration-safe forms", () => {
     const forgot = markup(
       createElement(EmailActionForm, {
         auth: client,
@@ -132,7 +132,7 @@ describe("auth form surface", function () {
     return expect(verify).toContain("For your privacy");
   });
 
-  it("renders an invalid reset link as recovery instead of a password form", function () {
+  it("renders an invalid reset link as recovery instead of a password form", () => {
     const html = markup(
       createElement(ResetPasswordForm, {
         auth: client,
@@ -145,7 +145,7 @@ describe("auth form surface", function () {
     return expect(html).not.toContain('name="newPassword"');
   });
 
-  it("captures a reset token in memory and immediately removes query data from history", function () {
+  it("captures a reset token in memory and immediately removes query data from history", () => {
     const replaceState = vi.fn();
     const history = { state: { key: "value" }, replaceState };
 
@@ -172,7 +172,7 @@ describe("auth form surface", function () {
     );
   });
 
-  return it("removes hydrated route scripts that retain the captured reset token", function () {
+  return it("removes hydrated route scripts that retain the captured reset token", () => {
     const sensitiveScript = {
       textContent: 'self.__next_f.push(["one-time-reset-token"])',
       remove: vi.fn(),
@@ -192,8 +192,8 @@ describe("auth form surface", function () {
   });
 });
 
-describe("signed-in auth route redirect", function () {
-  it("gates interactive auth children behind an initial session check", function () {
+describe("signed-in auth route redirect", () => {
+  it("gates interactive auth children behind an initial session check", () => {
     const html = markup(
       createElement(
         SessionRedirect,
@@ -206,7 +206,7 @@ describe("signed-in auth route redirect", function () {
     return expect(html).not.toContain("Interactive form");
   });
 
-  return it("uses the sanitized redirect-back destination only when a real session exists", function () {
+  return it("uses the sanitized redirect-back destination only when a real session exists", () => {
     expect(
       destinationForSession(
         { data: { session: { id: "session-1" } }, error: null },

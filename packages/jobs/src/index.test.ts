@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  type JobDefinition,
+  type JsonObject,
   MAX_JOB_PAYLOAD_BYTES,
   MAX_JOB_PAYLOAD_DEPTH,
   snapshotJobPayload,
-  type JobDefinition,
-  type JsonObject,
 } from "./index.ts";
 import { createRecordingJobPort } from "./test.ts";
 
@@ -40,8 +40,8 @@ const nestedPayload = (depth: number): JsonObject => {
   return payload;
 };
 
-describe("recording jobs adapter", function () {
-  it("records typed envelopes deterministically without executing jobs", async function () {
+describe("recording jobs adapter", () => {
+  it("records typed envelopes deterministically without executing jobs", async () => {
     let executions = 0;
     const definition: JobDefinition<"count", { amount: number }, number> = {
       name: "count",
@@ -86,7 +86,7 @@ describe("recording jobs adapter", function () {
     return await expect(jobs.flush()).resolves.toBeUndefined();
   });
 
-  it("accepts an interface-declared JSON object payload", async function () {
+  it("accepts an interface-declared JSON object payload", async () => {
     const jobs = createRecordingJobPort();
 
     const receipt = await jobs.enqueue(interfaceJob, { value: "valid" });
@@ -97,7 +97,7 @@ describe("recording jobs adapter", function () {
     });
   });
 
-  it("enforces cumulative serialized-byte boundaries exactly", function () {
+  it("enforces cumulative serialized-byte boundaries exactly", () => {
     const emptyPayloadBytes = JSON.stringify({ value: "" }).length;
     const exact = {
       value: "x".repeat(MAX_JOB_PAYLOAD_BYTES - emptyPayloadBytes),
@@ -106,7 +106,7 @@ describe("recording jobs adapter", function () {
       value: "x".repeat(MAX_JOB_PAYLOAD_BYTES - emptyPayloadBytes + 1),
     };
     const cumulative = Object.fromEntries(
-      Array.from({ length: 8_000 }, (_, index) => [`key-${index}`, ""])
+      Array.from({ length: 8000 }, (_, index) => [`key-${index}`, ""])
     );
 
     expect(snapshotJobPayload(exact).status).toBe("valid");
@@ -114,7 +114,7 @@ describe("recording jobs adapter", function () {
     return expect(snapshotJobPayload(cumulative).status).toBe("invalid");
   });
 
-  it("bounds collection size and nesting depth", function () {
+  it("bounds collection size and nesting depth", () => {
     expect(
       snapshotJobPayload({
         values: Array(MAX_JOB_PAYLOAD_BYTES).fill(0),
@@ -128,7 +128,7 @@ describe("recording jobs adapter", function () {
     ).toBe("invalid");
   });
 
-  it("canonicalizes payloads at enqueue and isolates every returned snapshot", async function () {
+  it("canonicalizes payloads at enqueue and isolates every returned snapshot", async () => {
     const jobs = createRecordingJobPort();
     const payload = { z: 1, nested: { value: "original" }, a: [true, null] };
 
@@ -186,7 +186,7 @@ describe("recording jobs adapter", function () {
     return expect(jobs.getEnvelopes()).toEqual([]);
   });
 
-  it("rejects cyclic payloads without invoking accessors", async function () {
+  it("rejects cyclic payloads without invoking accessors", async () => {
     let getterCalls = 0;
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
@@ -211,7 +211,7 @@ describe("recording jobs adapter", function () {
     return expect(jobs.getEnvelopes()).toEqual([]);
   });
 
-  it("rejects excessive object keys before inspecting their properties", async function () {
+  it("rejects excessive object keys before inspecting their properties", async () => {
     const keys = Array.from(
       { length: MAX_JOB_PAYLOAD_BYTES + 1 },
       (_, index) => `key-${index}`
@@ -243,7 +243,7 @@ describe("recording jobs adapter", function () {
     return expect(descriptorCalls).toBe(0);
   });
 
-  it("fails closed when a recorded payload can no longer be verified", async function () {
+  it("fails closed when a recorded payload can no longer be verified", async () => {
     const jobs = createRecordingJobPort();
     await jobs.enqueue(uppercaseJob, { value: "original" });
     const prototypeSpy = vi.spyOn(Object, "getPrototypeOf").mockReturnValue({});
@@ -262,7 +262,7 @@ describe("recording jobs adapter", function () {
       "recorded job payload invariant violated"
     );
   });
-  it("returns envelope snapshots that cannot mutate prior recordings", async function () {
+  it("returns envelope snapshots that cannot mutate prior recordings", async () => {
     const jobs = createRecordingJobPort();
     const payload = { value: "original" };
     await jobs.enqueue(uppercaseJob, payload);
@@ -272,7 +272,7 @@ describe("recording jobs adapter", function () {
     return expect(snapshots[0]?.payload).toEqual({ value: "original" });
   });
 
-  return it("covers primitive roots, JSON numeric canonicalization, and reflective array invariants", function () {
+  return it("covers primitive roots, JSON numeric canonicalization, and reflective array invariants", () => {
     const valid = snapshotJobPayload({
       disabled: false,
       negativeZero: -0,
@@ -345,8 +345,8 @@ describe("recording jobs adapter", function () {
   });
 });
 
-describe("jobs dependency inventory", function () {
-  return it("declares only internal runtime dependencies and explicit entrypoints", async function () {
+describe("jobs dependency inventory", () =>
+  it("declares only internal runtime dependencies and explicit entrypoints", async () => {
     const manifestText = await readFile(
       new URL("../package.json", import.meta.url),
       "utf8"
@@ -376,5 +376,4 @@ describe("jobs dependency inventory", function () {
       "./server/pilot-worker",
       "./test",
     ]);
-  });
-});
+  }));

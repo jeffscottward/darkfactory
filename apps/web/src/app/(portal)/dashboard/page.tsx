@@ -14,8 +14,8 @@ import {
 } from "../../../components/portal/dashboard-content.tsx";
 import {
   createAuthenticatedDashboardFetch,
-  DEFAULT_DASHBOARD_TIMEOUT_MS,
   type DashboardTransportFetch,
+  DEFAULT_DASHBOARD_TIMEOUT_MS,
 } from "../../../lib/dashboard-transport.ts";
 import { dispatchInternalOrpcRequest } from "../../../lib/server-internal-dispatch.ts";
 import {
@@ -136,7 +136,7 @@ const waitForDashboardCapacity = (signal: AbortSignal): Promise<boolean> => {
       signal.removeEventListener("abort", finish);
       return resolve(!signal.aborted);
     };
-    const timeout = setTimeout(finish, 1_000);
+    const timeout = setTimeout(finish, 1000);
     return signal.addEventListener("abort", finish, { once: true });
   });
 };

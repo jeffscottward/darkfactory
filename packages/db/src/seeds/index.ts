@@ -2,19 +2,18 @@ import { and as andWhere, eq, or as orWhere, sql } from "drizzle-orm";
 
 import { accounts, users } from "../schema/index.ts";
 import {
-  withTransaction,
   type Database,
   type DatabaseExecutor,
+  withTransaction,
 } from "../server/client.ts";
 import { convergeDevelopmentContent } from "./content.ts";
 import { convergeDevelopmentPreferences } from "./preferences.ts";
 import { convergeDevelopmentProfiles } from "./profiles.ts";
 import {
   DEVELOPMENT_PERSONAS,
-  seedIdentityInput,
-  type EnsureSeedIdentity,
-  type PrepareSeedIdentities,
   type DevelopmentPersona,
+  type PrepareSeedIdentities,
+  seedIdentityInput,
 } from "./users.ts";
 
 export type DevelopmentEnvironment = "development" | "test" | "production";

@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -13,6 +12,7 @@ import {
   StatusBadge,
   Textarea,
 } from "@darkfactory/ui";
+import { useEffect, useRef, useState } from "react";
 
 import {
   classifyOperatorFailure,
@@ -21,8 +21,8 @@ import {
   type OperatorWayfinderStatus,
 } from "./operator-client.ts";
 import {
-  MAX_OPERATOR_REQUEST_BYTES,
   hasOperatorControlCharacters,
+  MAX_OPERATOR_REQUEST_BYTES,
   trimmedUtf8ByteLength,
 } from "./operator-text-limit.ts";
 
@@ -125,20 +125,20 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
       <CardContent className="space-y-6">
         <ol
           aria-label="Planning workflow"
-          className="grid gap-3 border-y border-border py-4 sm:grid-cols-3"
+          className="grid gap-3 border-border border-y py-4 sm:grid-cols-3"
         >
           <li className="flex gap-3">
             <span
               aria-hidden="true"
-              className="flex size-7 shrink-0 items-center justify-center rounded-pill bg-primary text-sm font-semibold text-primary-foreground"
+              className="flex size-7 shrink-0 items-center justify-center rounded-pill bg-primary font-semibold text-primary-foreground text-sm"
             >
               1
             </span>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="font-semibold text-foreground text-sm">
                 Start planning
               </h3>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              <p className="mt-1 text-muted-foreground text-xs leading-5">
                 Share the goal and safe file scope.
               </p>
             </div>
@@ -146,15 +146,15 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
           <li className="flex gap-3">
             <span
               aria-hidden="true"
-              className="flex size-7 shrink-0 items-center justify-center rounded-pill border border-border-strong text-sm font-semibold text-foreground"
+              className="flex size-7 shrink-0 items-center justify-center rounded-pill border border-border-strong font-semibold text-foreground text-sm"
             >
               2
             </span>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="font-semibold text-foreground text-sm">
                 Review plan
               </h3>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              <p className="mt-1 text-muted-foreground text-xs leading-5">
                 Request changes or approve the latest plan.
               </p>
             </div>
@@ -162,15 +162,15 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
           <li className="flex gap-3">
             <span
               aria-hidden="true"
-              className="flex size-7 shrink-0 items-center justify-center rounded-pill border border-border-strong text-sm font-semibold text-foreground"
+              className="flex size-7 shrink-0 items-center justify-center rounded-pill border border-border-strong font-semibold text-foreground text-sm"
             >
               3
             </span>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="font-semibold text-foreground text-sm">
                 Monitor work
               </h3>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              <p className="mt-1 text-muted-foreground text-xs leading-5">
                 Follow progress and respond if work needs attention.
               </p>
             </div>
@@ -213,7 +213,7 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
                 value={repositoryId}
               />
               <p
-                className="text-xs leading-5 text-muted-foreground"
+                className="text-muted-foreground text-xs leading-5"
                 id="wayfinder-repository-hint"
               >
                 Enter the repository name that Wayfinder may inspect.
@@ -238,7 +238,7 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
                 value={request}
               />
               <p
-                className="text-xs leading-5 text-muted-foreground"
+                className="text-muted-foreground text-xs leading-5"
                 id="wayfinder-request-hint"
               >
                 State the outcome, limits, and important checks. Do not include
@@ -247,8 +247,8 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
               <p
                 className={
                   requestError !== null
-                    ? "text-xs leading-5 text-destructive"
-                    : "text-xs leading-5 text-muted-foreground"
+                    ? "text-destructive text-xs leading-5"
+                    : "text-muted-foreground text-xs leading-5"
                 }
                 id="wayfinder-request-count"
               >
@@ -257,7 +257,7 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
               </p>
               {requestError === null ? null : (
                 <p
-                  className="text-sm text-destructive"
+                  className="text-destructive text-sm"
                   id="wayfinder-request-error"
                   role="alert"
                 >
@@ -279,7 +279,7 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
                 value={scopePaths}
               />
               <p
-                className="text-xs leading-5 text-muted-foreground"
+                className="text-muted-foreground text-xs leading-5"
                 id="wayfinder-scope-hint"
               >
                 Use repository-relative paths. Planning and later work stay
@@ -289,7 +289,7 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
           </div>
           {failure.length === 0 ? null : (
             <p
-              className="text-sm font-medium text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="font-medium text-destructive text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               ref={failureRef}
               role="alert"
               tabIndex={-1}
@@ -299,14 +299,14 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
           )}
           {queued === null ? null : (
             <div
-              className="flex flex-wrap items-center justify-between gap-3 border-y border-success-border bg-success-subtle px-4 py-3"
+              className="flex flex-wrap items-center justify-between gap-3 border-success-border border-y bg-success-subtle px-4 py-3"
               role="status"
             >
               <div>
-                <p className="text-sm font-semibold text-success-foreground">
+                <p className="font-semibold text-sm text-success-foreground">
                   Planning queued
                 </p>
-                <p className="mt-1 text-xs leading-5 text-success-foreground">
+                <p className="mt-1 text-success-foreground text-xs leading-5">
                   Open the run to review the plan when Wayfinder finishes.
                 </p>
               </div>

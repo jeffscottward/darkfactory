@@ -1,17 +1,17 @@
 import type { SafeAuthSession, SafePrincipal } from "@darkfactory/auth/types";
+import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 import {
+  type AddressRepository,
   AdminUsersPersistenceError,
-  DatabaseConflictError,
+  type AdminUsersRepository,
   DashboardPersistenceError,
+  type DashboardRepository,
+  DatabaseConflictError,
   InvalidAdminUsersCursorError,
   InvalidRepositoryInputError,
-  type AddressRepository,
-  type AdminUsersRepository,
-  type DashboardRepository,
   type ProfileRepository,
   type UserPreferencesRepository,
 } from "@darkfactory/db/server";
-import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,8 +23,8 @@ import {
   createAdminUsersService,
 } from "./server/admin-users-service.ts";
 import {
-  DashboardServiceError,
   createDashboardService,
+  DashboardServiceError,
 } from "./server/dashboard-service.ts";
 
 const principal: SafePrincipal = {
@@ -137,8 +137,8 @@ const accountRepositories = () => {
   return { profiles, addresses, userPreferences };
 };
 
-describe("account service", function () {
-  it("returns safe identity with default profile when the row is missing", async function () {
+describe("account service", () => {
+  it("returns safe identity with default profile when the row is missing", async () => {
     const repositories = accountRepositories();
     return await expect(
       createAccountService(repositories).getProfile(session)
@@ -161,7 +161,7 @@ describe("account service", function () {
     });
   });
 
-  it("merges a profile patch with persisted values without accepting identity fields", async function () {
+  it("merges a profile patch with persisted values without accepting identity fields", async () => {
     const repositories = accountRepositories();
     vi.mocked(repositories.profiles.findByUserId).mockResolvedValue(
       profile({ displayName: "Before", locale: "fr" })
@@ -192,7 +192,7 @@ describe("account service", function () {
     );
   });
 
-  it("keeps every address operation owner scoped and reports missing rows", async function () {
+  it("keeps every address operation owner scoped and reports missing rows", async () => {
     const repositories = accountRepositories();
     const service = createAccountService(repositories);
     await service.createAddress(principal, {
@@ -230,7 +230,7 @@ describe("account service", function () {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("returns complete defaults but mutates only non-theme account preferences", async function () {
+  it("returns complete defaults but mutates only non-theme account preferences", async () => {
     const repositories = accountRepositories();
     const service = createAccountService(repositories);
     await expect(service.getPreferences(principal)).resolves.toEqual({
@@ -264,7 +264,7 @@ describe("account service", function () {
     });
   });
 
-  it("maps the bounded address quota to a safe validation error", async function () {
+  it("maps the bounded address quota to a safe validation error", async () => {
     const repositories = accountRepositories();
     vi.mocked(repositories.addresses.create).mockRejectedValueOnce(
       new InvalidRepositoryInputError("address limit reached")
@@ -286,7 +286,7 @@ describe("account service", function () {
     });
   });
 
-  it("applies every supplied profile field to the authenticated owner", async function () {
+  it("applies every supplied profile field to the authenticated owner", async () => {
     const repositories = accountRepositories();
     const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
 
@@ -322,7 +322,7 @@ describe("account service", function () {
     });
   });
 
-  it("omits absent address defaults and keeps successful operations owner scoped", async function () {
+  it("omits absent address defaults and keeps successful operations owner scoped", async () => {
     const repositories = accountRepositories();
     vi.mocked(repositories.addresses.updateOptimistic).mockResolvedValue(
       address({ type: "work", city: "Lyon" })
@@ -418,7 +418,7 @@ describe("account service", function () {
     });
   });
 
-  it("projects stored preferences and preserves omitted fields across partial updates", async function () {
+  it("projects stored preferences and preserves omitted fields across partial updates", async () => {
     const repositories = accountRepositories();
     const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
     vi.mocked(repositories.userPreferences.findByUserId).mockResolvedValue(
@@ -489,11 +489,11 @@ describe("account service", function () {
       code: "STORAGE_ERROR",
       message: "Account storage is unavailable",
     },
-  ] as const)("maps repository failures to the stable $code contract", async function ({
+  ] as const)("maps repository failures to the stable $code contract", async ({
     failure,
     code,
     message,
-  }) {
+  }) => {
     const repositories = accountRepositories();
     vi.mocked(repositories.addresses.listByUserId).mockRejectedValue(failure);
 
@@ -506,7 +506,7 @@ describe("account service", function () {
     });
   });
 
-  return it("preserves an already classified account failure", async function () {
+  return it("preserves an already classified account failure", async () => {
     const repositories = accountRepositories();
     const failure = new AccountServiceError("NOT_FOUND", "Address not found");
     vi.mocked(repositories.addresses.listByUserId).mockRejectedValue(failure);
@@ -517,8 +517,8 @@ describe("account service", function () {
   });
 });
 
-describe("admin user and dashboard services", function () {
-  it("maps malformed cursors to BAD_REQUEST and storage failures to safe STORAGE_ERROR", async function () {
+describe("admin user and dashboard services", () => {
+  it("maps malformed cursors to BAD_REQUEST and storage failures to safe STORAGE_ERROR", async () => {
     const repository: AdminUsersRepository = {
       search: vi.fn(async () => {
         throw new InvalidAdminUsersCursorError();
@@ -564,7 +564,7 @@ describe("admin user and dashboard services", function () {
     );
   });
 
-  return it("uses only the authenticated owner and injected capability projection", async function () {
+  return it("uses only the authenticated owner and injected capability projection", async () => {
     const repository: DashboardRepository = {
       getFeatureSummary: vi.fn(async () => ({
         total: 0,

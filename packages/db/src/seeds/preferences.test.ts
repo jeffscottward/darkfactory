@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { userPreferences } from "../schema/index.ts";
 import type { Database } from "../server/client.ts";
 import {
-  DEVELOPMENT_PREFERENCES,
   convergeDevelopmentPreferences,
+  DEVELOPMENT_PREFERENCES,
 } from "./preferences.ts";
 
 type QueryRows = ReadonlyArray<Record<string, unknown>>;
@@ -32,7 +32,7 @@ const createPreferenceSeedDatabase = (selectOutcomes: QueryRows[]) => {
   const pendingSelects = [...selectOutcomes];
 
   const builderFor = (operation: QueryOperation): QueryBuilder => {
-    let builder = {} as QueryBuilder;
+    const builder = {} as QueryBuilder;
     builder.from = vi.fn((table: unknown) => {
       operation.table =
         table === userPreferences ? "user_preferences" : "unknown";
@@ -84,8 +84,8 @@ const preferenceRows = () => {
   return DEVELOPMENT_PREFERENCES.map((preference) => [{ ...preference }]);
 };
 
-describe("development preference seeds", function () {
-  it("publishes frozen deterministic preferences covering the authored defaults", function () {
+describe("development preference seeds", () => {
+  it("publishes frozen deterministic preferences covering the authored defaults", () => {
     expect(Object.isFrozen(DEVELOPMENT_PREFERENCES)).toBe(true);
     expect(DEVELOPMENT_PREFERENCES.every(Object.isFrozen)).toBe(true);
     expect(
@@ -110,7 +110,7 @@ describe("development preference seeds", function () {
     ]);
   });
 
-  it("inserts every missing preference with the complete authored policy", async function () {
+  it("inserts every missing preference with the complete authored policy", async () => {
     const double = createPreferenceSeedDatabase([[], [], []]);
 
     await convergeDevelopmentPreferences(double.database);
@@ -131,7 +131,7 @@ describe("development preference seeds", function () {
     ).toBe(true);
   });
 
-  it("leaves preferences unchanged when every policy field already matches", async function () {
+  it("leaves preferences unchanged when every policy field already matches", async () => {
     const double = createPreferenceSeedDatabase(preferenceRows());
 
     await convergeDevelopmentPreferences(double.database);
@@ -152,7 +152,7 @@ describe("development preference seeds", function () {
     ["analyticsConsent", true],
     ["personalizationConsent", true],
     ["profileVisibility", "members"],
-  ] as const)("repairs preferences whose %s drifted", async function (field, replacement) {
+  ] as const)("repairs preferences whose %s drifted", async (field, replacement) => {
     const outcomes = preferenceRows();
     outcomes[0] = [{ ...DEVELOPMENT_PREFERENCES[0]!, [field]: replacement }];
     const double = createPreferenceSeedDatabase(outcomes);

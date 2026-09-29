@@ -21,17 +21,17 @@ const semanticEvent: SemanticEvent = {
   attributes: { status: "draft" },
 };
 
-describe("recording observability ports", function () {
-  it("records deterministic correlated spans, events, metrics, duration, and outcome", async function () {
+describe("recording observability ports", () => {
+  it("records deterministic correlated spans, events, metrics, duration, and outcome", async () => {
     let now = 100;
     const telemetry = createRecordingTelemetry({
-      now: function () {
+      now() {
         return now;
       },
-      createTraceId: function () {
+      createTraceId() {
         return "11111111111111111111111111111111";
       },
-      createSpanId: function () {
+      createSpanId() {
         return "2222222222222222";
       },
     });
@@ -44,7 +44,7 @@ describe("recording observability ports", function () {
         procedure: "feature.create",
         attributes: spanAttributes,
       },
-      async function (span) {
+      async (span) => {
         expect(span.correlation).toEqual({
           ...semanticEvent.correlation,
           traceId: "11111111111111111111111111111111",
@@ -93,10 +93,10 @@ describe("recording observability ports", function () {
     return expect(telemetry.disposed).toBe(true);
   });
 
-  it("records a safe failure category and rethrows without copying error details into telemetry", async function () {
+  it("records a safe failure category and rethrows without copying error details into telemetry", async () => {
     let now = 5;
     const telemetry = createRecordingTelemetry({
-      now: function () {
+      now() {
         return now;
       },
     });
@@ -109,7 +109,7 @@ describe("recording observability ports", function () {
           correlation: { requestId: "request_failure" },
           procedure: "feature.create",
         },
-        function () {
+        () => {
           now = 12;
           throw providerError;
         }
@@ -126,7 +126,7 @@ describe("recording observability ports", function () {
     );
   });
 
-  it("records immutable structured event snapshots", async function () {
+  it("records immutable structured event snapshots", async () => {
     const sink = createRecordingEventSink();
     const input = {
       ...semanticEvent,
@@ -167,7 +167,7 @@ describe("recording observability ports", function () {
     return expect(JSON.stringify(telemetry.spans)).not.toContain("private");
   });
 
-  return it("preserves a parent, falls back to correlation procedure, and clamps negative duration", async function () {
+  return it("preserves a parent, falls back to correlation procedure, and clamps negative duration", async () => {
     const times = [20, 10];
     const telemetry = createRecordingTelemetry({
       now: () => times.shift() ?? 10,

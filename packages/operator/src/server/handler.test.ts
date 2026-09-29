@@ -20,8 +20,8 @@ const context = (): OperatorContext => ({
   } as unknown as OperatorWorkflowPort,
 });
 
-describe("operator Fetch handlers", function () {
-  it("returns Not Found for a missing RPC procedure", async function () {
+describe("operator Fetch handlers", () => {
+  it("returns Not Found for a missing RPC procedure", async () => {
     const response = await handleOperatorRequest(
       new Request(
         "https://operator.darkfactory.localhost/api/orpc/not-a-procedure"
@@ -32,7 +32,7 @@ describe("operator Fetch handlers", function () {
     return await expect(response.text()).resolves.toBe("Not Found");
   });
 
-  it("serves a matched OpenAPI route", async function () {
+  it("serves a matched OpenAPI route", async () => {
     const response = await handleOperatorOpenApiRequest(
       new Request(
         "https://operator.darkfactory.localhost/api/openapi/operator/workspace"
@@ -43,7 +43,7 @@ describe("operator Fetch handlers", function () {
     return await expect(response.json()).resolves.toEqual({ runs: [] });
   });
 
-  return it("returns Not Found for missing and invalid-method OpenAPI routes", async function () {
+  return it("returns Not Found for missing and invalid-method OpenAPI routes", async () => {
     const missing = await handleOperatorOpenApiRequest(
       new Request(
         "https://operator.darkfactory.localhost/api/openapi/not-a-procedure"

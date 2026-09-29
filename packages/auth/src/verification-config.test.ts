@@ -12,9 +12,9 @@ vi.mock("@better-auth/drizzle-adapter", () => ({
 
 import type { EmailDeliveryResult, EmailPort } from "@darkfactory/email";
 import {
+  createAuth,
   EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
   PASSWORD_RESET_DELIVERY_ERROR_CODE,
-  createAuth,
 } from "./server.ts";
 
 const BASE_URL = "https://darkfactory.localhost";
@@ -112,14 +112,14 @@ const createConfiguredAuth = (
   }) as unknown as { options: CapturedAuthOptions };
 };
 
-describe("Better Auth email verification configuration", function () {
-  beforeEach(function () {
+describe("Better Auth email verification configuration", () => {
+  beforeEach(() => {
     mocks.betterAuth.mockClear();
     mocks.drizzleAdapter.mockClear();
     return (backgroundTasks = []);
   });
 
-  it("requires verification, sends on signup and signin, and uses a bounded one-hour token", function () {
+  it("requires verification, sends on signup and signin, and uses a bounded one-hour token", () => {
     const { email } = createEmail();
     const auth = createConfiguredAuth(email);
     const options = auth.options;
@@ -144,7 +144,7 @@ describe("Better Auth email verification configuration", function () {
     ]);
     return expect(options.rateLimit.storage).toBe("database");
   });
-  it("throttles public verification resend requests independently of the global limit", function () {
+  it("throttles public verification resend requests independently of the global limit", () => {
     const { email } = createEmail();
     const auth = createConfiguredAuth(email);
 
@@ -162,7 +162,7 @@ describe("Better Auth email verification configuration", function () {
     );
   });
 
-  it("propagates optional origins, adapter IDs, and per-route limits", function () {
+  it("propagates optional origins, adapter IDs, and per-route limits", () => {
     const { email } = createEmail();
     const database = { transaction: vi.fn() };
     const generateId = vi.fn(() => "generated-id");
@@ -200,7 +200,7 @@ describe("Better Auth email verification configuration", function () {
     );
   });
 
-  it("uses a validated verification resend limit and rejects invalid configuration", function () {
+  it("uses a validated verification resend limit and rejects invalid configuration", () => {
     const { email } = createEmail();
     const configured = createConfiguredAuth(email, 60 * 60, 9);
     expect(
@@ -235,7 +235,7 @@ describe("Better Auth email verification configuration", function () {
     return results;
   });
 
-  it("delegates the exact trusted Better Auth URL to the operation-specific port", async function () {
+  it("delegates the exact trusted Better Auth URL to the operation-specific port", async () => {
     const { email, sendEmailVerification } = createEmail();
     const auth = createConfiguredAuth(email);
 
@@ -258,7 +258,7 @@ describe("Better Auth email verification configuration", function () {
     });
   });
 
-  it("delegates reset delivery and converts a typed delivery failure", async function () {
+  it("delegates reset delivery and converts a typed delivery failure", async () => {
     const sendPasswordReset = vi
       .fn()
       .mockResolvedValueOnce({
@@ -308,7 +308,7 @@ describe("Better Auth email verification configuration", function () {
     });
   });
 
-  it("awaits delivery and reports a redacted failure to Better Auth's scheduler", async function () {
+  it("awaits delivery and reports a redacted failure to Better Auth's scheduler", async () => {
     let resolveDelivery!: (result: EmailDeliveryResult) => void;
     const pendingDelivery = new Promise<EmailDeliveryResult>((resolve) => {
       return (resolveDelivery = resolve);
@@ -344,7 +344,7 @@ describe("Better Auth email verification configuration", function () {
     });
   });
 
-  it("redacts thrown provider failures before Better Auth schedules them", async function () {
+  it("redacts thrown provider failures before Better Auth schedules them", async () => {
     const email: EmailPort = {
       sendPasswordReset: vi.fn(),
       sendEmailVerification: vi
@@ -378,7 +378,7 @@ describe("Better Auth email verification configuration", function () {
     );
   });
 
-  it("resolves a successful verification delivery without nesting a background task", async function () {
+  it("resolves a successful verification delivery without nesting a background task", async () => {
     const { email } = createEmail();
     const auth = createConfiguredAuth(email);
 
@@ -396,7 +396,7 @@ describe("Better Auth email verification configuration", function () {
     return expect(backgroundTasks).toHaveLength(0);
   });
 
-  it("rejects verification expiry below one minute, above one day, or fractional", function () {
+  it("rejects verification expiry below one minute, above one day, or fractional", () => {
     const { email } = createEmail();
 
     for (const expiresIn of [0, 59, 61, 86_401, 60.5]) {
@@ -418,7 +418,7 @@ describe("Better Auth email verification configuration", function () {
     return results1;
   });
 
-  return it("installs the email normalization hook used by manual verification requests", function () {
+  return it("installs the email normalization hook used by manual verification requests", () => {
     const { email } = createEmail();
     const auth = createConfiguredAuth(email);
     return expect(auth.options.hooks.before).toEqual(expect.any(Function));

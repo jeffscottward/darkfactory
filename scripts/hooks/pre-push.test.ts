@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 it("preserves destination argv through the executable shell hook", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pre-push-argv-"));
@@ -48,6 +48,7 @@ vi.mock("node:fs", async (importOriginal) => ({
 }));
 
 import { PRE_PUSH_SCRIPTS, runPrePush } from "./index.ts";
+
 const BUN_VERSION = "1.3.14";
 
 const HEAD = "a".repeat(40);
@@ -272,7 +273,7 @@ describe("source-bound pre-push", () => {
     ["false deletion marker", `(delete) ${HEAD} refs/heads/main ${ZERO}\n`],
     ["deleting absent ref", `(delete) ${ZERO} refs/heads/main ${ZERO}\n`],
     ["option-like source", `--all ${HEAD} refs/heads/main ${ZERO}\n`],
-    ["oversized input", "x".repeat(65537)],
+    ["oversized input", "x".repeat(65_537)],
     [
       "too many refs",
       Array.from({ length: 257 }, (_, index) =>
@@ -525,7 +526,7 @@ describe("source-bound pre-push", () => {
     });
     expect(runPrePush(target)).toBe(1);
     expect(mocks.readSync).toHaveBeenCalledTimes(1);
-    expect(mocks.readSync.mock.calls[0][3]).toBe(65537);
+    expect(mocks.readSync.mock.calls[0][3]).toBe(65_537);
     return expect(mocks.spawnSync).not.toHaveBeenCalled();
   });
 

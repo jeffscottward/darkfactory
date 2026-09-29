@@ -1,11 +1,11 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  applyGenerationPlan,
   type ApplyGenerationOptions,
+  applyGenerationPlan,
 } from "../../scripts/generate-feature/apply.ts";
 import {
   renderContractRegistry,
@@ -73,8 +73,8 @@ const liveFiles = (plan: GenerationPlan): readonly LivePlannedFile[] => {
   return plan.files as readonly LivePlannedFile[];
 };
 
-describe("DF-069 live feature registration", function () {
-  it("plans exact live leaves and generator-owned registry replacements", async function () {
+describe("DF-069 live feature registration", () => {
+  it("plans exact live leaves and generator-owned registry replacements", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -99,7 +99,7 @@ describe("DF-069 live feature registration", function () {
     ).toBe(true);
   });
 
-  it("applies a consumer-visible contract, repository, migration, route, docs, and graph entry", async function () {
+  it("applies a consumer-visible contract, repository, migration, route, docs, and graph entry", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -142,7 +142,7 @@ describe("DF-069 live feature registration", function () {
     });
   });
 
-  it("emits generated TypeScript consumers that the TypeScript parser accepts", async function () {
+  it("emits generated TypeScript consumers that the TypeScript parser accepts", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -172,7 +172,7 @@ describe("DF-069 live feature registration", function () {
     return expect(diagnostics).toEqual([]);
   });
 
-  it("points generated ownership at the reserved auth user table", async function () {
+  it("points generated ownership at the reserved auth user table", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -199,7 +199,7 @@ describe("DF-069 live feature registration", function () {
     );
   });
 
-  it("restores every registry and removes every leaf on mid-registration failure", async function () {
+  it("restores every registry and removes every leaf on mid-registration failure", async () => {
     const { root } = await fixture();
     const beforeEntries = await listFixtureEntries(root);
     const beforeRegistries = await readGeneratedFiles(root, registryPaths);
@@ -223,7 +223,7 @@ describe("DF-069 live feature registration", function () {
     );
   });
 
-  it("refuses a duplicate without changing registered consumers", async function () {
+  it("refuses a duplicate without changing registered consumers", async () => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -241,7 +241,7 @@ describe("DF-069 live feature registration", function () {
   it.each([
     "docs/features/order-item.md",
     "apps/web/src/features/order-item/graphify.json",
-  ])("detects stale generated metadata at %s", async function (path) {
+  ])("detects stale generated metadata at %s", async (path) => {
     const { root } = await fixture();
     const plan = await createGenerationPlan(
       root,
@@ -255,7 +255,7 @@ describe("DF-069 live feature registration", function () {
     });
   });
 
-  return it("renders canonical empty registries before the first live feature", function () {
+  return it("renders canonical empty registries before the first live feature", () => {
     const header =
       "// Generator-owned. Edit through `pnpm generate:feature` only.\n";
     return expect({

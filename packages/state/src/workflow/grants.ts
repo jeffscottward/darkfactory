@@ -9,9 +9,9 @@ const utf8ByteLength = (value: string): number => {
     let ref;
     if (codePoint <= 0x7f) {
       ref = 1;
-    } else if (codePoint <= 0x7ff) {
+    } else if (codePoint <= 0x7_ff) {
       ref = 2;
-    } else if (codePoint <= 0xffff) {
+    } else if (codePoint <= 0xff_ff) {
       ref = 3;
     } else ref = 4;
     length += ref;
@@ -67,8 +67,7 @@ export const parseWorkflowRepositoryGrants = (
     const ownerId = entry.slice(0, separator);
     const repositoryId = entry.slice(separator + 1);
     if (
-      !ownerIdPattern.test(ownerId) ||
-      !repositoryIdPattern.test(repositoryId)
+      !(ownerIdPattern.test(ownerId) && repositoryIdPattern.test(repositoryId))
     ) {
       throw new WorkflowRepositoryGrantError(
         "Workflow repository grant is invalid"

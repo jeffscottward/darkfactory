@@ -1,5 +1,5 @@
-import { redact } from "@darkfactory/observability/redaction";
 import { createHash } from "node:crypto";
+import { redact } from "@darkfactory/observability/redaction";
 import {
   and as andWhere,
   asc,
@@ -13,20 +13,13 @@ import {
 
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
+  type JsonValue,
+  type OutboxEvent,
+  outboxEvents,
   WORKFLOW_EVENT_VERSION,
   WORKFLOW_MACHINE_ID,
   WORKFLOW_MACHINE_VERSION,
   WORKFLOW_STATES,
-  outboxEvents,
-  workflowApprovals,
-  workflowEvidence,
-  workflowJournal,
-  workflowMessages,
-  workflowOmpResources,
-  workflowRuns,
-  workflowSnapshots,
-  type JsonValue,
-  type OutboxEvent,
   type WorkflowApproval,
   type WorkflowEvidence,
   type WorkflowJournalEntry,
@@ -36,11 +29,18 @@ import {
   type WorkflowSnapshot,
   type WorkflowSnapshotContext,
   type WorkflowState,
+  workflowApprovals,
+  workflowEvidence,
+  workflowJournal,
+  workflowMessages,
+  workflowOmpResources,
+  workflowRuns,
+  workflowSnapshots,
 } from "../schema/index.ts";
 import {
-  withTransaction,
   type DatabaseExecutor,
   type Transaction,
+  withTransaction,
 } from "./client.ts";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -2583,8 +2583,10 @@ export const createWorkflowRepository = (
       boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence");
       if (
         input.retryAt !== undefined &&
-        (!(input.retryAt instanceof Date) ||
-          !Number.isFinite(input.retryAt.getTime()))
+        !(
+          input.retryAt instanceof Date &&
+          Number.isFinite(input.retryAt.getTime())
+        )
       ) {
         throw new WorkflowPersistenceInputError(
           "cleanup.retryAt must be a valid date"
@@ -2850,145 +2852,143 @@ export const createWorkflowRepository = (
             status: "already-applied",
             projection,
           });
-        } else {
-          const appended = await appendLocked(
-            transaction,
-            run,
-            input.append,
-            event,
-            options
-          );
-          const [savedEvidence] = await transaction
-            .insert(workflowEvidence)
+        }
+        const appended = await appendLocked(
+          transaction,
+          run,
+          input.append,
+          event,
+          options
+        );
+        const [savedEvidence] = await transaction
+          .insert(workflowEvidence)
+          .values({
+            id: input.evidence.id,
+            runId: input.evidence.runId,
+            kind: evidenceIdentity.kind,
+            requestHash: finalizationRequestHash,
+            summary,
+            data,
+            createdAt: options.now(),
+          })
+          .onConflictDoNothing()
+          .returning({ id: workflowEvidence.id });
+        if (!savedEvidence) {
+          const [existingEvidence] = await transaction
+            .select()
+            .from(workflowEvidence)
+            .where(
+              andWhere(
+                eq(workflowEvidence.id, input.evidence.id),
+                eq(workflowEvidence.runId, input.evidence.runId)
+              )
+            )
+            .limit(1);
+          if (
+            !existingEvidence ||
+            existingEvidence.requestHash !== finalizationRequestHash
+          ) {
+            throw new WorkflowConcurrencyError();
+          }
+        }
+        if (evidenceIdentity.kind === "implement.succeeded") {
+          const timestamp = options.now();
+          const [savedResource] = await transaction
+            .insert(workflowOmpResources)
             .values({
-              id: input.evidence.id,
-              runId: input.evidence.runId,
-              kind: evidenceIdentity.kind,
-              requestHash: finalizationRequestHash,
-              summary,
-              data,
-              createdAt: options.now(),
+              runId: input.append.runId,
+              ownerId: input.ownerId,
+              evidenceId: input.evidence.id,
+              fence: 0,
+              createdAt: timestamp,
+              updatedAt: timestamp,
             })
             .onConflictDoNothing()
-            .returning({ id: workflowEvidence.id });
-          if (!savedEvidence) {
-            const [existingEvidence] = await transaction
+            .returning({ runId: workflowOmpResources.runId });
+          if (!savedResource) {
+            const [existingResource] = await transaction
               .select()
-              .from(workflowEvidence)
-              .where(
-                andWhere(
-                  eq(workflowEvidence.id, input.evidence.id),
-                  eq(workflowEvidence.runId, input.evidence.runId)
-                )
-              )
+              .from(workflowOmpResources)
+              .where(eq(workflowOmpResources.runId, input.append.runId))
               .limit(1);
             if (
-              !existingEvidence ||
-              existingEvidence.requestHash !== finalizationRequestHash
+              !existingResource ||
+              existingResource.ownerId !== input.ownerId ||
+              existingResource.evidenceId !== input.evidence.id
             ) {
               throw new WorkflowConcurrencyError();
             }
           }
-          if (evidenceIdentity.kind === "implement.succeeded") {
-            const timestamp = options.now();
-            const [savedResource] = await transaction
-              .insert(workflowOmpResources)
-              .values({
-                runId: input.append.runId,
-                ownerId: input.ownerId,
-                evidenceId: input.evidence.id,
-                fence: 0,
-                createdAt: timestamp,
-                updatedAt: timestamp,
-              })
-              .onConflictDoNothing()
-              .returning({ runId: workflowOmpResources.runId });
-            if (!savedResource) {
-              const [existingResource] = await transaction
-                .select()
-                .from(workflowOmpResources)
-                .where(eq(workflowOmpResources.runId, input.append.runId))
-                .limit(1);
-              if (
-                !existingResource ||
-                existingResource.ownerId !== input.ownerId ||
-                existingResource.evidenceId !== input.evidence.id
-              ) {
-                throw new WorkflowConcurrencyError();
-              }
-            }
-          }
-          if (input.terminal === "dead") {
-            await requestRetainedResourceCleanup(
-              transaction,
-              input.append.runId,
-              options.now()
-            );
-          }
-          if (input.approval !== undefined) {
-            const approval = input.approval;
-            const snapshot = appended.projection.snapshot;
-            if (
-              approval.runId !== input.append.runId ||
-              approval.ownerId !== input.ownerId ||
-              approval.machineId !== WORKFLOW_MACHINE_ID ||
-              approval.machineVersion !== WORKFLOW_MACHINE_VERSION ||
-              approval.eventVersion !== WORKFLOW_EVENT_VERSION ||
-              approval.snapshotSequence !== snapshot.sequence ||
-              approval.journalHeadHash !== snapshot.journalHeadHash ||
-              approval.effectHash !== snapshot.effectHash ||
-              approval.effectScope !== snapshot.effectScope
-            ) {
-              throw new StaleWorkflowApprovalError();
-            }
-            const [savedApproval] = await transaction
-              .insert(workflowApprovals)
-              .values({
-                id: approval.id,
-                runId: approval.runId,
-                status: "pending",
-                machineId: approval.machineId,
-                machineVersion: approval.machineVersion,
-                eventVersion: approval.eventVersion,
-                snapshotSequence: approval.snapshotSequence,
-                journalHeadHash: approval.journalHeadHash,
-                effectHash: approval.effectHash,
-                effectScope: approval.effectScope,
-                createdAt: options.now(),
-              })
-              .onConflictDoNothing()
-              .returning({ id: workflowApprovals.id });
-            if (!savedApproval) {
-              const [existingApproval] = await transaction
-                .select()
-                .from(workflowApprovals)
-                .where(
-                  andWhere(
-                    eq(workflowApprovals.id, approval.id),
-                    eq(workflowApprovals.runId, approval.runId)
-                  )
-                )
-                .limit(1);
-              if (
-                !existingApproval ||
-                existingApproval.machineId !== approval.machineId ||
-                existingApproval.machineVersion !== approval.machineVersion ||
-                existingApproval.eventVersion !== approval.eventVersion ||
-                existingApproval.snapshotSequence !==
-                  approval.snapshotSequence ||
-                existingApproval.journalHeadHash !== approval.journalHeadHash ||
-                existingApproval.effectHash !== approval.effectHash ||
-                existingApproval.effectScope !== approval.effectScope
-              ) {
-                throw new WorkflowConcurrencyError();
-              }
-            }
-          }
-          return Object.freeze({
-            status: appended.duplicate ? "already-applied" : "applied",
-            projection: appended.projection,
-          });
         }
+        if (input.terminal === "dead") {
+          await requestRetainedResourceCleanup(
+            transaction,
+            input.append.runId,
+            options.now()
+          );
+        }
+        if (input.approval !== undefined) {
+          const approval = input.approval;
+          const snapshot = appended.projection.snapshot;
+          if (
+            approval.runId !== input.append.runId ||
+            approval.ownerId !== input.ownerId ||
+            approval.machineId !== WORKFLOW_MACHINE_ID ||
+            approval.machineVersion !== WORKFLOW_MACHINE_VERSION ||
+            approval.eventVersion !== WORKFLOW_EVENT_VERSION ||
+            approval.snapshotSequence !== snapshot.sequence ||
+            approval.journalHeadHash !== snapshot.journalHeadHash ||
+            approval.effectHash !== snapshot.effectHash ||
+            approval.effectScope !== snapshot.effectScope
+          ) {
+            throw new StaleWorkflowApprovalError();
+          }
+          const [savedApproval] = await transaction
+            .insert(workflowApprovals)
+            .values({
+              id: approval.id,
+              runId: approval.runId,
+              status: "pending",
+              machineId: approval.machineId,
+              machineVersion: approval.machineVersion,
+              eventVersion: approval.eventVersion,
+              snapshotSequence: approval.snapshotSequence,
+              journalHeadHash: approval.journalHeadHash,
+              effectHash: approval.effectHash,
+              effectScope: approval.effectScope,
+              createdAt: options.now(),
+            })
+            .onConflictDoNothing()
+            .returning({ id: workflowApprovals.id });
+          if (!savedApproval) {
+            const [existingApproval] = await transaction
+              .select()
+              .from(workflowApprovals)
+              .where(
+                andWhere(
+                  eq(workflowApprovals.id, approval.id),
+                  eq(workflowApprovals.runId, approval.runId)
+                )
+              )
+              .limit(1);
+            if (
+              !existingApproval ||
+              existingApproval.machineId !== approval.machineId ||
+              existingApproval.machineVersion !== approval.machineVersion ||
+              existingApproval.eventVersion !== approval.eventVersion ||
+              existingApproval.snapshotSequence !== approval.snapshotSequence ||
+              existingApproval.journalHeadHash !== approval.journalHeadHash ||
+              existingApproval.effectHash !== approval.effectHash ||
+              existingApproval.effectScope !== approval.effectScope
+            ) {
+              throw new WorkflowConcurrencyError();
+            }
+          }
+        }
+        return Object.freeze({
+          status: appended.duplicate ? "already-applied" : "applied",
+          projection: appended.projection,
+        });
       });
     },
   });

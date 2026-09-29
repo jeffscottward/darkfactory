@@ -1,21 +1,21 @@
-import { createAuth, createAuthHandler } from "@darkfactory/auth/server";
 import { resolveApiRequestId } from "@darkfactory/api/server";
-import { parseServerEnv } from "@darkfactory/config/server";
+import { createAuth, createAuthHandler } from "@darkfactory/auth/server";
 import { composeDatabaseProfile } from "@darkfactory/config/database";
+import { parseServerEnv } from "@darkfactory/config/server";
 import { createRequestDatabase } from "@darkfactory/db/server";
 import { selectEmailPort } from "@darkfactory/email/server";
 import {
   createEvlogSink,
   initializeEvlog,
 } from "@darkfactory/observability/server/evlog";
-
+import {
+  type BackgroundTaskScheduler,
+  createBackgroundTaskLifecycle,
+} from "../../../../lib/background-task-lifecycle.ts";
 import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
-import {
-  createBackgroundTaskLifecycle,
-  type BackgroundTaskScheduler,
-} from "../../../../lib/background-task-lifecycle.ts";
 import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
+
 export type { BackgroundTaskScheduler } from "../../../../lib/background-task-lifecycle.ts";
 
 const AUTH_BODY_METHODS: readonly string[] = ["POST", "PUT", "PATCH", "DELETE"];

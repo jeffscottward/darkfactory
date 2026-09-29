@@ -6,17 +6,17 @@ import {
   AddressUpdateSchema,
   AdminFeatureItemListInputSchema,
   AdminUsersListInputSchema,
+  appContract,
   FeatureItemListInputSchema,
   PreferencesSchema,
   PreferencesUpdateSchema,
   ProfileUpdateSchema,
-  appContract,
 } from "./contract.ts";
-import { buildOpenApiDocument } from "./openapi.ts";
 import {
-  DashboardSessionProjectionSchema,
   createDashboardContract,
+  DashboardSessionProjectionSchema,
 } from "./contracts/dashboard.ts";
+import { buildOpenApiDocument } from "./openapi.ts";
 
 const route = (procedure: unknown) => {
   const value = (
@@ -25,9 +25,9 @@ const route = (procedure: unknown) => {
   return { method: value.method, path: value.path };
 };
 
-describe("account, preferences, dashboard, and admin contracts", function () {
-  it("publishes every v0.1 procedure at a stable route", function () {
-    return expect([
+describe("account, preferences, dashboard, and admin contracts", () => {
+  it("publishes every v0.1 procedure at a stable route", () =>
+    expect([
       route(appContract.account.profile.get),
       route(appContract.account.profile.update),
       route(appContract.account.addresses.list),
@@ -51,10 +51,9 @@ describe("account, preferences, dashboard, and admin contracts", function () {
       { method: "PATCH", path: "/preferences" },
       { method: "GET", path: "/dashboard/summary" },
       { method: "GET", path: "/admin/users" },
-    ]);
-  });
+    ]));
 
-  it("requires an exact safe active-session projection in dashboard summaries", function () {
+  it("requires an exact safe active-session projection in dashboard summaries", () => {
     const summarySchema = createDashboardContract(z.object({}).strict()).schema;
     const session = {
       userId: "member-1",
@@ -137,7 +136,7 @@ describe("account, preferences, dashboard, and admin contracts", function () {
     ).toEqual(session);
   });
 
-  it("normalizes profile patches and rejects empty or invalid patches", function () {
+  it("normalizes profile patches and rejects empty or invalid patches", () => {
     expect(
       ProfileUpdateSchema.parse({
         expectedUpdatedAt: null,
@@ -189,7 +188,7 @@ describe("account, preferences, dashboard, and admin contracts", function () {
     ).toThrow();
   });
 
-  it("normalizes countries and enforces bounded nonempty address patches", function () {
+  it("normalizes countries and enforces bounded nonempty address patches", () => {
     expect(
       AddressCreateSchema.parse({
         type: "home",
@@ -232,7 +231,7 @@ describe("account, preferences, dashboard, and admin contracts", function () {
     ).toThrow();
   });
 
-  it("requires authoritative versions and strict dirty preference patches", function () {
+  it("requires authoritative versions and strict dirty preference patches", () => {
     const preference = {
       themeMode: "system",
       palette: "neutral",
@@ -270,7 +269,7 @@ describe("account, preferences, dashboard, and admin contracts", function () {
     ).toThrow();
   });
 
-  it("bounds and normalizes admin search pagination", function () {
+  it("bounds and normalizes admin search pagination", () => {
     expect(AdminUsersListInputSchema.parse({ query: "  Ada  " })).toEqual({
       query: "Ada",
       limit: 20,
@@ -282,7 +281,7 @@ describe("account, preferences, dashboard, and admin contracts", function () {
     ).toThrow();
   });
 
-  it("defaults and bounds the owner-scoped feature list limit", function () {
+  it("defaults and bounds the owner-scoped feature list limit", () => {
     expect(FeatureItemListInputSchema.parse({})).toEqual({ limit: 50 });
     expect(
       FeatureItemListInputSchema.parse({
@@ -314,7 +313,7 @@ describe("account, preferences, dashboard, and admin contracts", function () {
     ).toThrow();
   });
 
-  return it("represents nullable account response fields explicitly in OpenAPI", async function () {
+  return it("represents nullable account response fields explicitly in OpenAPI", async () => {
     const document = await buildOpenApiDocument();
     const profileResponse = (
       document.paths!["/account/profile"]!.get!.responses!["200"] as any

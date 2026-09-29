@@ -6,8 +6,8 @@ import {
 import {
   DatabaseConflictError,
   DatabasePersistenceError,
-  InvalidRepositoryInputError,
   type FeatureItemRepository,
+  InvalidRepositoryInputError,
   type Repositories,
   type UserPreferencesRepository,
   type UserThemePreference,
@@ -23,8 +23,8 @@ import { createApiClient } from "./client.ts";
 import { createApiContext } from "./server/context.ts";
 import { handleApiRequest } from "./server/handler.ts";
 import {
-  ThemePreferenceServiceError,
   createThemePreferenceService,
+  ThemePreferenceServiceError,
 } from "./server/service.ts";
 
 const THEME_VERSION = new Date("2026-01-02T03:04:05.000Z");
@@ -158,8 +158,8 @@ const recordingPort = (): Readonly<{
   return { events, port };
 };
 
-describe("DF-088 theme preference service", function () {
-  it("maps missing storage to canonical database defaults", async function () {
+describe("DF-088 theme preference service", () => {
+  it("maps missing storage to canonical database defaults", async () => {
     const findThemeByUserId = vi.fn(async () => null);
     const service = createThemePreferenceService(
       themeRepository({ findThemeByUserId })
@@ -173,7 +173,7 @@ describe("DF-088 theme preference service", function () {
     return expect(findThemeByUserId).toHaveBeenCalledWith("member-1");
   });
 
-  it("maps projected storage fields and always derives the owner from principal", async function () {
+  it("maps projected storage fields and always derives the owner from principal", async () => {
     const stored: UserThemePreference = {
       mode: "light",
       colorScheme: "cyan",
@@ -213,7 +213,7 @@ describe("DF-088 theme preference service", function () {
     });
   });
 
-  it("sanitizes expected storage failures", async function () {
+  it("sanitizes expected storage failures", async () => {
     const service = createThemePreferenceService(
       themeRepository({
         findThemeByUserId: vi.fn(async () => {
@@ -243,11 +243,11 @@ describe("DF-088 theme preference service", function () {
       code: "CONFLICT",
       message: "Theme preference conflict",
     },
-  ] as const)("maps repository failures to the stable $code contract", async function ({
+  ] as const)("maps repository failures to the stable $code contract", async ({
     failure,
     code,
     message,
-  }) {
+  }) => {
     const service = createThemePreferenceService(
       themeRepository({
         upsertTheme: vi.fn(async () => {
@@ -269,7 +269,7 @@ describe("DF-088 theme preference service", function () {
     });
   });
 
-  return it("preserves classified failures and does not disguise unexpected adapter errors", async function () {
+  return it("preserves classified failures and does not disguise unexpected adapter errors", async () => {
     const classified = new ThemePreferenceServiceError(
       "CONFLICT",
       "Theme preference conflict"
@@ -299,8 +299,8 @@ describe("DF-088 theme preference service", function () {
   });
 });
 
-describe("DF-088 authenticated theme preference router", function () {
-  it("denies anonymous reads and updates", async function () {
+describe("DF-088 authenticated theme preference router", () => {
+  it("denies anonymous reads and updates", async () => {
     await expectError(
       clientFor(null).preferences.theme.get({}),
       "UNAUTHORIZED",
@@ -317,7 +317,7 @@ describe("DF-088 authenticated theme preference router", function () {
     );
   });
 
-  it("reads defaults and persists exact canonical input for the principal", async function () {
+  it("reads defaults and persists exact canonical input for the principal", async () => {
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
@@ -349,7 +349,7 @@ describe("DF-088 authenticated theme preference router", function () {
     });
   });
 
-  it("rejects non-canonical and owner-bearing update payloads before persistence", async function () {
+  it("rejects non-canonical and owner-bearing update payloads before persistence", async () => {
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
@@ -379,7 +379,7 @@ describe("DF-088 authenticated theme preference router", function () {
     return expect(upsertTheme).not.toHaveBeenCalled();
   });
 
-  it("emits one safe correlated success event with an independent UUID", async function () {
+  it("emits one safe correlated success event with an independent UUID", async () => {
     const recording = recordingPort();
     await expect(
       clientFor(
@@ -420,7 +420,7 @@ describe("DF-088 authenticated theme preference router", function () {
     return expect(JSON.stringify(recording.events[0])).not.toContain("dark");
   });
 
-  it("emits one sanitized failure event without replaying the update", async function () {
+  it("emits one sanitized failure event without replaying the update", async () => {
     const upsertTheme = vi.fn(async () => {
       throw new DatabasePersistenceError("private theme values");
     });
@@ -452,7 +452,7 @@ describe("DF-088 authenticated theme preference router", function () {
     return expect(JSON.stringify(recording.events[0])).not.toContain("amber");
   });
 
-  return it("does not change a successful update when observability fails", async function () {
+  return it("does not change a successful update when observability fails", async () => {
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,

@@ -5,7 +5,7 @@ import { ThemeMenu } from "./theme-menu.tsx";
 
 export const AuthShell = ({ children }: { readonly children: ReactNode }) => (
   <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background">
-    <header className="border-b border-border">
+    <header className="border-border border-b">
       <div className="df-container flex min-h-18 items-center justify-between gap-4">
         <BrandLink />
         <ThemeMenu />
@@ -18,7 +18,7 @@ export const AuthShell = ({ children }: { readonly children: ReactNode }) => (
     >
       <div className="w-full max-w-md">{children}</div>
     </main>
-    <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
+    <footer className="border-border border-t py-6 text-center text-muted-foreground text-sm">
       Seeded development access is example evidence, not a production identity.
     </footer>
   </div>

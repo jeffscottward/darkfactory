@@ -143,9 +143,9 @@ vi.mock("./admin-users-client.ts", async (importOriginal) => {
 
 import {
   adminFailureKind,
+  createAdminRequestGuard,
   createAdminUsersGateway,
   createBrowserAdminUsersGateway,
-  createAdminRequestGuard,
   normalizeAdminQuery,
   safeAdminFeedback,
 } from "./admin-users-client.ts";
@@ -284,7 +284,7 @@ const mount = (renderComponent: () => ReactElement) => ({
   },
 });
 
-const flushMicrotasks = async function (): Promise<void> {
+const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -328,18 +328,16 @@ const directoryState = (tree: unknown): AdminUsersDirectoryState => {
   ] as AdminUsersDirectoryState;
 };
 
-afterEach(function () {
+afterEach(() => {
   hookRuntime.reset();
   gatewayRuntime.current = null;
   apiClientRuntime.create.mockReset();
   return vi.unstubAllGlobals();
 });
 
-describe("typed read-only admin users gateway", function () {
-  it("passes bounded search and cursor input to admin.users.list", async function () {
-    const list = vi.fn(async function () {
-      return { items: [user], nextCursor: "cursor-2" };
-    });
+describe("typed read-only admin users gateway", () => {
+  it("passes bounded search and cursor input to admin.users.list", async () => {
+    const list = vi.fn(async () => ({ items: [user], nextCursor: "cursor-2" }));
     const gateway = createAdminUsersGateway({
       admin: { users: { list } },
     } as never);
@@ -354,10 +352,8 @@ describe("typed read-only admin users gateway", function () {
     });
   });
 
-  it("constructs the browser gateway lazily and reuses one origin-scoped client", async function () {
-    const list = vi.fn(async function () {
-      return directoryPage([user], null);
-    });
+  it("constructs the browser gateway lazily and reuses one origin-scoped client", async () => {
+    const list = vi.fn(async () => directoryPage([user], null));
     apiClientRuntime.create.mockReturnValue({
       admin: { users: { list } },
     });
@@ -383,13 +379,13 @@ describe("typed read-only admin users gateway", function () {
     ).not.toThrow();
   });
 
-  it("keeps private search text out of URL helpers and normalizes it in memory", function () {
+  it("keeps private search text out of URL helpers and normalizes it in memory", () => {
     expect(normalizeAdminQuery("  Alice Adams  ")).toBe("Alice Adams");
     expect(normalizeAdminQuery("a".repeat(250))).toHaveLength(200);
     return expect(normalizeAdminQuery("  ")).toBe("");
   });
 
-  it("suppresses stale search and pagination generations", function () {
+  it("suppresses stale search and pagination generations", () => {
     const requests = createAdminRequestGuard();
     const search = requests.next();
     const pagination = requests.next();
@@ -397,7 +393,7 @@ describe("typed read-only admin users gateway", function () {
     return expect(requests.isLatest(pagination)).toBe(true);
   });
 
-  it("classifies direct, nested, absent, and malformed failure codes", function () {
+  it("classifies direct, nested, absent, and malformed failure codes", () => {
     expect(adminFailureKind({ code: "UNAUTHORIZED" })).toBe("unauthorized");
     expect(adminFailureKind({ data: { code: "FORBIDDEN" } })).toBe("forbidden");
     expect(adminFailureKind({ code: "NOT_FOUND" })).toBe("not-found");
@@ -406,7 +402,7 @@ describe("typed read-only admin users gateway", function () {
     return expect(adminFailureKind(null)).toBe("retryable");
   });
 
-  return it("maps every safe feedback family without exposing transport detail", function () {
+  return it("maps every safe feedback family without exposing transport detail", () => {
     expect(safeAdminFeedback({ code: "UNAUTHORIZED" })).toContain("Sign in");
     expect(safeAdminFeedback({ code: "FORBIDDEN" })).toContain("permission");
     expect(safeAdminFeedback({ code: "VALIDATION_ERROR" })).toContain(
@@ -430,8 +426,8 @@ describe("typed read-only admin users gateway", function () {
   });
 });
 
-describe("admin user directory states", function () {
-  it("renders a stable loading directory", function () {
+describe("admin user directory states", () => {
+  it("renders a stable loading directory", () => {
     const html = renderToStaticMarkup(
       <AdminUsersDirectory query="" state={{ type: "loading" }} />
     );
@@ -439,7 +435,7 @@ describe("admin user directory states", function () {
     return expect(html).toContain('aria-busy="true"');
   });
 
-  it("submits the directory query and tolerates an omitted search callback", function () {
+  it("submits the directory query and tolerates an omitted search callback", () => {
     let submittedValue: string | null = "  Alice Adams  ";
     const getValue = vi.fn((_name: string): string | null => submittedValue);
     class StubFormData {
@@ -487,7 +483,7 @@ describe("admin user directory states", function () {
     ).not.toThrow();
   });
 
-  it("distinguishes unfiltered and filtered empty results", function () {
+  it("distinguishes unfiltered and filtered empty results", () => {
     const empty = renderToStaticMarkup(
       <AdminUsersDirectory
         query=""
@@ -514,7 +510,7 @@ describe("admin user directory states", function () {
     return expect(onClearSearch).toHaveBeenCalledOnce();
   });
 
-  it("renders safe role, status, and profile summaries without secret or destructive data", function () {
+  it("renders safe role, status, and profile summaries without secret or destructive data", () => {
     const html = renderToStaticMarkup(
       <AdminUsersDirectory
         query=""
@@ -535,7 +531,7 @@ describe("admin user directory states", function () {
     return expect(html).not.toContain("Change role");
   });
 
-  it("preserves transport sorting while covering every result presentation branch", function () {
+  it("preserves transport sorting while covering every result presentation branch", () => {
     const html = renderToStaticMarkup(
       <AdminUsersDirectory
         isLoadingMore
@@ -572,7 +568,7 @@ describe("admin user directory states", function () {
     return expect(complete).not.toContain("Load more");
   });
 
-  it("preserves context and invokes retry with retryable safe error feedback", function () {
+  it("preserves context and invokes retry with retryable safe error feedback", () => {
     const onRetry = vi.fn();
     const state = {
       type: "error",
@@ -595,7 +591,7 @@ describe("admin user directory states", function () {
     ["unauthorized", "/sign-in?callbackURL=%2Fadmin%2Fusers", "Sign in"],
     ["forbidden", "/dashboard", "Back to dashboard"],
     ["not-found", "/dashboard", "Back to dashboard"],
-  ] as const)("renders the authorization-safe %s recovery action", function (kind, href, action) {
+  ] as const)("renders the authorization-safe %s recovery action", (kind, href, action) => {
     const html = renderToStaticMarkup(
       <AdminUsersDirectory
         query=""
@@ -609,8 +605,8 @@ describe("admin user directory states", function () {
   });
 });
 
-describe("admin users page client", function () {
-  it("loads, guards pagination boundaries, and merges authoritative page mutations by id", async function () {
+describe("admin users page client", () => {
+  it("loads, guards pagination boundaries, and merges authoritative page mutations by id", async () => {
     const authoritativeUser: AdminUserSummaryOutput = {
       ...user,
       emailVerified: false,
@@ -664,7 +660,7 @@ describe("admin users page client", function () {
     return expect(list).toHaveBeenCalledTimes(2);
   });
 
-  it("normalizes filters in memory and clears them without URL state", async function () {
+  it("normalizes filters in memory and clears them without URL state", async () => {
     const list = vi
       .fn()
       .mockResolvedValueOnce(directoryPage([user, suspendedUser], null))
@@ -711,7 +707,7 @@ describe("admin users page client", function () {
     });
   });
 
-  it("sanitizes an authorization failure and retries the initial transport", async function () {
+  it("sanitizes an authorization failure and retries the initial transport", async () => {
     const list = vi
       .fn()
       .mockRejectedValueOnce({
@@ -747,7 +743,7 @@ describe("admin users page client", function () {
     return expect(list).toHaveBeenNthCalledWith(2, { limit: 20 });
   });
 
-  it("ignores both stale fulfilled and stale rejected search responses", async function () {
+  it("ignores both stale fulfilled and stale rejected search responses", async () => {
     const initial = deferred<AdminUsersListOutput>();
     const staleSearch = deferred<AdminUsersListOutput>();
     const latestSearch = deferred<AdminUsersListOutput>();
@@ -785,7 +781,7 @@ describe("admin users page client", function () {
     });
   });
 
-  it("keeps loaded filtered results through pagination transport failure and retry", async function () {
+  it("keeps loaded filtered results through pagination transport failure and retry", async () => {
     const list = vi
       .fn()
       .mockResolvedValueOnce(directoryPage([user], null))
@@ -841,7 +837,7 @@ describe("admin users page client", function () {
     });
   });
 
-  return it("ignores stale pagination success and failure after newer filtered searches", async function () {
+  return it("ignores stale pagination success and failure after newer filtered searches", async () => {
     const staleSuccess = deferred<AdminUsersListOutput>();
     const firstSearch = deferred<AdminUsersListOutput>();
     const staleFailure = deferred<AdminUsersListOutput>();

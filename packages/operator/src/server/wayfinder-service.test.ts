@@ -56,8 +56,8 @@ const expectServiceError = async (
   );
 };
 
-describe("operator Wayfinder service", function () {
-  it("reports unavailable and rejects start when no local service is composed", async function () {
+describe("operator Wayfinder service", () => {
+  it("reports unavailable and rejects start when no local service is composed", async () => {
     const service = createOperatorWayfinderService(undefined);
     await expect(service.status()).resolves.toEqual({
       availability: "unavailable",
@@ -69,7 +69,7 @@ describe("operator Wayfinder service", function () {
     );
   });
 
-  it("forwards the authenticated owner and bounded request to durable queueing", async function () {
+  it("forwards the authenticated owner and bounded request to durable queueing", async () => {
     const port = workflow();
     const service = createOperatorWayfinderService(port);
 
@@ -86,7 +86,7 @@ describe("operator Wayfinder service", function () {
     });
   });
 
-  it("fails status closed to unavailable without exposing adapter failures", async function () {
+  it("fails status closed to unavailable without exposing adapter failures", async () => {
     const service = createOperatorWayfinderService(
       workflow({
         status: vi.fn(async () => {
@@ -100,7 +100,7 @@ describe("operator Wayfinder service", function () {
     });
   });
 
-  it("normalizes a non-installed adapter status to the operator tracker", async function () {
+  it("normalizes a non-installed adapter status to the operator tracker", async () => {
     const service = createOperatorWayfinderService(
       workflow({
         status: vi.fn<OperatorWayfinderPort["status"]>(async () => ({
@@ -130,7 +130,7 @@ describe("operator Wayfinder service", function () {
     return await expectServiceError(service.start(principal, input), code);
   });
 
-  it("maps unknown queue failures to the fixed storage contract", async function () {
+  it("maps unknown queue failures to the fixed storage contract", async () => {
     const service = createOperatorWayfinderService(
       workflow({
         start: vi.fn(async () => {
@@ -144,7 +144,7 @@ describe("operator Wayfinder service", function () {
     );
   });
 
-  return it("composes the real durable Wayfinder service with default and injected clocks", function () {
+  return it("composes the real durable Wayfinder service with default and injected clocks", () => {
     const repository = {} as unknown as WorkflowRepository;
     const authorizeRepository = vi.fn(() => true);
     const defaults = createOperatorWayfinderWorkflowService({

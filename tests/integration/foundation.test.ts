@@ -3,14 +3,14 @@ import { parseServerEnv } from "@darkfactory/config/server";
 import {
   createIdentifier,
   matchResult,
-  success,
   type Result,
+  success,
 } from "@darkfactory/shared";
 import { createFixedClock, createIdSequence } from "@darkfactory/testkit";
 import { describe, expect, it } from "vitest";
 
-describe("foundation package integration", function () {
-  return it("composes a deterministic client context without exposing server settings", function () {
+describe("foundation package integration", () =>
+  it("composes a deterministic client context without exposing server settings", () => {
     const clock = createFixedClock(new Date("2026-01-02T03:04:05.000Z"));
     const nextRequestId = createIdSequence("foundation_request_01");
     const serverEnv = parseServerEnv({
@@ -47,5 +47,4 @@ describe("foundation package integration", function () {
     });
     expect(context.environment).not.toHaveProperty("DATABASE_URL");
     return expect(context.environment).not.toHaveProperty("BETTER_AUTH_SECRET");
-  });
-});
+  }));

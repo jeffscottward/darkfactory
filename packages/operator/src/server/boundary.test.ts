@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -18,8 +18,8 @@ const resolveServerWith = (conditions: readonly string[]) => {
   );
 };
 
-describe("operator package boundary", function () {
-  return it("fails closed for browser-only resolution through a dependency-free poison module", async function () {
+describe("operator package boundary", () =>
+  it("fails closed for browser-only resolution through a dependency-free poison module", async () => {
     const resolution = resolveServerWith(["browser"]);
     const poisonSource = await readFile(
       new URL("./unsupported.ts", import.meta.url),
@@ -38,5 +38,4 @@ describe("operator package boundary", function () {
     return await expect(import("./unsupported.ts")).rejects.toThrow(
       "@darkfactory/operator/server is unavailable in browser bundles"
     );
-  });
-});
+  }));

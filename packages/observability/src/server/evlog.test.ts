@@ -2,35 +2,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SemanticEvent } from "../port.ts";
 
-const workers = vi.hoisted(function () {
+const workers = vi.hoisted(() => {
   const emit = vi.fn();
   const setLevel = vi.fn();
   return {
     emit,
     setLevel,
     initWorkersLogger: vi.fn(),
-    createWorkersLogger: vi.fn(function () {
-      return { emit, setLevel };
-    }),
+    createWorkersLogger: vi.fn(() => ({ emit, setLevel })),
   };
 });
 
-vi.mock("evlog/workers", function () {
-  return {
-    initWorkersLogger: workers.initWorkersLogger,
-    createWorkersLogger: workers.createWorkersLogger,
-  };
-});
+vi.mock("evlog/workers", () => ({
+  initWorkersLogger: workers.initWorkersLogger,
+  createWorkersLogger: workers.createWorkersLogger,
+}));
 
-beforeEach(function () {
+beforeEach(() => {
   vi.resetModules();
   workers.emit.mockReset();
   workers.setLevel.mockReset();
   workers.initWorkersLogger.mockReset();
   workers.createWorkersLogger.mockReset();
-  return workers.createWorkersLogger.mockImplementation(function () {
-    return { emit: workers.emit, setLevel: workers.setLevel };
-  });
+  return workers.createWorkersLogger.mockImplementation(() => ({
+    emit: workers.emit,
+    setLevel: workers.setLevel,
+  }));
 });
 
 const rawEvent = (requestId: string): SemanticEvent => ({
@@ -49,8 +46,8 @@ const rawEvent = (requestId: string): SemanticEvent => ({
   attributes: { password: "raw-password", safe: "kept" },
 });
 
-describe("evlog Worker runtime", function () {
-  it("initializes globally once, keeps redaction enabled, and safely interleaves request sinks", async function () {
+describe("evlog Worker runtime", () => {
+  it("initializes globally once, keeps redaction enabled, and safely interleaves request sinks", async () => {
     const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
@@ -119,7 +116,7 @@ describe("evlog Worker runtime", function () {
     return expect(workers.setLevel).not.toHaveBeenCalled();
   });
 
-  it("rejects conflicting global initialization without changing the active runtime", async function () {
+  it("rejects conflicting global initialization without changing the active runtime", async () => {
     const { initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
@@ -131,22 +128,22 @@ describe("evlog Worker runtime", function () {
         silent: true,
       })
     ).toBe(runtime);
-    expect(function () {
-      return initializeEvlog({
+    expect(() =>
+      initializeEvlog({
         serviceName: "other-service",
         silent: false,
-      });
-    }).toThrow("evlog Worker runtime is already initialized");
+      })
+    ).toThrow("evlog Worker runtime is already initialized");
     return expect(workers.initWorkersLogger).toHaveBeenCalledOnce();
   });
 
-  it("does not expose provider errors or event data in its stable failure result", async function () {
+  it("does not expose provider errors or event data in its stable failure result", async () => {
     const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
       silent: true,
     });
-    workers.emit.mockImplementationOnce(function () {
+    workers.emit.mockImplementationOnce(() => {
       throw new Error("raw-provider-payload password=hidden");
     });
     const sink = createEvlogSink({
@@ -162,7 +159,7 @@ describe("evlog Worker runtime", function () {
     return expect(workers.emit).toHaveBeenCalledTimes(2);
   });
 
-  it("trims service configuration, defaults to non-silent, and rejects blank names", async function () {
+  it("trims service configuration, defaults to non-silent, and rejects blank names", async () => {
     const { initializeEvlog } = await import("./evlog.ts");
     for (const serviceName of ["", "   "]) {
       expect(() => initializeEvlog({ serviceName })).toThrow(
@@ -191,7 +188,7 @@ describe("evlog Worker runtime", function () {
     });
   });
 
-  it("rejects runtimes that were not created by the active module", async function () {
+  it("rejects runtimes that were not created by the active module", async () => {
     const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const invalidRuntime = Object.freeze({}) as ReturnType<
       typeof initializeEvlog
@@ -206,7 +203,7 @@ describe("evlog Worker runtime", function () {
     return expect(workers.createWorkersLogger).not.toHaveBeenCalled();
   });
 
-  it("converts full and minimal semantic events into stable logger payloads", async function () {
+  it("converts full and minimal semantic events into stable logger payloads", async () => {
     const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
@@ -272,7 +269,7 @@ describe("evlog Worker runtime", function () {
     });
   });
 
-  it("normalizes asynchronous transport failures to the stable sink error", async function () {
+  it("normalizes asynchronous transport failures to the stable sink error", async () => {
     const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
@@ -294,7 +291,7 @@ describe("evlog Worker runtime", function () {
     ).resolves.toBeUndefined();
   });
 
-  it("normalizes level-setting failures without emitting private provider details", async function () {
+  it("normalizes level-setting failures without emitting private provider details", async () => {
     const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
@@ -317,7 +314,7 @@ describe("evlog Worker runtime", function () {
     return expect(workers.emit).not.toHaveBeenCalled();
   });
 
-  return it("emits semantic failures through the real evlog error console transport", async function () {
+  return it("emits semantic failures through the real evlog error console transport", async () => {
     const errorOutput = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);

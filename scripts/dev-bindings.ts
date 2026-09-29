@@ -1,7 +1,7 @@
 import {
   materializeWorkerBindings,
-  workerBindingsTargetPath,
   type WorkerBindingsTarget,
+  workerBindingsTargetPath,
 } from "./dev/bindings.ts";
 
 const [candidate, ...extra] = process.argv.slice(2);

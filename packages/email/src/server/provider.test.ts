@@ -16,8 +16,8 @@ vi.mock("resend", () => ({
 import type { PasswordResetEmailInput } from "../index.ts";
 import {
   createResendEmailPort,
-  selectEmailPort,
   type ResendClient,
+  selectEmailPort,
 } from "./provider.ts";
 
 const resetInput: PasswordResetEmailInput = {
@@ -49,7 +49,7 @@ const createTemporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
-afterEach(async function () {
+afterEach(async () => {
   resendMocks.send.mockReset();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -60,8 +60,8 @@ afterEach(async function () {
   );
 });
 
-describe("selectEmailPort", function () {
-  it("selects preview locally even when Resend credentials happen to exist", async function () {
+describe("selectEmailPort", () => {
+  it("selects preview locally even when Resend credentials happen to exist", async () => {
     const directory = await createTemporaryDirectory();
     const send = vi.fn();
     const email = selectEmailPort({
@@ -78,7 +78,7 @@ describe("selectEmailPort", function () {
     return expect(send).not.toHaveBeenCalled();
   });
 
-  it("selects Resend only when explicitly requested and fully configured", async function () {
+  it("selects Resend only when explicitly requested and fully configured", async () => {
     const send = vi.fn().mockResolvedValue({
       data: { id: "email_123" },
       error: null,
@@ -108,7 +108,7 @@ describe("selectEmailPort", function () {
     );
   });
 
-  it("returns a disabled failure instead of silently previewing explicit Resend without a key", async function () {
+  it("returns a disabled failure instead of silently previewing explicit Resend without a key", async () => {
     const email = selectEmailPort({
       environment: "production",
       transport: "resend",
@@ -125,7 +125,7 @@ describe("selectEmailPort", function () {
     });
   });
 
-  it("returns the disabled delivery result for an explicitly disabled transport without calling Resend", async function () {
+  it("returns the disabled delivery result for an explicitly disabled transport without calling Resend", async () => {
     const send = vi.fn();
     const email = selectEmailPort({
       environment: "production",
@@ -144,7 +144,7 @@ describe("selectEmailPort", function () {
     return expect(send).not.toHaveBeenCalled();
   });
 
-  it("does not enable a production transport by default", async function () {
+  it("does not enable a production transport by default", async () => {
     const email = selectEmailPort({ environment: "production" });
 
     return expect(await email.sendPasswordReset(resetInput)).toEqual({
@@ -155,7 +155,7 @@ describe("selectEmailPort", function () {
     });
   });
 
-  it("disables filesystem preview delivery in a production bundle", async function () {
+  it("disables filesystem preview delivery in a production bundle", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const email = selectEmailPort({
       environment: "development",
@@ -171,7 +171,7 @@ describe("selectEmailPort", function () {
     });
   });
 
-  return it("requires a binding for remote capture and otherwise selects the exact test endpoint", async function () {
+  return it("requires a binding for remote capture and otherwise selects the exact test endpoint", async () => {
     vi.stubEnv("NODE_ENV", "production");
     expect(() =>
       selectEmailPort({
@@ -212,8 +212,8 @@ describe("selectEmailPort", function () {
   });
 });
 
-describe("createResendEmailPort", function () {
-  it("does not call Resend when the adapter is disabled", async function () {
+describe("createResendEmailPort", () => {
+  it("does not call Resend when the adapter is disabled", async () => {
     const send = vi.fn();
     const email = createResendEmailPort({
       enabled: false,
@@ -241,7 +241,7 @@ describe("createResendEmailPort", function () {
     });
   });
 
-  it("rejects recipient injection without calling the provider", async function () {
+  it("rejects recipient injection without calling the provider", async () => {
     const send = vi.fn();
     const email = createResendEmailPort({
       enabled: true,
@@ -264,7 +264,7 @@ describe("createResendEmailPort", function () {
     return expect(send).not.toHaveBeenCalled();
   });
 
-  it("preserves the mailbox local-part while normalizing the domain", async function () {
+  it("preserves the mailbox local-part while normalizing the domain", async () => {
     const send = vi.fn().mockResolvedValue({
       data: { id: "email_case" },
       error: null,
@@ -286,7 +286,7 @@ describe("createResendEmailPort", function () {
     );
   });
 
-  it("maps provider rejection to failure instead of fake success", async function () {
+  it("maps provider rejection to failure instead of fake success", async () => {
     const send = vi.fn().mockResolvedValue({
       data: null,
       error: { name: "validation_error", message: "Rejected" },
@@ -310,7 +310,7 @@ describe("createResendEmailPort", function () {
     return expect(result.status).not.toBe("sent");
   });
 
-  it("marks Resend throttling and server failures retryable without exposing details", async function () {
+  it("marks Resend throttling and server failures retryable without exposing details", async () => {
     const results = [];
     for (const error of [
       { name: "rate_limit_exceeded", statusCode: 429 },
@@ -338,7 +338,7 @@ describe("createResendEmailPort", function () {
     return results;
   });
 
-  it("does not retry daily or monthly quota exhaustion", async function () {
+  it("does not retry daily or monthly quota exhaustion", async () => {
     const results1 = [];
     for (const name of ["daily_quota_exceeded", "monthly_quota_exceeded"]) {
       const send = vi.fn().mockResolvedValue({
@@ -365,7 +365,7 @@ describe("createResendEmailPort", function () {
     return results1;
   });
 
-  it("returns a redacted typed failure and never logs provider secrets or message content", async function () {
+  it("returns a redacted typed failure and never logs provider secrets or message content", async () => {
     const apiKey = "re_secret-do-not-log";
     const rawToken = "provider-raw-token";
     const send = vi
@@ -405,7 +405,7 @@ describe("createResendEmailPort", function () {
     return expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("requires both provider credentials without constructing the SDK", async function () {
+  it("requires both provider credentials without constructing the SDK", async () => {
     const email = createResendEmailPort({
       enabled: true,
       apiKey: "re_test_key",
@@ -421,7 +421,7 @@ describe("createResendEmailPort", function () {
     return expect(resendMocks.send).not.toHaveBeenCalled();
   });
 
-  it("maps renderer and invalid provider responses to operation-safe failures", async function () {
+  it("maps renderer and invalid provider responses to operation-safe failures", async () => {
     const send = vi.fn().mockResolvedValue({ data: null, error: null });
     const email = createResendEmailPort({
       enabled: true,
@@ -452,7 +452,7 @@ describe("createResendEmailPort", function () {
     return expect(send).toHaveBeenCalledOnce();
   });
 
-  it("treats a provider error without a name as a non-retryable rejection", async function () {
+  it("treats a provider error without a name as a non-retryable rejection", async () => {
     const send = vi.fn().mockResolvedValue({
       data: null,
       error: { statusCode: 422 },
@@ -472,7 +472,7 @@ describe("createResendEmailPort", function () {
     });
   });
 
-  it("delivers verification mail through the operation-specific callback", async function () {
+  it("delivers verification mail through the operation-specific callback", async () => {
     const send = vi.fn().mockResolvedValue({
       data: { id: "verification_123" },
       error: null,
@@ -499,7 +499,7 @@ describe("createResendEmailPort", function () {
     );
   });
 
-  return it("adapts the default Resend SDK response without reaching the network", async function () {
+  return it("adapts the default Resend SDK response without reaching the network", async () => {
     resendMocks.send.mockResolvedValue({
       data: { id: "sdk_reset_123" },
       error: null,

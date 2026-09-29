@@ -30,11 +30,11 @@ const DEFAULT_MAX_DEPTH = 8;
 const DEFAULT_MAX_ENTRIES = 64;
 const DEFAULT_MAX_KEY_LENGTH = 128;
 const DEFAULT_MAX_OBJECT_KEYS = 64;
-const DEFAULT_MAX_STRING_LENGTH = 2_048;
-const DEFAULT_MAX_TOTAL_NODES = 1_024;
+const DEFAULT_MAX_STRING_LENGTH = 2048;
+const DEFAULT_MAX_TOTAL_NODES = 1024;
 const MAX_FREEZE_DEPTH = 16;
 const MAX_FREEZE_KEYS = 128;
-const MAX_FREEZE_NODES = 2_048;
+const MAX_FREEZE_NODES = 2048;
 
 const SENSITIVE_KEYS = new Set([
   "authorization",
@@ -413,46 +413,43 @@ const freezeValue = (
   if (value === null || typeof value !== "object") return;
   if (seen.has(value)) {
     return;
-  } else {
-    state.nodes += 1;
-    if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH) {
-      throw unsafeSnapshot();
-    } else {
-      let array: boolean;
-      let keys: (string | symbol)[];
-      try {
-        array = Array.isArray(value);
-        if (!hasPlainPrototype(value, array)) throw unsafeSnapshot();
-        keys = Reflect.ownKeys(value);
-      } catch {
-        throw unsafeSnapshot();
-      }
-      const dataKeys = array ? keys.filter((key) => key !== "length") : keys;
-      if (dataKeys.length > MAX_FREEZE_KEYS) throw unsafeSnapshot();
+  }
+  state.nodes += 1;
+  if (state.nodes > MAX_FREEZE_NODES || depth > MAX_FREEZE_DEPTH) {
+    throw unsafeSnapshot();
+  }
+  let array: boolean;
+  let keys: (string | symbol)[];
+  try {
+    array = Array.isArray(value);
+    if (!hasPlainPrototype(value, array)) throw unsafeSnapshot();
+    keys = Reflect.ownKeys(value);
+  } catch {
+    throw unsafeSnapshot();
+  }
+  const dataKeys = array ? keys.filter((key) => key !== "length") : keys;
+  if (dataKeys.length > MAX_FREEZE_KEYS) throw unsafeSnapshot();
 
-      seen.add(value);
-      for (const key of dataKeys) {
-        if (typeof key !== "string") {
-          throw unsafeSnapshot();
-        } else {
-          let descriptor: PropertyDescriptor | undefined;
-          try {
-            descriptor = Object.getOwnPropertyDescriptor(value, key);
-          } catch {
-            throw unsafeSnapshot();
-          }
-          if (descriptor === undefined || !("value" in descriptor)) {
-            throw unsafeSnapshot();
-          }
-          freezeValue(descriptor.value, seen, state, depth + 1);
-        }
-      }
-      try {
-        Object.freeze(value);
-      } catch {
-        throw unsafeSnapshot();
-      }
+  seen.add(value);
+  for (const key of dataKeys) {
+    if (typeof key !== "string") {
+      throw unsafeSnapshot();
     }
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key);
+    } catch {
+      throw unsafeSnapshot();
+    }
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw unsafeSnapshot();
+    }
+    freezeValue(descriptor.value, seen, state, depth + 1);
+  }
+  try {
+    Object.freeze(value);
+  } catch {
+    throw unsafeSnapshot();
   }
 };
 
@@ -602,8 +599,8 @@ export const redactSemanticEvent = (event: SemanticEvent): SemanticEvent => {
           maxEntries: 64,
           maxKeyLength: 128,
           maxObjectKeys: 64,
-          maxStringLength: 2_048,
-          maxTotalNodes: 1_024,
+          maxStringLength: 2048,
+          maxTotalNodes: 1024,
         });
   const attributes =
     redactedAttributes !== null &&

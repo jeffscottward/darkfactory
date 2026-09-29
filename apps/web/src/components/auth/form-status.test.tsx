@@ -9,8 +9,8 @@ import { FormStatus } from "./form-status.tsx";
 const markup = (result: AuthFlowResult | null): string =>
   renderToStaticMarkup(<FormStatus result={result} />);
 
-describe("FormStatus", function () {
-  it("keeps an empty atomic live region stable before feedback exists", function () {
+describe("FormStatus", () => {
+  it("keeps an empty atomic live region stable before feedback exists", () => {
     const html = markup(null);
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('aria-atomic="true"');
@@ -19,7 +19,7 @@ describe("FormStatus", function () {
     return expect(html).not.toContain('role="status"');
   });
 
-  it("announces a successful message as status rather than an alert", function () {
+  it("announces a successful message as status rather than an alert", () => {
     const html = markup({
       status: "success",
       message: "Check your inbox for the next step.",
@@ -31,7 +31,7 @@ describe("FormStatus", function () {
     return expect(html).not.toContain("<a");
   });
 
-  it("renders an actionable error as an alert with a keyboard-native recovery link", function () {
+  it("renders an actionable error as an alert with a keyboard-native recovery link", () => {
     const html = markup({
       status: "error",
       message: "Verify your email before signing in.",
@@ -46,7 +46,7 @@ describe("FormStatus", function () {
     return expect(html).not.toContain('role="status"');
   });
 
-  it("does not render a partial recovery action when either link field is absent", function () {
+  it("does not render a partial recovery action when either link field is absent", () => {
     const missingLabel = markup({
       status: "error",
       message: "The request failed.",
@@ -63,7 +63,7 @@ describe("FormStatus", function () {
     return expect(missingHref).not.toContain("<a");
   });
 
-  it("keeps destination-only success results visually quiet", function () {
+  it("keeps destination-only success results visually quiet", () => {
     const html = markup({ status: "success", destination: "/dashboard" });
     expect(html).toContain('aria-live="polite"');
     expect(html).not.toContain('role="status"');
@@ -71,7 +71,7 @@ describe("FormStatus", function () {
     return expect(html).not.toContain("/dashboard");
   });
 
-  return it("escapes provider-shaped message text instead of creating executable markup", function () {
+  return it("escapes provider-shaped message text instead of creating executable markup", () => {
     const html = markup({
       status: "error",
       message: "<script>globalThis.compromised = true</script>",

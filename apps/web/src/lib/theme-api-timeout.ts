@@ -1,4 +1,4 @@
-export const THEME_API_REQUEST_TIMEOUT_MS = 8_000 as const;
+export const THEME_API_REQUEST_TIMEOUT_MS = 8000 as const;
 export const THEME_API_RESPONSE_MAX_BYTES = 16_384 as const;
 
 const readBoundedThemeResponse = async (

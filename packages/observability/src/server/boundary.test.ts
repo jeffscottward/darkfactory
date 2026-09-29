@@ -6,11 +6,8 @@ import { describe, expect, it } from "vitest";
 
 const packageDirectory = fileURLToPath(new URL("../../", import.meta.url));
 
-const resolveExport = function (
-  specifier: string,
-  conditions: string[]
-): string {
-  return execFileSync(
+const resolveExport = (specifier: string, conditions: string[]): string =>
+  execFileSync(
     process.execPath,
     [
       ...conditions.flatMap((condition) => ["--conditions", condition]),
@@ -20,10 +17,9 @@ const resolveExport = function (
     ],
     { cwd: packageDirectory, encoding: "utf8" }
   );
-};
 
-describe("observability package boundaries", function () {
-  it("keeps root, port, redaction, and test exports provider-safe", function () {
+describe("observability package boundaries", () => {
+  it("keeps root, port, redaction, and test exports provider-safe", () => {
     expect(resolveExport("@darkfactory/observability", ["browser"])).toMatch(
       /\/src\/index\.ts$/
     );
@@ -38,7 +34,7 @@ describe("observability package boundaries", function () {
     ).toMatch(/\/src\/test\.ts$/);
   });
 
-  it("fails browser-only server resolution closed but lets real Worker conditions win even when browser is also present", function () {
+  it("fails browser-only server resolution closed but lets real Worker conditions win even when browser is also present", () => {
     const results = [];
     for (const specifier of [
       "@darkfactory/observability/server/otel",
@@ -60,7 +56,7 @@ describe("observability package boundaries", function () {
     return results;
   });
 
-  it("preserves browser poison in a side-effect-only Vite bundle", function () {
+  it("preserves browser poison in a side-effect-only Vite bundle", () => {
     const fixtureDirectory = mkdtempSync(
       join(packageDirectory, ".vite-browser-boundary-")
     );
@@ -101,18 +97,18 @@ describe("observability package boundaries", function () {
       expect(bundle).toContain(
         "@darkfactory/observability server adapters are unavailable in browser bundles"
       );
-      return expect(function () {
-        return execFileSync(process.execPath, [bundlePath], {
+      return expect(() =>
+        execFileSync(process.execPath, [bundlePath], {
           cwd: packageDirectory,
           encoding: "utf8",
-        });
-      }).toThrow(/server adapters are unavailable in browser bundles/);
+        })
+      ).toThrow(/server adapters are unavailable in browser bundles/);
     } finally {
       rmSync(fixtureDirectory, { force: true, recursive: true });
     }
   });
 
-  it("declares ordered workerd then worker before browser for every runtime export", function () {
+  it("declares ordered workerd then worker before browser for every runtime export", () => {
     const manifest = JSON.parse(
       readFileSync(new URL("../../package.json", import.meta.url), "utf8")
     ) as { exports: Record<string, Record<string, string>> };
@@ -136,9 +132,8 @@ describe("observability package boundaries", function () {
     return results1;
   });
 
-  return it("executes the browser poison module as a fail-closed boundary", async function () {
-    return await expect(import("./unsupported.ts")).rejects.toThrow(
+  return it("executes the browser poison module as a fail-closed boundary", async () =>
+    await expect(import("./unsupported.ts")).rejects.toThrow(
       "@darkfactory/observability server adapters are unavailable in browser bundles"
-    );
-  });
+    ));
 });

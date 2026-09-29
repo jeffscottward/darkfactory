@@ -3,8 +3,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createAtomicAuthRateLimitStorage,
   type AuthRateLimitDecision,
+  createAtomicAuthRateLimitStorage,
 } from "./rate-limit-storage.ts";
 
 const dialect = new PgDialect();
@@ -28,7 +28,7 @@ afterEach(() => {
   return vi.restoreAllMocks();
 });
 
-describe("atomic auth rate-limit storage get/set adapter", function () {
+describe("atomic auth rate-limit storage get/set adapter", () => {
   it.each([
     [
       "an existing row",
@@ -119,7 +119,7 @@ describe("atomic auth rate-limit storage get/set adapter", function () {
   });
 });
 
-describe("atomic auth rate-limit decisions", function () {
+describe("atomic auth rate-limit decisions", () => {
   it.each([
     ["first request", { allowed: true, retryAfter: null }],
     ["exhausted window", { allowed: false, retryAfter: 17 }],

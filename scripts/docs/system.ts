@@ -3,7 +3,7 @@ import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { DocsFileSystem, PackageManifestSource } from "./docs.ts";
-import { guardedWrite, type GuardHooks } from "./filesystem-guard.ts";
+import { type GuardHooks, guardedWrite } from "./filesystem-guard.ts";
 
 const MAX_MANIFEST_BYTES = 262_144;
 const portable = (path: string): string => path.replaceAll("\\", "/");

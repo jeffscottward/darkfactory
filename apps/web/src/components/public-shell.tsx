@@ -1,19 +1,19 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef } from "react";
-import { Menu } from "lucide-react";
-import { IconButton, buttonVariants, cn } from "@darkfactory/ui";
+import { buttonVariants, cn, IconButton } from "@darkfactory/ui";
 import {
   Dialog,
   DialogContent,
   DialogTrigger,
 } from "@darkfactory/ui/client/dialog";
+import { Menu } from "lucide-react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import {
   EXPOSED_ROUTE_PATHS,
+  isRouteExposed,
   PUBLIC_NAVIGATION,
   SUPPORT_NAVIGATION,
-  isRouteExposed,
 } from "../lib/navigation.ts";
 import { useUiState, useUiStoreApi } from "../lib/ui-store.tsx";
 import { BrandLink } from "./brand-mark.tsx";
@@ -64,7 +64,7 @@ export const PublicHeader = ({
 
   return (
     <header
-      className="sticky top-0 z-overlay border-b border-border bg-background"
+      className="sticky top-0 z-overlay border-border border-b bg-background"
       ref={headerRef}
     >
       <div className="df-container flex min-h-18 items-center justify-between gap-4">
@@ -106,7 +106,7 @@ export const PublicHeader = ({
               </DialogTrigger>
               <DialogContent
                 aria-modal="true"
-                className="left-auto right-0 top-0 h-dvh max-h-dvh w-full max-w-sm translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0"
+                className="top-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-sm translate-x-0 translate-y-0 rounded-none border-y-0 border-r-0"
                 description="Navigate the public DarkFactory site."
                 title="Navigation"
               >
@@ -132,11 +132,11 @@ export const PublicFooter = ({
 }: PublicNavigationProps) => {
   const navigation = getPublicNavigationModel(availableRoutes);
   return (
-    <footer className="border-t border-border py-10">
+    <footer className="border-border border-t py-10">
       <div className="df-container flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-md space-y-3">
           <BrandLink />
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p className="text-muted-foreground text-sm leading-6">
             A domain-neutral foundation for production applications and
             inspectable AI workflows.
           </p>

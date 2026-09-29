@@ -1,14 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
   type OutboxEvent,
 } from "@darkfactory/db/schema";
 import {
-  WorkflowRunNotFoundError,
-  WorkflowRunTerminalError,
   type WorkflowProjection,
   type WorkflowRepository,
+  WorkflowRunNotFoundError,
+  WorkflowRunTerminalError,
 } from "@darkfactory/db/server/workflow";
 import {
   createWorkflowApprovalBindingV1,
@@ -16,35 +14,36 @@ import {
   sha256Hex,
   type WorkflowEventV1,
 } from "@darkfactory/state/workflow";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
-  OMP_VERIFIER_CONFIG_DIGEST,
-  OMP_VERIFIER_COMMAND_IDENTITY,
   OMP_VERIFIER_ARGV_IDENTITY,
-  ompVerificationDigestFor,
-  redactOmpOutput,
+  OMP_VERIFIER_COMMAND_IDENTITY,
+  OMP_VERIFIER_CONFIG_DIGEST,
   type OmpCliAdapter,
   type OmpExecutionResult,
   type OmpPersistenceDisposition,
   type OmpVerificationAttempt,
+  ompVerificationDigestFor,
+  redactOmpOutput,
 } from "./omp.ts";
-import type { WorkflowEffectCompletion } from "./workflow-worker.ts";
 import {
   createWorkflowPlanEvidenceV1,
   hashWorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
 import {
-  WorkflowProjectionVerificationError,
   createWorkflowApplication,
   createWorkflowRepositoryOutboxAdapter,
   createWorkflowRuntime,
+  WorkflowProjectionVerificationError,
   workflowApprovalIdFor,
 } from "./workflow-runtime.ts";
+import type { WorkflowEffectCompletion } from "./workflow-worker.ts";
 import {
+  createWorkflowOutboxWorker,
   WORKFLOW_EFFECT_HANDLER_V1,
   WORKFLOW_EFFECT_HANDLER_V2,
-  createWorkflowOutboxWorker,
 } from "./workflow-worker.ts";
 
 const NOW = new Date("2026-07-29T12:00:00.000Z");
@@ -683,7 +682,7 @@ const runtimeFor = (
     adapter,
     leaseOwner,
     authorizeRepository: () => true,
-    leaseMilliseconds: 1_000,
+    leaseMilliseconds: 1000,
     heartbeatMilliseconds: 100,
     now: fake.now,
     generateId: () => RUN_ID,
@@ -758,7 +757,7 @@ describe("workflow runtime composition", () => {
     await expect(interrupted.runOnce()).resolves.toEqual([
       expect.objectContaining({ status: "lease-lost" }),
     ]);
-    fake.advance(1_001);
+    fake.advance(1001);
     const restarted = runtimeFor(fake, adapter, "worker-after-restart");
     await expect(restarted.runOnce()).resolves.toEqual([]);
     await expect(
@@ -1099,7 +1098,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
 
     return expect(claim).toMatchObject({
@@ -1134,7 +1133,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V1,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
 
     return expect(claimed!.handler).toBe(WORKFLOW_EFFECT_HANDLER_V1);
@@ -1172,7 +1171,7 @@ describe("workflow runtime composition", () => {
         handler: WORKFLOW_EFFECT_HANDLER_V1,
         leaseOwner: "worker-a",
         limit: 1,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       })
     ).rejects.toBeInstanceOf(TypeError);
   });
@@ -1207,7 +1206,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
 
     return expect(claimed!.taskMetadata?.planClarification).toBe(
@@ -1242,7 +1241,7 @@ describe("workflow runtime composition", () => {
         handler: WORKFLOW_EFFECT_HANDLER_V2,
         leaseOwner: "worker-a",
         limit: 1,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       })
     ).rejects.toBeInstanceOf(TypeError);
   });
@@ -1267,7 +1266,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
 
     expect(claim).toMatchObject({ fenceToken: 1, leaseOwner: "worker-a" });
@@ -1310,14 +1309,14 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
-    fake.advance(1_001);
+    fake.advance(1001);
     const [currentClaim] = await second.claimDueEffects({
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-b",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
 
     await expect(
@@ -1325,7 +1324,7 @@ describe("workflow runtime composition", () => {
         id: staleClaim!.id,
         leaseOwner: staleClaim!.leaseOwner,
         fenceToken: staleClaim!.fenceToken,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       })
     ).resolves.toBe(false);
     const heartbeatCount = fake.heartbeats.length;
@@ -1379,7 +1378,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
 
     await expect(
@@ -1396,7 +1395,7 @@ describe("workflow runtime composition", () => {
         id: claim!.id,
         leaseOwner: claim!.leaseOwner,
         fenceToken: claim!.fenceToken,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       })
     ).resolves.toBe(false);
     return expect(fake.heartbeats).toHaveLength(heartbeatCount);
@@ -1429,7 +1428,7 @@ describe("workflow runtime composition", () => {
       adapter: executionAdapter,
       leaseOwner: "worker-a",
       authorizeRepository: () => true,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
       heartbeatMilliseconds: 100,
     });
 
@@ -1439,7 +1438,7 @@ describe("workflow runtime composition", () => {
     expect(application.completeEffect).toHaveBeenCalledOnce();
     expect(fake.completions).toHaveLength(0);
 
-    fake.advance(1_001);
+    fake.advance(1001);
     const recoveryOutbox = createWorkflowRepositoryOutboxAdapter({
       repository: fake.repository,
       application: runtime.application,
@@ -1450,7 +1449,7 @@ describe("workflow runtime composition", () => {
         handler: WORKFLOW_EFFECT_HANDLER_V2,
         leaseOwner: "worker-after-recovery",
         limit: 1,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       })
     ).resolves.toEqual([
       expect.objectContaining({
@@ -1525,7 +1524,7 @@ describe("workflow runtime composition", () => {
         event,
       };
       await runtime.application.decideApproval(input);
-      fake.advance(1_000);
+      fake.advance(1000);
       await runtime.application.decideApproval({
         ...input,
         event: { ...event, occurredAt: fake.now().toISOString() },
@@ -1928,7 +1927,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     const row = leased!;
     const payload = row.payload;
@@ -1957,7 +1956,7 @@ describe("workflow runtime composition", () => {
       },
       {
         ...row,
-        payload: { ...payload, task: { ...task, taskId: "x".repeat(1_025) } },
+        payload: { ...payload, task: { ...task, taskId: "x".repeat(1025) } },
       },
       { ...row, payload: { ...payload, task: { ...task, workspaceId: "" } } },
       { ...row, payload: { ...payload, task: { ...task, taskRevision: -1 } } },
@@ -2011,7 +2010,7 @@ describe("workflow runtime composition", () => {
           task: {
             ...task,
             executionMode: "wayfinder",
-            humanRequest: "x".repeat(1_025),
+            humanRequest: "x".repeat(1025),
           },
         },
       },
@@ -2042,7 +2041,7 @@ describe("workflow runtime composition", () => {
           ...payload,
           task: {
             ...task,
-            planClarification: "x".repeat(1_025),
+            planClarification: "x".repeat(1025),
           },
         },
       },
@@ -2062,7 +2061,7 @@ describe("workflow runtime composition", () => {
           handler: WORKFLOW_EFFECT_HANDLER_V2,
           leaseOwner: "worker-a",
           limit: 1,
-          leaseMilliseconds: 1_000,
+          leaseMilliseconds: 1000,
         })
       ).rejects.toBeInstanceOf(TypeError);
     }
@@ -2095,7 +2094,7 @@ describe("workflow runtime composition", () => {
         handler: WORKFLOW_EFFECT_HANDLER_V2,
         leaseOwner: "worker-a",
         limit: 1,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       });
       results1.push(
         expect(claimed!.taskMetadata).toMatchObject(executionMetadata)
@@ -2114,7 +2113,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     const failure = {
       status: "failed" as const,
@@ -2144,7 +2143,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     await expect(
       retrying.failEffect({
@@ -2156,7 +2155,7 @@ describe("workflow runtime composition", () => {
     ).resolves.toBe("retry");
     expect(failEffect).toHaveBeenCalledWith(
       expect.objectContaining({
-        retryAt: new Date(NOW.getTime() + 1_000),
+        retryAt: new Date(NOW.getTime() + 1000),
       })
     );
     await expect(
@@ -2180,7 +2179,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     await expect(
       defaultClock.failEffect({
@@ -2212,7 +2211,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     await expect(
       finalizing.failEffect({
@@ -2235,7 +2234,7 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     const heartbeatError = new Error("heartbeat unavailable");
     const repository = Object.freeze({
@@ -2253,14 +2252,14 @@ describe("workflow runtime composition", () => {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: 1_000,
+      leaseMilliseconds: 1000,
     });
     await expect(
       outbox.heartbeatEffect({
         id: claimed!.id,
         leaseOwner: claimed!.leaseOwner,
         fenceToken: claimed!.fenceToken,
-        leaseMilliseconds: 1_000,
+        leaseMilliseconds: 1000,
       })
     ).rejects.toBe(heartbeatError);
     return await expect(
@@ -2425,12 +2424,12 @@ describe("workflow runtime composition", () => {
       expect.objectContaining({ status: "failed" }),
     ]);
     expect(fake.outbox()).toMatchObject({ attemptCount: 1, deadAt: null });
-    fake.advance(1_000);
+    fake.advance(1000);
     await expect(runtime.runOnce()).resolves.toEqual([
       expect.objectContaining({ status: "failed" }),
     ]);
     expect(fake.outbox()).toMatchObject({ attemptCount: 2, deadAt: null });
-    fake.advance(2_000);
+    fake.advance(2000);
     await expect(runtime.runOnce()).resolves.toEqual([
       expect.objectContaining({ status: "failed" }),
     ]);
@@ -2488,7 +2487,7 @@ describe("workflow runtime composition", () => {
       { id: expect.any(String), status: "failed" },
     ]);
     expect(fake.outbox()).toMatchObject({ attemptCount: 1, deadAt: null });
-    fake.advance(1_000);
+    fake.advance(1000);
     await expect(runtime.runOnce()).resolves.toEqual([
       { id: expect.any(String), status: "completed" },
     ]);
@@ -2577,7 +2576,7 @@ describe("workflow runtime composition", () => {
       leaseOwner: "worker-overrides",
       authorizeRepository: () => true,
       batchSize: 2,
-      cleanupLeaseMilliseconds: 2_000,
+      cleanupLeaseMilliseconds: 2000,
       cleanupBatchSize: 3,
       cleanupHeartbeatMilliseconds: 500,
       wayfinderAdapter: Object.freeze({
@@ -2601,7 +2600,7 @@ describe("workflow runtime composition", () => {
     return expect(claimRetainedResources).toHaveBeenCalledWith({
       leaseOwner: "worker-overrides",
       limit: 3,
-      leaseMilliseconds: 2_000,
+      leaseMilliseconds: 2000,
     });
   });
   it("rejects completion evidence larger than the 48 KiB durable envelope", async () => {
@@ -2624,7 +2623,7 @@ describe("workflow runtime composition", () => {
         effectScope: SCOPE,
         result: {
           ...completion(),
-          padding: "x".repeat(48 * 1_024),
+          padding: "x".repeat(48 * 1024),
         } as never,
       })
     ).rejects.toThrow(
@@ -2999,7 +2998,7 @@ describe("workflow runtime composition", () => {
           {
             path: "packages/jobs",
             kind: "symlink",
-            target: "x".repeat(4_097),
+            target: "x".repeat(4097),
           },
         ])
       ),

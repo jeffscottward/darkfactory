@@ -376,7 +376,8 @@ describe("development Node process adapter", () => {
               end: vi.fn(() => {
                 if (outcome === "untrusted") {
                   return listeners.get("error")?.();
-                } else return respond({ statusCode: outcome, resume: vi.fn() });
+                }
+                return respond({ statusCode: outcome, resume: vi.fn() });
               }),
               once: vi.fn((event: string, listener: () => void) => {
                 return listeners.set(event, listener);

@@ -3,7 +3,7 @@ export const WORKFLOW_MACHINE_VERSION = 1 as const;
 export const WORKFLOW_EVENT_VERSION = 1 as const;
 export const GENESIS_WORKFLOW_JOURNAL_HASH = "0".repeat(64);
 export const MAX_WORKFLOW_STAGE_ATTEMPTS_V1 = 3;
-export const MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 = 1_024;
+export const MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 = 1024;
 
 export class WorkflowRetryLimitReachedError extends Error {
   readonly code = "RETRY_LIMIT_REACHED" as const;

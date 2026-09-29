@@ -5,12 +5,12 @@ import type {
   AddressOutput,
   AddressUpdateInput,
 } from "@darkfactory/api";
-import { useForm } from "@tanstack/react-form";
 import { Button, Input, Label } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
 
 import {
-  AccountFeedbackMessage,
   type AccountFeedback,
+  AccountFeedbackMessage,
 } from "./account-feedback.tsx";
 
 const emptyAddress = {
@@ -163,15 +163,14 @@ export const AddressForm = ({
       };
       if (isEditing) {
         return await onSave(changedAddressUpdateInput(initialAddress, value));
-      } else {
-        return await onSave(fields);
       }
+      return await onSave(fields);
     },
   });
 
   return (
     <form
-      className="space-y-6 border-y border-border py-6"
+      className="space-y-6 border-border border-y py-6"
       id="address-form"
       noValidate
       onSubmit={(event) => {
@@ -185,10 +184,10 @@ export const AddressForm = ({
       }}
     >
       <div>
-        <h2 className="font-heading text-lg font-semibold text-foreground">
+        <h2 className="font-heading font-semibold text-foreground text-lg">
           {isEditing ? "Edit address" : "Add an address"}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-muted-foreground text-sm">
           Required fields are marked in their labels.
         </p>
       </div>
@@ -202,17 +201,17 @@ export const AddressForm = ({
                 <select
                   aria-required="true"
                   autoFocus
-                  disabled={disabled}
                   className="min-h-11 w-full rounded-sm border border-border-strong bg-surface px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  disabled={disabled}
                   id="type"
                   name="type"
-                  required
                   onBlur={field.handleBlur}
                   onChange={(event) =>
                     field.handleChange(
                       event.target.value as "home" | "work" | "other"
                     )
                   }
+                  required
                   value={field.state.value}
                 >
                   <option value="home">Home</option>
@@ -268,10 +267,10 @@ export const AddressForm = ({
                       aria-describedby={
                         error === undefined ? undefined : errorId
                       }
+                      aria-invalid={error !== undefined}
                       aria-required={definition.optional !== true}
                       autoComplete={definition.autoComplete}
                       disabled={disabled}
-                      aria-invalid={error !== undefined}
                       id={field.name}
                       maxLength={definition.maximum}
                       name={field.name}
@@ -285,7 +284,7 @@ export const AddressForm = ({
                     {error === undefined ? null : (
                       <p
                         aria-live="assertive"
-                        className="text-sm text-destructive"
+                        className="text-destructive text-sm"
                         id={errorId}
                         role="alert"
                       >
@@ -299,7 +298,9 @@ export const AddressForm = ({
           );
         })}
       </div>
-      {!isEditing ? (
+      {isEditing ? (
+        void 0
+      ) : (
         <form.Field name="isPrimary">
           {(field) => {
             return (
@@ -309,23 +310,21 @@ export const AddressForm = ({
               >
                 <input
                   checked={field.state.value}
-                  disabled={disabled}
                   className="size-5 accent-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  disabled={disabled}
                   id="isPrimary"
                   name="isPrimary"
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.checked)}
                   type="checkbox"
                 />
-                <span className="text-sm font-medium text-foreground">
+                <span className="font-medium text-foreground text-sm">
                   Make this the primary address
                 </span>
               </label>
             );
           }}
         </form.Field>
-      ) : (
-        void 0
       )}
       <form.Subscribe
         selector={(state) =>

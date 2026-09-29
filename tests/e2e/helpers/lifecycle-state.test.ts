@@ -2,16 +2,17 @@ import {
   access,
   lstat,
   mkdir,
-  readFile,
   readdir,
+  readFile,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+
 type SystemFixtureModule = Readonly<{
   encodeOwnedRunAdoption: (proof: unknown) => string;
   finalizeOwnedLifecycleAfterPlaywright: (
@@ -41,12 +42,12 @@ import {
   createE2ERunPaths,
   createOwnedE2ELifecycleStateWriter,
   E2E_LIFECYCLE_STATE_FILE_NAME,
-  readOwnedE2ELifecycleState,
-  removeOwnedE2EPreviewArtifacts,
-  removeOwnedE2ERunArtifacts,
   type E2ELifecycleStage,
   type E2ELifecycleStateWriter,
   type E2ERunPaths,
+  readOwnedE2ELifecycleState,
+  removeOwnedE2EPreviewArtifacts,
+  removeOwnedE2ERunArtifacts,
 } from "./run-artifacts.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));

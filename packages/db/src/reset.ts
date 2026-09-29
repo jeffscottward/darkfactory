@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
-
-import { withTransaction, type Database } from "./server/client.ts";
 import type { DevelopmentEnvironment } from "./seeds/index.ts";
+import { type Database, withTransaction } from "./server/client.ts";
 
 export type ResetDevelopmentOptions = Readonly<{
   environment: DevelopmentEnvironment;

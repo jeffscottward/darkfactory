@@ -2,7 +2,7 @@ import { canonicalJsonV1, sha256Hex } from "@darkfactory/state/workflow";
 
 import type { OmpSanitizedOutput } from "./omp.ts";
 
-export const MAX_WORKFLOW_PLAN_SUMMARY_BYTES = 6 * 1_024;
+export const MAX_WORKFLOW_PLAN_SUMMARY_BYTES = 6 * 1024;
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 

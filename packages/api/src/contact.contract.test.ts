@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appContract,
   CONTACT_ERRORS,
   ContactSubmitInputSchema,
   ContactSubmitOutputSchema,
-  appContract,
 } from "./contract.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
 
@@ -21,8 +21,8 @@ const route = (procedure: unknown) => {
   )["~orpc"].route;
 };
 
-describe("DF-076 contact contract", function () {
-  it("publishes one typed POST operation with safe 413, 429, and 503 errors", function () {
+describe("DF-076 contact contract", () => {
+  it("publishes one typed POST operation with safe 413, 429, and 503 errors", () => {
     expect(route(appContract.contact.submit)).toMatchObject({
       method: "POST",
       path: "/contact",
@@ -45,7 +45,7 @@ describe("DF-076 contact contract", function () {
     });
   });
 
-  it("trims the bounded input and rejects unknown properties", function () {
+  it("trims the bounded input and rejects unknown properties", () => {
     expect(
       ContactSubmitInputSchema.parse({
         ...validInput,
@@ -75,21 +75,20 @@ describe("DF-076 contact contract", function () {
     { field: "subject", value: "" },
     { field: "subject", value: "s".repeat(201) },
     { field: "message", value: "" },
-    { field: "message", value: "m".repeat(5_001) },
+    { field: "message", value: "m".repeat(5001) },
     { field: "website", value: "w".repeat(201) },
     { field: "name", value: "Ada\u0000Lovelace" },
     { field: "subject", value: "Review\u001frequest" },
     { field: "message", value: "Details\u0000hidden" },
-  ])("rejects $field outside its strict bounds", function ({ field, value }) {
-    return expect(() =>
+  ])("rejects $field outside its strict bounds", ({ field, value }) =>
+    expect(() =>
       ContactSubmitInputSchema.parse({
         ...validInput,
         [field]: value,
       })
-    ).toThrow();
-  });
+    ).toThrow());
 
-  it("limits output to the three truthful delivery states", function () {
+  it("limits output to the three truthful delivery states", () => {
     expect(ContactSubmitOutputSchema.parse({ status: "sent" })).toEqual({
       status: "sent",
     });
@@ -110,7 +109,7 @@ describe("DF-076 contact contract", function () {
     ).toThrow();
   });
 
-  return it("publishes the contact operation and error responses in OpenAPI", async function () {
+  return it("publishes the contact operation and error responses in OpenAPI", async () => {
     const document = await buildOpenApiDocument();
     const operation = document.paths?.["/contact"]?.post;
     expect(operation?.operationId).toBe("contact.submit");

@@ -77,8 +77,8 @@ const bundleBrowserPoisonModule = (specifier: string) => {
   );
 };
 
-describe("config package boundaries", function () {
-  it("keeps the root export limited to the dependency-free client module", async function () {
+describe("config package boundaries", () => {
+  it("keeps the root export limited to the dependency-free client module", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8")
     );
@@ -102,7 +102,7 @@ describe("config package boundaries", function () {
     ]);
   });
 
-  it("prioritizes Worker runtimes before browser poison and Node fallbacks", async function () {
+  it("prioritizes Worker runtimes before browser poison and Node fallbacks", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8")
     );
@@ -139,10 +139,10 @@ describe("config package boundaries", function () {
       message:
         "@darkfactory/config/server/capabilities is unavailable in browser bundles",
     },
-  ])("retains the $specifier poison throw in a browser-condition Vite bundle", function ({
+  ])("retains the $specifier poison throw in a browser-condition Vite bundle", ({
     specifier,
     message,
-  }) {
+  }) => {
     const bundle = bundleBrowserPoisonModule(specifier);
 
     expect(bundle.status).toBe(0);
@@ -171,12 +171,12 @@ describe("config package boundaries", function () {
       message:
         "@darkfactory/config/server/capabilities is unavailable in browser bundles",
     },
-  ])("fails closed for $specifier under browser resolution", async function ({
+  ])("fails closed for $specifier under browser resolution", async ({
     specifier,
     poisonPath,
     runtimePath,
     message,
-  }) {
+  }) => {
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8")
     );
@@ -217,7 +217,7 @@ describe("config package boundaries", function () {
     return undefined;
   });
 
-  it("keeps normal server and database imports operational", async function () {
+  it("keeps normal server and database imports operational", async () => {
     const [
       { parseServerEnv },
       { composeDatabaseProfile },
@@ -233,7 +233,7 @@ describe("config package boundaries", function () {
     return expect(loadCapabilityManifest).toBeTypeOf("function");
   });
 
-  return it("executes each dependency-free poison module in the instrumented test runtime", async function () {
+  return it("executes each dependency-free poison module in the instrumented test runtime", async () => {
     const poisonModules = [
       {
         specifier: "./server/unsupported.js",

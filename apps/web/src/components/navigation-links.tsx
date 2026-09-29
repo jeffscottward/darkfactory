@@ -1,8 +1,8 @@
 "use client";
 
+import { cn } from "@darkfactory/ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@darkfactory/ui";
 
 import {
   isNavigationItemActive,
@@ -50,7 +50,7 @@ export const NavigationLinks = ({
               {...(onNavigate === undefined ? {} : { onClick: onNavigate })}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "inline-flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "inline-flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 font-medium text-muted-foreground text-sm transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 orientation === "vertical" && "w-full",
                 active && "bg-primary-subtle text-primary-subtle-foreground",
                 linkClassName

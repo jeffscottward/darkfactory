@@ -32,17 +32,15 @@ const deferredResponse = () => {
   return { promise, reject, resolve };
 };
 
-beforeEach(function () {
+beforeEach(() => {
   vi.clearAllMocks();
   return vi.stubEnv("APP_URL", "https://darkfactory.localhost");
 });
 
-afterEach(function () {
-  return vi.unstubAllEnvs();
-});
+afterEach(() => vi.unstubAllEnvs());
 
-describe("request-local internal dispatch", function () {
-  it("delegates the auth session request unchanged through the Worker scheduler", async function () {
+describe("request-local internal dispatch", () => {
+  it("delegates the auth session request unchanged through the Worker scheduler", async () => {
     const response = new Response("auth-session", { status: 200 });
     const request = new Request(
       "https://darkfactory.localhost/api/auth/get-session",
@@ -57,7 +55,7 @@ describe("request-local internal dispatch", function () {
     );
   });
 
-  it("delegates the oRPC request unchanged through the same Worker scheduler", async function () {
+  it("delegates the oRPC request unchanged through the same Worker scheduler", async () => {
     const response = new Response("orpc", { status: 202 });
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/dashboard/summary",
@@ -72,7 +70,7 @@ describe("request-local internal dispatch", function () {
     );
   });
 
-  it("constructs a request from fetch-compatible auth input", async function () {
+  it("constructs a request from fetch-compatible auth input", async () => {
     const response = new Response("auth-session", { status: 200 });
     mocks.handleAuthRequest.mockResolvedValueOnce(response);
 
@@ -92,7 +90,7 @@ describe("request-local internal dispatch", function () {
     return expect(scheduler).toBe(mocks.waitUntil);
   });
 
-  it("does not start the auth runtime for an already-aborted request", async function () {
+  it("does not start the auth runtime for an already-aborted request", async () => {
     const controller = new AbortController();
     const reason = new DOMException("session deadline", "AbortError");
     controller.abort(reason);
@@ -106,7 +104,7 @@ describe("request-local internal dispatch", function () {
     return expect(mocks.waitUntil).not.toHaveBeenCalled();
   });
 
-  it("rejects an aborted auth dispatch while scheduling runtime cleanup", async function () {
+  it("rejects an aborted auth dispatch while scheduling runtime cleanup", async () => {
     const operation = deferredResponse();
     const controller = new AbortController();
     const request = new Request(
@@ -126,7 +124,7 @@ describe("request-local internal dispatch", function () {
     return await expect(scheduledCleanup).resolves.toBeUndefined();
   });
 
-  it("does not start the oRPC runtime for an already-aborted request", async function () {
+  it("does not start the oRPC runtime for an already-aborted request", async () => {
     const controller = new AbortController();
     const reason = new DOMException("summary deadline", "AbortError");
     controller.abort(reason);
@@ -140,7 +138,7 @@ describe("request-local internal dispatch", function () {
     return expect(mocks.waitUntil).not.toHaveBeenCalled();
   });
 
-  it("absorbs a late oRPC runtime rejection after aborting the caller", async function () {
+  it("absorbs a late oRPC runtime rejection after aborting the caller", async () => {
     const operation = deferredResponse();
     const controller = new AbortController();
     const request = new Request(
@@ -160,7 +158,7 @@ describe("request-local internal dispatch", function () {
     return await expect(scheduledCleanup).resolves.toBeUndefined();
   });
 
-  it("propagates an oRPC runtime rejection before the caller aborts", async function () {
+  it("propagates an oRPC runtime rejection before the caller aborts", async () => {
     const failure = new Error("private runtime failed");
     const controller = new AbortController();
     const request = new Request(
@@ -174,7 +172,7 @@ describe("request-local internal dispatch", function () {
     return expect(mocks.waitUntil).not.toHaveBeenCalled();
   });
 
-  it("keeps late auth cleanup handled when Worker scheduling is unavailable", async function () {
+  it("keeps late auth cleanup handled when Worker scheduling is unavailable", async () => {
     const operation = deferredResponse();
     const controller = new AbortController();
     const request = new Request(
@@ -195,7 +193,7 @@ describe("request-local internal dispatch", function () {
     return await expect(operation.promise).resolves.toBeInstanceOf(Response);
   });
 
-  it("uses a default reason for an abort during listener registration", async function () {
+  it("uses a default reason for an abort during listener registration", async () => {
     const operation = deferredResponse();
     const controller = new AbortController();
     const request = new Request(
@@ -246,7 +244,7 @@ describe("request-local internal dispatch", function () {
       "https://attacker.invalid/api/auth/get-session",
       "GET",
     ],
-  ])("rejects %s before auth handler delegation", async function (_case, url, method) {
+  ])("rejects %s before auth handler delegation", async (_case, url, method) => {
     await expect(
       dispatchInternalAuthRequest(new Request(url, { method }))
     ).rejects.toThrow(
@@ -272,7 +270,7 @@ describe("request-local internal dispatch", function () {
       "https://attacker.invalid/api/orpc/dashboard/summary",
       "GET",
     ],
-  ])("rejects %s before oRPC runtime delegation", async function (_case, url, method) {
+  ])("rejects %s before oRPC runtime delegation", async (_case, url, method) => {
     await expect(
       dispatchInternalOrpcRequest(new Request(url, { method }))
     ).rejects.toThrow(

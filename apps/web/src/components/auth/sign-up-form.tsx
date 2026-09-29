@@ -1,19 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { useForm } from "@tanstack/react-form";
 import { Button, Input, Label } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
+import Link from "next/link";
+import { useState } from "react";
 
 import {
+  type AuthFlowClient,
+  type AuthFlowResult,
   browserAuthClient,
   submitSignUp,
   validateEmail,
   validateName,
   validatePassword,
   validatePasswordConfirmation,
-  type AuthFlowClient,
-  type AuthFlowResult,
 } from "./auth-flow.ts";
 import { FormStatus } from "./form-status.tsx";
 import { PasswordField } from "./password-field.tsx";
@@ -96,13 +96,13 @@ export const SignUpForm = ({
                   setResult(null);
                   return field.handleChange(event.target.value);
                 }}
-                type="text"
                 required
+                type="text"
                 value={field.state.value}
               />
               {error ? (
                 <p
-                  className="text-sm font-medium text-destructive"
+                  className="font-medium text-destructive text-sm"
                   id={errorId}
                   role="alert"
                 >
@@ -144,13 +144,13 @@ export const SignUpForm = ({
                   setResult(null);
                   return field.handleChange(event.target.value);
                 }}
-                type="email"
                 required
+                type="email"
                 value={field.state.value}
               />
               {error ? (
                 <p
-                  className="text-sm font-medium text-destructive"
+                  className="font-medium text-destructive text-sm"
                   id={errorId}
                   role="alert"
                 >
@@ -171,9 +171,9 @@ export const SignUpForm = ({
       >
         {(field) => (
           <PasswordField
-            disabled={isPending}
             autoComplete="new-password"
             description="Use 12 to 128 characters."
+            disabled={isPending}
             error={
               field.state.meta.isTouched
                 ? firstError(field.state.meta.errors)
@@ -211,8 +211,8 @@ export const SignUpForm = ({
       >
         {(field) => (
           <PasswordField
-            disabled={isPending}
             autoComplete="new-password"
+            disabled={isPending}
             error={
               field.state.meta.isTouched
                 ? firstError(field.state.meta.errors)
@@ -231,7 +231,7 @@ export const SignUpForm = ({
         )}
       </form.Field>
 
-      <p className="text-sm leading-6 text-muted-foreground">
+      <p className="text-muted-foreground text-sm leading-6">
         We will send a verification link before you can sign in. The response
         does not disclose whether an address already has an account.
       </p>
@@ -250,7 +250,7 @@ export const SignUpForm = ({
         )}
       </form.Subscribe>
 
-      <p className="text-center text-sm text-muted-foreground">
+      <p className="text-center text-muted-foreground text-sm">
         Already have an account?{" "}
         <Link
           className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

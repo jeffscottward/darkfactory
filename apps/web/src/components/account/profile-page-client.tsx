@@ -4,15 +4,15 @@ import type {
   AccountProfileOutput,
   ProfileUpdateInput,
 } from "@darkfactory/api";
-import { Button, EmptyState, Skeleton, buttonVariants } from "@darkfactory/ui";
+import { Button, buttonVariants, EmptyState, Skeleton } from "@darkfactory/ui";
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  type AccountFailureKind,
   accountFailureKind,
   createBrowserAccountGateway,
   safeAccountFeedback,
-  type AccountFailureKind,
 } from "./account-client.ts";
 import type { AccountFeedback } from "./account-feedback.tsx";
 import { ProfileForm } from "./profile-form.tsx";

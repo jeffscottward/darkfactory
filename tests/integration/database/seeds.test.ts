@@ -5,10 +5,10 @@ import {
 } from "@darkfactory/auth/server";
 import {
   createNodeDatabase,
-  resetDevelopment,
-  seedDevelopment,
   type EnsureSeedIdentity,
   type PrepareSeedIdentities,
+  resetDevelopment,
+  seedDevelopment,
 } from "@darkfactory/db/server";
 import { migrate } from "@darkfactory/db/server/migration";
 import type { EmailPort } from "@darkfactory/email";
@@ -117,7 +117,7 @@ const seed = async () => {
   return result;
 };
 
-describe.sequential("DF-040 and DF-046 through DF-050 development seeds", function () {
+describe.sequential("DF-040 and DF-046 through DF-050 development seeds", () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

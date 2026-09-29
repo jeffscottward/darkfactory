@@ -42,12 +42,10 @@ const captureError = async (operation: () => Promise<unknown>) => {
   return error;
 };
 
-describe("operator router error mapping", function () {
-  beforeEach(function () {
-    return mocks.createOperatorWayfinderService.mockReset();
-  });
+describe("operator router error mapping", () => {
+  beforeEach(() => mocks.createOperatorWayfinderService.mockReset());
 
-  it("maps a typed service failure through the public contract", async function () {
+  it("maps a typed service failure through the public contract", async () => {
     mocks.createOperatorWayfinderService.mockReturnValue({
       status: async () => {
         throw new OperatorServiceError("STORAGE_ERROR", "safe fixed error");
@@ -58,7 +56,7 @@ describe("operator router error mapping", function () {
     ).toMatchObject({ code: "STORAGE_ERROR", status: 503, defined: true });
   });
 
-  return it("preserves an unexpected service failure as a redacted internal error", async function () {
+  return it("preserves an unexpected service failure as a redacted internal error", async () => {
     const privateDetail = "wayfinder service token=private-router";
     mocks.createOperatorWayfinderService.mockReturnValue({
       status: async () => {

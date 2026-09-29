@@ -26,8 +26,8 @@ const resolveExport = (conditions: readonly string[]): string => {
   return resolution.stdout.trim().replaceAll("\\", "/");
 };
 
-describe("AI package boundaries", function () {
-  it("keeps root and test exports provider-safe", async function () {
+describe("AI package boundaries", () => {
+  it("keeps root and test exports provider-safe", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     );
@@ -40,7 +40,7 @@ describe("AI package boundaries", function () {
     );
   });
 
-  it("routes a browser-only server import to a fail-closed poison module", async function () {
+  it("routes a browser-only server import to a fail-closed poison module", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     );

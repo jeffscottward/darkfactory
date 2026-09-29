@@ -5,8 +5,8 @@ import {
   resolveE2eEmailPreviewOptions,
 } from "./e2e-fixtures.ts";
 
-describe("E2E-only route fixtures", function () {
-  it("enables fixtures only for the explicit isolated E2E process", function () {
+describe("E2E-only route fixtures", () => {
+  it("enables fixtures only for the explicit isolated E2E process", () => {
     expect(isE2eFixtureEnabled({ APP_ENV: "test", E2E_FIXTURES: "1" })).toBe(
       true
     );
@@ -19,7 +19,7 @@ describe("E2E-only route fixtures", function () {
     ).toBe(true);
   });
 
-  it("fails closed when the flag or isolated test environment is absent", function () {
+  it("fails closed when the flag or isolated test environment is absent", () => {
     expect(isE2eFixtureEnabled({ APP_ENV: "test" })).toBe(false);
     expect(
       isE2eFixtureEnabled({
@@ -47,7 +47,7 @@ describe("E2E-only route fixtures", function () {
     ).toBe(false);
   });
 
-  it("binds isolated auth and contact directories to the exact E2E run", function () {
+  it("binds isolated auth and contact directories to the exact E2E run", () => {
     const hmacKey = "a".repeat(43);
     expect(
       resolveE2eEmailPreviewOptions({
@@ -73,7 +73,7 @@ describe("E2E-only route fixtures", function () {
     ).toBeUndefined();
   });
 
-  it("fails closed instead of accepting shared or cross-run previews", function () {
+  it("fails closed instead of accepting shared or cross-run previews", () => {
     const valid = {
       APP_ENV: "test",
       E2E_FIXTURES: "1",
@@ -111,7 +111,7 @@ describe("E2E-only route fixtures", function () {
     );
   });
 
-  it("rejects missing or non-canonical run identifiers before resolving paths", function () {
+  it("rejects missing or non-canonical run identifiers before resolving paths", () => {
     const base = {
       APP_ENV: "test",
       E2E_FIXTURES: "1",
@@ -141,7 +141,7 @@ describe("E2E-only route fixtures", function () {
     return results;
   });
 
-  return it("rejects an absent or unparsable preview capture endpoint", function () {
+  return it("rejects an absent or unparsable preview capture endpoint", () => {
     const base = {
       APP_ENV: "test",
       E2E_FIXTURES: "1",

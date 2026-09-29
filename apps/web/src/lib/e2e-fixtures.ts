@@ -39,11 +39,11 @@ export const resolveE2eEmailPreviewOptions = (
     );
   }
   const runId = environment.E2E_RUN_ID?.trim();
-  if (!runId || !/^[A-Za-z0-9_-]{1,128}$/.test(runId)) {
+  if (!(runId && /^[A-Za-z0-9_-]{1,128}$/.test(runId))) {
     throw new Error("E2E_RUN_ID is required for E2E email previews");
   }
   const hmacKey = environment.E2E_EMAIL_PREVIEW_HMAC_KEY?.trim();
-  if (!hmacKey || !/^[A-Za-z0-9_-]{43}$/.test(hmacKey)) {
+  if (!(hmacKey && /^[A-Za-z0-9_-]{43}$/.test(hmacKey))) {
     throw new Error("E2E_EMAIL_PREVIEW_HMAC_KEY must be 32-byte base64url");
   }
   const captureEndpointValue = environment.E2E_EMAIL_PREVIEW_ENDPOINT?.trim();

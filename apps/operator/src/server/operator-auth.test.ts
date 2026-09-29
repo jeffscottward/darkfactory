@@ -33,8 +33,8 @@ import {
 } from "./operator-auth.ts";
 import { OPERATOR_APP_ORIGIN } from "./operator-environment.ts";
 
-describe("operator Better Auth policy", function () {
-  beforeEach(function () {
+describe("operator Better Auth policy", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     mocks.createAuth.mockReturnValue(mocks.auth);
     mocks.selectEmailPort.mockReturnValue(mocks.email);
@@ -56,7 +56,7 @@ describe("operator Better Auth policy", function () {
     });
   });
 
-  it("binds Better Auth and email links to the explicit local operator origin", function () {
+  it("binds Better Auth and email links to the explicit local operator origin", () => {
     const database = { runtime: "database" };
     const scheduleBackgroundTask = vi.fn();
     const env = {
@@ -90,7 +90,7 @@ describe("operator Better Auth policy", function () {
     );
   });
 
-  it("rejects production before selecting an authentication adapter", function () {
+  it("rejects production before selecting an authentication adapter", () => {
     expect(() =>
       createOperatorAuthForDatabase(
         {} as never,
@@ -100,7 +100,7 @@ describe("operator Better Auth policy", function () {
     return expect(mocks.selectEmailPort).not.toHaveBeenCalled();
   });
 
-  it("uses the test rate-limit policy and the default background scheduler", function () {
+  it("uses the test rate-limit policy and the default background scheduler", () => {
     mocks.createAuth.mockImplementationOnce((options) => {
       options.scheduleBackgroundTask(Promise.resolve());
       return mocks.auth;
@@ -124,7 +124,7 @@ describe("operator Better Auth policy", function () {
     );
   });
 
-  it("composes and closes a request-scoped authentication runtime", async function () {
+  it("composes and closes a request-scoped authentication runtime", async () => {
     const runtime = await createOperatorAuthRuntime();
     expect(mocks.parseServerEnv).toHaveBeenCalledWith(process.env);
     expect(mocks.createRequestDatabase).toHaveBeenCalledWith({
@@ -135,7 +135,7 @@ describe("operator Better Auth policy", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  it("settles rejected background work before closing its database", async function () {
+  it("settles rejected background work before closing its database", async () => {
     let rejectTask: ((error: Error) => void) | undefined;
     const task = new Promise<never>((_resolve, reject) => {
       return (rejectTask = reject);
@@ -152,7 +152,7 @@ describe("operator Better Auth policy", function () {
     return expect(mocks.close).toHaveBeenCalledOnce();
   });
 
-  return it("runs an operation with request-scoped auth and always closes", async function () {
+  return it("runs an operation with request-scoped auth and always closes", async () => {
     const operation = vi.fn(async (auth) => {
       expect(auth).toBe(mocks.auth);
       return "complete";

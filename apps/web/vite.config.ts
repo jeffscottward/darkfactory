@@ -1,8 +1,8 @@
 import { isIP } from "node:net";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig, type Plugin } from "vite";
 import vinext from "vinext";
+import { defineConfig, type Plugin } from "vite";
 
 // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];

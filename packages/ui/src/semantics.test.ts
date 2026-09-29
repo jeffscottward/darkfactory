@@ -13,16 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "./card.tsx";
-import { EmptyState } from "./empty-state.tsx";
-import { PageHeader, SectionHeader } from "./headings.tsx";
-import { IconButton } from "./icon-button.tsx";
-import { Label } from "./label.tsx";
-import { Input } from "./input.tsx";
-import { Separator } from "./separator.tsx";
-import { Skeleton, SkeletonGroup } from "./skeleton.tsx";
-import { StatCard } from "./stat-card.tsx";
-import { StatusBadge } from "./status-badge.tsx";
-import { Textarea } from "./textarea.tsx";
 import { DialogBody, DialogContent, DialogFooter } from "./client/dialog.ts";
 import {
   DropdownMenuCheckboxItem,
@@ -36,6 +26,16 @@ import {
 } from "./client/dropdown-menu.ts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./client/tabs.ts";
 import { Toaster } from "./client/toaster.ts";
+import { EmptyState } from "./empty-state.tsx";
+import { PageHeader, SectionHeader } from "./headings.tsx";
+import { IconButton } from "./icon-button.tsx";
+import { Input } from "./input.tsx";
+import { Label } from "./label.tsx";
+import { Separator } from "./separator.tsx";
+import { Skeleton, SkeletonGroup } from "./skeleton.tsx";
+import { StatCard } from "./stat-card.tsx";
+import { StatusBadge } from "./status-badge.tsx";
+import { Textarea } from "./textarea.tsx";
 
 const markup = (
   component: Parameters<typeof renderToStaticMarkup>[0]
@@ -47,8 +47,8 @@ const elementProps = (element: ReactElement): Record<string, unknown> => {
   return (element as ReactElement<Record<string, unknown>>).props;
 };
 
-describe("semantic server-safe primitives", function () {
-  it("renders safe button defaults, stable loading states, and accessible icon labels", function () {
+describe("semantic server-safe primitives", () => {
+  it("renders safe button defaults, stable loading states, and accessible icon labels", () => {
     const button = markup(
       createElement(Button, { disabled: true }, "Save changes")
     );
@@ -78,7 +78,7 @@ describe("semantic server-safe primitives", function () {
     return expect(iconButton).toContain('type="button"');
   });
 
-  it("preserves form relationships and invalid state", function () {
+  it("preserves form relationships and invalid state", () => {
     const input = markup(
       createElement(Input, {
         id: "email",
@@ -96,7 +96,7 @@ describe("semantic server-safe primitives", function () {
     return expect(textarea).toContain('aria-invalid="true"');
   });
 
-  it("renders regions and configurable headings with explicit accessible names", function () {
+  it("renders regions and configurable headings with explicit accessible names", () => {
     const empty = markup(
       createElement(EmptyState, {
         title: "No feature items",
@@ -134,7 +134,7 @@ describe("semantic server-safe primitives", function () {
     return expect(cardTitle).toContain("<h2");
   });
 
-  it("announces one loading region while keeping skeleton shapes decorative", function () {
+  it("announces one loading region while keeping skeleton shapes decorative", () => {
     const status = markup(
       createElement(StatusBadge, { status: "success" }, "Ready")
     );
@@ -155,7 +155,7 @@ describe("semantic server-safe primitives", function () {
     return expect(skeletons.match(/aria-hidden="true"/g)).toHaveLength(2);
   });
 
-  it("uses semantic data markup and image alternatives", function () {
+  it("uses semantic data markup and image alternatives", () => {
     const stat = markup(
       createElement(StatCard, { label: "Open items", value: "12" })
     );
@@ -172,7 +172,7 @@ describe("semantic server-safe primitives", function () {
     return expect(separator).toContain("<hr");
   });
 
-  it("renders every card region and optional semantic primitive branch", function () {
+  it("renders every card region and optional semantic primitive branch", () => {
     const rendered = markup(
       createElement(
         "div",
@@ -221,7 +221,7 @@ describe("semantic server-safe primitives", function () {
     return expect(rendered).toContain("Compared with yesterday");
   });
 
-  return it("renders all optional page and section header regions", function () {
+  return it("renders all optional page and section header regions", () => {
     const rendered = markup(
       createElement(
         "div",
@@ -257,8 +257,8 @@ describe("semantic server-safe primitives", function () {
   });
 });
 
-describe("client primitive wrappers", function () {
-  it("forwards dropdown props, defaults, indicators, and inset styling", function () {
+describe("client primitive wrappers", () => {
+  it("forwards dropdown props, defaults, indicators, and inset styling", () => {
     const defaultContent = DropdownMenuContent({ children: "Default content" });
     const customContent = DropdownMenuContent({
       children: "Custom content",
@@ -317,7 +317,7 @@ describe("client primitive wrappers", function () {
     );
   });
 
-  it("builds both dialog description states and forwards body and footer props", function () {
+  it("builds both dialog description states and forwards body and footer props", () => {
     const described = DialogContent({
       children: "Dialog body",
       className: "custom-dialog",
@@ -370,7 +370,7 @@ describe("client primitive wrappers", function () {
     );
   });
 
-  return it("forwards every tabs wrapper and merges toaster defaults with caller options", function () {
+  return it("forwards every tabs wrapper and merges toaster defaults with caller options", () => {
     const tabs = Tabs({ className: "custom-tabs", defaultValue: "one" });
     const list = TabsList({ className: "custom-list", children: "List" });
     const trigger = TabsTrigger({
@@ -391,7 +391,7 @@ describe("client primitive wrappers", function () {
         position: "top-center",
         theme: "dark",
         toastOptions: {
-          duration: 1_234,
+          duration: 1234,
           unstyled: false,
           classNames: {
             loader: "caller-loader",
@@ -428,7 +428,7 @@ describe("client primitive wrappers", function () {
       richColors: false,
       theme: "dark",
     });
-    expect(customizedOptions.duration).toBe(1_234);
+    expect(customizedOptions.duration).toBe(1234);
     expect(customizedOptions.unstyled).toBe(true);
     expect(customizedOptions.classNames["toast"]).toContain("caller-toast");
     return expect(customizedOptions.classNames["loader"]).toContain(

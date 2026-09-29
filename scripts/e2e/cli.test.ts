@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import {
   chmod,
-  mkdtemp,
   mkdir,
+  mkdtemp,
   readFile,
   rm,
   symlink,
@@ -29,21 +29,21 @@ import {
   finalizeAndObserveE2ELifecycle,
   observeE2ELifecycle,
   observeWebServerLifecycleFailure,
-  parseScannerReport,
   parseExternalScannerReport,
+  parseScannerReport,
   redactProcessOutput,
   resolveLifecycleObservation,
   runArtifactScannerCli,
   runJourneyCli,
   serializeJourneyProgress,
 } from "./cli.ts";
+import { runOwnedCommand } from "./process.ts";
 import {
   decodeOwnedRunAdoption,
   encodeOwnedRunAdoption,
   encodeOwnedRunProof,
   prepareOwnedRun,
 } from "./system.ts";
-import { runOwnedCommand } from "./process.ts";
 
 const streams = () => {
   const output: string[] = [];
@@ -114,7 +114,7 @@ describe("E2E lifecycle CLIs", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(rendered.slice(0, -1)).not.toContain("\n");
-    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(1_025);
+    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(1025);
     expect(JSON.parse(rendered)).toEqual({
       spec: "tests/e2e/auth.spec.ts",
       runId: "safe_run",
@@ -1053,11 +1053,11 @@ describe("E2E lifecycle CLIs", () => {
       await writeFile(
         canaryPath,
         `import { finalizeAndObserveE2ELifecycle } from "../scripts/e2e/cli.ts"\n` +
-          `const finalized = await finalizeAndObserveE2ELifecycle({\n` +
+          "const finalized = await finalizeAndObserveE2ELifecycle({\n" +
           `  E2E_RUN_ID: process.env["E2E_RUN_ID"],\n` +
           `  E2E_RUN_ADOPTION: process.env["E2E_RUN_ADOPTION"],\n` +
-          `}, { exitCode: 1, treeTerminated: true })\n` +
-          `process.stdout.write(\`\${JSON.stringify(finalized)}\\n\`)\n`,
+          "}, { exitCode: 1, treeTerminated: true })\n" +
+          "process.stdout.write(`${JSON.stringify(finalized)}\\n`)\n",
         "utf8"
       );
       const result = spawnSync(
@@ -1592,7 +1592,7 @@ describe("E2E lifecycle CLIs", () => {
     }
 
     const aggregateOversize = Array.from({ length: 17 }, () =>
-      "x".repeat(1_024)
+      "x".repeat(1024)
     ).join("\n");
     return expect(redactProcessOutput(aggregateOversize)).toBe(
       "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
@@ -1687,10 +1687,10 @@ describe("E2E lifecycle CLIs", () => {
     const controlCompactedKnown = "a\u0000b\u0000c\u0000";
     expect(redactProcessOutput("safe", [controlCompactedKnown])).toBe("safe");
 
-    expect(redactProcessOutput("secret".repeat(2_000), ["secret"])).toBe(
+    expect(redactProcessOutput("secret".repeat(2000), ["secret"])).toBe(
       "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
     );
-    expect(redactProcessOutput("a@b.co ".repeat(2_000))).toBe(
+    expect(redactProcessOutput("a@b.co ".repeat(2000))).toBe(
       "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
     );
 
@@ -1820,7 +1820,7 @@ describe("E2E lifecycle CLIs", () => {
       "Error: Dashboard session proof failed: path=/dashboard rendered=ready directStatus=500",
       "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=099",
       "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=600",
-      `prefix\rError: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500`,
+      "prefix\rError: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
     ];
 
     const results8 = [];

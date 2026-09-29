@@ -1,10 +1,10 @@
 import {
   chmod,
   lstat,
-  mkdtemp,
   mkdir,
-  readFile,
+  mkdtemp,
   readdir,
+  readFile,
   readlink,
   rm,
   stat,
@@ -53,14 +53,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import {
-  WayfinderRequestError,
-  createLocalWayfinderExecutionAdapter,
-  createWayfinderWorkflowService,
-  persistLocalWayfinderTrackerArtifact,
-  type WayfinderExecutionPort,
-  type WayfinderWorkflowQueuePort,
-} from "./wayfinder.ts";
-import {
   captureOmpWayfinderTrackerArtifact,
   type OmpCliAdapter,
   type OmpExecutionRequest,
@@ -68,10 +60,18 @@ import {
   type OmpWayfinderTrackerArtifact,
 } from "./omp.ts";
 import {
-  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
   createWorkflowPlanEvidenceV1,
   hashWorkflowPlanEvidenceV1,
+  MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
 } from "./plan-evidence.ts";
+import {
+  createLocalWayfinderExecutionAdapter,
+  createWayfinderWorkflowService,
+  persistLocalWayfinderTrackerArtifact,
+  type WayfinderExecutionPort,
+  WayfinderRequestError,
+  type WayfinderWorkflowQueuePort,
+} from "./wayfinder.ts";
 
 const temporaryRoots = new Set<string>();
 
@@ -344,7 +344,7 @@ describe("local Wayfinder execution adapter", () => {
     return expect(serialized).not.toContain("sk-wayfinder-secret-value");
   });
 
-  it("includes requested plan changes and forwards explicit redactions through OMP and publication", async function () {
+  it("includes requested plan changes and forwards explicit redactions through OMP and publication", async () => {
     const planClarification =
       "Keep the storage route explicit and preserve rollback ordering.";
     const redactions = Object.freeze([
@@ -407,7 +407,7 @@ describe("local Wayfinder execution adapter", () => {
     return results;
   });
 
-  it("bounds and redacts tracker plan content before worker persistence", async function () {
+  it("bounds and redacts tracker plan content before worker persistence", async () => {
     const secret = "sk-wayfinder-plan-secret";
     const skillPath = await createSkillPath();
     const repositoriesRoot = await createRepositoriesRoot();
@@ -431,7 +431,7 @@ describe("local Wayfinder execution adapter", () => {
     return expect(result.output.stdout).toContain("[REDACTED]");
   });
 
-  it("redacts effective OMP environment secrets before tracker publication and plan evidence", async function () {
+  it("redacts effective OMP environment secrets before tracker publication and plan evidence", async () => {
     const secret = "standalone-wayfinder-environment-value";
     const redactedMap = "# Route\nUse [REDACTED] only.\n";
     const redactedIssue = "# Storage\nNever persist [REDACTED].\n";
@@ -487,7 +487,7 @@ describe("local Wayfinder execution adapter", () => {
     return expect(execute).toHaveBeenCalledOnce();
   });
 
-  it("rejects an effective environment secret in a tracker path", async function () {
+  it("rejects an effective environment secret in a tracker path", async () => {
     const secret = "standalone-wayfinder-path-value";
     vi.stubEnv("OPENAI_API_KEY", secret);
     const skillPath = await createSkillPath();
@@ -1390,7 +1390,7 @@ describe("local Wayfinder execution adapter", () => {
     const oversizedPath = join(root, "oversized-skill");
     await mkdir(directoryPath);
     await writeFile(emptyPath, "");
-    await writeFile(oversizedPath, "x".repeat(256 * 1_024 + 1));
+    await writeFile(oversizedPath, "x".repeat(256 * 1024 + 1));
     const execute = vi.fn(async () => resultFor());
     for (const skillPath of [directoryPath, emptyPath, oversizedPath]) {
       const adapter = createLocalWayfinderExecutionAdapter({
@@ -1821,7 +1821,7 @@ describe("Wayfinder workflow service", () => {
 
     for (const input of [
       { ...valid, request: "" },
-      { ...valid, request: "x".repeat(1_025) },
+      { ...valid, request: "x".repeat(1025) },
       { ...valid, request: "unsafe\nrequest" },
       { ...valid, repositoryId: "../darkfactory" },
       { ...valid, paths: ["../secrets"] },

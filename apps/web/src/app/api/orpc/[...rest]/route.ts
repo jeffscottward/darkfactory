@@ -1,8 +1,7 @@
 import { waitUntil } from "cloudflare:workers";
-
+import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog";
 import { CONTACT_ERRORS } from "@darkfactory/api";
 import { createApiContext, resolveApiRequestId } from "@darkfactory/api/server";
-import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog";
 import {
   createAuth,
   requireRole,
@@ -14,14 +13,16 @@ import {
   parseServerEnv,
 } from "@darkfactory/config/server";
 import {
+  createContactThrottleRepository,
   createRepositories,
+  createRequestDatabase,
   REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
   RequestDatabaseCapacityError,
-  createRequestDatabase,
-  createContactThrottleRepository,
 } from "@darkfactory/db/server";
-import { selectEmailPort } from "@darkfactory/email/server";
-import { selectContactEmailPort } from "@darkfactory/email/server";
+import {
+  selectContactEmailPort,
+  selectEmailPort,
+} from "@darkfactory/email/server";
 import {
   createEvlogSink,
   initializeEvlog,
@@ -30,17 +31,17 @@ import { createSemanticEventFanout } from "@darkfactory/observability/server/fan
 import { initializeTelemetry } from "@darkfactory/observability/server/otel";
 
 import {
-  createBackgroundTaskLifecycle,
   type BackgroundTaskScheduler,
+  createBackgroundTaskLifecycle,
 } from "../../../../lib/background-task-lifecycle.ts";
 import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
 import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
 import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
-import { handleOrpcRequest } from "./handler.ts";
 import {
   bufferContactRequest,
   createContactThrottleKey,
 } from "./contact-runtime.ts";
+import { handleOrpcRequest } from "./handler.ts";
 import {
   configuredOtlpAllowedHosts,
   resolveAnalyticsConsent,

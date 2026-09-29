@@ -2,8 +2,8 @@ import { Transform, type TransformCallback } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 
 import {
-  redactSensitiveBindingValues,
   type E2EProcessEnvironment,
+  redactSensitiveBindingValues,
 } from "./runtime.ts";
 
 const MAXIMUM_PENDING_LINE_LENGTH = 64 * 1024;

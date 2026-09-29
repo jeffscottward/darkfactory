@@ -328,7 +328,7 @@ const mountEditor = (gateway: FeatureItemGateway) => ({
   unmount: hookRuntime.unmount,
 });
 
-const flushMicrotasks = async function () {
+const flushMicrotasks = async () => {
   await Promise.resolve();
   return await Promise.resolve();
 };
@@ -354,8 +354,8 @@ afterEach(() => {
   return vi.unstubAllGlobals();
 });
 
-describe("feature item editor", function () {
-  it("validates empty names, accepts exact field limits, restores focus, and renders saved output", async function () {
+describe("feature item editor", () => {
+  it("validates empty names, accepts exact field limits, restores focus, and renders saved output", async () => {
     const update = vi.fn(async (_id, input) =>
       item({
         name: input.name,
@@ -417,7 +417,7 @@ describe("feature item editor", function () {
     return expect(hookRuntime.lastFocus()).toBe("feedback");
   });
 
-  it("keeps every mutation surface locked while a duplicate save is pending", async function () {
+  it("keeps every mutation surface locked while a duplicate save is pending", async () => {
     const saveRequest = deferred<FeatureItemOutput>();
     const update = vi.fn(() => saveRequest.promise);
     const changeStatus = vi.fn(async (_id, status) => item({ status }));
@@ -466,7 +466,7 @@ describe("feature item editor", function () {
     return expect(markup(tree)).toContain("Changes saved.");
   });
 
-  it("rolls back a failed status change, then renders the recovered status and focused feedback", async function () {
+  it("rolls back a failed status change, then renders the recovered status and focused feedback", async () => {
     const changeStatus = vi
       .fn()
       .mockRejectedValueOnce({ code: "CONFLICT" })
@@ -498,7 +498,7 @@ describe("feature item editor", function () {
     return expect(changeStatus).toHaveBeenCalledTimes(2);
   });
 
-  it("serializes duplicate status mutations through the synchronous guard", async function () {
+  it("serializes duplicate status mutations through the synchronous guard", async () => {
     const statusRequest = deferred<FeatureItemOutput>();
     const changeStatus = vi.fn(() => statusRequest.promise);
     const mount = mountEditor(gatewayWith({ changeStatus }));
@@ -521,7 +521,7 @@ describe("feature item editor", function () {
     return expect(changeStatus).toHaveBeenCalledWith("item-1", "active");
   });
 
-  it("ignores a successful initial load after unmount", async function () {
+  it("ignores a successful initial load after unmount", async () => {
     const request = deferred<FeatureItemOutput>();
     const get = vi.fn(() => request.promise);
     const mount = mountEditor(gatewayWith({ get }));
@@ -537,7 +537,7 @@ describe("feature item editor", function () {
     return expect(get).toHaveBeenCalledOnce();
   });
 
-  it("ignores a rejected initial load after unmount", async function () {
+  it("ignores a rejected initial load after unmount", async () => {
     const request = deferred<FeatureItemOutput>();
     const get = vi.fn(() => request.promise);
     const mount = mountEditor(gatewayWith({ get }));
@@ -598,7 +598,7 @@ describe("feature item editor", function () {
   ] as const;
 
   for (const recoveryCase of loadRecoveryCases) {
-    it(`renders and honors ${recoveryCase.kind} load recovery`, async function () {
+    it(`renders and honors ${recoveryCase.kind} load recovery`, async () => {
       const get = vi
         .fn()
         .mockRejectedValueOnce(recoveryCase.error)
@@ -618,31 +618,31 @@ describe("feature item editor", function () {
         return expect(unavailable).toContain(
           "/sign-in?callbackURL=%2Ffeature-items"
         );
-      } else if (
+      }
+      if (
         recoveryCase.kind === "forbidden" ||
         recoveryCase.kind === "not-found"
       ) {
         return expect(unavailable).toContain('href="/feature-items"');
-      } else {
-        const recovery = recoveryElement(tree);
-        const retry = recovery?.props["onRetry"] as
-          | (() => Promise<void>)
-          | undefined;
-        expect(retry).toBeTypeOf("function");
-        const retrying = retry!();
-        tree = mount.render();
-        expect(markup(tree)).toContain("Loading feature item");
-        await retrying;
-        tree = mount.render();
-        expect(elementById(tree, "edit-feature-name").props["value"]).toBe(
-          "Recovered item"
-        );
-        return expect(get).toHaveBeenCalledTimes(2);
       }
+      const recovery = recoveryElement(tree);
+      const retry = recovery?.props["onRetry"] as
+        | (() => Promise<void>)
+        | undefined;
+      expect(retry).toBeTypeOf("function");
+      const retrying = retry!();
+      tree = mount.render();
+      expect(markup(tree)).toContain("Loading feature item");
+      await retrying;
+      tree = mount.render();
+      expect(elementById(tree, "edit-feature-name").props["value"]).toBe(
+        "Recovered item"
+      );
+      return expect(get).toHaveBeenCalledTimes(2);
     });
   }
 
-  it("keeps a failed retry in the safe load-recovery state", async function () {
+  it("keeps a failed retry in the safe load-recovery state", async () => {
     const get = vi
       .fn()
       .mockRejectedValueOnce({ code: "STORAGE_ERROR" })
@@ -687,7 +687,7 @@ describe("feature item editor", function () {
   ] as const;
 
   for (const failureCase of authorizationMutationCases) {
-    it(`keeps the editor visible with ${failureCase.kind} mutation recovery`, async function () {
+    it(`keeps the editor visible with ${failureCase.kind} mutation recovery`, async () => {
       const update = vi.fn().mockRejectedValue({ code: failureCase.code });
       const mount = mountEditor(gatewayWith({ update }));
       let tree = await renderLoadedEditor(mount);
@@ -708,7 +708,7 @@ describe("feature item editor", function () {
     });
   }
 
-  it("renders archived data as an accessibility-visible read-only record", async function () {
+  it("renders archived data as an accessibility-visible read-only record", async () => {
     const archivedName = "a".repeat(200);
     const get = vi.fn(async () =>
       item({
@@ -735,7 +735,7 @@ describe("feature item editor", function () {
     return expect(archived).not.toContain("<button");
   });
 
-  it("moves focus into archive confirmation and restores it on escape, cancel, and failure", async function () {
+  it("moves focus into archive confirmation and restores it on escape, cancel, and failure", async () => {
     const archive = vi.fn().mockRejectedValue({ code: "STORAGE_ERROR" });
     const mount = mountEditor(gatewayWith({ archive }));
     let tree = await renderLoadedEditor(mount);
@@ -780,7 +780,7 @@ describe("feature item editor", function () {
     return expect(hookRuntime.lastFocus()).toBe("Archive feature item");
   });
 
-  return it("navigates once after duplicate confirmed archive actions", async function () {
+  return it("navigates once after duplicate confirmed archive actions", async () => {
     const assign = vi.fn();
     vi.stubGlobal("window", { location: { assign } });
     const archiveRequest = deferred<FeatureItemOutput>();

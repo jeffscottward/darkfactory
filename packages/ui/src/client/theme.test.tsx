@@ -6,8 +6,8 @@ import {
   PALETTE_OPTIONS,
   THEME_MODE_OPTIONS,
   ThemePicker,
-  ThemeProvider,
   type ThemePreference,
+  ThemeProvider,
   useTheme,
 } from "./theme.ts";
 
@@ -20,8 +20,8 @@ const ThemeProbe = () => {
   );
 };
 
-describe("semantic theme components", function () {
-  it("provides the controlled semantic theme contract to descendants", function () {
+describe("semantic theme components", () => {
+  it("provides the controlled semantic theme contract to descendants", () => {
     const preference = { themeMode: "dark", palette: "rose" } as const;
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
@@ -36,7 +36,7 @@ describe("semantic theme components", function () {
     return expect(markup).toContain("dark:rose");
   });
 
-  it("delegates preference changes without owning persistence policy", function () {
+  it("delegates preference changes without owning persistence policy", () => {
     const onPreferenceChange = vi.fn();
     let selectPreference: ((preference: ThemePreference) => void) | undefined;
     const SelectionProbe = () => {
@@ -60,13 +60,12 @@ describe("semantic theme components", function () {
     });
   });
 
-  it("requires provider composition", function () {
-    return expect(() =>
-      renderToStaticMarkup(createElement(ThemeProbe))
-    ).toThrow("ThemeProvider is required.");
-  });
+  it("requires provider composition", () =>
+    expect(() => renderToStaticMarkup(createElement(ThemeProbe))).toThrow(
+      "ThemeProvider is required."
+    ));
 
-  it("exports exactly three modes and ten labeled palettes", function () {
+  it("exports exactly three modes and ten labeled palettes", () => {
     expect(THEME_MODE_OPTIONS).toEqual([
       { label: "Light", value: "light" },
       { label: "Dark", value: "dark" },
@@ -87,7 +86,7 @@ describe("semantic theme components", function () {
     ]);
   });
 
-  it("keeps the picker trigger discoverable when selections are disabled", function () {
+  it("keeps the picker trigger discoverable when selections are disabled", () => {
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
         children: createElement(ThemePicker, {
@@ -103,7 +102,7 @@ describe("semantic theme components", function () {
     expect(markup).toContain('aria-label="Theme settings unavailable"');
     return expect(markup).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u);
   });
-  it("uses unique caller-owned trigger identifiers without closed ARIA references", function () {
+  it("uses unique caller-owned trigger identifiers without closed ARIA references", () => {
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
         children: createElement(
@@ -125,7 +124,7 @@ describe("semantic theme components", function () {
     );
   });
 
-  return it("keeps async status and errors mounted while the menu is closed", function () {
+  return it("keeps async status and errors mounted while the menu is closed", () => {
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
         children: createElement(ThemePicker, {

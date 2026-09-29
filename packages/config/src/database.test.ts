@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { toClientEnv } from "./client.ts";
-import { parseServerEnv } from "./server.ts";
 import {
+  composeDatabaseProfile,
   DatabaseConfigurationError,
   RequestDatabaseEndpointError,
-  composeDatabaseProfile,
   validateRequestDatabaseEndpoint,
 } from "./database.ts";
+import { parseServerEnv } from "./server.ts";
 
 const DATABASE_URL = "postgresql://localhost/darkfactory_test";
 const BETTER_AUTH_SECRET = "a".repeat(32);
@@ -24,8 +24,8 @@ const serverEnvFor = (provider: "planetscale" | "postgres" = "planetscale") => {
 const PRODUCTION_PLANETSCALE_POOLED_URL =
   "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory?sslmode=verify-full";
 
-describe("validateRequestDatabaseEndpoint", function () {
-  it("accepts only the current PlanetScale provider-managed PgBouncer endpoint in production", function () {
+describe("validateRequestDatabaseEndpoint", () => {
+  it("accepts only the current PlanetScale provider-managed PgBouncer endpoint in production", () => {
     expect(
       validateRequestDatabaseEndpoint({
         appEnvironment: "production",
@@ -71,7 +71,7 @@ describe("validateRequestDatabaseEndpoint", function () {
       "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
       /explicitly supported provider-managed pooled endpoint/,
     ],
-  ] as const)("rejects production endpoint with $0 without reflecting credentials", function (_label, provider, connectionString, expectedMessage) {
+  ] as const)("rejects production endpoint with $0 without reflecting credentials", (_label, provider, connectionString, expectedMessage) => {
     const validate = () =>
       validateRequestDatabaseEndpoint({
         appEnvironment: "production",
@@ -91,19 +91,18 @@ describe("validateRequestDatabaseEndpoint", function () {
   return it.each([
     "development",
     "test",
-  ] as const)("keeps direct PostgreSQL endpoints available in %s", function (appEnvironment) {
-    return expect(
+  ] as const)("keeps direct PostgreSQL endpoints available in %s", (appEnvironment) =>
+    expect(
       validateRequestDatabaseEndpoint({
         appEnvironment,
         provider: "postgres",
         connectionString: DATABASE_URL,
       })
-    ).toBeUndefined();
-  });
+    ).toBeUndefined());
 });
 
-describe("composeDatabaseProfile", function () {
-  it("changes composition metadata but preserves one PostgreSQL connection contract", function () {
+describe("composeDatabaseProfile", () => {
+  it("changes composition metadata but preserves one PostgreSQL connection contract", () => {
     const planetscaleProfile = composeDatabaseProfile(
       serverEnvFor("planetscale")
     );
@@ -124,13 +123,13 @@ describe("composeDatabaseProfile", function () {
     });
   });
 
-  it("uses DATABASE_URL when the optional request binding is absent", function () {
+  it("uses DATABASE_URL when the optional request binding is absent", () => {
     const profile = composeDatabaseProfile(serverEnvFor());
 
     return expect(profile.connection.connectionString).toBe(DATABASE_URL);
   });
 
-  it("uses a request-scoped PostgreSQL connectionString when supplied", function () {
+  it("uses a request-scoped PostgreSQL connectionString when supplied", () => {
     const requestConnectionString =
       "postgresql://hyperdrive.internal/darkfactory_test";
     const profile = composeDatabaseProfile(serverEnvFor(), {
@@ -144,7 +143,7 @@ describe("composeDatabaseProfile", function () {
     });
   });
 
-  it("rejects request bindings without an explicit trusted platform", function () {
+  it("rejects request bindings without an explicit trusted platform", () => {
     const compose = () =>
       composeDatabaseProfile(serverEnvFor(), {
         connectionString: "postgresql://untrusted.internal/darkfactory_test",
@@ -155,7 +154,7 @@ describe("composeDatabaseProfile", function () {
     );
   });
 
-  it("keeps DATABASE_URL mandatory even when a request binding is available", function () {
+  it("keeps DATABASE_URL mandatory even when a request binding is available", () => {
     const composeWithoutDatabaseUrl = () => {
       return composeDatabaseProfile(
         parseServerEnv({
@@ -173,7 +172,7 @@ describe("composeDatabaseProfile", function () {
     return expect(composeWithoutDatabaseUrl).toThrow("DATABASE_URL");
   });
 
-  it("rejects invalid DATABASE_URL and unsupported provider values", function () {
+  it("rejects invalid DATABASE_URL and unsupported provider values", () => {
     const invalidDatabaseUrl = "https://database.internal/darkfactory";
 
     const parseInvalidDatabaseUrl = () => {
@@ -199,7 +198,7 @@ describe("composeDatabaseProfile", function () {
     return expect(parseUnsupportedProvider).toThrow("DATABASE_PROVIDER");
   });
 
-  it("rejects invalid request connection strings without echoing secrets", function () {
+  it("rejects invalid request connection strings without echoing secrets", () => {
     const invalidConnectionString =
       "https://database-user:database-password@database.internal/darkfactory";
 
@@ -225,7 +224,7 @@ describe("composeDatabaseProfile", function () {
     }
   });
 
-  it("rejects a syntactically malformed request binding without reflecting it", function () {
+  it("rejects a syntactically malformed request binding without reflecting it", () => {
     const malformedConnectionString = "not a database URL";
     const compose = () =>
       composeDatabaseProfile(serverEnvFor(), {
@@ -243,7 +242,7 @@ describe("composeDatabaseProfile", function () {
       return expect(String(error)).not.toContain(malformedConnectionString);
     }
   });
-  return it("does not add database configuration or secrets to client config", function () {
+  return it("does not add database configuration or secrets to client config", () => {
     const env = serverEnvFor("planetscale");
     const clientEnv = toClientEnv(env);
     const serializedClientEnv = JSON.stringify(clientEnv);

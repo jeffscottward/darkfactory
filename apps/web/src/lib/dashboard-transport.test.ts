@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAuthenticatedDashboardFetch } from "./dashboard-transport.ts";
 
-describe("authenticated dashboard transport", function () {
-  afterEach(function () {
+describe("authenticated dashboard transport", () => {
+  afterEach(() => {
     vi.useRealTimers();
     return vi.unstubAllGlobals();
   });
 
-  it("cancels an oversized chunked oRPC response without relying on content-length", async function () {
+  it("cancels an oversized chunked oRPC response without relying on content-length", async () => {
     const cancel = vi.fn();
     const oversized = new ReadableStream<Uint8Array>({
       start: (controller) => {
@@ -48,7 +48,7 @@ describe("authenticated dashboard transport", function () {
     null,
     "",
     "   ",
-  ])("removes a request-supplied Cookie when the trusted cookie is %j", async function (cookieHeader) {
+  ])("removes a request-supplied Cookie when the trusted cookie is %j", async (cookieHeader) => {
     let forwarded: Request | undefined;
     const fetchDashboard = createAuthenticatedDashboardFetch(
       cookieHeader,
@@ -73,7 +73,7 @@ describe("authenticated dashboard transport", function () {
     return expect(forwarded?.redirect).toBe("manual");
   });
 
-  it("aborts a stalled internal oRPC request at the configured deadline", async function () {
+  it("aborts a stalled internal oRPC request at the configured deadline", async () => {
     const fetcher = vi.fn(
       (request: Request) =>
         new Promise<Response>((resolve) => {
@@ -98,7 +98,7 @@ describe("authenticated dashboard transport", function () {
     ).rejects.toThrow("Dashboard request exceeded the safe deadline");
   });
 
-  it("cancels a declared-oversized response before rejecting it", async function () {
+  it("cancels a declared-oversized response before rejecting it", async () => {
     const cancel = vi.fn();
     const oversized = new ReadableStream<Uint8Array>({ cancel });
     const fetcher = vi.fn(async () => {
@@ -123,7 +123,7 @@ describe("authenticated dashboard transport", function () {
     return expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it("cancels a stalled response body at the same request deadline", async function () {
+  it("cancels a stalled response body at the same request deadline", async () => {
     const cancel = vi.fn();
     const stalledBody = new ReadableStream<Uint8Array>({ cancel });
     const fetcher = vi.fn(async () => {
@@ -146,7 +146,7 @@ describe("authenticated dashboard transport", function () {
     return expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it("cancels when the caller aborts while the response body is being acquired", async function () {
+  it("cancels when the caller aborts while the response body is being acquired", async () => {
     const caller = new AbortController();
     const cancel = vi.fn(async () => undefined);
     const body = new ReadableStream<Uint8Array>({ cancel });
@@ -179,7 +179,7 @@ describe("authenticated dashboard transport", function () {
     return expect(bodyReads).toBeGreaterThanOrEqual(2);
   });
 
-  it("does not fetch when the caller signal is already aborted", async function () {
+  it("does not fetch when the caller signal is already aborted", async () => {
     const fetcher = vi.fn(async () => new Response("{}"));
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
@@ -200,7 +200,7 @@ describe("authenticated dashboard transport", function () {
     return expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("does not forward the session cookie to a request outside the configured app origin", async function () {
+  it("does not forward the session cookie to a request outside the configured app origin", async () => {
     const fetcher = vi.fn(async () => new Response("{}"));
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
@@ -218,7 +218,7 @@ describe("authenticated dashboard transport", function () {
     return expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("forwards a same-origin request and reconstructs a bounded response", async function () {
+  it("forwards a same-origin request and reconstructs a bounded response", async () => {
     let forwarded: Request | undefined;
     const encoder = new TextEncoder();
     const fetcher = vi.fn(async (request: Request) => {
@@ -268,7 +268,7 @@ describe("authenticated dashboard transport", function () {
     return expect(await response.text()).toBe('{"json":{"total":1}}');
   });
 
-  it("returns a bodyless response without replacing it", async function () {
+  it("returns a bodyless response without replacing it", async () => {
     const source = new Response(null, { status: 204 });
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
@@ -283,7 +283,7 @@ describe("authenticated dashboard transport", function () {
     ).resolves.toBe(source);
   });
 
-  it("rejects malformed, non-HTTPS, and path-bearing configured origins", async function () {
+  it("rejects malformed, non-HTTPS, and path-bearing configured origins", async () => {
     const fetcher = vi.fn(async () => new Response("{}"));
     for (const trustedOrigin of [
       "not a URL",
@@ -306,7 +306,7 @@ describe("authenticated dashboard transport", function () {
     return expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("propagates caller cancellation after transport has started", async function () {
+  it("propagates caller cancellation after transport has started", async () => {
     const caller = new AbortController();
     const fetcher = vi.fn(
       (request: Request) =>
@@ -336,7 +336,7 @@ describe("authenticated dashboard transport", function () {
     return expect(fetcher).toHaveBeenCalledOnce();
   });
 
-  it("preserves a transport failure unrelated to cancellation", async function () {
+  it("preserves a transport failure unrelated to cancellation", async () => {
     const failure = new Error("internal transport unavailable");
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
@@ -353,7 +353,7 @@ describe("authenticated dashboard transport", function () {
     ).rejects.toBe(failure);
   });
 
-  it("fails closed when oversized-response cancellation rejects", async function () {
+  it("fails closed when oversized-response cancellation rejects", async () => {
     const declaredCancel = vi.fn(async () => {
       throw new Error("declared cancellation unavailable");
     });
@@ -399,7 +399,7 @@ describe("authenticated dashboard transport", function () {
     return expect(streamedCancel).toHaveBeenCalledOnce();
   });
 
-  it("propagates a primitive streamed-response cancellation failure", async function () {
+  it("propagates a primitive streamed-response cancellation failure", async () => {
     const failure = "primitive stream cancellation failure";
     const cancel = vi.fn(async () => {
       throw failure;
@@ -426,7 +426,7 @@ describe("authenticated dashboard transport", function () {
     return expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it("absorbs failed deadline cancellation and reports the bounded timeout", async function () {
+  it("absorbs failed deadline cancellation and reports the bounded timeout", async () => {
     vi.useFakeTimers();
     const cancel = vi.fn(async () => {
       throw new Error("deadline cancellation unavailable");
@@ -451,7 +451,7 @@ describe("authenticated dashboard transport", function () {
     return expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("uses the injected global fetch default when no transport is supplied", async function () {
+  it("uses the injected global fetch default when no transport is supplied", async () => {
     const fetcher = vi.fn(async () => new Response("default transport"));
     vi.stubGlobal("fetch", fetcher);
     const fetchDashboard = createAuthenticatedDashboardFetch(
@@ -467,7 +467,7 @@ describe("authenticated dashboard transport", function () {
     return expect(fetcher).toHaveBeenCalledOnce();
   });
 
-  it("cancels a response body that arrives only after the deadline aborts", async function () {
+  it("cancels a response body that arrives only after the deadline aborts", async () => {
     vi.useFakeTimers();
     const cancel = vi.fn(async () => {
       throw new Error("late cancellation unavailable");
@@ -502,7 +502,7 @@ describe("authenticated dashboard transport", function () {
     return expect(cancel).toHaveBeenCalledOnce();
   });
 
-  return it("rejects declared excess without requiring a response body", async function () {
+  return it("rejects declared excess without requiring a response body", async () => {
     const fetchDashboard = createAuthenticatedDashboardFetch(
       "better-auth.session_token=opaque",
       "https://darkfactory.localhost",

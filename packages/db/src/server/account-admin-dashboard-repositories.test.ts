@@ -1,22 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  InvalidAdminUsersCursorError,
   decodeAdminUsersCursor,
   encodeAdminUsersCursor,
+  InvalidAdminUsersCursorError,
 } from "./admin-users-repository.ts";
 import type { Database } from "./client.ts";
 import {
-  DashboardPersistenceError,
   createDashboardRepository,
+  DashboardPersistenceError,
 } from "./dashboard-repository.ts";
 import {
-  InvalidRepositoryInputError,
   createFeatureItemRepository,
+  InvalidRepositoryInputError,
 } from "./repositories.ts";
 
-describe("admin user directory cursor", function () {
-  it("round-trips an opaque deterministic keyset cursor", function () {
+describe("admin user directory cursor", () => {
+  it("round-trips an opaque deterministic keyset cursor", () => {
     const cursor = encodeAdminUsersCursor({
       createdAt: new Date("2026-01-02T03:04:05.000Z"),
       id: "user-2",
@@ -55,8 +55,8 @@ describe("admin user directory cursor", function () {
   });
 });
 
-describe("feature list bounds", function () {
-  it("applies the default cap and accepts the maximum cap", async function () {
+describe("feature list bounds", () => {
+  it("applies the default cap and accepts the maximum cap", async () => {
     const limit = vi.fn(async () => []);
     const database = {
       select: () => ({
@@ -126,8 +126,8 @@ const createDashboardDatabaseDouble = ({
   };
 };
 
-describe("dashboard feature summary", function () {
-  it("aggregates available statuses and preserves deterministic recent rows", async function () {
+describe("dashboard feature summary", () => {
+  it("aggregates available statuses and preserves deterministic recent rows", async () => {
     const recent = [
       { id: "feature-2", status: "active" },
       { id: "feature-1", status: "draft" },
@@ -153,7 +153,7 @@ describe("dashboard feature summary", function () {
     return expect(double.limit).toHaveBeenCalledWith(2);
   });
 
-  it("returns an empty summary at both accepted recent-limit boundaries", async function () {
+  it("returns an empty summary at both accepted recent-limit boundaries", async () => {
     const results = [];
     for (const recentLimit of [0, 100]) {
       const double = createDashboardDatabaseDouble();
@@ -174,7 +174,7 @@ describe("dashboard feature summary", function () {
     return results;
   });
 
-  it("rejects blank owners and invalid recent limits before querying", async function () {
+  it("rejects blank owners and invalid recent limits before querying", async () => {
     const select = vi.fn();
     const repository = createDashboardRepository({
       select,
@@ -194,7 +194,7 @@ describe("dashboard feature summary", function () {
     return expect(select).not.toHaveBeenCalled();
   });
 
-  return it("maps provider failures while preserving an existing persistence error", async function () {
+  return it("maps provider failures while preserving an existing persistence error", async () => {
     const providerError = new Error("provider detail");
     const countFailure = createDashboardDatabaseDouble({
       countError: providerError,

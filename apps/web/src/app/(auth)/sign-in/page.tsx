@@ -2,8 +2,8 @@ import { AuthPanel } from "../../../components/auth/auth-panel.tsx";
 import { SessionRedirect } from "../../../components/auth/session-redirect.tsx";
 import { SignInForm } from "../../../components/auth/sign-in-form.tsx";
 import {
-  firstSearchParam,
   type AuthSearchParams,
+  firstSearchParam,
 } from "../auth-search-params.ts";
 
 export const metadata = {
@@ -27,7 +27,7 @@ export default async function SignInPage({
       <SessionRedirect callbackURL={callbackURL}>
         <>
           {wasReset ? (
-            <p className="mb-6 text-sm leading-6 text-foreground" role="status">
+            <p className="mb-6 text-foreground text-sm leading-6" role="status">
               Your password was updated. Sign in with the new password.
             </p>
           ) : null}

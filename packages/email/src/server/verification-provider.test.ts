@@ -26,7 +26,7 @@ const createTemporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
-afterEach(async function () {
+afterEach(async () => {
   vi.restoreAllMocks();
   return await Promise.all(
     temporaryDirectories.splice(0).map((directory) => {
@@ -35,8 +35,8 @@ afterEach(async function () {
   );
 });
 
-describe("verification email provider operation", function () {
-  it("writes a real local preview without exposing a token in its artifact path", async function () {
+describe("verification email provider operation", () => {
+  it("writes a real local preview without exposing a token in its artifact path", async () => {
     const directory = await createTemporaryDirectory();
     const email = selectEmailPort({
       environment: "test",
@@ -54,7 +54,7 @@ describe("verification email provider operation", function () {
     );
   });
 
-  it("sends the verification template through explicitly configured Resend", async function () {
+  it("sends the verification template through explicitly configured Resend", async () => {
     const send = vi.fn().mockResolvedValue({
       data: { id: "email_verification_123" },
       error: null,
@@ -82,7 +82,7 @@ describe("verification email provider operation", function () {
     );
   });
 
-  it("returns the same redacted disabled failure shape for each explicit operation", async function () {
+  it("returns the same redacted disabled failure shape for each explicit operation", async () => {
     const email = selectEmailPort({ environment: "production" });
 
     return expect(await email.sendEmailVerification(verificationInput)).toEqual(
@@ -95,7 +95,7 @@ describe("verification email provider operation", function () {
     );
   });
 
-  it("rejects recipient injection before rendering or calling the provider", async function () {
+  it("rejects recipient injection before rendering or calling the provider", async () => {
     const send = vi.fn();
     const email = createResendEmailPort({
       enabled: true,
@@ -118,7 +118,7 @@ describe("verification email provider operation", function () {
     return expect(send).not.toHaveBeenCalled();
   });
 
-  return it("never logs provider errors, verification URLs, or tokens", async function () {
+  return it("never logs provider errors, verification URLs, or tokens", async () => {
     const secretToken = "provider.verification.token";
     const send = vi
       .fn()

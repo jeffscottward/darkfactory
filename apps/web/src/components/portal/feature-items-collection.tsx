@@ -1,11 +1,11 @@
 import type { FeatureItemOutput, FeatureItemStatus } from "@darkfactory/api";
 import {
   Button,
+  buttonVariants,
+  cn,
   EmptyState,
   Skeleton,
   StatusBadge,
-  buttonVariants,
-  cn,
 } from "@darkfactory/ui";
 import { Archive, FilePlus2, RotateCcw } from "lucide-react";
 import type { FeatureFailureKind } from "./feature-items-client.ts";
@@ -46,7 +46,7 @@ const LoadingCollection = () => (
     <span className="sr-only">Loading feature items</span>
     {["one", "two", "three"].map((key) => (
       <div
-        className="grid gap-4 border-b border-border py-5 sm:grid-cols-[minmax(0,1fr)_8rem]"
+        className="grid gap-4 border-border border-b py-5 sm:grid-cols-[minmax(0,1fr)_8rem]"
         key={key}
       >
         <div className="space-y-3">
@@ -122,7 +122,7 @@ export const FeatureItemsCollection = ({
   }
 
   return (
-    <div className="divide-y divide-border border-y border-border" role="list">
+    <div className="divide-y divide-border border-border border-y" role="list">
       {state.items.map((item) => {
         const isArchiving = archivingId === item.id;
         return (
@@ -134,7 +134,7 @@ export const FeatureItemsCollection = ({
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-3">
                 <h2
-                  className="min-w-0 font-heading text-lg font-semibold tracking-tight text-foreground"
+                  className="min-w-0 font-heading font-semibold text-foreground text-lg tracking-tight"
                   style={{ overflowWrap: "anywhere" }}
                 >
                   {item.name}
@@ -144,14 +144,14 @@ export const FeatureItemsCollection = ({
                 </StatusBadge>
               </div>
               <p
-                className="max-w-reading text-sm leading-6 text-muted-foreground"
+                className="max-w-reading text-muted-foreground text-sm leading-6"
                 style={{ overflowWrap: "anywhere" }}
               >
                 {item.description.length > 0
                   ? item.description
                   : "No description provided."}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Updated{" "}
                 {item.updatedAt.toLocaleDateString("en-US", {
                   dateStyle: "medium",

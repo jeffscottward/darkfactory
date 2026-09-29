@@ -3,11 +3,11 @@ import {
   AuthAuthorizationError,
   type SafeAuthSession,
 } from "@darkfactory/auth/server";
+import type { FeatureItem } from "@darkfactory/db/schema";
 import type {
   FeatureItemRepository,
   Repositories,
 } from "@darkfactory/db/server";
-import type { FeatureItem } from "@darkfactory/db/schema";
 import { ORPCError } from "@orpc/client";
 import { describe, expect, it, vi } from "vitest";
 
@@ -143,34 +143,31 @@ const expectError = async (
   }
 };
 
-describe("DF-045/051 production context to middleware to Fetch handler", function () {
-  it("denies an anonymous feature request", async function () {
-    return await expectError(
+describe("DF-045/051 production context to middleware to Fetch handler", () => {
+  it("denies an anonymous feature request", async () =>
+    await expectError(
       clientFor(null).featureItems.list({}),
       "UNAUTHORIZED",
       401,
       "Authentication required"
-    );
-  });
+    ));
 
-  it("allows an authenticated member within their owner scope", async function () {
-    return await expect(
+  it("allows an authenticated member within their owner scope", async () =>
+    await expect(
       clientFor(session("member")).featureItems.list({})
-    ).resolves.toEqual([item]);
-  });
+    ).resolves.toEqual([item]));
 
-  it("denies a member from the real admin application procedure", async function () {
-    return await expectError(
+  it("denies a member from the real admin application procedure", async () =>
+    await expectError(
       clientFor(session("member")).admin.featureItems.list({
         ownerId: "member-1",
       }),
       "FORBIDDEN",
       403,
       "Forbidden"
-    );
-  });
+    ));
 
-  it("allows an admin through the real admin application procedure", async function () {
+  it("allows an admin through the real admin application procedure", async () => {
     const listByOwner = vi.fn(async () => [item]);
 
     await expect(
@@ -182,18 +179,17 @@ describe("DF-045/051 production context to middleware to Fetch handler", functio
     return expect(listByOwner).toHaveBeenCalledWith("member-1", { limit: 50 });
   });
 
-  it("rejects invalid contract input before the service", async function () {
-    return await expectError(
+  it("rejects invalid contract input before the service", async () =>
+    await expectError(
       clientFor(session("member")).featureItems.create({
         name: "",
         description: "description",
       }),
       "BAD_REQUEST",
       400
-    );
-  });
+    ));
 
-  it("returns 404 for an unknown oRPC route", async function () {
+  it("returns 404 for an unknown oRPC route", async () => {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/not-a-procedure"
     );
@@ -218,7 +214,7 @@ describe("DF-045/051 production context to middleware to Fetch handler", functio
     return expect(response.status).toBe(404);
   });
 
-  it("serves matched OpenAPI routes and returns 404 for unmatched routes", async function () {
+  it("serves matched OpenAPI routes and returns 404 for unmatched routes", async () => {
     const request = new Request(
       "https://darkfactory.localhost/api/openapi/feature-items"
     );
@@ -249,7 +245,7 @@ describe("DF-045/051 production context to middleware to Fetch handler", functio
     return await expect(unmatched.text()).resolves.toBe("Not Found");
   });
 
-  it("rejects unsafe injected and generated request identifiers", function () {
+  it("rejects unsafe injected and generated request identifiers", () => {
     const request = new Request("https://darkfactory.localhost/api/orpc");
 
     expect(() =>
@@ -267,11 +263,10 @@ describe("DF-045/051 production context to middleware to Fetch handler", functio
     );
   });
 
-  return it("constructs the default-fetch client boundary without issuing a request", function () {
-    return expect(
+  return it("constructs the default-fetch client boundary without issuing a request", () =>
+    expect(
       createApiClient({
         baseUrl: new URL("https://darkfactory.localhost"),
       })
-    ).toBeDefined();
-  });
+    ).toBeDefined());
 });

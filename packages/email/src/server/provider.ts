@@ -10,14 +10,14 @@ import type {
 import { normalizeRecipient } from "../recipient.ts";
 import {
   createPreviewEmailPort,
-  renderEmailVerificationEmail,
-  renderPasswordResetEmail,
-  type PreviewEmailPortOptions,
   type PreviewEmailBinding,
+  type PreviewEmailPortOptions,
+  type RenderEmailVerificationEmailOptions,
   type RenderedEmailVerificationEmail,
   type RenderedPasswordResetEmail,
-  type RenderEmailVerificationEmailOptions,
   type RenderPasswordResetEmailOptions,
+  renderEmailVerificationEmail,
+  renderPasswordResetEmail,
 } from "./preview.ts";
 import { createRemotePreviewEmailPort } from "./remote-preview.ts";
 
@@ -115,7 +115,7 @@ export const createResendEmailPort = (
 
   const apiKey = options.apiKey?.trim();
   const from = options.from?.trim();
-  if (!apiKey || !from) {
+  if (!(apiKey && from)) {
     return createDisabledEmailPort("EMAIL_PROVIDER_NOT_CONFIGURED");
   }
 

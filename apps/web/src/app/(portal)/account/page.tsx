@@ -34,7 +34,7 @@ export default function AccountPage() {
         eyebrow="Account"
         title="Your account"
       />
-      <div className="divide-y divide-border border-y border-border">
+      <div className="divide-y divide-border border-border border-y">
         {accountTasks.map((task) => (
           <a
             className="group grid min-h-11 gap-3 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
@@ -42,14 +42,14 @@ export default function AccountPage() {
             key={task.href}
           >
             <span>
-              <span className="block font-heading text-lg font-semibold text-foreground">
+              <span className="block font-heading font-semibold text-foreground text-lg">
                 {task.title}
               </span>
-              <span className="mt-1 block max-w-reading text-sm leading-6 text-muted-foreground">
+              <span className="mt-1 block max-w-reading text-muted-foreground text-sm leading-6">
                 {task.description}
               </span>
             </span>
-            <span className="inline-flex items-center gap-2 text-sm font-medium text-primary">
+            <span className="inline-flex items-center gap-2 font-medium text-primary text-sm">
               Open <ArrowRight aria-hidden="true" className="size-4" />
             </span>
           </a>

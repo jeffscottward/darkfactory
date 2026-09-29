@@ -16,7 +16,7 @@ export const Label = ({
 }: LabelProps) => (
   <label
     className={cn(
-      "flex items-baseline justify-between gap-3 font-body text-sm font-semibold text-foreground",
+      "flex items-baseline justify-between gap-3 font-body font-semibold text-foreground text-sm",
       className
     )}
     {...props}

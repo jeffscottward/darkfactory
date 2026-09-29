@@ -1,27 +1,27 @@
 import {
-  MAX_WORKFLOW_SCOPE_BYTES,
-  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   canonicalJsonV1,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
+  MAX_WORKFLOW_SCOPE_BYTES,
   parseWorkflowEffectScopeV1,
   type WorkflowEffectScopeV1,
   type WorkflowExecutionModeV1,
 } from "@darkfactory/state/workflow";
 
 import {
-  OmpProcessTerminationError,
-  redactEffectiveOmpOutput,
-  OmpWorkspaceCleanupError,
   decodeOmpImplementationArtifact,
   type OmpCliAdapter,
   type OmpExecutionResult,
   type OmpImplementationArtifact,
   type OmpImplementationRecovery,
-  type OmpVerificationAttempt,
   type OmpPersistenceDisposition,
+  OmpProcessTerminationError,
+  type OmpVerificationAttempt,
+  OmpWorkspaceCleanupError,
+  redactEffectiveOmpOutput,
 } from "./omp.ts";
 import {
-  WorkflowPlanEvidenceError,
   createWorkflowPlanEvidenceV1,
+  WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "./plan-evidence.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";
@@ -33,7 +33,7 @@ export type WorkflowEffectHandler =
   | typeof WORKFLOW_EFFECT_HANDLER_V2;
 export const DEFAULT_WORKFLOW_LEASE_MS = 30_000;
 export const DEFAULT_WORKFLOW_HEARTBEAT_MS = 10_000;
-export const DEFAULT_WORKFLOW_POLL_MS = 1_000;
+export const DEFAULT_WORKFLOW_POLL_MS = 1000;
 
 export type WorkflowEffectKind = "plan" | "implement" | "verify";
 
@@ -288,7 +288,7 @@ const validateClaim = (
   if (claim.taskMetadata !== undefined) {
     if (
       claim.taskMetadata.taskId.length === 0 ||
-      new TextEncoder().encode(claim.taskMetadata.taskId).byteLength > 1_024 ||
+      new TextEncoder().encode(claim.taskMetadata.taskId).byteLength > 1024 ||
       /[\u0000-\u001F\u007F]/u.test(claim.taskMetadata.taskId)
     ) {
       throw new WorkflowWorkerConfigurationError(
@@ -440,7 +440,7 @@ const sanitizeExecutionResult = (
 ): OmpExecutionResult => {
   const stdout = redactEffectiveOmpOutput(result.output.stdout);
   const stderr = redactEffectiveOmpOutput(result.output.stderr);
-  if (!stdout.redacted && !stderr.redacted) return result;
+  if (!(stdout.redacted || stderr.redacted)) return result;
   return Object.freeze({
     ...result,
     output: Object.freeze({
@@ -550,7 +550,7 @@ export const createWorkflowOutboxWorker = (
   const leaseMilliseconds = requirePositiveInteger(
     options.leaseMilliseconds ?? DEFAULT_WORKFLOW_LEASE_MS,
     "leaseMilliseconds",
-    10 * 60 * 1_000
+    10 * 60 * 1000
   );
   const heartbeatMilliseconds = requirePositiveInteger(
     options.heartbeatMilliseconds ?? DEFAULT_WORKFLOW_HEARTBEAT_MS,

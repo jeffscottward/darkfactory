@@ -43,16 +43,12 @@ import { PublicPage } from "../_components/public-content.tsx";
 import PublicLoading from "../loading.tsx";
 import { RecoverableErrorFixture } from "./recoverable-error-fixture.tsx";
 
-beforeEach(function () {
-  return hooks.reset();
-});
+beforeEach(() => hooks.reset());
 
-afterEach(function () {
-  return vi.unstubAllGlobals();
-});
+afterEach(() => vi.unstubAllGlobals());
 
-describe("recoverable public error fixture", function () {
-  it("marks the first visit and throws only after the checking phase", function () {
+describe("recoverable public error fixture", () => {
+  it("marks the first visit and throws only after the checking phase", () => {
     const getItem = vi.fn(() => null);
     const setItem = vi.fn();
     vi.stubGlobal("window", {
@@ -75,7 +71,7 @@ describe("recoverable public error fixture", function () {
     );
   });
 
-  return it("renders bounded recovery content when the visit marker already exists", function () {
+  return it("renders bounded recovery content when the visit marker already exists", () => {
     const getItem = vi.fn(() => "1");
     const setItem = vi.fn();
     vi.stubGlobal("window", {

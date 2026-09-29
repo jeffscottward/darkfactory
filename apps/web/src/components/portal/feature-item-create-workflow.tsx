@@ -4,10 +4,10 @@ import type { FeatureItemOutput, FeatureItemStatus } from "@darkfactory/api";
 import { createSetupFlowActor } from "@darkfactory/state/flow";
 import {
   Button,
+  buttonVariants,
   Input,
   Label,
   Textarea,
-  buttonVariants,
 } from "@darkfactory/ui";
 import { ArrowLeft, ArrowRight, Check, RotateCcw } from "lucide-react";
 import {
@@ -21,9 +21,9 @@ import {
 import {
   classifyFeatureFailure,
   createBrowserFeatureItemGateway,
-  synchronizeRetainedFeatureItem,
   type FeatureFailureKind,
   type FeatureItemGateway,
+  synchronizeRetainedFeatureItem,
 } from "./feature-items-client.ts";
 import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
 
@@ -54,11 +54,11 @@ export const CreateWorkflowStep = ({
   if (stateName === "details") {
     return (
       <div>
-        <p className="text-sm font-semibold text-primary">Step 1 of 3</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
+        <p className="font-semibold text-primary text-sm">Step 1 of 3</p>
+        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
           Describe the item
         </h2>
-        <p className="mt-2 max-w-reading text-sm leading-6 text-muted-foreground">
+        <p className="mt-2 max-w-reading text-muted-foreground text-sm leading-6">
           Give this neutral starter record a clear name and useful context.
         </p>
       </div>
@@ -67,11 +67,11 @@ export const CreateWorkflowStep = ({
   if (stateName === "preferences") {
     return (
       <div>
-        <p className="text-sm font-semibold text-primary">Step 2 of 3</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
+        <p className="font-semibold text-primary text-sm">Step 2 of 3</p>
+        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
           Choose its starting state
         </h2>
-        <p className="mt-2 max-w-reading text-sm leading-6 text-muted-foreground">
+        <p className="mt-2 max-w-reading text-muted-foreground text-sm leading-6">
           Draft creates a persisted owner-scoped record that remains editable.
           Active marks it ready for use.
         </p>
@@ -81,8 +81,8 @@ export const CreateWorkflowStep = ({
   if (stateName === "review") {
     return (
       <div>
-        <p className="text-sm font-semibold text-primary">Step 3 of 3</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
+        <p className="font-semibold text-primary text-sm">Step 3 of 3</p>
+        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
           Review before creating
         </h2>
         <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
@@ -97,7 +97,7 @@ export const CreateWorkflowStep = ({
           </div>
           <div>
             <dt className="text-muted-foreground">Starting state</dt>
-            <dd className="mt-1 font-medium capitalize text-foreground">
+            <dd className="mt-1 font-medium text-foreground capitalize">
               {status}
             </dd>
           </div>
@@ -117,13 +117,13 @@ export const CreateWorkflowStep = ({
   if (stateName === "submitting") {
     return (
       <div aria-live="polite">
-        <p className="text-sm font-semibold text-primary">
+        <p className="font-semibold text-primary text-sm">
           Saving through oRPC
         </p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
+        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
           Creating the feature item
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-muted-foreground text-sm">
           Keep this page open while the owner-scoped request completes.
         </p>
       </div>
@@ -137,22 +137,22 @@ export const CreateWorkflowStep = ({
         : "Creation was interrupted";
     return (
       <div role="alert">
-        <p className="text-sm font-semibold text-destructive">{title}</p>
-        <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
+        <p className="font-semibold text-destructive text-sm">{title}</p>
+        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
           {partialCreated
             ? "The persisted draft is still available"
             : "Your entries are still here"}
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-muted-foreground text-sm">
           {error ?? "The request could not be completed."}
         </p>
         {creationOutcomeUnknown ? (
-          <p className="mt-2 text-sm font-medium text-foreground">
+          <p className="mt-2 font-medium text-foreground text-sm">
             Check the feature item list before trying again to avoid a
             duplicate.
           </p>
         ) : (
-          <p className="mt-2 text-sm font-medium text-foreground">
+          <p className="mt-2 font-medium text-foreground text-sm">
             Try again or return to review.
           </p>
         )}
@@ -172,8 +172,8 @@ export const CreateWorkflowStep = ({
   }
   return (
     <div role="status">
-      <p className="text-sm font-semibold text-success-foreground">Created</p>
-      <h2 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground">
+      <p className="font-semibold text-sm text-success-foreground">Created</p>
+      <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
         The feature item is ready
       </h2>
     </div>
@@ -323,7 +323,7 @@ export const FeatureItemCreateWorkflow = ({
   };
 
   return (
-    <section className="space-y-8 border-t border-border pt-8">
+    <section className="space-y-8 border-border border-t pt-8">
       <div className="outline-none" ref={stepRef} tabIndex={-1}>
         <CreateWorkflowStep
           creationOutcomeUnknown={creationOutcomeUnknown}
@@ -360,12 +360,12 @@ export const FeatureItemCreateWorkflow = ({
               ref={nameInputRef}
               value={name}
             />
-            <p className="text-sm text-muted-foreground" id="feature-name-help">
+            <p className="text-muted-foreground text-sm" id="feature-name-help">
               Use a concise label that explains the record.
             </p>
             {showValidation && name.trim().length === 0 ? (
               <p
-                className="text-sm text-destructive"
+                className="text-destructive text-sm"
                 id="feature-name-error"
                 role="alert"
               >
@@ -383,7 +383,7 @@ export const FeatureItemCreateWorkflow = ({
               value={description}
             />
             <p
-              className="text-sm text-muted-foreground"
+              className="text-muted-foreground text-sm"
               id="feature-description-help"
             >
               Optional context remains owner scoped.

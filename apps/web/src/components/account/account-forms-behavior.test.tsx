@@ -224,8 +224,8 @@ const formRuntime = vi.hoisted(() => {
 vi.mock("@tanstack/react-form", () => ({ useForm: formRuntime.useForm }));
 
 import { AddressForm } from "./address-form.tsx";
-import { ProfileForm } from "./profile-form.tsx";
 import { PreferencesForm } from "./preferences-form.tsx";
+import { ProfileForm } from "./profile-form.tsx";
 import { PasswordForm } from "./security-panel.tsx";
 
 const updatedAt = new Date("2026-01-02T00:00:00.000Z");
@@ -297,7 +297,7 @@ const invokeNativeSubmit = (tree: unknown) => {
   return event;
 };
 
-const flushMicrotasks = async function (): Promise<void> {
+const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -308,8 +308,8 @@ afterEach(() => {
   return vi.unstubAllGlobals();
 });
 
-describe("address form behavior", function () {
-  it("announces required and maximum-boundary errors, while accepting an empty optional line", async function () {
+describe("address form behavior", () => {
+  it("announces required and maximum-boundary errors, while accepting an empty optional line", async () => {
     const onSave = vi.fn();
     const render = () =>
       renderToStaticMarkup(<AddressForm onCancel={vi.fn()} onSave={onSave} />);
@@ -352,7 +352,7 @@ describe("address form behavior", function () {
     return expect(html).not.toContain("Address line 2 is required.");
   });
 
-  it("normalizes a new address, forwards cancellation, and permits the exact country boundary", async function () {
+  it("normalizes a new address, forwards cancellation, and permits the exact country boundary", async () => {
     const onCancel = vi.fn();
     const onSave = vi.fn();
     const render = () =>
@@ -385,7 +385,7 @@ describe("address form behavior", function () {
     });
   });
 
-  it("submits a versioned edit patch without exposing primary mutation", async function () {
+  it("submits a versioned edit patch without exposing primary mutation", async () => {
     const onSave = vi.fn();
     const render = () =>
       renderToStaticMarkup(
@@ -412,7 +412,7 @@ describe("address form behavior", function () {
     });
   });
 
-  it("renders a nullable saved address line as an empty editable value", function () {
+  it("renders a nullable saved address line as an empty editable value", () => {
     renderToStaticMarkup(
       <AddressForm
         initialAddress={{ ...address, line2: null }}
@@ -424,7 +424,7 @@ describe("address form behavior", function () {
     return expect(formRuntime.control("line2").props["value"]).toBe("");
   });
 
-  return it("disables all controls externally and exposes truthful in-flight save state", async function () {
+  return it("disables all controls externally and exposes truthful in-flight save state", async () => {
     const blockedHtml = renderToStaticMarkup(
       <AddressForm disabled onCancel={vi.fn()} onSave={vi.fn()} />
     );
@@ -458,8 +458,8 @@ describe("address form behavior", function () {
   });
 });
 
-describe("profile form behavior", function () {
-  it("validates required, maximum, malformed URL, and insecure URL boundaries accessibly", function () {
+describe("profile form behavior", () => {
+  it("validates required, maximum, malformed URL, and insecure URL boundaries accessibly", () => {
     const render = () =>
       renderToStaticMarkup(
         <ProfileForm initialProfile={profile} onSave={vi.fn()} />
@@ -499,7 +499,7 @@ describe("profile form behavior", function () {
     return expect(html).not.toContain("Avatar URL must use HTTPS.");
   });
 
-  it("submits only normalized owner changes with the loaded version", async function () {
+  it("submits only normalized owner changes with the loaded version", async () => {
     const onSave = vi.fn();
     const render = () =>
       renderToStaticMarkup(
@@ -525,7 +525,7 @@ describe("profile form behavior", function () {
     });
   });
 
-  return it("keeps the save action disabled until dirty and while submission is pending", async function () {
+  return it("keeps the save action disabled until dirty and while submission is pending", async () => {
     const save = deferred<void>();
     const render = () =>
       renderToStaticMarkup(
@@ -548,8 +548,8 @@ describe("profile form behavior", function () {
   });
 });
 
-describe("password form behavior", function () {
-  it("announces required, minimum-length, and confirmation errors before saving", async function () {
+describe("password form behavior", () => {
+  it("announces required, minimum-length, and confirmation errors before saving", async () => {
     const onSave = vi.fn();
     const render = () => renderToStaticMarkup(<PasswordForm onSave={onSave} />);
     render();
@@ -579,7 +579,7 @@ describe("password form behavior", function () {
     ).toBe(true);
   });
 
-  it("validates password corrections as each field loses focus", function () {
+  it("validates password corrections as each field loses focus", () => {
     const render = () =>
       renderToStaticMarkup(<PasswordForm onSave={vi.fn()} />);
     render();
@@ -610,7 +610,7 @@ describe("password form behavior", function () {
     return expect(html).not.toContain("Passwords do not match.");
   });
 
-  return it("submits the exact 12-character boundary, respects session choice, and reports pending state", async function () {
+  return it("submits the exact 12-character boundary, respects session choice, and reports pending state", async () => {
     const save = deferred<void>();
     const onSave = vi.fn(() => save.promise);
     const render = () => renderToStaticMarkup(<PasswordForm onSave={onSave} />);
@@ -642,8 +642,8 @@ describe("password form behavior", function () {
   });
 });
 
-describe("native account form submission", function () {
-  it("prevents browser navigation, focuses an invalid address field, and treats explicit null as create mode", async function () {
+describe("native account form submission", () => {
+  it("prevents browser navigation, focuses an invalid address field, and treats explicit null as create mode", async () => {
     const focus = vi.fn();
     const querySelector = vi
       .fn()
@@ -684,7 +684,7 @@ describe("native account form submission", function () {
     return expect(querySelector).toHaveBeenCalledTimes(2);
   });
 
-  it("initializes every nullable profile field, focuses invalid required input, and submits through the native boundary", async function () {
+  it("initializes every nullable profile field, focuses invalid required input, and submits through the native boundary", async () => {
     const nullableProfile = {
       ...profile,
       firstName: null,
@@ -736,7 +736,7 @@ describe("native account form submission", function () {
     return expect(querySelector).toHaveBeenCalledTimes(2);
   });
 
-  return it("focuses password validation and submits a valid password through the native event handler", async function () {
+  return it("focuses password validation and submits a valid password through the native event handler", async () => {
     const focus = vi.fn();
     const querySelector = vi
       .fn()
@@ -775,8 +775,8 @@ describe("native account form submission", function () {
   });
 });
 
-describe("preferences form behavior", function () {
-  return it("updates every owner choice, preserves accessible help, and exposes native pending state", async function () {
+describe("preferences form behavior", () =>
+  it("updates every owner choice, preserves accessible help, and exposes native pending state", async () => {
     const save = deferred<void>();
     const onSave = vi.fn(() => save.promise);
     let tree = PreferencesForm({ initialPreferences: preferences, onSave });
@@ -829,5 +829,4 @@ describe("preferences form behavior", function () {
     );
     save.resolve();
     return await flushMicrotasks();
-  });
-});
+  }));

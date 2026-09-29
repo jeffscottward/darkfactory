@@ -1,4 +1,4 @@
-import { OpenAPIGenerator, type OpenAPI } from "@orpc/openapi";
+import { type OpenAPI, OpenAPIGenerator } from "@orpc/openapi";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 
 import { appContract } from "./contract.ts";

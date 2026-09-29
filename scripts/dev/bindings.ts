@@ -1,13 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
+  type FileHandle,
   lstat,
   open,
   readdir,
+  realpath,
   rename,
   rm,
-  realpath,
-  type FileHandle,
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 

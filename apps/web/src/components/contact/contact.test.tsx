@@ -1,6 +1,6 @@
+import type { ApiClient, ApiClientOptions } from "@darkfactory/api";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ApiClient, ApiClientOptions } from "@darkfactory/api";
 
 const contactReactRuntime = vi.hoisted(() => {
   const stateSlots: Array<{ value: unknown }> = [];
@@ -89,7 +89,7 @@ const contactFormRuntime = vi.hoisted(() => {
     return textOf(Reflect.get(props, "children"));
   };
 
-  const capture = function (node: unknown, seen = new WeakSet<object>()): void {
+  const capture = (node: unknown, seen = new WeakSet<object>()): void => {
     if (Array.isArray(node)) {
       for (const child of node) {
         capture(child, seen);
@@ -309,10 +309,11 @@ vi.mock("@darkfactory/api", async (importOriginal) => {
       contactApiRuntime.create(actual.createApiClient, options),
   };
 });
+
 import {
   contactFeedbackForOutput,
-  createContactGateway,
   createBrowserContactGateway,
+  createContactGateway,
   safeContactFailure,
   validateContactField,
 } from "./contact-client.ts";
@@ -372,7 +373,7 @@ const installContactBrowser = () => {
   };
 };
 
-afterEach(function () {
+afterEach(() => {
   contactReactRuntime.reset();
   contactFormRuntime.reset();
   contactApiRuntime.reset();
@@ -380,7 +381,7 @@ afterEach(function () {
   return vi.restoreAllMocks();
 });
 
-describe("contact field validation", function () {
+describe("contact field validation", () => {
   it.each([
     { field: "name", value: "", message: "Enter your name." },
     {
@@ -425,11 +426,10 @@ describe("contact field validation", function () {
       value: "Details\u0000hidden",
       message: "Message contains unsupported control characters.",
     },
-  ] as const)("rejects $field boundary", function ({ field, value, message }) {
-    return expect(validateContactField(field, value)).toBe(message);
-  });
+  ] as const)("rejects $field boundary", ({ field, value, message }) =>
+    expect(validateContactField(field, value)).toBe(message));
 
-  return it("accepts strict boundary values and Unicode", function () {
+  return it("accepts strict boundary values and Unicode", () => {
     expect(validateContactField("name", "名".repeat(100))).toBeUndefined();
     expect(
       validateContactField("email", "person+tag@example.test")
@@ -445,8 +445,8 @@ describe("contact field validation", function () {
   });
 });
 
-describe("contact gateway and safe feedback", function () {
-  it("uses the typed contact operation without inventing a fallback endpoint", async function () {
+describe("contact gateway and safe feedback", () => {
+  it("uses the typed contact operation without inventing a fallback endpoint", async () => {
     const submit = vi.fn().mockResolvedValue({ status: "sent" });
     const gateway = createContactGateway({ contact: { submit } } as never);
 
@@ -472,18 +472,13 @@ describe("contact gateway and safe feedback", function () {
       tone: "warning",
       text: "Contact delivery is not configured. Your message was not sent.",
     },
-  ] as const)("reports $output.status truthfully", function ({
-    output,
-    tone,
-    text,
-  }) {
-    return expect(contactFeedbackForOutput(output)).toEqual({
+  ] as const)("reports $output.status truthfully", ({ output, tone, text }) =>
+    expect(contactFeedbackForOutput(output)).toEqual({
       tone,
       message: text,
-    });
-  });
+    }));
 
-  return it("maps rate limits and provider failures without exposing exception details", function () {
+  return it("maps rate limits and provider failures without exposing exception details", () => {
     expect(
       safeContactFailure({
         code: "TOO_MANY_REQUESTS",
@@ -513,8 +508,8 @@ describe("contact gateway and safe feedback", function () {
   });
 });
 
-describe("ContactForm", function () {
-  it("renders a mobile-safe accessible form with bounded fields and an inert honeypot", function () {
+describe("ContactForm", () => {
+  it("renders a mobile-safe accessible form with bounded fields and an inert honeypot", () => {
     const html = renderToStaticMarkup(
       <ContactForm gateway={{ submit: vi.fn() }} />
     );
@@ -569,12 +564,7 @@ describe("ContactForm", function () {
       surface: "bg-destructive-subtle",
       text: "Email delivery is temporarily unavailable. Your message was not sent. Try again later.",
     },
-  ] as const)("announces $tone feedback", function ({
-    tone,
-    role,
-    surface,
-    text,
-  }) {
+  ] as const)("announces $tone feedback", ({ tone, role, surface, text }) => {
     const html = renderToStaticMarkup(
       <ContactStatus feedback={{ tone, message: text }} />
     );
@@ -585,8 +575,8 @@ describe("ContactForm", function () {
   });
 });
 
-describe("contact client edge paths", function () {
-  it("creates the same-origin browser gateway through the typed client", async function () {
+describe("contact client edge paths", () => {
+  it("creates the same-origin browser gateway through the typed client", async () => {
     const submit = vi.fn().mockResolvedValue({ status: "previewed" });
     contactApiRuntime.configure(
       () =>
@@ -609,13 +599,12 @@ describe("contact client edge paths", function () {
     return expect(submit).toHaveBeenCalledWith(validValues);
   });
 
-  it("fails closed for unsupported delivery statuses", function () {
-    return expect(() =>
+  it("fails closed for unsupported delivery statuses", () =>
+    expect(() =>
       contactFeedbackForOutput({
         status: "queued",
       } as never)
-    ).toThrowError("Unsupported contact delivery status");
-  });
+    ).toThrowError("Unsupported contact delivery status"));
 
   return it.each([
     {
@@ -656,18 +645,17 @@ describe("contact client edge paths", function () {
       error: { data: { code: "VALIDATION_ERROR" } },
       message: "Check the highlighted fields and try again.",
     },
-  ])("maps opaque error shape $error without leaking details", function ({
+  ])("maps opaque error shape $error without leaking details", ({
     error,
     message,
-  }) {
-    return expect(safeContactFailure(error)).toEqual({
+  }) =>
+    expect(safeContactFailure(error)).toEqual({
       tone: "error",
       message,
-    });
-  });
+    }));
 });
 
-describe("ContactForm browser behavior", function () {
+describe("ContactForm browser behavior", () => {
   const fillValidFields = (): void => {
     contactFormRuntime.changeText("name", validValues.name);
     contactFormRuntime.changeText("email", validValues.email);
@@ -689,7 +677,7 @@ describe("ContactForm browser behavior", function () {
     return event;
   };
 
-  it("announces submitted validation errors, focuses the first invalid field, and clears the summary on edit", async function () {
+  it("announces submitted validation errors, focuses the first invalid field, and clears the summary on edit", async () => {
     const browser = installContactBrowser();
     const validationFocus = vi.fn();
     browser.setValidationTarget({ focus: validationFocus });
@@ -744,7 +732,7 @@ describe("ContactForm browser behavior", function () {
     );
   });
 
-  it("uses the browser gateway once, trims visible fields, exposes pending state, and resets after delivery", async function () {
+  it("uses the browser gateway once, trims visible fields, exposes pending state, and resets after delivery", async () => {
     const browser = installContactBrowser();
     const statusFocus = vi.fn();
     browser.setStatusTarget({ focus: statusFocus });
@@ -811,7 +799,7 @@ describe("ContactForm browser behavior", function () {
     return expect(statusFocus).toHaveBeenCalledOnce();
   });
 
-  return it("retains entries on a safe failure, clears stale feedback during retry, and reports preview delivery", async function () {
+  return it("retains entries on a safe failure, clears stale feedback during retry, and reports preview delivery", async () => {
     const browser = installContactBrowser();
     browser.setStatusTarget(null);
     let resolveRetry!: (value: { status: "previewed" }) => void;

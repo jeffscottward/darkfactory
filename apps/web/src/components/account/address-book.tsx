@@ -1,17 +1,17 @@
 import type { AddressOutput } from "@darkfactory/api";
 import {
   Button,
+  buttonVariants,
   EmptyState,
   Skeleton,
   StatusBadge,
-  buttonVariants,
 } from "@darkfactory/ui";
 import { MapPin, Plus, RotateCcw } from "lucide-react";
 
 import type { AccountFailureKind } from "./account-client.ts";
 import {
-  AccountFeedbackMessage,
   type AccountFeedback,
+  AccountFeedbackMessage,
 } from "./account-feedback.tsx";
 
 export type AddressBookState =
@@ -40,7 +40,7 @@ const LoadingAddresses = () => (
   <div aria-busy="true" aria-live="polite" className="space-y-4" role="status">
     <span className="sr-only">Loading addresses</span>
     {["one", "two"].map((key) => (
-      <div className="space-y-3 border-b border-border py-5" key={key}>
+      <div className="space-y-3 border-border border-b py-5" key={key}>
         <Skeleton className="h-5 w-32" />
         <Skeleton className="h-4 w-72 max-w-full" />
         <Skeleton className="h-11 w-48 max-w-full" />
@@ -119,7 +119,7 @@ export const AddressBook = ({
     <div className="space-y-4">
       <AccountFeedbackMessage feedback={feedback} />
       <div
-        className="divide-y divide-border border-y border-border"
+        className="divide-y divide-border border-border border-y"
         role="list"
       >
         {state.addresses.map((address) => {
@@ -135,14 +135,14 @@ export const AddressBook = ({
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="font-heading text-lg font-semibold capitalize text-foreground">
+                  <h2 className="font-heading font-semibold text-foreground text-lg capitalize">
                     {address.type}
                   </h2>
                   {address.isPrimary ? (
                     <StatusBadge status="success">Primary</StatusBadge>
                   ) : null}
                 </div>
-                <address className="break-words not-italic text-sm leading-6 text-muted-foreground">
+                <address className="break-words text-muted-foreground text-sm not-italic leading-6">
                   <span className="block">{address.line1}</span>
                   {address.line2 === null ? null : (
                     <span className="block">{address.line2}</span>
@@ -155,14 +155,14 @@ export const AddressBook = ({
               </div>
               {isConfirming ? (
                 <div
-                  className="max-w-sm space-y-3 border-l-2 border-destructive pl-4"
-                  role="alertdialog"
                   aria-label={`Confirm removal of ${label}`}
+                  className="max-w-sm space-y-3 border-destructive border-l-2 pl-4"
+                  role="alertdialog"
                 >
-                  <p className="text-sm font-medium text-foreground">
+                  <p className="font-medium text-foreground text-sm">
                     Remove this address?
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-muted-foreground text-sm">
                     This cannot be undone.
                   </p>
                   <div className="flex flex-wrap gap-2">

@@ -84,8 +84,8 @@ const runRscScanBuild = () => {
   );
 };
 
-describe("UI client Vinext compatibility", function () {
-  return it("imports every client export through the actual Vite RSC scan-strip path", function () {
+describe("UI client Vinext compatibility", () =>
+  it("imports every client export through the actual Vite RSC scan-strip path", () => {
     const result = runRscScanBuild();
     const output = `${result.stdout}\n${result.stderr}`;
 
@@ -97,5 +97,4 @@ describe("UI client Vinext compatibility", function () {
       "theme.ts",
       "toaster.ts",
     ]);
-  });
-});
+  }));

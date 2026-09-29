@@ -1,15 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { ExternalLink, Menu, X } from "lucide-react";
 import { IconButton } from "@darkfactory/ui";
+import { ExternalLink, Menu, X } from "lucide-react";
+import type { ReactNode } from "react";
 
 import {
   ACCOUNT_NAVIGATION,
   ADMIN_NAVIGATION,
   EXPOSED_ROUTE_PATHS,
-  PORTAL_NAVIGATION,
   isRouteExposed,
+  PORTAL_NAVIGATION,
 } from "../lib/navigation.ts";
 import { SignOutAction } from "./account/sign-out-action.tsx";
 import { BrandLink } from "./brand-mark.tsx";
@@ -51,7 +51,7 @@ const PortalNavigation = ({
     (!isAdmin || adminItems.length === 0)
   ) {
     return (
-      <p className="px-3 text-sm leading-6 text-muted-foreground" role="status">
+      <p className="px-3 text-muted-foreground text-sm leading-6" role="status">
         Portal destinations appear as their page implementations become
         available.
       </p>
@@ -64,7 +64,7 @@ const PortalNavigation = ({
         <nav
           aria-label={mobile ? "Mobile portal navigation" : "Portal navigation"}
         >
-          <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
+          <p className="mb-2 px-3 font-semibold text-muted-foreground text-xs tracking-wide">
             Workspace
           </p>
           <NavigationLinks
@@ -82,7 +82,7 @@ const PortalNavigation = ({
             mobile ? "Mobile account navigation" : "Account navigation"
           }
         >
-          <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
+          <p className="mb-2 px-3 font-semibold text-muted-foreground text-xs tracking-wide">
             Account settings
           </p>
           <NavigationLinks
@@ -102,7 +102,7 @@ const PortalNavigation = ({
               : "Administration navigation"
           }
         >
-          <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
+          <p className="mb-2 px-3 font-semibold text-muted-foreground text-xs tracking-wide">
             Administration
           </p>
           <NavigationLinks
@@ -122,16 +122,16 @@ export const PortalSidebar = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
   isAdmin = false,
 }: PortalNavigationProps) => (
-  <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col">
-    <div className="flex min-h-16 items-center border-b border-border px-4">
+  <aside className="fixed inset-y-0 left-0 hidden w-64 border-border border-r bg-surface lg:flex lg:flex-col">
+    <div className="flex min-h-16 items-center border-border border-b px-4">
       <BrandLink />
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-6">
       <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} />
     </div>
-    <div className="border-t border-border p-3">
+    <div className="border-border border-t p-3">
       <a
-        className="inline-flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        className="inline-flex min-h-11 w-full items-center gap-3 rounded-md px-3 font-medium text-muted-foreground text-sm transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         href="/"
       >
         <ExternalLink aria-hidden="true" className="size-5" />
@@ -145,7 +145,7 @@ export const PortalTopbar = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
   isAdmin = false,
 }: PortalNavigationProps) => (
-  <header className="sticky top-0 z-overlay border-b border-border bg-background">
+  <header className="sticky top-0 z-overlay border-border border-b bg-background">
     <div className="flex min-h-16 items-center justify-between gap-4 px-4 md:px-6 lg:px-10">
       <div className="flex items-center gap-2">
         <IconButton
@@ -160,7 +160,7 @@ export const PortalTopbar = ({
         <div
           aria-describedby="portal-navigation-description"
           aria-labelledby="portal-navigation-title"
-          className="fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-dvh w-full max-w-sm overflow-y-auto rounded-none border-y-0 border-l-0 border-r border-border bg-background p-6 text-foreground shadow-xl backdrop:bg-black/50 lg:hidden"
+          className="fixed inset-y-0 right-auto left-0 m-0 h-dvh max-h-dvh w-full max-w-sm overflow-y-auto rounded-none border-border border-y-0 border-r border-l-0 bg-background p-6 text-foreground shadow-xl backdrop:bg-black/50 lg:hidden"
           id="portal-navigation"
           popover="auto"
           role="dialog"
@@ -168,13 +168,13 @@ export const PortalTopbar = ({
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
               <h2
-                className="text-lg font-semibold"
+                className="font-semibold text-lg"
                 id="portal-navigation-title"
               >
                 Portal navigation
               </h2>
               <p
-                className="mt-1 text-sm leading-6 text-muted-foreground"
+                className="mt-1 text-muted-foreground text-sm leading-6"
                 id="portal-navigation-description"
               >
                 Open portal and account destinations.
@@ -196,7 +196,7 @@ export const PortalTopbar = ({
             mobile
           />
         </div>
-        <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
+        <span className="hidden font-medium text-muted-foreground text-sm sm:inline">
           Application portal
         </span>
       </div>

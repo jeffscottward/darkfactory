@@ -8,8 +8,8 @@ vi.mock("./handler.ts", () => ({ handleOperatorOrpcRequest }));
 
 import { GET, POST } from "./route.ts";
 
-describe("operator oRPC route exports", function () {
-  return it("delegates GET and POST to the composed oRPC handler", async function () {
+describe("operator oRPC route exports", () =>
+  it("delegates GET and POST to the composed oRPC handler", async () => {
     const getRequest = new Request(
       "https://operator.darkfactory.localhost/api/orpc/operator/workspace"
     );
@@ -26,5 +26,4 @@ describe("operator oRPC route exports", function () {
       2,
       postRequest
     );
-  });
-});
+  }));

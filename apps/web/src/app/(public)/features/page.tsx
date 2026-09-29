@@ -54,26 +54,26 @@ export default function FeaturesPage() {
       >
         <div className="md:col-span-4">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="core-capabilities-title"
           >
             The stable application core
           </h2>
-          <p className="mt-4 text-base leading-7 text-muted-foreground">
+          <p className="mt-4 text-base text-muted-foreground leading-7">
             Framework glue points inward. Product behavior stays in application
             and domain code rather than route handlers or adapters.
           </p>
         </div>
-        <dl className="divide-y divide-border border-y border-border md:col-span-7 md:col-start-6">
+        <dl className="divide-y divide-border border-border border-y md:col-span-7 md:col-start-6">
           {coreCapabilities.map((capability) => (
             <div
               className="grid gap-3 py-8 sm:grid-cols-5"
               key={capability.title}
             >
-              <dt className="font-heading text-xl font-semibold tracking-tight text-foreground sm:col-span-2">
+              <dt className="font-heading font-semibold text-foreground text-xl tracking-tight sm:col-span-2">
                 {capability.title}
               </dt>
-              <dd className="text-base leading-7 text-muted-foreground sm:col-span-3">
+              <dd className="text-base text-muted-foreground leading-7 sm:col-span-3">
                 {capability.body}
               </dd>
             </div>
@@ -83,15 +83,15 @@ export default function FeaturesPage() {
 
       <section
         aria-labelledby="operations-title"
-        className="border-y border-border bg-surface py-16 md:py-20"
+        className="border-border border-y bg-surface py-16 md:py-20"
       >
         <div className="grid gap-10 md:grid-cols-12">
           <div className="md:col-span-5">
-            <p className="text-sm font-semibold tracking-wide text-primary">
+            <p className="font-semibold text-primary text-sm tracking-wide">
               Operational confidence
             </p>
             <h2
-              className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+              className="mt-4 font-heading font-semibold text-3xl text-foreground tracking-tight"
               id="operations-title"
             >
               Evidence without provider lock-in.
@@ -100,10 +100,10 @@ export default function FeaturesPage() {
           <div className="grid gap-8 md:col-span-6 md:col-start-7">
             {operationalCapabilities.map((capability) => (
               <article key={capability.title}>
-                <h3 className="font-heading text-xl font-semibold tracking-tight text-foreground">
+                <h3 className="font-heading font-semibold text-foreground text-xl tracking-tight">
                   {capability.title}
                 </h3>
-                <p className="mt-3 text-base leading-7 text-muted-foreground">
+                <p className="mt-3 text-base text-muted-foreground leading-7">
                   {capability.body}
                 </p>
               </article>
@@ -117,16 +117,16 @@ export default function FeaturesPage() {
         className="grid gap-12 py-16 md:grid-cols-12 md:py-20"
       >
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">
+          <p className="font-semibold text-primary text-sm tracking-wide">
             Feature generation
           </p>
           <h2
-            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="mt-4 font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="generator-title"
           >
             A safe workflow, not a string-replacement shortcut.
           </h2>
-          <p className="mt-5 text-base leading-7 text-muted-foreground">
+          <p className="mt-5 text-base text-muted-foreground leading-7">
             The generator contract updates the feature name, contracts, routes,
             database plan, tests, exports, documentation, and repository graph
             together. Existing targets are never silently overwritten.
@@ -140,17 +140,17 @@ export default function FeaturesPage() {
             {["Parse", "Validate", "Plan", "Apply", "Verify", "Report"].map(
               (stage, index) => (
                 <li className="min-h-24 bg-background p-4" key={stage}>
-                  <span className="text-sm font-semibold text-muted-foreground">
+                  <span className="font-semibold text-muted-foreground text-sm">
                     0{index + 1}
                   </span>
-                  <p className="mt-2 font-heading text-lg font-semibold text-foreground">
+                  <p className="mt-2 font-heading font-semibold text-foreground text-lg">
                     {stage}
                   </p>
                 </li>
               )
             )}
           </ol>
-          <p className="mt-5 text-sm leading-6 text-muted-foreground">
+          <p className="mt-5 text-muted-foreground text-sm leading-6">
             The CLI delegates to these composed stages; business and filesystem
             rules do not accumulate in the command handler.
           </p>
@@ -159,16 +159,16 @@ export default function FeaturesPage() {
 
       <section
         aria-labelledby="features-next-title"
-        className="grid gap-8 border-t border-border pt-12 md:grid-cols-12 md:items-end"
+        className="grid gap-8 border-border border-t pt-12 md:grid-cols-12 md:items-end"
       >
         <div className="md:col-span-7">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="features-next-title"
           >
             See how the same foundation adapts.
           </h2>
-          <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
+          <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
             The solution archetypes are explicitly examples. They show possible
             compositions without claiming that DarkFactory ships a finished
             vertical product.

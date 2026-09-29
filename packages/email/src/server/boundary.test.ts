@@ -5,12 +5,11 @@ import { describe, expect, it } from "vitest";
 
 const workspaceRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 
-describe("email package boundaries", function () {
-  it("keeps the public root runtime-free", async function () {
-    return expect(Object.keys(await import("../index.ts"))).toEqual([]);
-  });
+describe("email package boundaries", () => {
+  it("keeps the public root runtime-free", async () =>
+    expect(Object.keys(await import("../index.ts"))).toEqual([]));
 
-  it("defers Node-only preview path resolution until preview selection", async function () {
+  it("defers Node-only preview path resolution until preview selection", async () => {
     const previewSources = await Promise.all([
       readFile(new URL("./preview.ts", import.meta.url), "utf8"),
       readFile(new URL("./contact-preview.ts", import.meta.url), "utf8"),
@@ -26,7 +25,7 @@ describe("email package boundaries", function () {
     return results;
   });
 
-  return it("routes browser server imports to a provider-free poison module", async function () {
+  return it("routes browser server imports to a provider-free poison module", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     );

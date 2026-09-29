@@ -26,10 +26,9 @@ const validatedThemePreference = (
   const palette = Reflect.get(value, "palette");
   const updatedAt = Reflect.get(value, "updatedAt");
   if (
-    !isThemeMode(themeMode) ||
-    !isPalette(palette) ||
+    !(isThemeMode(themeMode) && isPalette(palette)) ||
     (updatedAt !== null &&
-      (!(updatedAt instanceof Date) || !Number.isFinite(updatedAt.getTime())))
+      !(updatedAt instanceof Date && Number.isFinite(updatedAt.getTime())))
   )
     return null;
   return { themeMode, palette, updatedAt };

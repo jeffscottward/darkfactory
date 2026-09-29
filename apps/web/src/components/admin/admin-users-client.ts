@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  createApiClient,
   type AdminUsersListInput,
   type AdminUsersListOutput,
   type ApiClient,
+  createApiClient,
 } from "@darkfactory/api";
 
 export interface AdminUsersGateway {

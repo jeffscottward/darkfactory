@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { createAuthClient } from "@darkfactory/auth/client";
 import { Button, Input, Label } from "@darkfactory/ui";
+import { useState } from "react";
 
 import { safeOperatorCallbackPath } from "../server/operator-environment.ts";
 
@@ -98,7 +98,7 @@ export const OperatorSignIn = ({
         />
       </div>
       {failure.length === 0 ? null : (
-        <p className="text-sm font-medium text-destructive" role="alert">
+        <p className="font-medium text-destructive text-sm" role="alert">
           {failure}
         </p>
       )}

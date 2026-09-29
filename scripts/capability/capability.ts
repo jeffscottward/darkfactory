@@ -67,13 +67,13 @@ export const parseCapabilityArguments = (
       throw new Error("Unknown capability argument");
     }
   }
-  if (!name || !SLUG.test(name))
+  if (!(name && SLUG.test(name)))
     throw new Error("Capability name must be a lowercase kebab-case name");
   if (!SUPPORTED_DESCRIPTORS[name])
     throw new Error(
       "Capability descriptor is not supported by the v0.1 manifest"
     );
-  if (!provider || !SLUG.test(provider))
+  if (!(provider && SLUG.test(provider)))
     throw new Error("Capability provider must be a lowercase kebab-case name");
   return Object.freeze({ name, provider, apply });
 };
@@ -106,10 +106,10 @@ const manifestCapability = (
   if (!match || match.index === undefined)
     throw new Error("Capability is not declared in the v0.1 manifest");
   const after = section.slice(match.index + match[0].length);
-  const next = after.search(/^  [a-z][a-z0-9_]*:\s*$/m);
+  const next = after.search(/^ {2}[a-z][a-z0-9_]*:\s*$/m);
   const block = next < 0 ? after : after.slice(0, next);
-  const provider = /^    provider:\s*([a-z][a-z0-9-]*)\s*$/m.exec(block)?.[1];
-  const enabled = /^    enabled:\s*(true|false)\s*$/m.exec(block)?.[1];
+  const provider = /^ {4}provider:\s*([a-z][a-z0-9-]*)\s*$/m.exec(block)?.[1];
+  const enabled = /^ {4}enabled:\s*(true|false)\s*$/m.exec(block)?.[1];
   if (!provider || enabled === undefined)
     throw new Error("Capability manifest entry is malformed");
   return Object.freeze({ provider, enabled: enabled === "true" });

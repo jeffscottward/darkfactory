@@ -14,11 +14,11 @@ import {
   createOperatorGateway,
   createOperatorIdempotencyKey,
   createOperatorIdempotencyKeySlot,
-  submitOperatorRun,
   type OperatorApprovalBinding,
   type OperatorGateway,
   type OperatorRunDetailOutput,
   type OperatorWorkspaceOutput,
+  submitOperatorRun,
 } from "./operator-client.ts";
 
 const workspace: OperatorWorkspaceOutput = { runs: [] };
@@ -62,14 +62,14 @@ const wayfinderQueued = {
   tracker: "local-markdown" as const,
 };
 
-afterEach(function () {
+afterEach(() => {
   operatorTransport.createOperatorClient.mockReset();
   vi.unstubAllGlobals();
   return vi.restoreAllMocks();
 });
 
-describe("operator oRPC transport", function () {
-  it("maps every gateway operation to the typed operator contract", async function () {
+describe("operator oRPC transport", () => {
+  it("maps every gateway operation to the typed operator contract", async () => {
     const operator = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => workspace),
@@ -159,7 +159,7 @@ describe("operator oRPC transport", function () {
     });
   });
 
-  it("reuses one idempotency key until a logical payload is deliberately changed", function () {
+  it("reuses one idempotency key until a logical payload is deliberately changed", () => {
     const keys = ["attempt-1", "attempt-2"];
     const createKey = vi.fn(() => keys.shift()!);
     const slot = createOperatorIdempotencyKeySlot(createKey);
@@ -173,7 +173,7 @@ describe("operator oRPC transport", function () {
     return expect(createKey).toHaveBeenCalledTimes(2);
   });
 
-  it("submits the exact bounded scope, refreshes the workspace, and returns the selected run", async function () {
+  it("submits the exact bounded scope, refreshes the workspace, and returns the selected run", async () => {
     const refreshedWorkspace: OperatorWorkspaceOutput = { runs: [detail.run] };
     const gateway = {
       submit: vi.fn(async () => detail),
@@ -205,7 +205,7 @@ describe("operator oRPC transport", function () {
     });
   });
 
-  it("passes blank, absolute, and traversal paths to the existing API contract unchanged", async function () {
+  it("passes blank, absolute, and traversal paths to the existing API contract unchanged", async () => {
     const rejection = { code: "BAD_REQUEST", message: "raw validation detail" };
     const gateway = {
       submit: vi.fn(async () => {
@@ -236,7 +236,7 @@ describe("operator oRPC transport", function () {
     return expect(gateway.workspace).not.toHaveBeenCalled();
   });
 
-  it("keeps a successful selection when the workspace refresh fails safely", async function () {
+  it("keeps a successful selection when the workspace refresh fails safely", async () => {
     const gateway = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => {
@@ -263,7 +263,7 @@ describe("operator oRPC transport", function () {
     });
   });
 
-  it("classifies stale approval conflicts without exposing thrown details", function () {
+  it("classifies stale approval conflicts without exposing thrown details", () => {
     expect(
       classifyOperatorFailure({
         code: "STALE_APPROVAL",
@@ -292,7 +292,7 @@ describe("operator oRPC transport", function () {
     });
   });
 
-  it("lazily creates one browser client and delegates every operation through it", async function () {
+  it("lazily creates one browser client and delegates every operation through it", async () => {
     const operator = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => workspace),
@@ -374,7 +374,7 @@ describe("operator oRPC transport", function () {
     });
   });
 
-  it("classifies every public transport failure without leaking provider details", function () {
+  it("classifies every public transport failure without leaking provider details", () => {
     const cases = [
       [
         { code: "UNAUTHORIZED" },
@@ -452,7 +452,7 @@ describe("operator oRPC transport", function () {
     });
   });
 
-  return it("uses the platform UUID callback by default and rotates only after invalidation", function () {
+  return it("uses the platform UUID callback by default and rotates only after invalidation", () => {
     const randomUUID = vi
       .fn()
       .mockReturnValueOnce("direct-key")

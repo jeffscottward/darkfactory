@@ -1,13 +1,13 @@
 import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
-import { type AddressInfo, createConnection, createServer } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { type AddressInfo, createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runOwnedCommand, type ProcessSignals } from "./process.ts";
+import { type ProcessSignals, runOwnedCommand } from "./process.ts";
 
 const commandOptions = Object.freeze({
   cwd: process.cwd(),
@@ -46,7 +46,7 @@ const portAcceptsConnections = async (port: number): Promise<boolean> => {
 };
 
 const waitForListeningPort = async (port: number): Promise<void> => {
-  const deadline = Date.now() + 3_000;
+  const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
     if (await portAcceptsConnections(port)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -54,7 +54,7 @@ const waitForListeningPort = async (port: number): Promise<void> => {
   throw new Error("Timed out waiting for descendant TCP fixture");
 };
 const waitForFileContents = async (path: string): Promise<string> => {
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
     const contents = await readFile(path, "utf8").catch(() => undefined);
     if (contents !== undefined) return contents;
@@ -249,7 +249,7 @@ describe("owned E2E command lifecycle", () => {
     const resultPromise = runOwnedCommand(
       process.execPath,
       ["--input-type=module", "--eval", processTreeScript(port, true)],
-      { ...commandOptions, maxOutputBytes: 256, timeoutMillis: 5_000 }
+      { ...commandOptions, maxOutputBytes: 256, timeoutMillis: 5000 }
     );
     await waitForListeningPort(port);
     const result = await resultPromise;
@@ -263,7 +263,7 @@ describe("owned E2E command lifecycle", () => {
     const resultPromise = runOwnedCommand(
       process.execPath,
       ["--input-type=module", "--eval", processTreeScript(port, false)],
-      { ...commandOptions, timeoutMillis: 1_000 }
+      { ...commandOptions, timeoutMillis: 1000 }
     );
     await waitForListeningPort(port);
     return await expectPortStoppedWithoutTreeProof(await resultPromise, port);
@@ -355,7 +355,7 @@ describe("owned E2E command lifecycle", () => {
       const resultPromise = runOwnedCommand(
         process.execPath,
         ["--input-type=module", "--eval", processTreeScript(port, false)],
-        { ...commandOptions, signals, timeoutMillis: 5_000 }
+        { ...commandOptions, signals, timeoutMillis: 5000 }
       );
       await waitForListeningPort(port);
       listeners.get(signal)?.();
@@ -383,7 +383,7 @@ describe("owned E2E command lifecycle", () => {
         ...commandOptions,
         signals,
         terminateTree: async () => false,
-        timeoutMillis: 5_000,
+        timeoutMillis: 5000,
       }
     );
 
@@ -433,7 +433,7 @@ type FakeOwnedChild = EventEmitter &
 
 const fakeOwnedChild = (): FakeOwnedChild =>
   Object.assign(new EventEmitter(), {
-    pid: 9_999,
+    pid: 9999,
     stderr: new PassThrough(),
     stdout: new PassThrough(),
   });

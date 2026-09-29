@@ -37,7 +37,7 @@ export default function AboutPage() {
         <h2 className="sr-only" id="principles-title">
           DarkFactory principles
         </h2>
-        <ol className="divide-y divide-border border-y border-border">
+        <ol className="divide-y divide-border border-border border-y">
           {principles.map((principle, index) => (
             <li
               className="grid gap-6 py-10 md:grid-cols-12 md:py-12"
@@ -45,14 +45,14 @@ export default function AboutPage() {
             >
               <p
                 aria-hidden="true"
-                className="text-sm font-semibold text-muted-foreground md:col-span-1"
+                className="font-semibold text-muted-foreground text-sm md:col-span-1"
               >
                 0{index + 1}
               </p>
-              <h3 className="font-heading text-3xl font-semibold tracking-tight text-foreground md:col-span-4">
+              <h3 className="font-heading font-semibold text-3xl text-foreground tracking-tight md:col-span-4">
                 {principle.title}
               </h3>
-              <p className="text-lg leading-8 text-muted-foreground md:col-span-6 md:col-start-7">
+              <p className="text-lg text-muted-foreground leading-8 md:col-span-6 md:col-start-7">
                 {principle.body}
               </p>
             </li>
@@ -62,56 +62,56 @@ export default function AboutPage() {
 
       <section
         aria-labelledby="classification-title"
-        className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-12 border-border border-y bg-surface py-16 md:grid-cols-12 md:py-20"
       >
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">
+          <p className="font-semibold text-primary text-sm tracking-wide">
             A shared vocabulary
           </p>
           <h2
-            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="mt-4 font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="classification-title"
           >
             Every decision declares what kind of decision it is.
           </h2>
-          <p className="mt-5 text-base leading-7 text-muted-foreground">
+          <p className="mt-5 text-base text-muted-foreground leading-7">
             The classification prevents today’s provider or file layout from
             becoming tomorrow’s accidental architecture.
           </p>
         </div>
-        <dl className="divide-y divide-border border-y border-border md:col-span-6 md:col-start-7">
+        <dl className="divide-y divide-border border-border border-y md:col-span-6 md:col-start-7">
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Core
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               Present in every DarkFactory project and changed only through an
               explicit architecture decision.
             </dd>
           </div>
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Capability
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               Optional, intentionally enabled, and removable through a declared
               manifest and adapter boundary.
             </dd>
           </div>
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Convention
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               A rule contributors and agents follow consistently across the
               repository.
             </dd>
           </div>
           <div className="py-5">
-            <dt className="font-heading text-xl font-semibold text-foreground">
+            <dt className="font-heading font-semibold text-foreground text-xl">
               Implementation
             </dt>
-            <dd className="mt-2 text-base leading-7 text-muted-foreground">
+            <dd className="mt-2 text-base text-muted-foreground leading-7">
               A replaceable mechanism that may change while its contract and
               responsibility remain stable.
             </dd>
@@ -125,12 +125,12 @@ export default function AboutPage() {
       >
         <div className="md:col-span-7">
           <h2
-            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            className="font-heading font-semibold text-3xl text-foreground tracking-tight"
             id="about-next-title"
           >
             Evaluate the system from its observable boundaries.
           </h2>
-          <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
+          <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
             Start with the capability overview, then follow the generated
             contracts and implementation sources rather than relying on this
             summary alone.

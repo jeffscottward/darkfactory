@@ -1,20 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  GENESIS_WORKFLOW_JOURNAL_HASH,
-  MAX_WORKFLOW_REPOSITORY_ID_BYTES,
-  MAX_WORKFLOW_SCOPE_BYTES,
-  MAX_WORKFLOW_SCOPE_PATH_BYTES,
-  MAX_WORKFLOW_SCOPE_PATHS,
-  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
-  WORKFLOW_GRAPH_V1,
-  WORKFLOW_MACHINE_ID,
   approvalHashMaterialV1,
   assertWorkflowEventV1,
   assertWorkflowSnapshotV1,
   canonicalJsonV1,
   createInitialWorkflowSnapshotV1,
   createWorkflowApprovalBindingV1,
+  GENESIS_WORKFLOW_JOURNAL_HASH,
   hashWorkflowApprovalV1,
   hashWorkflowEffectProposalV1,
   hashWorkflowJournalEntryV1,
@@ -26,19 +19,26 @@ import {
   isWorkflowSnapshotV1,
   isWorkflowStateV1,
   journalHashMaterialV1,
+  MAX_WORKFLOW_REPOSITORY_ID_BYTES,
+  MAX_WORKFLOW_SCOPE_BYTES,
+  MAX_WORKFLOW_SCOPE_PATH_BYTES,
+  MAX_WORKFLOW_SCOPE_PATHS,
+  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
   parseWorkflowEffectScopeV1,
   replayWorkflowV1,
   sha256Hex,
   transitionWorkflowV1,
   verifyWorkflowApprovalBindingV1,
   verifyWorkflowProjectionV1,
-  workflowMachineV1,
-  WorkflowRetryLimitReachedError,
+  WORKFLOW_GRAPH_V1,
+  WORKFLOW_MACHINE_ID,
   type WorkflowEffectKindV1,
   type WorkflowEffectScopeV1,
   type WorkflowEventV1,
   type WorkflowJournalEntryV1,
+  WorkflowRetryLimitReachedError,
   type WorkflowSnapshotV1,
+  workflowMachineV1,
 } from "./index.ts";
 
 const H = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -144,8 +144,8 @@ const blockedAt = (
   };
 };
 
-describe("workflow v1 contract", function () {
-  it("exports the complete XState graph and stable identity", function () {
+describe("workflow v1 contract", () => {
+  it("exports the complete XState graph and stable identity", () => {
     expect(workflowMachineV1.id).toBe(WORKFLOW_MACHINE_ID);
     expect(Object.keys(WORKFLOW_GRAPH_V1)).toEqual([
       "draft",
@@ -164,7 +164,7 @@ describe("workflow v1 contract", function () {
     });
   });
 
-  it("rejects non-canonical or oversized scope at submission", function () {
+  it("rejects non-canonical or oversized scope at submission", () => {
     const invalidScopes: readonly unknown[] = [
       { repositoryId: "../darkfactory", paths: ["packages/state"] },
       { repositoryId: "darkfactory", paths: ["/packages/state"] },
@@ -198,7 +198,7 @@ describe("workflow v1 contract", function () {
     return results;
   });
 
-  it("completes the successful path with bounded hash/id payloads", function () {
+  it("completes the successful path with bounded hash/id payloads", () => {
     const p = live(initial(), submit());
     expect(p.snapshot.state).toBe("planning");
     expect(p.effects[0]).toMatchObject({
@@ -240,7 +240,7 @@ describe("workflow v1 contract", function () {
     return expect(done.effects).toEqual([]);
   });
 
-  it("rejects approval into the cancelled terminal state", function () {
+  it("rejects approval into the cancelled terminal state", () => {
     const result = live(awaitingApproval(), {
       ...base("reject"),
       type: "APPROVAL_REJECTED",
@@ -251,7 +251,7 @@ describe("workflow v1 contract", function () {
     return expect(result.effects).toEqual([]);
   });
 
-  it("requests a bounded plan revision and invalidates the stale approval binding", function () {
+  it("requests a bounded plan revision and invalidates the stale approval binding", () => {
     const submitted = live(initial(), submit());
     const awaiting = live(submitted.snapshot, plan()).snapshot;
     const staleApproval = approve(awaiting);
@@ -300,7 +300,7 @@ describe("workflow v1 contract", function () {
     );
   });
 
-  it("accepts plan revision only while awaiting approval or blocked in planning", function () {
+  it("accepts plan revision only while awaiting approval or blocked in planning", () => {
     const planningBlocked = live(planning(), {
       ...base("failed-plan-before-revision"),
       type: "EFFECT_FAILED",
@@ -342,7 +342,7 @@ describe("workflow v1 contract", function () {
     return results1;
   });
 
-  it("rejects empty, control-bearing, and oversized plan clarifications", function () {
+  it("rejects empty, control-bearing, and oversized plan clarifications", () => {
     const results2 = [];
     for (const clarification of [
       "",
@@ -388,7 +388,7 @@ describe("workflow v1 contract", function () {
     return expect(retry.snapshot.context.failedStage).toBeNull();
   });
 
-  it("blocks VERIFICATION_FAILED and permits a fenced verification retry", function () {
+  it("blocks VERIFICATION_FAILED and permits a fenced verification retry", () => {
     const blocked = live(verifying(), {
       ...base("verification-failed"),
       type: "VERIFICATION_FAILED",
@@ -457,7 +457,7 @@ describe("workflow v1 contract", function () {
     ).toThrow("Invalid workflow snapshot");
   });
 
-  it("preserves capped attempts through snapshot JSON roundtrip", function () {
+  it("preserves capped attempts through snapshot JSON roundtrip", () => {
     const capped = blockedAt(
       "planning",
       "plan",
@@ -512,7 +512,7 @@ describe("workflow v1 contract", function () {
     return expect(cancelled.snapshot.state).toBe("cancelled");
   });
 
-  return it("rejects bad versions, states, transitions, effect ownership, and terminal mutations", function () {
+  return it("rejects bad versions, states, transitions, effect ownership, and terminal mutations", () => {
     expect(() =>
       transitionWorkflowV1(
         { ...initial(), machineVersion: 2 } as never,
@@ -554,8 +554,8 @@ describe("workflow v1 contract", function () {
   });
 });
 
-describe("canonical hashes and replay", function () {
-  it("canonicalizes recursively and hashes with standard SHA-256", function () {
+describe("canonical hashes and replay", () => {
+  it("canonicalizes recursively and hashes with standard SHA-256", () => {
     expect(canonicalJsonV1({ b: 1, a: [3, { y: 2, x: 1 }] })).toBe(
       '{"a":[3,{"x":1,"y":2}],"b":1}'
     );
@@ -569,7 +569,7 @@ describe("canonical hashes and replay", function () {
     return expect(() => canonicalJsonV1(cyclic)).toThrow("cyclic");
   });
 
-  it("replays deterministically and emits zero replay effects", function () {
+  it("replays deterministically and emits zero replay effects", () => {
     const start = initial();
     const firstEvent = submit();
     const first = live(start, firstEvent);
@@ -589,7 +589,7 @@ describe("canonical hashes and replay", function () {
     ).toEqual([]);
   });
 
-  return it("counts a replayed manual retry once without emitting an effect", function () {
+  return it("counts a replayed manual retry once without emitting an effect", () => {
     const blocked = blockedAt(
       "planning",
       "plan",
@@ -611,8 +611,8 @@ describe("canonical hashes and replay", function () {
   });
 });
 
-describe("approval and projection integrity", function () {
-  it("binds every stale-sensitive approval field and fails closed", function () {
+describe("approval and projection integrity", () => {
+  it("binds every stale-sensitive approval field and fails closed", () => {
     const snapshot = awaitingApproval();
     const binding = createWorkflowApprovalBindingV1("approval-1", snapshot);
     expect(binding).toMatchObject({
@@ -646,7 +646,7 @@ describe("approval and projection integrity", function () {
     ).toThrow("Stale workflow approval");
   });
 
-  return it("verifies chain hashes and deterministic projections, rejecting corruption", function () {
+  return it("verifies chain hashes and deterministic projections, rejecting corruption", () => {
     const start = initial();
     const event = submit();
     const result = live(start, event);
@@ -676,8 +676,8 @@ describe("approval and projection integrity", function () {
   });
 });
 
-describe("canonical serialization constraints", function () {
-  it("preserves JSON primitives and applies JSON container semantics to unsupported values", function () {
+describe("canonical serialization constraints", () => {
+  it("preserves JSON primitives and applies JSON container semantics to unsupported values", () => {
     expect(canonicalJsonV1(null)).toBe("null");
     expect(canonicalJsonV1(true)).toBe("true");
     expect(canonicalJsonV1("é")).toBe('"é"');
@@ -703,7 +703,7 @@ describe("canonical serialization constraints", function () {
     return results3;
   });
 
-  it("accepts null-prototype records, rejects branded objects, and releases shared ancestors", function () {
+  it("accepts null-prototype records, rejects branded objects, and releases shared ancestors", () => {
     const record = Object.create(null) as Record<string, unknown>;
     record["z"] = 2;
     record["a"] = 1;
@@ -715,7 +715,7 @@ describe("canonical serialization constraints", function () {
     );
   });
 
-  return it("materializes stable approval, effect, and journal hashes", function () {
+  return it("materializes stable approval, effect, and journal hashes", () => {
     const proposal = planning().context.pendingEffect!;
     const journal = {
       sequence: 1,
@@ -744,8 +744,8 @@ describe("canonical serialization constraints", function () {
   });
 });
 
-describe("approval policy transitions", function () {
-  it("requires an awaiting implementation proposal before creating a binding", function () {
+describe("approval policy transitions", () => {
+  it("requires an awaiting implementation proposal before creating a binding", () => {
     expect(() =>
       createWorkflowApprovalBindingV1("approval", initial())
     ).toThrow("requires a pending implementation effect");
@@ -846,7 +846,7 @@ describe("approval policy transitions", function () {
     ).toEqual({ ok: false, reason });
   });
 
-  return it("rejects an approval event whose public ID differs from its valid binding", function () {
+  return it("rejects an approval event whose public ID differs from its valid binding", () => {
     const snapshot = awaitingApproval();
     return expect(() =>
       live(snapshot, {
@@ -857,7 +857,7 @@ describe("approval policy transitions", function () {
   });
 });
 
-describe("projection replay failures", function () {
+describe("projection replay failures", () => {
   const projectionFixture = () => {
     const start = initial();
     const event = submit();
@@ -938,7 +938,7 @@ describe("projection replay failures", function () {
     ).toMatchObject({ ok: false, reason });
   });
 
-  return it("reports replay failure for a valid event that is invalid from the replayed state", function () {
+  return it("reports replay failure for a valid event that is invalid from the replayed state", () => {
     const start = initial();
     const event = verification();
     const entry = {
@@ -965,8 +965,8 @@ describe("projection replay failures", function () {
   });
 });
 
-describe("workflow invariant guards", function () {
-  it("validates portable repository IDs and relative paths at byte boundaries", function () {
+describe("workflow invariant guards", () => {
+  it("validates portable repository IDs and relative paths at byte boundaries", () => {
     expect(
       isWorkflowRepositoryIdV1("a".repeat(MAX_WORKFLOW_REPOSITORY_ID_BYTES))
     ).toBe(true);
@@ -1002,7 +1002,7 @@ describe("workflow invariant guards", function () {
     return results4;
   });
 
-  it("parses and freezes a minimal scope while rejecting shape and total-byte violations", function () {
+  it("parses and freezes a minimal scope while rejecting shape and total-byte violations", () => {
     const parsed = parseWorkflowEffectScopeV1({
       repositoryId: "darkfactory",
       paths: ["."],
@@ -1037,7 +1037,7 @@ describe("workflow invariant guards", function () {
     return results5;
   });
 
-  it("checks public state, approval, event, and snapshot invariants", function () {
+  it("checks public state, approval, event, and snapshot invariants", () => {
     expect(isWorkflowStateV1("blocked")).toBe(true);
     expect(isWorkflowStateV1(null)).toBe(false);
     expect(isWorkflowStateV1("unknown")).toBe(false);
@@ -1062,7 +1062,7 @@ describe("workflow invariant guards", function () {
     ).toBe(false);
   });
 
-  it("rejects malformed failure evidence and every event-specific missing field", function () {
+  it("rejects malformed failure evidence and every event-specific missing field", () => {
     const revisionRequested: WorkflowEventV1 = {
       ...base("revision"),
       type: "PLAN_REVISION_REQUESTED",
@@ -1166,7 +1166,7 @@ describe("workflow invariant guards", function () {
     return expect(isWorkflowEventV1(changingType)).toBe(false);
   });
 
-  return it("distinguishes assertion version, state, and structural failures", function () {
+  return it("distinguishes assertion version, state, and structural failures", () => {
     expect(() => assertWorkflowEventV1(null)).toThrow("Invalid workflow event");
     expect(() => assertWorkflowEventV1({ ...submit(), taskId: "" })).toThrow(
       "Invalid workflow event"
@@ -1190,8 +1190,8 @@ describe("workflow invariant guards", function () {
   });
 });
 
-describe("state machine boundaries", function () {
-  it("requires both initial identifiers and a supported transition mode", function () {
+describe("state machine boundaries", () => {
+  it("requires both initial identifiers and a supported transition mode", () => {
     expect(() =>
       createInitialWorkflowSnapshotV1({ runId: "", ownerId: "owner" })
     ).toThrow("identifiers are required");
@@ -1203,7 +1203,7 @@ describe("state machine boundaries", function () {
     ).toThrow("Invalid transition mode");
   });
 
-  it("fails closed for malformed retry state and event accessors", function () {
+  it("fails closed for malformed retry state and event accessors", () => {
     const blocked = blockedAt("planning", "plan", 1);
     expect(() =>
       live(
@@ -1239,7 +1239,7 @@ describe("state machine boundaries", function () {
     );
   });
 
-  return it("rejects mutations from both terminal states", function () {
+  return it("rejects mutations from both terminal states", () => {
     const completed = live(verifying(), verification()).snapshot;
     const cancelled = live(initial(), {
       ...base("cancelled"),

@@ -1,40 +1,39 @@
-import { describe, expect, it, vi } from "vitest";
-
 import { GENESIS_WORKFLOW_JOURNAL_HASH } from "@darkfactory/db/schema";
 import {
+  type CreateWorkflowRunInput,
   decodeWorkflowRunsCursor,
   encodeWorkflowRunsCursor,
   StaleWorkflowApprovalError,
   WorkflowConcurrencyError,
+  WorkflowMessageCapacityError,
   WorkflowPersistenceInputError,
+  type WorkflowProjection,
   WorkflowProjectionIntegrityError,
-  WorkflowRunNotFoundError,
+  type WorkflowRepository,
   WorkflowRunCapacityError,
+  WorkflowRunNotFoundError,
   WorkflowRunSubmissionRateError,
   WorkflowRunTerminalError,
-  WorkflowMessageCapacityError,
-  type CreateWorkflowRunInput,
-  type WorkflowProjection,
-  type WorkflowRepository,
 } from "@darkfactory/db/server/workflow";
 import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import {
-  WorkflowProjectionVerificationError,
   createWorkflowApplication,
+  WorkflowProjectionVerificationError,
 } from "@darkfactory/jobs/server/workflow-runtime";
 import {
-  MAX_WORKFLOW_SCOPE_BYTES,
-  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
-  WorkflowRetryLimitReachedError,
   canonicalJsonV1,
   createInitialWorkflowSnapshotV1,
+  MAX_WORKFLOW_SCOPE_BYTES,
+  MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
   sha256Hex,
+  WorkflowRetryLimitReachedError,
 } from "@darkfactory/state/workflow";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  type OperatorWorkflowPort,
   OperatorWorkflowPortError,
   operatorServiceErrorMessage,
-  type OperatorWorkflowPort,
 } from "./operator-service.ts";
 import {
   createOperatorWorkflowPort,
@@ -744,7 +743,7 @@ describe("operator workflow approval idempotency", () => {
     );
   });
 
-  it("binds and approves an exact-boundary multibyte submit scope", async function () {
+  it("binds and approves an exact-boundary multibyte submit scope", async () => {
     const scope = {
       repositoryId: "darkfactory",
       paths: [
@@ -901,8 +900,8 @@ describe("operator workflow approval idempotency", () => {
   });
 });
 
-describe("operator Wayfinder plan revision", function () {
-  it("queues a new plan effect, clears review evidence, and rejects the old approval", async function () {
+describe("operator Wayfinder plan revision", () => {
+  it("queues a new plan effect, clears review evidence, and rejects the old approval", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const run = await awaitingRun(fake, port);
@@ -993,7 +992,7 @@ describe("operator Wayfinder plan revision", function () {
     );
   });
 
-  it("replays a lost approval response exactly and conflicts on changed text", async function () {
+  it("replays a lost approval response exactly and conflicts on changed text", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const run = await awaitingRun(fake, port);
@@ -1029,7 +1028,7 @@ describe("operator Wayfinder plan revision", function () {
     return expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2);
   });
 
-  it("fails concurrency recovery when the requested revision was not committed", async function () {
+  it("fails concurrency recovery when the requested revision was not committed", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const run = await awaitingRun(fake, port);
@@ -1062,7 +1061,7 @@ describe("operator Wayfinder plan revision", function () {
     ).toBe(false);
   });
 
-  it("coalesces concurrent exact revision requests into one journal event", async function () {
+  it("coalesces concurrent exact revision requests into one journal event", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const run = await awaitingRun(fake, port);
@@ -1087,9 +1086,9 @@ describe("operator Wayfinder plan revision", function () {
     ).toHaveLength(1);
   });
 
-  it("bounds projected plan revision history at one thousand entries", function () {
+  it("bounds projected plan revision history at one thousand entries", () => {
     const revisions = projectWorkflowPlanRevisions(
-      Array.from({ length: 1_001 }, (_, index) => ({
+      Array.from({ length: 1001 }, (_, index) => ({
         event: {
           type: "PLAN_REVISION_REQUESTED",
           clarification: `Revision ${index}.`,
@@ -1098,12 +1097,12 @@ describe("operator Wayfinder plan revision", function () {
       })) as never
     );
 
-    expect(revisions).toHaveLength(1_000);
+    expect(revisions).toHaveLength(1000);
     expect(revisions.at(0)?.message).toBe("Revision 0.");
     return expect(revisions.at(-1)?.message).toBe("Revision 999.");
   });
 
-  it("derives revision capability from state and the blocked failure stage", async function () {
+  it("derives revision capability from state and the blocked failure stage", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const submitted = await port.submit(submitInput());
@@ -1181,7 +1180,7 @@ describe("operator Wayfinder plan revision", function () {
     ).toBe(false);
   });
 
-  return it("rejects wrong-owner and invalid-state plan revisions", async function () {
+  return it("rejects wrong-owner and invalid-state plan revisions", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const submitted = await port.submit(submitInput());
@@ -1277,7 +1276,7 @@ describe("operator workflow pagination", () => {
     return results;
   });
 
-  it("encodes an unfiltered next cursor without a workflow state", async function () {
+  it("encodes an unfiltered next cursor without a workflow state", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     await port.submit(submitInput("owner-1", "unfiltered-page-1"));
@@ -1395,8 +1394,8 @@ const exposeCorruptPlanIdentityAfterVerification = async (
   });
 };
 
-describe("operator workflow port projections and actions", function () {
-  it("uses the default clock and exposes workspace, detail evidence, and message defaults", async function () {
+describe("operator workflow port projections and actions", () => {
+  it("uses the default clock and exposes workspace, detail evidence, and message defaults", async () => {
     const fake = fakeRepository();
     vi.spyOn(fake.repository, "listEvidenceByOwner").mockResolvedValue({
       items: [
@@ -1476,7 +1475,7 @@ describe("operator workflow port projections and actions", function () {
     return expect(await port.detail("owner-2", submitted.run.id)).toBeNull();
   });
 
-  it("omits a null task title from an initial projected summary", async function () {
+  it("omits a null task title from an initial projected summary", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const runId = "initial-draft-run";
@@ -1489,7 +1488,7 @@ describe("operator workflow port projections and actions", function () {
     return expect(workspace[0]).not.toHaveProperty("title");
   });
 
-  it("fails closed when detail receives a verified empty-journal initial projection", async function () {
+  it("fails closed when detail receives a verified empty-journal initial projection", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const runId = "empty-journal-detail-run";
@@ -1505,7 +1504,7 @@ describe("operator workflow port projections and actions", function () {
     return expect(fake.findEvidenceByOwner).not.toHaveBeenCalled();
   });
 
-  it("projects only digest-bound plan evidence through the owner-scoped lookup", async function () {
+  it("projects only digest-bound plan evidence through the owner-scoped lookup", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const { submitted } = await awaitingRun(fake, port);
@@ -1525,7 +1524,7 @@ describe("operator workflow port projections and actions", function () {
     );
   });
 
-  it("fails closed when a verified projection exposes an incomplete plan identity", async function () {
+  it("fails closed when a verified projection exposes an incomplete plan identity", async () => {
     const results1 = [];
     for (const identity of [
       { planEvidenceId: null, planHash: PLAN.digest },
@@ -1550,7 +1549,7 @@ describe("operator workflow port projections and actions", function () {
     return results1;
   });
 
-  it("fails closed when verified plan evidence disappears or changes kind", async function () {
+  it("fails closed when verified plan evidence disappears or changes kind", async () => {
     const results2 = [];
     for (const corruption of ["missing", "invalid-kind"] as const) {
       const fake = fakeRepository();
@@ -1580,7 +1579,7 @@ describe("operator workflow port projections and actions", function () {
     return results2;
   });
 
-  it("fails closed when replayed durable plan evidence is tampered", async function () {
+  it("fails closed when replayed durable plan evidence is tampered", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const { submitted } = await awaitingRun(fake, port);
@@ -1604,7 +1603,7 @@ describe("operator workflow port projections and actions", function () {
     );
   });
 
-  it("rejects approval before persistence when the digest-bound plan cannot be verified", async function () {
+  it("rejects approval before persistence when the digest-bound plan cannot be verified", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const { submitted, approval: bound } = await awaitingRun(fake, port);
@@ -1636,7 +1635,7 @@ describe("operator workflow port projections and actions", function () {
     return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
   });
 
-  it("filters missing workspace projections and maps missing listed projections", async function () {
+  it("filters missing workspace projections and maps missing listed projections", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     await port.submit(submitInput());
@@ -1651,7 +1650,7 @@ describe("operator workflow port projections and actions", function () {
     );
   });
 
-  it("hydrates workspace and list with one owner-scoped bulk projection read", async function () {
+  it("hydrates workspace and list with one owner-scoped bulk projection read", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     await port.submit(submitInput("owner-1", "submit-bulk-1"));
@@ -1679,7 +1678,7 @@ describe("operator workflow port projections and actions", function () {
     return expect(fake.repository.findProjectionByOwner).not.toHaveBeenCalled();
   });
 
-  it("rejects an occupied request ID and persists an optional rejection reason", async function () {
+  it("rejects an occupied request ID and persists an optional rejection reason", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const run = await awaitingRun(fake, port);
@@ -1711,7 +1710,7 @@ describe("operator workflow port projections and actions", function () {
     );
   });
 
-  it("cancels, retries blocked effects, and records owner-scoped messages", async function () {
+  it("cancels, retries blocked effects, and records owner-scoped messages", async () => {
     const cancelledFake = fakeRepository();
     const cancelledPort = portFor(cancelledFake);
     const submitted = await cancelledPort.submit(submitInput());
@@ -1845,7 +1844,7 @@ describe("operator workflow port projections and actions", function () {
     return expect(missingFake.addMessageAndAppend).not.toHaveBeenCalled();
   });
 
-  return it("caps manual retries without appending another journal entry or effect", async function () {
+  return it("caps manual retries without appending another journal entry or effect", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const submitted = await port.submit(
@@ -1932,7 +1931,7 @@ describe("operator workflow port projections and actions", function () {
   });
 });
 
-describe("operator workflow port error mapping", function () {
+describe("operator workflow port error mapping", () => {
   it.each([
     [new WorkflowRunNotFoundError(), "NOT_FOUND"],
     [new WorkflowConcurrencyError(), "CONFLICT"],
@@ -1955,7 +1954,7 @@ describe("operator workflow port error mapping", function () {
       new OperatorWorkflowPortError(code, operatorServiceErrorMessage(code))
     );
   });
-  it("preserves an internal storage cause without exposing it in the public message", async function () {
+  it("preserves an internal storage cause without exposing it in the public message", async () => {
     const failure = Object.assign(new Error("database password=private"), {
       code: "XX000",
     });
@@ -1974,7 +1973,7 @@ describe("operator workflow port error mapping", function () {
     return expect((mapped as Error).message).not.toContain("password");
   });
 
-  return it("uses validation fallback errors for invalid submit, cancel, and retry input", async function () {
+  return it("uses validation fallback errors for invalid submit, cancel, and retry input", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     await expect(
@@ -2008,8 +2007,8 @@ describe("operator workflow port error mapping", function () {
   });
 });
 
-describe("operator approval replay binding comparisons", function () {
-  return it.each([
+describe("operator approval replay binding comparisons", () =>
+  it.each([
     ["machineId", "other-machine"],
     ["machineVersion", 2],
     ["eventVersion", 2],
@@ -2047,11 +2046,10 @@ describe("operator approval replay binding comparisons", function () {
         approval: replay as never,
       })
     ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
-  });
-});
+  }));
 
-describe("operator workflow remaining defaults and replay paths", function () {
-  it("applies list defaults without optional state or cursor filters", async function () {
+describe("operator workflow remaining defaults and replay paths", () => {
+  it("applies list defaults without optional state or cursor filters", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     await port.submit(submitInput());
@@ -2065,7 +2063,7 @@ describe("operator workflow remaining defaults and replay paths", function () {
     });
   });
 
-  it("replays the same rejection event without duplicating a decision", async function () {
+  it("replays the same rejection event without duplicating a decision", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
     const run = await awaitingRun(fake, port);
@@ -2116,7 +2114,7 @@ describe("operator workflow remaining defaults and replay paths", function () {
     return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
   });
 
-  return it("uses validation fallback for an unexpected cancel persistence failure", async function () {
+  return it("uses validation fallback for an unexpected cancel persistence failure", async () => {
     const fake = fakeRepository();
     vi.spyOn(fake.repository, "findProjectionByOwner").mockRejectedValue(
       new Error("unexpected persistence failure")

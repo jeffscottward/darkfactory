@@ -28,20 +28,20 @@ export const EvidencePanel = ({
     </CardHeader>
     <CardContent>
       {evidence.length === 0 ? (
-        <div className="flex gap-3 py-3 text-sm text-muted-foreground">
+        <div className="flex gap-3 py-3 text-muted-foreground text-sm">
           <LockKeyhole aria-hidden="true" className="size-5 shrink-0" />
           No stored evidence is available for this run.
         </div>
       ) : (
-        <ul className="divide-y divide-border border-y border-border">
+        <ul className="divide-y divide-border border-border border-y">
           {evidence.map((item) => (
             <li className="min-w-0 py-5" key={item.id}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="break-words font-heading text-base font-semibold text-foreground">
+                  <h3 className="break-words font-heading font-semibold text-base text-foreground">
                     {item.label}
                   </h3>
-                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  <p className="mt-1 font-mono text-muted-foreground text-xs">
                     {item.kind}
                   </p>
                 </div>
@@ -52,14 +52,14 @@ export const EvidencePanel = ({
                     <StatusBadge status="success">Storage-safe</StatusBadge>
                   )}
                   <time
-                    className="text-xs text-muted-foreground"
+                    className="text-muted-foreground text-xs"
                     dateTime={item.createdAt.toISOString()}
                   >
                     {formatOperatorDate(item.createdAt)}
                   </time>
                 </div>
               </div>
-              <p className="mt-4 whitespace-pre-wrap break-all rounded-sm bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
+              <p className="mt-4 whitespace-pre-wrap break-all rounded-sm bg-muted px-3 py-3 font-body text-foreground text-sm leading-6">
                 {item.redactedContent.length === 0
                   ? "Content removed by storage policy."
                   : item.redactedContent}

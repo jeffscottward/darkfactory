@@ -13,8 +13,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 let testDatabase: PostgresTestDatabase;
 let databaseResource: ReturnType<typeof createNodeDatabase>;
 
-describe.sequential("DF-076 atomic contact throttle on real Postgres", function () {
-  beforeAll(async function () {
+describe.sequential("DF-076 atomic contact throttle on real Postgres", () => {
+  beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
@@ -23,11 +23,11 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     return await migrate(databaseResource.db);
   }, 60_000);
 
-  beforeEach(async function () {
-    return await testDatabase.query("TRUNCATE TABLE contact_rate_limits");
-  });
+  beforeEach(
+    async () => await testDatabase.query("TRUNCATE TABLE contact_rate_limits")
+  );
 
-  afterAll(async function () {
+  afterAll(async () => {
     try {
       if (databaseResource !== undefined) return await databaseResource.close();
       return;
@@ -37,7 +37,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     }
   }, 60_000);
 
-  it("stores only a 64-character HMAC key and no raw IP column", async function () {
+  it("stores only a 64-character HMAC key and no raw IP column", async () => {
     const repository = createContactThrottleRepository(databaseResource.db);
     const keyHash = "a".repeat(64);
 
@@ -60,7 +60,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     return expect(JSON.stringify(rows)).not.toContain("203.0.113.42");
   });
 
-  it("atomically denies the concurrent sixth request in a fifteen-minute window", async function () {
+  it("atomically denies the concurrent sixth request in a fifteen-minute window", async () => {
     const repository = createContactThrottleRepository(databaseResource.db);
     const results = await Promise.all(
       Array.from({ length: 6 }, () => repository.consume("b".repeat(64)))
@@ -78,7 +78,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     return expect(rows).toEqual([{ request_count: 5 }]);
   });
 
-  it("opens a fresh window after expiry", async function () {
+  it("opens a fresh window after expiry", async () => {
     const repository = createContactThrottleRepository(databaseResource.db);
     for (let request = 0; request < 5; request += 1) {
       expect((await repository.consume("c".repeat(64))).allowed).toBe(true);
@@ -97,7 +97,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     });
   });
 
-  it("opportunistically cleans expired rows and enforces a hard row bound", async function () {
+  it("opportunistically cleans expired rows and enforces a hard row bound", async () => {
     const repository = createContactThrottleRepository(databaseResource.db, {
       maxRows: 2,
       cleanupBatchSize: 2,
@@ -127,7 +127,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     return expect(expired).toEqual([{ count: 0 }]);
   });
 
-  it("cannot reset a denied live bucket when the table is saturated", async function () {
+  it("cannot reset a denied live bucket when the table is saturated", async () => {
     const repository = createContactThrottleRepository(databaseResource.db, {
       maxRows: 2,
     });
@@ -141,7 +141,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     return expect((await repository.consume(firstKey)).allowed).toBe(false);
   });
 
-  it("supports a higher domain-separated edge-attempt ceiling", async function () {
+  it("supports a higher domain-separated edge-attempt ceiling", async () => {
     const repository = createContactThrottleRepository(databaseResource.db, {
       maxRequests: 30,
     });
@@ -157,7 +157,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     });
   });
 
-  it("keeps the hard bound when an expired existing probe races new-key capacity", async function () {
+  it("keeps the hard bound when an expired existing probe races new-key capacity", async () => {
     const repository = createContactThrottleRepository(databaseResource.db, {
       maxRows: 2,
     });
@@ -228,7 +228,7 @@ describe.sequential("DF-076 atomic contact throttle on real Postgres", function 
     }
   });
 
-  return it("rejects non-HMAC keys before touching Postgres", async function () {
+  return it("rejects non-HMAC keys before touching Postgres", async () => {
     const repository = createContactThrottleRepository(databaseResource.db);
     await expect(repository.consume("203.0.113.42")).rejects.toThrow(
       "keyHash must be a lowercase SHA-256 HMAC"

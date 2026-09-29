@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { OperatorShell } from "./operator-shell.tsx";
 
-describe("operator shell", function () {
-  return it("renders the local-development identity and protected content", function () {
+describe("operator shell", () =>
+  it("renders the local-development identity and protected content", () => {
     const markup = renderToStaticMarkup(
       <OperatorShell name="Development Administrator">
         <section>Protected workspace</section>
@@ -15,5 +15,4 @@ describe("operator shell", function () {
     expect(markup).toContain("Signed in as Development Administrator");
     expect(markup).toContain('<main class="mx-auto w-full');
     return expect(markup).toContain("Protected workspace");
-  });
-});
+  }));

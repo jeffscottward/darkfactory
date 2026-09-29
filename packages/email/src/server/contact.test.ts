@@ -1,8 +1,8 @@
 import {
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
+  readFile,
   realpath,
   rm,
   symlink,
@@ -26,11 +26,11 @@ vi.mock("resend", () => ({
 
 import type { ContactEmailInput } from "../index.ts";
 import {
+  type ContactResendClient,
   createPreviewContactEmailPort,
   createResendContactEmailPort,
   renderContactEmail,
   selectContactEmailPort,
-  type ContactResendClient,
 } from "./contact.ts";
 
 const temporaryDirectories: string[] = [];
@@ -43,7 +43,7 @@ const createTemporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
-afterEach(async function () {
+afterEach(async () => {
   resendMocks.send.mockReset();
   vi.doUnmock("node:fs/promises");
   vi.resetModules();
@@ -63,8 +63,8 @@ const contactInput: ContactEmailInput = {
   message: "Please review the deployment boundary.",
 };
 
-describe("renderContactEmail", function () {
-  it("renders escaped semantic HTML and plain text with a static header-safe subject", async function () {
+describe("renderContactEmail", () => {
+  it("renders escaped semantic HTML and plain text with a static header-safe subject", async () => {
     const rendered = await renderContactEmail({
       ...contactInput,
       name: "<script>alert('name')</script>",
@@ -105,13 +105,12 @@ describe("renderContactEmail", function () {
       label: "oversized message",
       value: { ...contactInput, message: "m".repeat(5001) },
     },
-  ])("rejects $label", async function ({ value }) {
-    return await expect(renderContactEmail(value)).rejects.toThrow();
-  });
+  ])("rejects $label", async ({ value }) =>
+    await expect(renderContactEmail(value)).rejects.toThrow());
 });
 
-describe("selectContactEmailPort", function () {
-  it("stays disabled and constructs no Resend client when the contact recipient is absent", async function () {
+describe("selectContactEmailPort", () => {
+  it("stays disabled and constructs no Resend client when the contact recipient is absent", async () => {
     const clientFactory = vi.fn();
     const email = selectContactEmailPort({
       environment: "production",
@@ -130,7 +129,7 @@ describe("selectContactEmailPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("returns the disabled delivery result for an explicitly disabled transport without calling Resend", async function () {
+  it("returns the disabled delivery result for an explicitly disabled transport without calling Resend", async () => {
     const clientFactory = vi.fn();
     const email = selectContactEmailPort({
       environment: "production",
@@ -150,7 +149,7 @@ describe("selectContactEmailPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("writes a real inspectable preview without exposing contact data in its path", async function () {
+  it("writes a real inspectable preview without exposing contact data in its path", async () => {
     const directory = await createTemporaryDirectory();
     const canonicalDirectory = await realpath(directory);
     const clientFactory = vi.fn();
@@ -180,7 +179,7 @@ describe("selectContactEmailPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("sends through Resend only when contact delivery is fully configured", async function () {
+  it("sends through Resend only when contact delivery is fully configured", async () => {
     const send = vi
       .fn()
       .mockResolvedValue({ data: { id: "contact_123" }, error: null });
@@ -211,7 +210,7 @@ describe("selectContactEmailPort", function () {
     );
   });
 
-  it("reports configured provider failure without claiming success or leaking the provider error", async function () {
+  it("reports configured provider failure without claiming success or leaking the provider error", async () => {
     const send = vi.fn().mockResolvedValue({
       data: null,
       error: {
@@ -236,7 +235,7 @@ describe("selectContactEmailPort", function () {
     });
   });
 
-  it("rejects a configured malformed recipient before selecting a transport", async function () {
+  it("rejects a configured malformed recipient before selecting a transport", async () => {
     const clientFactory = vi.fn();
     const email = selectContactEmailPort({
       environment: "production",
@@ -256,7 +255,7 @@ describe("selectContactEmailPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("keeps explicit preview disabled outside local environments", async function () {
+  it("keeps explicit preview disabled outside local environments", async () => {
     const email = selectContactEmailPort({
       environment: "production",
       transport: "preview",
@@ -271,7 +270,7 @@ describe("selectContactEmailPort", function () {
     });
   });
 
-  it("disables filesystem contact previews in a production bundle", async function () {
+  it("disables filesystem contact previews in a production bundle", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const email = selectContactEmailPort({
       environment: "development",
@@ -288,7 +287,7 @@ describe("selectContactEmailPort", function () {
     });
   });
 
-  it("selects the implicit development preview without touching the default directory on render failure", async function () {
+  it("selects the implicit development preview without touching the default directory on render failure", async () => {
     const email = selectContactEmailPort({
       environment: "development",
       recipient: "support@example.test",
@@ -307,7 +306,7 @@ describe("selectContactEmailPort", function () {
     });
   });
 
-  it("requires a binding before selecting remote preview capture", function () {
+  it("requires a binding before selecting remote preview capture", () => {
     vi.stubEnv("NODE_ENV", "production");
     return expect(() =>
       selectContactEmailPort({
@@ -319,7 +318,7 @@ describe("selectContactEmailPort", function () {
     ).toThrowError("Remote preview transport requires a binding");
   });
 
-  return it("selects remote preview capture with an exact test binding", async function () {
+  return it("selects remote preview capture with an exact test binding", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const fetcher = vi
       .spyOn(globalThis, "fetch")
@@ -348,13 +347,13 @@ describe("selectContactEmailPort", function () {
   });
 });
 
-describe("createResendContactEmailPort", function () {
+describe("createResendContactEmailPort", () => {
   it.each([
     ["missing", undefined as never],
     ["blank", "  "],
     ["oversized", `${"a".repeat(245)}@example.test`],
     ["malformed", "invalid"],
-  ])("fails closed for a $0 recipient without constructing a client", async function (_case, recipient) {
+  ])("fails closed for a $0 recipient without constructing a client", async (_case, recipient) => {
     const clientFactory = vi.fn();
     const email = createResendContactEmailPort({
       recipient,
@@ -379,7 +378,7 @@ describe("createResendContactEmailPort", function () {
       "re_test_key",
       "noreply@example.test\r\nBcc: attacker@example.test",
     ],
-  ])("fails closed for a $0", async function (_case, apiKey, from) {
+  ])("fails closed for a $0", async (_case, apiKey, from) => {
     const clientFactory = vi.fn();
     const email = createResendContactEmailPort({
       recipient: "support@example.test",
@@ -397,7 +396,7 @@ describe("createResendContactEmailPort", function () {
     return expect(clientFactory).not.toHaveBeenCalled();
   });
 
-  it("redacts a client-construction failure", async function () {
+  it("redacts a client-construction failure", async () => {
     const secret = "provider-construction-secret";
     const email = createResendContactEmailPort({
       recipient: "support@example.test",
@@ -418,7 +417,7 @@ describe("createResendContactEmailPort", function () {
     return expect(JSON.stringify(result)).not.toContain(secret);
   });
 
-  it("rejects invalid input and render failures before calling the provider", async function () {
+  it("rejects invalid input and render failures before calling the provider", async () => {
     const send = vi.fn();
     const email = createResendContactEmailPort({
       recipient: "support@example.test",
@@ -455,7 +454,7 @@ describe("createResendContactEmailPort", function () {
     return expect(send).not.toHaveBeenCalled();
   });
 
-  it("maps thrown, rejected, and malformed provider responses without leaking details", async function () {
+  it("maps thrown, rejected, and malformed provider responses without leaking details", async () => {
     const providerSecret = "provider-secret-detail";
     const cases = [
       {
@@ -513,7 +512,7 @@ describe("createResendContactEmailPort", function () {
     return results;
   });
 
-  return it("adapts the default Resend SDK response without a network request", async function () {
+  return it("adapts the default Resend SDK response without a network request", async () => {
     resendMocks.send.mockResolvedValue({
       data: { id: "contact_sdk_123" },
       error: null,
@@ -535,8 +534,8 @@ describe("createResendContactEmailPort", function () {
   });
 });
 
-describe("createPreviewContactEmailPort", function () {
-  it("rejects production use and non-positive or fractional retention limits", function () {
+describe("createPreviewContactEmailPort", () => {
+  it("rejects production use and non-positive or fractional retention limits", () => {
     expect(() =>
       createPreviewContactEmailPort({
         environment: "production",
@@ -557,7 +556,7 @@ describe("createPreviewContactEmailPort", function () {
     return results1;
   });
 
-  it("uses the default preview options while returning a redacted render failure", async function () {
+  it("uses the default preview options while returning a redacted render failure", async () => {
     const email = createPreviewContactEmailPort({ environment: "test" });
 
     return await expect(
@@ -573,7 +572,7 @@ describe("createPreviewContactEmailPort", function () {
     });
   });
 
-  it("fails closed for file and symbolic-link preview directories", async function () {
+  it("fails closed for file and symbolic-link preview directories", async () => {
     const directory = await createTemporaryDirectory();
     const ordinaryFile = join(directory, "ordinary-file");
     const targetDirectory = join(directory, "target");
@@ -598,7 +597,7 @@ describe("createPreviewContactEmailPort", function () {
     return results2;
   });
 
-  it("fails closed for a symbolic-link ancestor in the preview path", async function () {
+  it("fails closed for a symbolic-link ancestor in the preview path", async () => {
     const directory = await createTemporaryDirectory();
     const targetDirectory = join(directory, "target");
     const symbolicAncestor = join(directory, "symbolic-ancestor");
@@ -619,7 +618,7 @@ describe("createPreviewContactEmailPort", function () {
     ).resolves.toEqual([]);
   });
 
-  it("orders and removes expired HTML and text pairs at the retention boundary", async function () {
+  it("orders and removes expired HTML and text pairs at the retention boundary", async () => {
     const directory = await createTemporaryDirectory();
     const stagingEmail = createPreviewContactEmailPort({
       environment: "test",
@@ -675,7 +674,7 @@ describe("createPreviewContactEmailPort", function () {
     ).resolves.toContain("Current request");
   });
 
-  it("cleans a newly written pair when retention cleanup fails", async function () {
+  it("cleans a newly written pair when retention cleanup fails", async () => {
     const directory = await createTemporaryDirectory();
     await mkdir(join(directory, "stuck.html"));
     await writeFile(join(directory, "stuck.html", "keep"), "keep", "utf8");
@@ -694,7 +693,7 @@ describe("createPreviewContactEmailPort", function () {
     return expect(await readdir(directory)).toEqual(["stuck.html"]);
   });
 
-  it("closes an opened handle and removes partial paths after a write failure", async function () {
+  it("closes an opened handle and removes partial paths after a write failure", async () => {
     vi.doUnmock("node:fs/promises");
     vi.resetModules();
     const close = vi.fn().mockRejectedValue(new Error("close failure"));
@@ -738,7 +737,7 @@ describe("createPreviewContactEmailPort", function () {
     return expect(remove).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects unsafe identities before and after canonicalization", async function () {
+  it("rejects unsafe identities before and after canonicalization", async () => {
     const scenarios = [
       [
         {
@@ -794,7 +793,7 @@ describe("createPreviewContactEmailPort", function () {
     return results3;
   });
 
-  return it("detects a symbolic-link ancestor introduced after canonicalization", async function () {
+  return it("detects a symbolic-link ancestor introduced after canonicalization", async () => {
     vi.doUnmock("node:fs/promises");
     vi.resetModules();
     const lstat = vi

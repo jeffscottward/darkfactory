@@ -40,7 +40,7 @@ const createResetDatabaseDouble = ({
   };
 };
 
-describe("development database reset", function () {
+describe("development database reset", () => {
   it.each([
     "development",
     "test",
@@ -83,7 +83,7 @@ describe("development database reset", function () {
     return expect(query).toContain("RESTART IDENTITY");
   });
 
-  it("rejects every non-development environment before opening a transaction", async function () {
+  it("rejects every non-development environment before opening a transaction", async () => {
     const results = [];
     for (const environment of ["production", "staging", "", undefined, null]) {
       const double = createResetDatabaseDouble();
@@ -107,7 +107,7 @@ describe("development database reset", function () {
     return results;
   });
 
-  it("preserves transaction-provider failures and records rollback", async function () {
+  it("preserves transaction-provider failures and records rollback", async () => {
     const providerError = new Error("transaction provider unavailable");
     const double = createResetDatabaseDouble({
       transactionError: providerError,
@@ -120,7 +120,7 @@ describe("development database reset", function () {
     return expect(double.execute).not.toHaveBeenCalled();
   });
 
-  return it("rolls back when the truncate statement fails", async function () {
+  return it("rolls back when the truncate statement fails", async () => {
     const executeError = new Error("truncate denied");
     const double = createResetDatabaseDouble({ executeError });
 

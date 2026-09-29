@@ -99,8 +99,10 @@ export const dispatchInternalOrpcRequest: typeof globalThis.fetch = async (
   const request = requestFrom(input, init);
   const url = new URL(request.url);
   if (
-    !ORPC_METHODS.has(request.method) ||
-    !url.pathname.startsWith(ORPC_ROUTE_PREFIX) ||
+    !(
+      ORPC_METHODS.has(request.method) &&
+      url.pathname.startsWith(ORPC_ROUTE_PREFIX)
+    ) ||
     url.pathname.length === ORPC_ROUTE_PREFIX.length ||
     !isConfiguredOrigin(url)
   ) {

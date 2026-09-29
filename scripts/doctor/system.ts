@@ -6,7 +6,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type {
-  DoctorCommandOptions,
   DoctorDependencies,
   DoctorFileSystem,
   DoctorProcess,
@@ -145,7 +144,7 @@ export const probeTrustedHttps = async (
     const response = await fetch(url, {
       method: "HEAD",
       redirect: "manual",
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(5000),
     });
     return Object.freeze({
       ok: response.status >= 200 && response.status < 400,

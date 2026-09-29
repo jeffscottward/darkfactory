@@ -48,7 +48,7 @@ export interface RecordingEventSink extends StructuredEventSink {
   readonly events: readonly SemanticEvent[];
 }
 
-export const safeErrorCategory = function (error: unknown): string {
+export const safeErrorCategory = (error: unknown): string => {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "aborted";
   }

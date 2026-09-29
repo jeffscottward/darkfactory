@@ -1,7 +1,7 @@
 import {
-  runGraphAction,
   type GraphAction,
   type GraphDependencies,
+  runGraphAction,
 } from "./graph.ts";
 
 const ACTIONS = new Set<GraphAction>(["build", "update", "check", "verify"]);

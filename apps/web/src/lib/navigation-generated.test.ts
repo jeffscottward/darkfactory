@@ -17,8 +17,8 @@ import {
   ROUTE_PAGE_FILES,
 } from "./navigation.ts";
 
-describe("navigation composition", function () {
-  it("projects generated destinations into portal and route manifests", function () {
+describe("navigation composition", () => {
+  it("projects generated destinations into portal and route manifests", () => {
     expect(PORTAL_NAVIGATION).toContainEqual({
       label: "Generated reports",
       href: "/reports",
@@ -30,7 +30,7 @@ describe("navigation composition", function () {
     );
   });
 
-  return it("keeps the local operator outside product navigation", function () {
+  return it("keeps the local operator outside product navigation", () => {
     expect(PORTAL_NAVIGATION.some((item) => item.href === "/operator")).toBe(
       false
     );

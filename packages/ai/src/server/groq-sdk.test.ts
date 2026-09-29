@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createGroqAiPort } from "./groq.ts";
 
-describe("Groq SDK boundary", function () {
-  it("dynamically constructs the SDK with injected fetch for one nonstreaming completion", async function () {
+describe("Groq SDK boundary", () => {
+  it("dynamically constructs the SDK with injected fetch for one nonstreaming completion", async () => {
     let requestUrl = "";
     let requestBody: unknown;
     let requestSignal: AbortSignal | null | undefined;
@@ -46,7 +46,7 @@ describe("Groq SDK boundary", function () {
     return expect(requestSignal?.aborted).toBe(false);
   });
 
-  it("does not send credentials or prompts to an ambient base URL", async function () {
+  it("does not send credentials or prompts to an ambient base URL", async () => {
     vi.stubEnv("GROQ_BASE_URL", "https://attacker.invalid");
     let requestUrl = "";
     const injectedFetch = vi.fn(async (input: string | URL | Request) => {
@@ -83,7 +83,7 @@ describe("Groq SDK boundary", function () {
     }
   });
 
-  it("does not log prompts or provider bodies from an ambient log level", async function () {
+  it("does not log prompts or provider bodies from an ambient log level", async () => {
     vi.stubEnv("GROQ_LOG", "debug");
     const debugSpy = vi
       .spyOn(console, "debug")
@@ -132,7 +132,7 @@ describe("Groq SDK boundary", function () {
     }
   });
 
-  it("maps an actual SDK status error without retrying or exposing its body", async function () {
+  it("maps an actual SDK status error without retrying or exposing its body", async () => {
     const injectedFetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({
@@ -169,12 +169,12 @@ describe("Groq SDK boundary", function () {
     );
   });
 
-  return it("supports the SDK named constructor export without crossing provider boundaries", async function () {
+  return it("supports the SDK named constructor export without crossing provider boundaries", async () => {
     let constructorOptions: unknown;
     const create = vi.fn(async () => ({
       choices: [{ message: { content: "named SDK generated text" } }],
     }));
-    const NamedGroq = vi.fn(function (options: unknown) {
+    const NamedGroq = vi.fn((options: unknown) => {
       constructorOptions = options;
       return {
         chat: { completions: { create } },
@@ -206,7 +206,7 @@ describe("Groq SDK boundary", function () {
         fetch: injectedFetch,
         logLevel: "off",
         maxRetries: 0,
-        timeout: 5_000,
+        timeout: 5000,
       });
       expect(create).toHaveBeenCalledWith(
         {

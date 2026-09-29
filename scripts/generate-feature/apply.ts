@@ -11,18 +11,18 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 
 import { GeneratorError } from "./errors.ts";
 import {
-  assertNoSymlinkPath,
   assertDirectoryChain,
+  assertNoSymlinkPath,
   canonicalWorkspaceRoot,
   captureDirectoryChain,
   hasIdentity,
   identityAt,
-  pathExists,
   type PathIdentity,
+  pathExists,
 } from "./path-safety.ts";
 import { assertGenerationPlanIntegrity, sha256 } from "./plan.ts";
 import type { ApplyResult, GenerationPlan, PlannedFile } from "./types.ts";
@@ -112,8 +112,10 @@ const rollbackApplied = async (
       await assertDirectoryChain(parentChains.get(dirname(entry.file.path))!);
       await dependencies.assertNoSymlinkPath(plan.targetRoot, entry.file.path);
       if (
-        !(await dependencies.hasIdentity(entry.destinationIdentity)) ||
-        !(await dependencies.pathExists(destination)) ||
+        !(
+          (await dependencies.hasIdentity(entry.destinationIdentity)) &&
+          (await dependencies.pathExists(destination))
+        ) ||
         (await hashAt(destination)) !== entry.file.sha256
       ) {
         safe = false;

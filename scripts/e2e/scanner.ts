@@ -190,7 +190,7 @@ const PATTERNS: readonly Readonly<{
   Object.freeze({
     category: "authorization-header",
     expression:
-      /(?:authorization\s*[:=]\s*(?:bearer|basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+\/-]{8,}|["']authorization["']\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}|["']?name["']?\s*:\s*["']authorization["'](?:(?!\r?\n).){0,512}["']?value["']?\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}|["']?value["']?\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*:\s*["']authorization["'])/i,
+      /(?:authorization\s*[:=]\s*(?:bearer|basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+/-]{8,}|["']authorization["']\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}|["']?name["']?\s*:\s*["']authorization["'](?:(?!\r?\n).){0,512}["']?value["']?\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}|["']?value["']?\s*:\s*["'](?:bearer|basic)\s+(?!\[REDACTED\])[^"']{8,}["'](?:(?!\r?\n).){0,512}["']?name["']?\s*:\s*["']authorization["'])/i,
   }),
   Object.freeze({
     category: "secret-assignment",
@@ -214,7 +214,8 @@ const decodeNumericHtmlEntity = (
     encoded,
     hexadecimal === undefined ? 10 : 16
   );
-  return codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+  return codePoint <= 0x10_ff_ff &&
+    !(codePoint >= 0xd8_00 && codePoint <= 0xdf_ff)
     ? String.fromCodePoint(codePoint)
     : entity;
 };
@@ -227,7 +228,7 @@ const stripOperatingSystemCommands = (value: string): string => {
     const escapedIntroducer =
       value.charCodeAt(index) === 0x1b && value.charCodeAt(index + 1) === 0x5d;
     const c1Introducer = value.charCodeAt(index) === 0x9d;
-    if (!escapedIntroducer && !c1Introducer) {
+    if (!(escapedIntroducer || c1Introducer)) {
       index += 1;
       continue;
     }
@@ -351,9 +352,7 @@ const parseNormalizedStructuredContent = (
         parsedValue = JSON.parse(source) as unknown;
         parsed = true;
         break;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     if (!parsed) return undefined;
     if (typeof parsedValue !== "string") return parsedValue;
@@ -373,7 +372,7 @@ const inspectStructuredContent = (
   let authorizationHeader = false;
   let sessionCookie = false;
   let operations = 0;
-  while (pending.length > 0 && (!authorizationHeader || !sessionCookie)) {
+  while (pending.length > 0 && !(authorizationHeader && sessionCookie)) {
     operations += 1;
     if ((operations & 0xff) === 0) assertWithinDeadline(deadline);
     const current = pending.pop();
@@ -677,7 +676,7 @@ const assertStructuredEvidence = (entry: ArtifactEntry): void => {
   }
   if (
     pathname.length > 512 ||
-    !/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/\[\]-]*$/u.test(pathname) ||
+    !/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/[\]-]*$/u.test(pathname) ||
     /[\\?#\u0000-\u001f\u007f]/u.test(decodedPathname) ||
     decodedPathname
       .split("/")
@@ -712,8 +711,10 @@ const assertExpectedReports = (
     "Expected owned Playwright JSON report is malformed"
   );
   if (
-    !playwrightReportHasExecutedResult(report) ||
-    !hasValidPlaywrightStats(report["stats"])
+    !(
+      playwrightReportHasExecutedResult(report) &&
+      hasValidPlaywrightStats(report["stats"])
+    )
   )
     throw new Error("Expected owned Playwright JSON report is malformed");
 

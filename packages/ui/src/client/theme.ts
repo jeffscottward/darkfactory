@@ -1,5 +1,6 @@
 "use client";
 
+import { Palette as PaletteIcon } from "lucide-react";
 import {
   createContext,
   createElement,
@@ -9,13 +10,12 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Palette as PaletteIcon } from "lucide-react";
 
 import { IconButton } from "../icon-button.tsx";
 import {
   PALETTE_NAMES,
-  THEME_MODES,
   type PaletteName,
+  THEME_MODES,
   type ThemeMode,
 } from "../palettes.ts";
 import {

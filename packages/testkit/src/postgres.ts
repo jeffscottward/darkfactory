@@ -6,10 +6,10 @@ const TEST_MAINTENANCE_DATABASE = "darkfactory_test_maintenance";
 const TEST_RUNNER_ROLE = "darkfactory_test_runner";
 const DATABASE_NAME_LIMIT = 63;
 const RUN_ID_DIGEST_LENGTH = 12;
-const CONNECTION_TIMEOUT_MILLISECONDS = 5_000;
+const CONNECTION_TIMEOUT_MILLISECONDS = 5000;
 const STATEMENT_TIMEOUT_MILLISECONDS = 15_000;
-const LOCK_TIMEOUT_MILLISECONDS = 5_000;
-const DATABASE_DROP_TIMEOUT_MILLISECONDS = 5_000;
+const LOCK_TIMEOUT_MILLISECONDS = 5000;
+const DATABASE_DROP_TIMEOUT_MILLISECONDS = 5000;
 const DATABASE_DROP_POLL_MILLISECONDS = 25;
 const DATABASE_LOCK_KEY_PREFIX = "darkfactory-testkit:";
 const UNSAFE_TARGET_PATTERN = /(?:^|[_-])(prod|production|live)(?:$|[_-])/i;
@@ -152,8 +152,10 @@ const parseDatabaseUrl = (databaseUrl: string): ValidatedDatabaseUrl => {
   }
 
   if (
-    !SAFE_TEST_HOSTS.has(parsedUrl.hostname.toLowerCase()) &&
-    !SAFE_TEST_HOSTS.has(hostname)
+    !(
+      SAFE_TEST_HOSTS.has(parsedUrl.hostname.toLowerCase()) ||
+      SAFE_TEST_HOSTS.has(hostname)
+    )
   ) {
     throw new Error(
       "Refusing destructive test database lifecycle for a non-local host"

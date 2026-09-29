@@ -19,8 +19,8 @@ const event: SemanticEvent = {
   attributes: { password: "raw-password", safe: "kept" },
 };
 
-describe("resolveOtlpSignalUrls", function () {
-  it("constructs exact signal endpoints only for explicitly trusted collectors", function () {
+describe("resolveOtlpSignalUrls", () => {
+  it("constructs exact signal endpoints only for explicitly trusted collectors", () => {
     expect(
       resolveOtlpSignalUrls("https://collector.example.test/otlp/", {
         allowedHosts: ["collector.example.test"],
@@ -40,7 +40,7 @@ describe("resolveOtlpSignalUrls", function () {
     });
   });
 
-  it("fails closed for untrusted, private, credentialed, or ambiguous collector URLs", function () {
+  it("fails closed for untrusted, private, credentialed, or ambiguous collector URLs", () => {
     expect(
       resolveOtlpSignalUrls("https://collector.example.test/otlp/")
     ).toBeUndefined();
@@ -68,7 +68,7 @@ describe("resolveOtlpSignalUrls", function () {
     return results;
   });
 
-  it("supports normalized loopback forms only when explicitly enabled", function () {
+  it("supports normalized loopback forms only when explicitly enabled", () => {
     expect(
       resolveOtlpSignalUrls("http://localhost:4318", {
         allowedHosts: ["LOCALHOST"],
@@ -103,7 +103,7 @@ describe("resolveOtlpSignalUrls", function () {
     ).toBeUndefined();
   });
 
-  it("rejects private collectors and endpoint policy boundary violations", function () {
+  it("rejects private collectors and endpoint policy boundary violations", () => {
     const privateCollectors = [
       ["https://0.1.2.3", "0.1.2.3"],
       ["https://10.0.0.1", "10.0.0.1"],
@@ -155,7 +155,7 @@ describe("resolveOtlpSignalUrls", function () {
     ).toBeUndefined();
     expect(
       resolveOtlpSignalUrls(
-        `https://collector.example.test/${"a".repeat(1_025)}`,
+        `https://collector.example.test/${"a".repeat(1025)}`,
         { allowedHosts: ["collector.example.test"] }
       )
     ).toBeUndefined();
@@ -167,7 +167,7 @@ describe("resolveOtlpSignalUrls", function () {
     ).toBeUndefined();
   });
 
-  return it("classifies every private-network boundary without treating numeric-looking public hosts as private", function () {
+  return it("classifies every private-network boundary without treating numeric-looking public hosts as private", () => {
     const publicCollectors = [
       ["https://a.b.c.d", "a.b.c.d"],
       ["https://-1.2.3.example", "-1.2.3.example"],
@@ -212,8 +212,8 @@ describe("resolveOtlpSignalUrls", function () {
   });
 });
 
-describe("initialize telemetry edge paths", function () {
-  it("ignores inherited-looking header enumeration without accepting an unknown header", async function () {
+describe("initialize telemetry edge paths", () => {
+  it("ignores inherited-looking header enumeration without accepting an unknown header", async () => {
     let descriptorReads = 0;
     const headers = new Proxy(
       {},
@@ -244,7 +244,7 @@ describe("initialize telemetry edge paths", function () {
     return await runtime.dispose();
   });
 
-  it("applies an explicit insecure-loopback policy during initialization", async function () {
+  it("applies an explicit insecure-loopback policy during initialization", async () => {
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-test",
@@ -258,7 +258,7 @@ describe("initialize telemetry edge paths", function () {
     return await runtime.dispose();
   });
 
-  return it("contains non-record span attributes and accessor metric metadata", async function () {
+  return it("contains non-record span attributes and accessor metric metadata", async () => {
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-test",
@@ -306,8 +306,8 @@ describe("initialize telemetry edge paths", function () {
     return await runtime.dispose();
   });
 });
-describe("initializeTelemetry", function () {
-  it("reports explicit disabled, unconfigured, and no-export states", async function () {
+describe("initializeTelemetry", () => {
+  it("reports explicit disabled, unconfigured, and no-export states", async () => {
     const disabled = initializeTelemetry({ enabled: false });
     const unconfigured = initializeTelemetry({ enabled: true });
     const invalidEndpoint = initializeTelemetry({
@@ -348,7 +348,7 @@ describe("initializeTelemetry", function () {
       await expect(
         runtime.withSpan(
           { name: "noop", correlation: { requestId: "request_noop" } },
-          function () {
+          () => {
             callbacks += 1;
             return "ok";
           }
@@ -361,13 +361,13 @@ describe("initializeTelemetry", function () {
     return expect(callbacks).toBe(4);
   });
 
-  it("exports correlated spans and metrics deterministically in memory with explicit parent context", async function () {
-    let now = 1_000;
+  it("exports correlated spans and metrics deterministically in memory with explicit parent context", async () => {
+    let now = 1000;
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-test",
       testExport: true,
-      now: function () {
+      now() {
         return now;
       },
     });
@@ -379,7 +379,7 @@ describe("initializeTelemetry", function () {
         correlation: event.correlation,
         procedure: "feature.create",
       },
-      function (span) {
+      (span) => {
         expect(span.correlation.traceId).toBe(event.correlation.traceId);
         expect(span.correlation.spanId).not.toBe(event.correlation.spanId);
         span.addEvent(event);
@@ -394,10 +394,10 @@ describe("initializeTelemetry", function () {
           },
         });
         span.recordMetric({
-          name: `attacker.${"x".repeat(1_000)}`,
+          name: `attacker.${"x".repeat(1000)}`,
           value: 1,
         });
-        now = 1_037;
+        now = 1037;
         return "ok";
       }
     );
@@ -447,7 +447,7 @@ describe("initializeTelemetry", function () {
     return await runtime.dispose();
   });
 
-  it("records a safe failure outcome without copying provider error details", async function () {
+  it("records a safe failure outcome without copying provider error details", async () => {
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-test",
@@ -462,7 +462,7 @@ describe("initializeTelemetry", function () {
           correlation: { requestId: "request_failure" },
           procedure: "feature.update",
         },
-        function () {
+        () => {
           throw providerError;
         }
       )
@@ -487,7 +487,7 @@ describe("initializeTelemetry", function () {
     return await runtime.dispose();
   });
 
-  it("memoizes one concurrent disposal promise", async function () {
+  it("memoizes one concurrent disposal promise", async () => {
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-test",
@@ -500,7 +500,7 @@ describe("initializeTelemetry", function () {
     return await expect(first).resolves.toBeUndefined();
   });
 
-  it("treats whitespace service names and malformed header records as unconfigured", function () {
+  it("treats whitespace service names and malformed header records as unconfigured", () => {
     expect(
       initializeTelemetry({
         enabled: true,
@@ -546,7 +546,7 @@ describe("initializeTelemetry", function () {
         authorization: "credential-marker",
       },
       { authorization: "" },
-      { authorization: "a".repeat(4_097) },
+      { authorization: "a".repeat(4097) },
       { authorization: "first-line\nsecond-line" },
       { authorization: 42 },
       { "x-unknown": "credential-marker" },
@@ -585,7 +585,7 @@ describe("initializeTelemetry", function () {
     return results2;
   });
 
-  it("provides frozen no-op handles and preserves callback outcomes while inactive", async function () {
+  it("provides frozen no-op handles and preserves callback outcomes while inactive", async () => {
     const runtime = initializeTelemetry({ enabled: false });
     const correlation = { requestId: "request_inactive" };
     let observedCorrelation: unknown;
@@ -613,7 +613,7 @@ describe("initializeTelemetry", function () {
     ).rejects.toBe(callbackError);
   });
 
-  it("starts root spans for incomplete or invalid parent correlations", async function () {
+  it("starts root spans for incomplete or invalid parent correlations", async () => {
     const validTraceId = "1".repeat(32);
     const validSpanId = "2".repeat(16);
     const runtime = initializeTelemetry({
@@ -654,7 +654,7 @@ describe("initializeTelemetry", function () {
     return await runtime.dispose();
   });
 
-  return it("converts full semantic events and accepts only bounded semantic counters", async function () {
+  return it("converts full semantic events and accepts only bounded semantic counters", async () => {
     const runtime = initializeTelemetry({
       enabled: true,
       serviceName: "darkfactory-test",
@@ -684,7 +684,7 @@ describe("initializeTelemetry", function () {
           retries: 2,
         },
       },
-      async function (span) {
+      async (span) => {
         span.addEvent({
           ...event,
           action: "archive",

@@ -50,7 +50,7 @@ vi.mock("react", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ useRouter: () => navigationHarness }));
 
 import type { AuthFlowClient } from "./auth-flow.ts";
-import { SessionRedirect, destinationForSession } from "./session-redirect.tsx";
+import { destinationForSession, SessionRedirect } from "./session-redirect.tsx";
 
 const authClient = (
   overrides: Partial<AuthFlowClient> = {}
@@ -78,7 +78,7 @@ const deferred = <Value>() => {
   return { promise, reject: rejectPromise, resolve: resolvePromise };
 };
 
-const flushMicrotasks = async function () {
+const flushMicrotasks = async () => {
   await Promise.resolve();
   await Promise.resolve();
   return await Promise.resolve();
@@ -105,13 +105,13 @@ const mount = ({
 const markup = (tree: unknown): string =>
   renderToStaticMarkup(tree as ReactElement);
 
-afterEach(function () {
+afterEach(() => {
   reactHarness.reset();
   return vi.clearAllMocks();
 });
 
-describe("destinationForSession", function () {
-  it("denies provider errors and malformed data or session payloads", function () {
+describe("destinationForSession", () => {
+  it("denies provider errors and malformed data or session payloads", () => {
     const malformedResponses = [
       { data: null, error: null },
       { data: "session-1", error: null },
@@ -130,7 +130,7 @@ describe("destinationForSession", function () {
     return results;
   });
 
-  return it("returns only an allowlisted local destination for an object session", function () {
+  return it("returns only an allowlisted local destination for an object session", () => {
     const response = {
       data: { session: { id: "session-1" } },
       error: null,
@@ -148,8 +148,8 @@ describe("destinationForSession", function () {
   });
 });
 
-describe("SessionRedirect", function () {
-  it("announces the initial check and withholds interactive children", function () {
+describe("SessionRedirect", () => {
+  it("announces the initial check and withholds interactive children", () => {
     const { tree } = mount({
       children: createElement("button", {}, "Interactive form"),
     });
@@ -160,7 +160,7 @@ describe("SessionRedirect", function () {
     return expect(html).not.toContain("Interactive form");
   });
 
-  it("replaces history for a session without revealing gated children", async function () {
+  it("replaces history for a session without revealing gated children", async () => {
     const getSession = vi.fn().mockResolvedValue({
       data: { session: { id: "session-1" } },
       error: null,
@@ -180,7 +180,7 @@ describe("SessionRedirect", function () {
     return expect(cleanup?.()).toBeUndefined();
   });
 
-  it("reveals children after a completed check finds no session", async function () {
+  it("reveals children after a completed check finds no session", async () => {
     const getSession = vi.fn().mockResolvedValue({ data: null, error: null });
     const checking = mount({ auth: authClient({ getSession }) });
     reactHarness.runEffect();
@@ -197,7 +197,7 @@ describe("SessionRedirect", function () {
     return expect(mount({ isChecking: false }).tree).toBeNull();
   });
 
-  it("recovers from a session lookup rejection by revealing the auth form", async function () {
+  it("recovers from a session lookup rejection by revealing the auth form", async () => {
     const getSession = vi.fn().mockRejectedValue(new Error("offline"));
     const { setIsChecking } = mount({ auth: authClient({ getSession }) });
     reactHarness.runEffect();
@@ -207,7 +207,7 @@ describe("SessionRedirect", function () {
     return expect(navigationHarness.replace).not.toHaveBeenCalled();
   });
 
-  it("does not redirect or update state when a resolved lookup outlives the component", async function () {
+  it("does not redirect or update state when a resolved lookup outlives the component", async () => {
     const gate = deferred<Readonly<{ data: unknown; error: null }>>();
     const { setIsChecking } = mount({
       auth: authClient({ getSession: vi.fn(() => gate.promise) }),
@@ -221,7 +221,7 @@ describe("SessionRedirect", function () {
     return expect(navigationHarness.replace).not.toHaveBeenCalled();
   });
 
-  return it("does not update state when a rejected lookup outlives the component", async function () {
+  return it("does not update state when a rejected lookup outlives the component", async () => {
     const gate = deferred<Readonly<{ data: unknown; error: null }>>();
     const { setIsChecking } = mount({
       auth: authClient({ getSession: vi.fn(() => gate.promise) }),

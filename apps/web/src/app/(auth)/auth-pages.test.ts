@@ -7,17 +7,17 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/link", () => ({ default: "a" }));
 
-import SignInPage, { metadata as signInMetadata } from "./sign-in/page.tsx";
-import SignUpPage from "./sign-up/page.tsx";
+import { AuthShell } from "../../components/auth-shell.tsx";
 import ForgotPasswordPage from "./forgot-password/page.tsx";
+import AuthLayout from "./layout.tsx";
 import ResetPasswordPage, {
   metadata as resetMetadata,
 } from "./reset-password/page.tsx";
+import SignInPage, { metadata as signInMetadata } from "./sign-in/page.tsx";
+import SignUpPage from "./sign-up/page.tsx";
 import VerifyEmailPage, {
   metadata as verifyEmailMetadata,
 } from "./verify-email/page.tsx";
-import AuthLayout from "./layout.tsx";
-import { AuthShell } from "../../components/auth-shell.tsx";
 
 type MarkupInput = Parameters<typeof renderToStaticMarkup>[0];
 
@@ -37,8 +37,8 @@ const searchParams = (
   values: Readonly<Record<string, string | undefined>> = {}
 ) => Promise.resolve(values);
 
-describe("auth route pages", function () {
-  it("renders sign-in with reset confirmation and redirect-back input kept out of markup", async function () {
+describe("auth route pages", () => {
+  it("renders sign-in with reset confirmation and redirect-back input kept out of markup", async () => {
     const html = markup(
       await SignInPage({
         searchParams: searchParams({
@@ -55,7 +55,7 @@ describe("auth route pages", function () {
     return expect(html).not.toContain('type="email"');
   });
 
-  it("renders complete signup and forgot-password routes", function () {
+  it("renders complete signup and forgot-password routes", () => {
     const signup = markup(createElement(SignUpPage));
     const forgot = markup(createElement(ForgotPasswordPage));
 
@@ -65,7 +65,7 @@ describe("auth route pages", function () {
     return expect(forgot).toContain("Checking your session");
   });
 
-  it("keeps reset tokens out of the server-rendered page", function () {
+  it("keeps reset tokens out of the server-rendered page", () => {
     const token = "sensitive-one-time-reset-token";
     const html = markup(createElement(ResetPasswordPage));
 
@@ -75,7 +75,7 @@ describe("auth route pages", function () {
     return expect(resetMetadata.referrer).toBe("no-referrer");
   });
 
-  it("maps verification success and errors to bounded status copy without reflecting raw errors", async function () {
+  it("maps verification success and errors to bounded status copy without reflecting raw errors", async () => {
     const verified = markup(
       await VerifyEmailPage({
         searchParams: searchParams({ verified: "1" }),
@@ -98,14 +98,14 @@ describe("auth route pages", function () {
     return expect(invalid).not.toContain("Verification link processed.");
   });
 
-  it("renders the default sign-in state without password-reset confirmation", async function () {
+  it("renders the default sign-in state without password-reset confirmation", async () => {
     const html = markup(await SignInPage({ searchParams: searchParams() }));
 
     expect(html).toContain("Welcome back.");
     return expect(html).not.toContain("Your password was updated.");
   });
 
-  it("renders verification request and expired-link branches with bounded copy", async function () {
+  it("renders verification request and expired-link branches with bounded copy", async () => {
     const request = markup(
       await VerifyEmailPage({ searchParams: searchParams() })
     );
@@ -130,7 +130,7 @@ describe("auth route pages", function () {
     return expect(expiredAction).not.toContain("TOKEN_EXPIRED");
   });
 
-  return it("composes authentication children through the shared shell", function () {
+  return it("composes authentication children through the shared shell", () => {
     const result = AuthLayout({ children: "auth content" });
 
     expect(result.type).toBe(AuthShell);

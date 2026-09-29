@@ -350,7 +350,7 @@ const reachReview = (
   return mount.render();
 };
 
-const flushMicrotasks = async function () {
+const flushMicrotasks = async () => {
   await Promise.resolve();
   return await Promise.resolve();
 };
@@ -359,8 +359,8 @@ afterEach(() => {
   return hookRuntime.reset();
 });
 
-describe("feature item create workflow", function () {
-  it("holds empty and over-limit details at step one, accepts exact limits, and restores field focus", async function () {
+describe("feature item create workflow", () => {
+  it("holds empty and over-limit details at step one, accepts exact limits, and restores field focus", async () => {
     const mount = mountWorkflow(gatewayWith());
     let tree = mount.render();
 
@@ -420,7 +420,7 @@ describe("feature item create workflow", function () {
     return expect(markup(tree)).toContain("Step 2 of 3");
   });
 
-  it("keeps the setup actor active when the external-store subscription is replaced", async function () {
+  it("keeps the setup actor active when the external-store subscription is replaced", async () => {
     const mount = mountWorkflow(gatewayWith());
     let tree = mount.render();
     expect(markup(tree)).toContain("Step 1 of 3");
@@ -437,7 +437,7 @@ describe("feature item create workflow", function () {
     hookRuntime.disconnectStores();
     return await flushMicrotasks();
   });
-  it("locks duplicate creates through activation and renders submitting and final output states", async function () {
+  it("locks duplicate creates through activation and renders submitting and final output states", async () => {
     const createRequest = deferred<FeatureItemOutput>();
     const activationRequest = deferred<FeatureItemOutput>();
     const create = vi.fn(() => createRequest.promise);
@@ -492,7 +492,7 @@ describe("feature item create workflow", function () {
     return expect(completed).toContain("/feature-items/item-1");
   });
 
-  it("does not activate an item that the create response already marked active", async function () {
+  it("does not activate an item that the create response already marked active", async () => {
     const create = vi.fn(async () =>
       item({
         name: "Already active",
@@ -513,7 +513,7 @@ describe("feature item create workflow", function () {
     expect(markup(tree)).toContain("The feature item is ready");
     return expect(markup(tree)).toContain("View Already active");
   });
-  it("retries a persisted draft without creating a duplicate", async function () {
+  it("retries a persisted draft without creating a duplicate", async () => {
     const create = vi.fn(async () =>
       item({
         name: "Release checklist",
@@ -547,7 +547,7 @@ describe("feature item create workflow", function () {
     return expect(markup(tree)).toContain("The feature item is ready");
   });
 
-  it("treats an unknown create outcome as non-retryable and directs duplicate-safe recovery", async function () {
+  it("treats an unknown create outcome as non-retryable and directs duplicate-safe recovery", async () => {
     const create = vi.fn(async () => {
       throw new Error("private transport detail");
     });
@@ -569,7 +569,7 @@ describe("feature item create workflow", function () {
     return expect(create).toHaveBeenCalledOnce();
   });
 
-  it("returns a retryable failure to review without issuing another request", async function () {
+  it("returns a retryable failure to review without issuing another request", async () => {
     const create = vi.fn().mockRejectedValue({ code: "VALIDATION_ERROR" });
     const mount = mountWorkflow(gatewayWith({ create }));
     let tree = reachReview(mount);
@@ -626,7 +626,7 @@ describe("feature item create workflow", function () {
   ] as const;
 
   for (const recoveryCase of recoveryCases) {
-    it(`renders and honors ${recoveryCase.kind} creation recovery`, async function () {
+    it(`renders and honors ${recoveryCase.kind} creation recovery`, async () => {
       const create = vi
         .fn()
         .mockRejectedValueOnce({ code: recoveryCase.code })
@@ -646,19 +646,19 @@ describe("feature item create workflow", function () {
         return expect(failure).toContain(
           "/sign-in?callbackURL=%2Ffeature-items"
         );
-      } else if (
+      }
+      if (
         recoveryCase.kind === "forbidden" ||
         recoveryCase.kind === "not-found"
       ) {
         expect(failure).toContain('href="/feature-items"');
         return expect(controlByText(tree, "Try again")).toBeUndefined();
-      } else {
-        expect(controlByText(tree, "Try again")).toBeDefined();
-        await (click(tree, "Try again") as Promise<void>);
-        tree = mount.render();
-        expect(markup(tree)).toContain("The feature item is ready");
-        return expect(create).toHaveBeenCalledTimes(2);
       }
+      expect(controlByText(tree, "Try again")).toBeDefined();
+      await (click(tree, "Try again") as Promise<void>);
+      tree = mount.render();
+      expect(markup(tree)).toContain("The feature item is ready");
+      return expect(create).toHaveBeenCalledTimes(2);
     });
   }
   return undefined;

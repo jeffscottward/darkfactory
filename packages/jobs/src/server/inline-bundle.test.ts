@@ -1,13 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import { describe, expect, it } from "vitest";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-describe("inline jobs browser bundle", function () {
-  return it("preserves browser poison for a side-effect-only import", async function () {
+describe("inline jobs browser bundle", () =>
+  it("preserves browser poison for a side-effect-only import", async () => {
     const tempDir = await mkdtemp(join(packageRoot, ".inline-browser-bundle-"));
     const entry = join(tempDir, "entry.mjs");
 
@@ -55,5 +55,4 @@ describe("inline jobs browser bundle", function () {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
-  });
-});
+  }));

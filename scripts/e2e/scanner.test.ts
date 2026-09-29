@@ -15,15 +15,6 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import {
-  createArtifactScannerDependencies,
-  decodeOwnedRunProof,
-  encodeOwnedRunAdoption,
-  encodeOwnedRunProof,
-  prepareOwnedRun,
-  type ArtifactScanLimits,
-} from "./system.ts";
 import {
   ArtifactScannerCleanupError,
   classifyArtifactScannerFailure,
@@ -31,6 +22,14 @@ import {
   playwrightReportHasExecutedResult,
   scanArtifactPaths,
 } from "./scanner.ts";
+import {
+  type ArtifactScanLimits,
+  createArtifactScannerDependencies,
+  decodeOwnedRunProof,
+  encodeOwnedRunAdoption,
+  encodeOwnedRunProof,
+  prepareOwnedRun,
+} from "./system.ts";
 
 const entry = (path: string, content: string) => ({ path, content });
 const cleanups: Array<() => Promise<void>> = [];
@@ -81,20 +80,20 @@ const pngEvidencePath = "journey/screenshots/page.png";
 const pngCrcTable = Uint32Array.from({ length: 256 }, (_unused, index) => {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
-    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    value = (value & 1) === 1 ? 0xed_b8_83_20 ^ (value >>> 1) : value >>> 1;
   }
   return value >>> 0;
 });
 const pngChunk = (name: string, data: Buffer): Buffer => {
   const body = Buffer.concat([Buffer.from(name, "ascii"), data]);
-  let crc = 0xffffffff;
+  let crc = 0xff_ff_ff_ff;
   for (const byte of body) {
     crc = (pngCrcTable[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8);
   }
   const header = Buffer.alloc(4);
   header.writeUInt32BE(data.byteLength);
   const checksum = Buffer.alloc(4);
-  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+  checksum.writeUInt32BE((crc ^ 0xff_ff_ff_ff) >>> 0);
   return Buffer.concat([header, body, checksum]);
 };
 const pngFixture = (
@@ -296,7 +295,7 @@ describe("external E2E artifact scanner", () => {
           {
             headers: [
               {
-                name: `authori\u001b]8;;ignored\u0007za\u200btion`,
+                name: "authori\u001b]8;;ignored\u0007za\u200btion",
                 value: `Bea\u0000rer ${"b".repeat(24)}`,
               },
               {
@@ -515,7 +514,7 @@ describe("external E2E artifact scanner", () => {
 
   it("caps and deterministically orders multi-category findings", () => {
     const findings = inspectArtifactEntries(
-      Array.from({ length: 5_001 }, (_unused, index) => {
+      Array.from({ length: 5001 }, (_unused, index) => {
         const suffix = String(index).padStart(16, "0");
         return entry(
           `worker-${index}.json`,
@@ -524,7 +523,7 @@ describe("external E2E artifact scanner", () => {
       })
     );
     expect(findings).toHaveLength(10_000);
-    expect(new Set(findings.map((finding) => finding.path)).size).toBe(5_000);
+    expect(new Set(findings.map((finding) => finding.path)).size).toBe(5000);
     return expect(
       findings.some((finding, index) => {
         return (
@@ -538,7 +537,7 @@ describe("external E2E artifact scanner", () => {
 
   it("caps findings discovered during structured classification", () => {
     const findings = inspectArtifactEntries(
-      Array.from({ length: 5_001 }, (_unused, index) => {
+      Array.from({ length: 5001 }, (_unused, index) => {
         const suffix = String(index).padStart(16, "0");
         return entry(
           `structured-worker-${index}.json`,
@@ -556,7 +555,7 @@ describe("external E2E artifact scanner", () => {
     );
 
     expect(findings).toHaveLength(10_000);
-    expect(new Set(findings.map((finding) => finding.path)).size).toBe(5_000);
+    expect(new Set(findings.map((finding) => finding.path)).size).toBe(5000);
     return expect(
       findings.some((finding, index) => {
         return (
@@ -939,12 +938,12 @@ describe("external E2E artifact scanner", () => {
       test: { title: "Public pricing page is ready" },
       context: { persona: "anonymous", state: "ready" },
       route: { pathname: "/pricing" },
-      viewport: { width: 1_280, height: 720 },
+      viewport: { width: 1280, height: 720 },
       document: {
-        clientWidth: 1_280,
+        clientWidth: 1280,
         clientHeight: 720,
-        scrollWidth: 1_280,
-        scrollHeight: 1_440,
+        scrollWidth: 1280,
+        scrollHeight: 1440,
       },
       counts: { headings: 3, landmarks: 4, controls: 8 },
       focus: { tag: "body", role: null },
@@ -1027,7 +1026,7 @@ describe("external E2E artifact scanner", () => {
       },
       { ...structured, viewport: null },
       { ...structured, viewport: { width: 16_385, height: 720 } },
-      { ...structured, viewport: { width: 1_280, height: 0 } },
+      { ...structured, viewport: { width: 1280, height: 0 } },
       { ...structured, document: null },
       {
         ...structured,
@@ -1077,12 +1076,12 @@ describe("external E2E artifact scanner", () => {
       test: { title: "Public visual page is ready" },
       context: { persona: "anonymous", state: "ready" },
       route: { pathname: "/pricing" },
-      viewport: { width: 1_280, height: 720 },
+      viewport: { width: 1280, height: 720 },
       document: {
-        clientWidth: 1_280,
+        clientWidth: 1280,
         clientHeight: 720,
-        scrollWidth: 1_280,
-        scrollHeight: 1_440,
+        scrollWidth: 1280,
+        scrollHeight: 1440,
       },
       counts: { headings: 3, landmarks: 4, controls: 8 },
       focus: { tag: "body", role: null },
@@ -1225,7 +1224,7 @@ describe("external E2E artifact scanner", () => {
         "metadata_png",
         pngFixture(1, { name: "tEXt", data: Buffer.from("secret") }),
       ],
-      ["oversize_png", pngFixture(8_193)],
+      ["oversize_png", pngFixture(8193)],
       ["zero_width_png", pngFixture(0)],
       ["corrupt_png", Buffer.from(validPng).fill(0, validPng.byteLength - 4)],
       ["truncated_chunk_png", truncatedChunk],
@@ -1511,7 +1510,7 @@ describe("external E2E artifact scanner", () => {
       join(root, paths[0], "trace.zip"),
       Buffer.from([0x50, 0x4b, 0x03, 0x04])
     );
-    let now = 1_000;
+    let now = 1000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const execute = async (_file: string, arguments_: readonly string[]) => {
       if (arguments_[0] === "-Z1")
@@ -1606,7 +1605,7 @@ describe("external E2E artifact scanner", () => {
       join(root, paths[0], "trace.zip"),
       Buffer.from([0x50, 0x4b, 0x03, 0x04])
     );
-    vi.spyOn(Date, "now").mockImplementation(() => 1_000);
+    vi.spyOn(Date, "now").mockImplementation(() => 1000);
     let settled = false;
     const dependencies = await createArtifactScannerDependencies(
       root,

@@ -1,20 +1,19 @@
-import { createAuth } from "@darkfactory/auth/server";
-import { createDatabaseConfirmedSignOutHandler } from "@darkfactory/auth/db";
 import { resolveApiRequestId } from "@darkfactory/api/server";
-import { parseServerEnv } from "@darkfactory/config/server";
+import { createDatabaseConfirmedSignOutHandler } from "@darkfactory/auth/db";
+import { createAuth } from "@darkfactory/auth/server";
 import { composeDatabaseProfile } from "@darkfactory/config/database";
+import { parseServerEnv } from "@darkfactory/config/server";
 import { createRequestDatabase } from "@darkfactory/db/server";
 import { selectEmailPort } from "@darkfactory/email/server";
 import {
   createEvlogSink,
   initializeEvlog,
 } from "@darkfactory/observability/server/evlog";
-
-import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
 import {
-  createBackgroundTaskLifecycle,
   type BackgroundTaskScheduler,
+  createBackgroundTaskLifecycle,
 } from "../../../../lib/background-task-lifecycle.ts";
+import { resolveE2eEmailPreviewOptions } from "../../../../lib/e2e-fixtures.ts";
 import { createRequestDatabaseDiagnosticSink } from "../../../../lib/request-database-diagnostics.ts";
 
 export const handleStrictSignOutRequest = async (

@@ -8,21 +8,20 @@ import {
   mkdir,
   mkdtemp,
   open,
-  readFile,
   readdir,
+  readFile,
   readlink,
   realpath,
   rm,
-  stat,
+  type stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_WORKFLOW_SCOPE_PATHS } from "@darkfactory/state/workflow";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type WPFilesystemDelegate = (
   actual: (...arguments_: any[]) => any,
@@ -126,49 +125,49 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import {
-  MAX_OMP_INSTRUCTION_BYTES,
-  OMP_WAYFINDER_SKILLS,
-  MAX_OMP_WAYFINDER_MAP_BYTES,
-  captureOmpWayfinderTrackerArtifact,
-  validateOmpWayfinderTrackerArtifact,
-  MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,
-  OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
-  MAX_OMP_REDACTIONS,
-  OmpConfigurationError,
-  OmpRequestError,
-  OmpProcessTerminationError,
-  OmpWorkspaceCleanupError,
-  OmpWorkspaceBusyError,
   applyOmpImplementationArtifact,
+  captureOmpWayfinderTrackerArtifact,
   createOmpCliAdapter as createProductionOmpCliAdapter,
-  ompVerificationDigestFor,
-  OMP_VERIFIER_COMMAND_IDENTITY,
-  dockerVerifierArgumentsFor,
-  dockerCleanupBudgetFor,
+  type DecodedOmpImplementationArtifact,
   decodeOmpImplementationArtifact,
-  runDockerVerifier,
-  OMP_VERIFIER_CONFIG_DIGEST,
-  OMP_VERIFIER_MEMORY,
-  OMP_VERIFIER_MEMORY_SWAP,
-  OMP_VERIFIER_CPUS,
-  OMP_VERIFIER_PIDS,
-  OMP_VERIFIER_FILE_SIZE,
-  OMP_VERIFIER_NOFILE,
+  dockerCleanupBudgetFor,
+  dockerVerifierArgumentsFor,
   isVerifierControlPath,
+  MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,
+  MAX_OMP_INSTRUCTION_BYTES,
+  MAX_OMP_REDACTIONS,
+  MAX_OMP_WAYFINDER_MAP_BYTES,
   matchesTrustedVerifierManifest,
-  trustedVerifierManifestFor,
+  OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
   OMP_VERIFIER_ARGUMENTS,
   OMP_VERIFIER_ARGV_IDENTITY,
-  OMP_VERIFIER_OUTPUT_TMPFS,
   OMP_VERIFIER_CACHE_TMPFS,
+  OMP_VERIFIER_COMMAND_IDENTITY,
+  OMP_VERIFIER_CONFIG_DIGEST,
+  OMP_VERIFIER_CPUS,
+  OMP_VERIFIER_FILE_SIZE,
+  OMP_VERIFIER_MEMORY,
+  OMP_VERIFIER_MEMORY_SWAP,
+  OMP_VERIFIER_NOFILE,
+  OMP_VERIFIER_OUTPUT_TMPFS,
+  OMP_VERIFIER_PIDS,
   OMP_VERIFIER_TMP_TMPFS,
-  truncateOmpUtf8,
+  OMP_WAYFINDER_SKILLS,
   type OmpCliAdapterOptions,
-  type OmpFilesystemSandboxBackend,
-  type DecodedOmpImplementationArtifact,
-  type OmpImplementationArtifact,
+  OmpConfigurationError,
   type OmpExecutionRequest,
+  type OmpFilesystemSandboxBackend,
+  type OmpImplementationArtifact,
+  OmpProcessTerminationError,
+  OmpRequestError,
   type OmpVerifierRunnerResult,
+  OmpWorkspaceBusyError,
+  OmpWorkspaceCleanupError,
+  ompVerificationDigestFor,
+  runDockerVerifier,
+  truncateOmpUtf8,
+  trustedVerifierManifestFor,
+  validateOmpWayfinderTrackerArtifact,
 } from "./omp.ts";
 import { createLocalWayfinderExecutionAdapter } from "./wayfinder.ts";
 
@@ -798,10 +797,10 @@ describe("OMP CLI adapter", () => {
           gid: value === "/Applications" ? 80 : 0,
           mode:
             value === gitExecutable
-              ? 0o100755
+              ? 0o10_0755
               : value === "/Applications"
-                ? 0o040775
-                : 0o040755,
+                ? 0o04_0775
+                : 0o04_0755,
           isFile: () => value === gitExecutable,
           isDirectory: () => value !== gitExecutable,
         };
@@ -885,7 +884,7 @@ describe("OMP CLI adapter", () => {
         name: "writable executable",
         selected: developerDirectory,
         path: gitExecutable,
-        mode: 0o100775,
+        mode: 0o10_0775,
       },
       {
         name: "non-file executable",
@@ -897,7 +896,7 @@ describe("OMP CLI adapter", () => {
         name: "non-executable file",
         selected: developerDirectory,
         path: gitExecutable,
-        mode: 0o100644,
+        mode: 0o10_0644,
       },
       {
         name: "non-directory ancestor",
@@ -915,7 +914,7 @@ describe("OMP CLI adapter", () => {
         name: "world-writable Applications",
         selected: developerDirectory,
         path: "/Applications",
-        mode: 0o040777,
+        mode: 0o04_0777,
       },
     ];
     const platform = vi
@@ -973,10 +972,10 @@ describe("OMP CLI adapter", () => {
                 scenario.path === value && scenario.mode !== undefined
                   ? scenario.mode
                   : isExecutable
-                    ? 0o100755
+                    ? 0o10_0755
                     : value === "/Applications"
-                      ? 0o040775
-                      : 0o040755,
+                      ? 0o04_0775
+                      : 0o04_0755,
               isFile: () => {
                 return scenario.path === value && scenario.file !== undefined
                   ? scenario.file
@@ -1509,8 +1508,8 @@ describe("OMP CLI adapter", () => {
         redactions: Array.from({ length: MAX_OMP_REDACTIONS + 1 }, () => "x"),
       }),
       requestFor({ redactions: [""] }),
-      requestFor({ redactions: ["x".repeat(4_097)] }),
-      requestFor({ redactions: ["é".repeat(2_049)] }),
+      requestFor({ redactions: ["x".repeat(4097)] }),
+      requestFor({ redactions: ["é".repeat(2049)] }),
     ]) {
       await expect(adapter.execute(request)).rejects.toBeInstanceOf(
         OmpRequestError
@@ -1655,7 +1654,7 @@ describe("OMP CLI adapter", () => {
       dateNow = vi
         .spyOn(Date, "now")
         .mockReturnValueOnce(0)
-        .mockReturnValue(1_000);
+        .mockReturnValue(1000);
       mocks.execFile.mockImplementationOnce(
         (
           _executable: string,
@@ -2175,7 +2174,7 @@ describe("OMP CLI adapter", () => {
           changeHash: prepared.implementation.change!.changeHash,
         },
         signal: controller.signal,
-        deadlineAtMs: Date.now() + 1_000,
+        deadlineAtMs: Date.now() + 1000,
       })
     ).rejects.toBeInstanceOf(OmpRequestError);
     return await expect(
@@ -2439,9 +2438,9 @@ describe("OMP CLI adapter", () => {
         expected: "output-limit",
         result: verifierRunnerResult({
           output: {
-            stdout: "x".repeat(32 * 1_024 + 1),
+            stdout: "x".repeat(32 * 1024 + 1),
             stderr: "",
-            stdoutBytes: 32 * 1_024 + 1,
+            stdoutBytes: 32 * 1024 + 1,
             stderrBytes: 0,
             truncated: false,
             redacted: false,
@@ -2463,7 +2462,7 @@ describe("OMP CLI adapter", () => {
       const result = await adapter.execute(verificationRequestFor(prepared));
       expect(result.status).toBe(testCase.expected);
       expect(result.verification?.digest).toBeNull();
-      expect(result.verification?.resultBytes).toBeLessThanOrEqual(32 * 1_024);
+      expect(result.verification?.resultBytes).toBeLessThanOrEqual(32 * 1024);
       results3.push(await result.lifecycle!.finalize("persisted"));
     }
     return results3;
@@ -2527,7 +2526,7 @@ describe("OMP CLI adapter", () => {
     const dateNow = vi
       .spyOn(Date, "now")
       .mockReturnValueOnce(0)
-      .mockReturnValue(1_000);
+      .mockReturnValue(1000);
     try {
       return await expect(
         result.lifecycle!.finalize("persisted")
@@ -2734,11 +2733,11 @@ describe("OMP CLI adapter", () => {
         verifierId: OMP_VERIFIER_COMMAND_IDENTITY,
       })
     ).toThrow("OMP verifier image digest is required");
-    expect(dockerCleanupBudgetFor(1_000, 900)).toEqual({
+    expect(dockerCleanupBudgetFor(1000, 900)).toEqual({
       timeoutMs: 50,
       shutdownTimeoutMs: 50,
     });
-    expect(() => dockerCleanupBudgetFor(1_000, 999)).toThrow(
+    expect(() => dockerCleanupBudgetFor(1000, 999)).toThrow(
       OmpProcessTerminationError
     );
     const verifierConfig = await readFile(
@@ -2767,7 +2766,7 @@ describe("OMP CLI adapter", () => {
         workspace: repositoryDirectory,
         sessionDirectory: repositoriesRoot,
         imageDigest: VERIFIER_IMAGE_DIGEST,
-        timeoutMs: 1_000,
+        timeoutMs: 1000,
         shutdownTimeoutMs: 100,
         maximumOutputBytes: 64,
         redactions: ["custom-docker-sentinel"],
@@ -2868,7 +2867,7 @@ describe("OMP CLI adapter", () => {
         sessionDirectory: repositoriesRoot,
         imageDigest: VERIFIER_IMAGE_DIGEST,
         signal: controller.signal,
-        timeoutMs: 1_000,
+        timeoutMs: 1000,
         shutdownTimeoutMs: 100,
         maximumOutputBytes: 64,
         redactions: [],
@@ -3168,7 +3167,7 @@ describe("OMP CLI adapter", () => {
       [{ path: "a", kind: "directory", extra: true }],
       [{ path: "a", kind: "symlink", target: 1 }],
       [{ path: "a", kind: "symlink", target: "" }],
-      [{ path: "a", kind: "symlink", target: "x".repeat(4_097) }],
+      [{ path: "a", kind: "symlink", target: "x".repeat(4097) }],
       [{ path: "a", kind: "symlink", target: "bad\0target" }],
       [{ path: "a", kind: "symlink", target: "/absolute" }],
       [{ path: "a/link", kind: "symlink", target: "../../escape" }],
@@ -3395,7 +3394,7 @@ describe("OMP CLI adapter", () => {
       join(oversizedRoot, "tsconfig.json"),
       "w"
     );
-    await oversizedControl.truncate(32 * 1_024 * 1_024 + 1);
+    await oversizedControl.truncate(32 * 1024 * 1024 + 1);
     await oversizedControl.close();
     return await expect(
       trustedVerifierManifestFor(oversizedRoot)
@@ -3552,7 +3551,7 @@ describe("OMP CLI adapter", () => {
     callbackWith(null, "implemented", "", async (cwd) => {
       const path = join(cwd, "packages", "jobs", "sparse.bin");
       const handle = await open(path, "w");
-      await handle.truncate(256 * 1_024 * 1_024 + 1);
+      await handle.truncate(256 * 1024 * 1024 + 1);
       return await handle.close();
     });
     const oversized = await createOmpCliAdapter({ repositoriesRoot }).execute(
@@ -4359,7 +4358,7 @@ describe("OMP CLI adapter", () => {
     const unsupportedMetadata = await unsupportedMetadataFor(
       join(repositoryDirectory, "package.json")
     );
-    const virtualNames = Array.from({ length: 1_200 }, (_, index) => {
+    const virtualNames = Array.from({ length: 1200 }, (_, index) => {
       return `wp1-long-${String(index).padStart(4, "0")}-${"x".repeat(200)}`;
     });
     let WP1baselineRoot = "";
@@ -4430,10 +4429,10 @@ describe("OMP CLI adapter", () => {
 
     callbackWith(null, "implemented", "", async (cwd) => {
       const directory = join(cwd, "packages", "jobs");
-      await writeFile(join(directory, "aggregate-a.txt"), "a".repeat(7_000));
+      await writeFile(join(directory, "aggregate-a.txt"), "a".repeat(7000));
       return await writeFile(
         join(directory, "aggregate-b.txt"),
-        "b".repeat(7_000)
+        "b".repeat(7000)
       );
     });
     const aggregate = await createOmpCliAdapter({ repositoriesRoot }).execute(
@@ -5147,10 +5146,10 @@ describe("OMP CLI adapter", () => {
           gid: value === "/Applications" ? 80 : 0,
           mode:
             value === gitExecutable
-              ? 0o100755
+              ? 0o10_0755
               : value === "/Applications"
-                ? 0o040775
-                : 0o040755,
+                ? 0o04_0775
+                : 0o04_0755,
           isFile: () => value === gitExecutable,
           isDirectory: () => value !== gitExecutable,
         } as Awaited<ReturnType<typeof stat>>;
@@ -5374,7 +5373,7 @@ describe("OMP CLI adapter", () => {
         sessionDirectory: repositoriesRoot,
         imageDigest: VERIFIER_IMAGE_DIGEST,
         signal,
-        timeoutMs: 1_000,
+        timeoutMs: 1000,
         shutdownTimeoutMs: 4,
         maximumOutputBytes: 64,
         redactions: [],
@@ -5481,7 +5480,7 @@ describe("OMP CLI adapter", () => {
     const dateNow = vi
       .spyOn(Date, "now")
       .mockReturnValueOnce(0)
-      .mockReturnValue(1_000);
+      .mockReturnValue(1000);
     mocks.execFile.mockImplementationOnce(
       (
         _executable: string,
@@ -6822,7 +6821,7 @@ describe("OMP CLI adapter", () => {
       "w",
       0o600
     );
-    await oversized.truncate(2 * 1_024 * 1_024 + 1);
+    await oversized.truncate(2 * 1024 * 1024 + 1);
     await oversized.close();
     await rejectsBundle("bytes", bytesRoot);
 

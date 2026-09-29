@@ -112,7 +112,7 @@ const inspect = async (digest: string): Promise<void> => {
     [
       "image",
       "inspect",
-      `--format={{.Id}}|{{index .Config.Labels \"org.darkfactory.verifier.config-digest\"}}|{{index .Config.Labels \"org.darkfactory.verifier.argv-digest\"}}`,
+      `--format={{.Id}}|{{index .Config.Labels "org.darkfactory.verifier.config-digest"}}|{{index .Config.Labels "org.darkfactory.verifier.argv-digest"}}`,
       digest,
     ],
     "capture"

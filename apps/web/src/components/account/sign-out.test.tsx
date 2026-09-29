@@ -1,21 +1,20 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-
 import {
-  SIGN_OUT_FAILED_MESSAGE,
-  STRICT_SIGN_OUT_ENDPOINT,
-  browserCurrentSessionGateway,
-  createCurrentSessionGateway,
-  type CurrentSessionSignOutResult,
-} from "./sign-out-client.ts";
-import {
-  SIGNED_OUT_DESTINATION,
-  SignOutAction,
-  SignOutActionView,
   completeCurrentSessionSignOut,
   createSignOutActionController,
   restoreSignOutFocusAfterCommit,
+  SIGNED_OUT_DESTINATION,
+  SignOutAction,
+  SignOutActionView,
 } from "./sign-out-action.tsx";
+import {
+  browserCurrentSessionGateway,
+  type CurrentSessionSignOutResult,
+  createCurrentSessionGateway,
+  SIGN_OUT_FAILED_MESSAGE,
+  STRICT_SIGN_OUT_ENDPOINT,
+} from "./sign-out-client.ts";
 
 const deferred = <Value,>() => {
   let resolve: (value: Value) => void = () => undefined;
@@ -25,8 +24,8 @@ const deferred = <Value,>() => {
   return { promise, resolve };
 };
 
-describe("current-session sign-out client boundary", function () {
-  it("uses the same-origin strict POST boundary and accepts only confirmed revocation", async function () {
+describe("current-session sign-out client boundary", () => {
+  it("uses the same-origin strict POST boundary and accepts only confirmed revocation", async () => {
     const fetch = vi.fn().mockResolvedValue(
       Response.json({
         success: true,
@@ -47,7 +46,7 @@ describe("current-session sign-out client boundary", function () {
     return expect(STRICT_SIGN_OUT_ENDPOINT).toBe("/api/auth/strict-sign-out");
   });
 
-  it("delegates the browser singleton through global fetch", async function () {
+  it("delegates the browser singleton through global fetch", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ success: true }));
     vi.stubGlobal("fetch", fetch);
     try {
@@ -69,7 +68,7 @@ describe("current-session sign-out client boundary", function () {
     [Response.json({ success: true }, { status: 503 })],
     [Response.json({ success: false })],
     [new Response(undefined, { status: 200 })],
-  ])("does not claim success for an unconfirmed response", async function (response) {
+  ])("does not claim success for an unconfirmed response", async (response) => {
     const gateway = createCurrentSessionGateway(
       vi.fn().mockResolvedValue(response)
     );
@@ -80,7 +79,7 @@ describe("current-session sign-out client boundary", function () {
     });
   });
 
-  return it("uses uncertainty-safe copy when the response is lost after revocation", async function () {
+  return it("uses uncertainty-safe copy when the response is lost after revocation", async () => {
     const gateway = createCurrentSessionGateway(
       vi.fn().mockRejectedValue(new Error("network unavailable"))
     );
@@ -95,8 +94,8 @@ describe("current-session sign-out client boundary", function () {
   });
 });
 
-describe("current-session sign-out workflow", function () {
-  it("replaces history with the fixed sign-in route after confirmed sign-out", async function () {
+describe("current-session sign-out workflow", () => {
+  it("replaces history with the fixed sign-in route after confirmed sign-out", async () => {
     const replace = vi.fn();
     const result = await completeCurrentSessionSignOut(
       { signOut: vi.fn().mockResolvedValue({ ok: true }) },
@@ -109,7 +108,7 @@ describe("current-session sign-out workflow", function () {
     return expect(SIGNED_OUT_DESTINATION).toBe("/sign-in");
   });
 
-  it("keeps the user in place when revocation was not confirmed", async function () {
+  it("keeps the user in place when revocation was not confirmed", async () => {
     const replace = vi.fn();
     const failure = { ok: false as const, message: SIGN_OUT_FAILED_MESSAGE };
     const result = await completeCurrentSessionSignOut(
@@ -121,7 +120,7 @@ describe("current-session sign-out workflow", function () {
     return expect(replace).not.toHaveBeenCalled();
   });
 
-  it("announces pending, ignores rapid repeats, and permits retry after failure", async function () {
+  it("announces pending, ignores rapid repeats, and permits retry after failure", async () => {
     const first = deferred<CurrentSessionSignOutResult>();
     const signOut = vi
       .fn()
@@ -152,7 +151,7 @@ describe("current-session sign-out workflow", function () {
     return expect(replace).toHaveBeenCalledWith(SIGNED_OUT_DESTINATION);
   });
 
-  return it("restores the concrete button target only after an error commit", function () {
+  return it("restores the concrete button target only after an error commit", () => {
     const button = { focus: vi.fn() };
 
     restoreSignOutFocusAfterCommit({ type: "pending" }, button);
@@ -166,8 +165,8 @@ describe("current-session sign-out workflow", function () {
   });
 });
 
-describe("portal sign-out action", function () {
-  it("keeps the server-rendered action inert until React hydration", function () {
+describe("portal sign-out action", () => {
+  it("keeps the server-rendered action inert until React hydration", () => {
     const html = renderToStaticMarkup(
       <SignOutAction
         gateway={{ signOut: vi.fn().mockResolvedValue({ ok: true }) }}
@@ -179,7 +178,7 @@ describe("portal sign-out action", function () {
     return expect(html).toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/);
   });
 
-  it("renders a keyboard-native E2E-addressable action instead of a GET mutation", function () {
+  it("renders a keyboard-native E2E-addressable action instead of a GET mutation", () => {
     const html = renderToStaticMarkup(
       <SignOutActionView
         isHydrated
@@ -198,7 +197,7 @@ describe("portal sign-out action", function () {
     return expect(html).not.toContain("formaction=");
   });
 
-  it("disables repeat activation and announces pending work", function () {
+  it("disables repeat activation and announces pending work", () => {
     const html = renderToStaticMarkup(
       <SignOutActionView
         isHydrated
@@ -213,7 +212,7 @@ describe("portal sign-out action", function () {
     return expect(html).not.toContain('role="alert"');
   });
 
-  return it("keeps the retry action enabled and exposes truthful failure feedback", function () {
+  return it("keeps the retry action enabled and exposes truthful failure feedback", () => {
     const html = renderToStaticMarkup(
       <SignOutActionView
         isHydrated

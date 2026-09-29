@@ -1,12 +1,12 @@
 import type { AdminUserSummaryOutput } from "@darkfactory/api";
 import {
   Button,
+  buttonVariants,
   EmptyState,
   Input,
   Label,
   Skeleton,
   StatusBadge,
-  buttonVariants,
 } from "@darkfactory/ui";
 import { RotateCcw, Search, Users } from "lucide-react";
 import type { FormEvent } from "react";
@@ -64,8 +64,8 @@ const SearchForm = ({
       <Label htmlFor="admin-user-query">Search users</Label>
       <Input
         defaultValue={query}
-        key={query}
         id="admin-user-query"
+        key={query}
         maxLength={200}
         name="query"
         placeholder="Search by profile or account fields"
@@ -89,7 +89,7 @@ const LoadingDirectory = () => (
     <span className="sr-only">Loading users</span>
     {["one", "two", "three"].map((key) => (
       <div
-        className="grid gap-3 border-b border-border py-5 sm:grid-cols-[minmax(0,1fr)_auto]"
+        className="grid gap-3 border-border border-b py-5 sm:grid-cols-[minmax(0,1fr)_auto]"
         key={key}
       >
         <div className="space-y-2">
@@ -182,7 +182,7 @@ export const AdminUsersDirectory = ({
     ) : (
       <div className="space-y-4">
         <div
-          className="divide-y divide-border border-y border-border"
+          className="divide-y divide-border border-border border-y"
           role="list"
         >
           {state.items.map((user) => (
@@ -192,10 +192,10 @@ export const AdminUsersDirectory = ({
               role="listitem"
             >
               <div className="min-w-0 space-y-1 break-words">
-                <h2 className="break-words font-heading text-base font-semibold text-foreground">
+                <h2 className="break-words font-heading font-semibold text-base text-foreground">
                   {titleFor(user)}
                 </h2>
-                <p className="break-words text-sm text-muted-foreground">
+                <p className="break-words text-muted-foreground text-sm">
                   {[user.profile?.jobTitle, user.profile?.businessName]
                     .filter(
                       (value) =>
@@ -205,7 +205,7 @@ export const AdminUsersDirectory = ({
                     )
                     .join(" · ") || "No profile summary provided"}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   {user.emailVerified ? "Email verified" : "Email not verified"}{" "}
                   · Account created{" "}
                   {user.createdAt.toLocaleDateString("en-US", {
@@ -229,7 +229,7 @@ export const AdminUsersDirectory = ({
         </div>
         <p
           aria-live="polite"
-          className="text-sm text-muted-foreground"
+          className="text-muted-foreground text-sm"
           role="status"
         >
           {state.items.length} {state.items.length === 1 ? "user" : "users"}{" "}

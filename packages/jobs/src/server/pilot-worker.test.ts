@@ -3,25 +3,25 @@ import type {
   WorkflowRepository,
 } from "@darkfactory/db/server";
 import { parseWorkflowRepositoryGrants } from "@darkfactory/state/workflow";
+import { describe, expect, it, vi } from "vitest";
 import {
   OMP_VERIFIER_COMMAND_IDENTITY,
-  OmpProcessTerminationError,
   type OmpCliAdapter,
+  OmpProcessTerminationError,
 } from "./omp.ts";
-import type { WayfinderExecutionPort } from "./wayfinder.ts";
-import type { WorkflowRuntime } from "./workflow-runtime.ts";
-import { describe, expect, it, vi } from "vitest";
-
 import {
   createPilotPollingWorker,
   createPilotWorker,
+  type PilotPollingWorker,
+  type PilotSignalSource,
+  PilotWorkerConfigurationError,
+  type PilotWorkerDependencies,
   parsePilotWorkerEnvironment,
   runPilotWorker,
-  type PilotPollingWorker,
-  type PilotWorkerDependencies,
-  PilotWorkerConfigurationError,
-  type PilotSignalSource,
 } from "./pilot-worker.ts";
+import type { WayfinderExecutionPort } from "./wayfinder.ts";
+import type { WorkflowRuntime } from "./workflow-runtime.ts";
+
 const VERIFIER_IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 
 const configuration = {
@@ -29,7 +29,7 @@ const configuration = {
   repositoriesRoot: "/srv/repositories",
   leaseOwner: "pilot-test",
   pollIntervalMs: 60_000,
-  shutdownTimeoutMs: 1_000,
+  shutdownTimeoutMs: 1000,
   repositoryGrants: parseWorkflowRepositoryGrants("owner-1=darkfactory"),
   verifierId: OMP_VERIFIER_COMMAND_IDENTITY,
   verifierImageDigest: VERIFIER_IMAGE_DIGEST,
@@ -51,7 +51,7 @@ describe("pilot workflow worker", () => {
     ).toEqual({
       ...configuration,
       pollIntervalMs: 250,
-      shutdownTimeoutMs: 5_000,
+      shutdownTimeoutMs: 5000,
     });
     expect(() =>
       parsePilotWorkerEnvironment({
@@ -82,7 +82,7 @@ describe("pilot workflow worker", () => {
       close,
       stopRuntime,
       pollIntervalMs: 60_000,
-      shutdownTimeoutMs: 1_000,
+      shutdownTimeoutMs: 1000,
     });
     const running = worker.start();
     await vi.waitFor(() => expect(runOnce).toHaveBeenCalledOnce());
@@ -396,7 +396,7 @@ describe("pilot workflow worker", () => {
 
     const defaults = parsePilotWorkerEnvironment(valid);
     expect(defaults).toMatchObject({
-      pollIntervalMs: 1_000,
+      pollIntervalMs: 1000,
       shutdownTimeoutMs: 10_000,
     });
     expect(defaults.leaseOwner).toBe(`pilot-${process.pid}`);
@@ -506,13 +506,13 @@ describe("pilot workflow worker", () => {
   });
 
   it("starts an independent database close after the runtime deadline is spent", async () => {
-    let clock = 1_000;
+    let clock = 1000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => clock);
     const close = vi.fn(async () => undefined);
     const worker = createPilotPollingWorker({
       runOnce: vi.fn(async () => []),
       stopRuntime: vi.fn(async () => {
-        clock = 1_101;
+        clock = 1101;
         return;
       }),
       close,

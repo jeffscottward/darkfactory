@@ -26,7 +26,7 @@ export const AdminUserSummarySchema = z
 export const AdminUsersListInputSchema = z
   .object({
     query: z.string().trim().min(1).max(200).optional(),
-    cursor: z.string().min(1).max(2_048).optional(),
+    cursor: z.string().min(1).max(2048).optional(),
     limit: z.number().int().min(1).max(100).default(20),
   })
   .strict();

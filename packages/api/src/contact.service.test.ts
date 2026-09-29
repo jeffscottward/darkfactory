@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  ContactServiceError,
-  createContactService,
   type ContactDeliveryPort,
+  ContactServiceError,
   type ContactThrottlePort,
+  createContactService,
 } from "./server/contact-service.ts";
 
 const input = {
@@ -26,7 +26,7 @@ const delivery = (
   result: Awaited<ReturnType<ContactDeliveryPort["sendContact"]>>
 ): ContactDeliveryPort => ({ sendContact: vi.fn(async () => result) });
 
-describe("DF-076 contact service", function () {
+describe("DF-076 contact service", () => {
   it.each([
     {
       deliveryResult: {
@@ -53,10 +53,10 @@ describe("DF-076 contact service", function () {
       },
       output: { status: "not-delivered" },
     },
-  ] as const)("returns $output.status without provider-only details", async function ({
+  ] as const)("returns $output.status without provider-only details", async ({
     deliveryResult,
     output,
-  }) {
+  }) => {
     const contactDelivery = delivery(deliveryResult);
     const contactThrottle = throttle();
     const service = createContactService({
@@ -70,7 +70,7 @@ describe("DF-076 contact service", function () {
     return expect(contactDelivery.sendContact).toHaveBeenCalledWith(input);
   });
 
-  it("returns not-delivered for a filled honeypot without consuming throttle or starting delivery", async function () {
+  it("returns not-delivered for a filled honeypot without consuming throttle or starting delivery", async () => {
     const contactDelivery = delivery({
       status: "sent",
       provider: "resend",
@@ -92,7 +92,7 @@ describe("DF-076 contact service", function () {
     return expect(contactDelivery.sendContact).not.toHaveBeenCalled();
   });
 
-  it("rejects the atomic sixth request with a typed 429 before delivery", async function () {
+  it("rejects the atomic sixth request with a typed 429 before delivery", async () => {
     const contactDelivery = delivery({
       status: "sent",
       provider: "resend",
@@ -114,9 +114,9 @@ describe("DF-076 contact service", function () {
   it.each([
     { label: "throttle storage", throttleFailure: true },
     { label: "configured provider", throttleFailure: false },
-  ])("maps $label failure to a redacted typed 503", async function ({
+  ])("maps $label failure to a redacted typed 503", async ({
     throttleFailure,
-  }) {
+  }) => {
     const contactThrottle: ContactThrottlePort = {
       consume: vi.fn(async () => {
         if (throttleFailure) throw new Error("database and raw IP detail");
@@ -148,7 +148,7 @@ describe("DF-076 contact service", function () {
   it.each([
     "CONTACT_PROVIDER_NOT_CONFIGURED",
     "CONTACT_RECIPIENT_INVALID",
-  ] as const)("does not disguise disabled adapter %s as successful non-delivery", async function (code) {
+  ] as const)("does not disguise disabled adapter %s as successful non-delivery", async (code) => {
     const service = createContactService({
       delivery: delivery({
         status: "not-delivered",
@@ -165,7 +165,7 @@ describe("DF-076 contact service", function () {
     );
   });
 
-  return it("redacts a provider exception before it crosses the service boundary", async function () {
+  return it("redacts a provider exception before it crosses the service boundary", async () => {
     const service = createContactService({
       delivery: {
         sendContact: vi.fn(async () => {

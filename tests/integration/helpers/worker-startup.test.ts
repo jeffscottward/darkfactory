@@ -2,10 +2,10 @@ import { createServer } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  type OwnedProcess,
   ownedProcessTreeExists,
   spawnOwnedProcess,
   terminateOwnedProcessTree,
-  type OwnedProcess,
 } from "../../../scripts/e2e/owned-process-tree.ts";
 import {
   startWorkerWithRetry,
@@ -90,7 +90,7 @@ describe("Worker startup bind retries", () => {
           ready = new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(
               () => reject(new Error("Bind fixture timed out")),
-              5_000
+              5000
             );
             child.stdout.on("data", (chunk: Buffer) => {
               output += chunk.toString();
@@ -147,8 +147,8 @@ describe("Worker startup bind retries", () => {
     const cleaning = new Promise<void>((resolve) => (cleanupStarted = resolve));
     const allocatePort = vi
       .fn()
-      .mockResolvedValueOnce(41001)
-      .mockResolvedValueOnce(41002);
+      .mockResolvedValueOnce(41_001)
+      .mockResolvedValueOnce(41_002);
     const start = vi
       .fn()
       .mockReturnValueOnce(first)
@@ -160,7 +160,7 @@ describe("Worker startup bind retries", () => {
     const stop = vi.fn(async () => {
       cleanupStarted();
       await new Promise<void>((resolve) => (finishCleanup = resolve));
-      output = `\u001b[31m${bindError(41001)}\u001b[0m\r\n`;
+      output = `\u001b[31m${bindError(41_001)}\u001b[0m\r\n`;
       return undefined;
     });
     const startup = startWorkerWithRetry({
@@ -175,7 +175,7 @@ describe("Worker startup bind retries", () => {
     expect(allocatePort).toHaveBeenCalledTimes(1);
     finishCleanup();
     await startup;
-    expect(start.mock.calls).toEqual([[41001], [41002]]);
+    expect(start.mock.calls).toEqual([[41_001], [41_002]]);
     return expect(stop.mock.calls).toEqual([[first]]);
   });
 
@@ -185,14 +185,14 @@ describe("Worker startup bind retries", () => {
       new Error("route returned 500"),
       1,
       null,
-      bindError(41001),
+      bindError(41_001),
     ],
     [
       "wrong port",
       new WorkerExitedBeforeReadinessError("exited"),
       1,
       null,
-      bindError(41002),
+      bindError(41_002),
     ],
     [
       "unrelated exit",
@@ -206,39 +206,39 @@ describe("Worker startup bind retries", () => {
       new WorkerExitedBeforeReadinessError("exited"),
       1,
       null,
-      `warning: ${bindError(41001)}`,
+      `warning: ${bindError(41_001)}`,
     ],
     [
       "suffixed message",
       new WorkerExitedBeforeReadinessError("exited"),
       1,
       null,
-      `${bindError(41001)} elsewhere`,
+      `${bindError(41_001)} elsewhere`,
     ],
     [
       "clean exit",
       new WorkerExitedBeforeReadinessError("exited"),
       0,
       null,
-      bindError(41001),
+      bindError(41_001),
     ],
     [
       "signal exit",
       new WorkerExitedBeforeReadinessError("exited"),
       null,
       "SIGTERM",
-      bindError(41001),
+      bindError(41_001),
     ],
     [
       "live child",
       new WorkerExitedBeforeReadinessError("exited"),
       null,
       null,
-      bindError(41001),
+      bindError(41_001),
     ],
   ] as const)("does not retry %s", async (_label, error, exitCode, signalCode, output) => {
     const child = exitedProcess(exitCode, signalCode);
-    const allocatePort = vi.fn(async () => 41001);
+    const allocatePort = vi.fn(async () => 41_001);
     const stop = vi.fn(async () => undefined);
     await expect(
       startWorkerWithRetry({
@@ -258,7 +258,7 @@ describe("Worker startup bind retries", () => {
 
   it("propagates cleanup failure without allocating another child", async () => {
     const error = new Error("owned descendants remain");
-    const allocatePort = vi.fn(async () => 41001);
+    const allocatePort = vi.fn(async () => 41_001);
     await expect(
       startWorkerWithRetry({
         allocatePort,
@@ -269,7 +269,7 @@ describe("Worker startup bind retries", () => {
         stop: async () => {
           throw error;
         },
-        output: () => bindError(41001),
+        output: () => bindError(41_001),
         deadline: Date.now() + 150_000,
       })
     ).rejects.toBe(error);
@@ -280,7 +280,7 @@ describe("Worker startup bind retries", () => {
     const errors = [1, 2, 3].map(
       (attempt) => new WorkerExitedBeforeReadinessError(`exit ${attempt}`)
     );
-    const allocatePort = vi.fn(async () => 41001);
+    const allocatePort = vi.fn(async () => 41_001);
     const stop = vi.fn(async () => undefined);
     let attempt = 0;
     await expect(
@@ -291,7 +291,7 @@ describe("Worker startup bind retries", () => {
           throw errors[attempt++]!;
         },
         stop,
-        output: () => bindError(41001),
+        output: () => bindError(41_001),
         deadline: Date.now() + 150_000,
       })
     ).rejects.toBe(errors[2]);
@@ -305,7 +305,7 @@ describe("Worker startup bind retries", () => {
       vi.setSystemTime(0);
       const error = new WorkerExitedBeforeReadinessError("exited");
       const deadlines: number[] = [];
-      const allocatePort = vi.fn(async () => 41001);
+      const allocatePort = vi.fn(async () => 41_001);
       let attempt = 0;
       await expect(
         startWorkerWithRetry({
@@ -320,7 +320,7 @@ describe("Worker startup bind retries", () => {
             vi.setSystemTime(Date.now() + 20);
             return undefined;
           },
-          output: () => bindError(41001),
+          output: () => bindError(41_001),
           deadline: 100,
         })
       ).rejects.toBe(error);

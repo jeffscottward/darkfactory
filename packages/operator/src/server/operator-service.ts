@@ -1,10 +1,9 @@
+import type { SafePrincipal } from "@darkfactory/auth/types";
 import {
-  WorkflowPlanEvidenceError,
   parseWorkflowPlanEvidenceV1,
+  WorkflowPlanEvidenceError,
   type WorkflowPlanEvidenceV1,
 } from "@darkfactory/jobs/server/plan-evidence";
-
-import type { SafePrincipal } from "@darkfactory/auth/types";
 import {
   OPERATOR_ERRORS,
   type OperatorApprovalBindingInput,
@@ -234,10 +233,10 @@ const capUtf16 = (value: string, maximumUnits: number): string => {
   const lastCodeUnit = bounded.charCodeAt(bounded.length - 1);
   const nextCodeUnit = value.charCodeAt(maximumUnits);
   const splitsSurrogatePair =
-    lastCodeUnit >= 0xd800 &&
-    lastCodeUnit <= 0xdbff &&
-    nextCodeUnit >= 0xdc00 &&
-    nextCodeUnit <= 0xdfff;
+    lastCodeUnit >= 0xd8_00 &&
+    lastCodeUnit <= 0xdb_ff &&
+    nextCodeUnit >= 0xdc_00 &&
+    nextCodeUnit <= 0xdf_ff;
   return splitsSurrogatePair ? bounded.slice(0, -1) : bounded;
 };
 
@@ -329,7 +328,7 @@ const decodeKeyToken = (token: string): string => {
 
 const redactKeyValues = (value: string): string => {
   return value.replace(
-    /(^|[\s,({;\[])("(?:\\.|[^"\\]){1,768}"|'(?:\\.|[^'\\]){1,768}'|[^\s"'()=:,;{}\[\]]{1,128})(\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\n),;}\]]+)/gu,
+    /(^|[\s,({;[])("(?:\\.|[^"\\]){1,768}"|'(?:\\.|[^'\\]){1,768}'|[^\s"'()=:,;{}[\]]{1,128})(\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\n),;}\]]+)/gu,
     (
       match: string,
       prefix: string,
@@ -491,14 +490,14 @@ const detailFor = (
     canRequestPlanRevision: detail.canRequestPlanRevision,
     originalRequest: detail.originalRequest,
     planRevisions: Object.freeze(
-      detail.planRevisions.slice(0, 1_000).map((revision) => {
+      detail.planRevisions.slice(0, 1000).map((revision) => {
         return Object.freeze({
           message: revision.message,
           createdAt: revision.createdAt,
         });
       })
     ),
-    timeline: detail.timeline.slice(0, 1_000).map((entry) => ({
+    timeline: detail.timeline.slice(0, 1000).map((entry) => ({
       sequence: entry.sequence,
       eventType: entry.eventType,
       summary: safeText(entry.summary, 500).value,
@@ -516,7 +515,7 @@ const detailFor = (
             redacted: implementationPlan.redacted,
           },
     evidence: detail.evidence.slice(0, 200).map((item) => {
-      const content = safeText(item.content, 4_096);
+      const content = safeText(item.content, 4096);
       return {
         id: item.id,
         kind: safeText(item.kind, 100).value,
@@ -529,7 +528,7 @@ const detailFor = (
     messages: detail.messages.slice(0, 500).map((message) => ({
       id: message.id,
       authorLabel: safeContractText(message.authorLabel, 200).value,
-      body: safeContractText(message.body, 2_000).value,
+      body: safeContractText(message.body, 2000).value,
       createdAt: message.createdAt,
     })),
   };
@@ -649,7 +648,7 @@ export const createOperatorService = (
         workflow.message({
           ...actionContext(principal, id, requestId),
           idempotencyKey,
-          body: safeContractText(body, 2_000).value,
+          body: safeContractText(body, 2000).value,
         })
       ),
   });

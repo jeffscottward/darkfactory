@@ -1,7 +1,7 @@
 import { isAlias, isCollection, isPair, isScalar, parseDocument } from "yaml";
 import {
-  capabilityManifestSchema,
   type CapabilityManifest,
+  capabilityManifestSchema,
 } from "../capabilities.ts";
 
 export type CapabilityManifestIssueCode =
@@ -41,7 +41,7 @@ const MAX_MANIFEST_BYTES = 32_768;
 const MAX_MANIFEST_NODES = 512;
 const MAX_MANIFEST_DEPTH = 32;
 const MAX_MANIFEST_KEY_BYTES = 128;
-const MAX_MANIFEST_STRING_BYTES = 4_096;
+const MAX_MANIFEST_STRING_BYTES = 4096;
 const textEncoder = new TextEncoder();
 
 const invalidYaml = (): CapabilityManifestValidationError => {
@@ -256,9 +256,9 @@ const sanitizedPath = (path: readonly PropertyKey[]): string => {
   const segments = path.map(String);
   if (
     segments.some((segment) => {
-      return (
-        !MANIFEST_PATH_SEGMENTS.has(segment) &&
-        !["0", "1", "2", "3"].includes(segment)
+      return !(
+        MANIFEST_PATH_SEGMENTS.has(segment) ||
+        ["0", "1", "2", "3"].includes(segment)
       );
     })
   ) {

@@ -1,7 +1,6 @@
-import { eq, sql } from "drizzle-orm";
-
 import { rateLimit as rateLimitRows } from "@darkfactory/db/schema";
 import type { DatabaseExecutor } from "@darkfactory/db/server";
+import { eq, sql } from "drizzle-orm";
 
 const MAX_RATE_LIMIT_WINDOW_MILLISECONDS = 60_000;
 const CLEANUP_BATCH_SIZE = 100;
@@ -40,7 +39,7 @@ const assertRule = (rule: Readonly<{ window: number; max: number }>): void => {
   if (
     !Number.isSafeInteger(rule.window) ||
     rule.window <= 0 ||
-    rule.window * 1_000 > MAX_RATE_LIMIT_WINDOW_MILLISECONDS ||
+    rule.window * 1000 > MAX_RATE_LIMIT_WINDOW_MILLISECONDS ||
     !Number.isSafeInteger(rule.max) ||
     rule.max <= 0
   ) {
@@ -81,7 +80,7 @@ export const createAtomicAuthRateLimitStorage = (
     ): Promise<AuthRateLimitDecision> => {
       assertRule(rule);
       const now = Date.now();
-      const windowMilliseconds = rule.window * 1_000;
+      const windowMilliseconds = rule.window * 1000;
       const consumeOnce = async (): Promise<DecisionRow | undefined> => {
         const decisionResult = await database.execute(sql`
         with attempted as (

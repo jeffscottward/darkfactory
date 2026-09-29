@@ -2,19 +2,19 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   CONSENT_STATES,
+  type ConsentState,
   DEFAULT_UI_PREFERENCES,
-  PALETTES,
-  THEME_MODES,
   isConsentState,
   isPalette,
   isThemeMode,
-  type ConsentState,
+  PALETTES,
   type Palette,
+  THEME_MODES,
   type ThemeMode,
 } from "./index.ts";
 
-describe("theme contracts", function () {
-  it("exposes the canonical ordered persisted ten-palette contract", function () {
+describe("theme contracts", () => {
+  it("exposes the canonical ordered persisted ten-palette contract", () => {
     expect(PALETTES).toEqual([
       "neutral",
       "slate",
@@ -33,7 +33,7 @@ describe("theme contracts", function () {
     return expectTypeOf<Palette>().toEqualTypeOf<(typeof PALETTES)[number]>();
   });
 
-  it("validates only the ten palette names", function () {
+  it("validates only the ten palette names", () => {
     for (const palette of PALETTES) {
       expect(isPalette(palette)).toBe(true);
     }
@@ -56,7 +56,7 @@ describe("theme contracts", function () {
     return results;
   });
 
-  it("validates only light, dark, and system theme modes", function () {
+  it("validates only light, dark, and system theme modes", () => {
     expect(THEME_MODES).toEqual(["light", "dark", "system"]);
     expect(Object.isFrozen(THEME_MODES)).toBe(true);
 
@@ -73,7 +73,7 @@ describe("theme contracts", function () {
     >();
   });
 
-  it("validates only granted, denied, and unknown consent states", function () {
+  it("validates only granted, denied, and unknown consent states", () => {
     expect(CONSENT_STATES).toEqual(["granted", "denied", "unknown"]);
     expect(Object.isFrozen(CONSENT_STATES)).toBe(true);
 
@@ -90,7 +90,7 @@ describe("theme contracts", function () {
     >();
   });
 
-  return it("uses safe deterministic defaults", function () {
+  return it("uses safe deterministic defaults", () => {
     expect(DEFAULT_UI_PREFERENCES).toEqual({
       sidebar: "expanded",
       mobileNavigationOpen: false,

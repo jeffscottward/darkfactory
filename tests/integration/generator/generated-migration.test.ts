@@ -134,8 +134,8 @@ const insertUser = async (id: string): Promise<void> => {
   );
 };
 
-describe("generated feature migration on real Postgres", function () {
-  beforeAll(async function () {
+describe("generated feature migration on real Postgres", () => {
+  beforeAll(async () => {
     workspaceRoot = await createWorkspaceCopy();
     const plan = await createGenerationPlan(
       workspaceRoot,
@@ -160,7 +160,7 @@ describe("generated feature migration on real Postgres", function () {
     return await insertUser("cascade-owner");
   }, 60_000);
 
-  afterAll(async function () {
+  afterAll(async () => {
     try {
       if (databaseResource !== undefined) {
         return await databaseResource.close();
@@ -179,7 +179,7 @@ describe("generated feature migration on real Postgres", function () {
     }
   }, 60_000);
 
-  it("applies the generated migration after every checked-in migration", async function () {
+  it("applies the generated migration after every checked-in migration", async () => {
     const journal = JSON.parse(
       await readFile(
         generatedPath("packages/db/migrations/meta/_journal.json"),
@@ -196,7 +196,7 @@ describe("generated feature migration on real Postgres", function () {
     return expect(Number(applied[0]?.count)).toBe(journal.entries.length);
   });
 
-  it("creates the owner foreign key to user(id) and the schema constraints", async function () {
+  it("creates the owner foreign key to user(id) and the schema constraints", async () => {
     const constraints = await testDatabase.query<{
       name: string;
       definition: string;
@@ -241,7 +241,7 @@ describe("generated feature migration on real Postgres", function () {
     ]);
   });
 
-  it("matches drizzle-kit output for the generated Drizzle schema", async function () {
+  it("matches drizzle-kit output for the generated Drizzle schema", async () => {
     const drizzleKit = await loadDrizzleKit();
     const schema = (await import(
       generatedPath(`packages/db/src/generated/${FEATURE}/schema.civet`)
@@ -260,7 +260,7 @@ describe("generated feature migration on real Postgres", function () {
     ).toEqual(expected.map((statement) => statement.trim()));
   });
 
-  it("stores rows for a real user through the generated repository", async function () {
+  it("stores rows for a real user through the generated repository", async () => {
     const module = (await import(
       generatedPath(`packages/db/src/generated/${FEATURE}/repository.civet`)
     )) as Readonly<{
@@ -302,16 +302,15 @@ describe("generated feature migration on real Postgres", function () {
       "draft",
       "23503",
     ],
-  ])("rejects %s", async function (_case, constraint, ownerId, name, status, code) {
-    return await expect(
+  ])("rejects %s", async (_case, constraint, ownerId, name, status, code) =>
+    await expect(
       testDatabase.query(
         `INSERT INTO "${TABLE}" (id, owner_id, name, description, status) VALUES ($1, $2, $3, '', $4)`,
         [`rejected-${constraint}`, ownerId, name, status]
       )
-    ).rejects.toMatchObject({ code, constraint: `${TABLE}_${constraint}` });
-  });
+    ).rejects.toMatchObject({ code, constraint: `${TABLE}_${constraint}` }));
 
-  return it("cascades owner deletion", async function () {
+  return it("cascades owner deletion", async () => {
     await testDatabase.query(
       `INSERT INTO "${TABLE}" (id, owner_id, name, description) VALUES ('cascade-item', 'cascade-owner', 'Owned', '')`
     );

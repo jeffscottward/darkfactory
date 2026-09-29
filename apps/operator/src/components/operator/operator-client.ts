@@ -6,9 +6,9 @@ import {
   type OperatorClient,
   type OperatorRunDetailOutput as OperatorContractRunDetailOutput,
   type OperatorRunSummaryOutput,
-  type OperatorWorkflowState,
   type OperatorWayfinderQueuedRunOutput,
   type OperatorWayfinderStatusOutput,
+  type OperatorWorkflowState,
 } from "@darkfactory/operator/contract";
 
 export const WORKFLOW_STATES = Object.freeze([...OPERATOR_WORKFLOW_STATES]);

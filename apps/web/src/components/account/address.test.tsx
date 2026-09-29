@@ -3,9 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAccountGateway } from "./account-client.ts";
-import { addressMutationMessage } from "./address-page-client.tsx";
 import { AddressBook } from "./address-book.tsx";
 import { changedAddressUpdateInput } from "./address-form.tsx";
+import { addressMutationMessage } from "./address-page-client.tsx";
 
 const address = {
   id: "address-1",
@@ -90,24 +90,14 @@ const activate = (control: ElementRecord): void => {
   (control.props["onClick"] as () => void)();
 };
 
-describe("typed address gateway", function () {
-  it("uses create, update, primary, and confirmed remove procedures", async function () {
+describe("typed address gateway", () => {
+  it("uses create, update, primary, and confirmed remove procedures", async () => {
     const addresses = {
-      list: vi.fn(async function () {
-        return [address];
-      }),
-      create: vi.fn(async function () {
-        return address;
-      }),
-      update: vi.fn(async function () {
-        return { ...address, city: "Changed City" };
-      }),
-      setPrimary: vi.fn(async function () {
-        return address;
-      }),
-      remove: vi.fn(async function () {
-        return { removed: true as const };
-      }),
+      list: vi.fn(async () => [address]),
+      create: vi.fn(async () => address),
+      update: vi.fn(async () => ({ ...address, city: "Changed City" })),
+      setPrimary: vi.fn(async () => address),
+      remove: vi.fn(async () => ({ removed: true as const })),
     };
     const gateway = createAccountGateway({
       account: {
@@ -153,7 +143,7 @@ describe("typed address gateway", function () {
     });
   });
 
-  it("distinguishes create and update confirmations", function () {
+  it("distinguishes create and update confirmations", () => {
     expect(
       addressMutationMessage({
         type: address.type,
@@ -174,17 +164,16 @@ describe("typed address gateway", function () {
       })
     ).toBe("Address updated.");
   });
-  it("submits only dirty address fields with the loaded version", function () {
-    return expect(
+  it("submits only dirty address fields with the loaded version", () =>
+    expect(
       changedAddressUpdateInput(address, { ...address, city: "Changed City" })
     ).toEqual({
       id: address.id,
       expectedUpdatedAt: address.updatedAt,
       city: "Changed City",
-    });
-  });
+    }));
 
-  return it("normalizes every editable field while preserving identity, version, and primary status", function () {
+  return it("normalizes every editable field while preserving identity, version, and primary status", () => {
     expect(changedAddressUpdateInput(address, address)).toEqual({
       id: address.id,
       expectedUpdatedAt: address.updatedAt,
@@ -222,8 +211,8 @@ describe("typed address gateway", function () {
   });
 });
 
-describe("address book states and actions", function () {
-  it("renders geometry-preserving loading feedback", function () {
+describe("address book states and actions", () => {
+  it("renders geometry-preserving loading feedback", () => {
     const html = renderToStaticMarkup(
       <AddressBook state={{ type: "loading" }} />
     );
@@ -231,7 +220,7 @@ describe("address book states and actions", function () {
     return expect(html).toContain('aria-busy="true"');
   });
 
-  it("renders an instructive create path when no address exists", function () {
+  it("renders an instructive create path when no address exists", () => {
     const html = renderToStaticMarkup(
       <AddressBook state={{ type: "ready", addresses: [] }} />
     );
@@ -239,7 +228,7 @@ describe("address book states and actions", function () {
     return expect(html).toContain("Add an address");
   });
 
-  it("renders persisted address fields and accessible edit/primary/remove actions", function () {
+  it("renders persisted address fields and accessible edit/primary/remove actions", () => {
     const html = renderToStaticMarkup(
       <AddressBook state={{ type: "ready", addresses: [address] }} />
     );
@@ -251,7 +240,7 @@ describe("address book states and actions", function () {
     return expect(html).not.toContain("Make work address primary");
   });
 
-  it("requires explicit removal confirmation and retains a cancel action", function () {
+  it("requires explicit removal confirmation and retains a cancel action", () => {
     const html = renderToStaticMarkup(
       <AddressBook
         confirmingRemoveId="address-1"
@@ -263,7 +252,7 @@ describe("address book states and actions", function () {
     return expect(html).toContain("Cancel");
   });
 
-  it("shows safe error and success feedback without replacing server state", function () {
+  it("shows safe error and success feedback without replacing server state", () => {
     const failed = renderToStaticMarkup(
       <AddressBook
         feedback={{
@@ -294,7 +283,7 @@ describe("address book states and actions", function () {
     ["not-found", 'href="/account"', "Back to account"],
     ["conflict", "Try again", "Try again"],
     ["retryable", "Try again", "Try again"],
-  ] as const)("renders the accessible %s recovery action", function (kind, recovery, label) {
+  ] as const)("renders the accessible %s recovery action", (kind, recovery, label) => {
     const html = renderToStaticMarkup(
       <AddressBook
         state={{ type: "error", kind, message: "Addresses are unavailable." }}
@@ -306,7 +295,7 @@ describe("address book states and actions", function () {
     return expect(html).toContain(label);
   });
 
-  it("forwards empty, retry, edit, primary, remove, confirm, and cancel actions with the owned address", function () {
+  it("forwards empty, retry, edit, primary, remove, confirm, and cancel actions with the owned address", () => {
     const secondary = {
       ...address,
       id: "address-2",
@@ -366,7 +355,7 @@ describe("address book states and actions", function () {
     return expect(onCancelRemove).toHaveBeenCalledOnce();
   });
 
-  return it("disables every address mutation while exposing truthful per-address progress", function () {
+  return it("disables every address mutation while exposing truthful per-address progress", () => {
     const secondary = {
       ...address,
       id: "address-2",

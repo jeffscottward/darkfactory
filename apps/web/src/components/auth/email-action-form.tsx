@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { useForm } from "@tanstack/react-form";
 import { Button, Input, Label } from "@darkfactory/ui";
+import { useForm } from "@tanstack/react-form";
+import { useState } from "react";
 
 import {
+  type AuthFlowClient,
+  type AuthFlowResult,
   browserAuthClient,
   submitForgotPassword,
   submitVerificationEmail,
   validateEmail,
-  type AuthFlowClient,
-  type AuthFlowResult,
 } from "./auth-flow.ts";
 import { FormStatus } from "./form-status.tsx";
 
@@ -90,13 +90,13 @@ export const EmailActionForm = ({
                         setResult(null);
                         return field.handleChange(event.target.value);
                       }}
-                      type="email"
                       required
+                      type="email"
                       value={field.state.value}
                     />
                     {error ? (
                       <p
-                        className="text-sm font-medium text-destructive"
+                        className="font-medium text-destructive text-sm"
                         id={errorId}
                         role="alert"
                       >
@@ -108,7 +108,7 @@ export const EmailActionForm = ({
               }}
             </form.Field>
 
-            <p className="text-sm leading-6 text-muted-foreground">
+            <p className="text-muted-foreground text-sm leading-6">
               For your privacy, the result is the same whether or not this
               address belongs to an account.
             </p>

@@ -34,9 +34,8 @@ const setupFlow = setup({
     setPreferencesComplete: assign(({ context, event }) => {
       if (event.type !== "SET_PREFERENCES_COMPLETE") {
         return context;
-      } else {
-        return { ...context, preferencesComplete: event.value };
       }
+      return { ...context, preferencesComplete: event.value };
     }),
     prepareSubmission: assign(({ context }) => ({
       ...context,
