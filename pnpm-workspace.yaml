@@ -22,7 +22,7 @@ catalog:
   "@axe-core/playwright": 4.13.0
   "@better-auth/drizzle-adapter": 1.7.6
   "@biomejs/biome": 2.5.14
-  "@cloudflare/vite-plugin": 1.47.0
+  "@cloudflare/vite-plugin": 1.61.0
   "@vitest/coverage-v8": 5.0.2
   "@fontsource-variable/manrope": 5.3.0
   "@fontsource-variable/public-sans": 5.3.0
@@ -79,7 +79,7 @@ catalog:
   vinext: 1.0.0-beta.3
   vite: 8.3.1
   vitest: 5.0.2
-  wrangler: 4.114.0
+  wrangler: 4.142.0
   xstate: 5.33.2
   yaml: 2.9.1
   zod: 4.6.5
