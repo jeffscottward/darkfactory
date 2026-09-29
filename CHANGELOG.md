@@ -4,6 +4,17 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
+### Security
+
+- The operator verifier image no longer receives local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so `.dev.vars`, `.env*` files and host `node_modules` were copied into the image. It is now an allowlist of files, and an invariant test rejects directory re-includes. Rebuild the image with `verifier:image:setup`.
+- The verifier image fetches pnpm as a checksum-pinned registry tarball instead of an unpinned `npm install --global`, and its Bun base defaults to a digest-pinned `oven/bun:1.3.14`. `DARKFACTORY_VERIFIER_BASE_IMAGE` is now an optional override, which must still be digest-pinned.
+
+### Fixed
+
+- The pre-push hook accepts Git's empty input, which Git sends for "Everything up-to-date" and for pushes it already rejected (stale lease, non-fast-forward). It used to fail with "expected four fields" and hide Git's own message.
+- The verifier's `build-web` check points at `apps/web`'s `vinext` binary, and the image makes its dependencies readable for the runtime user regardless of the builder's umask.
+- Two load-dependent test flakes (#46): an isolated RSC build test now runs the plugin hook that initializes `es-module-lexer`, and an operator test waits for run details to load.
+
 ## [0.3.0] - 2026-09-29
 
 Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https://github.com/jeffscottward/darkfactory/pull/37), [#38](https://github.com/jeffscottward/darkfactory/pull/38), [#39](https://github.com/jeffscottward/darkfactory/pull/39), [#42](https://github.com/jeffscottward/darkfactory/pull/42) and [#44](https://github.com/jeffscottward/darkfactory/pull/44).
@@ -51,6 +62,7 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - The custom E2E harness (about 26,800 lines), replaced by Playwright built-ins. (#37)
 - Committed coverage and graph artifacts, the hosted security preflight, change-detector tests and copied CI shell scripts. (#36)
 - `docs/generated/architecture-inventory.json`, replaced by the package graph, and the superseded testing, local-development, capabilities-and-deployment and Hyperdrive guides.
+- Root scripts `ci`, `types`, `types:check`, `coverage:check`, `coverage:generate`, `coverage:update`, `test:coverage`, `typecheck:database-integration`, `verify:graph`, `capability:add`, `dev:https`, `dev:logs`, `dev:status` and `dev:stop`; `api:openapi:check` and `api:openapi:generate` are now `openapi:check` and `openapi:generate`. (#36, #38, #44)
 
 ### Fixed
 
@@ -64,6 +76,14 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - A client-supplied `x-request-id` is never trusted. (#38)
 - All open Dependabot alerts patched. (#36)
 - Remove request-supplied cookies from dashboard transport when no trusted session cookie is available.
+- `fflate` raised to 0.7.5 for GHSA-px8p-9vwx-vf98 (an infinite loop on malformed ZIP64 archives). (#44)
+
+### Upgrading an existing 0.2.x checkout
+
+1. Stop the old PM2 processes, which hold the `darkfactory.localhost` route: `pm2 delete darkfactory-web-dev darkfactory-operator-dev`.
+2. Copy anything you still need from `.env.schema` into `.env`, then run `mise install && bun run setup`.
+3. Delete generated Civet leftovers: `find . -name '*.civet.d.ts' -not -path '*/node_modules/*' -delete`.
+4. Copy ignored local files that an older commit tracked (for example `.omp-status.md`) out of the repository before checking out a pre-0.3.0 commit; Git overwrites them.
 
 ## [0.2.1] - 2026-07-28
 
