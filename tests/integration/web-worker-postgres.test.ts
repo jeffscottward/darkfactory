@@ -263,7 +263,9 @@ const rpc = async (
     }),
   });
 
-describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
+describe("Vinext Cloudflare Worker node-postgres runtime", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     database = await createPostgresTestDatabase({ runId: "vinext_worker_pg" });
     const migrationDatabase = createNodeDatabase({

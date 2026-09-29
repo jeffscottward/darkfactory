@@ -217,7 +217,9 @@ afterEach(() => {
   }
 });
 
-describe.sequential("testkit deterministic fixtures and exports", () => {
+describe("testkit deterministic fixtures and exports", {
+  concurrent: false,
+}, () => {
   it("captures Date and numeric instants without exposing mutable shared state", () => {
     const source = new Date("2026-02-03T04:05:06.789Z");
     const fromDate = createFixedClock(source);
@@ -268,7 +270,9 @@ describe.sequential("testkit deterministic fixtures and exports", () => {
   });
 });
 
-describe.sequential("PostgreSQL test database URL and environment guards", () => {
+describe("PostgreSQL test database URL and environment guards", {
+  concurrent: false,
+}, () => {
   it("requires an explicit test environment before inspecting configuration", async () => {
     process.env["NODE_ENV"] = "development";
     process.env["APP_ENV"] = "development";
@@ -441,7 +445,9 @@ describe.sequential("PostgreSQL test database URL and environment guards", () =>
   });
 });
 
-describe.sequential("PostgreSQL test database creation and connections", () => {
+describe("PostgreSQL test database creation and connections", {
+  concurrent: false,
+}, () => {
   it("creates an isolated database with bounded timeouts and usable connection handles", async () => {
     const database = await createPostgresTestDatabase({
       databaseUrl:
@@ -1183,7 +1189,9 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
   );
 });
 
-describe.sequential("PostgreSQL role and collision validation", () => {
+describe("PostgreSQL role and collision validation", {
+  concurrent: false,
+}, () => {
   it.each([
     ["a missing role row", undefined],
     [
@@ -1294,7 +1302,7 @@ describe.sequential("PostgreSQL role and collision validation", () => {
   );
 });
 
-describe.sequential("PostgreSQL creation cleanup", () => {
+describe("PostgreSQL creation cleanup", { concurrent: false }, () => {
   it("preserves a primary setup failure when cleanup succeeds", async () => {
     const connectionError = new Error("maintenance connect failed");
     postgresDriver.enqueue({ connectError: connectionError });
@@ -1438,7 +1446,7 @@ describe.sequential("PostgreSQL creation cleanup", () => {
   });
 });
 
-describe.sequential("PostgreSQL drop cleanup", () => {
+describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
   const forgedDatabase = (): PostgresTestDatabase =>
     Object.freeze({
       databaseUrl: "postgresql://localhost/darkfactory_test_forged",

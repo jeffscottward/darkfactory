@@ -317,7 +317,9 @@ const finalizationFor = (
   };
 };
 
-describe.sequential("workflow durability on real PostgreSQL", () => {
+describe("workflow durability on real PostgreSQL", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

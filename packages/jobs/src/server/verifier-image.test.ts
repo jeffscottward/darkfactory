@@ -75,7 +75,7 @@ afterEach(() => {
   return vi.resetModules();
 });
 
-describe.sequential("verifier image executable", () => {
+describe("verifier image executable", { concurrent: false }, () => {
   it("builds a pinned image, verifies its immutable identity, and prints the digest", async () => {
     process.argv = ["bun", "verifier-image.ts", "setup"];
     process.env["DARKFACTORY_VERIFIER_BASE_IMAGE"] = ` ${PINNED_BASE_IMAGE} `;

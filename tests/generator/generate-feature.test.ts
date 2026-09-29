@@ -1,4 +1,3 @@
-import { constants } from "node:fs";
 import {
   link,
   lstat,
@@ -15,6 +14,18 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// A mutable copy of node:fs constants lets one test remove O_NOFOLLOW from the
+// already-loaded generator modules. Re-importing them under vi.doMock would
+// create a second module instance whose coverage Vitest 5 does not merge.
+const fsMocks = vi.hoisted(() => ({
+  constants: {} as Record<string, number | undefined>,
+}));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  Object.assign(fsMocks.constants, actual.constants);
+  return { ...actual, constants: fsMocks.constants };
+});
 
 import {
   type ApplyGenerationDependencies,
@@ -987,33 +998,21 @@ describe("DF-069 transactional live apply and verification", () => {
 
   it("uses portable verification flags when O_NOFOLLOW is unavailable", async () => {
     const { root } = await fixture();
-    vi.doMock("node:fs", () => ({
-      constants: { ...constants, O_NOFOLLOW: undefined },
-    }));
-    vi.resetModules();
+    const noFollow = fsMocks.constants["O_NOFOLLOW"];
+    Reflect.deleteProperty(fsMocks.constants, "O_NOFOLLOW");
 
     try {
-      const [
-        { applyGenerationPlan: applyPortably },
-        { createGenerationPlan: createPortablePlan },
-        { verifyGeneration: verifyPortably },
-      ] = await Promise.all([
-        import("../../scripts/generate-feature/apply.ts"),
-        import("../../scripts/generate-feature/plan.ts"),
-        import("../../scripts/generate-feature/verify.ts"),
-      ]);
-      const plan = await createPortablePlan(
+      const plan = await createGenerationPlan(
         root,
         validateFeatureName("order-item")
       );
-      await applyPortably(plan);
-      return await expect(verifyPortably(plan)).resolves.toMatchObject({
+      await applyGenerationPlan(plan);
+      return await expect(verifyGeneration(plan)).resolves.toMatchObject({
         isValid: true,
         filesChecked: plan.files.length,
       });
     } finally {
-      vi.doUnmock("node:fs");
-      vi.resetModules();
+      fsMocks.constants["O_NOFOLLOW"] = noFollow;
     }
   });
 
@@ -1029,6 +1028,7 @@ describe("DF-069 transactional live apply and verification", () => {
         })
       ),
     }));
+    vi.resetModules();
 
     try {
       const { generateFeature: generateWithoutVerification } = await import(

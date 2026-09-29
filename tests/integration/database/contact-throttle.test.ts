@@ -13,7 +13,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 let testDatabase: PostgresTestDatabase;
 let databaseResource: ReturnType<typeof createNodeDatabase>;
 
-describe.sequential("DF-076 atomic contact throttle on real Postgres", () => {
+describe("DF-076 atomic contact throttle on real Postgres", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

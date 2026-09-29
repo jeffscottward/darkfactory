@@ -7,7 +7,7 @@ import {
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 
-describe.sequential("real Postgres test database lifecycle", () => {
+describe("real Postgres test database lifecycle", { concurrent: false }, () => {
   it("rejects remote, production-like, routed, and already-isolated URLs before connecting", async () => {
     await expect(
       createPostgresTestDatabase({

@@ -164,7 +164,7 @@ afterEach(() => {
   return vi.resetModules();
 });
 
-describe.sequential("database CLI", () => {
+describe("database CLI", { concurrent: false }, () => {
   it("runs a test seed to completion without registering a module loader", async () => {
     const stdout = outputSpy();
 
