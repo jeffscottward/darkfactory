@@ -9,7 +9,7 @@ import type {
   TestInfo,
 } from "@playwright/test";
 
-import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures";
+import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures.ts";
 
 const ALICE_SEED_ITEM = "Alice example item";
 const BOB_SEED_ITEM = "Bob example item";

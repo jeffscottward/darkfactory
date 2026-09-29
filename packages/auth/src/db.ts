@@ -4,9 +4,9 @@ import { sessions } from "@darkfactory/db/schema"
 import type { DatabaseExecutor } from "@darkfactory/db/server"
 
 import type { DarkFactoryAuth } from "./server.ts"
-import { hasValidBetterAuthSessionCookie } from "./cookie-signature.js"
+import { hasValidBetterAuthSessionCookie } from "./cookie-signature.ts"
 
-export { hasValidBetterAuthSessionCookie } from "./cookie-signature.js"
+export { hasValidBetterAuthSessionCookie } from "./cookie-signature.ts"
 
 export const CONFIRMED_SIGN_OUT_ERROR_CODE =
   "SESSION_REVOCATION_UNCONFIRMED" as const

@@ -26,7 +26,6 @@ describe("auth package boundaries", function() {
     )
 
     expect(Object.keys(serverExport)).toEqual([
-      "types",
       "workerd",
       "worker",
       "browser",

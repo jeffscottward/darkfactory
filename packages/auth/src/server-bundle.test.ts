@@ -1,4 +1,3 @@
-import civet from "@danielx/civet/vite"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -17,7 +16,6 @@ describe("auth server browser bundle", function() {
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
-        plugins: [civet({ ts: "esbuild" })],
         resolve: {
           conditions: ["browser"],
         },

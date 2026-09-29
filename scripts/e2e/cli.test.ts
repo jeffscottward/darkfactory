@@ -11,7 +11,7 @@ import {
   createOwnedE2ELifecycleStateWriter,
   E2E_LIFECYCLE_STATE_FILE_NAME,
   removeOwnedE2ERunArtifacts,
-} from "../../tests/e2e/helpers/run-artifacts.js"
+} from "../../tests/e2e/helpers/run-artifacts.ts"
 
 import {
   collectProcessDiagnostics,
@@ -370,8 +370,6 @@ describe("E2E lifecycle CLIs", () => {
     })
     expect(scanner.arguments.slice(0, 4)).toEqual([
       "--experimental-strip-types",
-      "--import",
-      "./tests/e2e/helpers/register-civet-loader.mjs",
       "./scripts/e2e/scan-artifacts.ts",
     ])
     expect(scanner.arguments).not.toContain("corepack")

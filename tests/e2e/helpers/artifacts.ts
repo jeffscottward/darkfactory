@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { expect, type Page, type TestInfo } from "@playwright/test";
 
-import { e2eRunPathsFromEnvironment } from "./run-artifacts";
+import { e2eRunPathsFromEnvironment } from "./run-artifacts.ts";
 
 const SAFE_ARTIFACT_NAME_PATTERN = /[^a-zA-Z0-9._-]+/gu;
 const TRIM_UNSAFE_EDGES_PATTERN = /^[.-]+|[.-]+$/gu;

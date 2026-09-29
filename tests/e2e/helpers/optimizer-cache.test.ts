@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { removeE2EOptimizerCache } from "./optimizer-cache";
+import { removeE2EOptimizerCache } from "./optimizer-cache.ts";
 
 const temporaryRoots: string[] = [];
 

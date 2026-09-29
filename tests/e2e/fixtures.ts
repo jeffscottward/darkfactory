@@ -10,15 +10,15 @@ import {
   BrowserErrorCollector,
   type ExpectedBrowserMessage,
   type ExpectedHttpError,
-} from "./helpers/browser-errors";
+} from "./helpers/browser-errors.ts";
 import {
   publishEvidenceManifest,
   type EvidenceContext,
-} from "./helpers/evidence";
+} from "./helpers/evidence.ts";
 import {
   discardEvidenceArtifacts,
   ensureStructuredEvidence,
-} from "./helpers/artifacts";
+} from "./helpers/artifacts.ts";
 
 const DEVELOPMENT_PASSWORD = "Development123!";
 
@@ -200,16 +200,16 @@ export {
   expectNoThemeFlash,
   installFirstPaintProbe,
   screenshotArtifactPath,
-} from "./helpers/artifacts";
+} from "./helpers/artifacts.ts";
 export {
   waitForContactPreview,
   waitForPreviewLink,
-} from "./helpers/preview-email";
+} from "./helpers/preview-email.ts";
 export type {
   ExpectedBrowserMessage,
   ExpectedHttpError,
-} from "./helpers/browser-errors";
+} from "./helpers/browser-errors.ts";
 export type {
   PreviewOperation,
   PreviewRecipient,
-} from "./helpers/preview-email";
+} from "./helpers/preview-email.ts";

@@ -10,7 +10,7 @@ import {
   signInAs,
   test,
   type E2EIdentity,
-} from "./fixtures";
+} from "./fixtures.ts";
 const CREDENTIAL_ARTIFACT_POLICY = {
   screenshot: "off",
   trace: "off",

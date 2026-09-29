@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatE2ELifecycleFailure } from "./lifecycle-diagnostics";
+import { formatE2ELifecycleFailure } from "./lifecycle-diagnostics.ts";
 
 const forbiddenDynamicContent =
   /https?:|postgres|password|token|authorization|cookie|\/Users\//iu;

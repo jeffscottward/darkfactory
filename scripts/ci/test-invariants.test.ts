@@ -5,7 +5,7 @@ import { join, matchesGlob, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
-import vitestConfig from "../../vitest.config.js"
+import vitestConfig from "../../vitest.config.ts"
 
 type Manifest = Readonly<{ scripts?: Readonly<Record<string, string>> }>
 type VitestRun = Readonly<{ cwd: string; arguments_: readonly string[] }>

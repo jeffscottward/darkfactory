@@ -29,7 +29,6 @@ describe("database package boundaries", function() {
       browser: "./src/server/unsupported.ts",
     })
     expect(manifest.exports["./server/migration"]).toEqual({
-      types: "./src/server/migration.civet.d.ts",
       import: "./src/server/migration.ts",
       default: "./src/server/migration.ts",
     })

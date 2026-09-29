@@ -10,7 +10,7 @@ import type {
   Page,
 } from "@playwright/test";
 
-import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures";
+import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures.ts";
 const THEME_COOKIE_NAME = "darkfactory-theme";
 const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1";
 const ACCOUNT_EVIDENCE_ADDRESS = "500 Browser Evidence Way";

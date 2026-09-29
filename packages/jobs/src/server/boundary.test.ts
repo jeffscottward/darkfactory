@@ -25,7 +25,6 @@ describe("inline jobs package boundary", function() {
     )
 
     expect(Object.keys(manifest.exports["./server/inline"])).toEqual([
-      "types",
       "workerd",
       "worker",
       "browser",

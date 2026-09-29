@@ -7,8 +7,8 @@ import {
   createSerializedLifecycle,
   isIntentionalLifecycleShutdownInterruption,
   LifecycleShutdownRequestedError,
-} from "./serialized-lifecycle";
-import { waitForE2EServerReady } from "./server-readiness";
+} from "./serialized-lifecycle.ts";
+import { waitForE2EServerReady } from "./server-readiness.ts";
 
 const deferred = <Value>(): Readonly<{
   promise: Promise<Value>;

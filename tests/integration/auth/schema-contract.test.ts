@@ -3,8 +3,8 @@ import {
   session as generatedSession,
   user as generatedUser,
   verification as generatedVerification,
-} from "../../../packages/auth/generated/better-auth-schema.js"
-import { tableContract } from "../../../packages/auth/scripts/schema-contract.js"
+} from "../../../packages/auth/generated/better-auth-schema.ts"
+import { tableContract } from "../../../packages/auth/scripts/schema-contract.ts"
 import {
   USER_ROLES,
   USER_STATUSES,

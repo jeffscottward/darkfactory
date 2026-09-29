@@ -1,4 +1,3 @@
-import civet from "@danielx/civet/vite"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
@@ -17,7 +16,6 @@ describe("inline jobs browser bundle", function() {
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
-        plugins: [civet({ ts: "esbuild" })],
         resolve: {
           conditions: ["browser"],
         },

@@ -17,9 +17,9 @@ import {
   discardEvidenceArtifacts,
   evidenceArtifactsFor,
   screenshotArtifactPath,
-} from "./artifacts";
-import { publishEvidenceManifest } from "./evidence";
-import { createE2ERunPaths } from "./run-artifacts";
+} from "./artifacts.ts";
+import { publishEvidenceManifest } from "./evidence.ts";
+import { createE2ERunPaths } from "./run-artifacts.ts";
 
 let evidenceDirectory: string | undefined;
 

@@ -7,7 +7,7 @@ import type {
   EmailVerificationEmailInput,
   PasswordResetEmailInput,
 } from "../index.ts"
-import { normalizeRecipient } from "../recipient.js"
+import { normalizeRecipient } from "../recipient.ts"
 import {
   createPreviewEmailPort,
   renderEmailVerificationEmail,

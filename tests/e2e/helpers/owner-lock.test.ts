@@ -14,7 +14,7 @@ import { cleanupE2ELifecycle } from "./lifecycle.ts";
 import {
   acquireRouteOwnerLock,
   releaseRouteOwnerLock,
-} from "./owner-lock";
+} from "./owner-lock.ts";
 
 const temporaryRoots: string[] = [];
 
@@ -42,8 +42,6 @@ describe("E2E lifecycle runtime resolution", () => {
       process.execPath,
       [
         "--experimental-strip-types",
-        "--import",
-        "./tests/e2e/helpers/register-civet-loader.mjs",
         "--input-type=module",
         "--eval",
         'await import("./tests/e2e/helpers/owner-lock.ts"); await import("./tests/e2e/helpers/lifecycle.ts");',

@@ -1,4 +1,4 @@
-import type { E2ELifecycleStage } from "./run-artifacts";
+import type { E2ELifecycleStage } from "./run-artifacts.ts";
 
 export type E2ELifecycleDiagnosticStage =
   | "validation"

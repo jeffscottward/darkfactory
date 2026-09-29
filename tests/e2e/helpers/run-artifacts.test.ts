@@ -33,7 +33,7 @@ import {
   removeOwnedE2ERunArtifacts,
   type E2ERunAdoption,
   type E2ERunPaths,
-} from "./run-artifacts";
+} from "./run-artifacts.ts";
 
 const OWNER_FILE_NAME = ".darkfactory-e2e-owner.json";
 const sharedPreviewDirectory = fileURLToPath(

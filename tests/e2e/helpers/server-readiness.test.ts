@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { E2ELifecycleState } from "./run-artifacts";
+import type { E2ELifecycleState } from "./run-artifacts.ts";
 
 import {
   allocateE2EServerPort,
@@ -17,7 +17,7 @@ import {
   type E2EReadinessProbeContext,
   type PromiseResolvers,
   type E2EServerExitState,
-} from "./server-readiness";
+} from "./server-readiness.ts";
 
 const BLOCKING_CHILD_SOURCE =
   "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)";

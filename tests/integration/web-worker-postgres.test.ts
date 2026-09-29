@@ -27,12 +27,12 @@ import {
   releaseOwnedDevVarsLock,
   removeOwnedDevVarsFile,
   type OwnedDevVarsLease,
-} from "../e2e/helpers/dev-vars.js"
+} from "../e2e/helpers/dev-vars.ts"
 import {
   createE2EExecutionEnvironment,
   redactSensitiveBindingValues,
   type E2EProcessEnvironment,
-} from "../e2e/helpers/runtime.js"
+} from "../e2e/helpers/runtime.ts"
 import {
   startWorkerWithRetry,
   WorkerExitedBeforeReadinessError,

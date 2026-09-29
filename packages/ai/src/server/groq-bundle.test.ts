@@ -1,4 +1,3 @@
-import civet from "@danielx/civet/vite"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
@@ -17,7 +16,6 @@ describe("Groq Worker bundle", function() {
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
-        plugins: [civet({ ts: "esbuild" })],
         resolve: {
           conditions: ["workerd", "worker", "browser"],
         },
@@ -69,7 +67,6 @@ describe("Groq Worker bundle", function() {
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
-        plugins: [civet({ ts: "esbuild" })],
         resolve: {
           conditions: ["browser"],
         },

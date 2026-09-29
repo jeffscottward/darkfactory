@@ -52,7 +52,6 @@ describe("analytics package boundaries", () => {
     )
 
     return expect(Object.keys(manifest.exports["./server/posthog"])).toEqual([
-      "types",
       "workerd",
       "worker",
       "browser",

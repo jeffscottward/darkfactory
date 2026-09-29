@@ -30,7 +30,6 @@ describe("email package boundaries", function() {
     const serverExport = manifest.exports["./server"]
 
     expect(Object.keys(serverExport)).toEqual([
-      "types",
       "workerd",
       "worker",
       "browser",

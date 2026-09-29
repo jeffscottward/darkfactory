@@ -2,12 +2,12 @@ import { once } from "node:events";
 
 import { describe, expect, it } from "vitest";
 
-import { createSensitiveOutputRedactor } from "./redacted-output";
+import { createSensitiveOutputRedactor } from "./redacted-output.ts";
 import {
   E2E_SENSITIVE_BINDING_KEYS,
   redactSensitiveBindingValues,
   type E2EProcessEnvironment,
-} from "./runtime";
+} from "./runtime.ts";
 
 const sensitiveEnvironment = (): E2EProcessEnvironment => ({
   APP_URL: "https://darkfactory.localhost",

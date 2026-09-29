@@ -227,8 +227,6 @@ describe("owned E2E command lifecycle", () => {
       process.execPath,
       [
         "--experimental-strip-types",
-        "--import",
-        "./tests/e2e/helpers/register-civet-loader.mjs",
         "--input-type=module",
         "--eval",
         [

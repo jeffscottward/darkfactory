@@ -21,7 +21,7 @@ import {
   releaseOwnedDevVarsLock,
   removeOwnedDevVarsFile,
   serializeDevVars,
-} from "./dev-vars";
+} from "./dev-vars.ts";
 
 const roots: string[] = [];
 

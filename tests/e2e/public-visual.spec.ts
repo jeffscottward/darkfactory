@@ -8,7 +8,7 @@ import {
   screenshotArtifactPath,
   test,
   waitForContactPreview,
-} from "./fixtures";
+} from "./fixtures.ts";
 
 const PUBLIC_ROUTES = [
   {

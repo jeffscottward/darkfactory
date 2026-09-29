@@ -13,18 +13,18 @@ import {
   acquireRouteOwnerLock,
   releaseRouteOwnerLock,
   type RouteOwnerLock,
-} from "./owner-lock.js"
+} from "./owner-lock.ts"
 import {
   acquireOwnedDevVars,
   releaseOwnedDevVarsLock,
   removeOwnedDevVarsFile,
   type OwnedDevVarsLease,
-} from "./dev-vars.js"
+} from "./dev-vars.ts"
 import { cleanupE2ELifecycle } from "./lifecycle.ts"
 import {
   formatE2ELifecycleFailure,
   type E2ELifecycleDiagnosticStage,
-} from "./lifecycle-diagnostics.js"
+} from "./lifecycle-diagnostics.ts"
 import {
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_WEB_SERVER_PORT_ACCEPTING_MARKER,
@@ -32,12 +32,12 @@ import {
   E2E_WEB_SERVER_ROUTE_REQUEST_MARKER,
   E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER,
   E2E_WEB_SERVER_READY_MARKER,
-} from "./lifecycle-budgets.js"
+} from "./lifecycle-budgets.ts"
 import {
   createSerializedLifecycle,
   isIntentionalLifecycleShutdownInterruption,
   type LifecycleControl,
-} from "./serialized-lifecycle.js"
+} from "./serialized-lifecycle.ts"
 import {
   assertOwnedE2ERunRootsReady,
   createOwnedE2ELifecycleStateWriter,
@@ -48,15 +48,15 @@ import {
   type E2ERunPaths,
   type E2ELifecycleStage,
   type E2ELifecycleStateWriter,
-} from "./run-artifacts.js"
-import { createSensitiveOutputRedactor } from "./redacted-output.js"
-import { removeE2EOptimizerCache } from "./optimizer-cache.js"
+} from "./run-artifacts.ts"
+import { createSensitiveOutputRedactor } from "./redacted-output.ts"
+import { removeE2EOptimizerCache } from "./optimizer-cache.ts"
 import {
   canonicalBaseURL,
   createE2EServerEnvironment,
   E2E_WORKER_BINDING_KEYS,
   parsePortlessPort,
-} from "./runtime.js"
+} from "./runtime.ts"
 import {
   allocateE2EServerPort,
   classifyE2EServerExit,
@@ -65,7 +65,7 @@ import {
   waitForE2EServerReady,
   type E2EServerExitState,
   type E2EReadinessProbeContext,
-} from "./server-readiness.js"
+} from "./server-readiness.ts"
 import type { PreviewCaptureServer } from "./preview-capture.ts"
 const WEB_DIRECTORY = fileURLToPath(new URL("../../../apps/web/", import.meta.url))
 const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"

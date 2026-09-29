@@ -89,7 +89,6 @@ describe("config package boundaries", function() {
     )
 
     expect(manifest.exports["."]).toEqual({
-      types: "./src/client.civet.d.ts",
       import: "./src/client.ts",
       default: "./src/client.ts",
     })
@@ -110,7 +109,6 @@ describe("config package boundaries", function() {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     )
     const expectedConditions = [
-      "types",
       "workerd",
       "worker",
       "browser",

@@ -33,7 +33,7 @@ const {
 import {
   BrowserErrorCollector,
   type ExpectedHttpError,
-} from "./tests/e2e/helpers/browser-errors";
+} from "./tests/e2e/helpers/browser-errors.ts";
 import {
   E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
   E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
@@ -41,15 +41,15 @@ import {
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS,
   E2E_WEB_SERVER_READY_MARKER,
-} from "./tests/e2e/helpers/lifecycle-budgets";
-import { E2E_SERVER_READY_TIMEOUT_MILLIS } from "./tests/e2e/helpers/server-readiness";
-import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
-import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts";
+} from "./tests/e2e/helpers/lifecycle-budgets.ts";
+import { E2E_SERVER_READY_TIMEOUT_MILLIS } from "./tests/e2e/helpers/server-readiness.ts";
+import { extractPreviewLink } from "./tests/e2e/helpers/preview-email.ts";
+import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts.ts";
 import {
   canonicalBaseURL,
   createE2EServerEnvironment,
   parsePortlessPort,
-} from "./tests/e2e/helpers/runtime";
+} from "./tests/e2e/helpers/runtime.ts";
 
 const MAINTENANCE_DATABASE_URL =
   "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance";

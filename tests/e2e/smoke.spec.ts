@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test } from "./fixtures.ts";
 
 const THEME_TRIGGER_NAME = "Theme settings";
 

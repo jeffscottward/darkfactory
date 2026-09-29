@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { normalizeRecipient } from "@darkfactory/email/recipient";
 
-import { e2eRunPathsFromEnvironment } from "./run-artifacts";
-import { canonicalBaseURL, parsePortlessPort } from "./runtime";
+import { e2eRunPathsFromEnvironment } from "./run-artifacts.ts";
+import { canonicalBaseURL, parsePortlessPort } from "./runtime.ts";
 
 const HTTPS_LINK_PATTERN = /https:\/\/[^\s<>"']+/gu;
 const RESET_PATH_PATTERN = /^\/api\/auth\/reset-password\/[A-Za-z0-9_-]+$/u;

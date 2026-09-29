@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createPreviewEmailPort } from "@darkfactory/email/server";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { waitForContactPreview, waitForPreviewLink } from "./preview-email";
+import { waitForContactPreview, waitForPreviewLink } from "./preview-email.ts";
 
 const APP_ORIGIN = "https://darkfactory.localhost";
 const HMAC_KEY = Buffer.alloc(32, 7).toString("base64url");

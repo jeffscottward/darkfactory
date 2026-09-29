@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { BrowserErrorCollector } from "./browser-errors";
+import { BrowserErrorCollector } from "./browser-errors.ts";
 
 const CANONICAL_SOURCE_OPTIONS = {
   sourceOrigin: "https://darkfactory.localhost",

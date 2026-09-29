@@ -10,8 +10,8 @@ import {
   discardEvidenceArtifacts,
   evidenceArtifactsFor,
   type EvidenceArtifact,
-} from "./artifacts";
-import { e2eRunPathsFromEnvironment } from "./run-artifacts";
+} from "./artifacts.ts";
+import { e2eRunPathsFromEnvironment } from "./run-artifacts.ts";
 
 const RESET_TOKEN_PATH_PATTERN = /^(\/api\/auth\/reset-password\/)[^/]+$/u;
 const SAFE_FILE_NAME_PATTERN = /[^a-zA-Z0-9._-]+/gu;

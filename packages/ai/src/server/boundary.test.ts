@@ -45,7 +45,6 @@ describe("AI package boundaries", function() {
     const serverExport = manifest.exports["./server/groq"]
 
     expect(Object.keys(serverExport)).toEqual([
-      "types",
       "workerd",
       "worker",
       "browser",

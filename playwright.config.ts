@@ -7,16 +7,16 @@ import {
   E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
   E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
   E2E_WEB_SERVER_READY_MARKER,
-} from "./tests/e2e/helpers/lifecycle-budgets";
+} from "./tests/e2e/helpers/lifecycle-budgets.ts";
 import {
   assertOwnedE2ERunRootsReady,
   createE2ERunId,
   createE2ERunPaths,
-} from "./tests/e2e/helpers/run-artifacts";
+} from "./tests/e2e/helpers/run-artifacts.ts";
 import {
   canonicalBaseURL,
   parsePortlessPort,
-} from "./tests/e2e/helpers/runtime";
+} from "./tests/e2e/helpers/runtime.ts";
 export const E2E_LIFECYCLE_GLOBAL_SETUP =
   "./tests/e2e/helpers/server-readiness.ts";
 

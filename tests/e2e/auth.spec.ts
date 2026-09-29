@@ -8,8 +8,8 @@ import {
   signInAs,
   test,
   waitForPreviewLink,
-} from "./fixtures";
-import { assertNoSensitiveData } from "./helpers/sensitive-data";
+} from "./fixtures.ts";
+import { assertNoSensitiveData } from "./helpers/sensitive-data.ts";
 
 const SAFE_ACCOUNT_EMAIL_MESSAGE =
   "If the address can receive this email, a message is on its way. Check your inbox and spam folder.";

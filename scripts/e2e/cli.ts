@@ -480,8 +480,6 @@ export const createArtifactScannerInvocation = (
 ) => {
   const arguments_ = [
     "--experimental-strip-types",
-    "--import",
-    "./tests/e2e/helpers/register-civet-loader.mjs",
     "./scripts/e2e/scan-artifacts.ts",
     "--run-id",
     runId,

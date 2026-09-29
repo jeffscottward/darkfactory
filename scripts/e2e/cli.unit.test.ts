@@ -377,8 +377,6 @@ describe("CLI argument and environment forwarding", () => {
     expect(invocation.command).toBe("/trusted/node")
     expect(invocation.arguments).toEqual([
       "--experimental-strip-types",
-      "--import",
-      "./tests/e2e/helpers/register-civet-loader.mjs",
       "./scripts/e2e/scan-artifacts.ts",
       "--run-id",
       "safe_run",

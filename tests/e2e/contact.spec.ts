@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test } from "./fixtures.ts";
 
 test.describe("DF-076 public contact form", () => {
   test("validates, focuses, prevents duplicate submission, and preserves values on failure", async ({

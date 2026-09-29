@@ -125,7 +125,6 @@ describe("observability package boundaries", function() {
       "./server/fanout",
     ]) {
       results1.push(expect(Object.keys(manifest.exports[subpath] ?? {})).toEqual([
-        "types",
         "workerd",
         "worker",
         "browser",

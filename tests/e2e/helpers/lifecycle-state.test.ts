@@ -48,7 +48,7 @@ import {
   type E2ELifecycleStage,
   type E2ELifecycleStateWriter,
   type E2ERunPaths,
-} from "./run-artifacts";
+} from "./run-artifacts.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stages: readonly E2ELifecycleStage[] = [

@@ -1,4 +1,4 @@
-import type { E2ERunPaths } from "./run-artifacts";
+import type { E2ERunPaths } from "./run-artifacts.ts";
 
 const CANONICAL_APP_ORIGIN = "https://darkfactory.localhost";
 const PORT_PATTERN = /^\d+$/;
