@@ -120,6 +120,7 @@ export const createNodeDatabase = (
 const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000;
 const REQUEST_QUERY_TIMEOUT_MILLISECONDS = 10_000;
 export const REQUEST_DATABASE_POOL_MAX_CONNECTIONS = 8;
+export const REQUEST_DATABASE_CLOSE_TIMEOUT_MILLISECONDS = 5000;
 const UNSAFE_REQUEST_CONNECTION_STRING_PATTERN = /[\u0000-\u001f]|\u0020$/u;
 
 export type RequestDatabaseDiagnostic = Readonly<{
@@ -174,6 +175,22 @@ const assertSafeRequestConnectionString = (connectionString: string): void => {
 
 let activeRequestConnections = 0;
 
+const endWithinCloseTimeout = async (client: Client): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      client.end(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error("Request database client end timed out"));
+        }, REQUEST_DATABASE_CLOSE_TIMEOUT_MILLISECONDS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const closeRequestDatabaseClient = (
   client: Client,
   diagnosticSink: RequestDatabaseDiagnosticSink | undefined
@@ -182,16 +199,24 @@ const closeRequestDatabaseClient = (
   return () => {
     closePromise ??= (async (): Promise<void> => {
       try {
-        await client.end();
+        await endWithinCloseTimeout(client);
       } catch (error) {
         emitRequestDatabaseDiagnostic(
           diagnosticSink,
           REQUEST_DATABASE_CLIENT_CLOSE_ERROR_DIAGNOSTIC
         );
+        try {
+          // The forced disconnect pg's own end() uses for a hung query; nothing waits on the peer.
+          client.connection.stream.destroy();
+        } catch {
+          // The socket is already unusable; releasing admission below is what matters.
+          undefined;
+        }
         throw error;
+      } finally {
+        // Release on every path: a rejected or hung end() used to leak the slot for the isolate's lifetime.
+        activeRequestConnections -= 1;
       }
-      activeRequestConnections -= 1;
-      undefined;
     })();
     return closePromise;
   };
