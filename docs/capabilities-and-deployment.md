@@ -27,7 +27,7 @@ The manifest currently declares these core selections:
 - Tailwind and shadcn composition.
 - evlog and OpenTelemetry, with product analytics behind a PostHog adapter.
 - Graphify for developer context.
-- portless and PM2 for local HTTPS.
+- portless for local HTTPS.
 - XState for explicit workflows and Zustand for ephemeral client-local state.
 
 Configuration-sensitive adapters include Groq, Resend, PostHog, and remote OpenTelemetry export. Email preview is the safe local transport; a missing optional provider configuration must disable that provider or select the explicit local adapter, never create a fake production fallback.
@@ -47,7 +47,7 @@ Disabled capabilities must remain removable and must not leave provider dependen
 Run the manifest and prerequisite inspection with:
 
 ```bash
-varlock run -- bun run doctor
+bun run doctor
 ```
 
 The doctor parses the manifest with the same loader as the app and derives its probes from it: the script runtime (Bun), the database engine (Docker and Postgres), the HTTPS provider (portless) and an enabled code graph (Graphify). It reports required, development-scoped optional, and disabled classifications. Provider groups are reported as optional until their complete environment group exists.
@@ -100,10 +100,9 @@ Reassess visibility, licensing, permissions, rulesets, action versions, and vari
 The authored web application has one deployer: official `@vinext/cloudflare`.
 
 ```bash
-bun run dev:stop
 bun run dev:bindings
 bun run build
-corepack pnpm exec portless darkfactory corepack pnpm --filter @darkfactory/web run start
+pnpm exec portless darkfactory pnpm --filter @darkfactory/web run start
 bun run deploy:web:check
 bun run deploy:web:staging:check
 bun run deploy:web:staging

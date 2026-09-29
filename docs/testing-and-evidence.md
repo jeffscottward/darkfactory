@@ -27,10 +27,10 @@ The integration and browser suites must use controlled local dependencies, never
 
 ```bash
 bun run db:test:up
-varlock run -- bun run db:migrate
+bun run db:migrate
 ```
 
-Use an ignored test environment with `APP_ENV=test`, the local runner `DATABASE_URL`, a non-production Better Auth secret of at least 32 characters, and the canonical local URL. Optional live provider credentials are not needed for core deterministic tests.
+Vitest runs under Node and does not read `.env`, so export the test environment in the shell (CI sets the same values): `APP_ENV=test` and the local runner `DATABASE_URL=postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance`. Suites that need secrets or the canonical local URL supply non-production test values themselves. Optional live provider credentials are not needed for core deterministic tests.
 
 Install the current Chromium binary when Playwright has not done so on the machine:
 
@@ -41,36 +41,36 @@ bunx --bun --no-install playwright install chromium
 ## Repository commands
 
 ```bash
-varlock run -- bun run test:unit
-varlock run -- bun run test:integration
-varlock run -- bun run test:e2e
+bun run test:unit
+bun run test:integration
+bun run test:e2e
 ```
 
 The aggregate test script runs unit, contract, operations, integration, E2E, and accessibility suites:
 
 ```bash
-varlock run -- bun run test
+bun run test
 ```
 
 The pre-push requirement is the deterministic `verify:prepush` lifecycle: format, lint (including Markdown), auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper Vitest projects. It skips `build`, which hosted core runs. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects mismatched source or uncommitted changes to tracked files rather than verifying one checkout while publishing another; untracked and ignored files do not block.
 
 ```bash
-varlock run -- bun run verify:prepush
+bun run verify:prepush
 ```
 
 Environment-heavy verification remains explicit and independently runnable for diagnosis; it is mandatory in hosted CI, not in the per-push hook:
 
 ```bash
 bun run verify:coverage
-varlock run -- bun run verify:integration
-varlock run -- bun run verify:browser
+bun run verify:integration
+bun run verify:browser
 ```
 
 The complete sequential local lifecycle and its CI alias are:
 
 ```bash
-varlock run -- bun run verify
-varlock run -- bun run ci
+bun run verify
+bun run ci
 ```
 
 `verify` composes all four lanes without weakening any gate. Its core entry point is `verify:core:ci`, which runs `verify:static` plus `test:e2e-helpers`, not the local pre-push `verify:prepush`. GitHub Actions executes those lanes concurrently with `fail-fast: false`: core handles static checks, builds, docs, and E2E helpers; coverage runs unit/contract/operations once and enforces the 100% thresholds; integration starts isolated PostgreSQL; browser installs Chromium, starts isolated PostgreSQL and HTTPS, runs E2E/a11y, and preserves failure evidence. All four `Verification (core/coverage/integration/browser)` checks remain mandatory, and the four coverage thresholds remain 100%. This does not add a four-lane local pre-push sequence. pnpm remains limited to installation/workspace selection and the measured Node compatibility exceptions.
@@ -79,7 +79,7 @@ Heavy `ci.yml` selects only `pull_request` and explicit `workflow_dispatch`; eve
 
 Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. Project globs are disjoint, and the root `playwright.config.test.ts` belongs to `unit`. `scripts/ci/test-invariants.test.ts` proves that full `verify` runs every tracked Vitest test file exactly once and that `verify:prepush` and `verify:core` run every unit, contract, operations, and E2E-helper file. Package `test:unit` scripts select their whole package directory; root `test:unit` fans them out through Turborepo, then runs the root unit tests.
 
-Before pushing, install locked dependencies. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Run `varlock run -- git push <remote> <ref>` when Git needs that environment. Missing prerequisites, stale artifacts checked by `verify:prepush`, or a failed check block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
+Before pushing, install locked dependencies. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Missing prerequisites, stale artifacts checked by `verify:prepush`, or a failed check block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
 
 The hook checks that every pushed source is current HEAD and that tracked files are committed. A mismatch between the executing or PATH-resolved Bun and the exact `.bun-version` pin prints a warning but does not block. The hook then runs immutable `verify:prepush`; any failure stops the push. Success also requires a final tracked-file and unchanged-HEAD check. Deletion-only pushes skip checks. Coverage, integration, graph, and browser remain full-lifecycle/hosted gates, not hook stages.
 
@@ -95,7 +95,7 @@ bun run db:test:down
 
 ## Coverage lane
 
-All Vitest invocations use the package-local binary under Node through `corepack pnpm exec`. This is a narrow measured compatibility exception: Bun 1.3.14 misloads Vitest's Vite `zod` dependency during test execution, and it does not implement the `node:inspector` coverage APIs required by `@vitest/coverage-v8`. Bun and Turbo continue to orchestrate the surrounding lifecycle and package tasks. `bun run test:coverage` runs the Vitest `unit`, `contract`, and `operations` projects serially with the V8 provider. The measured authored-source scope is `apps/*/src`, `packages/*/src`, and `scripts`. Test and spec files, declarations, generated directories, and the generated feature-navigation registry are excluded explicitly. Every authored module in the measured source trees remains included.
+All Vitest invocations use the package-local binary under Node through `pnpm exec`. This is a narrow measured compatibility exception: Bun 1.3.14 misloads Vitest's Vite `zod` dependency during test execution, and it does not implement the `node:inspector` coverage APIs required by `@vitest/coverage-v8`. Bun and Turbo continue to orchestrate the surrounding lifecycle and package tasks. `bun run test:coverage` runs the Vitest `unit`, `contract`, and `operations` projects serially with the V8 provider. The measured authored-source scope is `apps/*/src`, `packages/*/src`, and `scripts`. Test and spec files, declarations, generated directories, and the generated feature-navigation registry are excluded explicitly. Every authored module in the measured source trees remains included.
 
 The email preview writer and the feature generator's path-safety and planning modules execute in the measured unit and operations projects alongside the rest of the authored source. Focused filesystem tests use isolated workspaces and deterministic fault seams so each instrumented line, statement, function, and branch in those modules contributes reproducibly. PostgreSQL integration tests, Playwright journeys, accessibility tests, and generated code are not executed. The percentages therefore describe the complete authored unit/contract/operations source scope; they are not evidence of browser, database, deployment, security, or production behavior.
 

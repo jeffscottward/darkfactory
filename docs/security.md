@@ -21,18 +21,18 @@ Keep authorization on the server. Route groups, navigation visibility, client st
 
 ## Secrets and environment
 
-- [`.env.schema`](../.env.schema) is the public variable contract; it contains no secret values.
+- The Zod schema in `packages/config/src/server.ts` (`parseServerEnv`) is the only environment contract; it contains no secret values.
 - [`.env.example`](../.env.example) contains only safe empty/example values.
-- Real values belong in ignored environment files, Varlock/secret-manager references, CI secret stores, or deployment secret stores.
+- Real values belong in ignored environment files, secret-manager references (for example `op run --env-file=.env --`), CI secret stores, or deployment secret stores.
 - Never commit or print `.env`, auth secrets, database passwords, provider tokens, session cookies, private certificates, or raw environment dumps.
 - Client environment access is an explicit allowlist. Server presence does not make a value browser-safe.
 - Missing optional credentials must disable the provider or select an explicit safe local transport. Never silently fall back to fake production behavior.
 - Production must reject development auth secrets, local callback origins, preview-only assumptions, and seed defaults.
 
-Use Varlock to validate/inject values without treating `.env` as shell code:
+Bun loads `.env` for root scripts without treating it as shell code, and `bun run setup` creates it with mode `0600`:
 
 ```bash
-varlock run -- bun run doctor
+bun run doctor
 ```
 
 When sharing diagnostic output, redact values and retain only variable names/state.
@@ -49,7 +49,7 @@ PostgreSQL owns durable application state; features access it through Drizzle re
 
 The seed identities and `Development123!` password are public test fixtures. Seed/reset commands require a validated `APP_ENV=development` or `APP_ENV=test` and exactly one matching `--confirm-environment=<development|test>` command-line argument. Bun may load `APP_ENV` from `.env`, but dotenv is never authorization and cannot provide the CLI confirmation. Never put customer, employee, production, or copied personal data in a seed fixture. Use fictional `.test` addresses and placeholders from <https://placehold.co/>.
 
-Package scripts intentionally omit confirmation. Use an explicit invocation such as `varlock run -- bun run db:seed -- --confirm-environment=development` or `varlock run -- bun run db:reset -- --confirm-environment=development`. Reset is destructive, and a matching confirmation proves only deliberate invocation; it does not validate `DATABASE_URL`, prove the target disposable, replace a snapshot, or provide human approval for any non-disposable data operation.
+Package scripts intentionally omit confirmation. Use an explicit invocation such as `bun run db:seed -- --confirm-environment=development` or `bun run db:reset -- --confirm-environment=development`. Reset is destructive, and a matching confirmation proves only deliberate invocation; it does not validate `DATABASE_URL`, prove the target disposable, replace a snapshot, or provide human approval for any non-disposable data operation.
 
 ## API, provider, and observability rules
 

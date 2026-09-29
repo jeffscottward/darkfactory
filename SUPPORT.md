@@ -10,7 +10,7 @@ DarkFactory is maintained as an open source repository. Support is provided on a
 - [Architecture](ARCHITECTURE.md) and [conventions](CONVENTIONS.md) for repository boundaries.
 - [Security guidance](docs/security.md) for development trust boundaries.
 
-Run `varlock run -- bun run doctor` after the documented local prerequisites are ready. Its output identifies unmet repository and workstation prerequisites; redact values before sharing it.
+Run `bun run doctor` after the documented local prerequisites are ready. Its output identifies unmet repository and workstation prerequisites; redact values before sharing it.
 
 ## Ask for help or report a problem
 

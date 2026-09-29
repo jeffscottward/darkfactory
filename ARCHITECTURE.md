@@ -183,9 +183,9 @@ Provider configuration belongs in infrastructure. Missing optional credentials m
 
 The root scripts provide separate product and operator lifecycles:
 
-- `bun run dev` runs only `@darkfactory/web`. `bun run dev:https` manages the stable `darkfactory-web-dev` PM2 process and the canonical <https://darkfactory.localhost> route. The matching product commands are `dev:bindings`, `dev:status`, `dev:logs`, `dev:stop`, and `dev:trust`.
-- `bun run operator:dev` first runs `operator:bindings`, then manages the stable `darkfactory-operator-dev` PM2 process and the <https://operator.darkfactory.localhost> route. The matching commands are `operator:status`, `operator:logs`, `operator:stop`, and `operator:bindings`.
-- `operator:bindings` validates the Varlock environment and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
+- `bun run dev` runs only `@darkfactory/web`, in the foreground, through `portless darkfactory` at the canonical <https://darkfactory.localhost> route, after writing validated Worker bindings. The matching product commands are `dev:bindings` and `dev:trust`.
+- `bun run operator:dev` first writes the operator bindings, then serves the <https://operator.darkfactory.localhost> route in the foreground. `operator:bindings` refreshes only the bindings.
+- `operator:bindings` validates `.env` with `parseServerEnv` and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
 - `bun run doctor` independently probes installed Bun 1.3.14 and Node 24.21.0 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
 - Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Build, test, generated-contract, docs, and Graphify checks remain explicit repository gates. Deploy scripts own only the official `apps/web` vinext/Cloudflare path.
 
@@ -204,7 +204,7 @@ Graphify output is generated context rather than an authored runtime dependency.
 
 Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly enabled, supported ancillary Cloudflare resources. No ancillary resource is currently enabled, so DarkFactory has no Alchemy dependency, `alchemy.run.ts`, or Alchemy deployment step. Do not put the vinext web application in Alchemy or add an empty program: in the reviewed baseline, `finalize()` can reconcile and delete resources persisted in a reused stage when they are absent from the current program. Re-review the then-current release before enabling a real ancillary resource. Alchemy here is infrastructure tooling, not a blockchain API dependency. pnpm owns dependency installation and the lockfile; Turborepo owns the repository task graph.
 
-Canonical local development uses <https://darkfactory.localhost> for the product and <https://operator.darkfactory.localhost> for the operator meta-layer. Portless owns both trusted routes. PM2 owns the separate `darkfactory-web-dev` and `darkfactory-operator-dev` processes. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
+Canonical local development uses <https://darkfactory.localhost> for the product and <https://operator.darkfactory.localhost> for the operator meta-layer. Portless owns both trusted routes; each app runs as a foreground process. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
 
 GitHub Actions runs the repository verification lanes but does not deploy or run the local operator worker from a browser. Current documentation makes no claim of a production operator deployment, remote CI operator execution, or completed Wayfinder evidence.
 

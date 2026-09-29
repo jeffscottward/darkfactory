@@ -21,7 +21,7 @@ Before editing, read these sources in order:
 3. `ARCHITECTURE.md` — current architectural decisions and dependency direction.
 4. `CONVENTIONS.md` — source, naming, testing, UI, and data conventions.
 5. `capabilities.yaml` — capability and provider intent.
-6. `.env.schema` and `.env.example` — public environment contract and safe example values.
+6. `packages/config/src/server.ts` (`parseServerEnv`) and `.env.example` — the environment contract and its safe documented template.
 7. Root and workspace `package.json` files, workspace catalog, scripts, routes, contracts, migrations, tests, and CI workflow — executable truth.
 8. `README.md` and focused `docs/` guides — human operating instructions.
 9. `TODO.md` — post-build work only; it never overrides an unfinished Core requirement.
@@ -77,7 +77,7 @@ Treat the live manifests and lockfile as version truth. Do not copy version numb
 
 - Bun 1.3.14 is the primary script and TypeScript runtime.
 - pnpm 11.16.0 is the only package manager, workspace resolver, and lockfile owner.
-- Node 24.21.0 remains compatibility for Corepack/pnpm, PM2/Portless, and measured tool exceptions; Cloudflare Workers remains production.
+- `mise.toml` pins Node 24.21.0, Bun 1.3.14, and pnpm 11.16.0; Node remains compatibility for pnpm, Portless, and measured tool exceptions; Cloudflare Workers remains production.
 - Turborepo owns the workspace task graph, and authored application, script, and test source is strict TypeScript.
 - Vite/vinext implements the application and `@vinext/cloudflare` is the only web deployer.
 - React, Tailwind CSS, shadcn/Radix composition, and semantic design tokens implement UI.
@@ -257,7 +257,7 @@ The root generator accepts one feature name and optional `--dry-run`/`--json`. I
 
 ### Local developer experience
 
-The canonical local URL is <https://darkfactory.localhost>. Portless owns the hidden route; PM2 owns exactly one `darkfactory-web-dev` process running `portless darkfactory bun run dev`. `bun run dev:https` is idempotent and status/log/stop address that exact versioned identity. Portless trust is primary; mkcert is fallback-only.
+The canonical local URL is <https://darkfactory.localhost>. Portless owns the hidden route; `bun run dev` serves it in the foreground (`portless darkfactory bun scripts/dev.ts web`). Portless trust is primary; mkcert is fallback-only.
 
 The doctor must truthfully inspect the live prerequisites and capability states without printing secrets. Database seed/reset require explicit development/test environment and a disposable target.
 
@@ -293,7 +293,7 @@ Verify rendered results in a real browser. A component test or stylesheet inspec
 
 ## Configuration and capability truth
 
-`.env.schema` is the public environment contract; `.env.example` contains safe empty/example values. Real values belong in ignored environment files, Varlock/secret-manager references, CI secret stores, or deployment secret stores.
+`parseServerEnv` is the environment contract; `.env.example` contains safe empty/example values and `bun run setup` creates the ignored `.env`. Real values belong in ignored environment files, secret-manager references, CI secret stores, or deployment secret stores.
 
 - Client environment access is an explicit reviewed allowlist.
 - Required server variables fail closed.
@@ -381,7 +381,7 @@ bun run verify
 bun run ci
 ```
 
-Use `bun run ci` for the lifecycle. pnpm remains the frozen package/workspace owner; package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs. Start isolated PostgreSQL and load test environment values through the documented Varlock flow. Do not run a formatter, broad suite, database reset, browser, or deploy operation when the task scope does not authorize it.
+Use `bun run ci` for the lifecycle. pnpm remains the frozen package/workspace owner; package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs. Start isolated PostgreSQL and export the test environment values documented in `docs/testing-and-evidence.md`. Do not run a formatter, broad suite, database reset, browser, or deploy operation when the task scope does not authorize it.
 
 ## Documentation and evidence
 
@@ -402,7 +402,7 @@ The evidence bundle must map every DF item to implementation, focused verificati
 - PostgreSQL image/target, migrations/digests, schema check, seeds/reset.
 - Auth schema and OpenAPI paths/digests/checks.
 - Graphify version/digests/fingerprint/count/queries.
-- Canonical HTTPS, portless, PM2, trust, browser, and cookie evidence.
+- Canonical HTTPS, portless, trust, browser, and cookie evidence.
 - Browser/persona/theme/viewport/accessibility artifacts.
 - Correlated redacted events/logs/analytics/traces.
 - Terminal CI run/attempt URLs and artifacts.
@@ -489,7 +489,7 @@ Each owner delivers schema/contract/service/repository/UI/events/tests/docs as o
 **Owners:** Generator; HTTPS/doctor; Graphify/capabilities/docs. Keep product code ownership separate.
 
 - Complete generator safety/atomicity/residue and disposable fixture matrix.
-- Complete portless/PM2 lifecycle, trust, mkcert fallback, database CLIs, and doctor fixtures.
+- Complete portless lifecycle, trust, mkcert fallback, database CLIs, and doctor fixtures.
 - Complete Graphify lifecycle and representative queries.
 - Align capability truth, deployment guide/ADR, README, constitution, security, evidence template, and post-build TODO.
 
@@ -559,7 +559,7 @@ DarkFactory is done only when all applicable statements are true for one exact r
 
 ### Developer experience and delivery
 
-- Live manifests, lockfile, route discovery, TypeScript boundaries, build, exports, doctor, local HTTPS/PM2, database scripts, generator, and Graphify are reproducible.
+- Live manifests, lockfile, route discovery, TypeScript boundaries, build, exports, doctor, local HTTPS, database scripts, generator, and Graphify are reproducible.
 - Unit, contract, integration, E2E, accessibility, security smoke, build/runtime, generator, generated-artifact, graph, and docs gates pass as required.
 - Hooks and `bun run ci` remain authoritative and unweakened.
 - All five CI lanes and every effective required check succeed for the latest reviewed PR revision, with strict up-to-date protection and exact-head review intact. Merge acceptance additionally records exact PR-head/merged-tree identity, not an invented merge-SHA CI result. Do not rerun an identical merged tree solely for closeout. Unexpected direct-main changes require explicit exact-SHA manual full validation before acceptance.

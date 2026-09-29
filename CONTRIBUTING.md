@@ -13,14 +13,15 @@ Small fixes can go directly to a pull request. For a substantial feature, archit
 
 ## Local setup
 
-DarkFactory uses Bun 1.3.14 for scripts and TypeScript, pnpm 11.16.0 through Corepack 0.34.7 for packages/workspaces, and Node.js 24.21.0 for compatibility paths. Docker Compose, PM2 7.0.3, Portless 0.13.0, Graphify 0.9.2, Varlock 1.13.0, uv 0.11.32, and Playwright/Chromium 1.61.1 support particular development and verification paths.
+[`mise.toml`](mise.toml) pins Node.js 24.21.0, Bun 1.3.14 (scripts and TypeScript), and pnpm 11.16.0 (packages/workspaces). Docker Compose, Portless 0.13.0, Graphify 0.9.2, uv 0.11.32, and Playwright/Chromium 1.61.1 support particular development and verification paths.
 
 ```bash
-sh scripts/install-prerequisites.sh
-cp .env.example .env
+mise install
+bun run setup
+bun run dev
 ```
 
-The copied environment file is only a starting point. Keep real secrets in ignored environment files or an approved secret store. Follow [Local development](docs/local-development.md) for PostgreSQL, Varlock, trusted HTTPS, and the canonical `https://darkfactory.localhost` workflow.
+Setup creates the ignored `.env` with local-only values. Keep real secrets in ignored environment files or an approved secret store. Follow [Local development](docs/local-development.md) for PostgreSQL, trusted HTTPS, and the canonical `https://darkfactory.localhost` workflow.
 
 ## Make a change
 
@@ -55,15 +56,15 @@ bun run test:contract
 bun run test:integration
 ```
 
-Commands that need environment values should run through Varlock, for example:
+Integration tests read the test database from the shell, as CI does:
 
 ```bash
-varlock run -- bun run test:integration
+APP_ENV=test DATABASE_URL=postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance bun run test:integration
 ```
 
 Documentation-only changes need scoped link and path review plus Markdown lint; they do not need artificial application tests. Database, browser, provider, and deployment checks have additional prerequisites and safety boundaries documented in [Testing and evidence](docs/testing-and-evidence.md). Do not run credentialed deployment commands merely to validate a contribution.
 
-Before requesting review, run the complete applicable gate and record the exact command and result. `bun run verify:core` is the broad deterministic pre-push lifecycle. Environment-heavy verification remains explicit; use `bun run verify` only after its documented prerequisites are ready. The coverage lane is the measured exception: it invokes Vitest under Node through `corepack pnpm exec` because Bun 1.3.14 lacks the V8 `node:inspector` coverage APIs.
+Before requesting review, run the complete applicable gate and record the exact command and result. `bun run verify:core` is the broad deterministic pre-push lifecycle. Environment-heavy verification remains explicit; use `bun run verify` only after its documented prerequisites are ready. The coverage lane is the measured exception: it invokes Vitest under Node through `pnpm exec` because Bun 1.3.14 lacks the V8 `node:inspector` coverage APIs.
 
 ## Open a pull request
 

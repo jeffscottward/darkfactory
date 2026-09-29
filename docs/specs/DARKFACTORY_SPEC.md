@@ -19,7 +19,7 @@ Precedence is:
 5. `CONVENTIONS.md` for naming, composition, testing, and UI rules.
 6. Current provider/tool documentation for version-specific APIs, provided it does not silently reopen a settled architecture choice.
 
-When a lower-precedence document still says mkcert is the primary local HTTPS path, describes Alchemy as the vinext web deployer, or omits the pinned toolchain boundary, this specification wins: portless + PM2 is the canonical local path; mkcert is fallback-only; `@vinext/cloudflare` is the official v0.1 web deployer; Alchemy owns only supported ancillary Cloudflare resources.
+When a lower-precedence document still says mkcert is the primary local HTTPS path, describes Alchemy as the vinext web deployer, or omits the pinned toolchain boundary, this specification wins: a foreground portless `bun run dev` is the canonical local path; mkcert is fallback-only; `@vinext/cloudflare` is the official v0.1 web deployer; Alchemy owns only supported ancillary Cloudflare resources.
 
 ## 2. Objective, scope, and taxonomy
 
@@ -63,7 +63,7 @@ AI                       Groq adapter behind AiPort
 Email                    React Email + Resend; real local preview transport
 Analytics                PostHog adapter behind AnalyticsPort
 Telemetry/logging        OpenTelemetry + evlog
-Local HTTPS              portless named URL + PM2; mkcert fallback only
+Local HTTPS              portless named URL (foreground); mkcert fallback only
 Developer context        Graphify enabled; Memori disabled capability
 Quality                  Ultracite, Husky, Vitest, Playwright, GitHub Actions
 ```
@@ -75,7 +75,7 @@ Toolchain requirements:
 - `.civet` pages, layouts, loading/error boundaries, components, contracts, services, scripts, and ordinary tests MUST compile and be discovered.
 - TypeScript remains at exact tooling boundaries: `vite.config.ts`, `next.config.ts`, `playwright.config.ts`, Playwright specs/harness files, `drizzle.config.ts`, `alchemy.run.ts`, generated OpenAPI clients, generated Cloudflare bindings, environment declarations, and migration artifacts.
 - No undocumented Alchemy vinext resource or locally invented adapter may be represented as official.
-- Root lifecycle scripts MUST use `bun run`; compatible local CLIs MUST use `bunx --bun --no-install`; Civet entrypoints MUST preload `@danielx/civet/bun-civet`. pnpm remains the sole package and lockfile owner. Every Vitest invocation is an explicit package-local Node exception through `corepack pnpm exec`, measured for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
+- Root lifecycle scripts MUST use `bun run`; compatible local CLIs MUST use `bunx --bun --no-install`; Civet entrypoints MUST preload `@danielx/civet/bun-civet`. pnpm remains the sole package and lockfile owner. Every Vitest invocation is an explicit package-local Node exception through `pnpm exec`, measured for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
 
 ## 4. Superseded-decision registry
 
@@ -94,7 +94,7 @@ Checklist items cite these IDs.
 | **S09** | Domain-specific `leads` example | removable generator-ready `feature-stub` using neutral `FeatureItem`. |
 | **S10** | Payments or all optional services installed in v0.1 | no payments; disabled capabilities are descriptors/ports/docs only and their dependencies are absent. |
 | **S11** | Dark-only, serif, Inter/Roboto/Arial/Open Sans, purple/cyan glow-heavy AI styling | light/dark/system; ten palettes; Manrope display + Public Sans body/UI; all sans serif. |
-| **S12** | Fixed common numbered localhost URLs, reserved port ranges, or mkcert as primary | `https://darkfactory.localhost` via portless; PM2 owns long-lived services; raw ports hidden; mkcert fallback-only. |
+| **S12** | Fixed common numbered localhost URLs, reserved port ranges, or mkcert as primary | `https://darkfactory.localhost` via a foreground portless `bun run dev`; raw ports hidden; mkcert fallback-only. PM2, Varlock, and Corepack are removed: the Zod schema in `packages/config/src/server.ts` is the only env contract, and `mise.toml` pins Node, Bun, and pnpm. |
 | **S13** | Shannon described as black-box scanning | authorized autonomous white-box, source-guided pentesting with live exploitation. |
 | **S14** | Public/portal information architecture tied to a vertical product | original domain-neutral surfaces inspired by Squarespace and shadcn blocks. |
 | **S15** | Privacy-level sample identities and persisted `reduced_motion` preference | remove both; retain nullable `date_of_birth`; honor CSS `prefers-reduced-motion`. |
@@ -181,7 +181,7 @@ The target is a minimal complete monorepo, not permission to create empty decora
 ├── turbo.json
 ├── pnpm-workspace.yaml
 ├── package.json
-├── .env.schema
+├── mise.toml
 ├── .env.example
 ├── .gitignore
 └── pnpm-lock.yaml
@@ -253,9 +253,9 @@ Core provider ports: persistence/repositories, auth, analytics, telemetry/loggin
 
 `capabilities.yaml` declares core stack plus disabled Mintlify, Celery/Flower, Uptime Kuma, GlitchTip, R2, Memori, pgvector, PostGIS, TimescaleDB, pg_trgm, and pg_cron. Disabled capability dependencies are absent. No Redis, RabbitMQ, SST, payments, or leads entry.
 
-`.env.schema` and `.env.example` define safe public contracts for application URL, database, Better Auth, Groq, Resend/preview email, PostHog, OTel, and disabled capabilities. Client env is allowlisted. No secrets, private cert keys, production credentials, or raw env dumps enter Git/logs/client bundles.
+`.env.example` (validated by `parseServerEnv`) defines the safe public contract for application URL, database, Better Auth, Groq, Resend/preview email, PostHog, OTel, and disabled capabilities. Client env is allowlisted. No secrets, private cert keys, production credentials, or raw env dumps enter Git/logs/client bundles.
 
-Canonical local URL is `https://darkfactory.localhost`. Portless owns the named route and hidden assigned port. PM2 owns the long-lived `darkfactory-web-dev` process through `portless darkfactory bun run dev`. `bun run dev:https` is idempotent; status/log/stop address the exact versioned identity. Trust and mkcert fallback remain explicit manual actions.
+Canonical local URL is `https://darkfactory.localhost`. Portless owns the named route and hidden assigned port. `bun run dev` runs `portless darkfactory` in the foreground after writing validated Worker bindings. Trust and mkcert fallback remain explicit manual actions.
 
 Web deployment uses official `@vinext/cloudflare`. Alchemy 0.93.12 defines ancillary supported Cloudflare resources only. A deployment preview/build MUST prove this boundary without production secrets.
 
@@ -264,8 +264,8 @@ Web deployment uses official `@vinext/cloudflare`. Alchemy 0.93.12 defines ancil
 Required root scripts:
 
 ```text
-bun run dev                 bun run dev:https          bun run dev:status
-bun run dev:logs            bun run dev:stop           bun run doctor
+bun run setup               bun run dev                bun run dev:trust
+bun run check               bun run doctor
 bun run typecheck           bun run build              bun run lint
 bun run format              bun run format:check       bun run test
 bun run test:unit           bun run test:contract      bun run test:integration
@@ -281,7 +281,7 @@ bun run verify:static       bun run verify:core:ci     bun run test:e2e-helpers
 bun run ci
 ```
 
-`bun run verify` remains the complete sequential local lifecycle, and `bun run ci` invokes it. `verify:static` owns static checks, build, docs, and generated-artifact freshness; local `verify:core` adds unit, contract, and operations tests. Full `verify` and CI instead use `verify:core:ci` (static plus scoped `test:e2e-helpers`), with unit/contract/operations executed once under coverage and all four 100% thresholds unchanged. The helper command positively selects `tests/e2e/helpers`; coverage's unit project owns `playwright.config.test.ts`. Husky pre-commit stays staged/focused. Pre-push binds Git's actual destination and every non-deletion ref to clean, unchanged HEAD, requires executing and PATH-resolved Bun to match `.bun-version`, then runs destination-scoped security preflight followed by only immutable `verify:core`. Any prerequisite, preflight, core, or final source-integrity failure blocks the push. Environment-heavy gates remain explicit in full verification and mandatory hosted CI, not per-push hook stages. GitHub Actions executes all five lanes concurrently after pinned Bun/Node/Corepack setup and frozen pnpm install. Bun and Turbo orchestrate the lifecycle; Vitest runs under Node through `corepack pnpm exec` because Bun 1.3.14 misloads Vitest's Vite `zod` dependency and lacks the V8 `node:inspector` coverage APIs. Local success cannot certify later GitHub service availability or token permissions.
+`bun run verify` remains the complete sequential local lifecycle, and `bun run ci` invokes it. `verify:static` owns static checks, build, docs, and generated-artifact freshness; local `verify:core` adds unit, contract, and operations tests. Full `verify` and CI instead use `verify:core:ci` (static plus scoped `test:e2e-helpers`), with unit/contract/operations executed once under coverage and all four 100% thresholds unchanged. The helper command positively selects `tests/e2e/helpers`; coverage's unit project owns `playwright.config.test.ts`. Husky pre-commit stays staged/focused. Pre-push binds Git's actual destination and every non-deletion ref to clean, unchanged HEAD, requires executing and PATH-resolved Bun to match `.bun-version`, then runs destination-scoped security preflight followed by only immutable `verify:core`. Any prerequisite, preflight, core, or final source-integrity failure blocks the push. Environment-heavy gates remain explicit in full verification and mandatory hosted CI, not per-push hook stages. GitHub Actions executes all five lanes concurrently after pinned Bun/Node/pnpm setup and frozen pnpm install. Bun and Turbo orchestrate the lifecycle; Vitest runs under Node through `pnpm exec` because Bun 1.3.14 misloads Vitest's Vite `zod` dependency and lacks the V8 `node:inspector` coverage APIs. Local success cannot certify later GitHub service availability or token permissions.
 
 Heavy CI validates every eligible PR (including forks, nondefault targets, and docs-only changes) and explicit `workflow_dispatch` runs only. Pushes, including merges to the default branch, do not automatically rerun the five-lane matrix. Do not add path/actor filters, `pull_request_target`, or conditional lane omissions. Preserve read-only permissions, `persist-credentials: false`, fork secret isolation, and required approval boundaries. CodeQL, Scorecard, and Dependency Review retain their independent events, guards, and uploads, including applicable default-branch security scans.
 
@@ -320,7 +320,7 @@ Evidence includes commit/branch, classified checklist, dependency inventory, fin
 | **P3b** | **M** marketing | public routes/components/assets | U |
 | **P3c** | **R** portal/auth UI | auth/portal/account/admin routes/shell | U + A |
 | **P4** | **F** feature/generator | feature stub, contracts/procedures/repository additions, feature generator | D + A + O + U + R |
-| **P5a** | **X** local DX | portless/PM2/mkcert fallback, doctor, HTTPS scripts | W + working app |
+| **P5a** | **X** local DX | portless/mkcert fallback, doctor, HTTPS scripts | W + working app |
 | **P5b** | **G** graph/docs/capabilities | Graphify, capability workflow, docs/ADRs/constitution alignment | stable P1–P4 architecture |
 | **P6** | **L** integrator/reviewers | full hardening, browser proof, CI/release evidence | all prior phases |
 | **POST** | **S** security/SDLC owner | Shannon and continuing factory TODOs | complete green P6 |
@@ -448,13 +448,13 @@ Every item is mandatory unless explicitly classified Capability and disabled. `A
 
 ### Environment, local HTTPS, deployment, capabilities — DF-091 through DF-100
 
-- [ ] **DF-091 · Core · P1/W · depends: DF-029.** `.env.schema`/`.env.example` cover app, DB, auth, AI, email, analytics, OTel, disabled capabilities without secrets. **Accept/evidence:** config parsing/docs/secret scan. **Supersedes:** none.
+- [ ] **DF-091 · Core · P1/W · depends: DF-029.** `.env.example` and `parseServerEnv` cover app, DB, auth, AI, email, analytics, OTel, disabled capabilities without secrets. **Accept/evidence:** config parsing/docs/secret scan. **Supersedes:** none.
 - [ ] **DF-092 · Convention · P1/W · depends: DF-091.** Client env is explicit allowlist; production forbids weak/default seeds/preview assumptions. **Accept/evidence:** bundle inspection and production-config failure tests. **Supersedes:** none.
 - [ ] **DF-093 · Implementation · P5a/X · depends: DF-014.** Canonical local URL is `https://darkfactory.localhost` through portless; raw port is hidden. **Accept/evidence:** browser URL, `portless get`, no fixed user-facing URL search. **Supersedes:** S12.
-- [ ] **DF-094 · Implementation · P5a/X · depends: DF-093.** PM2 runs long-lived `darkfactory-web-dev` via `portless darkfactory bun run dev`; scripts are idempotent and expose status/logs/stop. **Accept/evidence:** repeated start creates no duplicate; PM2/portless health output. **Supersedes:** S12.
+- [ ] **DF-094 · Implementation · P5a/X · depends: DF-093.** `bun run dev` serves the web app in the foreground through `portless darkfactory`. **Accept/evidence:** portless route and HTTPS health output. **Supersedes:** S12.
 - [ ] **DF-095 · Implementation · P5a/X · depends: DF-093.** `portless trust` is primary; mkcert install/generate/Vite cert wiring is documented fallback only; private keys ignored. **Accept/evidence:** no-warning HTTPS and fallback policy/key-ignore check. **Supersedes:** S12.
 - [ ] **DF-096 · Core · P5a/X · depends: DF-042, DF-093.** Auth origins/callbacks/secure cookies/browser secure context work at canonical HTTPS URL. **Accept/evidence:** browser/network/cookie E2E. **Supersedes:** S12.
-- [ ] **DF-097 · Core · P5a/X · depends: DF-012, DF-091, DF-093–DF-095.** `bun run doctor` checks Bun/Node/pnpm, Docker/Postgres, Cloudflare, provider config status, portless/PM2 route/process/trust, Graphify, enabled tools, and mkcert only if fallback. **Accept/evidence:** healthy and missing-prerequisite fixture outputs with no secrets. **Supersedes:** S12.
+- [ ] **DF-097 · Core · P5a/X · depends: DF-012, DF-091, DF-093–DF-095.** `bun run doctor` checks Bun/Node/pnpm, Docker/Postgres, Cloudflare, provider config status, portless route/trust, Graphify, enabled tools, and mkcert only if fallback. **Accept/evidence:** healthy and missing-prerequisite fixture outputs with no secrets. **Supersedes:** S12.
 - [ ] **DF-098 · Implementation · P6/L · depends: DF-014.** Web green path builds/deploys through official `@vinext/cloudflare`. **Accept/evidence:** package/script/config and safe deploy-preview artifact. **Supersedes:** S08.
 - [ ] **DF-099 · Implementation · P6/L · depends: DF-098.** Alchemy 0.93.12 owns only actual supported ancillary Cloudflare resources. **Accept/evidence:** plan/config contains no vinext web resource or fictional wrapper. **Supersedes:** S08.
 - [ ] **DF-100 · Capability · P5b/G · depends: DF-029.** Manifest validates enabled/configured/available/unknown/incompatible states; disabled capabilities uninstalled and truthful. **Accept/evidence:** parser tests and dependency inventory. **Supersedes:** S07, S10, S16.
@@ -507,7 +507,7 @@ DarkFactory v0.1 is complete only when:
 - S01 through S16 are absent except where explicitly described as rejected/superseded.
 - No disabled capability is installed/running or described as enabled.
 - No secrets, private keys, alternate lockfiles, fake production fallbacks, disabled tests, or core implementation TODOs are committed.
-- `https://darkfactory.localhost` works through portless + PM2 with secure auth; no fixed raw-port URL is user-facing.
+- `https://darkfactory.localhost` works through portless with secure auth; no fixed raw-port URL is user-facing.
 - Web deployment proof uses official `@vinext/cloudflare`; Alchemy stays ancillary-only.
 - Public and portal references are exact and continual, typography is all sans serif, and the app remains domain-neutral.
 - The latest reviewed PR revision has successful required checks, and merge closeout records exact merged-tree identity without claiming a merge-SHA CI run. Actual deployment separately requires full manual exact-SHA CI. Any genuinely external blocker is documented without claiming completion.
@@ -521,6 +521,6 @@ Required mechanical/content checks before P1 integration:
 - ID count is 120; unique count is 120; minimum is 001; maximum is 120; no gaps.
 - Every item has exactly one class, a phase/owner, dependencies, observable acceptance/evidence, and superseded reference (`none` allowed).
 - S01–S16 cover every settled contradiction: package manager, workspace, framework, language, API, data, Redis/RabbitMQ, SST/deployer boundary, feature identity, optional installation/payments, visual system, local URL/trust/process path, Shannon mode, domain neutrality, sample privacy/reduced motion, and error tracking.
-- Normative sections and checklist agree on Node/pnpm/vinext/Alchemy versions, Civet plugin order, `pageExtensions`, TypeScript boundaries, `@vinext/cloudflare`, portless/PM2/mkcert precedence, routes, seeds, themes, capabilities, and post-build sources.
+- Normative sections and checklist agree on Node/pnpm/vinext/Alchemy versions, Civet plugin order, `pageExtensions`, TypeScript boundaries, `@vinext/cloudflare`, portless/mkcert precedence, routes, seeds, themes, capabilities, and post-build sources.
 - Acceptance criteria name observable artifacts/behavior rather than subjective completion claims.
 - No requirement in `DARKFACTORY_ONE_SHOT_PROMPT.md` is intentionally deferred or dropped; disabled capabilities are represented but not installed.

@@ -41,8 +41,8 @@ and the in-image `runner.ts`. Only the operator OMP pilot uses it. Build it, or
 check a built image, from the repository root:
 
 ```sh
-corepack pnpm --filter @darkfactory/jobs verifier:image:setup
-corepack pnpm --filter @darkfactory/jobs verifier:image:check
+pnpm --filter @darkfactory/jobs verifier:image:setup
+pnpm --filter @darkfactory/jobs verifier:image:check
 ```
 
 `src/server/verifier-image.ts` refuses to run if `checks.json` or the argv
