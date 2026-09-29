@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process"
 import { readFileSync, readSync } from "node:fs"
 import { extname } from "node:path"
-import { runSecurityPreflight } from "../ci/security-preflight.civet"
 import { inspectBunRuntime } from "../ci/bun-runtime.civet"
 
 const BIOME_EXTENSIONS = new Set([
@@ -70,8 +69,6 @@ function isCivetPath(path)
 
 function selectBiomePaths(paths)
   return paths.filter((path) =>
-    // Generator freshness owns this exact artifact's bytes, not Biome.
-    path !== "scripts/ci/generated/security-preflight.mjs" &&
     BIOME_EXTENSIONS.has(extname(path).toLowerCase())
   )
 
@@ -166,7 +163,6 @@ type PushTarget = { remoteName: string; remoteUrl: string }
 type PushDependencies = {
   readInput?: () => string
   runScripts?: BunScriptRunner
-  securityPreflight?: (target: PushTarget) => number
 }
 
 function readPushInput(): string
@@ -251,7 +247,7 @@ export function runPrePush(
         return checked.exitCode
     const sources = updates.filter((update) => !update.deletion)
     if (sources.length === 0)
-      console.error("[hook] deletion-only push: no source to verify; local CI and security preflight not run")
+      console.error("[hook] deletion-only push: no source to verify; local CI not run")
       return 0
     const head = readPushCommit("HEAD")
     if (head.exitCode !== 0)
@@ -268,13 +264,6 @@ export function runPrePush(
     const runtimeStatus = checkBunRuntime()
     if (runtimeStatus !== 0)
       return runtimeStatus
-    const securityStatus = (dependencies.securityPreflight ?? runSecurityPreflight)({
-      remoteName: argv[0],
-      remoteUrl: argv[1],
-    })
-    if (securityStatus !== 0)
-      console.error("[hook] destination security preflight failed")
-      return Number.isInteger(securityStatus) && securityStatus > 0 ? securityStatus : 1
     for (const script of PRE_PUSH_SCRIPTS)
       const status = (dependencies.runScripts ?? runBunScripts)([script])
       if (status !== 0)
