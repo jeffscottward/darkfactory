@@ -8,7 +8,7 @@ import {
 import {
   isWorkflowRepositoryGranted,
   parseWorkflowRepositoryGrants,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 
 import {
   createOmpCliAdapter,

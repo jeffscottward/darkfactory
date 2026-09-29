@@ -4,7 +4,7 @@ import {
   hashWorkflowApprovalV1,
   sha256Hex,
   type WorkflowEventV1,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 import { describe, expect, it, vi } from "vitest";
 import { GENESIS_WORKFLOW_JOURNAL_HASH } from "../schema/workflow.ts";
 import {

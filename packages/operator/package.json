@@ -45,7 +45,6 @@
     "@darkfactory/auth": "workspace:*",
     "@darkfactory/db": "workspace:*",
     "@darkfactory/jobs": "workspace:*",
-    "@darkfactory/state": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",

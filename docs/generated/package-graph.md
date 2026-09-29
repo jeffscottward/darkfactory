@@ -42,18 +42,15 @@ flowchart LR
   darkfactory_db --> darkfactory_observability
   darkfactory_jobs --> darkfactory_db
   darkfactory_jobs --> darkfactory_observability
-  darkfactory_jobs --> darkfactory_state
   darkfactory_operator --> darkfactory_auth
   darkfactory_operator --> darkfactory_db
   darkfactory_operator --> darkfactory_jobs
-  darkfactory_operator --> darkfactory_state
   darkfactory_operator_app --> darkfactory_auth
   darkfactory_operator_app --> darkfactory_config
   darkfactory_operator_app --> darkfactory_db
   darkfactory_operator_app --> darkfactory_email
   darkfactory_operator_app --> darkfactory_jobs
   darkfactory_operator_app --> darkfactory_operator
-  darkfactory_operator_app --> darkfactory_state
   darkfactory_operator_app --> darkfactory_ui
   darkfactory_web --> darkfactory_analytics
   darkfactory_web --> darkfactory_api
@@ -98,12 +95,12 @@ flowchart LR
 | [`@darkfactory/config`](../../packages/config/package.json) | product | `@darkfactory/ai`, `@darkfactory/analytics`, `@darkfactory/email` | `.`, `./database`, `./server`, `./server/capabilities` |
 | [`@darkfactory/db`](../../packages/db/package.json) | product | `@darkfactory/observability` | `./schema`, `./server`, `./server/migration` |
 | [`@darkfactory/observability`](../../packages/observability/package.json) | product | — | `.`, `./port`, `./redaction`, `./server/evlog`, `./server/fanout`, `./server/otel`, `./test` |
-| [`@darkfactory/state`](../../packages/state/package.json) | product | — | `.`, `./client`, `./flow`, `./workflow` |
+| [`@darkfactory/state`](../../packages/state/package.json) | product | — | `.`, `./client`, `./flow` |
 | [`@darkfactory/ui`](../../packages/ui/package.json) | product | — | `.`, `./avatar`, `./badge`, `./button`, `./card`, `./client/dialog`, `./client/dropdown-menu`, `./client/tabs`, `./client/theme`, `./client/toaster`, `./empty-state`, `./headings`, `./icon-button`, `./input`, `./label`, `./palettes`, `./separator`, `./skeleton`, `./stat-card`, `./status-badge`, `./styles.css`, `./textarea`, `./utilities` |
 | [`@darkfactory/ai`](../../packages/ai/package.json) | capability | — | `.`, `./adapters`, `./server/groq`, `./test` |
 | [`@darkfactory/analytics`](../../packages/analytics/package.json) | capability | — | `.`, `./adapters`, `./server/posthog`, `./test` |
 | [`@darkfactory/email`](../../packages/email/package.json) | capability | — | `.`, `./adapters`, `./recipient`, `./server`, `./test` |
-| [`@darkfactory/jobs`](../../packages/jobs/package.json) | agent-sdlc | `@darkfactory/db`, `@darkfactory/observability`, `@darkfactory/state` | `.`, `./schema/workflow`, `./server/inline`, `./server/omp`, `./server/pilot-worker`, `./server/plan-evidence`, `./server/wayfinder`, `./server/workflow-error`, `./server/workflow-repository`, `./server/workflow-runtime`, `./server/workflow-worker`, `./test` |
-| [`@darkfactory/operator`](../../packages/operator/package.json) | agent-sdlc | `@darkfactory/auth`, `@darkfactory/db`, `@darkfactory/jobs`, `@darkfactory/state` | `.`, `./client`, `./contract`, `./server` |
-| [`@darkfactory/operator-app`](../../apps/operator/package.json) | agent-sdlc | `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/jobs`, `@darkfactory/operator`, `@darkfactory/state`, `@darkfactory/ui` | — |
+| [`@darkfactory/jobs`](../../packages/jobs/package.json) | agent-sdlc | `@darkfactory/db`, `@darkfactory/observability` | `.`, `./schema/workflow`, `./server/inline`, `./server/omp`, `./server/pilot-worker`, `./server/plan-evidence`, `./server/wayfinder`, `./server/workflow-error`, `./server/workflow-repository`, `./server/workflow-runtime`, `./server/workflow-worker`, `./test`, `./workflow` |
+| [`@darkfactory/operator`](../../packages/operator/package.json) | agent-sdlc | `@darkfactory/auth`, `@darkfactory/db`, `@darkfactory/jobs` | `.`, `./client`, `./contract`, `./server` |
+| [`@darkfactory/operator-app`](../../apps/operator/package.json) | agent-sdlc | `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/jobs`, `@darkfactory/operator`, `@darkfactory/ui` | — |
 | [`@darkfactory/testkit`](../../packages/testkit/package.json) | tooling | — | `.`, `./postgres` |

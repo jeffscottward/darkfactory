@@ -5,7 +5,7 @@ import {
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_SCOPE_BYTES,
   parseWorkflowEffectScopeV1,
-} from "@darkfactory/state/workflow";
+} from "@darkfactory/jobs/workflow";
 import type { ContractRouterClient } from "@orpc/contract";
 import { oc } from "@orpc/contract";
 import { z } from "zod";

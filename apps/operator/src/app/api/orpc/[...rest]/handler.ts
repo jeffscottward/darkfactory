@@ -10,7 +10,7 @@ import {
 import {
   isWorkflowRepositoryGranted,
   parseWorkflowRepositoryGrants,
-} from "@darkfactory/state/workflow";
+} from "@darkfactory/jobs/workflow";
 
 import { withOperatorRequestScope } from "../../../../server/operator-auth.ts";
 import { isOperatorMutationDenied } from "../../../../server/operator-environment.ts";

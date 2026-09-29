@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonicalJsonV1 } from "@darkfactory/state/workflow";
+import { canonicalJsonV1 } from "../workflow/index.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyOmpImplementationArtifact,

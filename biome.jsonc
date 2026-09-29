@@ -167,7 +167,7 @@
         "packages/observability/src/index.ts",
         "packages/operator/src/index.ts",
         "packages/operator/src/server/index.ts",
-        "packages/state/src/workflow/index.ts",
+        "packages/jobs/src/workflow/index.ts",
         "packages/ui/src/client/toaster.ts",
         "packages/ui/src/index.ts"
       ],

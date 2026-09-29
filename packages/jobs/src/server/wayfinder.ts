@@ -20,7 +20,7 @@ import {
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   parseWorkflowEffectScopeV1,
   type WorkflowEventV1,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 
 import {
   captureOmpWayfinderTrackerArtifact,

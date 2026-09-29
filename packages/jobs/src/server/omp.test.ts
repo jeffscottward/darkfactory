@@ -20,7 +20,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { MAX_WORKFLOW_SCOPE_PATHS } from "@darkfactory/state/workflow";
+import { MAX_WORKFLOW_SCOPE_PATHS } from "../workflow/index.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type WPFilesystemDelegate = (

@@ -27,7 +27,7 @@ import {
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
   sha256Hex,
   WorkflowRetryLimitReachedError,
-} from "@darkfactory/state/workflow";
+} from "@darkfactory/jobs/workflow";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -1946,7 +1946,7 @@ describe("operator workflow port error mapping", () => {
     vi.resetModules();
     const other = await import("@darkfactory/jobs/server/workflow-repository");
     const [state, runtime] = await Promise.all([
-      import("@darkfactory/state/workflow"),
+      import("@darkfactory/jobs/workflow"),
       import("@darkfactory/jobs/server/workflow-runtime"),
     ]);
     const stale = new other.StaleWorkflowApprovalError();

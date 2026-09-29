@@ -37,7 +37,7 @@ import {
 import {
   isWorkflowRelativePathV1,
   MAX_WORKFLOW_SCOPE_PATHS,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 import { required } from "./required.ts";
 
 export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1000;

@@ -22,10 +22,6 @@
     "./flow": {
       "import": "./src/setup-flow.ts",
       "default": "./src/setup-flow.ts"
-    },
-    "./workflow": {
-      "import": "./src/workflow/index.ts",
-      "default": "./src/workflow/index.ts"
     }
   },
   "scripts": {
@@ -34,7 +30,6 @@
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
-    "@noble/hashes": "2.4.0",
     "xstate": "catalog:",
     "zustand": "catalog:"
   },

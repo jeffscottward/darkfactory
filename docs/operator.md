@@ -10,7 +10,7 @@ The operator plane is an optional local brick that runs an agent SDLC against yo
 | Operator API | `packages/operator` | oRPC contract and services (runs, approvals, Wayfinder status) |
 | Workflow runtime | `packages/jobs` | Workflow schema and repository, XState-driven runtime, pilot worker, OMP and Wayfinder adapters ([README](../packages/jobs/README.md)) |
 | Verifier image | `packages/jobs/verifier/` | Pinned Docker image the worker uses to verify a run |
-| Workflow machines | `packages/state/src/workflow/` | Approval, grants, guards and projections |
+| Workflow machines | `packages/jobs/src/workflow/` | Approval, grants, guards and projections |
 
 The seven `workflow_*` tables were created by migrations 0005–0007 in the product chain. They stay there, frozen, and are inert when the operator is unused. New workflow DDL goes to `packages/jobs/migrations` and must be applied with its own journal (`migrationsTable: "__operator_migrations"`); no script applies it yet because that folder is still empty.
 

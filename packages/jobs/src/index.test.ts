@@ -364,9 +364,12 @@ describe("jobs dependency inventory", () =>
       dependencies: {
         "@darkfactory/db": "workspace:*",
         "@darkfactory/observability": "workspace:*",
-        "@darkfactory/state": "workspace:*",
+        // Workflow digests hash canonical JSON with a pure-JS SHA-256.
+        "@noble/hashes": "2.4.0",
         // The operator-plane workflow repository queries through Drizzle.
         "drizzle-orm": "catalog:",
+        // The operator workflow state machine.
+        xstate: "catalog:",
       },
       optionalDependencies: {},
       peerDependencies: {},
@@ -374,6 +377,7 @@ describe("jobs dependency inventory", () =>
     return expect(Object.keys(manifest.exports)).toEqual([
       ".",
       "./schema/workflow",
+      "./workflow",
       "./server/inline",
       "./server/omp",
       "./server/wayfinder",

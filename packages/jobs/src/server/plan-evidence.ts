@@ -1,4 +1,4 @@
-import { canonicalJsonV1, sha256Hex } from "@darkfactory/state/workflow";
+import { canonicalJsonV1, sha256Hex } from "../workflow/index.ts";
 
 import type { OmpSanitizedOutput } from "./omp.ts";
 

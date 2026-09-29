@@ -5,7 +5,7 @@ import {
   parseWorkflowEffectScopeV1,
   type WorkflowEffectScopeV1,
   type WorkflowExecutionModeV1,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 
 import {
   decodeOmpImplementationArtifact,

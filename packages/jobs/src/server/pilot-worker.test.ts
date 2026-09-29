@@ -1,5 +1,5 @@
 import type { DatabaseResource } from "@darkfactory/db/server";
-import { parseWorkflowRepositoryGrants } from "@darkfactory/state/workflow";
+import { parseWorkflowRepositoryGrants } from "../workflow/index.ts";
 import { describe, expect, it, vi } from "vitest";
 import {
   OMP_VERIFIER_COMMAND_IDENTITY,
