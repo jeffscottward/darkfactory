@@ -35,6 +35,7 @@
       "outputs": []
     },
     "test:unit": {
+      "cache": false,
       "dependsOn": ["^build"],
       "outputs": []
     },

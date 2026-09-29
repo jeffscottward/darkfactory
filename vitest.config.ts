@@ -62,6 +62,7 @@ export default defineConfig({
           ],
           exclude: [
             "**/node_modules/**",
+            "**/.git/**",
             "**/.turbo/**",
             "**/dist/**",
             "**/tests/e2e/**",
@@ -78,6 +79,7 @@ export default defineConfig({
           include: ["**/*contract.test.civet"],
           exclude: [
             "**/node_modules/**",
+            "**/.git/**",
             "**/.turbo/**",
             "**/dist/**",
             "**/tests/e2e/**",
@@ -90,7 +92,12 @@ export default defineConfig({
         test: {
           name: "operations",
           include: ["scripts/**/*.test.civet"],
-          exclude: ["**/node_modules/**", "**/.turbo/**", "**/dist/**"],
+          exclude: [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.turbo/**",
+            "**/dist/**",
+          ],
         },
       },
       {
@@ -98,11 +105,15 @@ export default defineConfig({
         test: {
           name: "e2e-helpers",
           include: [
-            "playwright.config.test.ts",
             "tests/e2e/helpers/*.test.civet",
             "tests/e2e/helpers/*.test.ts",
           ],
-          exclude: ["**/node_modules/**", "**/.turbo/**", "**/dist/**"],
+          exclude: [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.turbo/**",
+            "**/dist/**",
+          ],
         },
       },
       {
@@ -112,6 +123,7 @@ export default defineConfig({
           include: ["tests/integration/**/*.test.civet"],
           exclude: [
             "**/node_modules/**",
+            "**/.git/**",
             "**/.turbo/**",
             "**/dist/**",
             "**/tests/e2e/**",

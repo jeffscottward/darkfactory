@@ -83,7 +83,7 @@
     "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/inline.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/omp.civet src/server/wayfinder.civet src/server/plan-evidence.civet src/server/workflow-worker.civet src/server/workflow-runtime.civet src/server/pilot-worker.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "worker:pilot": "bun --preload @danielx/civet/bun-civet src/server/pilot-worker-cli.civet"
   },
   "dependencies": {

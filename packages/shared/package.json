@@ -20,7 +20,7 @@
     "types": "bunx --bun --no-install civet --emit-declaration src/index.civet",
     "typecheck": "bunx --bun --no-install civet --typecheck src/index.civet src/index.test.civet",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.civet",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.civet"
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",
