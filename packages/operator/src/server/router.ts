@@ -1,3 +1,6 @@
+// What: oRPC implementation of operatorContract bound to the operator service.
+// Used by: packages/operator/src/server/handler.ts, packages/operator/src/server/index.ts (operatorRouter).
+// See: packages/operator/src/contract.ts#operatorContract; docs/operator.md.
 import {
   AuthAuthorizationError,
   type SafeAuthSession,

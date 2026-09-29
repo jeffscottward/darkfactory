@@ -1,3 +1,6 @@
+// What: Parses and validates the capability manifest YAML; throws CapabilityManifestValidationError.
+// Used by: packages/config/src/server/capabilities.ts, scripts/doctor/doctor.ts (loadCapabilityManifest).
+// See: docs/debugging.md#symptom--where-to-look; docs/capabilities.md#the-manifest.
 import { isAlias, isCollection, isPair, isScalar, parseDocument } from "yaml";
 import {
   type CapabilityManifest,

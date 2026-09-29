@@ -1,3 +1,6 @@
+// What: Local preview email port: writes messages to packages/email/previews/ instead of sending.
+// Used by: packages/email/src/server/provider.ts#selectEmailPort, packages/email/src/server.ts.
+// See: docs/debugging.md#symptom--where-to-look (Local email never arrives).
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import {

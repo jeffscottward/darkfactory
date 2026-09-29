@@ -1,3 +1,6 @@
+// What: Admin user directory search with opaque keyset cursors.
+// Used by: packages/db/src/server/repositories.ts, packages/db/src/server/index.ts (createAdminUsersRepository).
+// See: packages/db/src/schema/index.ts#users.
 import {
   and as andWhere,
   desc,

@@ -1,3 +1,6 @@
+// What: Creates and drops isolated Postgres test databases; only local hosts and the test maintenance DB allowed.
+// Used by: Integration tests via createPostgresTestDatabase / dropPostgresTestDatabase.
+// See: docs/debugging.md#symptom--where-to-look; docs/testing.md#integration-tests.
 import { createHash, randomUUID } from "node:crypto";
 import { Client, type ClientConfig, type QueryResultRow } from "pg";
 

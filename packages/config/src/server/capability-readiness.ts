@@ -1,3 +1,6 @@
+// What: Evaluates which installed capabilities are ready given env bindings and dependencies.
+// Used by: packages/config/src/server/capabilities.ts#evaluateCapabilityReadiness.
+// See: docs/capabilities.md#the-manifest; packages/config/src/server/capabilities-loader.ts.
 import type { CapabilityManifest } from "../capabilities.ts";
 import type { ServerEnv } from "../server.ts";
 

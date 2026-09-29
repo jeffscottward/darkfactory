@@ -1,3 +1,6 @@
+// What: OMP CLI adapter for the operator: sandboxed runs, verifier manifests, artifact capture and output redaction.
+// Used by: packages/jobs/src/server/pilot-worker.ts#createOmpCliAdapter; workflow-runtime.ts, wayfinder.ts, plan-evidence.ts.
+// See: docs/debugging.md#symptom--where-to-look (OmpConfigurationError, requireSandboxBackend); docs/operator.md#safety.
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";

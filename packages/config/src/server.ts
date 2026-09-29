@@ -1,3 +1,6 @@
+// What: Fail-closed server env schema; parseServerEnv throws EnvironmentValidationError listing each bad key.
+// Used by: apps/web/src/server/request-scope.ts, apps/web/src/app/api/orpc/[...rest]/route.ts, apps/operator/src/server/operator-auth.ts.
+// See: docs/debugging.md#symptom--where-to-look; packages/config/src/database.ts.
 import { AI_ADAPTERS } from "@darkfactory/ai/adapters";
 import { ANALYTICS_ADAPTERS } from "@darkfactory/analytics/adapters";
 import { EMAIL_ADAPTERS } from "@darkfactory/email/adapters";

@@ -1,3 +1,6 @@
+// What: Per-request composition root: env, database scope, auth and email port for one web request.
+// Used by: apps/web/src/app/api/orpc/[...rest]/route.ts, app/api/auth/[...all]/handler.ts, app/api/auth/strict-sign-out/handler.ts.
+// See: docs/debugging.md#symptom--where-to-look; packages/db/src/server/request-scope.ts#openRequestScope.
 import { resolveApiRequestId } from "@darkfactory/api/server";
 import { createAuth, type DarkFactoryAuth } from "@darkfactory/auth/server";
 import { composeDatabaseProfile } from "@darkfactory/config/database";

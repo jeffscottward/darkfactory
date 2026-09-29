@@ -1,3 +1,6 @@
+// What: Opens a per-request database client and maps pool exhaustion to a 503 DATABASE_CAPACITY response.
+// Used by: apps/web/src/server/request-scope.ts#withRequestScope, apps/operator/src/server/operator-auth.ts (openRequestScope).
+// See: docs/debugging.md#symptom--where-to-look; packages/db/src/server/client.ts#createRequestDatabase.
 import {
   createRequestDatabase,
   type Database,

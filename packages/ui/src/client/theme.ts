@@ -1,3 +1,6 @@
+// What: Client theme context: ThemeProvider, useTheme and ThemePicker for mode and palette.
+// Used by: apps/web/src/components/theme-controller.tsx, apps/web/src/components/theme-menu.tsx.
+// See: packages/ui/src/palettes.ts; packages/api/src/contract.ts#ThemePreferenceSchema.
 "use client";
 
 import { Palette as PaletteIcon } from "lucide-react";

@@ -1,3 +1,6 @@
+// What: Server-side portal session lookup and safe callback/sign-in URL helpers.
+// Used by: apps/web/src/lib/request-portal-session.ts#getPortalSession, apps/web/src/app/(portal)/layout.tsx#portalSignInHref.
+// See: docs/debugging.md#symptom--where-to-look (Auth cookie missing or sign-in loops).
 import { CANONICAL_APP_URL } from "@darkfactory/config";
 
 export type PortalRole = "member" | "admin";

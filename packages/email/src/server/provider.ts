@@ -1,3 +1,6 @@
+// What: Transactional email port: picks preview (local file) or Resend transport from EMAIL_TRANSPORT.
+// Used by: apps/web/src/server/request-scope.ts, apps/operator/src/server/operator-auth.ts (selectEmailPort).
+// See: docs/debugging.md#symptom--where-to-look; docs/capabilities.md#recipe-swap-resend-for-another-email-provider.
 import { Resend } from "resend";
 import type { EmailAdapterId } from "../adapters.ts";
 

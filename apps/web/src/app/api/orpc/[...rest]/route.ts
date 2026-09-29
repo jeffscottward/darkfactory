@@ -1,3 +1,6 @@
+// What: Worker entry for /api/orpc: origin checks, body limits, telemetry, contact runtime and API handler.
+// Used by: Next.js route (GET/POST/PATCH/DELETE); apps/web/src/lib/server-internal-dispatch.ts#dispatchInternalOrpcRequest.
+// See: docs/debugging.md#symptom--where-to-look (unsafeRequestDenied, ORPC_REQUEST_MAX_BYTES); packages/api/src/server/router.ts#appRouter.
 import { waitUntil as workerWaitUntil } from "cloudflare:workers";
 import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog";
 import { CONTACT_ERRORS } from "@darkfactory/api";

@@ -1,3 +1,6 @@
+// What: Redacts secrets/PII and truncates values before any log, trace or analytics event leaves the process.
+// Used by: packages/observability/src/server/evlog.ts, server/fanout.ts, server/otel.ts via redactSemanticEvent.
+// See: docs/debugging.md#logs; docs/security.md#controls-to-keep.
 import type { CorrelationContext, SemanticEvent } from "./port.ts";
 
 export const REDACTED = "[REDACTED]" as const;

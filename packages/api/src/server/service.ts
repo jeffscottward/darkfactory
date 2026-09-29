@@ -1,3 +1,6 @@
+// What: Feature item and theme preference services with owner-scoped access and typed service errors.
+// Used by: packages/api/src/server/router.ts (createFeatureItemService), scripts/generate-feature/live-templates.ts.
+// See: docs/getting-started.md#add-your-first-feature; packages/db/src/server/repositories.ts.
 import type { SafePrincipal } from "@darkfactory/auth/types";
 import type {
   FeatureItem,

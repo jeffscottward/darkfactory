@@ -1,3 +1,6 @@
+// What: Account service: profile, addresses and preferences for the signed-in principal.
+// Used by: packages/api/src/server/router.ts#createAccountService.
+// See: packages/api/src/contracts/account.ts; packages/db/src/server/repositories.ts.
 import type { SafeAuthSession, SafePrincipal } from "@darkfactory/auth/types";
 import type { Address, Profile, UserPreferences } from "@darkfactory/db/schema";
 import {

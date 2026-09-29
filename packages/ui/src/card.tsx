@@ -1,3 +1,6 @@
+// What: Card primitives: Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter.
+// Used by: packages/ui/src/index.ts; apps/operator/src/components/operator/*, apps/web components.
+// See: packages/ui/src/stat-card.tsx.
 import type { ComponentPropsWithRef, JSX } from "react";
 
 import { cn } from "./utilities.ts";

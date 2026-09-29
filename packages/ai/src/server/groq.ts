@@ -1,3 +1,6 @@
+// What: Groq-backed AI port (createGroqAiPort) for text generation; exported as @darkfactory/ai/server/groq.
+// Used by: Apps that enable the ai capability; packages/ai/src/adapters.ts lists the adapter.
+// See: docs/capabilities.md#anatomy-of-a-capability-brick.
 import type {
   AiFailureCategory,
   AiPort,

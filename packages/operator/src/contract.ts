@@ -1,3 +1,6 @@
+// What: Operator oRPC contract and Zod schemas for runs, timeline, approvals and evidence.
+// Used by: packages/operator/src/server/router.ts, apps/operator/src/components/operator/operator-client.ts.
+// See: docs/operator.md; packages/operator/src/server/operator-service.ts.
 import {
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_SCOPE_BYTES,

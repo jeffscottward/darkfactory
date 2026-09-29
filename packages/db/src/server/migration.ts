@@ -1,3 +1,6 @@
+// What: Runs Drizzle migrations from packages/db/migrations.
+// Used by: scripts/setup/setup.ts (migrate).
+// See: docs/debugging.md#symptom--where-to-look (Migration fails); docs/deploy.md#migrations.
 import { fileURLToPath } from "node:url";
 import { migrate as runMigrations } from "drizzle-orm/node-postgres/migrator";
 

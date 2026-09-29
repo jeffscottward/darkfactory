@@ -1,3 +1,6 @@
+// What: Operator service: run listing, detail, approvals and messages over the workflow port.
+// Used by: packages/operator/src/server/router.ts#createOperatorService, packages/operator/src/server/wayfinder-service.ts.
+// See: docs/operator.md; packages/operator/src/contract.ts#operatorContract.
 import type { SafePrincipal } from "@darkfactory/auth/types";
 import {
   parseWorkflowPlanEvidenceV1,

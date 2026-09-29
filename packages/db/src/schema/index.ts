@@ -1,3 +1,6 @@
+// What: Drizzle schema: auth tables, profiles, addresses, preferences, feature items, outbox and audit records.
+// Used by: packages/db/src/server/repositories.ts, packages/auth/src/server.ts, packages/db/src/seeds/index.ts.
+// See: packages/db/migrations/; docs/deploy.md#migrations.
 import { sql } from "drizzle-orm";
 import {
   bigint,
