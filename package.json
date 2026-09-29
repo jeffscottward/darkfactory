@@ -56,7 +56,7 @@
     "verify:core:ci": "bun run verify:static && bun run test:e2e-helpers",
     "verify:prepush": "bun run check && bun run auth:schema:check && bun run openapi:check && bun run docs:check && bun run test:unit && bun run test:contract && bun run test:operations",
     "verify:integration": "bun run test:integration",
-    "verify:browser": "bun run build && corepack pnpm exec playwright test",
+    "verify:browser": "bun run build && pnpm exec playwright test",
     "verify": "bun run verify:core:ci && bun run verify:coverage && bun run verify:integration && bun run verify:browser",
     "ci": "bun run verify",
     "verify:coverage": "bun run test:coverage",

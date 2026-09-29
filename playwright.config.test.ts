@@ -139,7 +139,7 @@ describe("Playwright harness", () => {
     });
     expect(app).toMatchObject({
       command:
-        "rm -f apps/web/dist/server/.dev.vars && node_modules/.bin/portless darkfactory corepack pnpm --filter @darkfactory/web run start --mode test",
+        "rm -f apps/web/dist/server/.dev.vars && node_modules/.bin/portless darkfactory pnpm --filter @darkfactory/web run start --mode test",
       name: "app",
       reuseExistingServer: false,
       url: "http://127.0.0.1:43124/robots.txt",
