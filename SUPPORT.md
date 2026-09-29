@@ -4,13 +4,14 @@ DarkFactory is maintained as an open source repository. Support is provided on a
 
 ## Start with the documentation
 
-- [README](README.md) for the project overview and quick start.
-- [Local development](docs/local-development.md) for toolchain, environment, PostgreSQL, HTTPS, and recovery steps.
-- [Testing and evidence](docs/testing-and-evidence.md) for verification commands and prerequisites.
+- [README](README.md) for the project overview and quickstart.
+- [Getting started](docs/getting-started.md) for toolchain, environment, PostgreSQL, HTTPS and recovery steps.
+- [Debugging](docs/debugging.md) for symptom-to-code lookups, logs and request ids.
+- [Testing](docs/testing.md) for test layers, commands and prerequisites.
 - [Architecture](ARCHITECTURE.md) and [conventions](CONVENTIONS.md) for repository boundaries.
-- [Security guidance](docs/security.md) for development trust boundaries.
+- [Security model](docs/security.md) for trust boundaries and secret handling.
 
-Run `bun run doctor` after the documented local prerequisites are ready. Its output identifies unmet repository and workstation prerequisites; redact values before sharing it.
+Run `bun run doctor` first. Its output identifies unmet repository and workstation prerequisites; redact values before sharing it.
 
 ## Ask for help or report a problem
 
@@ -20,7 +21,7 @@ A useful support request includes:
 
 - the DarkFactory revision;
 - the command, route, or package involved;
-- operating system and relevant Bun, Node.js, pnpm, Docker, or browser versions;
+- operating system, the output of `mise current`, and Docker or browser versions if relevant;
 - minimal reproduction steps;
 - expected and observed behavior; and
 - redacted error output or artifact paths.

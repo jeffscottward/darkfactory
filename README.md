@@ -1,244 +1,122 @@
 <!-- markdownlint-disable-next-line MD041 -->
-![DarkFactory — Full-Stack Project Scaffold, illustrated as a modular industrial complex labeled Frontend, Backend, Database, DevOps, Auth, and Testing](docs/assets/darkfactory-banner.webp)
+![DarkFactory — Full-Stack Project Scaffold: an astronaut faces a modular industrial factory whose stacked modules are labeled Frontend, Backend, Database, DevOps, Auth and Testing](docs/assets/darkfactory-banner.webp)
 
 # DarkFactory
 
-| Category | Status |
-| --- | --- |
-| Verification | [![PR verification](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml?query=event%3Apull_request) [![CodeQL](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml) |
-| Project health | [![Coverage gate 100%](https://img.shields.io/badge/coverage%20gate-100%25-2ea44f)](vitest.config.ts) [![Agent Friendly Code 98.7/100](https://img.shields.io/badge/Agent%20Friendly%20Code-98.7%2F100-2ea44f)](docs/assessments/agent-friendly-0acd6c2.json) [![Latest release](https://img.shields.io/github/v/release/jeffscottward/darkfactory?display_name=tag&sort=semver)](https://github.com/jeffscottward/darkfactory/releases/latest) [![MIT license](https://img.shields.io/github/license/jeffscottward/darkfactory)](LICENSE) <br> [![OpenSSF Best Practices 100%](https://img.shields.io/badge/OpenSSF%20Best%20Practices-100%25-2ea44f)](https://www.bestpractices.dev/projects/13782) |
-| Community and runtime | [![PRs welcome](https://img.shields.io/badge/PRs-welcome-2ea44f)](CONTRIBUTING.md) [![Open issues](https://img.shields.io/github/issues/jeffscottward/darkfactory?label=open%20issues)](https://github.com/jeffscottward/darkfactory/issues) [![Open pull requests](https://img.shields.io/github/issues-pr/jeffscottward/darkfactory?label=open%20pull%20requests)](https://github.com/jeffscottward/darkfactory/pulls) <br> [![Bun 1.3.14](https://img.shields.io/badge/Bun-1.3.14-fbf0df)](https://bun.sh/) [![pnpm 11.16](https://img.shields.io/badge/pnpm-11.16.0-F69220?logo=pnpm&logoColor=white)](package.json) |
+[![PR CI](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/jeffscottward/darkfactory/actions/workflows/ci.yml?query=event%3Apull_request)
+[![CodeQL](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml/badge.svg)](https://github.com/jeffscottward/darkfactory/actions/workflows/codeql.yml)
+[![Latest release](https://img.shields.io/github/v/release/jeffscottward/darkfactory?display_name=tag&sort=semver)](https://github.com/jeffscottward/darkfactory/releases/latest)
+[![License](https://img.shields.io/github/license/jeffscottward/darkfactory)](LICENSE)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13782/badge)](https://www.bestpractices.dev/projects/13782)
+[![Coverage gate 100%](https://img.shields.io/badge/coverage%20gate-100%25-2ea44f)](vitest.config.ts)
 
-DarkFactory is a domain-neutral, Postgres-first application foundation for building AI-assisted products without making an AI provider, business vertical, or optional service part of the core architecture. It combines a public site, authenticated portal, contract-first API, portable PostgreSQL data layer, provider adapters, and an inspectable engineering lifecycle.
+DarkFactory is a strict-TypeScript monorepo template for starting a web product with the boring parts already wired. It ships Next App Router pages on Vite (vinext) deployed to Cloudflare Workers, PostgreSQL through Drizzle, contract-first oRPC with generated OpenAPI, Better Auth, and Tailwind + shadcn UI.
 
-The badges above are either live pointers to authoritative sources or versioned assessment results linked to their exact evidence; they are not a production-readiness, deployment, coverage-completeness, or security certification. See [Testing and evidence](docs/testing-and-evidence.md) for the limits and reproducibility contract behind repository claims.
+Every external service (email, analytics, AI, telemetry) sits behind a small port with an adapter, so you swap a provider by replacing an adapter, not by rewriting features. The database host is a config switch: plain Postgres, PlanetScale or Cloudflare Hyperdrive. Gates are strict: 100% coverage, four required CI lanes, and generated contracts and docs that must match the code. An optional operator plane runs a planned, approval-gated agent SDLC on top.
 
-Heavy CI runs all four required lanes for every eligible PR and explicit manual dispatch, not automatically after merge or other pushes. The PR-verification badge is not a claim of current-main validation. Merge evidence pairs successful latest reviewed PR checks with exact merged-tree identity; default-branch security scans remain independent. Before actual deployment, an operator must dispatch full CI on a branch/tag resolving to the intended SHA, verify the run's `head_sha`, and require all four lanes to succeed. See [Capabilities and deployment](docs/capabilities-and-deployment.md) for this operator policy and its separate authorization and runtime-evidence requirements.
+## Lego bricks
 
-## Architecture
+Every workspace package declares a `brick` role in its `package.json`. `bun run docs:check` enforces the direction of dependencies between roles:
 
-DarkFactory has two separate application composition roots:
+```mermaid
+flowchart LR
+  app["🌐 app<br/>composition roots"]
+  sdlc["🧭 agent-sdlc<br/>opt-in operator plane"]
+  product["🧱 product<br/>api, auth, db, config,<br/>observability, ui, state"]
+  capability["🔌 capability<br/>ports + adapters"]
+  tooling["🧪 tooling<br/>test support"]
 
-```text
-deployable product
-  browser or external client
-    -> apps/web
-    -> packages/api product contract/service
-    -> domain port
-    -> Drizzle repository
-    -> PostgreSQL
+  app --> product & capability
+  sdlc --> product & capability
+  product --> capability
 
-local development meta-layer
-  authenticated local browser
-    -> apps/operator
-    -> packages/operator contract/service
-    -> PostgreSQL workflow journal/outbox
-    -> durable queued Wayfinder plan effect
-    -> separately started packages/jobs pilot worker
-    -> local Wayfinder adapter -> scoped OMP adapter
+  classDef appRole fill:#1f6feb,stroke:#0b3d91,color:#ffffff
+  classDef productRole fill:#2ea44f,stroke:#1a7f37,color:#ffffff
+  classDef capabilityRole fill:#bf8700,stroke:#7d4e00,color:#ffffff
+  classDef sdlcRole fill:#8250df,stroke:#512a97,color:#ffffff
+  classDef toolingRole fill:#6e7781,stroke:#424a53,color:#ffffff
+  class app appRole
+  class product productRole
+  class capability capabilityRole
+  class sdlc sdlcRole
+  class tooling toolingRole
 ```
 
-`apps/web` is the deployable end-user product. `apps/operator` is a separate, authenticated, local-only development meta-layer at <https://operator.darkfactory.localhost>. It is not a deployable business capability. `packages/api` owns product contracts only. `packages/operator` owns operator contracts and services. `packages/jobs` owns queued workflow execution and the local OMP and Wayfinder adapters. Browser code and the product Worker do not import the local execution surface.
+Nothing depends on an app, capability bricks depend on nothing but tooling, and product bricks never reach into the agent plane. The per-package graph, with every workspace edge and export, is generated from the `package.json` files: **[docs/generated/package-graph.md](docs/generated/package-graph.md)**.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for decision boundaries and [CONVENTIONS.md](CONVENTIONS.md) for implementation rules.
+`ai` is the reference capability brick: a port, a Groq adapter, a recording fake and a browser guard, with no app wired to it yet. Copy its shape when you add a capability ([docs/capabilities.md](docs/capabilities.md)).
 
-## Implemented surfaces
+## Quickstart
 
-The `apps/web` product route tree contains:
+You need [mise](https://mise.jdx.dev/), which installs the toolchain pinned in [`mise.toml`](mise.toml), and Docker for local Postgres (or your own PostgreSQL 17 with the roles in [`infra/docker/postgres.compose.yml`](infra/docker/postgres.compose.yml)).
 
-- Public: `/`, `/about`, `/features`, `/solutions`, `/resources`, `/privacy`, `/terms`, `/legal/privacy`, and `/legal/terms`.
-- Authentication: `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password`, and `/verify-email`.
-- Portal: `/dashboard`, `/feature-items`, `/feature-items/new`, and `/feature-items/[id]`.
-- Account: `/account`, `/account/profile`, `/account/address`, `/account/preferences`, and `/account/security`.
-- Administration: `/admin` and `/admin/users`.
-- Runtime endpoints: Better Auth under `/api/auth/[...all]`, product oRPC under `/api/orpc/[...rest]`, and `/theme-bootstrap.js`.
-
-The separate `apps/operator` route tree contains local sign-in, the `/operator` dashboard, `/operator/runs/[id]`, Better Auth, and the operator oRPC endpoint. It requires an authenticated session and applies owner, repository, and scope authorization in the operator service. It is not part of the product route tree.
-
-The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/openapi.json) covers the product API only. Operator contracts are published by `packages/operator`, not added to product OpenAPI. Route existence does not by itself certify an end-to-end flow; use the evidence guide and CI results for verification.
-
-## Stack
-
-| Area | Current implementation |
-| --- | --- |
-| Language and workspace | TypeScript (strict), Bun 1.3.14 for scripts and TypeScript, Node.js 24 (24.21.0 LTS) compatibility, pnpm 11.16.0 for packages/workspaces, Turborepo 2.10.6 |
-| Web | React 19.2.8, vinext 1.0.0-beta.3, Vite 8.1.5, Cloudflare Workers |
-| UI | Tailwind CSS 4.3.3, shadcn/Radix composition, Manrope and Public Sans |
-| API | oRPC 1.14.8, Zod 4.1.12, generated OpenAPI 3.1.1 |
-| Authentication | Better Auth 1.6.24 with its Drizzle adapter |
-| Data | PostgreSQL 17.6 local image, Drizzle ORM 0.45.2, `pg` 8.22.0 |
-| State | XState 5.32.5 for explicit lifecycles; Zustand 5.0.14 for ephemeral local UI state |
-| Local operator | Separate `apps/operator` vinext app with `packages/operator` contracts/services; local-only and excluded from product deployment |
-| Workflow execution | PostgreSQL journal/outbox in `packages/jobs`; separately started pilot worker with scoped local OMP and Wayfinder adapters |
-| Providers | Groq, Resend, PostHog, evlog, and OpenTelemetry behind ports or runtime selection |
-| Quality | Biome/Ultracite, Vitest 4.1.10, Playwright 1.61.1, Husky, Graphify |
-
-Optional providers are not automatically available merely because an adapter exists. [`capabilities.yaml`](capabilities.yaml) is the capability truth source.
-
-## Prerequisites
-
-| Requirement | Version | Purpose |
-| --- | --- | --- |
-| [mise](https://mise.jdx.dev) | any current release | Installs the pinned toolchain from [`mise.toml`](mise.toml): Node.js 24.21.0, Bun 1.3.14, pnpm 11.16.0 |
-| Docker with Compose | daemon running | Disposable local PostgreSQL 17 (`infra/docker/postgres.compose.yml`); optional if you run your own PostgreSQL with the same roles |
-| Python and uv | Python 3.13 or 3.14; uv 0.11.32 | Graphify (`graphifyy` 0.9.2) repository graph tooling |
-| Provider/deployment credentials | only when exercised | Optional AI, email, analytics, observability, and Cloudflare paths |
-
-`.nvmrc`, `.bun-version`, and `package.json` repeat the `mise.toml` pins for CI; an invariant test keeps them equal. The local email transport defaults to preview.
-
-## Safe local setup
-
-```bash
-git clone https://github.com/jeffscottward/darkfactory.git
-cd darkfactory
+```sh
+git clone https://github.com/jeffscottward/darkfactory.git acme && cd acme
 mise install
 bun run setup
 bun run dev
 ```
 
-`bun run setup` is idempotent (`bun run setup -- --check` only reports). It checks the toolchain against `mise.toml`, runs `pnpm install --frozen-lockfile`, creates the ignored `.env` from [`.env.example`](.env.example) with mode `0600`, generates only empty local secrets (`BETTER_AUTH_SECRET`, `CONTACT_THROTTLE_SECRET`), sets the local `DATABASE_URL`, starts PostgreSQL through Docker Compose when available, applies migrations, seeds the development accounts, and writes `apps/web/.dev.vars`. It never overwrites a value you set and never prints secrets. Without Docker it explains how to point `DATABASE_URL` at your own PostgreSQL and continues.
+Open `https://darkfactory.localhost` and sign in as `admin@domain.test` with the development password `Development123!`. Details: [docs/getting-started.md](docs/getting-started.md).
 
-The Zod schema in `packages/config/src/server.ts` (`parseServerEnv`) is the only environment contract; `.env.example` documents it with safe values. Bun loads `.env` for root scripts. Keep real secrets out of Git; 1Password users can wrap commands with `op run --env-file=.env --`. Client variables remain an explicit allowlist.
+<!-- init:start -->
+### Start your own project
 
-`WORKFLOW_REPOSITORIES_ROOT` is optional when you run only the product. Before you use the operator app, set it to an absolute directory that contains the repositories the operator may access.
+**Planned, not available yet.** A follow-up adds `bun run init`, which renames the template for a new project. Run it once, on a clean tree, before `bun run setup`:
 
-The local application database URL that setup writes is:
-
-```text
-postgresql://darkfactory_app:darkfactory-app-local-only@127.0.0.1:5432/darkfactory_dev
+```sh
+bun run init -- --name <Name> --slug <slug> --scope @<scope> --domain <domain> [--repo <owner/repo>]
 ```
 
-### Development seed warning
+After `init`, the app runs at `https://<slug>.localhost`.
+<!-- init:end -->
 
-`bun run db:seed` creates predictable development identities (`admin@domain.test`, `alice@domain.test`, and `bob@domain.test`) with the shared password `Development123!`. These accounts and credentials are deliberately unsafe outside a disposable development or test database. The command requires a validated `APP_ENV=development` or `APP_ENV=test` and exactly one out-of-band `--confirm-environment=<development|test>` argument that matches it. Bun may load `APP_ENV` from `.env`; dotenv cannot supply the command-line confirmation.
+## Commands
 
-The package scripts intentionally omit confirmation, so append the matching flag after `--`:
-
-```bash
-bun run db:seed -- --confirm-environment=development
-bun run db:reset -- --confirm-environment=development
-```
-
-`bun run db:reset` is destructive. The matching confirmation proves only that the invocation was explicit; it does not prove `DATABASE_URL` points to a disposable target. Inspect the destination without printing its password, and never seed or reset a shared, staging, customer, or production database.
-
-## Canonical local HTTPS
-
-The product URL is <https://darkfactory.localhost>. The local operator URL is <https://operator.darkfactory.localhost>. Portless owns both hidden ports and trusted HTTPS routes; each command runs in the foreground (stop it with Ctrl-C).
-
-```bash
-bun run dev            # product
-bun run operator:dev   # operator, after setting WORKFLOW_REPOSITORIES_ROOT
-```
-
-Each command first rewrites its validated, mode-`0600` Worker bindings (`apps/web/.dev.vars` or `apps/operator/.dev.vars`) from `.env`, then runs the app's vinext dev server through `portless`. On first use portless may ask for `sudo` to bind port 443 and trust its local CA; `bun run dev:trust` repeats the trust step. Use `bun run dev:bindings` or `bun run operator:bindings` to refresh only the bindings.
-
-The operator Wayfinder status reports `installed` only when the bounded local manifest at `~/.agents/skills/wayfinder/SKILL.md` is a valid Wayfinder manifest; otherwise it reports `unavailable`. Start validates and durably enqueues a bounded request, then returns `queued`. It does not run OMP in the HTTP request or in the browser.
-
-Start the jobs worker separately to process queued effects:
-
-```bash
-pnpm --filter @darkfactory/jobs run worker:pilot
-```
-
-The pilot worker claims the plan effect before it dispatches the local Wayfinder adapter through one scoped OMP adapter. This documentation does not claim that any particular Wayfinder run or its evidence has completed.
-
-Use `bun run certs:install` and `bun run certs:generate` only as the documented mkcert fallback when Portless trust cannot work; generated certificates and keys stay ignored. See [Local development](docs/local-development.md) for installation details, lifecycle recovery, and cleanup.
-
-## Feature generator
-
-Always inspect the plan before writing files:
-
-```bash
-bun run generate:feature example-name --dry-run
-bun run generate:feature example-name
-```
-
-The generator accepts one feature name plus optional `--dry-run` and `--json` flags. A generated feature must replace the generic identity everywhere and carry its contract, route registration, persistence, tests, exports, and graph changes. Review the output and run the affected gates; generation is not verification.
-
-## Scripts
-
-| Purpose | Commands |
+| Command | What it does |
 | --- | --- |
-| Setup and development | `bun run setup`, `bun run dev`, `bun run dev:trust`, `bun run dev:bindings` |
-| Local operator | `bun run operator:dev`, `bun run operator:bindings` |
-| Database | `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run db:seed`, `bun run db:reset`, `bun run db:test:up`, `bun run db:test:down` |
-| Build and types | `bun run build`, `bun run types`, `bun run types:check`, `bun run typecheck` |
-| Static checks | `bun run check` (format, lint, typecheck), `bun run lint:markdown` |
-| Generated contracts | `bun run auth:schema:check`, `bun run api:openapi:generate`, `bun run api:openapi:check` |
-| Tests | `bun run test:unit`, `bun run test:integration`, `bun run test:e2e`, `bun run test` |
-| Deterministic gates | `bun run verify:static`, `bun run verify:core`, `bun run verify:core:ci` |
-| Full gates | `bun run verify`, `bun run ci` |
-| Graphify | `bun run graph:build`, `bun run graph:update`, `bun run graph:check`, `bun run graph:verify` |
-| Operations | `bun run doctor`, `bun run generate:feature`, `pnpm --filter @darkfactory/jobs run worker:pilot` |
-| Explicit web deployment | `bun run deploy:web:check`, `bun run deploy:web:preview`, `bun run deploy:web` |
+| `bun run setup` | Checks the toolchain, installs dependencies, writes `.env` with generated secrets, starts Postgres with Docker Compose, migrates, seeds dev accounts and writes the Worker `.dev.vars`. Safe to re-run. |
+| `bun run dev` | Refreshes `.dev.vars` and starts the web app over portless HTTPS at `https://darkfactory.localhost`. |
+| `bun run check` | Format check, lint (Biome and Markdown) and typecheck. |
+| `bun run test` | Every suite: unit, contract, operations, integration, E2E and accessibility. |
+| `bun run verify:prepush` | The pre-push hook: `check`, generated-artifact checks, and unit, contract and operations tests. |
+| `bun run verify` | Runs the same checks as the four CI lanes, locally. |
+| `bun run docs:generate` / `docs:check` | Regenerates or checks [docs/generated/package-graph.md](docs/generated/package-graph.md). |
+| `bun run generate:feature <name>` | Generates a feature slice: table, migration, repository, contract, service, portal page, docs and tests. Add `--dry-run` to preview. |
+| `bun run db:migrate` | Applies migrations. `db:seed` and `db:reset` also need `-- --confirm-environment=development`. |
+| `bun run deploy:web:check` / `deploy:web` | Validates the production database config and dry-runs the Worker deploy, or deploys it ([docs/deploy.md](docs/deploy.md)). |
+| `bun run doctor` | Checks the toolchain, required env keys and the services declared in `capabilities.yaml`. |
+| `bun run graph:build` | Optional. Builds a local Graphify code graph for navigation. It is never committed. |
 
-Vitest and Vinext's development, build, and deployment CLIs deliberately run through package-local binaries under Node. These are narrow measured compatibility exceptions: Bun 1.3.14 misloads Vitest's Vite `zod` dependency, its V8 coverage path lacks the `node:inspector` APIs required by `@vitest/coverage-v8`, Vite's development server requires WebSocket events that Bun does not implement, and a Bun-generated Vinext production bundle can report success while returning 404 for authored routes. Bun and Turbo still orchestrate compatible lifecycle and package tasks; pnpm remains the sole package and lockfile owner.
+## Stack
 
-## Testing and evidence
+Versions live in [`package.json`](package.json), the `catalog` in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and [`mise.toml`](mise.toml).
 
-Start the isolated PostgreSQL service and load the test environment before database-backed checks. Playwright starts its own portless HTTPS proxy (port 1356) and the production app, and stores failure material in `playwright-report/` and `test-results/`.
+| Concern | Default | Swap point |
+| --- | --- | --- |
+| Pages and routing | vinext (Next App Router API on Vite) | `apps/web`; see ADR-001 in [ARCHITECTURE.md](ARCHITECTURE.md#decisions) |
+| Hosting | Cloudflare Workers via `@vinext/cloudflare` | `apps/web/wrangler.jsonc`, `scripts/deployment/` |
+| Database host | Postgres, PlanetScale or Hyperdrive | `DATABASE_PROVIDER` profiles in `packages/config/src/database.ts` |
+| ORM and migrations | Drizzle | Core: `packages/db` (not a swap point) |
+| API | oRPC contracts + generated OpenAPI | Core: `packages/api/src/contracts/` (not a swap point) |
+| Auth | Better Auth | `packages/auth` |
+| Email | Resend (preview files locally) | `EmailPort` in `packages/email/src/server-types.ts`; adapters in `packages/email/src/server/provider.ts` and `contact.ts` |
+| Product analytics | PostHog | `AnalyticsPort` in `packages/analytics/src/index.ts`; adapter in `packages/analytics/src/server/posthog.ts` |
+| AI | Groq | `AiPort` in `packages/ai/src/index.ts`; adapter in `packages/ai/src/server/groq.ts` |
+| Traces and metrics | OpenTelemetry | `TelemetryPort` in `packages/observability/src/port.ts`; adapter in `packages/observability/src/server/otel.ts` |
+| Structured events | evlog | `StructuredEventSink` in `packages/observability/src/port.ts`; adapter in `packages/observability/src/server/evlog.ts` |
+| UI | Tailwind + shadcn | `packages/ui` |
+| State | XState (lifecycles), Zustand (UI-only) | `packages/state` |
+| Tests | Vitest (100% gate), Playwright | `vitest.config.ts`, `playwright.config.ts` |
+| Lint and format | Biome (`ultracite/core`), markdownlint | `biome.jsonc`, `.markdownlint-cli2.jsonc` |
+| Local HTTPS | portless | `bun run dev` |
+| Workspace | pnpm + Turborepo, Bun for scripts | `pnpm-workspace.yaml`, `turbo.json`, `mise.toml` |
 
-```bash
-bun run db:test:up
-bun run test:unit
-APP_ENV=test DATABASE_URL=postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance bun run test:integration
-bun run test:e2e
-bun run verify
-bun run db:test:down
-```
+## Docs
 
-Every source push runs `verify:prepush`: format, lint, auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper tests. It skips `build`, which hosted core runs. Every pushed ref must be the current HEAD with committed tracked files; untracked and ignored files do not block. A Bun version that differs from `.bun-version` prints a warning. Any failed check blocks the push. Install locked dependencies. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
-
-Push from a clean checkout with every pushed branch or tag resolving to current `HEAD` (annotated tags are peeled); tracked, staged, and unignored untracked changes block verification. Different source commits must be checked out and pushed separately. Deletion-only pushes contain no source and explicitly skip verification. Local success cannot guarantee hosted network, service, runner, or permission behavior; hosted CI remains required.
-
-Full `verify`/`ci` and hosted CI run four lanes (core, coverage, integration, browser): CI-specific core runs static checks plus scoped E2E helpers, while coverage runs unit/contract/operations once with all four 100% thresholds unchanged. Integration and browser exercise their real infrastructure. Graphify is an optional local tool, not a CI lane. Merge requires exact-head technical review, real current required checks, and independent GitHub approval only where effective repository rules require it. Successor publication remains held until the public follow-up is accepted.
-
-No command is considered successful without its observed exit result. Do not infer a green repository from this README or from a narrower check. See [Testing and evidence](docs/testing-and-evidence.md) and the draft [DF evidence map](docs/evidence-map.md).
-
-## Graphify
-
-When `graphify-out/graph.json` exists, agents query it before broad repository exploration:
-
-```bash
-graphify query "Trace a feature-item request from route to PostgreSQL"
-graphify path "featureItems.create" "feature_items"
-graphify explain "createFeatureItemService"
-```
-
-Refresh and verify the graph after adding features, moving public symbols, changing contracts or database relationships, or materially changing architecture:
-
-```bash
-bun run graph:update
-bun run graph:check
-bun run graph:verify
-```
-
-`graphify-out/` is generated output and is not hand-edited. Build and update replace only Graphify's known generated entries before extraction so stale snapshot-root node identities cannot survive a refresh.
-
-## Capabilities and deployment boundary
-
-`apps/web` is the only deployable application. It builds and deploys through the official `@vinext/cloudflare` adapter. The package `start` command uses Vite's Cloudflare-faithful production preview rather than Vinext's generic Node wrapper. Stop `bun run dev`, regenerate product Worker bindings, build, and run `pnpm exec portless darkfactory pnpm --filter @darkfactory/web run start` to preview the built Worker at the configured product HTTPS origin.
-
-`apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are local development tooling. `deploy:web:check`, `deploy:web:preview`, and `deploy:web` target only `@darkfactory/web`; there is no operator deploy command. Filesystem email previews are disabled in a production bundle; a real production environment must use its validated Resend configuration. `bun run deploy:web:check` validates adapter setup in dry-run mode without building or deploying. The explicit preview and deploy commands are credentialed Cloudflare operations; no automatic deployment workflow or proof of a completed deployment is claimed here.
-
-Alchemy is reserved only for a real, explicitly enabled ancillary Cloudflare resource. No ancillary resource is enabled, so there is intentionally no `alchemy.run.ts` and no Alchemy deployment step. Alchemy 0.93.12 is a source-reviewed compatibility baseline, not an installed or active deployment layer. See [Capabilities and deployment](docs/capabilities-and-deployment.md) and [ADR 0001](docs/adr/0001-vinext-alchemy-boundary.md).
-
-## Security
-
-This repository does not claim a completed penetration test or security certification. Follow [Security](docs/security.md) for trust boundaries, environment handling, seed restrictions, and the authorized post-build Shannon policy. Shannon work is tracked only as post-build work in [TODO.md](TODO.md); it is never a substitute for unfinished core verification.
-
-## Contributing and documentation
-
-Before changing the repository, read:
-
-- [Agent constitution](AGENTS.md)
-- [Architecture](ARCHITECTURE.md)
-- [Conventions](CONVENTIONS.md)
-- [Reusable master build and orchestration prompt](MASTER_PROMPT.md)
-- [Local development](docs/local-development.md)
-- [Testing and evidence](docs/testing-and-evidence.md)
-- [Capabilities and deployment](docs/capabilities-and-deployment.md)
-- [Security](docs/security.md)
-- [Post-build work](TODO.md)
-
-Keep changes focused, update contracts and generated artifacts with their source, refresh Graphify when relationships change, run the applicable gate, and never describe pending CI, browser, deployment, or security evidence as complete.
+- [AGENTS.md](AGENTS.md): rules, workflow and agent roles, for agents and humans
+- [ARCHITECTURE.md](ARCHITECTURE.md): bricks, request flow, SDLC graph, CI, decisions
+- [CONVENTIONS.md](CONVENTIONS.md): TypeScript, errors, logging and tests
+- [Package graph](docs/generated/package-graph.md) (generated)
+- [Getting started](docs/getting-started.md), [Testing](docs/testing.md), [Capabilities: add or swap a provider](docs/capabilities.md), [Deploy](docs/deploy.md), [Debugging](docs/debugging.md), [Operator plane](docs/operator.md), [Security model](docs/security.md)
+- [Security policy](SECURITY.md), [Contributing](CONTRIBUTING.md), [Support](SUPPORT.md), [Changelog](CHANGELOG.md), [MIT license](LICENSE)

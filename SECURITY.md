@@ -29,4 +29,4 @@ The private advisory is for vulnerabilities in this repository. General bugs, fe
 
 A private report may be reviewed, discussed, remediated, or declined through the advisory when a maintainer is available. Submission does not guarantee acknowledgement, a response or remediation time, acceptance of a severity assessment, a disclosure date, or any other service-level agreement.
 
-This policy and the repository do not constitute a security certification, penetration-test result, compliance assessment, warranty, or security attestation. For development trust boundaries and verification guidance, see [docs/security.md](docs/security.md).
+This policy and the repository do not constitute a security certification, penetration-test result, compliance assessment, warranty, or security attestation. For the threat model, controls, secret handling and scanning, see [docs/security.md](docs/security.md).
