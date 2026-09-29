@@ -234,6 +234,11 @@ function parsePushInput(input: string) {
   if (Buffer.byteLength(input, "utf8") > MAX_PUSH_INPUT_BYTES) {
     throw new Error("pre-push STDIN exceeds 64 KiB");
   }
+  // Git sends no lines when no ref will be updated: "Everything up-to-date",
+  // or refs it already rejected (stale lease, non-fast-forward).
+  if (input === "") {
+    return [];
+  }
   const lines = input.endsWith("\n")
     ? input.slice(0, -1).split("\n")
     : input.split("\n");
@@ -356,6 +361,10 @@ export function runPrePush(
       );
     }
     const updates = parsePushInput((dependencies.readInput ?? readPushInput)());
+    if (updates.length === 0) {
+      console.error("[hook] no ref updates to verify; git reports the result");
+      return 0;
+    }
     for (const update of updates) {
       const checked = runPushGit(["check-ref-format", update.remoteRef]);
       if (checked.exitCode !== 0) {
