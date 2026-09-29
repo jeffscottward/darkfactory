@@ -15,7 +15,7 @@ import {
 // them, and their `docs/<package>.md` page. Only the env keys are named here.
 // Pure; planInit applies the result.
 
-export const OPERATOR_BRICK = "agent-sdlc";
+const OPERATOR_BRICK = "agent-sdlc";
 /** Env keys that only the agent plane reads (.env.example, config schema). */
 const OPERATOR_ENV = /^(?:WORKFLOW|OMP)_[A-Z0-9_]+$/u;
 

@@ -20,9 +20,7 @@ import {
 const MAX_BINDING_BYTES = 128 * 1024;
 export type WorkerBindingsTarget = "web" | "operator";
 
-export const workerBindingsTargetPath = (
-  target: WorkerBindingsTarget
-): string => {
+const workerBindingsTargetPath = (target: WorkerBindingsTarget): string => {
   return target === "operator"
     ? "apps/operator/.dev.vars"
     : "apps/web/.dev.vars";

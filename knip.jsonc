@@ -4,14 +4,15 @@
   "ignoreExportsUsedInFile": { "interface": true, "type": true },
   // mkcert is a system binary installed by `mise`/Homebrew, not an npm package.
   "ignoreBinaries": ["mkcert"],
-  "ignoreIssues": {
-    // canonicalJsonV1 is a deliberate alias; the workflow module is moving to packages/jobs.
-    "packages/state/src/workflow/canonical.ts": ["duplicates"]
-  },
   "workspaces": {
     ".": {
       // Loading playwright.config.ts provisions the E2E environment, so list its entries instead.
-      "entry": ["tests/e2e/global-setup.ts", "tests/e2e/**/*.spec.ts"],
+      // scripts/dev.ts runs behind `portless <name> bun scripts/dev.ts`, which knip cannot parse.
+      "entry": [
+        "tests/e2e/global-setup.ts",
+        "tests/e2e/**/*.spec.ts",
+        "scripts/dev.ts"
+      ],
       "playwright": false
     },
     "apps/web": {
