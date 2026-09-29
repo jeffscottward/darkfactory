@@ -22,7 +22,7 @@ Do not promote an Implementation to Core or add a Capability implicitly.
 ## Work sequence
 
 1. Read the relevant contracts, feature boundary, tests, and architecture docs.
-2. Graphify is optional. When `graphify-out/graph.json` is present, use it before broad exploration through the repository wrapper: `bun run graph:check`, then `bun run graph:verify`. Do not invoke Graphify directly; the wrapper enforces the repository's Civet compilation, workspace-alias, environment-isolation, metadata, and verification policy.
+2. Graphify is optional. When `graphify-out/graph.json` is present, use it before broad exploration through the repository wrapper: `bun run graph:check`, then `bun run graph:verify`. Do not invoke Graphify directly; the wrapper enforces the repository's workspace-alias, environment-isolation, metadata, and verification policy.
 3. When the graph is missing and would help, build it on demand with `bun run graph:build` rather than reconstructing the repository from repeated broad searches.
 4. Define or update the observable contract and its failing test before implementation. Documentation-only and non-behavioral changes do not need artificial tests.
 5. Implement the smallest complete vertical change. Reuse existing code; never create a second convention beside an existing one.
@@ -35,10 +35,10 @@ For long-running work, create or update the root `.omp-status.md` after meaningf
 
 ## Source and module rules
 
-- Author application, feature, UI, service, schema, adapter, script, and test source in **Civet**.
+- Author application, feature, UI, service, schema, adapter, script, and test source in **TypeScript** (strict; `.ts`/`.tsx`).
 - Use TypeScript only where tooling requires an exact file or format: tool configuration, generated code, environment declarations, Cloudflare bindings, database migration artifacts, third-party entrypoints, or externally published compatibility surfaces.
 - Never convert authored application code to TypeScript for familiarity. Never manually edit generated TypeScript.
-- Build tiny, independently composable functions and components. Group very small related units in a local `index.civet`; split files only when reuse, independent testing, a meaningful boundary, or growth makes the split clearer.
+- Build tiny, independently composable functions and components. Group very small related units in a local `index.ts`; split files only when reuse, independent testing, a meaningful boundary, or growth makes the split clearer.
 - Keep business behavior out of route handlers, CLI handlers, framework entrypoints, and adapters.
 - Organize application work as feature-vertical slices. A feature owns its UI, state, contract use, orchestration, feature-local server code, and tests. Move code to a shared package only after it is genuinely cross-feature.
 - Use named exports and explicit local public surfaces. Do not deep-import another feature's internals or create broad barrels that conceal dependencies.

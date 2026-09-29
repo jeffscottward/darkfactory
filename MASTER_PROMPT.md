@@ -77,8 +77,8 @@ Treat the live manifests and lockfile as version truth. Do not copy version numb
 
 - Bun 1.3.14 is the primary script and TypeScript runtime.
 - pnpm 11.16.0 is the only package manager, workspace resolver, and lockfile owner.
-- Node >=22.13 remains compatibility for Corepack/pnpm, PM2/Portless, and measured tool exceptions; Cloudflare Workers remains production.
-- Turborepo owns the workspace task graph, and authored application, script, and test source is Civet.
+- Node 24.21.0 remains compatibility for Corepack/pnpm, PM2/Portless, and measured tool exceptions; Cloudflare Workers remains production.
+- Turborepo owns the workspace task graph, and authored application, script, and test source is strict TypeScript.
 - Vite/vinext implements the application and `@vinext/cloudflare` is the only web deployer.
 - React, Tailwind CSS, shadcn/Radix composition, and semantic design tokens implement UI.
 - oRPC plus Zod owns contracts, typed errors, transport validation, and OpenAPI generation.
@@ -363,7 +363,7 @@ Run automated accessibility checks and manual keyboard/focus/label/contrast/targ
 
 ### Build, runtime, generator, and security smoke
 
-Verify Civet discovery/type declarations, server/client bundle boundaries, vinext/Cloudflare build output, adapter dry-run check, generator fixtures, capability unavailable states, environment leakage, secure errors, and redacted observability. Default suites never call live production providers.
+Verify TypeScript route discovery/type declarations, server/client bundle boundaries, vinext/Cloudflare build output, adapter dry-run check, generator fixtures, capability unavailable states, environment leakage, secure errors, and redacted observability. Default suites never call live production providers.
 
 Run focused checks while iterating. Before integration/release, use the live root scripts, including as applicable:
 
@@ -444,7 +444,7 @@ Every reviewer receives the diff plus the relevant contract and acceptance crite
 
 **Owners:** Root/toolchain; configuration/environment; CI/hooks. Keep file ownership disjoint.
 
-- Establish pnpm/Turborepo/Civet/vinext tooling, type/export boundaries, scripts, config parsing, client allowlist, capability parser, hooks, isolated CI services, and failure artifacts.
+- Establish pnpm/Turborepo/TypeScript/vinext tooling, type/export boundaries, scripts, config parsing, client allowlist, capability parser, hooks, isolated CI services, and failure artifacts.
 - Preserve official deployer and safe Alchemy absence.
 - Build doctor and deterministic lifecycle foundations.
 
@@ -560,7 +560,7 @@ DarkFactory is done only when all applicable statements are true for one exact r
 
 ### Developer experience and delivery
 
-- Live manifests, lockfile, route discovery, Civet/TypeScript boundaries, build, exports, doctor, local HTTPS/PM2, database scripts, generator, and Graphify are reproducible.
+- Live manifests, lockfile, route discovery, TypeScript boundaries, build, exports, doctor, local HTTPS/PM2, database scripts, generator, and Graphify are reproducible.
 - Unit, contract, integration, E2E, accessibility, security smoke, build/runtime, generator, generated-artifact, graph, and docs gates pass as required.
 - Hooks and `bun run ci` remain authoritative and unweakened.
 - All five CI lanes and every effective required check succeed for the latest reviewed PR revision, with strict up-to-date protection and exact-head review intact. Merge acceptance additionally records exact PR-head/merged-tree identity, not an invented merge-SHA CI result. Do not rerun an identical merged tree solely for closeout. Unexpected direct-main changes require explicit exact-SHA manual full validation before acceptance.

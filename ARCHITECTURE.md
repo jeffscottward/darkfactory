@@ -8,7 +8,7 @@ Every design statement belongs to exactly one class:
 
 | Class | Meaning | Change rule | Examples |
 | --- | --- | --- | --- |
-| **Core** | Required in every DarkFactory project | Change through an explicit architecture decision | Bun script runtime, pnpm/Turborepo workspace, Civet-first source, Vite/vinext, PostgreSQL/Drizzle, Better Auth, oRPC, Tailwind/shadcn, evlog/OpenTelemetry/PostHog adapter, Graphify, lifecycle gates |
+| **Core** | Required in every DarkFactory project | Change through an explicit architecture decision | Bun script runtime, pnpm/Turborepo workspace, strict TypeScript source, Vite/vinext, PostgreSQL/Drizzle, Better Auth, oRPC, Tailwind/shadcn, evlog/OpenTelemetry/PostHog adapter, Graphify, lifecycle gates |
 | **Capability** | Optional, enabled intentionally, removable without rewriting the domain | Declare a manifest, port, adapter, config, install/remove path, verification, and docs | storage, AI provider, email delivery, jobs, error tracking, memory graph, database extensions |
 | **Convention** | Rule every contributor and agent follows | Update `AGENTS.md` and `CONVENTIONS.md` with the reason | contract-first work, feature-vertical ownership, test-first behavior changes, provider isolation |
 | **Implementation** | Current replaceable realization | May change while its contract remains stable | Cloudflare Workers, PostHog adapter, Groq adapter, Resend adapter, preview email adapter |
@@ -186,7 +186,7 @@ The root scripts provide separate product and operator lifecycles:
 - `bun run dev` runs only `@darkfactory/web`. `bun run dev:https` manages the stable `darkfactory-web-dev` PM2 process and the canonical <https://darkfactory.localhost> route. The matching product commands are `dev:bindings`, `dev:status`, `dev:logs`, `dev:stop`, and `dev:trust`.
 - `bun run operator:dev` first runs `operator:bindings`, then manages the stable `darkfactory-operator-dev` PM2 process and the <https://operator.darkfactory.localhost> route. The matching commands are `operator:status`, `operator:logs`, `operator:stop`, and `operator:bindings`.
 - `operator:bindings` validates the Varlock environment and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
-- `bun run doctor` independently probes installed Bun 1.3.14 and Node >=22.13 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
+- `bun run doctor` independently probes installed Bun 1.3.14 and Node 24.21.0 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
 - Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Build, test, generated-contract, docs, and Graphify checks remain explicit repository gates. Deploy scripts own only the official `apps/web` vinext/Cloudflare path.
 
 CI reliability has four explicit boundaries:
@@ -200,7 +200,7 @@ Graphify output is generated context rather than an authored runtime dependency.
 
 ## Deployment target
 
-`apps/web` is the only deployable application. It is authored in Civet, compiled through Vite/vinext, and deployed to Cloudflare Workers with the official `@vinext/cloudflare` adapter. `apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are development-only local tooling. They are not included in `deploy:web`, have no operator deployment command, and must not become production business capabilities.
+`apps/web` is the only deployable application. It is authored in TypeScript, compiled through Vite/vinext, and deployed to Cloudflare Workers with the official `@vinext/cloudflare` adapter. `apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are development-only local tooling. They are not included in `deploy:web`, have no operator deployment command, and must not become production business capabilities.
 
 Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly enabled, supported ancillary Cloudflare resources. No ancillary resource is currently enabled, so DarkFactory has no Alchemy dependency, `alchemy.run.ts`, or Alchemy deployment step. Do not put the vinext web application in Alchemy or add an empty program: in the reviewed baseline, `finalize()` can reconcile and delete resources persisted in a reused stage when they are absent from the current program. Re-review the then-current release before enabling a real ancillary resource. Alchemy here is infrastructure tooling, not a blockchain API dependency. pnpm owns dependency installation and the lockfile; Turborepo owns the repository task graph.
 
@@ -227,7 +227,7 @@ The following earlier options are not the DarkFactory baseline:
 
 - Traditional Next.js/OpenNext scaffolding and TanStack Start/Convex were superseded by **Vite/vinext on Cloudflare**.
 - Better-T-Stack may inform scaffolding, but DarkFactory is not coupled to it and vinext is not treated as a Better-T-Stack option.
-- Bun 1.3.14 is the **primary script and TypeScript runtime**; pnpm 11.16.0 remains the **only package manager, workspace resolver, and lockfile owner**, while Node >=22.13 remains a measured compatibility runtime and Cloudflare Workers remains production.
+- Bun 1.3.14 is the **primary script and TypeScript runtime**; pnpm 11.16.0 remains the **only package manager, workspace resolver, and lockfile owner**, while Node 24.21.0 remains a measured compatibility runtime and Cloudflare Workers remains production.
 - A flat single-app layout was superseded by **pnpm workspaces with Turborepo at the root**, allowing additional apps without forcing them initially.
 - tRPC was superseded by **contract-first oRPC** for typed errors, OpenAPI, and non-TypeScript consumers.
 - Redis and RabbitMQ defaults, including speculative fallback language, were superseded by the **PostgreSQL-first decision order**.
