@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { Button } from "@darkfactory/ui";
 import { notFound, redirect } from "next/navigation";
@@ -10,6 +11,16 @@ import {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Derived from the root manifest so the contract survives `bun run init`.
+const repositoryBase = (
+  JSON.parse(
+    readFileSync(
+      new URL("../../../../../package.json", import.meta.url),
+      "utf8"
+    )
+  ) as { repository: { url: string } }
+).repository.url.replace(/\.git$/u, "");
 
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((href: string): never => {
@@ -143,7 +154,7 @@ const assertLinksResolve = (html: string): void => {
       ).toBe(true);
     } else {
       expect(
-        href.startsWith("https://github.com/jeffscottward/darkfactory"),
+        href.startsWith(repositoryBase),
         `unexpected external target ${href}`
       ).toBe(true);
     }
@@ -193,10 +204,10 @@ describe("public resource and legal contracts", () => {
   it("declares stable GitHub URLs for locally tracked repository artifacts", async () => {
     const html = renderPage(ResourcesPage);
     const requiredDestinations = [
-      "https://github.com/jeffscottward/darkfactory/blob/main/ARCHITECTURE.md",
-      "https://github.com/jeffscottward/darkfactory/blob/main/packages/api/openapi.json",
-      "https://github.com/jeffscottward/darkfactory/blob/main/capabilities.yaml",
-      "https://github.com/jeffscottward/darkfactory",
+      `${repositoryBase}/blob/main/ARCHITECTURE.md`,
+      `${repositoryBase}/blob/main/packages/api/openapi.json`,
+      `${repositoryBase}/blob/main/capabilities.yaml`,
+      repositoryBase,
     ];
     const trackedArtifacts = [
       new URL("../../../../../ARCHITECTURE.md", import.meta.url),
@@ -215,9 +226,7 @@ describe("public resource and legal contracts", () => {
     expect(html.match(/target="_blank"/g)?.length).toBeGreaterThanOrEqual(4);
     expect(html).toContain("opens in a new tab");
     const pageHeader = html.match(/<header[\s\S]*?<\/header>/)?.[0];
-    expect(pageHeader).toContain(
-      'href="https://github.com/jeffscottward/darkfactory"'
-    );
+    expect(pageHeader).toContain(`href="${repositoryBase}"`);
     return expect(pageHeader).not.toContain('target="_blank"');
   });
 

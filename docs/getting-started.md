@@ -14,15 +14,15 @@ mise install
 ```
 
 <!-- init:start -->
-### Rename the template (planned)
+### Rename the template
 
-**Not available yet.** A follow-up adds `bun run init`, which rewrites the template identity for a new project. It will run once, on a clean tree, before `setup`:
+Run this once, on a clean tree, before `setup`:
 
 ```sh
-bun run init -- --name <Name> --slug <slug> --scope @<scope> --domain <domain> [--repo <owner/repo>]
+bun run init -- --name "Acme Labs" --slug acme-labs --scope @acme --domain acme.dev --repo acme/acme-labs
 ```
 
-Until then, the project keeps the `darkfactory` name, the `@darkfactory` scope and the `https://darkfactory.localhost` URL. Commit the result of `init` before you continue.
+Init rewrites the template identity for your project: the `@darkfactory` scope, the `darkfactory` slug and `darkfactory.localhost`, the production domain and email sender, the repository URLs, the `DARKFACTORY_` and `darkfactory_` prefixes, and the LICENSE holder. It removes the owner's Cloudflare `account_id`, and deploys use `CLOUDFLARE_ACCOUNT_ID` instead. It deletes instance-only history, runs `pnpm install` and regenerates the generated docs. Preview with `--dry-run`. Review and commit the result before you continue.
 <!-- init:end -->
 
 ## Set up

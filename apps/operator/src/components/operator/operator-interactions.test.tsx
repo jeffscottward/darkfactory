@@ -135,7 +135,7 @@ const deferred = <Value,>() => {
 const fillSubmission = async (
   values = {
     title: "Pilot run",
-    repositoryId: "DarkFactory",
+    repositoryId: "Sample-Repo",
     scopePaths: "apps/web",
   }
 ): Promise<HTMLButtonElement> => {
@@ -334,7 +334,7 @@ describe("operator workspace behavior", () => {
     ).toBeDefined();
     return expect(gateway.submit).toHaveBeenCalledWith(
       "Pilot run",
-      { repositoryId: "darkfactory", paths: ["apps/web"] },
+      { repositoryId: "sample-repo", paths: ["apps/web"] },
       expect.any(String)
     );
   });
@@ -424,7 +424,7 @@ describe("operator workspace behavior", () => {
     fireEvent.click(
       await fillSubmission({
         title: "Retry run",
-        repositoryId: "DARKFACTORY",
+        repositoryId: "SAMPLE-REPO",
         scopePaths: "apps/web",
       })
     );

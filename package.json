@@ -22,6 +22,7 @@
   },
   "scripts": {
     "setup": "bun scripts/setup.ts",
+    "init": "bun scripts/init.ts",
     "dev": "bun scripts/dev-bindings.ts && portless darkfactory bun scripts/dev.ts web",
     "dev:trust": "portless trust",
     "dev:bindings": "bun scripts/dev-bindings.ts",

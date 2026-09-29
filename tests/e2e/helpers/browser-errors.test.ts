@@ -71,7 +71,7 @@ describe("secret-safe browser error diagnostics", () => {
       "darkfactory.localhost",
       CANONICAL_ACCOUNT_MODULE_PATH,
       CANONICAL_ACCOUNT_MODULE_URL.href,
-      "/Users/jeffscottward",
+      "/Users/example-user",
       "/tmp/",
       "\\u0000",
       "\\u001b",

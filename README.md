@@ -62,13 +62,13 @@ Open `https://darkfactory.localhost` and sign in as `admin@domain.test` with the
 <!-- init:start -->
 ### Start your own project
 
-**Planned, not available yet.** A follow-up adds `bun run init`, which renames the template for a new project. Run it once, on a clean tree, before `bun run setup`:
+Rename the template in one command from a clean checkout, before `bun run setup`. Then review the staged result and commit it:
 
 ```sh
-bun run init -- --name <Name> --slug <slug> --scope @<scope> --domain <domain> [--repo <owner/repo>]
+bun run init -- --name "Acme Labs" --slug acme-labs --scope @acme --domain acme.dev --repo acme/acme-labs
 ```
 
-After `init`, the app runs at `https://<slug>.localhost`.
+Init rewrites the package scope, slug, domain, repository URLs, env prefixes and database names in a single pass. It also removes instance-only history (the changelog, archives and the OpenSSF record) and then deletes itself. Use `--dry-run` to preview the changes and `--help` to list every option. After init, the app runs at `https://<slug>.localhost`.
 <!-- init:end -->
 
 ## Commands

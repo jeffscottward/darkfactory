@@ -741,12 +741,14 @@ describe("operator workflow approval idempotency", () => {
 
   it("binds and approves an exact-boundary multibyte submit scope", async () => {
     const scope = {
-      repositoryId: "darkfactory",
-      paths: [
-        ...Array.from({ length: 15 }, () => "é".repeat(128)),
-        "é".repeat(84),
-      ],
+      repositoryId: SCOPE.repositoryId,
+      paths: [...Array.from({ length: 15 }, () => "é".repeat(128)), ""],
     };
+    // Fill the last path to the exact byte boundary for any repository id length.
+    const remaining =
+      MAX_WORKFLOW_SCOPE_BYTES -
+      new TextEncoder().encode(canonicalJsonV1(scope)).byteLength;
+    scope.paths[15] = `${"é".repeat(Math.floor(remaining / 2))}${"a".repeat(remaining % 2)}`;
     const fake = fakeRepository();
     const port = portFor(fake);
     const submitted = await port.submit({
