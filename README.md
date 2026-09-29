@@ -61,7 +61,7 @@ The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/ope
 
 | Area | Current implementation |
 | --- | --- |
-| Language and workspace | Civet 0.11.15, Bun 1.3.14 for scripts and TypeScript, Node.js >=22.13 compatibility, pnpm 11.16.0 for packages/workspaces, Turborepo 2.10.6 |
+| Language and workspace | TypeScript (strict), Bun 1.3.14 for scripts and TypeScript, Node.js 24 (24.21.0 LTS) compatibility, pnpm 11.16.0 for packages/workspaces, Turborepo 2.10.6 |
 | Web | React 19.2.8, vinext 1.0.0-beta.3, Vite 8.1.5, Cloudflare Workers |
 | UI | Tailwind CSS 4.3.3, shadcn/Radix composition, Manrope and Public Sans |
 | API | oRPC 1.14.8, Zod 4.1.12, generated OpenAPI 3.1.1 |
@@ -81,7 +81,7 @@ Optional providers are not automatically available merely because an adapter exi
 | --- | --- | --- | --- |
 | Host platform | macOS with Homebrew, or Debian/Ubuntu with `apt` and root/`sudo` | Deterministic workstation bootstrap | Uses the existing platform package manager; never installs Homebrew or guesses an unsupported platform |
 | Bun | Exactly 1.3.14 | Primary script and TypeScript runtime | Installs the exact user-scoped release when absent or mismatched |
-| Node.js | Compatible 22.13 or newer runtime (installer bootstrap target 22.13.1) | Corepack/pnpm, PM2/Portless, Vitest, and measured compatibility paths | Keeps a compatible installed runtime; bootstraps 22.13.1 through Homebrew or pinned `n` 10.2.0 only when Node is missing or too old |
+| Node.js | Node.js 24 (24.21.0 LTS; `.nvmrc`) | Corepack/pnpm, PM2/Portless, Vitest, and measured compatibility paths | Keeps a compatible installed runtime; bootstraps 22.13.1 through Homebrew or pinned `n` 10.2.0 only when Node is missing or too old |
 | Corepack and pnpm | Corepack 0.34.7; pnpm 11.16.0 | Sole dependency/workspace manager and lockfile owner | Activates the pinned pnpm release; installs workspace dependencies from the frozen lockfile |
 | Python and uv | Compatible Python 3.13 or 3.14; uv 0.11.32 | Graphify and Python-backed repository tooling | Keeps a compatible installed Python; installs the exact user-scoped uv release |
 | Docker, Compose, PostgreSQL | Docker and Compose installed; daemon running; isolated PostgreSQL service available | Local integration database | Installs Docker/Compose where supported; an operator must start the daemon before database work |
@@ -214,7 +214,7 @@ varlock run -- bun run verify
 bun run db:test:down
 ```
 
-Every source push runs `verify:prepush`: format, lint, Civet style, auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper tests. It skips `build`, which hosted core runs. Every pushed ref must be the current HEAD with committed tracked files; untracked and ignored files do not block. A Bun version that differs from `.bun-version` prints a warning. Any failed check blocks the push. Install locked dependencies. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
+Every source push runs `verify:prepush`: format, lint, auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper tests. It skips `build`, which hosted core runs. Every pushed ref must be the current HEAD with committed tracked files; untracked and ignored files do not block. A Bun version that differs from `.bun-version` prints a warning. Any failed check blocks the push. Install locked dependencies. Docker/PostgreSQL, Graphify, Chromium, and the test environment are prerequisites for explicit full verification, not every pre-push.
 
 Push from a clean checkout with every pushed branch or tag resolving to current `HEAD` (annotated tags are peeled); tracked, staged, and unignored untracked changes block verification. Different source commits must be checked out and pushed separately. Deletion-only pushes contain no source and explicitly skip verification. Local success cannot guarantee hosted network, service, runner, or permission behavior; hosted CI remains required.
 
