@@ -24,7 +24,7 @@ afterAll(() => rm(listDirectory, { recursive: true, force: true }));
 // Every coverage exclusion is reviewed here. Editing vitest.config.ts alone fails this test.
 const COVERAGE_EXCLUDE_ALLOWLIST = [
   // Tests are the measuring instrument, not measured source.
-  "**/*.{test,spec}.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+  "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
   // Ambient declarations contain no executable code.
   "**/*.d.ts",
   // Generator output; freshness checks own these bytes.
@@ -33,7 +33,7 @@ const COVERAGE_EXCLUDE_ALLOWLIST = [
 ] as const;
 
 const SOURCE_ROOT = /^(?:apps\/[^/]+\/src\/|packages\/[^/]+\/src\/|scripts\/)/u;
-const SOURCE_EXTENSION = /\.(?:civet|js|jsx|ts|tsx|mjs|cjs|mts|cts)$/u;
+const SOURCE_EXTENSION = /\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/u;
 const TEST_FILE = /\.(?:test|spec)\.[^./]+$/u;
 const LOCAL_PROJECTS = [
   "unit",
@@ -186,12 +186,23 @@ describe("coverage measures every authored source file", () => {
     expect(vitestConfig.test?.coverage?.exclude).toEqual([
       ...COVERAGE_EXCLUDE_ALLOWLIST,
     ]);
+    expect(vitestConfig.test?.coverage?.include).toEqual([
+      "apps/*/src/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+      "packages/*/src/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+      "scripts/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+    ]);
     return expect(vitestConfig.test?.coverage?.thresholds).toEqual({
       lines: 100,
       branches: 100,
       functions: 100,
       statements: 100,
     });
+  });
+
+  it("tracks no retired Civet sources that coverage would silently skip", async () => {
+    return expect(
+      [...(await trackedFiles)].filter((file) => /\.civet$/iu.test(file))
+    ).toEqual([]);
   });
 
   return it("includes every tracked non-test source file outside the allowlist", async () => {

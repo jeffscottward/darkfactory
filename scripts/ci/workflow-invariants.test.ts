@@ -6,21 +6,21 @@ import { parse } from "yaml";
 // this file free of step text, versions and shell snippets: those are free to
 // change without weakening the pipeline.
 
-type Step = {
+interface Step {
   uses?: string;
   with?: Record<string, unknown>;
-};
-type Job = {
+}
+interface Job {
   name?: string;
   uses?: string;
   steps?: Step[];
   strategy?: { matrix?: Record<string, unknown> };
-};
-type Workflow = {
+}
+interface Workflow {
   on: unknown;
   permissions?: unknown;
   jobs: Record<string, Job>;
-};
+}
 
 const directory = new URL("../../.github/workflows/", import.meta.url);
 const workflows = await Promise.all(
@@ -88,13 +88,11 @@ describe("GitHub workflow invariants", () => {
       if (permissions === "read-all") continue;
       expect(permissions, file).toBeTypeOf("object");
       expect(permissions, file).not.toBeNull();
-      const results3 = [];
       for (const scope of Object.values(
         permissions as Record<string, unknown>
       )) {
-        results3.push(expect(["read", "none"], file).toContain(scope));
+        expect(["read", "none"], file).toContain(scope);
       }
-      results3;
     }
   });
 
@@ -105,6 +103,17 @@ describe("GitHub workflow invariants", () => {
     expect(checkouts.length).toBeGreaterThan(0);
     for (const { file, id, step } of checkouts) {
       expect(step.with?.["persist-credentials"], `${file}#${id}`).toBe(false);
+    }
+  });
+
+  it("takes the CI Node.js version from .nvmrc", () => {
+    const setups = steps.filter(({ step }) => {
+      return step.uses?.startsWith("actions/setup-node@");
+    });
+    expect(setups.length).toBeGreaterThan(0);
+    for (const { file, id, step } of setups) {
+      expect(step.with?.["node-version-file"], `${file}#${id}`).toBe(".nvmrc");
+      expect(step.with?.["node-version"], `${file}#${id}`).toBeUndefined();
     }
   });
 
