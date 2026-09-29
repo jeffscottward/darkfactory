@@ -37,7 +37,6 @@ Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication 
 
 - Register `@danielx/civet/vite` in the Vite compatibility configuration and include `civet` in vinext/Next route `pageExtensions`; vinext does not discover `.civet` routes by default.
 - Pin and verify Bun, Node compatibility, Vite, React/RSC, vinext, and Civet together. Bun runs scripts and TypeScript; root Civet entrypoints use `bun --preload @danielx/civet/bun-civet`; compatible local CLIs use `bunx --bun --no-install`. pnpm owns installation, workspace selection, and the sole lockfile. Package-local CLIs run from their owning package context. Explicit Node execution requires a measured incompatibility: Vitest uses Node for V8 coverage; `vinext dev` uses Node because Bun 1.3.14 does not implement the WebSocket events required by Vite's development server; and Vinext build/deploy CLIs use Node because their Bun-generated production bundle omits authored routes despite reporting success.
-- The hosted security-policy bootstrap is a separate trust-boundary exception: Node executes only `scripts/ci/generated/security-preflight.mjs`, compiled from canonical Civet using the pinned compiler, before candidate dependencies are installed. Local preflight remains Bun/Civet. Never author behavior in the generated file; use `ci:preflight:generate` and require the non-mutating `ci:preflight:check` in core verification.
 
 Never:
 
@@ -113,7 +112,6 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 
 - Civet owns parsing and type checks for authored `.civet` source.
 - `packages/api/openapi.json` is generated deterministically by `@darkfactory/api`; the stale check owns its exact bytes.
-- `scripts/ci/generated/security-preflight.mjs` is byte-owned by the pinned Civet compiler. Biome and staged formatting exclude only that bootstrap artifact; `ci:preflight:check` rejects missing or stale bytes without rewriting them. Canonical source and generator tests remain subject to Civet style, type, and coverage gates.
 - `useLiteralKeys` is disabled only for the listed files that intentionally inspect validated dynamic records and `ProcessEnv`; TypeScript's `noPropertyAccessFromIndexSignature` requires bracket access.
 - `useTopLevelRegex` is disabled only for bounded security parsers and one-shot tests that keep regexes beside the invariant they prove; none execute in an unbounded hot path.
 - `noBitwiseOperators` is disabled only where file modes, inode identities, checksums, and PNG bytes require exact bitwise operations; ordinary application code remains checked.
@@ -130,7 +128,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 - End-to-end tests cover critical user journeys through the rendered application, including authentication and the generic feature flow.
 - Keep tests deterministic, isolated, parallel-safe, and independent of production credentials or live providers. Use explicit test/local adapters, never silent mocks in production code.
 - A regression test must fail if the plausible bug returns. Test names describe behavior and outcome.
-- Run the narrow test while iterating, then the applicable root lifecycle. Local pre-push keeps `verify:core` (static plus unit/contract/operations). Full `verify`/`ci` and GitHub Actions use `verify:core:ci` (static plus `test:e2e-helpers`), with unit/contract/operations owned once by coverage; integration and browser own their separate suites. All five mandatory lanes and all four 100% coverage thresholds remain. pnpm remains the package/workspace owner, and package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
+- Run the narrow test while iterating, then the applicable root lifecycle. Local pre-push keeps `verify:core` (static plus unit/contract/operations). Full `verify`/`ci` and GitHub Actions use `verify:core:ci` (static plus `test:e2e-helpers`), with unit/contract/operations owned once by coverage; integration and browser own their separate suites. All four mandatory lanes and all four 100% coverage thresholds remain. pnpm remains the package/workspace owner, and package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
 - Never skip, weaken, snapshot-away, or delete a failing test to obtain green status.
 
 ## UI and accessibility
@@ -153,7 +151,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 
 ## Commits and documentation
 
-- Keep each commit focused on one coherent behavior or documentation change. Include its contract, tests, migrations/generated artifacts, Graphify update, and directly affected docs in that same commit.
+- Keep each commit focused on one coherent behavior or documentation change. Include its contract, tests, migrations/generated artifacts, and directly affected docs in that same commit.
 - Do not mix unrelated cleanup, formatting, dependency upgrades, or architectural changes.
 - Use the repository's conventional commit style with an imperative summary; explain the reason when it is not obvious.
 - Update `ARCHITECTURE.md` for boundary or decision changes, `CONVENTIONS.md` for rules, and `AGENTS.md` for executable agent policy.

@@ -63,43 +63,37 @@ A capability change is a complete vertical change, not a manifest toggle. Before
 5. Add server-only environment schema/example entries and an explicit client allowlist decision.
 6. Add installation, migration, removal, rollback, and secret-rotation instructions.
 7. Add deterministic contract/integration tests and an unavailable/misconfigured test.
-8. Update `capabilities.yaml`, Graphify, relevant architecture/docs, and generated artifacts together.
+8. Update `capabilities.yaml`, relevant architecture/docs, and generated artifacts together.
 9. Run the focused gate and full affected lifecycle; record evidence rather than declaring availability from configuration.
 
 If safe removal would require rewriting the domain, the boundary is wrong or the feature is Core rather than a Capability.
 
 ## Hosted security capabilities
 
-GitHub-hosted security capabilities are separate from application capabilities in `capabilities.yaml` and provider environment variables. The canonical read-only preflight runs locally against the actual push destination and as a scoped step within existing hosted analyzer jobs. It verifies repository visibility and positively probes each requested GitHub feature; configuration alone is not proof of availability. See [security-preflight.txt](security-preflight.txt) for entry points, outputs, and bounded API behavior.
+GitHub-hosted security scans are separate from application capabilities in `capabilities.yaml` and provider environment variables. Each scan workflow guards its job with a plain job-level `if:` expression; there is no separate policy job or generated helper.
 
-Public active CodeQL, Dependency Review, code-scanning ingestion, and free Scorecard analysis cannot opt out. For private repositories, use independent repository Actions variables:
+| Workflow and check names | Public repository | Private repository |
+| --- | --- | --- |
+| CodeQL: `Analyze (actions)`, `Analyze (javascript-typescript)` | Always runs | Runs only when repository variable `DF_CODEQL_ENABLED` is `true` |
+| Dependency Review: `Dependency Review` | Always runs | Runs only when repository variable `DF_DEPENDENCY_REVIEW_ENABLED` is `true` |
+| OpenSSF Scorecard | Runs, publishes results, and uploads SARIF | Skipped |
 
-| Variable | Exact lowercase `true` requests |
-| --- | --- |
-| `DF_CODEQL_ENABLED` | Licensed CodeQL analysis, subject to a positive code-scanning feature probe. |
-| `DF_DEPENDENCY_REVIEW_ENABLED` | Dependency Review, subject to a positive dependency feature probe. |
-| `DF_CODE_SCANNING_UPLOAD_ENABLED` | SARIF ingestion, independently of analysis and subject to a positive code-scanning feature probe. |
+GitHub reports a job skipped by `if:` as successful to required status checks, so check names stay stable whether or not a private repository opts in. A skipped private scan means **not run**, never "analysis passed". An opted-in scan that cannot run, for example CodeQL without GitHub Advanced Security licensing, fails its job. Never change billing, visibility, or a guard to make a scan pass.
 
-False, missing, or empty private selections mean **NOT CONFIGURED / NOT RUN**, not successful scans. Other spellings, including uppercase, fail the relevant check. Requested capabilities that are unavailable, unauthorized, unreachable, or unknown block; a failed API read is not evidence of an unconfigured feature. Public false/unset selections do not disable active checks. Use the helper's explicit authorized outputs for operation-level conditions, not job-level variable guards or Actions' case-insensitive comparison of raw variables.
+### Administrator rollout
 
-Free Scorecard analysis always runs, including on private repositories and after a capability-step failure; keep that failure blocking. Only positively verified public visibility authorizes Scorecard public publication. Private and unknown repositories never public-publish, regardless of upload authorization. Code-scanning ingestion is a separate operation: CodeQL analyzes with `upload: never`, then an authorized upload step ingests SARIF. A disabled upload does not authorize private CodeQL analysis. Artifacts alone are not ingestion.
+1. Identify the exact repository, its visibility, and its default branch. Confirm private CodeQL licensing separately from technical availability.
+2. Keep the required check names: the four `Verification (core/coverage/integration/browser)` contexts, `Analyze (actions)`, `Analyze (javascript-typescript)`, and `Dependency Review`. Do not remove checks or synthesize scan success.
+3. With administrator authorization, set the intended private repository variables and read them back on the exact target.
+4. Record the first run URL, SHA, attempt, and conclusion for each enabled scan. An opted-in scan that has not run on the target remains unverified, not passed.
 
-### Administrator bootstrap and rollout transaction
+Adoption requires exact-head technical review and real current required-check evidence. Independent GitHub approval is required only where effective repository/organization rules require it. Preserve check names/app identities and strict up-to-date checks. Do not grant access or change settings merely to obtain a merge.
 
-1. Identify the exact repository, verified visibility, actual default branch, and explicit push destination; never infer the target from a checkout directory or `origin`. Confirm private CodeQL licensing and permitted use separately from technical availability.
-2. Inventory effective branch protections, repository/organization rulesets, required check names/app IDs, merge queues, deployment event dependencies, and fork approval policy. Unknown or incompatible event obligations stop adoption. Preserve all five `Verification (core/coverage/integration/graph/browser)` contexts and protected CodeQL Actions/JavaScript and Dependency Review checks; do not remove checks or synthesize scan success.
-3. Establish the trusted helper before activating workflows that consume it. If the PR base lacks the canonical helper and its generated Node artifact, first merge a helper-only bootstrap PR under unchanged baseline workflows and protections. Then base the successor-adoption PR on that merged commit. Hosted PR preflight executes the generated Node helper from the exact trusted PR base SHA, never PR-controlled helper code. A missing base helper is a hard failure, not a reason to fall back to the PR copy, weaken checks, or use an administrative bypass.
-4. Record independent capability selections, licensing/configuration evidence, owner, and date. With administrator authorization, configure intended private repository variables and read them back on the exact target. Unconfigured private licensed capabilities may remain explicitly **NOT CONFIGURED / NOT RUN**; they must not be relabeled authorized, unsupported, or passed. No subscription purchase, trial activation, settings mutation, or privilege escalation is part of preflight.
-5. Run destination-scoped local preflight and retain each capability's actual result. Enabled capabilities require successful bounded read-only probes; authentication, permission, 404, network, malformed-response, and unknown-metadata failures block. Do not turn discovery failures into optional skips. Hosted jobs repeat only their relevant scoped probes using the workflow token and explicit variable environment.
-6. Adopt successor workflows only after the bootstrap merge, without changing the five-lane CI event/protection contract. Record exact run URL, SHA, attempt, analysis conclusions, ingestion outcome, and any not-run coverage gaps. An unexercised licensed private path remains unverified, not passed.
+Pre-push binds Git's actual destination and every non-deletion pushed ref to current HEAD and checks clean source before validation. It requires executing and PATH-resolved Bun to match the exact `.bun-version` pin. Only immutable `verify:core` then runs: static checks plus unit, contract, and operations tests. Runtime, core, or final clean-source/unchanged-HEAD failures block the push. Full `verify`/`ci` and hosted CI run four lanes, using `verify:core:ci` for static checks and scoped E2E helpers, coverage for unit/contract/operations once with unchanged 100% thresholds, plus integration and browser. Environment-heavy prerequisites belong to explicit full verification and hosted CI, not every pre-push.
 
-Every adoption requires documented exact-head technical review of the complete helper/generator/generated-artifact trust boundary and hosted consumers, resolved findings, and real current required-check evidence. Independent GitHub approval is required only where effective repository/organization rules require it, and must qualify for the final head. Unknown or incompatible rules block acceptance; local agent review, earlier-head approval, admin bypass, and a successful merge response cannot replace required approval. Preserve check names/app identities and strict up-to-date checks. Do not grant access or change settings merely to obtain a merge. Successor publication remains held until the public follow-up is accepted.
+Preserve analyzer matrices/categories, high-severity Dependency Review, timeouts, least privilege, and SHA-pinned actions. CodeQL uploads SARIF through its standard `analyze` step and Scorecard through `upload-sarif`; no `continue-on-error`, unconditional success wrappers, or suppressed upload failures.
 
-Pre-push binds Git's actual destination and every non-deletion pushed ref to current HEAD and checks clean source before validation. It requires executing and PATH-resolved Bun to match the exact `.bun-version` pin before destination-scoped security preflight. After preflight passes, only immutable `verify:core` runs: static checks plus unit, contract, and operations tests. Runtime, preflight, core, or final clean-source/unchanged-HEAD failures block the push. Full `verify`/`ci` and hosted CI retain all five lanes, using `verify:core:ci` for static checks and scoped E2E helpers, coverage for unit/contract/operations once with unchanged 100% thresholds, plus integration, fresh graph verification, and browser. Environment-heavy prerequisites belong to explicit full verification and hosted CI, not every pre-push.
-
-Preserve analyzer matrices/categories, high-severity Dependency Review, timeouts, least privilege, and compatible immutable action pins. Retain generated CodeQL and Scorecard SARIF artifacts for exactly seven days; artifact upload failures block. Every authorized ingestion must succeed; no `continue-on-error`, unconditional success wrappers, or suppressed upload failures.
-
-Reassess visibility/default-branch, licensing, feature configuration, permissions, ruleset, action-version, and variable changes. Rollback must preserve the trusted-helper dependency and required checks, never bypass protections. Local evidence cannot guarantee future hosted service availability or upload permissions. See [Security](security.md) for coverage limits and complementary controls.
+Reassess visibility, licensing, permissions, rulesets, action versions, and variable changes. Rollback must preserve required checks and never bypass protections. See [Security](security.md) for coverage limits and complementary controls.
 
 ## Web deployment
 
@@ -121,7 +115,7 @@ bun run deploy:web
 
 The repository's current GitHub Actions workflow verifies code and uploads Playwright failure artifacts; it does not contain an automatic deployment job. Therefore this repository does not claim that preview or production deployment has occurred. Deployment evidence remains pending until an operator records the target, SHA, command/run URL, output, runtime probe, and rollback result in [the evidence map](evidence-map.md).
 
-Heavy CI runs only for PRs and explicit manual dispatch, so a merge to `main` does not automatically produce a new verification run. Merge acceptance uses successful latest reviewed PR checks plus exact merged-tree identity; that receipt does not satisfy deployment's exact-SHA requirement. Before any actual staging, preview, or production deployment, dispatch the full `ci.yml` workflow on a branch or tag resolving to the intended deployment SHA. Verify the observed run's `head_sha` equals that SHA and all five lanes succeed; a dispatch request alone is not evidence. Keep applicable default-branch security scans and their results separate.
+Heavy CI runs only for PRs and explicit manual dispatch, so a merge to `main` does not automatically produce a new verification run. Merge acceptance uses successful latest reviewed PR checks plus exact merged-tree identity; that receipt does not satisfy deployment's exact-SHA requirement. Before any actual staging, preview, or production deployment, dispatch the full `ci.yml` workflow on a branch or tag resolving to the intended deployment SHA. Verify the observed run's `head_sha` equals that SHA and all four lanes succeed; a dispatch request alone is not evidence. Keep applicable default-branch security scans and their results separate.
 
 This exact-SHA prerequisite is an operator acceptance policy, not an automated enforcement gate in the current deployment CLI. The CLI's production database checks do not query GitHub or authorize deployment. An unexpected direct-main change also needs explicit manual full validation at its exact SHA before acceptance; do not infer success from the absence of an automatic run.
 
@@ -147,7 +141,7 @@ The full source record and consequences are in [ADR 0001](adr/0001-vinext-alchem
 Do not mark a deployment complete until all applicable fields are observed:
 
 - Exact source SHA and clean generated-artifact checks.
-- Explicit manual full-CI run URL and attempt, observed `head_sha` equal to the deployment SHA, and successful conclusions for all five lanes.
+- Explicit manual full-CI run URL and attempt, observed `head_sha` equal to the deployment SHA, and successful conclusions for all four lanes.
 - Authorized operator and approved Cloudflare account/environment.
 - Deployer and exact version.
 - Redacted command/run record and target identifier.

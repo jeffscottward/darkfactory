@@ -53,7 +53,6 @@ bun run typecheck
 bun run test:unit
 bun run test:contract
 bun run test:integration
-bun run verify:graph
 ```
 
 Commands that need environment values should run through Varlock, for example:
