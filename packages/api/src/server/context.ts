@@ -46,9 +46,18 @@ export type ApiContextDependencies = Readonly<{
 }>;
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+// Cloudflare ray ids: 16 lowercase hex digits, optionally suffixed with the colo code.
+const CF_RAY_PATTERN = /^[0-9a-f]{16}(?:-[A-Z]{3})?$/;
 
+/**
+ * Correlation id for one request, shared by evlog, the OTel span and audit rows.
+ * Order: injected id, then a valid incoming `x-request-id` (in-process dispatch
+ * copies the parent's, see apps/web/src/lib/server-internal-dispatch.ts),
+ * then a pattern-checked `cf-ray`, then a fresh UUID. Header values are
+ * correlation hints only, never authority, so an invalid one is ignored.
+ */
 export const resolveApiRequestId = (
-  _request: Request,
+  request: Readonly<{ headers: Pick<Headers, "get"> }>,
   options: ApiRequestIdOptions = {}
 ): string => {
   if (options.requestId !== undefined) {
@@ -59,6 +68,11 @@ export const resolveApiRequestId = (
     }
     return options.requestId;
   }
+
+  const incoming = request.headers.get("x-request-id");
+  if (incoming !== null && REQUEST_ID_PATTERN.test(incoming)) return incoming;
+  const ray = request.headers.get("cf-ray");
+  if (ray !== null && CF_RAY_PATTERN.test(ray)) return ray;
 
   const generated = options.generateRequestId?.() ?? crypto.randomUUID();
   if (!REQUEST_ID_PATTERN.test(generated)) {
