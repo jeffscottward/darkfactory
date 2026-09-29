@@ -131,7 +131,7 @@ export const createCanonicalWebServerConfig = ({
   }
   return {
     command:
-      "node --experimental-strip-types --import ./tests/e2e/helpers/register-civet-loader.mjs ./tests/e2e/helpers/web-server.ts",
+      "node --experimental-strip-types ./tests/e2e/helpers/web-server.ts",
     env: {
       APP_ENV: "test",
       DATABASE_URL: databaseUrl,

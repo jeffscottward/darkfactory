@@ -11,23 +11,19 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./postgres": {
-      "types": "./src/postgres.civet.d.ts",
       "import": "./src/postgres.ts",
       "default": "./src/postgres.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.ts src/postgres.ts",
-    "typecheck": "bunx --bun --no-install civet --typecheck src/index.ts src/postgres.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/pg": "catalog:",
     "pg": "catalog:"
   }

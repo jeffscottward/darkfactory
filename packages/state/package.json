@@ -11,29 +11,24 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./client": {
-      "types": "./src/client.civet.d.ts",
       "import": "./src/client.ts",
       "default": "./src/client.ts"
     },
     "./flow": {
-      "types": "./src/setup-flow.civet.d.ts",
       "import": "./src/setup-flow.ts",
       "default": "./src/setup-flow.ts"
     },
     "./workflow": {
-      "types": "./src/workflow/index.civet.d.ts",
       "import": "./src/workflow/index.ts",
       "default": "./src/workflow/index.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/client.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/setup-flow.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/workflow/index.ts src/workflow/types.ts src/workflow/canonical.ts src/workflow/guards.ts src/workflow/grants.ts src/workflow/approval.ts src/workflow/machine.ts src/workflow/projection.ts && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.ts",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/**/*.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -43,7 +38,6 @@
     "zustand": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "vitest": "catalog:"
   }
 }

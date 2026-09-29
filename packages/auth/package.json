@@ -13,7 +13,6 @@
   ],
   "exports": {
     "./server": {
-      "types": "./src/server.civet.d.ts",
       "workerd": "./src/server.ts",
       "worker": "./src/server.ts",
       "browser": "./src/server/unsupported.js",
@@ -21,7 +20,6 @@
       "default": "./src/server.ts"
     },
     "./db": {
-      "types": "./src/db.civet.d.ts",
       "workerd": "./src/db.ts",
       "worker": "./src/db.ts",
       "browser": "./src/server/unsupported.js",
@@ -29,12 +27,10 @@
       "default": "./src/db.ts"
     },
     "./client": {
-      "types": "./src/client.civet.d.ts",
       "import": "./src/client.ts",
       "default": "./src/client.ts"
     },
     "./types": {
-      "types": "./src/types.civet.d.ts",
       "import": "./src/types.ts",
       "default": "./src/types.ts"
     }
@@ -42,8 +38,7 @@
   "scripts": {
     "auth:schema:generate": "bun scripts/check-auth-schema.ts --write",
     "auth:schema:check": "bun scripts/check-auth-schema.ts",
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/types.ts src/server.ts src/rate-limit-storage.ts src/client.ts src/db.ts",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.ts src/db.test.ts src/server-bundle.test.ts src/verification-config.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -58,7 +53,6 @@
     "drizzle-orm": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "auth": "catalog:",
     "vite": "catalog:",

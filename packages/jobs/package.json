@@ -13,12 +13,10 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./server/inline": {
-      "types": "./src/server/inline.civet.d.ts",
       "workerd": "./src/server/inline.ts",
       "worker": "./src/server/inline.ts",
       "browser": "./src/server/unsupported.ts",
@@ -26,7 +24,6 @@
       "default": "./src/server/inline.ts"
     },
     "./server/omp": {
-      "types": "./src/server/omp.civet.d.ts",
       "workerd": "./src/server/unsupported.ts",
       "worker": "./src/server/unsupported.ts",
       "browser": "./src/server/unsupported.ts",
@@ -34,7 +31,6 @@
       "default": "./src/server/omp.ts"
     },
     "./server/wayfinder": {
-      "types": "./src/server/wayfinder.civet.d.ts",
       "workerd": "./src/server/unsupported.ts",
       "worker": "./src/server/unsupported.ts",
       "browser": "./src/server/unsupported.ts",
@@ -42,7 +38,6 @@
       "default": "./src/server/wayfinder.ts"
     },
     "./server/workflow-worker": {
-      "types": "./src/server/workflow-worker.civet.d.ts",
       "workerd": "./src/server/unsupported.ts",
       "worker": "./src/server/unsupported.ts",
       "browser": "./src/server/unsupported.ts",
@@ -50,7 +45,6 @@
       "default": "./src/server/workflow-worker.ts"
     },
     "./server/workflow-runtime": {
-      "types": "./src/server/workflow-runtime.civet.d.ts",
       "workerd": "./src/server/workflow-runtime.ts",
       "worker": "./src/server/workflow-runtime.ts",
       "browser": "./src/server/unsupported.ts",
@@ -58,7 +52,6 @@
       "default": "./src/server/workflow-runtime.ts"
     },
     "./server/plan-evidence": {
-      "types": "./src/server/plan-evidence.civet.d.ts",
       "workerd": "./src/server/plan-evidence.ts",
       "worker": "./src/server/plan-evidence.ts",
       "browser": "./src/server/unsupported.ts",
@@ -66,7 +59,6 @@
       "default": "./src/server/plan-evidence.ts"
     },
     "./server/pilot-worker": {
-      "types": "./src/server/pilot-worker.civet.d.ts",
       "workerd": "./src/server/unsupported.ts",
       "worker": "./src/server/unsupported.ts",
       "browser": "./src/server/unsupported.ts",
@@ -74,24 +66,21 @@
       "default": "./src/server/pilot-worker.ts"
     },
     "./test": {
-      "types": "./src/test.civet.d.ts",
       "import": "./src/test.ts",
       "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/inline.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/omp.ts src/server/wayfinder.ts src/server/plan-evidence.ts src/server/workflow-worker.ts src/server/workflow-runtime.ts src/server/pilot-worker.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.ts",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "worker:pilot": "bun --preload @danielx/civet/bun-civet src/server/pilot-worker-cli.ts"
+    "worker:pilot": "bun src/server/pilot-worker-cli.ts"
   },
   "dependencies": {
     "@darkfactory/db": "workspace:*",
     "@darkfactory/state": "workspace:*"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

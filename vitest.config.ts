@@ -1,21 +1,5 @@
 import { fileURLToPath } from "node:url";
-import civet from "@danielx/civet/vite";
 import { defineConfig } from "vitest/config";
-import { transformWithEsbuild, type Plugin } from "vite";
-
-const transformCivetTypescript: Plugin = {
-  name: "darkfactory:civet-typescript",
-  enforce: "pre",
-  transform(code, id) {
-    if (!id.endsWith(".civet")) {
-      return null;
-    }
-    return transformWithEsbuild(code, `${id}.tsx`, {
-      loader: "tsx",
-      sourcemap: true,
-    });
-  },
-};
 
 export default defineConfig({
   resolve: {
@@ -25,7 +9,6 @@ export default defineConfig({
       ),
     },
   },
-  plugins: [civet({ ts: "preserve" }), transformCivetTypescript],
   test: {
     environment: "node",
     coverage: {
@@ -39,12 +22,12 @@ export default defineConfig({
         statements: 100,
       },
       include: [
-        "apps/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-        "packages/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-        "scripts/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "apps/*/src/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "packages/*/src/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "scripts/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
       ],
       exclude: [
-        "**/*.{test,spec}.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/*.d.ts",
         "**/generated/**",
         "apps/web/src/features/generated-navigation.ts",
@@ -56,8 +39,6 @@ export default defineConfig({
         test: {
           name: "unit",
           include: [
-            "**/*.test.{ts,tsx}",
-            "**/*.spec.civet",
             "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
           ],
           exclude: [
@@ -105,7 +86,6 @@ export default defineConfig({
         test: {
           name: "e2e-helpers",
           include: [
-            "tests/e2e/helpers/*.test.ts",
             "tests/e2e/helpers/*.test.ts",
           ],
           exclude: [

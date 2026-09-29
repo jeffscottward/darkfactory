@@ -15,7 +15,7 @@
     "dev": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js dev",
     "build": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js build",
     "start": "vite preview",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -35,7 +35,6 @@
     "vinext": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/react": "^16.3.0",
     "@types/node": "catalog:",

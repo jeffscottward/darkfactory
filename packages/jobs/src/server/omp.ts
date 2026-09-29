@@ -34,10 +34,10 @@ export const MAX_OMP_REDACTIONS = 64
 export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1_024
 export const OMP_VERIFIER_COMMAND_IDENTITY = "darkfactory-verify-core-v2"
 export const OMP_VERIFIER_CONFIG_DIGEST =
-  "0d82eb5aae3f1d3afe3eefedcc5a18cb505ba38df6a28fa88bd13683e89cffe4"
+  "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d"
 export const OMP_VERIFIER_ARGUMENTS = Object.freeze([
   "/usr/local/bin/bun",
-  "/opt/darkfactory-verifier/runner.civet",
+  "/opt/darkfactory-verifier/runner.ts",
   "--config",
   "/opt/darkfactory-verifier/checks.json",
   "--workspace",
@@ -46,7 +46,7 @@ export const OMP_VERIFIER_ARGUMENTS = Object.freeze([
   "/output/result.json",
 ] as const)
 export const OMP_VERIFIER_ARGV_IDENTITY =
-  "820a94e0d75c014b2fb1ff363a7c75256998bf60d944ef90fe0f0b28aa53422c"
+  "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff"
 export const OMP_VERIFIER_MEMORY = "2g"
 export const OMP_VERIFIER_MEMORY_SWAP = "2g"
 export const OMP_VERIFIER_CPUS = "2"

@@ -13,22 +13,18 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./contract": {
-      "types": "./src/contract.civet.d.ts",
       "import": "./src/contract.ts",
       "default": "./src/contract.ts"
     },
     "./client": {
-      "types": "./src/client.civet.d.ts",
       "import": "./src/client.ts",
       "default": "./src/client.ts"
     },
     "./server": {
-      "types": "./src/server/index.civet.d.ts",
       "workerd": "./src/server/unsupported.ts",
       "worker": "./src/server/unsupported.ts",
       "browser": "./src/server/unsupported.ts",
@@ -37,8 +33,7 @@
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts src/contract.ts src/client.ts src/server/index.ts src/server/context.ts src/server/handler.ts src/server/router.ts src/server/operator-service.ts src/server/workflow-runtime.ts src/server/wayfinder-service.ts && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.ts",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -57,7 +52,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

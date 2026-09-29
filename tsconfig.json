@@ -7,11 +7,11 @@
     "types": ["node"]
   },
   "exclude": [
-    "**/*.civet.d.ts",
     "**/coverage/**",
     "**/dist/**",
     "**/node_modules/**",
     "**/playwright-report/**",
     "**/test-results/**"
-  ]
+  ],
+  "include": ["*.ts", "*.mts"]
 }

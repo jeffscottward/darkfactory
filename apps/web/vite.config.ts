@@ -1,6 +1,5 @@
 import { isIP } from "node:net";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import civetVitePlugin from "@danielx/civet/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 import vinext from "vinext";
@@ -153,16 +152,10 @@ export default defineConfig({
     strictPort: true,
   },
   plugins: [
-    civetVitePlugin({
-      ts: "esbuild",
-      // Vite transforms (development and production) only: Civet's TS service
-      // misreports /Users vs /users as TS1149. The package script remains strict.
-      typecheck: false,
-    }),
     tailwindcss(),
     vinext({
       nextConfig: {
-        pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
+        pageExtensions: ["tsx", "ts", "jsx", "js"],
       },
     }),
     ...(isOwnedE2EPreview ? [e2ePreviewDiagnostics()] : []),

@@ -13,12 +13,10 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./server": {
-      "types": "./src/server/index.civet.d.ts",
       "workerd": "./src/server/index.ts",
       "worker": "./src/server/index.ts",
       "browser": "./src/server/unsupported.ts",
@@ -27,12 +25,11 @@
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts src/contract.ts src/client.ts src/openapi.ts src/contracts/account.ts src/contracts/admin-users.ts src/contracts/contact.ts src/contracts/dashboard.ts src/generated/contract-registry.ts src/generated/public-registry.ts src/generated/router-registry.ts src/server/index.ts src/server/context.ts src/server/handler.ts src/server/router.ts src/server/service.ts src/server/account-service.ts src/server/admin-users-service.ts src/server/contact-service.ts src/server/dashboard-service.ts && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.ts",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "openapi:generate": "bun --preload @danielx/civet/bun-civet scripts/openapi.ts --write",
-    "openapi:check": "bun --preload @danielx/civet/bun-civet scripts/openapi.ts"
+    "openapi:generate": "bun scripts/openapi.ts --write",
+    "openapi:check": "bun scripts/openapi.ts"
   },
   "engines": {
     "node": ">=22.13"
@@ -49,7 +46,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

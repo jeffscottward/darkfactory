@@ -11,19 +11,16 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.ts",
-    "typecheck": "bunx --bun --no-install civet --typecheck src/index.ts src/index.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@darkfactory/testkit": "workspace:*",
     "vitest": "catalog:"
   }

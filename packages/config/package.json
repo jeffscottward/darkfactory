@@ -15,12 +15,10 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/client.civet.d.ts",
       "import": "./src/client.ts",
       "default": "./src/client.ts"
     },
     "./server": {
-      "types": "./src/server.civet.d.ts",
       "workerd": "./src/server.ts",
       "worker": "./src/server.ts",
       "browser": "./src/server/unsupported.js",
@@ -28,7 +26,6 @@
       "default": "./src/server.ts"
     },
     "./server/capabilities": {
-      "types": "./src/server/capabilities.civet.d.ts",
       "workerd": "./src/server/capabilities.ts",
       "worker": "./src/server/capabilities.ts",
       "browser": "./src/server/capabilities-unsupported.js",
@@ -36,7 +33,6 @@
       "default": "./src/server/capabilities.ts"
     },
     "./database": {
-      "types": "./src/database.civet.d.ts",
       "workerd": "./src/database.ts",
       "worker": "./src/database.ts",
       "browser": "./src/database/unsupported.js",
@@ -45,10 +41,9 @@
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/client.ts src/server.ts src/database.ts src/capabilities.ts src/server/capabilities.ts src/server/capabilities-loader.ts src/server/capability-readiness.ts",
-    "typecheck": "bunx --bun --no-install civet --typecheck src/client.ts src/server.ts src/database.ts src/capabilities.ts src/server/capabilities.ts src/server/capabilities-loader.ts src/server/capability-readiness.ts src/*.test.ts",
-    "test": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts",
-    "test:unit": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {
     "node": ">=22.13"
@@ -58,7 +53,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "vitest": "catalog:"
   }
 }

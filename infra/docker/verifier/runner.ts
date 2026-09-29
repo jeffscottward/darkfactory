@@ -8,13 +8,12 @@ const EXECUTION_WORKSPACE = "/output/workspace"
 const RESULT_PATH = "/output/result.json"
 const CHECK_IDENTITY = "darkfactory-verifier-checks-v1"
 const CONFIG_DIGEST =
-  "0d82eb5aae3f1d3afe3eefedcc5a18cb505ba38df6a28fa88bd13683e89cffe4"
+  "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d"
 const ARGV_DIGEST =
-  "820a94e0d75c014b2fb1ff363a7c75256998bf60d944ef90fe0f0b28aa53422c"
+  "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff"
 const EXECUTABLES = Object.freeze({
   biome: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/biome",
   bun: "/usr/local/bin/bun",
-  civet: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/civet",
   "markdownlint-cli2": "/opt/darkfactory-verifier/dependencies/node_modules/.bin/markdownlint-cli2",
   tsc: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/tsc",
   vinext: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/vinext",
@@ -39,7 +38,7 @@ const fail = (message: string): never => {
 
 const exactArguments = Object.freeze([
   "/usr/local/bin/bun",
-  "/opt/darkfactory-verifier/runner.civet",
+  "/opt/darkfactory-verifier/runner.ts",
   "--config",
   CONFIG_PATH,
   "--workspace",

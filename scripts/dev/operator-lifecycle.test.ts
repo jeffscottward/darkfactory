@@ -560,22 +560,22 @@ describe("operator development lifecycle", () => {
       "bunx --no-install turbo run dev --filter=@darkfactory/web",
     )
     expect(rootPackage.scripts["dev:https"]).toBe(
-      "bun --preload @danielx/civet/bun-civet scripts/dev.ts start",
+      "bun scripts/dev.ts start",
     )
     expect(rootPackage.scripts["operator:dev"]).toBe(
-      "bun run operator:bindings && bun --preload @danielx/civet/bun-civet scripts/dev.ts operator start",
+      "bun run operator:bindings && bun scripts/dev.ts operator start",
     )
     expect(rootPackage.scripts["operator:status"]).toBe(
-      "bun --preload @danielx/civet/bun-civet scripts/dev.ts operator status",
+      "bun scripts/dev.ts operator status",
     )
     expect(rootPackage.scripts["operator:logs"]).toBe(
-      "bun --preload @danielx/civet/bun-civet scripts/dev.ts operator logs",
+      "bun scripts/dev.ts operator logs",
     )
     expect(rootPackage.scripts["operator:stop"]).toBe(
-      "bun --preload @danielx/civet/bun-civet scripts/dev.ts operator stop",
+      "bun scripts/dev.ts operator stop",
     )
     expect(rootPackage.scripts["operator:bindings"]).toBe(
-      "bun --preload @danielx/civet/bun-civet scripts/dev-bindings.ts operator",
+      "bun scripts/dev-bindings.ts operator",
     )
     return expect(rootPackage.scripts["deploy:web"]).toBe(
       "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",

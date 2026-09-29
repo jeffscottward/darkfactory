@@ -13,12 +13,10 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./server/groq": {
-      "types": "./src/server/groq.civet.d.ts",
       "workerd": "./src/server/groq.ts",
       "worker": "./src/server/groq.ts",
       "browser": "./src/server/unsupported.ts",
@@ -26,14 +24,12 @@
       "default": "./src/server/groq.ts"
     },
     "./test": {
-      "types": "./src/test.civet.d.ts",
       "import": "./src/test.ts",
       "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.ts && bunx --bun --no-install civet --emit-declaration src/server/groq.ts && bunx --bun --no-install civet --emit-declaration src/test.ts",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -41,7 +37,6 @@
     "groq-sdk": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

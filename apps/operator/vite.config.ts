@@ -1,4 +1,3 @@
-import civetVitePlugin from "@danielx/civet/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import vinext from "vinext";
@@ -34,14 +33,10 @@ export default defineConfig({
     strictPort: true,
   },
   plugins: [
-    civetVitePlugin({
-      ts: "esbuild",
-      typecheck: false,
-    }),
     tailwindcss(),
     vinext({
       nextConfig: {
-        pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
+        pageExtensions: ["tsx", "ts", "jsx", "js"],
       },
     }),
   ],

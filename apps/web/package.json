@@ -15,7 +15,7 @@
     "dev": "bunx --no-install vinext dev",
     "build": "bunx --no-install vinext build",
     "start": "vite preview",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -42,7 +42,6 @@
     "@cloudflare/vite-plugin": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-devtools": "catalog:",
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

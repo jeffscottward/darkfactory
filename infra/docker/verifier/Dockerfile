@@ -35,4 +35,4 @@ RUN chmod 0555 ./runner.ts \
 
 USER 65532:65532
 ENTRYPOINT []
-CMD ["/usr/local/bin/bun","/opt/darkfactory-verifier/runner.civet","--config","/opt/darkfactory-verifier/checks.json","--workspace","/workspace","--output","/output/result.json"]
+CMD ["/usr/local/bin/bun","/opt/darkfactory-verifier/runner.ts","--config","/opt/darkfactory-verifier/checks.json","--workspace","/workspace","--output","/output/result.json"]
