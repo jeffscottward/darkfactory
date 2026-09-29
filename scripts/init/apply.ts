@@ -142,45 +142,75 @@ const git = async (
   return result.stdout.trim();
 };
 
-const TEMPLATE_REFS = [
-  "for-each-ref",
-  "--format=%(refname)",
-  `--contains=${TEMPLATE_ROOT_COMMIT}`,
-] as const;
-
 type FreshHistory = Readonly<{
-  /** HEAD's branch, e.g. refs/heads/main. */
+  /** Gets the new root commit: HEAD's branch, or main for a detached HEAD. */
   branch: string;
-  /** Remote-tracking refs and tags that reach the template's commits. */
+  /** `for-each-ref` filters that together match every ref to the old history. */
+  filters: readonly string[];
+  /** Every ref but `branch` that reaches the old history; all are deleted. */
   refs: readonly string[];
 }>;
 
 type History = Readonly<{
-  /** HEAD still reaches the template's root commit. */
+  /**
+   * HEAD may carry the template's commits: the template's root commit is
+   * present, or the checkout is shallow and may have cut it off.
+   */
   template: boolean;
   /** Set with --fresh-history: what replaceHistory drops. */
   fresh: FreshHistory | undefined;
 }>;
 
+/** Refs matched by any of the `for-each-ref` filters, without duplicates. */
+const refsMatching = async (
+  dependencies: InitDependencies,
+  filters: readonly string[]
+): Promise<readonly string[]> => {
+  const refs = new Set<string>();
+  for (const filter of filters) {
+    const listing = await git(dependencies, [
+      "for-each-ref",
+      "--format=%(refname)",
+      filter,
+    ]);
+    for (const ref of listing.split("\n")) if (ref !== "") refs.add(ref);
+  }
+  return [...refs];
+};
+
 /**
  * Checks, before anything is written, that --fresh-history can drop every
- * ref to the template's commits without losing local work.
+ * ref to the old history without losing local work.
  */
 const prepareFreshHistory = async (
-  dependencies: InitDependencies
+  dependencies: InitDependencies,
+  rooted: boolean
 ): Promise<FreshHistory> => {
-  const branch = await git(dependencies, ["symbolic-ref", "--quiet", "HEAD"]);
+  const head = await git(dependencies, ["rev-parse", "--verify", "HEAD"]);
+  const symbolic = await dependencies.capture("git", [
+    "symbolic-ref",
+    "--quiet",
+    "HEAD",
+  ]);
+  const branch =
+    symbolic.exitCode === 0 ? symbolic.stdout.trim() : "refs/heads/main";
   await git(dependencies, ["var", "GIT_AUTHOR_IDENT"]);
-  const refs = (await git(dependencies, TEMPLATE_REFS))
-    .split("\n")
-    .filter((ref) => ref !== "" && ref !== branch);
+  // Refs above and below HEAD, and (when present) beside it via the root.
+  const filters = [
+    `--contains=${head}`,
+    `--merged=${head}`,
+    ...(rooted ? [`--contains=${TEMPLATE_ROOT_COMMIT}`] : []),
+  ];
+  const refs = (await refsMatching(dependencies, filters)).filter(
+    (ref) => ref !== branch
+  );
   const local = refs.filter((ref) => !/^refs\/(?:remotes|tags)\//u.test(ref));
   if (local.length > 0) {
     throw new Error(
       `These refs also carry the template history; delete them first: ${local.join(", ")}`
     );
   }
-  return { branch, refs };
+  return { branch, filters, refs };
 };
 
 /** Throws, before anything is written, when --fresh-history cannot run. */
@@ -194,17 +224,23 @@ const inspectHistory = async (
     "--max-parents=0",
     "HEAD",
   ]);
-  const template = roots.stdout.split("\n").includes(TEMPLATE_ROOT_COMMIT);
+  const rooted = roots.stdout.split("\n").includes(TEMPLATE_ROOT_COMMIT);
+  const shallow = await dependencies.capture("git", [
+    "rev-parse",
+    "--is-shallow-repository",
+  ]);
+  const template = rooted || shallow.stdout.trim() === "true";
   if (!freshHistory) return { template, fresh: undefined };
   if (!template) {
     throw new Error("this checkout has no template history to replace.");
   }
-  return { template, fresh: await prepareFreshHistory(dependencies) };
+  return { template, fresh: await prepareFreshHistory(dependencies, rooted) };
 };
 
 /**
- * Commits the staged tree as a new root commit on HEAD's branch, then drops
- * the remotes and tags that still reach the template's commits.
+ * Commits the staged tree as a new root commit on the branch, removes every
+ * remote (the template; `gh repo create` adds the new origin) and deletes the
+ * other refs to the old history, then proves none is left.
  */
 const replaceHistory = async (
   identity: InitIdentity,
@@ -219,25 +255,25 @@ const replaceHistory = async (
     `chore: initialize ${identity.name}`,
   ]);
   await git(dependencies, ["update-ref", fresh.branch, commit]);
+  await git(dependencies, ["symbolic-ref", "HEAD", fresh.branch]);
   const remotes = (await git(dependencies, ["remote"]))
     .split("\n")
-    .filter((remote) =>
-      fresh.refs.some((ref) => ref.startsWith(`refs/remotes/${remote}/`))
-    );
+    .filter((remote) => remote !== "");
   for (const remote of remotes) {
     await git(dependencies, ["remote", "remove", remote]);
   }
+  // Refs of a removed remote are already gone; deleting a missing ref is a no-op.
   for (const ref of fresh.refs) {
-    if (!remotes.some((remote) => ref.startsWith(`refs/remotes/${remote}/`))) {
-      await git(dependencies, ["update-ref", "-d", ref]);
-    }
+    await git(dependencies, ["update-ref", "-d", ref]);
   }
-  const left = await git(dependencies, TEMPLATE_REFS);
-  if (left !== "") {
-    throw new Error(`Template history is still reachable from: ${left}`);
+  const left = await refsMatching(dependencies, fresh.filters);
+  if (left.length > 0) {
+    throw new Error(
+      `The old history is still reachable from: ${left.join(", ")}`
+    );
   }
   dependencies.log(
-    `Replaced the template history with root commit ${commit.slice(0, 12)}; removed ${remotes.length} remote(s) and ${fresh.refs.length} ref(s) to it.`
+    `Replaced the template history with root commit ${commit.slice(0, 12)} on ${fresh.branch.replace("refs/heads/", "")}; removed ${remotes.length} remote(s) and ${fresh.refs.length} other ref(s).`
   );
 };
 
@@ -282,7 +318,7 @@ const nextSteps = (
   else if (history.template) {
     publishing = [
       commit,
-      `Do not push this checkout: it still carries the template's Git history. To publish, create the repository with \`gh repo create ${identity.repo} --template ${TEMPLATE_REPOSITORY} --private --clone\` and run init there, or run init with --fresh-history in a fresh clone.`,
+      `Do not push this checkout: its Git history comes from the template (a shallow clone counts). To publish, create the repository with \`gh repo create ${identity.repo} --template ${TEMPLATE_REPOSITORY} --private --clone\` and run init there, or run init with --fresh-history in a fresh clone.`,
     ];
   }
   const steps = [
