@@ -1,5 +1,6 @@
 {
   "name": "@darkfactory/root",
+  "brick": "workspace",
   "version": "0.2.1",
   "private": true,
   "description": "A modular, Postgres-first, AI-native application foundation.",
