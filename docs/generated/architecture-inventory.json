@@ -77,7 +77,6 @@
     "verify:core",
     "verify:core:ci",
     "verify:coverage",
-    "verify:graph",
     "verify:integration",
     "verify:static"
   ],
