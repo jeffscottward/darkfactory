@@ -7,6 +7,7 @@
 | Unit | `**/*.test.ts(x)` next to the code, `tests/generator/` | Vitest project `unit` | nothing |
 | Contract | `**/*contract.test.ts` | Vitest project `contract` | nothing |
 | Operations | `scripts/**/*.test.ts` | Vitest project `operations` | nothing |
+| Acceptance | `scripts/**/*.acceptance.test.ts` (clone, init, install) | Vitest project `acceptance`, CI coverage lane only | a pnpm store or network |
 | E2E helpers | `tests/e2e/helpers/*.test.ts` | Vitest project `e2e-helpers` | nothing |
 | Integration | `tests/integration/**/*.test.ts` | Vitest project `integration` | Postgres |
 | E2E | `tests/e2e/*.spec.ts` | Playwright project `e2e` | Postgres, build |
@@ -20,10 +21,11 @@ Pick the lowest layer that proves the behavior. A rule in a service is a unit te
 bun run test                 # every layer
 bun run test:unit
 bun run test:contract
+bun run test:acceptance      # clone + init + install; CI runs it in the coverage lane
 bun run test:integration     # needs the local test Postgres (below)
 bun run test:e2e             # playwright test --project e2e
 bun run test:a11y            # playwright test --project a11y
-bun run verify:coverage      # unit + contract + operations + E2E helpers, 100% gate
+bun run verify:coverage      # unit + contract + operations + E2E helpers + acceptance, 100% gate
 pnpm exec vitest run packages/api/src/contact.contract.test.ts
 bun scripts/with-test-env.ts pnpm exec playwright test --ui
 ```
@@ -77,7 +79,7 @@ The browser lane (`bun run verify:browser`) needs the same two variables.
 | integration | `verify:integration` | repositories, migrations, auth and API against real Postgres |
 | browser | `verify:browser` | production build, Playwright `e2e` and `a11y` |
 
-`bun run verify` runs all four locally. `bun run verify:prepush` runs the fast subset on every push. Playwright reports and traces are uploaded only when the browser lane fails.
+`bun run verify` runs all four locally. `bun run verify:prepush` runs the fast subset on every push: everything except the tests that need Postgres, a build, or a fresh install (integration, browser, acceptance). Playwright reports and traces are uploaded only when the browser lane fails.
 
 ## Writing good tests
 
