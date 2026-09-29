@@ -18,7 +18,6 @@ const clientBoundarySource = [
 const runRscScanBuild = () => {
   const script = `
     const { build } = await import("vite")
-    const { default: civet } = await import("@danielx/civet/vite")
     const { default: rsc } = await import("@vitejs/plugin-rsc")
 
     const rscPlugins = rsc().flat()
@@ -36,7 +35,7 @@ const runRscScanBuild = () => {
       transform: {
         ...scanStrip.transform,
         async handler(code, id, options) {
-          if (id.includes("/packages/ui/src/client/") && id.endsWith(".civet")) {
+          if (id.includes("/packages/ui/src/client/") && (id.endsWith(".ts") || id.endsWith(".tsx"))) {
             scannedClientFiles.add(id.split("/").at(-1))
           }
           return originalHandler.call(this, code, id, options)
@@ -51,7 +50,6 @@ const runRscScanBuild = () => {
       logLevel: "silent",
       root: ${JSON.stringify(workspaceRoot)},
       plugins: [
-        civet({ ts: "esbuild", typecheck: false }),
         {
           name: "ui-rsc-client-boundary-fixture",
           resolveId(id) { if (id === virtualId) return resolvedId },
@@ -87,11 +85,11 @@ describe("UI client Vinext compatibility", function() {
 
     expect(result.status, output).toBe(0)
     return expect(JSON.parse(result.stdout)).toEqual([
-      "dialog.civet",
-      "dropdown-menu.civet",
-      "tabs.civet",
-      "theme.civet",
-      "toaster.civet",
+      "dialog.ts",
+      "dropdown-menu.ts",
+      "tabs.ts",
+      "theme.ts",
+      "toaster.ts",
     ])
   })
 })

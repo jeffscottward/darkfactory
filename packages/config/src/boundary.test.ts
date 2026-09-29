@@ -83,10 +83,6 @@ describe("config package boundaries", function() {
       new URL("./client.ts", import.meta.url),
       "utf8",
     )
-    const rootDeclaration = await readFile(
-      new URL("./client.civet.d.ts", import.meta.url),
-      "utf8",
-    )
 
     expect(manifest.exports["."]).toEqual({
       import: "./src/client.ts",
@@ -94,8 +90,7 @@ describe("config package boundaries", function() {
     })
     expect(rootSource).not.toMatch(/^\s*import\s/m)
     expect(rootSource).not.toMatch(forbiddenServerDependencies)
-    expect(rootDeclaration).not.toMatch(/from ["']zod["']/)
-    expect(rootDeclaration).not.toMatch(
+    expect(rootSource).not.toMatch(
       /ServerEnv|serverEnvSchema|parseServerEnv|ProviderCapabilities|DATABASE_URL|BETTER_AUTH_SECRET/,
     )
     return expect(Object.keys(await import("@darkfactory/config"))).toEqual([
