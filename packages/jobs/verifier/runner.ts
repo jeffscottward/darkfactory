@@ -17,7 +17,9 @@ const EXECUTABLES = Object.freeze({
   "markdownlint-cli2":
     "/opt/darkfactory-verifier/dependencies/node_modules/.bin/markdownlint-cli2",
   tsc: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/tsc",
-  vinext: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/vinext",
+  // vinext is a web-app dependency, so its bin lives with apps/web.
+  vinext:
+    "/opt/darkfactory-verifier/dependencies/apps/web/node_modules/.bin/vinext",
   vitest: "/opt/darkfactory-verifier/dependencies/node_modules/.bin/vitest",
 } as const);
 

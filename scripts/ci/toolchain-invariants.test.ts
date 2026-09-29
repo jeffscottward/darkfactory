@@ -1,4 +1,5 @@
-import { glob, readFile } from "node:fs/promises";
+import { glob, readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -10,6 +11,48 @@ const read = (path: string): Promise<string> =>
   readFile(new URL(`../../${path}`, import.meta.url), "utf8");
 
 const pins = parseMiseToolchain(await read("mise.toml"));
+const root = fileURLToPath(new URL("../../", import.meta.url));
+
+// Images live inside their brick, so removing a brick removes its image;
+// `init --without-operator` leaves a project with none.
+const brickDockerfiles = async (): Promise<readonly string[]> => {
+  const paths: string[] = [];
+  for await (const path of glob("{apps,packages}/**/Dockerfile", {
+    cwd: root,
+    exclude: (entry) => entry.endsWith("node_modules"),
+  })) {
+    paths.push(path);
+  }
+  return paths;
+};
+
+// Resolves each FROM as OpenSSF Scorecard does: ARG defaults are substituted
+// and references to earlier stages are skipped.
+const unpinnedBases = (dockerfile: string): readonly string[] => {
+  const defaults = new Map<string, string>();
+  const stages = new Set<string>();
+  const unpinned: string[] = [];
+  for (const line of dockerfile.split("\n")) {
+    const [instruction = "", ...operands] = line.trim().split(/\s+/u);
+    if (instruction.toUpperCase() === "ARG") {
+      const [name = "", value] = (operands[0] ?? "").split("=");
+      if (value !== undefined) defaults.set(name, value);
+    } else if (instruction.toUpperCase() === "FROM") {
+      const [image = "", as, stage] = operands.filter(
+        (operand) => !operand.startsWith("--")
+      );
+      const resolved = image.replace(
+        /\$\{(\w+)\}/gu,
+        (_match, name: string) => defaults.get(name) ?? ""
+      );
+      if (!(stages.has(resolved) || /@sha256:[a-f0-9]{64}$/u.test(resolved))) {
+        unpinned.push(resolved || image);
+      }
+      if (as?.toUpperCase() === "AS" && stage !== undefined) stages.add(stage);
+    }
+  }
+  return unpinned;
+};
 
 type Step = Readonly<{ uses?: string; with?: Record<string, unknown> }>;
 
@@ -40,14 +83,16 @@ describe("toolchain pins", () => {
     for (const step of pnpmSetups) {
       expect(String(step.with?.["version"])).toBe(pins.pnpm);
     }
-    // Images live inside their brick, so removing a brick removes its image.
-    for await (const path of glob("{apps,packages}/**/Dockerfile", {
-      cwd: fileURLToPath(new URL("../../", import.meta.url)),
-      exclude: (entry) => entry.endsWith("node_modules"),
-    })) {
+    for (const path of await brickDockerfiles()) {
       const dockerfile = await read(path);
       expect(dockerfile).toContain(`FROM node:${pins.node}-`);
-      expect(dockerfile).toContain(`pnpm@${pins.pnpm}`);
+      // pnpm comes from its registry tarball, verified by checksum.
+      expect(dockerfile).toMatch(
+        new RegExp(
+          `^ADD --checksum=sha256:[a-f0-9]{64} https://registry\\.npmjs\\.org/pnpm/-/pnpm-${pins.pnpm.replaceAll(".", "\\.")}\\.tgz `,
+          "mu"
+        )
+      );
     }
   });
 
@@ -67,6 +112,49 @@ describe("toolchain pins", () => {
       expect(() => parseMiseToolchain(malformed)).toThrow(
         "mise.toml must pin exact node, bun, and pnpm versions"
       );
+    }
+  });
+});
+
+describe("brick images", () => {
+  it("pins every base image by digest", async () => {
+    for (const path of await brickDockerfiles()) {
+      const dockerfile = await read(path);
+      expect(unpinnedBases(dockerfile), path).toEqual([]);
+      // A default Bun base names its tag, so a Bun bump flags a re-pin.
+      if (dockerfile.includes("oven/bun@")) {
+        expect(dockerfile, path).toContain(`oven/bun:${pins.bun} `);
+      }
+    }
+    return expect(
+      unpinnedBases(
+        "ARG BASE=oven/bun:1\nFROM node:24 AS deps\nFROM deps\nFROM ${BASE}\n"
+      )
+    ).toEqual(["node:24", "oven/bun:1"]);
+  });
+
+  return it("sends each image only the files its allowlist names", async () => {
+    for (const path of await brickDockerfiles()) {
+      // A Dockerfile-specific ignore file overrides the root .dockerignore.
+      const ignorePath = `${path}.dockerignore`;
+      const [first, ...inclusions] = (await read(ignorePath))
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "" && !line.startsWith("#"));
+      expect(first, ignorePath).toBe("*");
+      for (const pattern of inclusions) {
+        expect(pattern, ignorePath).toMatch(/^!/u);
+        // Re-including a directory would send its whole subtree, including
+        // local secrets (.dev.vars, .env) and host node_modules.
+        const matches: string[] = [];
+        for await (const match of glob(pattern.slice(1), { cwd: root })) {
+          matches.push(match);
+        }
+        expect(matches.length, `${ignorePath}: ${pattern}`).toBeGreaterThan(0);
+        for (const match of matches) {
+          expect((await stat(join(root, match))).isFile(), match).toBe(true);
+        }
+      }
     }
   });
 });

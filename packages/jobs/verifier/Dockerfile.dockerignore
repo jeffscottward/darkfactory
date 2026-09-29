@@ -1,13 +1,11 @@
+# Build context for this Dockerfile (it overrides any root .dockerignore).
+# Allowlist of files only: re-including a directory (`!apps/`) would send its
+# whole subtree, including local secrets (.dev.vars, .env) and host installs.
 *
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
-!apps/
-!apps/*/
 !apps/*/package.json
-!packages/
-!packages/*/
 !packages/*/package.json
-!packages/jobs/verifier/
 !packages/jobs/verifier/checks.json
 !packages/jobs/verifier/runner.ts
