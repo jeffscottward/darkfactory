@@ -98,3 +98,13 @@ export {
   InvalidRepositoryInputError,
   OptimisticConcurrencyError,
 } from "./repositories.ts";
+export type {
+  BackgroundTaskScheduler,
+  DatabaseRequestScope,
+  RequestScopeOptions,
+} from "./request-scope.ts";
+export {
+  openRequestScope,
+  REQUEST_DATABASE_RETRY_AFTER_SECONDS,
+  requestDatabaseCapacityResponse,
+} from "./request-scope.ts";
