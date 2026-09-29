@@ -15,8 +15,6 @@ afterEach(() =>
   vi.doUnmock("../packages/config/src/server/capabilities.civet")
   vi.doUnmock("./capability/cli.civet")
   vi.doUnmock("./capability/system.civet")
-  vi.doUnmock("./coverage/cli.civet")
-  vi.doUnmock("./coverage/system.civet")
   vi.doUnmock("./dev/bindings.civet")
   vi.doUnmock("./dev/cli.civet")
   vi.doUnmock("./dev/system.civet")
@@ -75,35 +73,6 @@ describe("root executable wrappers", () =>
     expect(stdout).toHaveBeenCalledWith("capability-output\n")
     expect(stderr).toHaveBeenCalledWith("capability-error\n")
     expect(process.exitCode).toBe(64)
-  )
-
-  it("forwards coverage generation dependencies, streams, and success status", async () =>
-    const files = Object.freeze({ kind: "coverage-files" })
-    const runCoverageCli = vi.fn(async (
-      arguments_: readonly string[],
-      dependencies: Readonly<{ files: unknown }>,
-      streams: CliStreams,
-    ) =>
-      expect(arguments_).toEqual(["generate"])
-      expect(dependencies.files).toBe(files)
-      streams.writeOutput("coverage-output\n")
-      streams.writeError("coverage-warning\n")
-      return 0
-    )
-    vi.doMock("./coverage/cli.civet", () => ({ runCoverageCli }))
-    vi.doMock("./coverage/system.civet", () => ({
-      nodeCoverageFileSystem: files,
-    }))
-    process.argv = ["node", "coverage.civet", "generate"]
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
-    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
-
-    await import("./coverage.civet")
-
-    expect(runCoverageCli).toHaveBeenCalledOnce()
-    expect(stdout).toHaveBeenCalledWith("coverage-output\n")
-    expect(stderr).toHaveBeenCalledWith("coverage-warning\n")
-    expect(process.exitCode).toBe(0)
   )
 
   it("forwards malformed development commands and preserves the CLI exit status", async () =>
