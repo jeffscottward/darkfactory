@@ -20,6 +20,7 @@ deployment:
   ancillary_resources:
     provider: cloudflare
     infrastructure: alchemy
+    enabled: false
 
 database:
   engine: postgres
@@ -46,7 +47,6 @@ ai:
   provider: groq
 
 email:
-  renderer: react-email
   provider: resend
   local_transport: preview
 
@@ -83,7 +83,6 @@ development:
     provider: portless
     service_name: darkfactory
     canonical_url: https://darkfactory.localhost
-    process_manager: pm2
     certificate_fallback: mkcert
     fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1"]
   seeded_accounts:
@@ -94,10 +93,6 @@ development:
 state:
   workflows: xstate
   client_local: zustand
-
-effects:
-  provider: effect
-  adoption: boundary-driven
 
 developer_tools:
   tanstack_devtools:

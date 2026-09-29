@@ -59,7 +59,7 @@ A capability change is a complete vertical change, not a manifest toggle. Before
 1. Define its user outcome, owner, data authority, provenance, retention, and failure behavior.
 2. Prefer a PostgreSQL core feature, then a proven PostgreSQL extension/pattern, before introducing an external system.
 3. Define a small provider-neutral port and typed errors at the real external boundary.
-4. Add the adapter and only the dependencies required by the enabled capability.
+4. Add the adapter and only the dependencies required by the enabled capability. Register its id in the brick's adapter registry (for example `EMAIL_ADAPTERS` in `packages/email/src/adapters.ts`); the manifest and environment enums are built from it.
 5. Add server-only environment schema/example entries and an explicit client allowlist decision.
 6. Add installation, migration, removal, rollback, and secret-rotation instructions.
 7. Add deterministic contract/integration tests and an unavailable/misconfigured test.

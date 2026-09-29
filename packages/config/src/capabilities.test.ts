@@ -40,7 +40,11 @@ const expectedManifest = {
   },
   deployment: {
     web: { provider: "cloudflare", deployer: "@vinext/cloudflare" },
-    ancillary_resources: { provider: "cloudflare", infrastructure: "alchemy" },
+    ancillary_resources: {
+      provider: "cloudflare",
+      infrastructure: "alchemy",
+      enabled: false,
+    },
   },
   database: {
     engine: "postgres",
@@ -58,11 +62,7 @@ const expectedManifest = {
     portal_reference: "https://ui.shadcn.com/blocks",
   },
   ai: { provider: "groq" },
-  email: {
-    renderer: "react-email",
-    provider: "resend",
-    local_transport: "preview",
-  },
+  email: { provider: "resend", local_transport: "preview" },
   analytics: { provider: "posthog", adapter_required: true },
   telemetry: { provider: "opentelemetry" },
   logging: { provider: "evlog" },
@@ -82,7 +82,6 @@ const expectedManifest = {
       provider: "portless",
       service_name: "darkfactory",
       canonical_url: "https://darkfactory.localhost",
-      process_manager: "pm2",
       certificate_fallback: "mkcert",
       fallback_hostnames: ["localhost", "*.localhost", "127.0.0.1", "::1"],
     },
@@ -93,7 +92,6 @@ const expectedManifest = {
     },
   },
   state: { workflows: "xstate", client_local: "zustand" },
-  effects: { provider: "effect", adoption: "boundary-driven" },
   developer_tools: { tanstack_devtools: { enabled: "development" } },
   capabilities: {
     docs: { provider: "mintlify", enabled: false, public: false },
@@ -118,11 +116,56 @@ const expectedManifest = {
   },
 } as const;
 
-describe("v0.1 capability manifest", () => {
+describe("capability manifest", () => {
   it("loads the exact provider and capability contract", async () => {
     return expect(loadCapabilityManifest(await readManifest())).toEqual(
       expectedManifest
     );
+  });
+
+  it("parses a renamed project with its own identity", async () => {
+    const source = (await readManifest())
+      .replace("name: DarkFactory", "name: Acme Widgets")
+      .replace("slug: darkfactory", "slug: acme-widgets")
+      .replace("version: 0.2.1", "version: 1.0.0-rc.1+build.7")
+      .replace("service_name: darkfactory", "service_name: acme-widgets")
+      .replace(
+        "canonical_url: https://darkfactory.localhost",
+        "canonical_url: https://acme-widgets.localhost"
+      )
+      .replace("provider: planetscale", "provider: postgres");
+
+    return expect(loadCapabilityManifest(source)).toMatchObject({
+      project: {
+        name: "Acme Widgets",
+        slug: "acme-widgets",
+        version: "1.0.0-rc.1+build.7",
+      },
+      database: { provider: "postgres" },
+      development: {
+        https: { canonical_url: "https://acme-widgets.localhost" },
+      },
+    });
+  });
+
+  it.each([
+    ["slug", "slug: darkfactory", "slug: Dark-Factory", "project.slug"],
+    ["version", "version: 0.2.1", "version: v0.2", "project.version"],
+    [
+      "canonical URL",
+      "canonical_url: https://darkfactory.localhost",
+      "canonical_url: http://darkfactory.localhost",
+      "development.https.canonical_url",
+    ],
+  ])("rejects a malformed %s without reflecting it", async (_label, valid, invalid, path) => {
+    const error = captureManifestError(
+      (await readManifest()).replace(valid, invalid)
+    );
+
+    expect(error.issues).toEqual([
+      { code: "invalid_manifest", path, message: "Manifest value is invalid" },
+    ]);
+    return expect(JSON.stringify(error)).not.toContain(invalid.split(": ")[1]);
   });
 
   it("contains no superseded providers or capabilities", async () => {
@@ -440,10 +483,10 @@ describe("v0.1 capability manifest", () => {
     ],
     [
       "boolean",
-      "  extensions_first: true",
-      "  extensions_first: false",
-      "database.extensions_first",
-      "false",
+      "    production_allowed: false",
+      "    production_allowed: true",
+      "development.seeded_accounts.production_allowed",
+      "true",
     ],
   ])("classifies an unsupported same-type $0 without reflecting it", async (_label, supported, unsupported, path, secretValue) => {
     const source = (await readManifest()).replace(supported, unsupported);
@@ -457,10 +500,10 @@ describe("v0.1 capability manifest", () => {
     return expect(JSON.stringify(error)).not.toContain(secretValue);
   });
 
-  it("uses the generic classification for tuple cardinality failures", async () => {
+  it("uses the generic classification for array cardinality failures", async () => {
     const source = (await readManifest()).replace(
       'fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1"]',
-      'fallback_hostnames: [localhost, "*.localhost", 127.0.0.1, "::1", extra]'
+      "fallback_hostnames: []"
     );
     const error = captureManifestError(source);
 
@@ -471,16 +514,16 @@ describe("v0.1 capability manifest", () => {
     });
   });
 
-  it("preserves allowlisted tuple indexes while sanitizing schema paths", async () => {
+  it("preserves allowlisted array indexes while sanitizing schema paths", async () => {
     const source = (await readManifest()).replace(
       "users: [admin, alice, bob]",
-      "users: [admin, alice, mallory]"
+      "users: [admin, alice, Mallory]"
     );
 
     return expect(captureManifestError(source).issues).toContainEqual({
-      code: "unsupported_value",
+      code: "invalid_manifest",
       path: "development.seeded_accounts.users.2",
-      message: "Manifest value is not supported",
+      message: "Manifest value is invalid",
     });
   });
 

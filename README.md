@@ -70,7 +70,7 @@ The generated OpenAPI document at [`packages/api/openapi.json`](packages/api/ope
 | State | XState 5.32.5 for explicit lifecycles; Zustand 5.0.14 for ephemeral local UI state |
 | Local operator | Separate `apps/operator` vinext app with `packages/operator` contracts/services; local-only and excluded from product deployment |
 | Workflow execution | PostgreSQL journal/outbox in `packages/jobs`; separately started pilot worker with scoped local OMP and Wayfinder adapters |
-| Providers | Groq, React Email/Resend, PostHog, evlog, and OpenTelemetry behind ports or runtime selection |
+| Providers | Groq, Resend, PostHog, evlog, and OpenTelemetry behind ports or runtime selection |
 | Quality | Biome/Ultracite, Vitest 4.1.10, Playwright 1.61.1, Husky, Graphify |
 
 Optional providers are not automatically available merely because an adapter exists. [`capabilities.yaml`](capabilities.yaml) is the capability truth source.

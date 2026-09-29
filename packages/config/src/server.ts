@@ -1,3 +1,6 @@
+import { AI_ADAPTERS } from "@darkfactory/ai/adapters";
+import { ANALYTICS_ADAPTERS } from "@darkfactory/analytics/adapters";
+import { EMAIL_ADAPTERS } from "@darkfactory/email/adapters";
 import { z } from "zod";
 import { CANONICAL_APP_URL } from "./client.ts";
 import {
@@ -134,17 +137,19 @@ const baseServerEnvSchema = z.object({
   CONTACT_THROTTLE_SECRET: secretSchema("CONTACT_THROTTLE_SECRET"),
   WORKFLOW_REPOSITORY_GRANTS: optionalString,
 
-  AI_PROVIDER: z.enum(["groq"]).default("groq"),
+  AI_PROVIDER: z.enum(AI_ADAPTERS).default("groq"),
   GROQ_API_KEY: optionalString,
   GROQ_MODEL: optionalString,
 
-  EMAIL_PROVIDER: z.enum(["resend", "disabled"]).default("resend"),
-  EMAIL_TRANSPORT: z.enum(["preview", "resend", "disabled"]).default("preview"),
+  EMAIL_PROVIDER: z.enum([...EMAIL_ADAPTERS, "disabled"]).default("resend"),
+  EMAIL_TRANSPORT: z
+    .enum(["preview", ...EMAIL_ADAPTERS, "disabled"])
+    .default("preview"),
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: emailFromSchema.default("DarkFactory <noreply@domain.test>"),
   CONTACT_EMAIL_TO: optionalContactRecipient,
 
-  ANALYTICS_PROVIDER: z.enum(["posthog"]).default("posthog"),
+  ANALYTICS_PROVIDER: z.enum(ANALYTICS_ADAPTERS).default("posthog"),
   POSTHOG_KEY: optionalString,
   POSTHOG_HOST: optionalUrl("POSTHOG_HOST"),
 

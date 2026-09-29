@@ -16,6 +16,10 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./adapters": {
+      "import": "./src/adapters.ts",
+      "default": "./src/adapters.ts"
+    },
     "./server/posthog": {
       "workerd": "./src/server/posthog.ts",
       "worker": "./src/server/posthog.ts",

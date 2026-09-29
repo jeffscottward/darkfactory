@@ -38,6 +38,7 @@ describe("analytics package boundaries", () => {
 
     expect(Object.keys(manifest.exports)).toEqual([
       ".",
+      "./adapters",
       "./server/posthog",
       "./test",
     ]);

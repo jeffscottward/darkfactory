@@ -49,6 +49,9 @@
     "node": ">=24.21.0"
   },
   "dependencies": {
+    "@darkfactory/ai": "workspace:*",
+    "@darkfactory/analytics": "workspace:*",
+    "@darkfactory/email": "workspace:*",
     "yaml": "catalog:",
     "zod": "catalog:"
   },

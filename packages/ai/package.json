@@ -16,6 +16,10 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./adapters": {
+      "import": "./src/adapters.ts",
+      "default": "./src/adapters.ts"
+    },
     "./server/groq": {
       "workerd": "./src/server/groq.ts",
       "worker": "./src/server/groq.ts",

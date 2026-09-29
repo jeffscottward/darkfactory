@@ -162,7 +162,7 @@ Create ports only at real external boundaries; do not build a universal abstract
 | Telemetry | traces, metrics, technical logs | OpenTelemetry |
 | Application events | semantic structured event emission | evlog |
 | AI inference | model-neutral request/result contract | Groq adapter when configured |
-| Email | render/send contract | React Email + Resend; safe local preview without credentials |
+| Email | render/send contract | Resend adapter; safe local preview without credentials |
 | Storage | object operations | R2/S3-compatible adapter when enabled |
 | Jobs | durable enqueue, claim, status, and execution | PostgreSQL workflow runtime; separately started pilot worker with scoped local OMP and Wayfinder adapters |
 | Memory/context | provenance-aware context graph | PostgreSQL-backed Memori capability when enabled |
