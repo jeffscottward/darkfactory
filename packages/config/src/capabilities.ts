@@ -78,7 +78,7 @@ export const capabilityManifestSchema = z
         framework_api: z.literal("next-app-router"),
         framework_implementation: z.literal("vinext"),
         build_tool: z.literal("vite"),
-        language: z.literal("civet"),
+        language: z.literal("typescript"),
         runtime: z.literal("cloudflare-workers"),
       })
       .strict(),

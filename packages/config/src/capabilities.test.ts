@@ -28,7 +28,7 @@ const expectedManifest = {
     framework_api: "next-app-router",
     framework_implementation: "vinext",
     build_tool: "vite",
-    language: "civet",
+    language: "typescript",
     runtime: "cloudflare-workers",
   },
   workspace: {
