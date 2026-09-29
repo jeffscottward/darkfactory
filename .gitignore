@@ -21,6 +21,7 @@ scripts/coverage/**
 playwright-report/
 test-results/
 graphify-out/
+.graphify/manifest.json
 *.civet.d.ts
 *.civet.tsx
 

@@ -388,7 +388,12 @@ describe("Graphify workflow", () =>
     await expect(runGraphAction("check", missing.dependencies)).resolves.toMatchObject({
       ok: false,
       fresh: false,
-      reason: expect.stringMatching(/graph/i),
+      reason: "Graph is not built; run bun run graph:build first",
+    })
+    const unrecorded = fixture({ graphExists: true })
+    await expect(runGraphAction("verify", unrecorded.dependencies)).resolves.toMatchObject({
+      ok: false,
+      reason: "Graph is not built; run bun run graph:build first",
     })
 
     const emptyGraph = "{\"nodes\":[],\"links\":[]}"
