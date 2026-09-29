@@ -2,7 +2,7 @@
   "name": "@darkfactory/email",
   "brick": "capability",
   "description": "Email port and renderers, with a Resend adapter and local preview files.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "repository": {
     "type": "git",
