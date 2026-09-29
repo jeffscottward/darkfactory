@@ -161,26 +161,13 @@ afterEach(() => {
 )
 
 describe.sequential("database CLI", () => {
-  it("registers the package Civet loader and runs a test seed to completion", async () => {
+  it("runs a test seed to completion without registering a module loader", async () => {
     const stdout = outputSpy()
 
     await importDatabaseCli()
 
-    expect(databaseCli.register).toHaveBeenCalledOnce()
-    const [loaderUrl, parentUrl] = databaseCli.register.mock.calls[0] ?? []
-    expect(loaderUrl).toEqual(expect.stringMatching(/^data:text\/javascript,/))
-    expect(parentUrl).toEqual(expect.stringContaining("/scripts/database/index.ts"))
-    const loaderSource = decodeURIComponent(
-      String(loaderUrl).slice("data:text/javascript,".length),
-    )
-    expect(loaderSource).toContain("import { load as civetLoad, resolve as civetResolve }")
-    expect(loaderSource).toContain("/\\.civet(?:$|[?#])/.test(resolved.url)")
-    expect(loaderSource).toContain('format: "civet"')
-    expect(loaderSource).toContain('if (context.format !== "civet") return loaded')
-    expect(loaderSource).toContain("ts.transpileModule")
-    expect(loaderSource).toContain("jsx: ts.JsxEmit.ReactJSX")
-    expect(loaderSource).toContain("module: ts.ModuleKind.ESNext")
-    expect(loaderSource).toContain("target: ts.ScriptTarget.ES2023")
+    // TypeScript workspace packages load natively; no custom loader is registered.
+    expect(databaseCli.register).not.toHaveBeenCalled()
 
     expect(databaseCli.parseServerEnv).toHaveBeenCalledWith(process.env)
     expect(databaseCli.composeDatabaseProfile).toHaveBeenCalledWith(
@@ -366,7 +353,7 @@ describe.sequential("database CLI", () => {
 
     await expect(importDatabaseCli()).rejects.toBe(configurationError)
 
-    expect(databaseCli.register).toHaveBeenCalledOnce()
+    expect(databaseCli.register).not.toHaveBeenCalled()
     expect(databaseCli.createNodeDatabase).not.toHaveBeenCalled()
     expect(databaseCli.close).not.toHaveBeenCalled()
     return expect(stdout).not.toHaveBeenCalled()

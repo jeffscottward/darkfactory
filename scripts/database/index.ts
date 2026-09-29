@@ -1,45 +1,4 @@
-import { register } from "node:module"
-
 import type { PrepareSeedIdentities } from "@darkfactory/db/server"
-
-const packageLoaderSource = (
-  civetLoaderUrl: string,
-  typescriptUrl: string,
-): string => `
-import { load as civetLoad, resolve as civetResolve } from ${JSON.stringify(civetLoaderUrl)};
-import ts from ${JSON.stringify(typescriptUrl)};
-export const resolve = async (specifier, context, nextResolve) => {
-  const resolved = await civetResolve(specifier, context, nextResolve);
-  return /\\.civet(?:$|[?#])/.test(resolved.url)
-    ? { ...resolved, format: "civet" }
-    : resolved;
-};
-export const load = async (url, context, nextLoad) => {
-  const loaded = await civetLoad(url, context, nextLoad);
-  if (context.format !== "civet") return loaded;
-  return {
-    ...loaded,
-    source: ts.transpileModule(String(loaded.source), {
-      compilerOptions: {
-        jsx: ts.JsxEmit.ReactJSX,
-        module: ts.ModuleKind.ESNext,
-        target: ts.ScriptTarget.ES2023,
-      },
-    }).outputText,
-  };
-};
-`
-
-const registerPackageLoader = (): void => {
-  const source = packageLoaderSource(
-    import.meta.resolve("@danielx/civet/esm"),
-    import.meta.resolve("typescript"),
-  )
-  register(
-    `data:text/javascript,${encodeURIComponent(source)}`,
-    import.meta.url,
-  )
-}
 
 type DevelopmentEnvironment = "development" | "test"
 
@@ -96,7 +55,6 @@ const main = async (): Promise<void> => {
   const command = commandFrom(process.argv[2])
   const environment = developmentEnvironmentFrom(process.env.APP_ENV)
   confirmationEnvironmentFrom(process.argv.slice(3), environment)
-  registerPackageLoader()
 
   const [authModule, configModule, databaseConfigModule, databaseModule] =
     await Promise.all([
