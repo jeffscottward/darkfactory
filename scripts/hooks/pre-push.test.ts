@@ -67,7 +67,7 @@ const result = (status: number | null = 0, stdout = "", extra = {}) => ({
   signal: null,
   ...extra,
 });
-const gitSuccess = (executable, arguments_) => {
+const gitSuccess = (executable: string, arguments_: readonly string[]) => {
   if (executable === "bun" && arguments_[0] === "--version") {
     return result(0, `${BUN_VERSION}\n`);
   }
@@ -250,7 +250,7 @@ describe("source-bound pre-push", () => {
     ["review", "bad\nurl"],
   ])("rejects malformed Git argv %j before reading STDIN", (...argv) => {
     const readInput = vi.fn(() => update());
-    expect(runPrePush(argv, { readInput })).toBe(1);
+    expect(runPrePush(argv as string[], { readInput })).toBe(1);
     expect(readInput).not.toHaveBeenCalled();
     return expect(mocks.spawnSync).not.toHaveBeenCalled();
   });
@@ -308,7 +308,7 @@ describe("source-bound pre-push", () => {
 
   it("peels annotated tags and validates multiple sources at HEAD", () => {
     expect(
-      run(update() + `refs/tags/release ${TAG} refs/tags/release ${ZERO}\n`)
+      run(`${update()}refs/tags/release ${TAG} refs/tags/release ${ZERO}\n`)
     ).toBe(0);
     expect(mocks.spawnSync).toHaveBeenCalledWith(
       "git",
@@ -351,9 +351,9 @@ describe("source-bound pre-push", () => {
   });
 
   it.each([
-    " M src/index.civet\0",
-    "M  src/index.civet\0",
-    "MM src/index.civet\0",
+    " M src/index.ts\0",
+    "M  src/index.ts\0",
+    "MM src/index.ts\0",
   ])("rejects dirty tracked source %j before local lanes", (dirty) => {
     mocks.spawnSync.mockImplementation((executable, arguments_) => {
       if (arguments_.includes("status")) {
@@ -381,7 +381,7 @@ describe("source-bound pre-push", () => {
     let dirty = false;
     mocks.spawnSync.mockImplementation((executable, arguments_) => {
       if (arguments_.includes("status") && dirty) {
-        return result(0, " M src/index.civet\0");
+        return result(0, " M src/index.ts\0");
       }
       return gitSuccess(executable, arguments_);
     });
@@ -523,7 +523,7 @@ describe("source-bound pre-push", () => {
     });
     expect(runPrePush(target)).toBe(1);
     expect(mocks.readSync).toHaveBeenCalledTimes(1);
-    expect(mocks.readSync.mock.calls[0][3]).toBe(65_537);
+    expect(mocks.readSync.mock.calls[0]?.[3]).toBe(65_537);
     return expect(mocks.spawnSync).not.toHaveBeenCalled();
   });
 

@@ -104,18 +104,33 @@ describe("repository hooks", () => {
     ]);
   });
 
-  it("defers Civet-only changes and silently accepts other irrelevant or empty path records", () => {
+  it("formats and lints staged TypeScript even when no Markdown is staged", () => {
+    mocks.spawnSync
+      .mockReturnValueOnce(spawnResult(0, "src/worker.TS\0"))
+      .mockReturnValue(spawnResult(0));
+
+    expect(runPreCommit()).toBe(0);
+    return expect(preCommitCalls().slice(1)).toEqual([
+      [
+        "bun",
+        ["run", "format:staged", "--", "./src/worker.TS"],
+        { shell: false, stdio: "inherit" },
+      ],
+      [
+        "bun",
+        ["run", "lint:staged", "--", "./src/worker.TS"],
+        { shell: false, stdio: "inherit" },
+      ],
+    ]);
+  });
+
+  it("silently accepts irrelevant, retired Civet, or empty path records", () => {
     const errorOutput = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "src/worker.CIVET\0"));
-
-    expect(runPreCommit()).toBe(0);
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(1);
-
-    mocks.spawnSync.mockReset();
-    errorOutput.mockClear();
-    mocks.spawnSync.mockReturnValueOnce(spawnResult(0, "notes.txt\0\0"));
+    mocks.spawnSync.mockReturnValueOnce(
+      spawnResult(0, "src/worker.CIVET\0notes.txt\0\0")
+    );
 
     expect(runPreCommit()).toBe(0);
     expect(errorOutput).not.toHaveBeenCalled();

@@ -27,15 +27,27 @@ const STAGED_PATH_ARGUMENTS = [
   "-z",
 ];
 
-function formatCommand(executable, arguments_) {
+interface HookSpawnResult {
+  error?: Error;
+  signal?: NodeJS.Signals | null;
+  status: number | null;
+}
+
+function formatCommand(executable: string, arguments_: readonly string[]) {
   return [executable, ...arguments_]
     .map((argument) => JSON.stringify(argument))
     .join(" ");
 }
 
-function failureExitCode(executable, arguments_, result) {
+function failureExitCode(
+  executable: string,
+  arguments_: readonly string[],
+  result: HookSpawnResult
+) {
   const exitCode =
-    Number.isInteger(result.status) && result.status > 0 ? result.status : 1;
+    Number.isInteger(result.status) && (result.status as number) > 0
+      ? (result.status as number)
+      : 1;
   console.error(
     `[hook] failed (${exitCode}): ${formatCommand(executable, arguments_)}`
   );
@@ -71,17 +83,13 @@ function readStagedPaths() {
   };
 }
 
-function isCivetPath(path) {
-  return extname(path).toLowerCase() === ".civet";
-}
-
-function selectBiomePaths(paths) {
+function selectBiomePaths(paths: readonly string[]) {
   return paths.filter((path) => {
     return BIOME_EXTENSIONS.has(extname(path).toLowerCase());
   });
 }
 
-function selectMarkdownPaths(paths) {
+function selectMarkdownPaths(paths: readonly string[]) {
   return paths.filter((path) => {
     return MARKDOWN_EXTENSIONS.has(extname(path).toLowerCase());
   });
@@ -164,12 +172,6 @@ export function runPreCommit() {
   const markdownPaths = selectMarkdownPaths(staged.paths);
 
   if (biomePaths.length === 0 && markdownPaths.length === 0) {
-    if (staged.paths.some(isCivetPath)) {
-      console.error(
-        "[hook] staged Civet validation is deferred to mandatory bun run verify:prepush before push."
-      );
-    }
-
     return 0;
   }
 
@@ -200,11 +202,10 @@ const MAX_PUSH_REFS = 256;
 const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const ZERO_ID = /^0+$/;
 
-type PushTarget = { remoteName: string; remoteUrl: string };
-type PushDependencies = {
+interface PushDependencies {
   readInput?: () => string;
   runScripts?: BunScriptRunner;
-};
+}
 
 function readPushInput(): string {
   const buffer = Buffer.alloc(MAX_PUSH_INPUT_BYTES + 1);
@@ -236,7 +237,12 @@ function parsePushInput(input: string) {
     if (fields.length !== 4 || /[\0-\x08\x0b-\x1f\x7f]/.test(line)) {
       throw new Error("expected four fields per pre-push STDIN line");
     }
-    const [localRef, localId, remoteRef, remoteId] = fields;
+    const [localRef, localId, remoteRef, remoteId] = fields as [
+      string,
+      string,
+      string,
+      string,
+    ];
     if (
       !(OBJECT_ID.test(localId) && OBJECT_ID.test(remoteId)) ||
       localId.length !== remoteId.length
