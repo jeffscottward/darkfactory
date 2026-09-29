@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { applyEdits, type JSONPath, modify, parse } from "jsonc-parser";
+import { parse as parseYaml } from "yaml";
 
 // `bun run init`: pure identity validation and rename planning. Everything
 // here is deterministic over its inputs; scripts/init/apply.ts performs I/O.
@@ -319,18 +320,38 @@ const compileRules = (rules: readonly Rule[]): Rewriter => {
   };
 };
 
+/**
+ * Reads `project.<key>` from capabilities.yaml by parsing it, not by regex,
+ * so no input can trigger catastrophic backtracking (CodeQL js/redos). The
+ * failsafe schema keeps every scalar a string (for example `version: 1.0`).
+ */
+const projectFieldOf = (
+  source: string,
+  key: "slug" | "version"
+): string | undefined => {
+  let document: unknown;
+  try {
+    document = parseYaml(source, { schema: "failsafe" });
+  } catch {
+    return;
+  }
+  const project =
+    typeof document === "object" && document !== null
+      ? (document as Record<string, unknown>)["project"]
+      : undefined;
+  const value =
+    typeof project === "object" && project !== null
+      ? (project as Record<string, unknown>)[key]
+      : undefined;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
 const templateVersionOf = (source: string | undefined): string | undefined =>
-  source === undefined
-    ? undefined
-    : /^project:\s*\n(?:[ \t]+.*\n)*?[ \t]+version:[ \t]*["']?([^\s"'#]+)/mu.exec(
-        source
-      )?.[1];
+  source === undefined ? undefined : projectFieldOf(source, "version");
 
 /** The `project.slug` value of capabilities.yaml, or undefined. */
 export const projectSlugOf = (source: string): string | undefined =>
-  /^project:\s*\n(?:[ \t]+.*\n)*?[ \t]+slug:[ \t]*["']?([^\s"'#]+)/mu.exec(
-    source
-  )?.[1];
+  projectFieldOf(source, "slug");
 
 type Structured = (
   source: string,

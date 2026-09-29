@@ -242,6 +242,18 @@ describe("helpers", () => {
     expect(projectSlugOf(CAPABILITIES)).toBe("darkfactory");
     expect(projectSlugOf('project:\n  name: X\n  slug: "acme"\n')).toBe("acme");
     expect(projectSlugOf("workspace:\n  slug: other\n")).toBeUndefined();
+    expect(projectSlugOf("project: [unclosed\n")).toBeUndefined();
+    expect(projectSlugOf("- a list\n")).toBeUndefined();
+    expect(projectSlugOf("project: plain\n")).toBeUndefined();
+    expect(projectSlugOf("project:\n  slug:\n    nested: x\n")).toBeUndefined();
+    expect(projectSlugOf('project:\n  slug: ""\n')).toBeUndefined();
+  });
+
+  it("parses the slug in linear time on adversarial input (CodeQL js/redos)", () => {
+    const adversarial = `project:\n${"  a\n".repeat(50_000)}`;
+    const started = performance.now();
+    expect(projectSlugOf(adversarial)).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 
   it("writes a Keep-a-Changelog reset for the new repository", () => {
