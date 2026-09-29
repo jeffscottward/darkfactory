@@ -26,7 +26,7 @@ const requestPath = [
 const foundationLayers = [
   {
     title: "Stable core",
-    body: "Contract-first core choices keep Civet, Vinext, PostgreSQL, Drizzle, Better Auth, oRPC, and the shared UI system aligned.",
+    body: "Contract-first core choices keep strict TypeScript, Vinext, PostgreSQL, Drizzle, Better Auth, oRPC, and the shared UI system aligned.",
     href: "/features",
     link: "Review the implemented layers",
   },
