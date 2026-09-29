@@ -15,7 +15,6 @@
       ".bash",
       ".c",
       ".cc",
-      ".civet",
       ".cjs",
       ".cpp",
       ".cs",
@@ -70,8 +69,7 @@
       "graphify-out",
       "node_modules",
       "playwright-report",
-      "test-results",
-      "*.civet.d.ts"
+      "test-results"
     ]
   },
   "verificationPath": [

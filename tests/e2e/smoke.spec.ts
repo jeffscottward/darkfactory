@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, expectHydrated, test } from "./fixtures.ts";
 
 const THEME_TRIGGER_NAME = "Theme settings";
 
@@ -59,7 +59,10 @@ for (const viewport of viewportCases) {
       height: viewport.height,
       width: viewport.width,
     });
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/");
+    await expectHydrated(
+      page.getByRole("button", { name: THEME_TRIGGER_NAME })
+    );
 
     await expect(page.getByRole("navigation")).toHaveCount(
       viewport.name === "mobile" ? 1 : 2

@@ -1,0 +1,21 @@
+import type { OperatorRunSummary } from "./operator-client.ts";
+
+const OPERATOR_DATE_FORMAT = new Intl.DateTimeFormat("en", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "UTC",
+});
+
+export const operatorRunTitle = (
+  run: Pick<OperatorRunSummary, "id" | "title">
+): string => {
+  const title = run.title?.trim();
+  return title === undefined || title.length === 0 ? run.id : title;
+};
+
+export const formatOperatorDate = (value: Date): string =>
+  OPERATOR_DATE_FORMAT.format(value);
+
+export const abbreviatedHash = (hash: string): string => {
+  return hash.length <= 16 ? hash : `${hash.slice(0, 8)}…${hash.slice(-8)}`;
+};

@@ -1,0 +1,30 @@
+import type { ComponentPropsWithRef, ReactNode } from "react";
+
+import { cn } from "./utilities.ts";
+
+export interface LabelProps extends ComponentPropsWithRef<"label"> {
+  optional?: boolean;
+  optionalLabel?: ReactNode;
+}
+
+export const Label = ({
+  children,
+  className,
+  optional = false,
+  optionalLabel = "Optional",
+  ...props
+}: LabelProps) => (
+  // biome-ignore lint/a11y/noLabelWithoutControl: callers associate the control through the forwarded htmlFor prop.
+  <label
+    className={cn(
+      "flex items-baseline justify-between gap-3 font-body font-semibold text-foreground text-sm",
+      className
+    )}
+    {...props}
+  >
+    <span>{children}</span>
+    {optional ? (
+      <span className="font-normal text-muted-foreground">{optionalLabel}</span>
+    ) : null}
+  </label>
+);

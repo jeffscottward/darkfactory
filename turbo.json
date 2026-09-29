@@ -16,10 +16,6 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
-    "types": {
-      "dependsOn": ["^types"],
-      "outputs": ["src/**/*.civet.d.ts"]
-    },
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "outputs": []

@@ -1,0 +1,68 @@
+import type { ContactEmailInput } from "../index.ts";
+import { renderContactEmailHtml } from "./render-email-html.ts";
+
+const MAILBOX_PATTERN =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+
+export type RenderedContactEmail = Readonly<{
+  subject: string;
+  html: string;
+  text: string;
+}>;
+type AssertBoundedText = (
+  value: unknown,
+  field: string,
+  maximum: number
+) => asserts value is string;
+
+const assertBoundedText: AssertBoundedText = (value, field, maximum): void => {
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0 ||
+    value.length > maximum
+  ) {
+    throw new TypeError(
+      `${field} must contain between 1 and ${maximum} characters`
+    );
+  }
+};
+
+const normalizeContactInput = (input: ContactEmailInput): ContactEmailInput => {
+  assertBoundedText(input.name, "name", 100);
+  assertBoundedText(input.email, "email", 254);
+  assertBoundedText(input.subject, "subject", 200);
+  assertBoundedText(input.message, "message", 5000);
+
+  const email = input.email.trim();
+  if (!MAILBOX_PATTERN.test(email)) {
+    throw new TypeError("email must be a valid email address");
+  }
+
+  return Object.freeze({
+    name: input.name.trim(),
+    email,
+    subject: input.subject.trim(),
+    message: input.message.trim(),
+  });
+};
+
+// biome-ignore lint/suspicious/useAwait: async keeps the promise contract so synchronous validation failures reject instead of throwing.
+export const renderContactEmail = async (
+  input: ContactEmailInput
+): Promise<RenderedContactEmail> => {
+  const normalized = normalizeContactInput(input);
+  const html = renderContactEmailHtml(normalized);
+  const text = [
+    "New contact request",
+    `From: ${normalized.name}`,
+    normalized.email,
+    `Subject: ${normalized.subject}`,
+    `Message: ${normalized.message}`,
+  ].join("\n\n");
+
+  return Object.freeze({
+    subject: "New DarkFactory contact request",
+    html,
+    text,
+  });
+};

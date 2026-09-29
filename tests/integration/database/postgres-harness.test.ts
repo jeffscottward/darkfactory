@@ -1,0 +1,391 @@
+import { randomUUID } from "node:crypto";
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres";
+import { Client } from "pg";
+import { describe, expect, it } from "vitest";
+
+describe.sequential("real Postgres test database lifecycle", () => {
+  it("rejects remote, production-like, routed, and already-isolated URLs before connecting", async () => {
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://user:secret@production-db.example/darkfactory",
+      })
+    ).rejects.toThrow(/non-local host|unsafe DATABASE_URL/);
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl: "postgresql://user:secret@db.example.test/darkfactory",
+      })
+    ).rejects.toThrow(/non-local host/);
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://user:secret@localhost/darkfactory?host=production-db.example",
+      })
+    ).rejects.toThrow(/connection-routing query parameters/);
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://user:secret@localhost/darkfactory_test_forged",
+      })
+    ).rejects.toThrow(/unsafe DATABASE_URL/);
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://darkfactory_test_runner:secret@localhost/darkfactory",
+      })
+    ).rejects.toThrow(/dedicated darkfactory test runner/);
+
+    await expect(
+      createPostgresTestDatabase({
+        databaseUrl:
+          "postgresql://local_createdb_role:secret@localhost/darkfactory_test_maintenance",
+      })
+    ).rejects.toThrow(/dedicated darkfactory test runner/);
+
+    return await expect(
+      createPostgresTestDatabase({
+        databaseUrl: "https://localhost/darkfactory",
+      })
+    ).rejects.toThrow(/postgres or postgresql protocol/);
+  });
+
+  it("refuses cleanup for a handle the harness did not create", async () => {
+    const forgedDatabase = Object.freeze({
+      databaseUrl: "postgresql://localhost/darkfactory_test_forged",
+      databaseName: "darkfactory_test_forged",
+      runId: "forged",
+      async query() {
+        return [];
+      },
+      async openConnection() {
+        throw new Error("not a real connection");
+      },
+    }) as PostgresTestDatabase;
+
+    return await expect(
+      dropPostgresTestDatabase(forgedDatabase)
+    ).rejects.toThrow(/unowned or already-dropped/);
+  });
+
+  it("drops its isolated database and terminates another owned live client", async () => {
+    const runId = `lifecycle_${randomUUID()}`;
+    const database = await createPostgresTestDatabase({ runId });
+    const liveConnection = await database.openConnection();
+    let dropped = false;
+    let recreated: PostgresTestDatabase | undefined;
+
+    try {
+      const rows = await liveConnection.query<{ current_database: string }>(
+        "SELECT current_database()"
+      );
+
+      expect(database.databaseName).toMatch(/^darkfactory_test_[a-z0-9_]+$/);
+      expect(database.databaseName.length).toBeLessThanOrEqual(63);
+      expect(database.databaseUrl).not.toBe(process.env["DATABASE_URL"]);
+      expect(rows).toEqual([{ current_database: database.databaseName }]);
+
+      await dropPostgresTestDatabase(database);
+      dropped = true;
+
+      const terminationError = await liveConnection.waitForTermination();
+      await liveConnection.waitForClose();
+      expect(terminationError.message).toMatch(
+        /terminating connection|Connection terminated unexpectedly/i
+      );
+      if ("code" in terminationError)
+        expect(terminationError.code).toBe("57P01");
+
+      await expect(liveConnection.query("SELECT 1")).rejects.toThrow();
+      await expect(database.openConnection()).rejects.toThrow(/dropped/);
+
+      recreated = await createPostgresTestDatabase({ runId });
+      expect(recreated.databaseName).toBe(database.databaseName);
+      expect(
+        await recreated.query<{ current_database: string }>(
+          "SELECT current_database()"
+        )
+      ).toEqual([{ current_database: database.databaseName }]);
+    } finally {
+      await liveConnection.close().catch(() => undefined);
+      if (!dropped) await dropPostgresTestDatabase(database);
+      if (recreated !== undefined) await dropPostgresTestDatabase(recreated);
+    }
+
+    return await expect(dropPostgresTestDatabase(database)).rejects.toThrow(
+      /unowned or already-dropped/
+    );
+  });
+
+  it("proves cross-role signaling is forbidden and waits for that client to close", async () => {
+    const runId = `cross_role_${randomUUID()}`;
+    const database = await createPostgresTestDatabase({ runId });
+    const runnerUrl = new URL(database.databaseUrl);
+    runnerUrl.pathname = "/darkfactory_test_maintenance";
+    const appUrl = new URL(database.databaseUrl);
+    appUrl.username = "darkfactory_app";
+    appUrl.password = "darkfactory-app-local-only";
+    const runner = new Client({
+      connectionString: runnerUrl.toString(),
+      connectionTimeoutMillis: 5000,
+    });
+    const differentRole = new Client({
+      connectionString: appUrl.toString(),
+      connectionTimeoutMillis: 5000,
+    });
+    let cleanup: Promise<void> | undefined;
+    let cleanupSettled = false;
+    let dropped = false;
+
+    try {
+      await runner.connect();
+      await differentRole.connect();
+      const blocker = await differentRole.query<{ pid: number }>(
+        "SELECT pg_backend_pid()::int AS pid"
+      );
+      const blockerPid = blocker.rows[0]?.pid;
+      expect(Number.isSafeInteger(blockerPid)).toBe(true);
+      await expect(
+        runner.query("SELECT pg_terminate_backend($1::int)", [blockerPid])
+      ).rejects.toMatchObject({ code: "42501" });
+      await expect(
+        runner.query(
+          "SELECT pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal_backends"
+        )
+      ).resolves.toMatchObject({
+        rows: [{ can_signal_backends: false }],
+      });
+
+      cleanup = dropPostgresTestDatabase(database);
+      void cleanup.then(
+        () => {
+          return (cleanupSettled = true);
+        },
+        () => {
+          return (cleanupSettled = true);
+        }
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(cleanupSettled).toBe(false);
+      await differentRole.end();
+      await cleanup;
+      return (dropped = true);
+    } finally {
+      await differentRole.end().catch(() => undefined);
+      await cleanup?.catch(() => undefined);
+      await runner.end().catch(() => undefined);
+      if (!dropped) {
+        await dropPostgresTestDatabase(database);
+      }
+    }
+  }, 15_000);
+
+  it("serializes a same-name recreation behind the original cleanup lock", async () => {
+    const runId = `replacement_lock_${randomUUID()}`;
+    const original = await createPostgresTestDatabase({ runId });
+    const appUrl = new URL(original.databaseUrl);
+    appUrl.username = "darkfactory_app";
+    appUrl.password = "darkfactory-app-local-only";
+    const runnerUrl = new URL(original.databaseUrl);
+    runnerUrl.pathname = "/darkfactory_test_maintenance";
+    const blocker = new Client({
+      connectionString: appUrl.toString(),
+      connectionTimeoutMillis: 5000,
+    });
+    const monitor = new Client({
+      connectionString: runnerUrl.toString(),
+      connectionTimeoutMillis: 5000,
+    });
+    let cleanup: Promise<void> | undefined;
+    let originalDropped = false;
+    let replacement: PostgresTestDatabase | undefined;
+    let replacementPromise: Promise<PostgresTestDatabase> | undefined;
+
+    try {
+      await blocker.connect();
+      await monitor.connect();
+      cleanup = dropPostgresTestDatabase(original);
+      void cleanup.catch(() => undefined);
+      let lockObserved = false;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const result = await monitor.query<{ lock_held: boolean }>(
+          "WITH attempt AS MATERIALIZED (SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired) SELECT NOT acquired AS lock_held, CASE WHEN acquired THEN pg_advisory_unlock(hashtextextended($1, 0)) ELSE false END AS released FROM attempt",
+          [`darkfactory-testkit:${original.databaseName}`]
+        );
+        if (result.rows[0]?.lock_held) {
+          lockObserved = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(lockObserved).toBe(true);
+
+      let replacementSettled = false;
+      replacementPromise = createPostgresTestDatabase({ runId });
+      void replacementPromise.then(
+        () => {
+          return (replacementSettled = true);
+        },
+        () => {
+          return (replacementSettled = true);
+        }
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(replacementSettled).toBe(false);
+
+      await blocker.end();
+      await cleanup;
+      originalDropped = true;
+      replacement = await replacementPromise;
+      expect(replacement.databaseName).toBe(original.databaseName);
+      expect(await replacement.query("SELECT 1 AS alive")).toEqual([
+        { alive: 1 },
+      ]);
+      return await expect(original.openConnection()).rejects.toThrow(/dropped/);
+    } finally {
+      await blocker.end().catch(() => undefined);
+      await cleanup?.then(
+        () => {
+          return (originalDropped = true);
+        },
+        () => undefined
+      );
+      if (replacement === undefined && replacementPromise !== undefined) {
+        replacement = await replacementPromise.catch(() => undefined);
+      }
+      await monitor.end().catch(() => undefined);
+      if (!originalDropped) {
+        await dropPostgresTestDatabase(original).catch(() => undefined);
+      }
+      if (replacement !== undefined) {
+        await dropPostgresTestDatabase(replacement);
+      }
+    }
+  }, 15_000);
+
+  it("reports a real prepared transaction through preflight diagnostics", async () => {
+    const database = await createPostgresTestDatabase({
+      runId: `prepared_${randomUUID()}`,
+    });
+    const transaction = new Client({
+      connectionString: database.databaseUrl,
+      connectionTimeoutMillis: 5000,
+    });
+    const gid = `darkfactory_${randomUUID()}`;
+    let prepared = false;
+    let dropped = false;
+
+    try {
+      await transaction.connect();
+      await transaction.query("BEGIN");
+      await transaction.query("SELECT 1");
+      await transaction.query(`PREPARE TRANSACTION '${gid}'`);
+      prepared = true;
+      await transaction.end();
+
+      const rejection = await dropPostgresTestDatabase(database).then(
+        () => undefined,
+        (error: unknown) => error
+      );
+      expect(rejection).toMatchObject({
+        message: "Postgres test database cleanup failed",
+        errors: [
+          expect.objectContaining({
+            code: "55006",
+            message: expect.stringMatching(/prepared transaction/i),
+          }),
+        ],
+      });
+
+      const rollback = new Client({
+        connectionString: database.databaseUrl,
+        connectionTimeoutMillis: 5000,
+      });
+      try {
+        await rollback.connect();
+        await rollback.query(`ROLLBACK PREPARED '${gid}'`);
+        prepared = false;
+      } finally {
+        await rollback.end().catch(() => undefined);
+      }
+
+      await dropPostgresTestDatabase(database);
+      return (dropped = true);
+    } finally {
+      await transaction.end().catch(() => undefined);
+      if (prepared) {
+        const rollback = new Client({
+          connectionString: database.databaseUrl,
+          connectionTimeoutMillis: 5000,
+        });
+        try {
+          await rollback.connect();
+          await rollback.query(`ROLLBACK PREPARED '${gid}'`);
+        } finally {
+          await rollback.end().catch(() => undefined);
+        }
+      }
+      if (!dropped) await dropPostgresTestDatabase(database);
+    }
+  }, 15_000);
+
+  it("hashes the full run ID so long shared prefixes remain isolated", async () => {
+    const sharedPrefix = `long_${randomUUID()}_${"x".repeat(200)}`;
+    const first = await createPostgresTestDatabase({
+      runId: `${sharedPrefix}_a`,
+    });
+    let second: PostgresTestDatabase | undefined;
+
+    try {
+      second = await createPostgresTestDatabase({ runId: `${sharedPrefix}_b` });
+      expect(first.databaseName).not.toBe(second.databaseName);
+      expect(first.databaseName.length).toBeLessThanOrEqual(63);
+      return expect(second.databaseName.length).toBeLessThanOrEqual(63);
+    } finally {
+      await dropPostgresTestDatabase(first);
+      if (second !== undefined) await dropPostgresTestDatabase(second);
+    }
+  });
+
+  return it("reports a concurrent normalized run-ID collision without dropping the winner", async () => {
+    const runId = `collision_${randomUUID()}`;
+    const results = await Promise.allSettled([
+      createPostgresTestDatabase({ runId }),
+      createPostgresTestDatabase({ runId: runId.toUpperCase() }),
+    ]);
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<PostgresTestDatabase> => {
+        return result.status === "fulfilled";
+      }
+    );
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => {
+        return result.status === "rejected";
+      }
+    );
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({
+      message: expect.stringMatching(/runId collision/),
+    });
+
+    const winner = fulfilled[0]?.value;
+    if (winner === undefined) throw new Error("Expected one collision winner");
+
+    try {
+      return expect(await winner.query("SELECT 1 AS alive")).toEqual([
+        { alive: 1 },
+      ]);
+    } finally {
+      await dropPostgresTestDatabase(winner);
+    }
+  });
+});

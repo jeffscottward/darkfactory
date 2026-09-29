@@ -21,7 +21,7 @@
 ## Material limitations
 
 - The current deterministic Vitest scope measures 100% lines, branches, functions, and statements, exceeding the official 80% branch-coverage alternative for qualifying automated tests. Integration and browser lanes remain separate and are not included in those percentages.
-- CodeQL is configured only for JavaScript/TypeScript and GitHub Actions. It does not scan authored Civet. Biome, TypeScript/Civet checks, and tests protect other quality boundaries but are not mislabeled as equivalent vulnerability SAST.
+- CodeQL is configured only for JavaScript/TypeScript and GitHub Actions. Authored source is TypeScript, so CodeQL covers it. Biome, TypeScript checks, and tests protect other quality boundaries but are not mislabeled as equivalent vulnerability SAST.
 - The assertion-bearing Vitest suite qualifies as dynamic analysis through the official 80% branch-coverage alternative; Playwright provides additional separately verified runtime behavior. This does not claim DAST scanner or fuzzing coverage and does not prove the software vulnerability-free.
 - Application-owned cryptography is separated from deployment/provider responsibilities. Web/Node Crypto and Better Auth own HMAC, CSPRNG, and password hashing; Cloudflare or another operator owns TLS certificates, cipher negotiation, and forward secrecy.
 - The public history contains zero issues, and the maintainer confirmed no GitHub repository advisory/report on 2026-07-25. Response rows describe only that dated history and promise no acknowledgement time, remediation time, or SLA.

@@ -1,0 +1,67 @@
+import {
+  type DevelopmentAction,
+  type LifecycleFileSystem,
+  OPERATOR_DEVELOPMENT_PROFILE,
+  type ProcessAdapter,
+  runDevelopmentAction,
+  WEB_DEVELOPMENT_PROFILE,
+} from "./lifecycle.ts";
+
+const ACTIONS = new Set<DevelopmentAction>([
+  "start",
+  "status",
+  "logs",
+  "stop",
+  "trust",
+  "certs-install",
+  "certs-generate",
+]);
+
+export type DevelopmentCliDependencies = Readonly<{
+  process: ProcessAdapter;
+  files?: LifecycleFileSystem;
+  writeOutput: (value: string) => void;
+  writeError: (value: string) => void;
+}>;
+
+export const runDevelopmentCli = async (
+  arguments_: readonly string[],
+  dependencies: DevelopmentCliDependencies
+): Promise<number> => {
+  const isOperator = arguments_[0] === "operator";
+  const actionArguments = isOperator ? arguments_.slice(1) : arguments_;
+  const profile = isOperator
+    ? OPERATOR_DEVELOPMENT_PROFILE
+    : WEB_DEVELOPMENT_PROFILE;
+  const [candidate, ...extra] = actionArguments;
+  if (
+    candidate === undefined ||
+    extra.length > 0 ||
+    !ACTIONS.has(candidate as DevelopmentAction)
+  ) {
+    dependencies.writeError(
+      "Usage: dev <start|status|logs|stop|trust|certs-install|certs-generate>\n"
+    );
+    return 2;
+  }
+
+  try {
+    const report = await runDevelopmentAction(
+      candidate as DevelopmentAction,
+      dependencies.process,
+      dependencies.files,
+      profile
+    );
+    const { output: commandOutput, ...summary } = report;
+    const rendered = `${JSON.stringify(summary, null, 2)}\n`;
+    if (report.ok) {
+      if (candidate === "logs" && commandOutput)
+        dependencies.writeOutput(commandOutput);
+      dependencies.writeOutput(rendered);
+    } else dependencies.writeError(rendered);
+    return report.ok ? 0 : 1;
+  } catch {
+    dependencies.writeError(`${candidate} failed unexpectedly\n`);
+    return 1;
+  }
+};

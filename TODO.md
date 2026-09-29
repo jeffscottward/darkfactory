@@ -97,7 +97,7 @@ Every agent loop must satisfy these rules:
 
 ### Recurring loop: compatibility baseline
 
-**Owner:** Toolchain maintainer. **Trigger:** Monthly, before a dependency update, or when Node/Civet/vinext/Vite/React/Cloudflare behavior changes.
+**Owner:** Toolchain maintainer. **Trigger:** Monthly, before a dependency update, or when Node/TypeScript/vinext/Vite/React/Cloudflare behavior changes.
 
 **Steps:** Reproduce the current baseline; inspect release notes and official compatibility sources; update one coherent toolchain boundary; run doctor fixtures, type/build/unit/integration/E2E, server/client bundle boundaries, and deployment build output; compare artifacts; update the baseline and recovery note only after evidence.
 

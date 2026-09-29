@@ -1,0 +1,913 @@
+import {
+  canonicalJsonV1,
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
+  MAX_WORKFLOW_SCOPE_BYTES,
+  parseWorkflowEffectScopeV1,
+  type WorkflowEffectScopeV1,
+  type WorkflowExecutionModeV1,
+} from "@darkfactory/state/workflow";
+
+import {
+  decodeOmpImplementationArtifact,
+  type OmpCliAdapter,
+  type OmpExecutionResult,
+  type OmpImplementationArtifact,
+  type OmpImplementationRecovery,
+  type OmpPersistenceDisposition,
+  OmpProcessTerminationError,
+  type OmpVerificationAttempt,
+  OmpWorkspaceCleanupError,
+  redactEffectiveOmpOutput,
+} from "./omp.ts";
+import {
+  createWorkflowPlanEvidenceV1,
+  WorkflowPlanEvidenceError,
+  type WorkflowPlanEvidenceV1,
+} from "./plan-evidence.ts";
+import { required } from "./required.ts";
+import type { WayfinderExecutionPort } from "./wayfinder.ts";
+
+export const WORKFLOW_EFFECT_HANDLER_V1 = "workflow.omp";
+export const WORKFLOW_EFFECT_HANDLER_V2 = "workflow.omp.v2";
+export type WorkflowEffectHandler =
+  | typeof WORKFLOW_EFFECT_HANDLER_V1
+  | typeof WORKFLOW_EFFECT_HANDLER_V2;
+export const DEFAULT_WORKFLOW_LEASE_MS = 30_000;
+export const DEFAULT_WORKFLOW_HEARTBEAT_MS = 10_000;
+export const DEFAULT_WORKFLOW_POLL_MS = 1000;
+
+export type WorkflowEffectKind = "plan" | "implement" | "verify";
+
+export type ClaimedWorkflowEffect = Readonly<{
+  id: string;
+  runId: string;
+  ownerId: string;
+  handler: WorkflowEffectHandler;
+  idempotencyKey: string;
+  effectId: string;
+  effectKind: WorkflowEffectKind;
+  effectScope: string;
+  taskMetadata?: Readonly<{
+    taskId: string;
+    workspaceId: string;
+    taskRevision: number;
+    taskHash: string;
+    sourceSequence: number;
+    executionMode?: WorkflowExecutionModeV1;
+    humanRequest?: string;
+    planClarification?: string;
+  }>;
+  implementationEvidence?: unknown;
+  implementationChangeHash?: unknown;
+  attemptCount: number;
+  leaseOwner: string;
+  fenceToken: number;
+}>;
+
+export type WorkflowEffectCompletion = Readonly<{
+  status: "succeeded";
+  eventType:
+    | "PLAN_SUCCEEDED"
+    | "IMPLEMENTATION_SUCCEEDED"
+    | "VERIFICATION_SUCCEEDED";
+  exitCode: 0;
+  durationMs: number;
+  outputBytes: number;
+  outputTruncated: boolean;
+  outputRedacted: boolean;
+  changeHash: string | null;
+  changedPaths: readonly string[];
+  verification?: OmpVerificationAttempt | null;
+  plan: WorkflowPlanEvidenceV1 | null;
+  implementationArtifact?: OmpImplementationArtifact | null;
+}>;
+
+export type WorkflowEffectFailure = Readonly<{
+  status: "failed";
+  eventType: "EFFECT_FAILED";
+  failureCode: Exclude<OmpExecutionResult["status"], "succeeded">;
+  exitCode: number | null;
+  durationMs: number;
+  outputBytes: number;
+  outputTruncated: boolean;
+  outputRedacted: boolean;
+  changeHash: string | null;
+  changedPaths: readonly string[];
+  verification?: OmpVerificationAttempt | null;
+  implementationArtifact?: OmpImplementationArtifact | null;
+
+  retryable: boolean;
+}>;
+
+export type WorkflowOutboxPort = Readonly<{
+  claimDueEffects: (
+    input: Readonly<{
+      handler: WorkflowEffectHandler;
+      leaseOwner: string;
+      limit: number;
+      leaseMilliseconds: number;
+    }>
+  ) => Promise<readonly ClaimedWorkflowEffect[]>;
+  heartbeatEffect: (
+    input: Readonly<{
+      id: string;
+      leaseOwner: string;
+      fenceToken: number;
+      leaseMilliseconds: number;
+    }>
+  ) => Promise<boolean>;
+  completeEffect: (
+    input: Readonly<{
+      id: string;
+      leaseOwner: string;
+      fenceToken: number;
+      result: WorkflowEffectCompletion;
+    }>
+  ) => Promise<boolean>;
+  failEffect: (
+    input: Readonly<{
+      id: string;
+      leaseOwner: string;
+      fenceToken: number;
+      result: WorkflowEffectFailure;
+    }>
+  ) => Promise<boolean | OmpPersistenceDisposition>;
+}>;
+
+export type WorkflowWorkerItemResult = Readonly<{
+  id: string;
+  status: "completed" | "failed" | "lease-lost";
+}>;
+
+export type WorkflowOutboxWorker = Readonly<{
+  runOnce: () => Promise<readonly WorkflowWorkerItemResult[]>;
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
+  isRunning: () => boolean;
+}>;
+
+export type WorkflowOutboxWorkerOptions = Readonly<{
+  repository: WorkflowOutboxPort;
+  adapter: OmpCliAdapter;
+  wayfinderAdapter?: WayfinderExecutionPort;
+  leaseOwner: string;
+  authorizeRepository: (ownerId: string, repositoryId: string) => boolean;
+  leaseMilliseconds?: number;
+  heartbeatMilliseconds?: number;
+  pollMilliseconds?: number;
+  batchSize?: number;
+}>;
+
+export class WorkflowWorkerConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkflowWorkerConfigurationError";
+  }
+}
+
+type ValidatedWorkflowClaim = Readonly<{
+  scope: WorkflowEffectScopeV1;
+  recovery?: OmpImplementationRecovery;
+}>;
+
+export const workflowImplementationRecoveryFromEvidence = (
+  value: unknown
+): Readonly<{
+  scope: WorkflowEffectScopeV1;
+  recovery: OmpImplementationRecovery;
+}> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow implementation recovery evidence is missing"
+    );
+  }
+  const evidence = value as Readonly<Record<string, unknown>>;
+  const effectScope = evidence["effectScope"];
+  const changeHash = evidence["changeHash"];
+  const implementationArtifact = evidence["implementationArtifact"];
+  if (
+    evidence["effectKind"] !== "implement" ||
+    evidence["status"] !== "succeeded" ||
+    evidence["eventType"] !== "IMPLEMENTATION_SUCCEEDED" ||
+    evidence["exitCode"] !== 0 ||
+    typeof effectScope !== "string" ||
+    typeof changeHash !== "string" ||
+    typeof implementationArtifact !== "object" ||
+    implementationArtifact === null ||
+    Array.isArray(implementationArtifact)
+  ) {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow implementation recovery evidence is invalid"
+    );
+  }
+  let scope: WorkflowEffectScopeV1;
+  try {
+    scope = parseWorkflowEffectScopeV1(JSON.parse(effectScope));
+    if (canonicalJsonV1(scope) !== effectScope) {
+      throw new Error("non-canonical scope");
+    }
+    decodeOmpImplementationArtifact(
+      implementationArtifact as OmpImplementationArtifact,
+      changeHash
+    );
+  } catch {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow implementation recovery evidence is invalid"
+    );
+  }
+  return Object.freeze({
+    scope,
+    recovery: Object.freeze({
+      artifact: implementationArtifact as OmpImplementationArtifact,
+      changeHash,
+    }),
+  });
+};
+
+const SAFE_IDENTIFIER = /^[A-Za-z0-9._:/-]{1,256}$/u;
+
+const requirePositiveInteger = (
+  value: number,
+  name: string,
+  maximum: number
+): number => {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new WorkflowWorkerConfigurationError(
+      `${name} must be a positive bounded integer`
+    );
+  }
+  return value;
+};
+
+const validateClaim = (
+  claim: ClaimedWorkflowEffect
+): ValidatedWorkflowClaim => {
+  if (
+    claim.handler !== WORKFLOW_EFFECT_HANDLER_V1 &&
+    claim.handler !== WORKFLOW_EFFECT_HANDLER_V2
+  ) {
+    throw new WorkflowWorkerConfigurationError(
+      "Unexpected workflow effect handler"
+    );
+  }
+  for (const value of [
+    claim.id,
+    claim.runId,
+    claim.ownerId,
+    claim.effectId,
+    claim.idempotencyKey,
+  ]) {
+    if (!SAFE_IDENTIFIER.test(value)) {
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow effect identifiers must contain only safe characters"
+      );
+    }
+  }
+  if (
+    claim.effectScope.length === 0 ||
+    new TextEncoder().encode(claim.effectScope).byteLength >
+      MAX_WORKFLOW_SCOPE_BYTES ||
+    /[\u0000-\u001F\u007F]/u.test(claim.effectScope)
+  ) {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow effect scope is invalid"
+    );
+  }
+  let effectScope: WorkflowEffectScopeV1;
+  try {
+    effectScope = parseWorkflowEffectScopeV1(JSON.parse(claim.effectScope));
+  } catch {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow effect scope is invalid"
+    );
+  }
+  if (canonicalJsonV1(effectScope) !== claim.effectScope) {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow effect scope must use canonical JSON"
+    );
+  }
+  if (claim.taskMetadata !== undefined) {
+    if (
+      claim.taskMetadata.taskId.length === 0 ||
+      new TextEncoder().encode(claim.taskMetadata.taskId).byteLength > 1024 ||
+      /[\u0000-\u001F\u007F]/u.test(claim.taskMetadata.taskId)
+    ) {
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow task title is invalid"
+      );
+    }
+    for (const value of [
+      claim.taskMetadata.workspaceId,
+      claim.taskMetadata.taskHash,
+    ]) {
+      if (!SAFE_IDENTIFIER.test(value)) {
+        throw new WorkflowWorkerConfigurationError(
+          "Workflow task metadata must contain only safe identifiers"
+        );
+      }
+    }
+    if (
+      !Number.isSafeInteger(claim.taskMetadata.taskRevision) ||
+      claim.taskMetadata.taskRevision < 0 ||
+      !Number.isSafeInteger(claim.taskMetadata.sourceSequence) ||
+      claim.taskMetadata.sourceSequence < 0
+    ) {
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow task metadata is invalid"
+      );
+    }
+    const executionMode = claim.taskMetadata.executionMode;
+    const humanRequest = claim.taskMetadata.humanRequest;
+    if (
+      (executionMode === undefined && humanRequest !== undefined) ||
+      (executionMode === "pilot" && humanRequest !== undefined) ||
+      (executionMode === "wayfinder" &&
+        (typeof humanRequest !== "string" ||
+          humanRequest.length === 0 ||
+          new TextEncoder().encode(humanRequest).byteLength >
+            MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
+          /[\u0000-\u001F\u007F]/u.test(humanRequest))) ||
+      (executionMode !== undefined &&
+        executionMode !== "pilot" &&
+        executionMode !== "wayfinder")
+    ) {
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow execution metadata is invalid"
+      );
+    }
+    const planClarification = claim.taskMetadata.planClarification;
+    if (
+      planClarification !== undefined &&
+      (planClarification.length === 0 ||
+        planClarification.trim() !== planClarification ||
+        new TextEncoder().encode(planClarification).byteLength >
+          MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
+        /[\u0000-\u001F\u007F]/u.test(planClarification))
+    ) {
+      throw new WorkflowWorkerConfigurationError(
+        "Workflow plan clarification is invalid"
+      );
+    }
+    if (
+      claim.handler === WORKFLOW_EFFECT_HANDLER_V1 &&
+      planClarification !== undefined
+    ) {
+      throw new WorkflowWorkerConfigurationError(
+        "Legacy workflow effects cannot carry plan clarification"
+      );
+    }
+  }
+  if (!["plan", "implement", "verify"].includes(claim.effectKind)) {
+    throw new WorkflowWorkerConfigurationError(
+      "Unexpected workflow effect kind"
+    );
+  }
+  if (
+    claim.effectKind !== "plan" &&
+    claim.taskMetadata?.planClarification !== undefined
+  ) {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow plan clarification belongs only to plan effects"
+    );
+  }
+  if (!Number.isSafeInteger(claim.fenceToken) || claim.fenceToken <= 0) {
+    throw new WorkflowWorkerConfigurationError("Invalid workflow effect fence");
+  }
+  const recovered =
+    claim.effectKind === "verify"
+      ? workflowImplementationRecoveryFromEvidence(claim.implementationEvidence)
+      : undefined;
+  if (
+    recovered !== undefined &&
+    (canonicalJsonV1(recovered.scope) !== canonicalJsonV1(effectScope) ||
+      typeof claim.implementationChangeHash !== "string" ||
+      recovered.recovery.changeHash !== claim.implementationChangeHash)
+  ) {
+    throw new WorkflowWorkerConfigurationError(
+      "Workflow implementation recovery binding changed"
+    );
+  }
+  return Object.freeze({
+    scope: effectScope,
+    ...(recovered === undefined ? {} : { recovery: recovered.recovery }),
+  });
+};
+
+const instructionFor = (
+  claim: ClaimedWorkflowEffect,
+  scope: WorkflowEffectScopeV1
+): string => {
+  const task = claim.taskMetadata;
+  return [
+    "Execute one bounded DarkFactory workflow effect.",
+    `Run ID: ${claim.runId}.`,
+    `Effect ID: ${claim.effectId}.`,
+    `Effect kind: ${claim.effectKind}.`,
+    `Scope: ${canonicalJsonV1(scope)}.`,
+    ...(task === undefined
+      ? []
+      : [
+          `Task title: ${JSON.stringify(task.taskId)}.`,
+          `Workspace ID: ${task.workspaceId}.`,
+          `Task revision: ${task.taskRevision}.`,
+          `Task hash: ${task.taskHash}.`,
+          `Source sequence: ${task.sourceSequence}.`,
+          ...(task.planClarification === undefined
+            ? []
+            : [
+                `Requested plan changes: ${JSON.stringify(task.planClarification)}.`,
+              ]),
+        ]),
+  ].join(" ");
+};
+
+const completionEventFor = (
+  kind: WorkflowEffectKind
+): WorkflowEffectCompletion["eventType"] => {
+  if (kind === "plan") return "PLAN_SUCCEEDED";
+  if (kind === "implement") return "IMPLEMENTATION_SUCCEEDED";
+  return "VERIFICATION_SUCCEEDED";
+};
+
+const outputMetadata = (result: OmpExecutionResult) => ({
+  durationMs: result.durationMs,
+  outputBytes: result.output.stdoutBytes + result.output.stderrBytes,
+  outputTruncated: result.output.truncated,
+  outputRedacted: result.output.redacted,
+});
+
+const sanitizeExecutionResult = (
+  result: OmpExecutionResult
+): OmpExecutionResult => {
+  const stdout = redactEffectiveOmpOutput(result.output.stdout);
+  const stderr = redactEffectiveOmpOutput(result.output.stderr);
+  if (!(stdout.redacted || stderr.redacted)) return result;
+  return Object.freeze({
+    ...result,
+    output: Object.freeze({
+      stdout: stdout.value,
+      stderr: stderr.value,
+      stdoutBytes: Buffer.byteLength(stdout.value),
+      stderrBytes: Buffer.byteLength(stderr.value),
+      truncated: result.output.truncated,
+      redacted: true,
+    }),
+  });
+};
+
+const completionFor = (
+  claim: ClaimedWorkflowEffect,
+  result: OmpExecutionResult & Readonly<{ status: "succeeded" }>
+): WorkflowEffectCompletion => {
+  const plan =
+    claim.effectKind === "plan"
+      ? createWorkflowPlanEvidenceV1(result.output)
+      : null;
+  return Object.freeze({
+    status: "succeeded",
+    eventType: completionEventFor(claim.effectKind),
+    exitCode: 0,
+    ...outputMetadata(result),
+    changeHash:
+      claim.effectKind === "plan" ? null : (result.change?.changeHash ?? null),
+    changedPaths:
+      claim.effectKind === "implement"
+        ? (result.change?.changedPaths ?? Object.freeze([]))
+        : Object.freeze([]),
+    plan,
+    verification:
+      claim.effectKind === "verify" ? (result.verification ?? null) : null,
+    implementationArtifact:
+      claim.effectKind === "implement"
+        ? (result.implementationArtifact ?? null)
+        : null,
+  });
+};
+
+const failureFor = (
+  claim: ClaimedWorkflowEffect,
+  result: OmpExecutionResult &
+    Readonly<{
+      status: Exclude<OmpExecutionResult["status"], "succeeded">;
+    }>
+): WorkflowEffectFailure =>
+  Object.freeze({
+    status: "failed",
+    eventType: "EFFECT_FAILED",
+    failureCode: result.status,
+    exitCode: result.exitCode,
+    ...outputMetadata(result),
+    changeHash:
+      claim.effectKind === "plan" ? null : (result.change?.changeHash ?? null),
+    changedPaths:
+      claim.effectKind === "implement"
+        ? (result.change?.changedPaths ?? Object.freeze([]))
+        : Object.freeze([]),
+    verification: result.verification ?? null,
+    implementationArtifact:
+      claim.effectKind === "implement"
+        ? (result.implementationArtifact ?? null)
+        : null,
+
+    retryable: result.status !== "aborted",
+  });
+
+const exceptionFailure = (): WorkflowEffectFailure =>
+  Object.freeze({
+    status: "failed",
+    eventType: "EFFECT_FAILED",
+    failureCode: "failed",
+    exitCode: null,
+    durationMs: 0,
+    outputBytes: 0,
+    outputTruncated: false,
+    outputRedacted: false,
+    changeHash: null,
+    changedPaths: Object.freeze([]),
+    verification: null,
+    implementationArtifact: null,
+    retryable: false,
+  });
+
+const planEvidenceFailureFor = (
+  result: OmpExecutionResult
+): WorkflowEffectFailure =>
+  Object.freeze({
+    ...exceptionFailure(),
+    ...outputMetadata(result),
+  });
+
+export const createWorkflowOutboxWorker = (
+  options: WorkflowOutboxWorkerOptions
+): WorkflowOutboxWorker => {
+  if (!SAFE_IDENTIFIER.test(options.leaseOwner)) {
+    throw new WorkflowWorkerConfigurationError("leaseOwner is invalid");
+  }
+  if (typeof options.authorizeRepository !== "function") {
+    throw new WorkflowWorkerConfigurationError(
+      "authorizeRepository is required"
+    );
+  }
+  const leaseMilliseconds = requirePositiveInteger(
+    options.leaseMilliseconds ?? DEFAULT_WORKFLOW_LEASE_MS,
+    "leaseMilliseconds",
+    10 * 60 * 1000
+  );
+  const heartbeatMilliseconds = requirePositiveInteger(
+    options.heartbeatMilliseconds ?? DEFAULT_WORKFLOW_HEARTBEAT_MS,
+    "heartbeatMilliseconds",
+    leaseMilliseconds
+  );
+  if (heartbeatMilliseconds >= leaseMilliseconds) {
+    throw new WorkflowWorkerConfigurationError(
+      "heartbeatMilliseconds must be shorter than the lease"
+    );
+  }
+  const pollMilliseconds = requirePositiveInteger(
+    options.pollMilliseconds ?? DEFAULT_WORKFLOW_POLL_MS,
+    "pollMilliseconds",
+    60_000
+  );
+  const batchSize = requirePositiveInteger(
+    options.batchSize ?? 1,
+    "batchSize",
+    32
+  );
+
+  let running = false;
+  let stopping = false;
+  let activeRun: Promise<readonly WorkflowWorkerItemResult[]> | null = null;
+  let workflowLoop: Promise<void> | null = null;
+  let wakeSleep: (() => void) | null = null;
+  const activeControllers = new Set<AbortController>();
+
+  const heartbeatInputFor = (claim: ClaimedWorkflowEffect) => ({
+    id: claim.id,
+    leaseOwner: claim.leaseOwner,
+    fenceToken: claim.fenceToken,
+    leaseMilliseconds,
+  });
+
+  const processClaim = async (
+    claim: ClaimedWorkflowEffect
+  ): Promise<WorkflowWorkerItemResult> => {
+    const failClaimException = async (): Promise<WorkflowWorkerItemResult> => {
+      try {
+        const persistence = await options.repository.failEffect({
+          id: claim.id,
+          leaseOwner: claim.leaseOwner,
+          fenceToken: claim.fenceToken,
+          result: exceptionFailure(),
+        });
+        const disposition: OmpPersistenceDisposition =
+          persistence === true
+            ? "persisted"
+            : persistence === false
+              ? "unpersisted"
+              : persistence;
+        return Object.freeze({
+          id: claim.id,
+          status: disposition === "unpersisted" ? "lease-lost" : "failed",
+        });
+      } catch {
+        return Object.freeze({ id: claim.id, status: "lease-lost" });
+      }
+    };
+
+    try {
+      const validated = validateClaim(claim);
+      const scope = validated.scope;
+      if (claim.leaseOwner !== options.leaseOwner) {
+        return Object.freeze({ id: claim.id, status: "lease-lost" });
+      }
+      if (!options.authorizeRepository(claim.ownerId, scope.repositoryId)) {
+        throw new WorkflowWorkerConfigurationError(
+          "Workflow repository authorization denied"
+        );
+      }
+
+      const abortController = new AbortController();
+      activeControllers.add(abortController);
+      try {
+        let leaseLost = false;
+        let heartbeatTail = Promise.resolve(true);
+        const queueHeartbeat = (): Promise<boolean> => {
+          heartbeatTail = heartbeatTail.then(async (stillOwned) => {
+            if (!stillOwned) return false;
+            try {
+              const renewed = await options.repository.heartbeatEffect(
+                heartbeatInputFor(claim)
+              );
+              if (!renewed) {
+                leaseLost = true;
+                abortController.abort();
+              }
+              return renewed;
+            } catch {
+              leaseLost = true;
+              abortController.abort();
+              return false;
+            }
+          });
+          return heartbeatTail;
+        };
+
+        if (!(await queueHeartbeat())) {
+          return Object.freeze({ id: claim.id, status: "lease-lost" });
+        }
+
+        const heartbeatTimer = setInterval(
+          () => void queueHeartbeat(),
+          heartbeatMilliseconds
+        );
+        let result: OmpExecutionResult;
+        try {
+          const wayfinderTask =
+            claim.effectKind === "plan" &&
+            claim.taskMetadata?.executionMode === "wayfinder"
+              ? claim.taskMetadata
+              : null;
+          const execution =
+            wayfinderTask === null
+              ? options.adapter.execute({
+                  workspaceId: claim.runId,
+                  command: "print",
+                  effectKind: claim.effectKind,
+                  instruction: instructionFor(claim, scope),
+                  cwd: scope.repositoryId,
+                  scopePaths: scope.paths,
+                  signal: abortController.signal,
+                  ...(validated.recovery === undefined
+                    ? {}
+                    : { recovery: validated.recovery }),
+                })
+              : options.wayfinderAdapter === undefined
+                ? Promise.reject(
+                    new WorkflowWorkerConfigurationError(
+                      "Wayfinder execution adapter is unavailable"
+                    )
+                  )
+                : options.wayfinderAdapter.execute({
+                    workspaceId:
+                      wayfinderTask.taskRevision > 1
+                        ? claim.effectId
+                        : claim.runId,
+                    command: "print",
+                    effectKind: "plan",
+                    cwd: scope.repositoryId,
+                    scopePaths: scope.paths,
+                    repositoryId: scope.repositoryId,
+                    humanRequest: required(
+                      wayfinderTask.humanRequest,
+                      "Wayfinder human request"
+                    ),
+                    ...(wayfinderTask.planClarification === undefined
+                      ? {}
+                      : { planClarification: wayfinderTask.planClarification }),
+                    signal: abortController.signal,
+                  });
+          result = sanitizeExecutionResult(await execution);
+        } catch (error) {
+          await heartbeatTail;
+          if (leaseLost || (stopping && abortController.signal.aborted)) {
+            return Object.freeze({ id: claim.id, status: "lease-lost" });
+          }
+          throw error;
+        } finally {
+          clearInterval(heartbeatTimer);
+        }
+
+        await heartbeatTail;
+        if (leaseLost || (stopping && abortController.signal.aborted)) {
+          await result.lifecycle?.finalize("unpersisted");
+          return Object.freeze({ id: claim.id, status: "lease-lost" });
+        }
+
+        const persistFailure = async (
+          failure: WorkflowEffectFailure
+        ): Promise<WorkflowWorkerItemResult> => {
+          const writeFailure = (): Promise<
+            boolean | OmpPersistenceDisposition
+          > => {
+            return options.repository.failEffect({
+              id: claim.id,
+              leaseOwner: claim.leaseOwner,
+              fenceToken: claim.fenceToken,
+              result: failure,
+            });
+          };
+          let persistence: boolean | OmpPersistenceDisposition;
+          try {
+            persistence = await writeFailure();
+          } catch {
+            try {
+              persistence = await writeFailure();
+            } catch {
+              await result.lifecycle?.finalize("unpersisted");
+              return Object.freeze({ id: claim.id, status: "lease-lost" });
+            }
+          }
+          const disposition: OmpPersistenceDisposition =
+            persistence === true
+              ? "persisted"
+              : persistence === false
+                ? "unpersisted"
+                : persistence;
+          await result.lifecycle?.finalize(disposition);
+          return Object.freeze({
+            id: claim.id,
+            status: disposition === "unpersisted" ? "lease-lost" : "failed",
+          });
+        };
+
+        if (
+          result.status === "succeeded" &&
+          claim.effectKind === "implement" &&
+          (result.change === null || result.change.changedPaths.length === 0)
+        ) {
+          result = Object.freeze({
+            ...result,
+            status: "no-changes",
+          });
+        }
+
+        if (result.status === "succeeded") {
+          let completion: WorkflowEffectCompletion;
+          try {
+            completion = completionFor(
+              claim,
+              result as OmpExecutionResult & Readonly<{ status: "succeeded" }>
+            );
+          } catch (error) {
+            if (error instanceof WorkflowPlanEvidenceError) {
+              return persistFailure(planEvidenceFailureFor(result));
+            }
+            await result.lifecycle?.finalize("unpersisted");
+            throw error;
+          }
+
+          let completed: boolean;
+          try {
+            completed = await options.repository.completeEffect({
+              id: claim.id,
+              leaseOwner: claim.leaseOwner,
+              fenceToken: claim.fenceToken,
+              result: completion,
+            });
+          } catch (error) {
+            await result.lifecycle?.finalize("unpersisted");
+            throw error;
+          }
+          await result.lifecycle?.finalize(
+            completed ? "persisted" : "unpersisted"
+          );
+          return Object.freeze({
+            id: claim.id,
+            status: completed ? "completed" : "lease-lost",
+          });
+        }
+
+        return persistFailure(
+          failureFor(
+            claim,
+            result as OmpExecutionResult &
+              Readonly<{
+                status: Exclude<OmpExecutionResult["status"], "succeeded">;
+              }>
+          )
+        );
+      } finally {
+        activeControllers.delete(abortController);
+      }
+    } catch (error) {
+      if (
+        error instanceof OmpProcessTerminationError ||
+        error instanceof OmpWorkspaceCleanupError
+      ) {
+        throw error;
+      }
+      if (stopping) {
+        return Object.freeze({ id: claim.id, status: "lease-lost" });
+      }
+      return failClaimException();
+    }
+  };
+
+  const performRun = async (): Promise<readonly WorkflowWorkerItemResult[]> => {
+    if (stopping) return Object.freeze([]);
+    const v2Claims = await options.repository.claimDueEffects({
+      handler: WORKFLOW_EFFECT_HANDLER_V2,
+      leaseOwner: options.leaseOwner,
+      limit: batchSize,
+      leaseMilliseconds,
+    });
+    if (stopping) return Object.freeze([]);
+    const remaining = batchSize - v2Claims.length;
+    const v1Claims =
+      remaining > 0
+        ? await options.repository.claimDueEffects({
+            handler: WORKFLOW_EFFECT_HANDLER_V1,
+            leaseOwner: options.leaseOwner,
+            limit: remaining,
+            leaseMilliseconds,
+          })
+        : Object.freeze([]);
+    if (stopping) return Object.freeze([]);
+    return Promise.all([...v2Claims, ...v1Claims].map(processClaim));
+  };
+
+  const runOnce = (): Promise<readonly WorkflowWorkerItemResult[]> => {
+    if (activeRun !== null) return activeRun;
+    activeRun = performRun().finally(() => {
+      activeRun = null;
+    });
+    return activeRun;
+  };
+
+  const sleep = (): Promise<void> =>
+    new Promise((resolveSleep) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        wakeSleep = null;
+        return resolveSleep();
+      };
+      const timer = setTimeout(finish, pollMilliseconds);
+      wakeSleep = finish;
+    });
+
+  const runLoop = async (): Promise<void> => {
+    while (!stopping) {
+      await runOnce();
+      if (!stopping) await sleep();
+    }
+  };
+
+  const start = async (): Promise<void> => {
+    if (running) return;
+    stopping = false;
+    running = true;
+    workflowLoop = runLoop().finally(() => {
+      running = false;
+      workflowLoop = null;
+    });
+    await Promise.resolve();
+  };
+
+  const stop = async (): Promise<void> => {
+    stopping = true;
+    for (const controller of activeControllers) controller.abort();
+    wakeSleep?.();
+    await workflowLoop;
+    await activeRun;
+  };
+
+  return Object.freeze({
+    runOnce,
+    start,
+    stop,
+    isRunning: () => running,
+  });
+};

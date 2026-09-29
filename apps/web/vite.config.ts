@@ -1,18 +1,10 @@
 import { isIP } from "node:net";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import civetVitePlugin from "@danielx/civet/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig, type Plugin } from "vite";
 import vinext from "vinext";
+import { defineConfig, type Plugin } from "vite";
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
-const appEnvironment = process.env["APP_ENV"];
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
-const e2eRunId = process.env["E2E_RUN_ID"];
-const isOwnedE2EPreview =
-  appEnvironment === "test" && /^[A-Za-z0-9_-]{1,128}$/u.test(e2eRunId ?? "");
 let port: number | undefined;
 
 if (rawPort !== undefined) {
@@ -23,7 +15,6 @@ if (rawPort !== undefined) {
   port = parsedPort;
 }
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const host = process.env["HOST"]?.trim() || "127.0.0.1";
 const isDottedNumericAddress = /^[\d.]+$/u.test(host) && host.includes(".");
 const isHostname =
@@ -103,32 +94,6 @@ const environmentOptimizerPolicy = (): Plugin => ({
   },
 });
 
-const e2ePreviewDiagnostics = (): Plugin => {
-  let requestPublished = false;
-  let responsePublished = false;
-
-  return {
-    name: "darkfactory:e2e-preview-diagnostics",
-    enforce: "pre",
-    configurePreviewServer(server) {
-      server.middlewares.use((_request, response, next) => {
-        if (!requestPublished) {
-          requestPublished = true;
-          process.stderr.write("DARKFACTORY_E2E_VITE_REQUEST_RECEIVED\n");
-        }
-        response.once("finish", () => {
-          if (responsePublished) {
-            return;
-          }
-          responsePublished = true;
-          process.stderr.write("DARKFACTORY_E2E_VITE_RESPONSE_FINISHED\n");
-        });
-        next();
-      });
-    },
-  };
-};
-
 export default defineConfig({
   resolve: {
     dedupe: [
@@ -144,7 +109,7 @@ export default defineConfig({
     strictPort: true,
     // Reduces dev transform latency; the native popover remains the SSR fallback.
     warmup: {
-      clientFiles: ["./src/components/portal-shell.civet"],
+      clientFiles: ["./src/components/portal-shell.tsx"],
     },
   },
   preview: {
@@ -153,19 +118,12 @@ export default defineConfig({
     strictPort: true,
   },
   plugins: [
-    civetVitePlugin({
-      ts: "esbuild",
-      // Vite transforms (development and production) only: Civet's TS service
-      // misreports /Users vs /users as TS1149. The package script remains strict.
-      typecheck: false,
-    }),
     tailwindcss(),
     vinext({
       nextConfig: {
-        pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
+        pageExtensions: ["tsx", "ts", "jsx", "js"],
       },
     }),
-    ...(isOwnedE2EPreview ? [e2ePreviewDiagnostics()] : []),
     cloudflare({
       viteEnvironment: {
         name: "rsc",

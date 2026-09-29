@@ -18,9 +18,6 @@ catalogs:
     '@cloudflare/vite-plugin':
       specifier: 1.47.0
       version: 1.47.0
-    '@danielx/civet':
-      specifier: 0.11.15
-      version: 0.11.15
     '@fontsource-variable/manrope':
       specifier: 5.3.0
       version: 5.3.0
@@ -217,9 +214,6 @@ importers:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.3.10
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@darkfactory/ai':
         specifier: workspace:*
         version: link:packages/ai
@@ -356,9 +350,6 @@ importers:
         specifier: 'catalog:'
         version: 1.0.0-beta.3(@vitejs/plugin-react@6.0.4(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0)))(@vitejs/plugin-rsc@0.5.29(react-dom@19.2.8(react@19.2.8))(react-server-dom-webpack@19.2.8(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(webpack@5.108.4(esbuild@0.28.1)(lightningcss@1.33.0)(postcss@8.5.28)))(react@19.2.8)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0)))(react-dom@19.2.8(react@19.2.8))(react-server-dom-webpack@19.2.8(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(webpack@5.108.4(esbuild@0.28.1)(lightningcss@1.33.0)(postcss@8.5.28)))(react@19.2.8)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
@@ -453,9 +444,6 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: 'catalog:'
         version: 1.47.0(@types/node@22.20.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))(wrangler@4.114.0(@types/node@22.20.1))
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
@@ -499,9 +487,6 @@ importers:
         specifier: 'catalog:'
         version: 1.3.0
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -514,9 +499,6 @@ importers:
 
   packages/analytics:
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -557,9 +539,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.12
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -588,9 +567,6 @@ importers:
         specifier: 'catalog:'
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.29.4)(pg@8.22.0)
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -613,9 +589,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.12
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(@vitest/coverage-v8@4.1.11)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
@@ -632,9 +605,6 @@ importers:
         specifier: 'catalog:'
         version: 8.22.0
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -657,9 +627,6 @@ importers:
         specifier: 'catalog:'
         version: 6.18.0(@react-email/render@2.1.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8))
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -679,9 +646,6 @@ importers:
         specifier: workspace:*
         version: link:../state
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -716,9 +680,6 @@ importers:
         specifier: 'catalog:'
         version: 2.22.3(@orpc/server@1.14.8(@opentelemetry/api@1.9.1)(ws@8.21.0))(react@19.2.8)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -759,9 +720,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.12
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -774,9 +732,6 @@ importers:
 
   packages/shared:
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@darkfactory/testkit':
         specifier: workspace:*
         version: link:../testkit
@@ -796,18 +751,12 @@ importers:
         specifier: 'catalog:'
         version: 5.0.14(@types/react@19.2.17)(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(@vitest/coverage-v8@4.1.11)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
 
   packages/storage:
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -817,9 +766,6 @@ importers:
 
   packages/testkit:
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/pg':
         specifier: 'catalog:'
         version: 8.20.0
@@ -857,9 +803,6 @@ importers:
         specifier: 'catalog:'
         version: 4.3.3
     devDependencies:
-      '@danielx/civet':
-        specifier: 'catalog:'
-        version: 0.11.15(typescript@6.0.2)(yaml@2.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -1302,22 +1245,6 @@ packages:
   '@csstools/css-tokenizer@3.0.4':
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
-
-  '@danielx/civet@0.11.15':
-    resolution: {integrity: sha512-z1XFSukJMKaIiadrkhMP1rMCvr/aJE1n+KcABKEd5R5Nv2GcumW1tlPxElEH/Gkg/IFh/o1SBjeNUo7jhlIl/A==}
-    engines: {node: '>=19 || ^18.6.0 || ^16.17.0'}
-    hasBin: true
-    peerDependencies:
-      '@danielx/hera': ^0.9.8
-      typescript: '>=4.5'
-      yaml: ^2.4.5
-    peerDependenciesMeta:
-      '@danielx/hera':
-        optional: true
-      typescript:
-        optional: true
-      yaml:
-        optional: true
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
@@ -5114,10 +5041,6 @@ packages:
   unpic@4.2.2:
     resolution: {integrity: sha512-z6T2ScMgRV2y2H8MwwhY5xHZWXhUx/YxtOCGJwfURSl7ypVy4HpLIMWoIZKnnxQa/RKzM0kg8hUh0paIrpLfvw==}
 
-  unplugin@2.3.11:
-    resolution: {integrity: sha512-5uKD0nqiYVzlmCRs01Fhs2BdkEgBS3SAVP6ndrBsuK42iC2+JHyxM05Rm9G8+5mkmRtzMZGY8Ct5+mliZxU/Ww==}
-    engines: {node: '>=18.12.0'}
-
   update-browserslist-db@1.2.3:
     resolution: {integrity: sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w==}
     hasBin: true
@@ -5285,9 +5208,6 @@ packages:
   webpack-sources@3.5.1:
     resolution: {integrity: sha512-jyuiGJdtvY434z5bUZrjz67v76/ePNvFZTp9Mdz29IlH4+GPsgyGjiv0fKI+M7BdkU6ADjulUcKAd3tUK3WlEw==}
     engines: {node: '>=10.13.0'}
-
-  webpack-virtual-modules@0.6.2:
-    resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
 
   webpack@5.108.4:
     resolution: {integrity: sha512-yur8LyJoeiWh47dErD+Ok7vlbmDsJ3UbbRPAoxbGJ54WpE2y5yVo5G/inUzujnYgw3tPmBRdn+G7PoxXaYC33w==}
@@ -5848,14 +5768,6 @@ snapshots:
       '@csstools/css-tokenizer': 3.0.4
 
   '@csstools/css-tokenizer@3.0.4': {}
-
-  '@danielx/civet@0.11.15(typescript@6.0.2)(yaml@2.9.0)':
-    dependencies:
-      '@cspotcode/source-map-support': 0.8.1
-      unplugin: 2.3.11
-    optionalDependencies:
-      typescript: 6.0.2
-      yaml: 2.9.0
 
   '@drizzle-team/brocli@0.10.2': {}
 
@@ -9484,13 +9396,6 @@ snapshots:
 
   unpic@4.2.2: {}
 
-  unplugin@2.3.11:
-    dependencies:
-      '@jridgewell/remapping': 2.3.5
-      acorn: 8.17.0
-      picomatch: 4.0.5
-      webpack-virtual-modules: 0.6.2
-
   update-browserslist-db@1.2.3(browserslist@4.28.7):
     dependencies:
       browserslist: 4.28.7
@@ -9658,8 +9563,6 @@ snapshots:
   webidl-conversions@7.0.0: {}
 
   webpack-sources@3.5.1: {}
-
-  webpack-virtual-modules@0.6.2: {}
 
   webpack@5.108.4(esbuild@0.28.1)(lightningcss@1.33.0)(postcss@8.5.28):
     dependencies:

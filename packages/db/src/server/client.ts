@@ -1,0 +1,287 @@
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Client, Pool } from "pg";
+// biome-ignore lint/performance/noNamespaceImport: Drizzle consumes the complete schema module object as its relational schema.
+import * as schema from "../schema/index.ts";
+
+export type Database = NodePgDatabase<typeof schema>;
+export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+export type DatabaseExecutor = Database | Transaction;
+
+export type DatabaseOptions = Readonly<{
+  connectionString: string;
+  maxConnections?: number;
+  idleTimeoutMillis?: number;
+  connectionTimeoutMillis?: number;
+}>;
+
+export type RequestDatabaseOptions = Pick<
+  DatabaseOptions,
+  "connectionString" | "connectionTimeoutMillis"
+> &
+  Readonly<{
+    diagnosticSink?: RequestDatabaseDiagnosticSink;
+  }>;
+
+export type DatabaseResource = Readonly<{
+  db: Database;
+  close: () => Promise<void>;
+}>;
+
+const PLANETSCALE_HOST_PATTERN =
+  /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+psdb\.cloud$/u;
+
+const normalizePlanetScaleSystemRoot = (connectionString: string): string => {
+  let connectionUrl: URL;
+  try {
+    connectionUrl = new URL(connectionString);
+  } catch {
+    return connectionString;
+  }
+
+  const protocolPrefix = `${connectionUrl.protocol}//`;
+  const queryIndex = connectionString.indexOf("?");
+  const authorityStart = protocolPrefix.length;
+  const authorityEndOffset = connectionString
+    .slice(authorityStart)
+    .search(/[/?#]/u);
+  if (
+    !connectionString.startsWith(protocolPrefix) ||
+    queryIndex === -1 ||
+    connectionString.includes("#") ||
+    authorityEndOffset === -1
+  ) {
+    return connectionString;
+  }
+
+  const authority = connectionString.slice(
+    authorityStart,
+    authorityStart + authorityEndOffset
+  );
+  const rawHostPort = authority.slice(authority.lastIndexOf("@") + 1);
+  const expectedHostPort =
+    connectionUrl.port === ""
+      ? connectionUrl.hostname
+      : `${connectionUrl.hostname}:${connectionUrl.port}`;
+  const rootCertificates = connectionUrl.searchParams.getAll("sslrootcert");
+  const sslModes = connectionUrl.searchParams.getAll("sslmode");
+  const rawQueryParameters = connectionString.slice(queryIndex + 1).split("&");
+  const systemRootIndex = rawQueryParameters.indexOf("sslrootcert=system");
+  if (
+    (connectionUrl.protocol !== "postgres:" &&
+      connectionUrl.protocol !== "postgresql:") ||
+    !PLANETSCALE_HOST_PATTERN.test(connectionUrl.hostname) ||
+    rawHostPort !== expectedHostPort ||
+    connectionUrl.searchParams.has("host") ||
+    sslModes.length !== 1 ||
+    sslModes[0] !== "verify-full" ||
+    rootCertificates.length !== 1 ||
+    rootCertificates[0] !== "system" ||
+    systemRootIndex === -1 ||
+    rawQueryParameters.lastIndexOf("sslrootcert=system") !== systemRootIndex ||
+    rawQueryParameters.filter(
+      (parameter) => parameter === "sslmode=verify-full"
+    ).length !== 1
+  ) {
+    return connectionString;
+  }
+
+  rawQueryParameters.splice(systemRootIndex, 1);
+  return `${connectionString.slice(0, queryIndex + 1)}${rawQueryParameters.join("&")}`;
+};
+
+const drizzleDatabase = (client: Client | Pool): Database => {
+  return drizzle({ client, schema });
+};
+
+export const createNodeDatabase = (
+  options: DatabaseOptions
+): DatabaseResource => {
+  const pool = new Pool({
+    connectionString: normalizePlanetScaleSystemRoot(options.connectionString),
+    ...(options.maxConnections === undefined
+      ? {}
+      : { max: options.maxConnections }),
+    ...(options.idleTimeoutMillis === undefined
+      ? {}
+      : { idleTimeoutMillis: options.idleTimeoutMillis }),
+    ...(options.connectionTimeoutMillis === undefined
+      ? {}
+      : { connectionTimeoutMillis: options.connectionTimeoutMillis }),
+  });
+
+  return {
+    db: drizzleDatabase(pool),
+    close: async () => {
+      await pool.end();
+    },
+  };
+};
+
+const DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS = 10_000;
+const REQUEST_QUERY_TIMEOUT_MILLISECONDS = 10_000;
+export const REQUEST_DATABASE_POOL_MAX_CONNECTIONS = 8;
+export const REQUEST_DATABASE_CLOSE_TIMEOUT_MILLISECONDS = 5000;
+const UNSAFE_REQUEST_CONNECTION_STRING_PATTERN = /[\u0000-\u001f]|\u0020$/u;
+
+export type RequestDatabaseDiagnostic = Readonly<{
+  code: "REQUEST_DATABASE_CLIENT_ERROR" | "REQUEST_DATABASE_CLIENT_CLOSE_ERROR";
+}>;
+export type RequestDatabaseDiagnosticSink = (
+  diagnostic: RequestDatabaseDiagnostic
+) => void;
+
+const REQUEST_DATABASE_CLIENT_ERROR_DIAGNOSTIC =
+  Object.freeze<RequestDatabaseDiagnostic>({
+    code: "REQUEST_DATABASE_CLIENT_ERROR",
+  });
+const REQUEST_DATABASE_CLIENT_CLOSE_ERROR_DIAGNOSTIC =
+  Object.freeze<RequestDatabaseDiagnostic>({
+    code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+  });
+const emitRequestDatabaseDiagnostic = (
+  diagnosticSink: RequestDatabaseDiagnosticSink | undefined,
+  diagnostic: RequestDatabaseDiagnostic
+): void => {
+  try {
+    diagnosticSink?.(diagnostic);
+  } catch {
+    // A diagnostic failure must not turn a handled driver event into a crash.
+    undefined;
+  }
+};
+
+const assertSafeRequestConnectionString = (connectionString: string): void => {
+  if (UNSAFE_REQUEST_CONNECTION_STRING_PATTERN.test(connectionString)) {
+    throw new TypeError(
+      "Request database connection strings cannot contain raw URL controls"
+    );
+  }
+
+  const queryStart = connectionString.indexOf("?");
+  if (queryStart === -1) return;
+
+  const fragmentStart = connectionString.indexOf("#", queryStart + 1);
+  const queryEnd =
+    fragmentStart === -1 ? connectionString.length : fragmentStart;
+  const queryParameters = new URLSearchParams(
+    connectionString.slice(queryStart + 1, queryEnd)
+  );
+  if (queryParameters.has("query_timeout")) {
+    throw new TypeError(
+      "Request database connection strings cannot set query_timeout"
+    );
+  }
+};
+
+let activeRequestConnections = 0;
+
+const endWithinCloseTimeout = async (client: Client): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      client.end(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error("Request database client end timed out"));
+        }, REQUEST_DATABASE_CLOSE_TIMEOUT_MILLISECONDS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const closeRequestDatabaseClient = (
+  client: Client,
+  diagnosticSink: RequestDatabaseDiagnosticSink | undefined
+): (() => Promise<void>) => {
+  let closePromise: Promise<void> | undefined;
+  return () => {
+    closePromise ??= (async (): Promise<void> => {
+      try {
+        await endWithinCloseTimeout(client);
+      } catch (error) {
+        emitRequestDatabaseDiagnostic(
+          diagnosticSink,
+          REQUEST_DATABASE_CLIENT_CLOSE_ERROR_DIAGNOSTIC
+        );
+        try {
+          // The forced disconnect pg's own end() uses for a hung query; nothing waits on the peer.
+          client.connection.stream.destroy();
+        } catch {
+          // The socket is already unusable; releasing admission below is what matters.
+          undefined;
+        }
+        throw error;
+      } finally {
+        // Release on every path: a rejected or hung end() used to leak the slot for the isolate's lifetime.
+        activeRequestConnections -= 1;
+      }
+    })();
+    return closePromise;
+  };
+};
+
+export class RequestDatabaseCapacityError extends Error {
+  override readonly name = "RequestDatabaseCapacityError";
+
+  constructor() {
+    super("Request database capacity is exhausted");
+  }
+}
+
+export const createRequestDatabase = async (
+  options: RequestDatabaseOptions
+): Promise<DatabaseResource> => {
+  assertSafeRequestConnectionString(options.connectionString);
+  if (activeRequestConnections >= REQUEST_DATABASE_POOL_MAX_CONNECTIONS) {
+    throw new RequestDatabaseCapacityError();
+  }
+
+  const diagnosticSink = options.diagnosticSink;
+  const connectionString = normalizePlanetScaleSystemRoot(
+    options.connectionString
+  );
+  const connectionTimeoutMillis =
+    options.connectionTimeoutMillis ??
+    DEFAULT_REQUEST_CONNECTION_TIMEOUT_MILLISECONDS;
+  const client = new Client({
+    connectionString,
+    connectionTimeoutMillis,
+    query_timeout: REQUEST_QUERY_TIMEOUT_MILLISECONDS,
+  });
+  client.on("error", () => {
+    return emitRequestDatabaseDiagnostic(
+      diagnosticSink,
+      REQUEST_DATABASE_CLIENT_ERROR_DIAGNOSTIC
+    );
+  });
+  activeRequestConnections += 1;
+  const close = closeRequestDatabaseClient(client, diagnosticSink);
+  try {
+    await client.connect();
+  } catch (error) {
+    try {
+      await close();
+    } catch {
+      // The central close path reports the end failure.
+      undefined;
+    }
+    throw error;
+  }
+
+  try {
+    return {
+      db: drizzleDatabase(client),
+      close,
+    };
+  } catch (error) {
+    await close().catch(() => undefined);
+    throw error;
+  }
+};
+
+export const withTransaction = async <Result>(
+  database: DatabaseExecutor,
+  operation: (transaction: Transaction) => Promise<Result>
+): Promise<Result> => database.transaction(operation);

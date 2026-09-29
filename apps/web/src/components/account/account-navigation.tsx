@@ -1,0 +1,43 @@
+"use client";
+
+import { cn } from "@darkfactory/ui";
+
+const accountRoutes = [
+  { href: "/account", label: "Summary" },
+  { href: "/account/profile", label: "Profile" },
+  { href: "/account/address", label: "Addresses" },
+  { href: "/account/preferences", label: "Preferences" },
+  { href: "/account/security", label: "Security" },
+] as const;
+
+export interface AccountNavigationProps {
+  readonly currentPath?: string;
+}
+
+export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
+  return (
+    <nav aria-label="Account settings" className="border-border border-b">
+      <ul className="flex flex-wrap gap-1" role="list">
+        {accountRoutes.map((route) => {
+          const isCurrent = currentPath === route.href;
+          return (
+            <li key={route.href}>
+              <a
+                aria-current={isCurrent ? "page" : undefined}
+                className={cn(
+                  "inline-flex min-h-11 items-center border-b-2 px-3 font-medium text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  isCurrent
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border-strong hover:text-foreground"
+                )}
+                href={route.href}
+              >
+                {route.label}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+};

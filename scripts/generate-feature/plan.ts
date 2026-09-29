@@ -1,0 +1,419 @@
+import { createHash } from "node:crypto";
+import { lstat, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
+import { GeneratorError } from "./errors.ts";
+import {
+  createLiveLeafFiles,
+  descriptorFor,
+  type FeatureRegistry,
+  renderContractRegistry,
+  renderFeatureRegistry,
+  renderNavigationRegistry,
+  renderPublicRegistry,
+  renderRepositoryRegistry,
+  renderRouterRegistry,
+  renderSchemaRegistry,
+} from "./live-templates.ts";
+import {
+  assertDirectoryChain,
+  assertNoSymlinkPath,
+  canonicalWorkspaceRoot,
+  captureDirectoryChain,
+  identityAt,
+  pathExists,
+} from "./path-safety.ts";
+import { assertCoreIdentityAvailable } from "./reserved-identities.ts";
+import type { FeatureNames, GenerationPlan, PlannedFile } from "./types.ts";
+import { validateFeatureName } from "./validate.ts";
+
+const issuedPlans = new WeakSet<object>();
+
+export const sha256 = (value: string): string => {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+};
+
+const REGISTRY_PATHS = Object.freeze({
+  descriptor: ".darkfactory/features.json",
+  navigation: "apps/web/src/features/generated-navigation.ts",
+  apiContracts: "packages/api/src/generated/contract-registry.ts",
+  apiPublic: "packages/api/src/generated/public-registry.ts",
+  apiRouters: "packages/api/src/generated/router-registry.ts",
+  journal: "packages/db/migrations/meta/_journal.json",
+  dbRepositories: "packages/db/src/generated/repository-registry.ts",
+  dbSchema: "packages/db/src/generated/schema-registry.ts",
+});
+
+const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
+  return (
+    JSON.stringify(Object.keys(value).sort()) ===
+    JSON.stringify([...keys].sort())
+  );
+};
+
+const parseRegistry = (content: string): FeatureRegistry => {
+  try {
+    const value = JSON.parse(content) as unknown;
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !hasExactKeys(value, ["version", "builtIn", "generated"])
+    ) {
+      throw new Error("invalid registry");
+    }
+    const candidate = value as FeatureRegistry;
+    if (
+      candidate.version !== 1 ||
+      !candidate.builtIn ||
+      typeof candidate.builtIn !== "object" ||
+      !hasExactKeys(candidate.builtIn, [
+        "name",
+        "route",
+        "apiNamespace",
+        "table",
+        "status",
+      ]) ||
+      candidate.builtIn.name !== "feature-item" ||
+      candidate.builtIn.route !== "/feature-items" ||
+      candidate.builtIn.apiNamespace !== "featureItems" ||
+      candidate.builtIn.table !== "feature_items" ||
+      candidate.builtIn.status !== "canonical-reference" ||
+      !Array.isArray(candidate.generated)
+    )
+      throw new Error("invalid registry");
+
+    let previous = "";
+    for (const feature of candidate.generated) {
+      if (
+        !feature ||
+        typeof feature !== "object" ||
+        !hasExactKeys(feature, [
+          "name",
+          "route",
+          "apiNamespace",
+          "table",
+          "migration",
+          "docs",
+          "graph",
+        ]) ||
+        typeof feature.name !== "string" ||
+        typeof feature.route !== "string" ||
+        typeof feature.apiNamespace !== "string" ||
+        typeof feature.table !== "string" ||
+        typeof feature.migration !== "string" ||
+        typeof feature.docs !== "string" ||
+        typeof feature.graph !== "string"
+      )
+        throw new Error("invalid feature descriptor");
+      const names = validateFeatureName(feature.name);
+      if (
+        feature.name <= previous ||
+        feature.route !== `/${names.pluralKebab}` ||
+        feature.apiNamespace !== names.pluralCamel ||
+        feature.table !== names.pluralSnake ||
+        !/^\d{4}$/.test(feature.migration.slice(0, 4)) ||
+        feature.migration.slice(4) !== `_${names.pluralSnake}` ||
+        feature.docs !== `docs/features/${names.kebab}.md` ||
+        feature.graph !== `apps/web/src/features/${names.kebab}/graphify.json`
+      )
+        throw new Error("invalid feature descriptor");
+      previous = feature.name;
+    }
+    return candidate;
+  } catch (error) {
+    throw new GeneratorError("PLAN_INVALID", "Feature registry is invalid", {
+      cause: error,
+    });
+  }
+};
+
+type MigrationJournal = Readonly<{
+  version: "7";
+  dialect: "postgresql";
+  entries: Readonly<{
+    idx: number;
+    version: "7";
+    when: number;
+    tag: string;
+    breakpoints: boolean;
+  }>[];
+}>;
+
+const parseJournal = (content: string): MigrationJournal => {
+  try {
+    const value = JSON.parse(content) as unknown;
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !hasExactKeys(value, ["version", "dialect", "entries"])
+    ) {
+      throw new Error("invalid journal");
+    }
+    const journal = value as MigrationJournal;
+    if (
+      journal.version !== "7" ||
+      journal.dialect !== "postgresql" ||
+      !Array.isArray(journal.entries)
+    ) {
+      throw new Error("invalid journal");
+    }
+    let previousWhen = -1;
+    const tags = new Set<string>();
+    for (const [index, entry] of journal.entries.entries()) {
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        !hasExactKeys(entry, [
+          "idx",
+          "version",
+          "when",
+          "tag",
+          "breakpoints",
+        ]) ||
+        entry.idx !== index ||
+        entry.version !== "7" ||
+        !Number.isSafeInteger(entry.when) ||
+        entry.when <= previousWhen ||
+        typeof entry.tag !== "string" ||
+        !/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(entry.tag) ||
+        tags.has(entry.tag) ||
+        typeof entry.breakpoints !== "boolean"
+      )
+        throw new Error("invalid journal entry");
+      previousWhen = entry.when;
+      tags.add(entry.tag);
+    }
+    return journal;
+  } catch (error) {
+    throw new GeneratorError("PLAN_INVALID", "Migration journal is invalid", {
+      cause: error,
+    });
+  }
+};
+
+const compareCodeUnits = (left: string, right: string): number => {
+  return left < right ? -1 : left > right ? 1 : 0;
+};
+
+export const generationPlanValidatorsForTest = Object.freeze({
+  compareCodeUnits,
+  parseRegistry,
+  parseJournal,
+});
+
+const plannedCreate = (path: string, content: string): PlannedFile =>
+  Object.freeze({
+    path,
+    content,
+    sha256: sha256(content),
+    operation: "create" as const,
+  });
+const plannedReplace = (
+  path: string,
+  previousContent: string,
+  content: string
+): PlannedFile =>
+  Object.freeze({
+    path,
+    content,
+    sha256: sha256(content),
+    operation: "replace" as const,
+    previousSha256: sha256(previousContent),
+  });
+const sortFiles = (files: PlannedFile[]): readonly PlannedFile[] => {
+  return Object.freeze(
+    files.sort((left, right) => compareCodeUnits(left.path, right.path))
+  );
+};
+
+const planIdentity = (
+  featureRoot: string,
+  names: FeatureNames,
+  files: readonly PlannedFile[]
+): string => sha256(JSON.stringify({ version: 1, featureRoot, names, files }));
+
+export const assertGenerationPlanIntegrity = (plan: GenerationPlan): void => {
+  if (!issuedPlans.has(plan)) {
+    throw new GeneratorError(
+      "PLAN_INVALID",
+      "Generation plan capability was not issued"
+    );
+  }
+};
+
+export const createGenerationPlan = async (
+  targetRoot: string,
+  names: FeatureNames
+): Promise<GenerationPlan> => {
+  const canonicalNames = validateFeatureName(names.kebab);
+  if (JSON.stringify(names) !== JSON.stringify(canonicalNames)) {
+    throw new GeneratorError(
+      "PLAN_INVALID",
+      "Feature name forms are inconsistent"
+    );
+  }
+  assertCoreIdentityAvailable(canonicalNames);
+  const root = await canonicalWorkspaceRoot(targetRoot);
+  const featureRoot = `apps/web/src/features/${canonicalNames.kebab}`;
+  await assertNoSymlinkPath(root, featureRoot);
+  const ownedDirectories = [
+    featureRoot,
+    `apps/web/src/app/(portal)/${canonicalNames.pluralKebab}`,
+    `packages/api/src/generated/${canonicalNames.kebab}`,
+    `packages/db/src/generated/${canonicalNames.kebab}`,
+  ];
+  for (const directory of ownedDirectories) {
+    await assertNoSymlinkPath(root, directory);
+    if (await pathExists(join(root, ...directory.split("/")))) {
+      throw new GeneratorError(
+        "TARGET_COLLISION",
+        "Feature-owned directory collision"
+      );
+    }
+  }
+
+  const readRegistry = async (path: string): Promise<string> => {
+    try {
+      await assertNoSymlinkPath(root, path);
+      const parentIdentities = await captureDirectoryChain(root, dirname(path));
+      const absolutePath = join(root, ...path.split("/"));
+      const stats = await lstat(absolutePath);
+      if (!stats.isFile()) {
+        throw new GeneratorError(
+          "SYMLINK_UNSAFE",
+          "Generated registry is not a safe regular file"
+        );
+      }
+      const fileIdentity = await identityAt(absolutePath);
+      const content = await readFile(absolutePath, "utf8");
+      await assertDirectoryChain([...parentIdentities, fileIdentity]);
+      return content;
+    } catch (error) {
+      if (error instanceof GeneratorError) throw error;
+      throw new GeneratorError(
+        "PLAN_INVALID",
+        "Required generated registry is unavailable",
+        { cause: error }
+      );
+    }
+  };
+  const current = Object.fromEntries(
+    await Promise.all(
+      Object.entries(REGISTRY_PATHS).map(async ([key, path]) => [
+        key,
+        await readRegistry(path),
+      ])
+    )
+  ) as Record<keyof typeof REGISTRY_PATHS, string>;
+  const registry = parseRegistry(current.descriptor);
+  if (
+    registry.generated.some((feature) => feature.name === canonicalNames.kebab)
+  ) {
+    throw new GeneratorError("TARGET_COLLISION", "Feature target collision");
+  }
+
+  const journal = parseJournal(current.journal);
+  const journalTags = new Set(journal.entries.map((entry) => entry.tag));
+  if (
+    registry.generated.some((feature) => !journalTags.has(feature.migration))
+  ) {
+    throw new GeneratorError(
+      "PLAN_INVALID",
+      "Feature registry and migration journal disagree"
+    );
+  }
+  const nextIndex =
+    journal.entries.reduce(
+      (maximum, entry) => Math.max(maximum, entry.idx),
+      -1
+    ) + 1;
+  const migrationTag = `${String(nextIndex).padStart(4, "0")}_${canonicalNames.pluralSnake}`;
+  const descriptor = descriptorFor(canonicalNames, migrationTag);
+  const generated = Object.freeze(
+    [...registry.generated, descriptor].sort((left, right) => {
+      return compareCodeUnits(left.name, right.name);
+    })
+  );
+  const nextRegistry: FeatureRegistry = Object.freeze({
+    ...registry,
+    generated,
+  });
+  const nextJournal = {
+    ...journal,
+    entries: [
+      ...journal.entries,
+      {
+        idx: nextIndex,
+        version: "7",
+        when: (journal.entries.at(-1)?.when ?? 0) + 1,
+        tag: migrationTag,
+        breakpoints: true,
+      },
+    ],
+  };
+
+  const createFiles = createLiveLeafFiles(canonicalNames, migrationTag);
+  for (const file of createFiles) {
+    if (await pathExists(join(root, ...file.path.split("/")))) {
+      throw new GeneratorError("TARGET_COLLISION", "Feature target collision");
+    }
+  }
+  const replacements: PlannedFile[] = [
+    plannedReplace(
+      REGISTRY_PATHS.descriptor,
+      current.descriptor,
+      renderFeatureRegistry(nextRegistry)
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.navigation,
+      current.navigation,
+      renderNavigationRegistry(generated)
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.apiContracts,
+      current.apiContracts,
+      renderContractRegistry(generated)
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.apiPublic,
+      current.apiPublic,
+      renderPublicRegistry(generated)
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.apiRouters,
+      current.apiRouters,
+      renderRouterRegistry(generated)
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.journal,
+      current.journal,
+      `${JSON.stringify(nextJournal, null, 2)}\n`
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.dbRepositories,
+      current.dbRepositories,
+      renderRepositoryRegistry(generated)
+    ),
+    plannedReplace(
+      REGISTRY_PATHS.dbSchema,
+      current.dbSchema,
+      renderSchemaRegistry(generated)
+    ),
+  ];
+  const files = sortFiles([
+    ...createFiles.map((file) => plannedCreate(file.path, file.content)),
+    ...replacements,
+  ]);
+  const planId = planIdentity(featureRoot, canonicalNames, files);
+  const plan = Object.freeze({
+    version: 1 as const,
+    targetRoot: root,
+    containerRoot: featureRoot,
+    capsuleRoot: featureRoot,
+    names: canonicalNames,
+    files,
+    planId,
+  }) as GenerationPlan;
+  issuedPlans.add(plan);
+  return plan;
+};

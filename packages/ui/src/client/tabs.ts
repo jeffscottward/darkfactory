@@ -1,0 +1,56 @@
+"use client";
+
+import { Tabs as TabsPrimitive } from "radix-ui";
+import type { ComponentPropsWithRef } from "react";
+import { createElement } from "react";
+
+import { cn } from "../utilities.ts";
+
+export const Tabs = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<typeof TabsPrimitive.Root>) => {
+  return createElement(TabsPrimitive.Root, {
+    className: cn("min-w-0", className),
+    ...props,
+  });
+};
+
+export const TabsList = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<typeof TabsPrimitive.List>) => {
+  return createElement(TabsPrimitive.List, {
+    className: cn(
+      "flex min-h-11 w-full items-end gap-5 overflow-x-auto border-border border-b",
+      className
+    ),
+    ...props,
+  });
+};
+
+export const TabsTrigger = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<typeof TabsPrimitive.Trigger>) => {
+  return createElement(TabsPrimitive.Trigger, {
+    className: cn(
+      "relative inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center border-transparent border-b-2 px-1 font-semibold text-muted-foreground text-sm transition-colors duration-base ease-out hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:bg-accent disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100 data-[state=active]:border-primary data-[state=active]:text-foreground",
+      className
+    ),
+    ...props,
+  });
+};
+
+export const TabsContent = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<typeof TabsPrimitive.Content>) => {
+  return createElement(TabsPrimitive.Content, {
+    className: cn(
+      "mt-6 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      className
+    ),
+    ...props,
+  });
+};

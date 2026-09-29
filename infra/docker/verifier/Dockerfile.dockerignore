@@ -12,4 +12,4 @@
 !infra/docker/
 !infra/docker/verifier/
 !infra/docker/verifier/checks.json
-!infra/docker/verifier/runner.civet
+!infra/docker/verifier/runner.ts

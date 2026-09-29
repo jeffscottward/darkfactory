@@ -245,33 +245,33 @@ Create the smallest complete tree below. A trailing comment marks a disabled cap
 │       ├── app/
 │       │   ├── (marketing)/
 │       │   │   ├── page.civet
-│       │   │   ├── features/page.civet
-│       │   │   ├── solutions/page.civet
-│       │   │   ├── resources/page.civet
-│       │   │   ├── about/page.civet
-│       │   │   ├── contact/page.civet
+│       │   │   ├── features/page.tsx
+│       │   │   ├── solutions/page.tsx
+│       │   │   ├── resources/page.tsx
+│       │   │   ├── about/page.tsx
+│       │   │   ├── contact/page.tsx
 │       │   │   └── legal/
 │       │   │       ├── privacy/page.civet
 │       │   │       └── terms/page.civet
 │       │   ├── (auth)/
 │       │   │   ├── sign-in/page.civet
-│       │   │   ├── sign-up/page.civet
-│       │   │   └── forgot-password/page.civet
+│       │   │   ├── sign-up/page.tsx
+│       │   │   └── forgot-password/page.tsx
 │       │   ├── (portal)/
 │       │   │   ├── layout.civet
-│       │   │   ├── dashboard/page.civet
+│       │   │   ├── dashboard/page.tsx
 │       │   │   ├── feature-items/
 │       │   │   │   ├── page.civet
-│       │   │   │   ├── new/page.civet
+│       │   │   │   ├── new/page.tsx
 │       │   │   │   └── [id]/page.civet
 │       │   │   ├── account/
 │       │   │   │   ├── page.civet
-│       │   │   │   ├── profile/page.civet
-│       │   │   │   ├── address/page.civet
-│       │   │   │   ├── preferences/page.civet
-│       │   │   │   └── security/page.civet
+│       │   │   │   ├── profile/page.tsx
+│       │   │   │   ├── address/page.tsx
+│       │   │   │   ├── preferences/page.tsx
+│       │   │   │   └── security/page.tsx
 │       │   │   └── admin/
-│       │   │       └── users/page.civet
+│       │   │       └── users/page.tsx
 │       │   ├── api/
 │       │   │   ├── auth/[...all]/route.ts
 │       │   │   ├── orpc/[...rest]/route.ts
@@ -420,7 +420,7 @@ Create the smallest complete tree below. A trailing comment marks a disabled cap
 ├── scripts/
 │   ├── index.civet
 │   ├── feature/index.civet
-│   ├── database/index.civet
+│   ├── database/index.ts
 │   ├── certificates/index.civet
 │   ├── capabilities/index.civet
 │   ├── graph/index.civet
@@ -825,7 +825,7 @@ project:
   framework_api: next-app-router
   framework_implementation: vinext
   build_tool: vite
-  language: civet
+  language: typescript
   runtime: cloudflare-workers
 
 workspace:

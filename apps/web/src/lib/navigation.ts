@@ -1,0 +1,146 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  Boxes,
+  CircleUserRound,
+  FileText,
+  Gauge,
+  House,
+  Info,
+  KeyRound,
+  LayoutList,
+  LockKeyhole,
+  Mail,
+  MapPin,
+  Settings,
+  Sparkles,
+  UserPlus,
+  UserRound,
+  Wrench,
+} from "lucide-react";
+import {
+  GENERATED_FEATURE_NAVIGATION,
+  GENERATED_FEATURE_ROUTE_PAGE_FILES,
+  GENERATED_FEATURE_ROUTE_PATHS,
+} from "../features/generated-navigation.ts";
+
+export interface NavigationItem {
+  readonly label: string;
+  readonly href: `/${string}` | "/";
+  readonly icon: LucideIcon;
+  readonly exact?: boolean;
+}
+
+export const PUBLIC_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { label: "Home", href: "/", icon: House, exact: true },
+  { label: "Features", href: "/features", icon: Sparkles },
+  { label: "Solutions", href: "/solutions", icon: Boxes },
+  { label: "Resources", href: "/resources", icon: BookOpen },
+  { label: "About", href: "/about", icon: Info },
+  { label: "Sign in", href: "/sign-in", icon: LockKeyhole },
+]);
+
+export const SUPPORT_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { label: "Contact", href: "/contact", icon: Mail },
+  { label: "Privacy", href: "/legal/privacy", icon: FileText },
+  { label: "Terms", href: "/legal/terms", icon: FileText },
+]);
+
+export const AUTH_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { label: "Sign up", href: "/sign-up", icon: UserPlus },
+  { label: "Forgot password", href: "/forgot-password", icon: KeyRound },
+  { label: "Reset password", href: "/reset-password", icon: KeyRound },
+]);
+
+export const PORTAL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { label: "Overview", href: "/dashboard", icon: Gauge },
+  { label: "Feature items", href: "/feature-items", icon: LayoutList },
+  ...GENERATED_FEATURE_NAVIGATION.map((item) => ({
+    ...item,
+    icon: LayoutList,
+  })),
+  { label: "Account", href: "/account", icon: CircleUserRound },
+]);
+
+export const ACCOUNT_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { label: "Profile", href: "/account/profile", icon: UserRound },
+  { label: "Address", href: "/account/address", icon: MapPin },
+  { label: "Preferences", href: "/account/preferences", icon: Settings },
+  { label: "Security", href: "/account/security", icon: LockKeyhole },
+]);
+
+export const ADMIN_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { label: "Users", href: "/admin/users", icon: Wrench },
+]);
+
+export const EXPOSED_ROUTE_PATHS = Object.freeze([
+  "/",
+  "/features",
+  "/solutions",
+  "/resources",
+  "/about",
+  "/sign-in",
+  "/contact",
+  "/legal/privacy",
+  "/legal/terms",
+  "/sign-up",
+  "/forgot-password",
+  "/reset-password",
+  "/dashboard",
+  "/feature-items",
+  "/account",
+  "/account/profile",
+  "/account/address",
+  "/account/preferences",
+  "/account/security",
+  "/admin/users",
+  ...GENERATED_FEATURE_ROUTE_PATHS,
+] as const);
+
+export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
+  {
+    "/": "(public)/page.tsx",
+    "/features": "(public)/features/page.tsx",
+    "/solutions": "(public)/solutions/page.tsx",
+    "/resources": "(public)/resources/page.tsx",
+    "/about": "(public)/about/page.tsx",
+    "/sign-in": "(auth)/sign-in/page.tsx",
+    "/contact": "(public)/contact/page.tsx",
+    "/legal/privacy": "(public)/legal/privacy/page.tsx",
+    "/legal/terms": "(public)/legal/terms/page.tsx",
+    "/sign-up": "(auth)/sign-up/page.tsx",
+    "/forgot-password": "(auth)/forgot-password/page.tsx",
+    "/reset-password": "(auth)/reset-password/page.tsx",
+    "/dashboard": "(portal)/dashboard/page.tsx",
+    "/feature-items": "(portal)/feature-items/page.tsx",
+    "/account": "(portal)/account/page.tsx",
+    "/account/profile": "(portal)/account/profile/page.tsx",
+    "/account/address": "(portal)/account/address/page.tsx",
+    "/account/preferences": "(portal)/account/preferences/page.tsx",
+    "/account/security": "(portal)/account/security/page.tsx",
+    "/admin/users": "(portal)/admin/users/page.tsx",
+    ...GENERATED_FEATURE_ROUTE_PAGE_FILES,
+  }
+);
+
+export const ALL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  ...PUBLIC_NAVIGATION,
+  ...SUPPORT_NAVIGATION,
+  ...AUTH_NAVIGATION,
+  ...PORTAL_NAVIGATION,
+  ...ACCOUNT_NAVIGATION,
+  ...ADMIN_NAVIGATION,
+]);
+
+export const isRouteExposed = (
+  href: string,
+  availableRoutes: readonly string[] = EXPOSED_ROUTE_PATHS
+): boolean => availableRoutes.includes(href);
+
+export const isNavigationItemActive = (
+  pathname: string,
+  item: Pick<NavigationItem, "href" | "exact">
+): boolean => {
+  if (item.exact || item.href === "/") return pathname === item.href;
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+};

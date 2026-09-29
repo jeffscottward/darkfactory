@@ -1,0 +1,151 @@
+// @vitest-environment jsdom
+
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  providerSignIn: vi.fn(),
+}));
+
+vi.mock("@darkfactory/auth/client", () => ({
+  createAuthClient: () => ({
+    signIn: { email: mocks.providerSignIn },
+  }),
+}));
+
+import {
+  OperatorSignIn,
+  type OperatorSignInGateway,
+} from "./operator-sign-in.tsx";
+
+afterEach(() => {
+  cleanup();
+  return vi.clearAllMocks();
+});
+
+describe("operator development sign in", () => {
+  it("signs in the seeded administrator and uses a bounded callback", async () => {
+    const signIn = vi.fn(async () => ({ error: null }));
+    const onAuthenticated = vi.fn();
+    const gateway: OperatorSignInGateway = { signIn };
+    render(
+      <OperatorSignIn
+        callbackURL="/operator/runs/run-1"
+        gateway={gateway}
+        onAuthenticated={onAuthenticated}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Administrator email"), {
+      target: { value: "admin@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "development-only" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() =>
+      expect(signIn).toHaveBeenCalledWith(
+        "admin@example.test",
+        "development-only"
+      )
+    );
+    return expect(onAuthenticated).toHaveBeenCalledWith("/operator/runs/run-1");
+  });
+
+  it("shows a safe error without exposing provider details", async () => {
+    const gateway: OperatorSignInGateway = {
+      signIn: vi.fn(async () => ({ error: { message: "database detail" } })),
+    };
+    render(
+      <OperatorSignIn callbackURL="//attacker.invalid" gateway={gateway} />
+    );
+
+    fireEvent.change(screen.getByLabelText("Administrator email"), {
+      target: { value: "admin@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "incorrect" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign-in failed. Check the development administrator credentials."
+    );
+    return expect(screen.queryByText("database detail")).toBeNull();
+  });
+
+  it("uses the browser authentication gateway and location replacement defaults", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mocks.providerSignIn.mockResolvedValueOnce({ error: undefined });
+    render(<OperatorSignIn callbackURL="/operator" />);
+    fireEvent.change(screen.getByLabelText("Administrator email"), {
+      target: { value: "  admin@example.test  " },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "development-only" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() =>
+      expect(mocks.providerSignIn).toHaveBeenCalledWith({
+        email: "admin@example.test",
+        password: "development-only",
+      })
+    );
+    return consoleError.mockRestore();
+  });
+
+  it("shows the bounded failure message when the gateway throws", async () => {
+    const gateway: OperatorSignInGateway = {
+      signIn: vi.fn(async () => {
+        throw new Error("provider unavailable");
+      }),
+    };
+    render(<OperatorSignIn gateway={gateway} onAuthenticated={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Administrator email"), {
+      target: { value: "admin@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "development-only" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    return expect((await screen.findByRole("alert")).textContent).toContain(
+      "Sign-in failed"
+    );
+  });
+
+  return it("ignores a repeated submission while authentication is pending", async () => {
+    let resolveSignIn: ((result: { readonly error: null }) => void) | undefined;
+    const signIn = vi.fn(
+      () =>
+        new Promise<{ readonly error: null }>((resolve) => {
+          return (resolveSignIn = resolve);
+        })
+    );
+    render(<OperatorSignIn gateway={{ signIn }} onAuthenticated={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Administrator email"), {
+      target: { value: "admin@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "development-only" },
+    });
+    const button = screen.getByRole("button", { name: "Sign in" });
+    const form = button.closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+    fireEvent.submit(form!);
+    expect(signIn).toHaveBeenCalledOnce();
+    resolveSignIn?.({ error: null });
+    return await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Sign in" })).toBeDefined()
+    );
+  });
+});

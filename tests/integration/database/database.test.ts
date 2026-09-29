@@ -1,0 +1,2070 @@
+import { createAtomicAuthRateLimitStorage } from "@darkfactory/auth/server";
+import {
+  ADDRESS_TYPES,
+  addresses,
+  COLOR_SCHEMES,
+  FEATURE_ITEM_STATUSES,
+  PREFERENCE_MODES,
+  PROFILE_VISIBILITIES,
+  USER_ROLES,
+  USER_STATUSES,
+  users,
+} from "@darkfactory/db/schema";
+import {
+  createAddressRepository,
+  createAdminUsersRepository,
+  createDashboardRepository,
+  createFeatureItemRepository,
+  createNodeDatabase,
+  createProfileRepository,
+  createUserPreferencesRepository,
+  type Database,
+  InvalidRepositoryInputError,
+  OptimisticConcurrencyError,
+  type Transaction,
+  withTransaction,
+} from "@darkfactory/db/server";
+import { migrate } from "@darkfactory/db/server/migration";
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+const EXPECTED_TABLES = [
+  "account",
+  "addresses",
+  "audit_records",
+  "contact_rate_limits",
+  "feature_items",
+  "outbox_events",
+  "profiles",
+  "rate_limit",
+  "session",
+  "user",
+  "user_preferences",
+  "verification",
+  "workflow_approvals",
+  "workflow_evidence",
+  "workflow_journal",
+  "workflow_messages",
+  "workflow_omp_resources",
+  "workflow_runs",
+  "workflow_snapshots",
+];
+
+const USER_COLUMNS = [
+  "id",
+  "name",
+  "email",
+  "email_verified",
+  "image",
+  "created_at",
+  "updated_at",
+  "role",
+  "status",
+];
+
+const SESSION_COLUMNS = [
+  "id",
+  "expires_at",
+  "token",
+  "created_at",
+  "updated_at",
+  "ip_address",
+  "user_agent",
+  "user_id",
+];
+
+const ACCOUNT_COLUMNS = [
+  "id",
+  "account_id",
+  "provider_id",
+  "user_id",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "access_token_expires_at",
+  "refresh_token_expires_at",
+  "scope",
+  "password",
+  "created_at",
+  "updated_at",
+];
+
+const VERIFICATION_COLUMNS = [
+  "id",
+  "identifier",
+  "value",
+  "expires_at",
+  "created_at",
+  "updated_at",
+];
+
+const RATE_LIMIT_COLUMNS = ["id", "key", "count", "last_request"];
+
+const PROFILE_COLUMNS = [
+  "user_id",
+  "first_name",
+  "last_name",
+  "display_name",
+  "avatar_url",
+  "phone",
+  "business_name",
+  "job_title",
+  "biography",
+  "timezone",
+  "locale",
+  "date_of_birth",
+  "created_at",
+  "updated_at",
+];
+
+const ADDRESS_COLUMNS = [
+  "id",
+  "user_id",
+  "type",
+  "line_1",
+  "line_2",
+  "city",
+  "region",
+  "postal_code",
+  "country",
+  "is_primary",
+  "created_at",
+  "updated_at",
+];
+
+const PREFERENCE_COLUMNS = [
+  "user_id",
+  "mode",
+  "color_scheme",
+  "email_notifications",
+  "product_updates",
+  "analytics_consent",
+  "personalization_consent",
+  "profile_visibility",
+  "created_at",
+  "updated_at",
+];
+
+const FEATURE_COLUMNS = [
+  "id",
+  "name",
+  "description",
+  "status",
+  "metadata",
+  "owner_id",
+  "created_at",
+  "updated_at",
+];
+
+const OUTBOX_COLUMNS = [
+  "id",
+  "event_type",
+  "aggregate_type",
+  "aggregate_id",
+  "payload",
+  "occurred_at",
+  "published_at",
+  "attempt_count",
+  "handler",
+  "idempotency_key",
+  "request_hash",
+  "available_at",
+  "lease_owner",
+  "lease_expires_at",
+  "fence",
+  "last_error",
+  "dead_at",
+];
+
+const AUDIT_COLUMNS = [
+  "id",
+  "actor_user_id",
+  "action",
+  "entity_type",
+  "entity_id",
+  "metadata",
+  "request_id",
+  "created_at",
+];
+
+const CONTACT_RATE_LIMIT_COLUMNS = [
+  "key_hash",
+  "window_started_at",
+  "request_count",
+  "expires_at",
+];
+
+let testDatabase: PostgresTestDatabase;
+let databaseResource: ReturnType<typeof createNodeDatabase>;
+
+const createAuthUser = async (id: string, email: string): Promise<void> => {
+  const instant = new Date("2026-01-02T03:04:05.000Z");
+
+  await databaseResource.db.insert(users).values({
+    id,
+    name: `Test User ${id}`,
+    email,
+    emailVerified: true,
+    createdAt: instant,
+    updatedAt: instant,
+  });
+};
+
+const columnNames = async (tableName: string): Promise<string[]> => {
+  const rows = await testDatabase.query<{ column_name: string }>(
+    "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position",
+    [tableName]
+  );
+  return rows.map((row) => row.column_name);
+};
+
+describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () => {
+  beforeAll(async () => {
+    testDatabase = await createPostgresTestDatabase();
+    databaseResource = createNodeDatabase({
+      connectionString: testDatabase.databaseUrl,
+      maxConnections: 4,
+    });
+    return await migrate(databaseResource.db);
+  }, 60_000);
+
+  afterAll(async () => {
+    try {
+      if (databaseResource !== undefined) {
+        return await databaseResource.close();
+      }
+      return;
+    } finally {
+      if (testDatabase !== undefined) {
+        await dropPostgresTestDatabase(testDatabase);
+      }
+    }
+  }, 60_000);
+
+  it("DF-031/032 migrates cleanly on ordinary provider-neutral Postgres", async () => {
+    const rows = await testDatabase.query<{
+      database_name: string;
+      migration_table: string | null;
+    }>(
+      "SELECT current_database() AS database_name, to_regclass('drizzle.__drizzle_migrations')::text AS migration_table"
+    );
+
+    return expect(rows).toEqual([
+      {
+        database_name: testDatabase.databaseName,
+        migration_table: "drizzle.__drizzle_migrations",
+      },
+    ]);
+  });
+
+  it("DF-033 creates the structural auth-table prerequisite without a user password column", async () => {
+    const rows = await testDatabase.query<{ table_name: string }>(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
+    );
+    const tableNames = rows.map((row) => row.table_name);
+
+    expect(tableNames).toEqual(EXPECTED_TABLES);
+    expect(await columnNames("user")).toEqual(USER_COLUMNS);
+    expect(await columnNames("session")).toEqual(SESSION_COLUMNS);
+    expect(await columnNames("account")).toEqual(ACCOUNT_COLUMNS);
+    expect(await columnNames("verification")).toEqual(VERIFICATION_COLUMNS);
+    expect(await columnNames("rate_limit")).toEqual(RATE_LIMIT_COLUMNS);
+    expect(await columnNames("user")).not.toContain("password");
+    return expect(tableNames).not.toContain("passwords");
+  });
+
+  it("atomically admits only one simultaneous request at a max-one auth threshold", async () => {
+    const key = "integration-atomic-auth-rate-limit";
+    await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key]);
+    const storage = createAtomicAuthRateLimitStorage(databaseResource.db);
+
+    const decisions = await Promise.all(
+      Array.from({ length: 12 }, () => {
+        return storage.consume(key, { window: 60, max: 1 });
+      })
+    );
+    expect(decisions.filter((decision) => decision.allowed)).toHaveLength(1);
+    expect(decisions.filter((decision) => !decision.allowed)).toHaveLength(11);
+    const rows = await testDatabase.query<{ count: number }>(
+      "SELECT count FROM rate_limit WHERE key = $1",
+      [key]
+    );
+    return expect(rows).toEqual([{ count: 1 }]);
+  });
+
+  it("returns a denial after a first-use uniqueness wait crosses its statement snapshot", async () => {
+    const key = "integration-first-use-auth-rate-limit";
+    await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key]);
+    const storage = createAtomicAuthRateLimitStorage(databaseResource.db);
+    const blocker = await testDatabase.openConnection();
+
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query(
+        "INSERT INTO rate_limit (id, key, count, last_request) VALUES ($1, $2, $3, $4)",
+        ["integration-rate-limit-blocker", key, 1, Date.now()]
+      );
+      const pendingDecision = storage.consume(key, { window: 60, max: 1 });
+      const deadline = Date.now() + 2000;
+      let blocked = false;
+      while (!blocked && Date.now() < deadline) {
+        const [activity] = await testDatabase.query<{ blocked: boolean }>(`
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND state = 'active'
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%insert into rate_limit%'
+          ) AS blocked
+        `);
+        blocked = activity?.blocked ?? false;
+        if (!blocked) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }
+      }
+
+      await blocker.query("COMMIT");
+      expect(blocked).toBe(true);
+      return await expect(pendingDecision).resolves.toMatchObject({
+        allowed: false,
+      });
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      await blocker.close();
+      await testDatabase.query("DELETE FROM rate_limit WHERE key = $1", [key]);
+    }
+  });
+
+  it("DF-033/039 rejects duplicate auth identities, tokens, and provider keys", async () => {
+    const userId = "auth-unique-user-01";
+    await createAuthUser(userId, "auth-unique-01@example.test");
+    await expect(
+      createAuthUser("auth-unique-user-02", "auth-unique-01@example.test")
+    ).rejects.toThrow();
+
+    await testDatabase.query(
+      "INSERT INTO session (id, expires_at, token, user_id, updated_at) VALUES ($1, $2, $3, $4, $5)",
+      [
+        "unique-session-01",
+        new Date("2026-02-03T04:05:06.000Z"),
+        "same-token",
+        userId,
+        new Date("2026-01-02T03:04:05.000Z"),
+      ]
+    );
+    await expect(
+      testDatabase.query(
+        "INSERT INTO session (id, expires_at, token, user_id, updated_at) VALUES ($1, $2, $3, $4, $5)",
+        [
+          "unique-session-02",
+          new Date("2026-02-03T04:05:06.000Z"),
+          "same-token",
+          userId,
+          new Date("2026-01-02T03:04:05.000Z"),
+        ]
+      )
+    ).rejects.toThrow();
+
+    await testDatabase.query(
+      "INSERT INTO account (id, account_id, provider_id, user_id) VALUES ($1, $2, $3, $4)",
+      ["unique-account-01", "provider-account", "credential", userId]
+    );
+    await expect(
+      testDatabase.query(
+        "INSERT INTO account (id, account_id, provider_id, user_id) VALUES ($1, $2, $3, $4)",
+        ["unique-account-02", "provider-account", "credential", userId]
+      )
+    ).rejects.toThrow();
+
+    await testDatabase.query(
+      "INSERT INTO verification (id, identifier, value, expires_at) VALUES ($1, $2, $3, $4)",
+      [
+        "unique-verification-01",
+        "identifier",
+        "same-value",
+        new Date("2026-02-03T04:05:06.000Z"),
+      ]
+    );
+    return await expect(
+      testDatabase.query(
+        "INSERT INTO verification (id, identifier, value, expires_at) VALUES ($1, $2, $3, $4)",
+        [
+          "unique-verification-02",
+          "identifier",
+          "same-value",
+          new Date("2026-02-03T04:05:06.000Z"),
+        ]
+      )
+    ).rejects.toThrow();
+  });
+
+  it("DF-034 through DF-038 creates every domain column and excludes superseded preferences", async () => {
+    expect(await columnNames("profiles")).toEqual(PROFILE_COLUMNS);
+    expect(await columnNames("addresses")).toEqual(ADDRESS_COLUMNS);
+    expect(await columnNames("user_preferences")).toEqual(PREFERENCE_COLUMNS);
+    expect(await columnNames("feature_items")).toEqual(FEATURE_COLUMNS);
+    expect(await columnNames("outbox_events")).toEqual(OUTBOX_COLUMNS);
+    expect(await columnNames("audit_records")).toEqual(AUDIT_COLUMNS);
+    expect(await columnNames("contact_rate_limits")).toEqual(
+      CONTACT_RATE_LIMIT_COLUMNS
+    );
+    return expect(await columnNames("user_preferences")).not.toEqual(
+      expect.arrayContaining(["reduced_motion", "privacy_level"])
+    );
+  });
+
+  it("DF-035/037/039 installs every deliberate named index on its intended table", async () => {
+    const rows = await testDatabase.query<{
+      indexname: string;
+      tablename: string;
+      indexdef: string;
+    }>(
+      "SELECT indexname, tablename, indexdef FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname"
+    );
+    const indexes = new Map(rows.map((row) => [row.indexname, row]));
+
+    const expectIndex = (
+      indexName: string,
+      tableName: string,
+      definition: RegExp
+    ): void => {
+      expect(indexes.get(indexName)).toMatchObject({
+        tablename: tableName,
+        indexdef: expect.stringMatching(definition),
+      });
+    };
+
+    const addressUserIndex = indexes.get("addresses_user_id_idx");
+    expect(addressUserIndex?.tablename).toBe("addresses");
+    expect(addressUserIndex?.indexdef).toBe(
+      "CREATE INDEX addresses_user_id_idx ON public.addresses USING btree (user_id, is_primary DESC NULLS LAST, created_at, id)"
+    );
+    const primaryAddressIndex = indexes.get(
+      "addresses_one_primary_per_user_idx"
+    );
+    expect(primaryAddressIndex?.tablename).toBe("addresses");
+    expect(primaryAddressIndex?.indexdef).toContain("CREATE UNIQUE INDEX");
+    expect(primaryAddressIndex?.indexdef).toContain("(user_id)");
+    expect(primaryAddressIndex?.indexdef).toMatch(/WHERE.*is_primary/is);
+    expect(indexes.get("feature_items_owner_id_idx")).toEqual({
+      indexname: "feature_items_owner_id_idx",
+      tablename: "feature_items",
+      indexdef:
+        "CREATE INDEX feature_items_owner_id_idx ON public.feature_items USING btree (owner_id, updated_at DESC NULLS LAST, id DESC NULLS LAST)",
+    });
+    expect(indexes.get("account_provider_account_unique_idx")).toMatchObject({
+      tablename: "account",
+      indexdef: expect.stringMatching(/UNIQUE.*\(provider_id, account_id\)/i),
+    });
+    expect(
+      indexes.get("verification_identifier_value_unique_idx")
+    ).toMatchObject({
+      tablename: "verification",
+      indexdef: expect.stringMatching(/UNIQUE.*\(identifier, value\)/i),
+    });
+    expect(indexes.get("session_user_id_idx")?.tablename).toBe("session");
+    expect(indexes.get("account_user_id_idx")?.tablename).toBe("account");
+    expect(indexes.get("audit_records_actor_user_id_idx")?.tablename).toBe(
+      "audit_records"
+    );
+    expectIndex("session_expires_at_idx", "session", /\(expires_at\)/i);
+    expectIndex(
+      "verification_identifier_idx",
+      "verification",
+      /\(identifier\)/i
+    );
+    expectIndex(
+      "verification_expires_at_idx",
+      "verification",
+      /\(expires_at\)/i
+    );
+    expectIndex(
+      "outbox_events_unpublished_idx",
+      "outbox_events",
+      /\(occurred_at\).*WHERE.*published_at IS NULL/is
+    );
+    expectIndex(
+      "outbox_events_aggregate_idx",
+      "outbox_events",
+      /\(aggregate_type, aggregate_id\)/i
+    );
+    expectIndex(
+      "audit_records_entity_idx",
+      "audit_records",
+      /\(entity_type, entity_id\)/i
+    );
+    expectIndex(
+      "audit_records_request_id_idx",
+      "audit_records",
+      /\(request_id\)/i
+    );
+    expectIndex(
+      "contact_rate_limits_expires_at_idx",
+      "contact_rate_limits",
+      /\(expires_at\)/i
+    );
+    return expectIndex(
+      "rate_limit_last_request_idx",
+      "rate_limit",
+      /\(last_request\)/i
+    );
+  });
+
+  it("DF-033 through DF-039 installs exact primary and unique key matrices", async () => {
+    const rows = await testDatabase.query<{
+      table_name: string;
+      constraint_type: "p" | "u";
+      columns: string;
+    }>(
+      "SELECT source.relname AS table_name, constraint_row.contype AS constraint_type, array_to_string(array_agg(attribute.attname ORDER BY key_column.ordinality), ',') AS columns FROM pg_constraint AS constraint_row JOIN pg_class AS source ON source.oid = constraint_row.conrelid JOIN pg_namespace AS namespace ON namespace.oid = source.relnamespace CROSS JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY AS key_column(attnum, ordinality) JOIN pg_attribute AS attribute ON attribute.attrelid = source.oid AND attribute.attnum = key_column.attnum WHERE namespace.nspname = 'public' AND constraint_row.contype IN ('p', 'u') GROUP BY source.relname, constraint_row.contype, constraint_row.conname ORDER BY source.relname, constraint_row.conname"
+    );
+    const actualKeys = rows
+      .map((row) => {
+        return `${row.constraint_type}:${row.table_name}:${row.columns}`;
+      })
+      .sort();
+    const expectedKeys = EXPECTED_TABLES.map((tableName) => {
+      const primaryColumn =
+        tableName === "contact_rate_limits"
+          ? "key_hash"
+          : ["profiles", "user_preferences"].includes(tableName)
+            ? "user_id"
+            : tableName === "workflow_journal"
+              ? "run_id,sequence"
+              : ["workflow_omp_resources", "workflow_snapshots"].includes(
+                    tableName
+                  )
+                ? "run_id"
+                : "id";
+      return `p:${tableName}:${primaryColumn}`;
+    });
+    expectedKeys.push("u:rate_limit:key", "u:session:token", "u:user:email");
+    expectedKeys.sort();
+
+    return expect(actualKeys).toEqual(expectedKeys);
+  });
+
+  it("DF-033 through DF-039 maps each CHECK to the intended table", async () => {
+    const rows = await testDatabase.query<{
+      constraint_name: string;
+      table_name: string;
+      definition: string;
+    }>(
+      "SELECT constraint_row.conname AS constraint_name, source.relname AS table_name, pg_get_constraintdef(constraint_row.oid) AS definition FROM pg_constraint AS constraint_row JOIN pg_class AS source ON source.oid = constraint_row.conrelid JOIN pg_namespace AS namespace ON namespace.oid = source.relnamespace WHERE namespace.nspname = 'public' AND constraint_row.contype = 'c' ORDER BY source.relname, constraint_row.conname"
+    );
+    const checks = new Map(rows.map((row) => [row.constraint_name, row]));
+
+    const expectCheck = (
+      constraintName: string,
+      tableName: string,
+      values: readonly string[]
+    ): void => {
+      const check = checks.get(constraintName);
+      expect(check?.table_name).toBe(tableName);
+      for (const value of values)
+        expect(check?.definition).toContain(`'${value}'`);
+    };
+
+    expectCheck("user_role_check", "user", USER_ROLES);
+    expectCheck("user_status_check", "user", USER_STATUSES);
+    expectCheck("addresses_type_check", "addresses", ADDRESS_TYPES);
+    expectCheck(
+      "user_preferences_mode_check",
+      "user_preferences",
+      PREFERENCE_MODES
+    );
+    expectCheck(
+      "user_preferences_color_scheme_check",
+      "user_preferences",
+      COLOR_SCHEMES
+    );
+    expectCheck(
+      "user_preferences_profile_visibility_check",
+      "user_preferences",
+      PROFILE_VISIBILITIES
+    );
+    expectCheck(
+      "feature_items_status_check",
+      "feature_items",
+      FEATURE_ITEM_STATUSES
+    );
+    expect(checks.get("addresses_line_1_check")?.table_name).toBe("addresses");
+    expect(checks.get("addresses_country_check")?.table_name).toBe("addresses");
+    expect(checks.get("feature_items_name_check")?.table_name).toBe(
+      "feature_items"
+    );
+    expect(checks.get("feature_items_metadata_check")?.table_name).toBe(
+      "feature_items"
+    );
+    expect(checks.get("outbox_events_payload_check")?.table_name).toBe(
+      "outbox_events"
+    );
+    expect(checks.get("outbox_events_attempt_count_check")).toMatchObject({
+      table_name: "outbox_events",
+      definition: expect.stringMatching(/attempt_count.*>=.*0/i),
+    });
+    expect(checks.get("audit_records_metadata_check")?.table_name).toBe(
+      "audit_records"
+    );
+    expect(checks.get("audit_records_request_id_check")?.table_name).toBe(
+      "audit_records"
+    );
+    expect(checks.get("contact_rate_limits_key_hash_check")?.table_name).toBe(
+      "contact_rate_limits"
+    );
+    expect(
+      checks.get("contact_rate_limits_request_count_check")?.table_name
+    ).toBe("contact_rate_limits");
+    return expect(
+      checks.get("contact_rate_limits_window_check")?.table_name
+    ).toBe("contact_rate_limits");
+  });
+
+  it("DF-033 through DF-039 rejects every invalid checked boundary and orphan FK", async () => {
+    const userId = "constraint-user-01";
+    await createAuthUser(userId, "constraint-user-01@example.test");
+    const expectRejected = async (
+      statement: string,
+      values: unknown[]
+    ): Promise<void> => {
+      await expect(testDatabase.query(statement, values)).rejects.toThrow();
+    };
+
+    await expectRejected(
+      'INSERT INTO "user" (id, name, email, role) VALUES ($1, $2, $3, $4)',
+      ["invalid-role-user", "Invalid", "invalid-role@example.test", "owner"]
+    );
+    await expectRejected(
+      'INSERT INTO "user" (id, name, email, status) VALUES ($1, $2, $3, $4)',
+      [
+        "invalid-status-user",
+        "Invalid",
+        "invalid-status@example.test",
+        "deleted",
+      ]
+    );
+    await expectRejected(
+      "INSERT INTO addresses (id, user_id, type, line_1, city, region, postal_code, country) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [
+        "invalid-address-type",
+        userId,
+        "office",
+        "1 Test Street",
+        "Test City",
+        "CA",
+        "90001",
+        "US",
+      ]
+    );
+    await expectRejected(
+      "INSERT INTO addresses (id, user_id, type, line_1, city, region, postal_code, country) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [
+        "invalid-address-line",
+        userId,
+        "home",
+        "   ",
+        "Test City",
+        "CA",
+        "90001",
+        "US",
+      ]
+    );
+    await expectRejected(
+      "INSERT INTO addresses (id, user_id, type, line_1, city, region, postal_code, country) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [
+        "invalid-address-country",
+        userId,
+        "home",
+        "1 Test Street",
+        "Test City",
+        "CA",
+        "90001",
+        "USA",
+      ]
+    );
+    await expectRejected(
+      "INSERT INTO user_preferences (user_id, mode) VALUES ($1, $2)",
+      [userId, "automatic"]
+    );
+    await expectRejected(
+      "INSERT INTO user_preferences (user_id, color_scheme) VALUES ($1, $2)",
+      [userId, "indigo"]
+    );
+    await expectRejected(
+      "INSERT INTO user_preferences (user_id, profile_visibility) VALUES ($1, $2)",
+      [userId, "secret"]
+    );
+    await expectRejected(
+      "INSERT INTO feature_items (id, owner_id, name, description, status) VALUES ($1, $2, $3, $4, $5)",
+      ["invalid-feature-status", userId, "Invalid", "Invalid", "deleted"]
+    );
+    await expectRejected(
+      "INSERT INTO feature_items (id, owner_id, name, description) VALUES ($1, $2, $3, $4)",
+      ["invalid-feature-name", userId, "   ", "Invalid"]
+    );
+    await expectRejected(
+      "INSERT INTO feature_items (id, owner_id, name, description, metadata) VALUES ($1, $2, $3, $4, $5::jsonb)",
+      [
+        "invalid-feature-metadata",
+        userId,
+        "Invalid",
+        "Invalid",
+        JSON.stringify([]),
+      ]
+    );
+    await expectRejected(
+      "INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, attempt_count) VALUES ($1, $2, $3, $4, $5::jsonb, $6)",
+      ["invalid-outbox-attempt", "test", "test", "test", "{}", -1]
+    );
+    await expectRejected(
+      "INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload) VALUES ($1, $2, $3, $4, $5::jsonb)",
+      ["invalid-outbox-payload", "test", "test", "test", JSON.stringify([])]
+    );
+    await expectRejected(
+      "INSERT INTO audit_records (id, action, entity_type, entity_id, metadata, request_id) VALUES ($1, $2, $3, $4, $5::jsonb, $6)",
+      [
+        "invalid-audit-metadata",
+        "test",
+        "test",
+        "test",
+        JSON.stringify([]),
+        "request",
+      ]
+    );
+    await expectRejected(
+      "INSERT INTO audit_records (id, action, entity_type, entity_id, request_id) VALUES ($1, $2, $3, $4, $5)",
+      ["invalid-audit-request", "test", "test", "test", "   "]
+    );
+    return await expectRejected(
+      "INSERT INTO addresses (id, user_id, type, line_1, city, region, postal_code, country) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [
+        "orphan-address",
+        "missing-user",
+        "home",
+        "1 Test Street",
+        "Test City",
+        "CA",
+        "90001",
+        "US",
+      ]
+    );
+  });
+
+  it("DF-039 makes FK targets and delete behavior inspectable and deliberate", async () => {
+    const rows = await testDatabase.query<{
+      source_table: string;
+      definition: string;
+    }>(
+      "SELECT source.relname AS source_table, pg_get_constraintdef(constraint_row.oid) AS definition FROM pg_constraint AS constraint_row JOIN pg_class AS source ON source.oid = constraint_row.conrelid WHERE constraint_row.contype = 'f' ORDER BY source.relname, constraint_row.conname"
+    );
+    const foreignKey = (
+      tableName: string,
+      columnName: string
+    ): string | undefined => {
+      return rows.find((row) => {
+        return (
+          row.source_table === tableName &&
+          row.definition.includes(`FOREIGN KEY (${columnName})`)
+        );
+      })?.definition;
+    };
+
+    for (const tableName of [
+      "session",
+      "account",
+      "profiles",
+      "addresses",
+      "user_preferences",
+    ]) {
+      expect(foreignKey(tableName, "user_id")).toMatch(
+        /REFERENCES "user"\(id\).*ON DELETE CASCADE/i
+      );
+    }
+    expect(foreignKey("feature_items", "owner_id")).toMatch(
+      /REFERENCES "user"\(id\).*ON DELETE CASCADE/i
+    );
+    return expect(foreignKey("audit_records", "actor_user_id")).toMatch(
+      /REFERENCES "user"\(id\).*ON DELETE SET NULL/i
+    );
+  });
+
+  it("DF-034 through DF-039 preserves explicit nullability and Postgres-native types", async () => {
+    const rows = await testDatabase.query<{
+      table_name: string;
+      column_name: string;
+      is_nullable: "YES" | "NO";
+      data_type: string;
+      udt_name: string;
+    }>(
+      "SELECT table_name, column_name, is_nullable, data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position"
+    );
+    const columns = new Map(
+      rows.map((row) => [`${row.table_name}.${row.column_name}`, row])
+    );
+
+    const expectedColumnsByTable: Record<string, readonly string[]> = {
+      user: USER_COLUMNS,
+      session: SESSION_COLUMNS,
+      account: ACCOUNT_COLUMNS,
+      verification: VERIFICATION_COLUMNS,
+      profiles: PROFILE_COLUMNS,
+      addresses: ADDRESS_COLUMNS,
+      user_preferences: PREFERENCE_COLUMNS,
+      feature_items: FEATURE_COLUMNS,
+      outbox_events: OUTBOX_COLUMNS,
+      audit_records: AUDIT_COLUMNS,
+      contact_rate_limits: CONTACT_RATE_LIMIT_COLUMNS,
+    };
+    const nullableColumns = new Set([
+      "user.image",
+      "session.ip_address",
+      "session.user_agent",
+      "account.access_token",
+      "account.refresh_token",
+      "account.id_token",
+      "account.access_token_expires_at",
+      "account.refresh_token_expires_at",
+      "account.scope",
+      "account.password",
+      "profiles.first_name",
+      "profiles.last_name",
+      "profiles.display_name",
+      "profiles.avatar_url",
+      "profiles.phone",
+      "profiles.business_name",
+      "profiles.job_title",
+      "profiles.biography",
+      "profiles.date_of_birth",
+      "addresses.line_2",
+      "outbox_events.published_at",
+      "outbox_events.idempotency_key",
+      "outbox_events.request_hash",
+      "outbox_events.lease_owner",
+      "outbox_events.lease_expires_at",
+      "outbox_events.last_error",
+      "outbox_events.dead_at",
+      "audit_records.actor_user_id",
+    ]);
+    const booleanColumns = new Set([
+      "user.email_verified",
+      "addresses.is_primary",
+      "user_preferences.email_notifications",
+      "user_preferences.product_updates",
+      "user_preferences.analytics_consent",
+      "user_preferences.personalization_consent",
+    ]);
+    const jsonColumns = new Set([
+      "feature_items.metadata",
+      "outbox_events.payload",
+      "audit_records.metadata",
+    ]);
+    const dateColumns = new Set(["profiles.date_of_birth"]);
+    const integerColumns = new Set([
+      "contact_rate_limits.request_count",
+      "outbox_events.attempt_count",
+    ]);
+    const bigintColumns = new Set(["outbox_events.fence"]);
+    const timestampColumns = new Set(
+      rows
+        .filter((row) => {
+          return (
+            row.column_name.endsWith("_at") || row.column_name === "expires_at"
+          );
+        })
+        .map((row) => `${row.table_name}.${row.column_name}`)
+    );
+
+    for (const [tableName, expectedColumnNames] of Object.entries(
+      expectedColumnsByTable
+    )) {
+      for (const columnName of expectedColumnNames) {
+        const key = `${tableName}.${columnName}`;
+        const column = columns.get(key);
+        let expectedDataType = "text";
+        if (booleanColumns.has(key)) {
+          expectedDataType = "boolean";
+        } else if (jsonColumns.has(key)) {
+          expectedDataType = "jsonb";
+        } else if (dateColumns.has(key)) {
+          expectedDataType = "date";
+        } else if (integerColumns.has(key)) {
+          expectedDataType = "integer";
+        } else if (bigintColumns.has(key)) {
+          expectedDataType = "bigint";
+        } else if (timestampColumns.has(key)) {
+          expectedDataType = "timestamp with time zone";
+        }
+
+        expect(column, key).toBeDefined();
+        expect(column?.is_nullable, key).toBe(
+          nullableColumns.has(key) ? "YES" : "NO"
+        );
+        expect(
+          jsonColumns.has(key) ? column?.udt_name : column?.data_type,
+          key
+        ).toBe(expectedDataType);
+      }
+    }
+  });
+
+  it("DF-039 stores offset timestamps as the same UTC instant", async () => {
+    await testDatabase.query(
+      "INSERT INTO audit_records (id, action, entity_type, entity_id, request_id, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)",
+      [
+        "utc-audit-01",
+        "utc.checked",
+        "test",
+        "utc-entity-01",
+        "utc-request-01",
+        "2026-01-02T04:05:06-08:00",
+      ]
+    );
+    const rows = await testDatabase.query<{ created_at: Date }>(
+      "SELECT created_at FROM audit_records WHERE id = $1",
+      ["utc-audit-01"]
+    );
+
+    expect(rows[0]?.created_at).toBeInstanceOf(Date);
+    return expect(rows[0]?.created_at.toISOString()).toBe(
+      "2026-01-02T12:05:06.000Z"
+    );
+  });
+
+  it("DF-034 persists complete profiles including a nullable date of birth", async () => {
+    const userId = "profile-user-01";
+    await createAuthUser(userId, "profile-01@example.test");
+    const profiles = createProfileRepository(databaseResource.db);
+
+    const created = await profiles.upsert({
+      userId,
+      firstName: "Alicia",
+      lastName: "Adams",
+      displayName: "Ali",
+      avatarUrl: "https://placehold.co/128x128",
+      phone: "+15555550101",
+      businessName: "Example Operations",
+      jobTitle: "Operator",
+      biography: "A domain-neutral test profile.",
+      timezone: "America/Los_Angeles",
+      locale: "en-US",
+      dateOfBirth: "1990-04-15",
+    });
+    expect(created).toMatchObject({
+      userId,
+      firstName: "Alicia",
+      lastName: "Adams",
+      displayName: "Ali",
+      avatarUrl: "https://placehold.co/128x128",
+      phone: "+15555550101",
+      businessName: "Example Operations",
+      jobTitle: "Operator",
+      biography: "A domain-neutral test profile.",
+      timezone: "America/Los_Angeles",
+      locale: "en-US",
+      dateOfBirth: "1990-04-15",
+    });
+    const updated = await profiles.upsert({ ...created, dateOfBirth: null });
+
+    expect(await profiles.findByUserId(userId)).toMatchObject({
+      userId,
+      firstName: "Alicia",
+      dateOfBirth: null,
+    });
+    expect(updated.createdAt).toBeInstanceOf(Date);
+    expect(updated.updatedAt).toBeInstanceOf(Date);
+    return expect(updated.updatedAt.toISOString()).toMatch(/Z$/);
+  });
+
+  it("DF-035 persists typed addresses and transactionally changes the sole primary", async () => {
+    const userId = "address-user-01";
+    await createAuthUser(userId, "address-01@example.test");
+    const repository = createAddressRepository(databaseResource.db);
+
+    const home = await repository.create({
+      id: "address-home-01",
+      userId,
+      type: "home",
+      line1: "100 Example Street",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90001",
+      country: "US",
+      isPrimary: true,
+    });
+    const work = await repository.create({
+      id: "address-work-01",
+      userId,
+      type: "work",
+      line1: "200 Sample Avenue",
+      line2: "Suite 5",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90002",
+      country: "US",
+    });
+    const removable = await repository.create({
+      id: "address-removable-01",
+      userId,
+      type: "other",
+      line1: "250 Repository Lane",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90005",
+      country: "US",
+    });
+    expect(
+      await repository.update({
+        id: removable.id,
+        userId,
+        line2: "Unit 2",
+      })
+    ).toMatchObject({ id: removable.id, line2: "Unit 2" });
+    expect(
+      await repository.findByIdForUser(removable.id, userId)
+    ).toMatchObject({
+      id: removable.id,
+      type: "other",
+    });
+    expect(await repository.remove(removable.id, userId)).toBe(true);
+    expect(await repository.findByIdForUser(removable.id, userId)).toBeNull();
+
+    expect(await repository.setPrimary(work.id, userId)).toMatchObject({
+      id: work.id,
+      isPrimary: true,
+    });
+    const persisted = await repository.listByUserId(userId);
+    expect(persisted.filter((address) => address.isPrimary)).toHaveLength(1);
+    expect(persisted.find((address) => address.id === home.id)?.isPrimary).toBe(
+      false
+    );
+
+    return await expect(
+      databaseResource.db.insert(addresses).values({
+        id: "address-conflict-01",
+        userId,
+        type: "other",
+        line1: "300 Constraint Road",
+        city: "Example City",
+        region: "CA",
+        postalCode: "90003",
+        country: "US",
+        isPrimary: true,
+      })
+    ).rejects.toThrow();
+  });
+
+  it("DF-035 leaves at most one primary address under concurrent attempts", async () => {
+    const userId = "address-concurrency-user-01";
+    await createAuthUser(userId, "address-concurrency-01@example.test");
+    const repository = createAddressRepository(databaseResource.db);
+    const results = await Promise.allSettled([
+      repository.create({
+        id: "address-concurrent-a",
+        userId,
+        type: "home",
+        line1: "1 Concurrent Way",
+        city: "Example City",
+        region: "CA",
+        postalCode: "90010",
+        country: "US",
+        isPrimary: true,
+      }),
+      repository.create({
+        id: "address-concurrent-b",
+        userId,
+        type: "work",
+        line1: "2 Concurrent Way",
+        city: "Example City",
+        region: "CA",
+        postalCode: "90011",
+        country: "US",
+        isPrimary: true,
+      }),
+    ]);
+
+    expect(results.some((result) => result.status === "fulfilled")).toBe(true);
+    return expect(
+      (await repository.listByUserId(userId)).filter(
+        (address) => address.isPrimary
+      )
+    ).toHaveLength(1);
+  });
+
+  it("DF-035 serializes overlapping optimistic primary updates by owner and version", async () => {
+    const initialVersion = new Date("2027-01-01T00:00:00.000Z");
+    const winnerVersion = new Date(initialVersion.getTime() + 1);
+    const userId = "address-optimistic-concurrency-user-01";
+    const otherUserId = "address-optimistic-concurrency-other-01";
+    await createAuthUser(
+      userId,
+      "address-optimistic-concurrency-01@example.test"
+    );
+    await createAuthUser(
+      otherUserId,
+      "address-optimistic-concurrency-other-01@example.test"
+    );
+    const repository = createAddressRepository(databaseResource.db, {
+      now: () => initialVersion,
+    });
+    const originalPrimary = await repository.create({
+      id: "address-optimistic-original-primary",
+      userId,
+      type: "home",
+      line1: "1 Original Primary Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90020",
+      country: "US",
+      isPrimary: true,
+    });
+    const target = await repository.create({
+      id: "address-optimistic-target",
+      userId,
+      type: "work",
+      line1: "2 Optimistic Target Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90021",
+      country: "US",
+    });
+    const otherPrimary = await repository.create({
+      id: "address-optimistic-other-primary",
+      userId: otherUserId,
+      type: "home",
+      line1: "3 Other Owner Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90022",
+      country: "US",
+      isPrimary: true,
+    });
+
+    const createLockControlledDatabase = (
+      control: (acquire: () => Promise<unknown>) => Promise<unknown>
+    ): Database => {
+      const transaction = (
+        operation: (transaction: Transaction) => Promise<unknown>
+      ) => {
+        return databaseResource.db.transaction(async (transaction) => {
+          const controlledTransaction = new Proxy(transaction, {
+            get: (target, property) => {
+              if (property === "execute") {
+                return async (
+                  statement: Parameters<Transaction["execute"]>[0]
+                ) => control(() => target.execute(statement));
+              }
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }) as Transaction;
+          return operation(controlledTransaction);
+        });
+      };
+      return { transaction } as unknown as Database;
+    };
+
+    const deferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((settle) => {
+        return (resolve = settle);
+      });
+      return { promise, resolve };
+    };
+    const winnerLockAcquired = deferred();
+    const releaseWinner = deferred();
+    const loserLockAttempted = deferred();
+    const winnerRepository = createAddressRepository(
+      createLockControlledDatabase(async (acquire) => {
+        const result = await acquire();
+        winnerLockAcquired.resolve();
+        await releaseWinner.promise;
+        return result;
+      }),
+      { now: () => initialVersion }
+    );
+    const loserRepository = createAddressRepository(
+      createLockControlledDatabase(async (acquire) => {
+        const pending = acquire();
+        loserLockAttempted.resolve();
+        return pending;
+      }),
+      { now: () => initialVersion }
+    );
+
+    const winnerMutation = winnerRepository.updateOptimistic({
+      id: target.id,
+      userId,
+      city: "Winner City",
+      isPrimary: true,
+      expectedUpdatedAt: target.updatedAt,
+    });
+    await winnerLockAcquired.promise;
+    const loserMutation = loserRepository.updateOptimistic({
+      id: target.id,
+      userId,
+      city: "Loser City",
+      isPrimary: true,
+      expectedUpdatedAt: target.updatedAt,
+    });
+    await loserLockAttempted.promise;
+    releaseWinner.resolve();
+
+    const [winnerResult, loserResult] = await Promise.allSettled([
+      winnerMutation,
+      loserMutation,
+    ]);
+    if (winnerResult.status !== "fulfilled") throw winnerResult.reason;
+    expect(winnerResult.value).toMatchObject({
+      id: target.id,
+      city: "Winner City",
+      isPrimary: true,
+      updatedAt: winnerVersion,
+    });
+    if (loserResult.status !== "rejected") {
+      throw new Error("expected the overlapping optimistic mutation to lose");
+    }
+    expect(loserResult.reason).toBeInstanceOf(OptimisticConcurrencyError);
+
+    const persisted = await repository.listByUserId(userId);
+    expect(persisted.filter(({ isPrimary }) => isPrimary)).toEqual([
+      expect.objectContaining({
+        id: target.id,
+        city: "Winner City",
+        updatedAt: winnerVersion,
+      }),
+    ]);
+    expect(persisted.find(({ id }) => id === originalPrimary.id)).toMatchObject(
+      {
+        isPrimary: false,
+        updatedAt: winnerVersion,
+      }
+    );
+    return await expect(
+      repository.findByIdForUser(otherPrimary.id, otherUserId)
+    ).resolves.toMatchObject({
+      isPrimary: true,
+      updatedAt: initialVersion,
+    });
+  });
+
+  it("bounds concurrent address creation to the atomic per-user quota", async () => {
+    const userId = "address-quota-user-01";
+    await createAuthUser(userId, "address-quota-01@example.test");
+    const repository = createAddressRepository(databaseResource.db);
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 25 }, (_, index) =>
+        repository.create({
+          id: `address-quota-${index.toString().padStart(2, "0")}`,
+          userId,
+          type: "other",
+          line1: `${index + 1} Quota Way`,
+          city: "Example City",
+          region: "CA",
+          postalCode: "90012",
+          country: "US",
+          isPrimary: index % 2 === 0,
+        })
+      )
+    );
+    expect(
+      attempts.filter((attempt) => attempt.status === "fulfilled")
+    ).toHaveLength(20);
+    const rejected = attempts.filter(
+      (attempt): attempt is PromiseRejectedResult =>
+        attempt.status === "rejected"
+    );
+    expect(rejected).toHaveLength(5);
+    for (const attempt of rejected) {
+      expect(attempt.reason).toBeInstanceOf(InvalidRepositoryInputError);
+    }
+    const stored = await repository.listByUserId(userId);
+    expect(stored).toHaveLength(20);
+    return expect(stored.filter((address) => address.isPrimary)).toHaveLength(
+      1
+    );
+  });
+
+  it("DF-036 persists concrete preferences and all ten settled color schemes", async () => {
+    const userId = "preferences-user-01";
+    await createAuthUser(userId, "preferences-01@example.test");
+    const repository = createUserPreferencesRepository(databaseResource.db);
+
+    for (const colorScheme of COLOR_SCHEMES) {
+      await repository.upsert({
+        userId,
+        mode: "system",
+        colorScheme,
+        emailNotifications: true,
+        productUpdates: false,
+        analyticsConsent: true,
+        personalizationConsent: false,
+        profileVisibility: "members",
+      });
+      expect(await repository.findByUserId(userId)).toMatchObject({
+        userId,
+        colorScheme,
+        mode: "system",
+        profileVisibility: "members",
+      });
+    }
+
+    expect(await repository.findByUserId(userId)).not.toHaveProperty(
+      "reducedMotion"
+    );
+    return expect(await repository.findByUserId(userId)).not.toHaveProperty(
+      "privacyLevel"
+    );
+  });
+
+  it("DF-033 through DF-039 applies every deliberate cascade and audit SET NULL", async () => {
+    const userId = "cascade-user-01";
+    await createAuthUser(userId, "cascade-01@example.test");
+    const profiles = createProfileRepository(databaseResource.db);
+    const addresses = createAddressRepository(databaseResource.db);
+    const preferences = createUserPreferencesRepository(databaseResource.db);
+
+    await profiles.upsert({
+      userId,
+      firstName: null,
+      lastName: null,
+      displayName: null,
+      avatarUrl: null,
+      phone: null,
+      businessName: null,
+      jobTitle: null,
+      biography: null,
+      timezone: "UTC",
+      locale: "en-US",
+      dateOfBirth: null,
+    });
+    await addresses.create({
+      id: "address-cascade-01",
+      userId,
+      type: "other",
+      line1: "1 Cascade Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90004",
+      country: "US",
+    });
+    await preferences.upsert({
+      userId,
+      mode: "light",
+      colorScheme: "neutral",
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: false,
+      personalizationConsent: false,
+      profileVisibility: "private",
+    });
+    await testDatabase.query(
+      "INSERT INTO session (id, expires_at, token, user_id, updated_at) VALUES ($1, $2, $3, $4, $5)",
+      [
+        "cascade-session-01",
+        new Date("2026-02-03T04:05:06.000Z"),
+        "cascade-session-token-01",
+        userId,
+        new Date("2026-01-02T03:04:05.000Z"),
+      ]
+    );
+    await testDatabase.query(
+      "INSERT INTO account (id, account_id, provider_id, user_id) VALUES ($1, $2, $3, $4)",
+      ["cascade-account-01", userId, "credential", userId]
+    );
+    const feature = await createFeatureItemRepository(
+      databaseResource.db
+    ).create(
+      {
+        id: "cascade-feature-01",
+        ownerId: userId,
+        name: "Cascade feature",
+        description: "Cascade evidence",
+      },
+      { actorUserId: userId, requestId: "cascade-request-01" }
+    );
+
+    await testDatabase.query('DELETE FROM "user" WHERE id = $1', [userId]);
+
+    expect(await profiles.findByUserId(userId)).toBeNull();
+    expect(await addresses.listByUserId(userId)).toEqual([]);
+    expect(await preferences.findByUserId(userId)).toBeNull();
+    const persisted = await testDatabase.query<{
+      session_count: string;
+      account_count: string;
+      feature_count: string;
+      audit_actor_user_id: string | null;
+      outbox_count: string;
+    }>(
+      "SELECT (SELECT count(*) FROM session WHERE user_id = $1) AS session_count, (SELECT count(*) FROM account WHERE user_id = $1) AS account_count, (SELECT count(*) FROM feature_items WHERE owner_id = $1) AS feature_count, (SELECT actor_user_id FROM audit_records WHERE entity_id = $2) AS audit_actor_user_id, (SELECT count(*) FROM outbox_events WHERE aggregate_id = $2) AS outbox_count",
+      [userId, feature.id]
+    );
+    return expect(persisted).toEqual([
+      {
+        session_count: "0",
+        account_count: "0",
+        feature_count: "0",
+        audit_actor_user_id: null,
+        outbox_count: "1",
+      },
+    ]);
+  });
+
+  it("DF-037/038 commits feature state, audit context, and outbox event atomically", async () => {
+    const ownerId = "feature-owner-01";
+    await createAuthUser(ownerId, "feature-owner-01@example.test");
+    const repository = createFeatureItemRepository(databaseResource.db);
+
+    const feature = await repository.create(
+      {
+        id: "feature-item-commit-01",
+        ownerId,
+        name: "Atomic example",
+        description: "A provider-neutral feature mutation.",
+        status: "active",
+        metadata: {
+          source: "integration-test",
+          password: "SENTINEL_PASSWORD_VALUE",
+          nested: {
+            apiToken: "SENTINEL_TOKEN_VALUE",
+            allowedContext: "kept-on-feature-only",
+          },
+        },
+      },
+      { actorUserId: ownerId, requestId: "request-commit-01" }
+    );
+    const rows = await testDatabase.query<{
+      audit_count: string;
+      outbox_count: string;
+    }>(
+      "SELECT (SELECT count(*) FROM audit_records WHERE entity_id = $1) AS audit_count, (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1) AS outbox_count",
+      [feature.id]
+    );
+    const audit = await testDatabase.query<{
+      actor_user_id: string | null;
+      action: string;
+      entity_type: string;
+      request_id: string;
+      metadata: Record<string, unknown>;
+      created_at: Date;
+    }>(
+      "SELECT actor_user_id, action, entity_type, request_id, metadata, created_at FROM audit_records WHERE entity_id = $1",
+      [feature.id]
+    );
+    const outbox = await testDatabase.query<{
+      event_type: string;
+      aggregate_type: string;
+      aggregate_id: string;
+      payload: Record<string, unknown>;
+      occurred_at: Date;
+      published_at: Date | null;
+      attempt_count: number;
+    }>(
+      "SELECT event_type, aggregate_type, aggregate_id, payload, occurred_at, published_at, attempt_count FROM outbox_events WHERE aggregate_id = $1",
+      [feature.id]
+    );
+
+    expect(
+      await repository.findByIdForOwner(feature.id, ownerId)
+    ).toMatchObject({
+      id: feature.id,
+      ownerId,
+      status: "active",
+      metadata: { source: "integration-test" },
+    });
+    expect(rows).toEqual([{ audit_count: "1", outbox_count: "1" }]);
+    expect(audit).toEqual([
+      expect.objectContaining({
+        actor_user_id: ownerId,
+        request_id: "request-commit-01",
+      }),
+    ]);
+    expect(audit[0]?.metadata).toEqual({ status: "active" });
+    expect(JSON.stringify(audit[0]?.metadata)).not.toMatch(
+      /password|apitoken|SENTINEL_PASSWORD_VALUE|SENTINEL_TOKEN_VALUE/i
+    );
+    expect(audit[0]?.action).toBe("feature_item.created");
+    expect(audit[0]?.entity_type).toBe("feature_item");
+    expect(audit[0]?.created_at).toBeInstanceOf(Date);
+    expect(outbox).toEqual([
+      {
+        event_type: "feature_item.created",
+        aggregate_type: "feature_item",
+        aggregate_id: feature.id,
+        payload: {
+          id: feature.id,
+          ownerId,
+          status: "active",
+        },
+        occurred_at: expect.any(Date),
+        published_at: null,
+        attempt_count: 0,
+      },
+    ]);
+    expect(JSON.stringify(outbox[0]?.payload)).not.toMatch(
+      /password|apitoken|SENTINEL_PASSWORD_VALUE|SENTINEL_TOKEN_VALUE/i
+    );
+    expect(outbox[0]?.occurred_at).toBeInstanceOf(Date);
+    await expect(
+      repository.create(
+        {
+          id: feature.id,
+          ownerId,
+          name: "Duplicate stable ID",
+          description: "Must conflict without companion writes.",
+        },
+        { actorUserId: ownerId, requestId: "request-duplicate-01" }
+      )
+    ).rejects.toThrow();
+    expect(
+      await testDatabase.query(
+        "SELECT count(*) AS count FROM audit_records WHERE entity_id = $1",
+        [feature.id]
+      )
+    ).toEqual([{ count: "1" }]);
+
+    const otherOwnerId = "feature-other-owner-01";
+    await createAuthUser(otherOwnerId, "feature-other-owner-01@example.test");
+    expect(
+      await repository.findByIdForOwner(feature.id, otherOwnerId)
+    ).toBeNull();
+    expect(
+      await repository.update(
+        {
+          id: feature.id,
+          ownerId: otherOwnerId,
+          name: "Unauthorized update",
+        },
+        {
+          actorUserId: otherOwnerId,
+          requestId: "request-cross-owner-update-01",
+        }
+      )
+    ).toBeNull();
+    expect(
+      await repository.archive(feature.id, otherOwnerId, {
+        actorUserId: otherOwnerId,
+        requestId: "request-cross-owner-archive-01",
+      })
+    ).toBeNull();
+    return expect(
+      await testDatabase.query(
+        "SELECT (SELECT count(*) FROM audit_records WHERE entity_id = $1) AS audit_count, (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1) AS outbox_count",
+        [feature.id]
+      )
+    ).toEqual([{ audit_count: "1", outbox_count: "1" }]);
+  });
+
+  it("DF-038 rolls feature and audit back when the outbox companion write fails", async () => {
+    const ownerId = "feature-owner-companion-failure-01";
+    const featureId = "feature-item-companion-failure-01";
+    const generatedIds = [
+      "audit-companion-write-01",
+      "outbox-companion-collision-01",
+    ];
+    let generatedIdIndex = 0;
+    await createAuthUser(ownerId, "feature-companion-failure-01@example.test");
+    await testDatabase.query(
+      "INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload) VALUES ($1, $2, $3, $4, $5::jsonb)",
+      [
+        "outbox-companion-collision-01",
+        "fixture.created",
+        "fixture",
+        "unrelated",
+        "{}",
+      ]
+    );
+    const repository = createFeatureItemRepository(databaseResource.db, {
+      generateId: () => generatedIds[generatedIdIndex++]!,
+    });
+
+    await expect(
+      repository.create(
+        {
+          id: featureId,
+          ownerId,
+          name: "Companion failure",
+          description: "The outbox insert must force the whole mutation back.",
+        },
+        {
+          actorUserId: ownerId,
+          requestId: "request-companion-failure-01",
+        }
+      )
+    ).rejects.toThrow();
+    return expect(
+      await testDatabase.query(
+        "SELECT (SELECT count(*) FROM feature_items WHERE id = $1) AS feature_count, (SELECT count(*) FROM audit_records WHERE entity_id = $1) AS audit_count, (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1) AS outbox_count",
+        [featureId]
+      )
+    ).toEqual([{ feature_count: "0", audit_count: "0", outbox_count: "0" }]);
+  });
+
+  it("DF-038 rolls feature, audit, and outbox writes back as one transaction", async () => {
+    const ownerId = "feature-owner-rollback-01";
+    const featureId = "feature-item-rollback-01";
+    await createAuthUser(ownerId, "feature-rollback-01@example.test");
+
+    await expect(
+      withTransaction(databaseResource.db, async (transaction) => {
+        const repository = createFeatureItemRepository(transaction);
+        await repository.create(
+          {
+            id: featureId,
+            ownerId,
+            name: "Rolled back example",
+            description: "None of this mutation may remain durable.",
+            metadata: { rollback: true },
+          },
+          { actorUserId: ownerId, requestId: "request-rollback-01" }
+        );
+        throw new Error("force rollback after the complete mutation");
+      })
+    ).rejects.toThrow(/force rollback/);
+
+    const rows = await testDatabase.query<{
+      feature_count: string;
+      audit_count: string;
+      outbox_count: string;
+    }>(
+      "SELECT (SELECT count(*) FROM feature_items WHERE id = $1) AS feature_count, (SELECT count(*) FROM audit_records WHERE entity_id = $1) AS audit_count, (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1) AS outbox_count",
+      [featureId]
+    );
+
+    return expect(rows).toEqual([
+      { feature_count: "0", audit_count: "0", outbox_count: "0" },
+    ]);
+  });
+
+  it("searches escaped admin user text with deterministic opaque keyset pages", async () => {
+    const directory = createAdminUsersRepository(databaseResource.db);
+    for (const suffix of ["a", "b", "c"]) {
+      await createAuthUser(
+        `zz-directory-${suffix}`,
+        `directory-page-${suffix}@example.test`
+      );
+    }
+    await createAuthUser("zz-directory-literal", "literal%_match@example.test");
+    await createProfileRepository(databaseResource.db).upsert({
+      userId: "zz-directory-literal",
+      firstName: "Literal",
+      lastName: null,
+      displayName: "Percent %_ Match",
+      avatarUrl: null,
+      phone: null,
+      businessName: null,
+      jobTitle: null,
+      biography: null,
+      timezone: "UTC",
+      locale: "en",
+      dateOfBirth: null,
+    });
+
+    const escaped = await directory.search({ query: "Percent %_", limit: 20 });
+    expect(escaped.items.map((item) => item.id)).toEqual([
+      "zz-directory-literal",
+    ]);
+    expect(escaped.items[0]?.profile?.displayName).toBe("Percent %_ Match");
+    expect(
+      (await directory.search({ query: "Match", limit: 20 })).items
+    ).toEqual([]);
+    const explainConnection = await testDatabase.openConnection();
+    try {
+      await explainConnection.query("BEGIN");
+      await explainConnection.query("SET LOCAL enable_seqscan = off");
+      const planRows = await explainConnection.query<{ "QUERY PLAN": string }>(
+        `EXPLAIN (COSTS OFF)
+         SELECT matched.id
+         FROM (
+           SELECT id
+           FROM "user"
+           WHERE lower(email) LIKE $1 OR lower(name) LIKE $1
+           UNION
+           SELECT user_id AS id
+           FROM profiles
+           WHERE lower(display_name) LIKE $1
+              OR lower(first_name) LIKE $1
+              OR lower(last_name) LIKE $1
+         ) AS matched`,
+        ["directory%"]
+      );
+      const plan = planRows.map((row) => row["QUERY PLAN"]).join("\n");
+      expect(plan).toContain("user_email_prefix_idx");
+      expect(plan).toContain("user_name_prefix_idx");
+      expect(plan).toContain("profiles_display_name_prefix_idx");
+      expect(plan).toContain("profiles_first_name_prefix_idx");
+      expect(plan).toContain("profiles_last_name_prefix_idx");
+    } finally {
+      await explainConnection.query("ROLLBACK");
+      await explainConnection.close();
+    }
+
+    const first = await directory.search({ query: "directory-page", limit: 2 });
+    expect(first.items.map((item) => item.id)).toEqual([
+      "zz-directory-c",
+      "zz-directory-b",
+    ]);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(first.nextCursor).not.toContain("zz-directory-b");
+    const second = await directory.search({
+      query: "directory-page",
+      cursor: first.nextCursor!,
+      limit: 2,
+    });
+    expect(second.items.map((item) => item.id)).toEqual(["zz-directory-a"]);
+    expect(second.nextCursor).toBeNull();
+
+    for (const [id, micros] of [
+      ["zz-micro-c", 900],
+      ["zz-micro-b", 800],
+      ["zz-micro-a", 700],
+    ] as const) {
+      await createAuthUser(id, `micro-page-${id}@example.test`);
+      await testDatabase.query(
+        `UPDATE "user"
+         SET created_at = ('2026-01-02T03:04:05.123000Z'::timestamptz
+           + ($2::int * interval '1 microsecond'))
+         WHERE id = $1`,
+        [id, micros]
+      );
+    }
+    const microFirst = await directory.search({
+      query: "micro-page",
+      limit: 1,
+    });
+    const microSecond = await directory.search({
+      query: "micro-page",
+      cursor: microFirst.nextCursor!,
+      limit: 1,
+    });
+    const microThird = await directory.search({
+      query: "micro-page",
+      cursor: microSecond.nextCursor!,
+      limit: 1,
+    });
+    expect([
+      microFirst.items[0]?.id,
+      microSecond.items[0]?.id,
+      microThird.items[0]?.id,
+    ]).toEqual(["zz-micro-c", "zz-micro-b", "zz-micro-a"]);
+    return expect(microThird.nextCursor).toBeNull();
+  });
+
+  it("filters and caps feature lists and computes owner-only dashboard counts/recent order", async () => {
+    const ownerId = "dashboard-owner-01";
+    const otherOwnerId = "dashboard-other-01";
+    await createAuthUser(ownerId, "dashboard-owner-01@example.test");
+    await createAuthUser(otherOwnerId, "dashboard-other-01@example.test");
+    const instants = [
+      new Date("2026-02-01T00:00:00.000Z"),
+      new Date("2026-02-02T00:00:00.000Z"),
+      new Date("2026-02-03T00:00:00.000Z"),
+      new Date("2026-02-04T00:00:00.000Z"),
+    ];
+    let instantIndex = 0;
+    const repository = createFeatureItemRepository(databaseResource.db, {
+      now: () => instants[instantIndex++]!,
+      generateId: () => `dashboard-generated-${instantIndex}`,
+    });
+    const create = async (
+      id: string,
+      owner: string,
+      name: string,
+      description: string,
+      status: "draft" | "active" | "archived"
+    ) =>
+      repository.create(
+        { id, ownerId: owner, name, description, status },
+        { actorUserId: owner, requestId: `request-${id}` }
+      );
+    await create(
+      "dashboard-feature-a",
+      ownerId,
+      "Launch alpha",
+      "ordinary",
+      "draft"
+    );
+    await create(
+      "dashboard-feature-b",
+      ownerId,
+      "Literal %_ token",
+      "launch details",
+      "active"
+    );
+    await create(
+      "dashboard-feature-c",
+      ownerId,
+      "Launch gamma",
+      "ordinary",
+      "archived"
+    );
+    await create(
+      "dashboard-feature-other",
+      otherOwnerId,
+      "Launch outsider",
+      "ordinary",
+      "active"
+    );
+
+    expect(
+      (
+        await repository.listByOwner(ownerId, {
+          query: "launch",
+          status: "active",
+          limit: 100,
+        })
+      ).map((item) => item.id)
+    ).toEqual(["dashboard-feature-b"]);
+    expect(
+      (await repository.listByOwner(ownerId, { query: "%_", limit: 50 })).map(
+        (item) => item.id
+      )
+    ).toEqual(["dashboard-feature-b"]);
+    expect(
+      (await repository.listByOwner(ownerId, { limit: 2 })).map(
+        (item) => item.id
+      )
+    ).toEqual(["dashboard-feature-c", "dashboard-feature-b"]);
+
+    const summary = await createDashboardRepository(
+      databaseResource.db
+    ).getFeatureSummary(ownerId, 2);
+    expect(summary).toMatchObject({
+      total: 3,
+      draft: 1,
+      active: 1,
+      archived: 1,
+    });
+    return expect(summary.recent.map((item) => item.id)).toEqual([
+      "dashboard-feature-c",
+      "dashboard-feature-b",
+    ]);
+  });
+
+  it("rolls back primary clearing when the selected address update fails", async () => {
+    const userId = "address-rollback-user-01";
+    await createAuthUser(userId, "address-rollback-01@example.test");
+    const repository = createAddressRepository(databaseResource.db);
+    const common = {
+      userId,
+      type: "home" as const,
+      line1: "1 Rollback Way",
+      city: "Example City",
+      region: "CA",
+      postalCode: "90020",
+      country: "US",
+    };
+    await repository.create({
+      ...common,
+      id: "address-rollback-primary",
+      isPrimary: true,
+    });
+    await repository.create({
+      ...common,
+      id: "address-rollback-target",
+      line1: "2 Rollback Way",
+    });
+    await testDatabase.query(`
+      CREATE FUNCTION fail_address_primary_update() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.id = 'address-rollback-target' AND NEW.is_primary THEN
+          RAISE EXCEPTION 'forced primary update failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await testDatabase.query(`
+      CREATE TRIGGER fail_address_primary_update_trigger
+      BEFORE UPDATE ON addresses
+      FOR EACH ROW EXECUTE FUNCTION fail_address_primary_update()
+    `);
+    try {
+      await expect(
+        repository.setPrimary("address-rollback-target", userId)
+      ).rejects.toThrow();
+    } finally {
+      await testDatabase.query(
+        "DROP TRIGGER fail_address_primary_update_trigger ON addresses"
+      );
+      await testDatabase.query("DROP FUNCTION fail_address_primary_update()");
+    }
+    const addressesAfterFailure = await repository.listByUserId(userId);
+    return expect(
+      addressesAfterFailure
+        .filter((address) => address.isPrimary)
+        .map((address) => address.id)
+    ).toEqual(["address-rollback-primary"]);
+  });
+
+  return it("rejects stale account writes from a second session without losing the winner", async () => {
+    const userId = "optimistic-account-user-01";
+    await createAuthUser(userId, "optimistic-account-01@example.test");
+    const instant = new Date("2026-03-01T00:00:00.000Z");
+    const profileRepository = createProfileRepository(databaseResource.db, {
+      now: () => instant,
+    });
+    const baseProfile = {
+      userId,
+      firstName: null,
+      lastName: null,
+      displayName: "Initial",
+      avatarUrl: null,
+      phone: null,
+      businessName: null,
+      jobTitle: null,
+      biography: null,
+      timezone: "UTC",
+      locale: "en",
+      dateOfBirth: null,
+    };
+    const createdProfile = await profileRepository.updateOptimistic({
+      ...baseProfile,
+      expectedUpdatedAt: null,
+    });
+    const winnerProfile = await profileRepository.updateOptimistic({
+      ...baseProfile,
+      displayName: "Winner",
+      expectedUpdatedAt: createdProfile.updatedAt,
+    });
+    await expect(
+      profileRepository.updateOptimistic({
+        ...baseProfile,
+        displayName: "Stale loser",
+        expectedUpdatedAt: createdProfile.updatedAt,
+      })
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
+    expect(await profileRepository.findByUserId(userId)).toMatchObject({
+      displayName: "Winner",
+      updatedAt: winnerProfile.updatedAt,
+    });
+
+    const addressRepository = createAddressRepository(databaseResource.db, {
+      now: () => instant,
+    });
+    const firstAddress = await addressRepository.create({
+      id: "optimistic-address-1",
+      userId,
+      type: "home",
+      line1: "1 Fixed Clock",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75001",
+      country: "FR",
+      isPrimary: true,
+    });
+    const secondAddress = await addressRepository.create({
+      id: "optimistic-address-2",
+      userId,
+      type: "work",
+      line1: "2 Fixed Clock",
+      line2: null,
+      city: "Paris",
+      region: "Ile-de-France",
+      postalCode: "75002",
+      country: "FR",
+      isPrimary: false,
+    });
+    const addressWinner = await addressRepository.updateOptimistic({
+      id: firstAddress.id,
+      userId,
+      city: "Lyon",
+      expectedUpdatedAt: firstAddress.updatedAt,
+    });
+    await expect(
+      addressRepository.updateOptimistic({
+        id: firstAddress.id,
+        userId,
+        city: "Stale City",
+        expectedUpdatedAt: firstAddress.updatedAt,
+      })
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
+    expect(addressWinner?.updatedAt.getTime()).toBeGreaterThan(
+      firstAddress.updatedAt.getTime()
+    );
+    const primaryWinner = await addressRepository.setPrimaryOptimistic({
+      id: secondAddress.id,
+      userId,
+      expectedUpdatedAt: secondAddress.updatedAt,
+    });
+    await expect(
+      addressRepository.setPrimaryOptimistic({
+        id: secondAddress.id,
+        userId,
+        expectedUpdatedAt: secondAddress.updatedAt,
+      })
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
+    expect(primaryWinner?.updatedAt.getTime()).toBeGreaterThan(
+      addressWinner!.updatedAt.getTime()
+    );
+    await expect(
+      addressRepository.updateOptimistic({
+        id: firstAddress.id,
+        userId,
+        city: "Stale after primary change",
+        expectedUpdatedAt: addressWinner!.updatedAt,
+      })
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
+
+    const preferencesRepository = createUserPreferencesRepository(
+      databaseResource.db,
+      { now: () => instant }
+    );
+    const basePreferences = {
+      userId,
+      emailNotifications: true,
+      productUpdates: true,
+      analyticsConsent: false,
+      personalizationConsent: false,
+      profileVisibility: "private" as const,
+    };
+    const createdPreferences = await preferencesRepository.updateOptimistic({
+      ...basePreferences,
+      expectedUpdatedAt: null,
+    });
+    const themeWinner = await preferencesRepository.upsertTheme({
+      userId,
+      mode: "dark",
+      colorScheme: "violet",
+      expectedUpdatedAt: createdPreferences.updatedAt,
+    });
+    expect(themeWinner.updatedAt.getTime()).toBeGreaterThan(
+      createdPreferences.updatedAt.getTime()
+    );
+    await expect(
+      preferencesRepository.upsertTheme({
+        userId,
+        mode: "light",
+        colorScheme: "amber",
+        expectedUpdatedAt: createdPreferences.updatedAt,
+      })
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
+    const themeVersion = (await preferencesRepository.findByUserId(userId))!;
+    await preferencesRepository.updateOptimistic({
+      ...basePreferences,
+      analyticsConsent: true,
+      expectedUpdatedAt: themeVersion.updatedAt,
+    });
+    await expect(
+      preferencesRepository.updateOptimistic({
+        ...basePreferences,
+        productUpdates: false,
+        expectedUpdatedAt: createdPreferences.updatedAt,
+      })
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
+    return expect(
+      await preferencesRepository.findByUserId(userId)
+    ).toMatchObject({
+      analyticsConsent: true,
+      productUpdates: true,
+      mode: "dark",
+      colorScheme: "violet",
+    });
+  });
+});

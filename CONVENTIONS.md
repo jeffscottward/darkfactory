@@ -6,8 +6,8 @@ These conventions keep DarkFactory predictable for people and AI agents. `AGENTS
 
 | Item | Convention | Example |
 | --- | --- | --- |
-| Directories and authored files | kebab-case | `feature-stub/`, `account-menu.civet` |
-| Civet functions and values | camelCase; verb-first for actions | `createFeatureItem`, `parseInput` |
+| Directories and authored files | kebab-case | `feature-stub/`, `account-menu.tsx` |
+| TypeScript functions and values | camelCase; verb-first for actions | `createFeatureItem`, `parseInput` |
 | Components, classes, types, schemas exposed as types | PascalCase | `FeatureCard`, `FeatureItem` |
 | Constants and environment variables | UPPER_SNAKE_CASE | `DEFAULT_PAGE_SIZE`, `DATABASE_URL` |
 | Boolean values | `is`, `has`, `can`, or `should` prefix | `isEnabled`, `canManageUsers` |
@@ -15,40 +15,40 @@ These conventions keep DarkFactory predictable for people and AI agents. `AGENTS
 | Application events | lowercase dotted namespace and past-tense fact | `feature-item.created` |
 | Routes | lowercase kebab-case; nouns for resources | `/account/preferences` |
 | PostgreSQL objects | snake_case, explicit plural tables | `feature_items`, `owner_id` |
-| Tests | subject plus `.test.civet`; e2e journey plus `.spec.civet` if the runner requires it | `feature.service.test.civet` |
+| Tests | subject plus `.test.ts`/`.test.tsx`; e2e journey plus `.spec.ts` | `feature.service.test.ts` |
 
 Use domain-neutral names in the foundation. Do not encode a sample company, industry, funnel, trading concept, or vertical into shared APIs or navigation.
 
 ## Decomposition and file size
 
 - Start with small pure functions and independently composable components.
-- Keep tiny related units together in a focused `index.civet`; a four-line function does not require a four-line file.
+- Keep tiny related units together in a focused `index.ts`; a four-line function does not require a four-line file.
 - Split when a unit gains independent reuse, independent tests, a meaningful feature/domain/provider boundary, or enough growth that scanning becomes difficult.
 - A file that mixes transport, domain logic, persistence, and provider calls must be split by responsibility regardless of length.
 - File size is a signal, not a quota. Do not create arbitrary line limits or fragment a cohesive unit to satisfy a metric.
 - Scripts compose `parse → validate → plan → apply → verify → report`; CLI handlers contain no business logic.
 - React components compose primitives and extracted behaviors. Do not duplicate or wrap a shadcn primitive without a concrete project-level purpose.
 
-## Civet and TypeScript boundaries
+## TypeScript source
 
-Author `.civet` for application logic, features, React UI, contracts, schemas, services, adapters, scripts, and tests.
+Author application logic, features, React UI, contracts, schemas, services, adapters, scripts, and tests in strict TypeScript: `.ts`, or `.tsx` for files containing JSX.
 
-Use `.ts`/`.tsx` only when required by a tool, platform, generator, publication target, or exact filename convention, including `vite.config.ts`, Vitest/Playwright configuration, `drizzle.config.ts`, environment declarations, generated OpenAPI clients, generated Cloudflare bindings, and migration artifacts. Add `alchemy.run.ts` only when a real supported ancillary Cloudflare resource is enabled; while none is enabled, no Alchemy program or dependency belongs in the repository. Keep compatibility files thin and delegate into Civet when possible.
-
-- Register `@danielx/civet/vite` in the Vite compatibility configuration and include `civet` in vinext/Next route `pageExtensions`; vinext does not discover `.civet` routes by default.
-- Pin and verify Bun, Node compatibility, Vite, React/RSC, vinext, and Civet together. Bun runs scripts and TypeScript; root Civet entrypoints use `bun --preload @danielx/civet/bun-civet`; compatible local CLIs use `bunx --bun --no-install`. pnpm owns installation, workspace selection, and the sole lockfile. Package-local CLIs run from their owning package context. Explicit Node execution requires a measured incompatibility: Vitest uses Node for V8 coverage; `vinext dev` uses Node because Bun 1.3.14 does not implement the WebSocket events required by Vite's development server; and Vinext build/deploy CLIs use Node because their Bun-generated production bundle omits authored routes despite reporting success.
+- Relative imports use explicit `.ts`/`.tsx` extensions (`allowImportingTsExtensions`); workspace packages import through their declared exports.
+- Every package extends the strict `tsconfig.base.json` (`strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`); do not loosen compiler options per package.
+- Biome owns formatting and linting for all authored TypeScript; `bun run format` and `bun run lint` must pass.
+- Add `alchemy.run.ts` only when a real supported ancillary Cloudflare resource is enabled; while none is enabled, no Alchemy program or dependency belongs in the repository. Keep tool-required configuration files thin and delegate into feature/package code.
+- Pin and verify Bun, Node.js 24.21.0, Vite, React/RSC, and vinext together. Bun runs scripts and TypeScript; compatible local CLIs use `bunx --bun --no-install`. pnpm owns installation, workspace selection, and the sole lockfile. Package-local CLIs run from their owning package context. Explicit Node execution requires a measured incompatibility: Vitest uses Node for V8 coverage; `vinext dev` uses Node because Bun 1.3.14 does not implement the WebSocket events required by Vite's development server; and Vinext build/deploy CLIs use Node because their Bun-generated production bundle omits authored routes despite reporting success.
 
 Never:
 
-- choose TypeScript merely because it is more familiar;
+- use `any` or unchecked casts to silence the type checker;
 - hand-edit generated TypeScript;
-- maintain equivalent Civet and TypeScript implementations;
-- let a compatibility entrypoint accumulate application behavior.
+- let a configuration entrypoint accumulate application behavior.
 
 ## Imports and exports
 
 - Prefer named exports. Use a default export only when a framework or tool requires it.
-- Each feature/package exposes a deliberate local public surface through its `index.civet` or documented entrypoint.
+- Each feature/package exposes a deliberate local public surface through its `index.ts` or documented entrypoint.
 - Import another feature or package through that public surface; never deep-import internals.
 - Keep local barrels narrow. Avoid repository-wide barrels, circular re-exports, and re-exports that hide ownership.
 - Import domain/application abstractions, not provider implementations. Wire adapters only in composition roots.
@@ -60,14 +60,14 @@ A feature may contain:
 
 ```text
 feature-name/
-├── index.civet
-├── feature.contract.civet
-├── feature.schema.civet
-├── feature.service.civet
-├── feature.store.civet          port or feature repository interface
-├── feature.events.civet
-├── feature.machine.civet        only for a real lifecycle
-├── feature.state.civet          only for local UI state
+├── index.ts
+├── feature.contract.ts
+├── feature.schema.ts
+├── feature.service.ts
+├── feature.store.ts          port or feature repository interface
+├── feature.events.ts
+├── feature.machine.ts        only for a real lifecycle
+├── feature.state.ts          only for local UI state
 ├── components/
 ├── client/
 ├── server/
@@ -100,7 +100,7 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 
 ## State and effects
 
-- Use plain Civet functions for pure domain logic.
+- Use plain TypeScript functions for pure domain logic.
 - Use XState only for explicit states and transitions; persist durable transition history in PostgreSQL.
 - Use Zustand for local view coordination such as open panels, unsaved UI state, or temporary filters—not fetched server data or durable preferences.
 - Use Effect when resource safety, typed failure composition, retry/timeout policy, cancellation, or concurrency justifies the added model.
@@ -110,7 +110,6 @@ Use only the files the feature needs. The structure is a boundary vocabulary, no
 
 `biome.json` is strict JSON so standard discovery and parsers can consume it. The configuration owns the exact file scopes; these conventions preserve the reasons for every non-default scope and rule exception:
 
-- Civet owns parsing and type checks for authored `.civet` source.
 - `packages/api/openapi.json` is generated deterministically by `@darkfactory/api`; the stale check owns its exact bytes.
 - `useLiteralKeys` is disabled only for the listed files that intentionally inspect validated dynamic records and `ProcessEnv`; TypeScript's `noPropertyAccessFromIndexSignature` requires bracket access.
 - `useTopLevelRegex` is disabled only for bounded security parsers and one-shot tests that keep regexes beside the invariant they prove; none execute in an unbounded hot path.

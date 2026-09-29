@@ -1,7 +1,7 @@
 @import "@darkfactory/ui/styles.css";
 
-@source "../../../../packages/ui/src/**/*.civet";
-@source "../**/*.civet";
+@source "../../../../packages/ui/src/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
 
 @layer base {
   a {

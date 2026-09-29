@@ -13,32 +13,27 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./server/posthog": {
-      "types": "./src/server/posthog.civet.d.ts",
-      "workerd": "./src/server/posthog.civet",
-      "worker": "./src/server/posthog.civet",
+      "workerd": "./src/server/posthog.ts",
+      "worker": "./src/server/posthog.ts",
       "browser": "./src/server/unsupported.js",
-      "import": "./src/server/posthog.civet",
-      "default": "./src/server/posthog.civet"
+      "import": "./src/server/posthog.ts",
+      "default": "./src/server/posthog.ts"
     },
     "./test": {
-      "types": "./src/test.civet.d.ts",
-      "import": "./src/test.civet",
-      "default": "./src/test.civet"
+      "import": "./src/test.ts",
+      "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet && bunx --bun --no-install civet --emit-declaration src/server/posthog.civet && bunx --bun --no-install civet --emit-declaration src/test.civet",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

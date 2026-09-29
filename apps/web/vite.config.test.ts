@@ -1,8 +1,5 @@
-import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Plugin } from "vite";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import viteConfig from "./vite.config";
@@ -10,70 +7,50 @@ import viteConfig from "./vite.config";
 const LINE_BREAK_PATTERN = /\r?\n/u;
 
 const pluginMocks = vi.hoisted(() => ({
-  civet: vi.fn(() => ({ name: "test-civet" })),
   tailwind: vi.fn(() => ({ name: "test-tailwind" })),
   cloudflare: vi.fn(() => ({ name: "test-cloudflare" })),
   vinext: vi.fn(() => ({ name: "test-vinext" })),
 }));
 
-vi.mock("@danielx/civet/vite", () => ({ default: pluginMocks.civet }));
 vi.mock("@tailwindcss/vite", () => ({ default: pluginMocks.tailwind }));
 vi.mock("@cloudflare/vite-plugin", () => ({
   cloudflare: pluginMocks.cloudflare,
 }));
 vi.mock("vinext", () => ({ default: pluginMocks.vinext }));
 
-describe("Civet build type-check isolation", () => {
-  it("disables Civet diagnostics only for Vite transforms", () => {
-    expect(pluginMocks.civet).toHaveBeenCalledWith({
-      ts: "esbuild",
-      typecheck: false,
-    });
-  });
-
+describe("TypeScript package typecheck", () => {
   it("keeps the package typecheck on its strict dedicated config", async () => {
     const packageJson = JSON.parse(
       await readFile(new URL("./package.json", import.meta.url), "utf8")
     ) as { scripts: { typecheck: string } };
     const typecheckConfigPath = fileURLToPath(
-      new URL("./civet.typecheck.json", import.meta.url)
+      new URL("./tsconfig.json", import.meta.url)
     );
-    const typecheckConfig = JSON.parse(
-      await readFile(typecheckConfigPath, "utf8")
-    ) as {
-      tsConfig: Record<string, unknown>;
-    };
-    const parsedTypecheckConfig = ts.parseJsonConfigFileContent(
-      typecheckConfig.tsConfig,
-      ts.sys,
-      dirname(typecheckConfigPath),
+    const parsedTypecheckConfig = ts.getParsedCommandLineOfConfigFile(
+      typecheckConfigPath,
       undefined,
-      typecheckConfigPath
+      {
+        ...ts.sys,
+        onUnRecoverableConfigFileDiagnostic: () => undefined,
+      }
     );
 
-    expect(packageJson.scripts.typecheck).toBe(
-      "bunx --bun --no-install civet --config civet.typecheck.json --typecheck"
-    );
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for this index-signature key.
-    expect(typecheckConfig.tsConfig["extends"]).toBe(
-      "../../tsconfig.base.json"
-    );
-    expect(parsedTypecheckConfig.errors).toEqual([]);
-    expect(parsedTypecheckConfig.options.strict).toBe(true);
-    expect(parsedTypecheckConfig.options.forceConsistentCasingInFileNames).toBe(
-      true
-    );
-    expect(parsedTypecheckConfig.options.noCheck).not.toBe(true);
+    expect(packageJson.scripts.typecheck).toBe("tsc --noEmit -p tsconfig.json");
+    expect(parsedTypecheckConfig?.errors).toEqual([]);
+    expect(parsedTypecheckConfig?.options.strict).toBe(true);
+    expect(
+      parsedTypecheckConfig?.options.forceConsistentCasingInFileNames
+    ).toBe(true);
+    expect(parsedTypecheckConfig?.options.noCheck).not.toBe(true);
   });
 });
 
 describe("Vite application plugin contract", () => {
-  it("keeps the environment policy after Civet, Tailwind, Vinext, and Cloudflare", () => {
+  it("keeps the environment policy after Tailwind, Vinext, and Cloudflare", () => {
     const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : [];
     expect(
       plugins.map((plugin) => (plugin && "name" in plugin ? plugin.name : null))
     ).toEqual([
-      "test-civet",
       "test-tailwind",
       "test-vinext",
       "test-cloudflare",
@@ -93,7 +70,7 @@ describe("Vite application plugin contract", () => {
   it("preserves Vinext route discovery and Cloudflare Worker environments", () => {
     expect(pluginMocks.vinext).toHaveBeenCalledWith({
       nextConfig: {
-        pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
+        pageExtensions: ["tsx", "ts", "jsx", "js"],
       },
     });
     expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
@@ -203,72 +180,8 @@ describe("Vite application plugin contract", () => {
 
   it("pretransforms the protected portal client boundary during dev startup", () => {
     expect(viteConfig.server?.warmup?.clientFiles).toEqual([
-      "./src/components/portal-shell.civet",
+      "./src/components/portal-shell.tsx",
     ]);
-  });
-
-  it("publishes one-shot preview request boundaries for the owned E2E child", async () => {
-    vi.stubEnv("APP_ENV", "test");
-    vi.stubEnv("E2E_RUN_ID", "production_browser_child");
-    pluginMocks.cloudflare.mockClear();
-    vi.resetModules();
-
-    try {
-      const e2eConfig = (await import("./vite.config")).default;
-      const plugins = Array.isArray(e2eConfig.plugins) ? e2eConfig.plugins : [];
-      const names = plugins.map((plugin) =>
-        plugin && "name" in plugin ? plugin.name : null
-      );
-      const diagnostics = plugins.find(
-        (plugin) =>
-          plugin &&
-          "name" in plugin &&
-          plugin.name === "darkfactory:e2e-preview-diagnostics"
-      ) as Plugin | undefined;
-      expect(names.indexOf("darkfactory:e2e-preview-diagnostics")).toBeLessThan(
-        names.indexOf("test-cloudflare")
-      );
-      expect(diagnostics).toBeDefined();
-      expect(typeof diagnostics?.configurePreviewServer).toBe("function");
-
-      const use = vi.fn();
-      const write = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      const configurePreviewServer = diagnostics?.configurePreviewServer;
-      if (typeof configurePreviewServer !== "function") {
-        throw new Error("E2E preview diagnostics hook is unavailable");
-      }
-      await configurePreviewServer.call(
-        {} as never,
-        {
-          middlewares: { use },
-        } as never
-      );
-      const middleware = use.mock.calls[0]?.[0] as
-        | ((request: object, response: EventEmitter, next: () => void) => void)
-        | undefined;
-      if (middleware === undefined) {
-        throw new Error("E2E preview diagnostics middleware is unavailable");
-      }
-      const response = new EventEmitter();
-      const next = vi.fn();
-
-      middleware({}, response, next);
-      middleware({}, response, next);
-      response.emit("finish");
-      response.emit("finish");
-
-      expect(next).toHaveBeenCalledTimes(2);
-      expect(write).toHaveBeenCalledWith(
-        "DARKFACTORY_E2E_VITE_REQUEST_RECEIVED\n"
-      );
-      expect(write).toHaveBeenCalledWith(
-        "DARKFACTORY_E2E_VITE_RESPONSE_FINISHED\n"
-      );
-      expect(write).toHaveBeenCalledTimes(2);
-      write.mockRestore();
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 
   it("keeps Worker dev-var files out of source control", async () => {

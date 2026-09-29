@@ -16,8 +16,6 @@ playwright-report/
 test-results/
 graphify-out/
 .graphify/manifest.json
-*.civet.d.ts
-*.civet.tsx
 
 # Local agent recovery artifacts
 .session-recovery/

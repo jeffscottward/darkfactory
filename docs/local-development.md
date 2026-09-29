@@ -7,13 +7,13 @@ This guide expands the safe local workflow from the [README](../README.md). It d
 DarkFactory currently expects:
 
 - Bun 1.3.14 for scripts and TypeScript.
-- Node.js 22.13.0 or newer for Corepack/pnpm and measured compatibility paths.
+- Node.js 24.21.0 (pinned in `.nvmrc`) for Corepack/pnpm and measured compatibility paths.
 - Corepack 0.34.7 selecting pnpm 11.16.0 as the sole package manager and lockfile owner.
 - Docker Engine with Docker Compose and a running daemon.
 - PM2 7.0.3, Portless 0.13.0, Varlock 1.13.0, uv 0.11.32, and Graphify 0.9.2.
 - Workspace Playwright 1.61.1 with Chromium.
 
-Civet, Turborepo, Vite, vinext, Wrangler, Vitest, Portless, and Playwright are workspace dependencies installed from `pnpm-lock.yaml`. The repository doctor checks the reviewed versions.
+TypeScript, Biome, Turborepo, Vite, vinext, Wrangler, Vitest, Portless, and Playwright are workspace dependencies installed from `pnpm-lock.yaml`. The repository doctor checks the reviewed versions.
 
 ```bash
 sh scripts/install-prerequisites.sh

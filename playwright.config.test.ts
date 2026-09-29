@@ -1,358 +1,300 @@
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-
-// Dynamic import intentionally verifies the discovery-only module-loading boundary.
-const playwrightModule = await (async () => {
-  const originalArguments = process.argv;
-  const originalDatabaseUrl = process.env["DATABASE_URL"];
-  process.argv = [...process.argv, "--list"];
-  Reflect.deleteProperty(process.env, "DATABASE_URL");
-  try {
-    return await import("./playwright.config");
-  } finally {
-    process.argv = originalArguments;
-    if (originalDatabaseUrl === undefined) {
-      Reflect.deleteProperty(process.env, "DATABASE_URL");
-    } else {
-      process.env["DATABASE_URL"] = originalDatabaseUrl;
-    }
-  }
-})();
-const {
-  E2E_LIFECYCLE_GLOBAL_SETUP,
-  createCanonicalWebServerConfig,
-  default: playwrightConfig,
-  parseMaintenanceDatabaseUrl,
-  resolveNodeExtraCaCertificates,
-} = playwrightModule;
-
+import type { PlaywrightTestConfig } from "@playwright/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spkiPinArguments } from "./tests/e2e/env.ts";
 import {
   BrowserErrorCollector,
   type ExpectedHttpError,
-} from "./tests/e2e/helpers/browser-errors";
-import {
-  E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
-  E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
-  E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS,
-  E2E_PROCESS_TERMINATION_OPTIONS,
-  E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS,
-  E2E_WEB_SERVER_READY_MARKER,
-} from "./tests/e2e/helpers/lifecycle-budgets";
-import { E2E_SERVER_READY_TIMEOUT_MILLIS } from "./tests/e2e/helpers/server-readiness";
-import { extractPreviewLink } from "./tests/e2e/helpers/preview-email";
-import { createE2ERunPaths } from "./tests/e2e/helpers/run-artifacts";
-import {
-  canonicalBaseURL,
-  createE2EServerEnvironment,
-  parsePortlessPort,
-} from "./tests/e2e/helpers/runtime";
+} from "./tests/e2e/helpers/browser-errors.ts";
+import { extractPreviewLink } from "./tests/e2e/helpers/preview-email.ts";
 
+// Public certificate only (no key): a fixed input for the SPKI pin. Pin from
+// `openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64`.
+const FIXTURE_CA = `-----BEGIN CERTIFICATE-----
+MIIBozCCAUmgAwIBAgIUBAotcKGlGHP8eh3IxCcayviHaEMwCgYIKoZIzj0EAwIw
+JjEkMCIGA1UEAwwbRGFya0ZhY3RvcnkgdGVzdCBmaXh0dXJlIENBMCAXDTI2MDky
+OTA2NDAyOVoYDzIxMjYwOTA1MDY0MDI5WjAmMSQwIgYDVQQDDBtEYXJrRmFjdG9y
+eSB0ZXN0IGZpeHR1cmUgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS1nW6N
+SHxc1y8z5AsySRmS2gv6sisYe/mgU0kQq2WAuhO+DtYKTWQXTMY4s8py5DBvIUfi
+X3Dt/Gq0hG2zaJYSo1MwUTAdBgNVHQ4EFgQUrvlUtCIYQ6imJMbXyiecFg+w7T4w
+HwYDVR0jBBgwFoAUrvlUtCIYQ6imJMbXyiecFg+w7T4wDwYDVR0TAQH/BAUwAwEB
+/zAKBggqhkjOPQQDAgNIADBFAiEAu/kP85lG+biSkbRTTLBdo0QZLsDES66XJXe/
+QefqIGACIEzpGD5XHY4fdEkwtKj2/nya++0FDKDi0Jk7y9dmyftG
+-----END CERTIFICATE-----
+`;
+const FIXTURE_PIN =
+  "--ignore-certificate-errors-spki-list=aTgTlpKFtIWd2YDFtuKJXThboCoOVzczFFmWOAYmr9k=";
 const MAINTENANCE_DATABASE_URL =
   "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance";
-const ISOLATED_DATABASE_URL =
-  "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_harness";
-const TEST_SECRET = "test-secret-with-at-least-32-characters";
-const PREVIEW_HMAC_KEY = Buffer.alloc(32, 7).toString("base64url");
+const CALLER_SECRETS = {
+  AWS_SECRET_ACCESS_KEY: "caller-aws-secret",
+  GITHUB_TOKEN: "caller-github-token",
+  GROQ_API_KEY: "caller-groq-key",
+  OPENAI_API_KEY: "caller-openai-key",
+  R2_SECRET_ACCESS_KEY: "caller-r2-secret",
+  RESEND_API_KEY: "caller-resend-key",
+} as const;
+// Playwright's own webServer defaults, merged before process.env.
+const PLAYWRIGHT_DEFAULTS = {
+  BROWSER: "none",
+  DEBUG_COLORS: "1",
+  FORCE_COLOR: "1",
+};
 
-describe("canonical Playwright runtime", () => {
-  it("derives the exact Portless HTTPS origin and rejects unsafe ports", () => {
-    expect(parsePortlessPort(undefined)).toBeUndefined();
-    expect(parsePortlessPort("1355")).toBe(1355);
-    expect(canonicalBaseURL(undefined)).toBe("https://darkfactory.localhost");
-    expect(canonicalBaseURL(1355)).toBe("https://darkfactory.localhost:1355");
+type WebServer = Readonly<{
+  command: string;
+  env: Record<string, string | undefined>;
+  gracefulShutdown?: unknown;
+  name?: string;
+  port?: number;
+  reuseExistingServer?: boolean;
+  url?: string;
+}>;
 
-    for (const value of ["0", "65536", "1.5", " 1355", "abc"]) {
-      expect(() => parsePortlessPort(value)).toThrowError(
-        "PORTLESS_PORT must be an integer between 1 and 65535."
-      );
-    }
-  });
+let temporaryDirectory = "";
 
-  it("forces isolated test-only server capabilities without retaining remote credentials", () => {
-    const environment = createE2EServerEnvironment({
-      databaseUrl: ISOLATED_DATABASE_URL,
-      portlessPort: 1355,
-      previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
-      runPaths: createE2ERunPaths("runtime_contract"),
-      secret: TEST_SECRET,
-      source: {
-        APP_ENV: "test",
-        E2E_EMAIL_PREVIEW_HMAC_KEY: PREVIEW_HMAC_KEY,
-        DATABASE_URL: MAINTENANCE_DATABASE_URL,
-        GROQ_API_KEY: "production-ai-key",
-        RESEND_API_KEY: "production-email-key",
-        POSTHOG_KEY: "production-analytics-key",
-        OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.example.test",
-        R2_SECRET_ACCESS_KEY: "production-storage-key",
-        PATH: "/safe/bin",
-        PORTLESS_APP_PORT: "host-owned-port",
-        PORTLESS_STATE_DIR: "/runner/private-portless-state",
-        UNRELATED_SECRET: "must-not-cross-process-boundary",
-      },
-    });
+const loadConfig = async (
+  overrides: Record<string, string | undefined> = {}
+): Promise<PlaywrightTestConfig> => {
+  for (const [key, value] of Object.entries({
+    APP_ENV: "test",
+    CI: undefined,
+    DATABASE_URL: MAINTENANCE_DATABASE_URL,
+    E2E_APP_PORT: "43124",
+    E2E_AUTH_SECRET: "a".repeat(64),
+    E2E_CAPTURE_PORT: "43125",
+    E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
+    E2E_HTTPS_PORT: "1356",
+    E2E_RUN_ID: "config_contract",
+    NODE_EXTRA_CA_CERTS: undefined,
+    TEST_WORKER_INDEX: undefined,
+    TMPDIR: temporaryDirectory,
+    // A caller's portless preferences must not turn off the run's HTTPS.
+    PORTLESS_HTTPS: "0",
+    ...CALLER_SECRETS,
+    ...overrides,
+  })) {
+    vi.stubEnv(key, value);
+  }
+  vi.resetModules();
+  return (await import("./playwright.config.ts")).default;
+};
 
-    expect(environment).toMatchObject({
-      APP_ENV: "test",
-      APP_URL: "https://darkfactory.localhost:1355",
-      BETTER_AUTH_URL: "https://darkfactory.localhost:1355",
-      DATABASE_PROVIDER: "postgres",
-      DATABASE_URL: ISOLATED_DATABASE_URL,
-      EMAIL_TRANSPORT: "preview",
-      E2E_FIXTURES: "1",
-      E2E_EMAIL_PREVIEW_DIRECTORY:
-        createE2ERunPaths("runtime_contract").authPreviews,
-      E2E_EMAIL_PREVIEW_ENDPOINT: "http://127.0.0.1:43123/v1/capture",
-      E2E_EMAIL_PREVIEW_HMAC_KEY: PREVIEW_HMAC_KEY,
-      OTEL_ENABLED: "false",
-      STORAGE_ENABLED: "false",
-      E2E_RUN_ID: "runtime_contract",
-    });
-    expect(environment["PORTLESS_APP_PORT"]).toBeUndefined();
-    expect(environment["PATH"]).toBe("/safe/bin");
-    expect(environment["PORTLESS_STATE_DIR"]).toBe(
-      "/runner/private-portless-state"
-    );
-    expect(environment["UNRELATED_SECRET"]).toBeUndefined();
-    expect(environment["GROQ_API_KEY"]).toBe("");
-    expect(environment["RESEND_API_KEY"]).toBe("");
-    expect(environment["POSTHOG_KEY"]).toBe("");
-    expect(environment["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe("");
-    expect(environment["R2_SECRET_ACCESS_KEY"]).toBe("");
-  });
+const webServers = (config: PlaywrightTestConfig): WebServer[] =>
+  config.webServer as WebServer[];
 
-  it("accepts only the dedicated local maintenance database contract", () => {
-    const safe =
-      "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance";
-    expect(parseMaintenanceDatabaseUrl(safe, true)).toBe(safe);
-    expect(parseMaintenanceDatabaseUrl(undefined, false)).toBe("");
-    for (const unsafe of [
-      undefined,
-      "postgresql://darkfactory_test_runner:test-only@remote.test:55432/darkfactory_test_maintenance",
-      "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/other",
-      "postgresql://darkfactory_test_runner@127.0.0.1:55432/darkfactory_test_maintenance",
-      "https://127.0.0.1:55432/darkfactory_test_maintenance",
-    ]) {
-      expect(() => parseMaintenanceDatabaseUrl(unsafe, true)).toThrow(
-        /maintenance database/i
-      );
-    }
-  });
-  it("provides a verified Portless CA to the spawned Node webserver", () => {
-    const homeDirectory = mkdtempSync(join(tmpdir(), "darkfactory-portless-"));
-    try {
-      const portlessDirectory = join(homeDirectory, ".portless");
-      const portlessCa = join(portlessDirectory, "ca.pem");
-      const overrideCa = join(homeDirectory, "override.pem");
-      mkdirSync(portlessDirectory);
-      writeFileSync(portlessCa, "trusted portless test CA");
-      writeFileSync(overrideCa, "trusted override test CA");
-
-      const derivedCa = resolveNodeExtraCaCertificates({
-        explicitPath: undefined,
-        homeDirectory,
-        required: true,
-      });
-      expect(derivedCa).toBe(portlessCa);
-
-      const webServer = createCanonicalWebServerConfig({
-        appUrl: "https://darkfactory.localhost:43123",
-        databaseUrl: MAINTENANCE_DATABASE_URL,
-        extraCaCertificates: derivedCa,
-        portlessPort: 43_123,
-        previewHmacKey: PREVIEW_HMAC_KEY,
-        runAdoption: "test-adoption",
-        runId: "test-run",
-      });
-      expect(webServer.env["NODE_EXTRA_CA_CERTS"]).toBe(portlessCa);
-
-      expect(
-        resolveNodeExtraCaCertificates({
-          explicitPath: overrideCa,
-          homeDirectory,
-          required: true,
-        })
-      ).toBe(overrideCa);
-    } finally {
-      rmSync(homeDirectory, { force: true, recursive: true });
-    }
-  });
-
-  it("fails closed instead of inventing missing or unsafe CA paths", () => {
-    const homeDirectory = mkdtempSync(join(tmpdir(), "darkfactory-portless-"));
-    try {
-      expect(
-        resolveNodeExtraCaCertificates({
-          explicitPath: undefined,
-          homeDirectory,
-          required: false,
-        })
-      ).toBeUndefined();
-      expect(() =>
-        resolveNodeExtraCaCertificates({
-          explicitPath: undefined,
-          homeDirectory,
-          required: true,
-        })
-      ).toThrow(/extra CA certificate is unavailable/i);
-      expect(() =>
-        resolveNodeExtraCaCertificates({
-          explicitPath: "relative-ca.pem",
-          homeDirectory,
-          required: true,
-        })
-      ).toThrow(/extra CA certificate path is unsafe/i);
-      expect(() =>
-        resolveNodeExtraCaCertificates({
-          explicitPath: join(homeDirectory, "missing.pem"),
-          homeDirectory,
-          required: true,
-        })
-      ).toThrow(/extra CA certificate is unavailable/i);
-      expect(() =>
-        resolveNodeExtraCaCertificates({
-          explicitPath: homeDirectory,
-          homeDirectory,
-          required: true,
-        })
-      ).toThrow(/extra CA certificate path is unsafe/i);
-    } finally {
-      rmSync(homeDirectory, { force: true, recursive: true });
-    }
-  });
-
-  it("rejects direct runtime before any webserver inherits caller secrets", () => {
-    const sentinel = "must-not-reach-webserver";
-    const cliPath = fileURLToPath(import.meta.resolve("@playwright/test/cli"));
-    const result = spawnSync(
+// The environment a webServer child really receives, spawned the way Playwright does.
+const childEnvironment = (server: WebServer): Record<string, string> =>
+  JSON.parse(
+    execFileSync(
       process.execPath,
-      [cliPath, "test", "tests/e2e/auth.spec.ts", "--workers=1"],
+      ["-e", "process.stdout.write(JSON.stringify(process.env))"],
       {
-        cwd: process.cwd(),
         encoding: "utf8",
-        env: {
-          DATABASE_URL:
-            "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance",
-          E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
-          E2E_RUN_ID: "direct-runtime",
-          HOME: process.env["HOME"] ?? "",
-          PATH: process.env["PATH"] ?? "",
-          PORTLESS_PORT: "43123",
-          SECRET_SENTINEL: sentinel,
-          NODE_ENV: "test",
-        },
-        timeout: 30_000,
+        env: { ...PLAYWRIGHT_DEFAULTS, ...process.env, ...server.env },
       }
-    );
-    const output = `${result.stdout}${result.stderr}`;
-    expect(result.status).not.toBe(0);
-    expect(output).toMatch(/runner adoption is unavailable/i);
-    expect(output).not.toContain(sentinel);
-    expect(output).not.toContain("[WebServer]");
-    expect(output).not.toContain("web-server.civet");
+    )
+  ) as Record<string, string>;
+
+beforeEach(() => {
+  temporaryDirectory = mkdtempSync(join(tmpdir(), "darkfactory-config-"));
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(temporaryDirectory, { force: true, recursive: true });
+});
+
+describe("Playwright harness", () => {
+  it("runs both projects in one invocation over the production HTTPS origin", async () => {
+    const config = await loadConfig();
+    expect(config.use).toMatchObject({
+      baseURL: "https://darkfactory.localhost:1356",
+      launchOptions: { args: [] },
+      screenshot: "only-on-failure",
+      trace: "on-first-retry",
+    });
+    expect(config.globalSetup).toBe("./tests/e2e/global-setup.ts");
+    expect(config.workers).toBe(1);
+    expect(config.projects?.map((project) => project.name)).toEqual([
+      "e2e",
+      "a11y",
+    ]);
+    const [proxy, app] = webServers(config);
+    expect(proxy).toMatchObject({
+      command:
+        "node_modules/.bin/portless proxy start --foreground --skip-trust --port 1356",
+      name: "https",
+      port: 1356,
+      reuseExistingServer: false,
+    });
+    expect(app).toMatchObject({
+      command:
+        "rm -f apps/web/dist/server/.dev.vars && node_modules/.bin/portless darkfactory corepack pnpm --filter @darkfactory/web run start --mode test",
+      name: "app",
+      reuseExistingServer: false,
+      url: "http://127.0.0.1:43124/robots.txt",
+    });
+    expect(proxy?.gracefulShutdown).toBeDefined();
+    return expect(app?.gracefulShutdown).toBeDefined();
   });
 
-  it("serializes DB-backed journeys and never reuses an unknown local server", () => {
-    expect(playwrightConfig.workers).toBe(1);
-    expect(playwrightConfig.fullyParallel).toBe(false);
-    expect(playwrightConfig.testIgnore).toEqual(["**/helpers/**"]);
-    expect(playwrightConfig.preserveOutput).toBe("failures-only");
-    expect(playwrightConfig.failOnFlakyTests).toBe(Boolean(process.env["CI"]));
-    expect(playwrightConfig.retries).toBe(process.env["CI"] ? 1 : 0);
-    expect(playwrightConfig.use).not.toHaveProperty("ignoreHTTPSErrors");
-    expect(playwrightConfig.use?.screenshot).toBe("off");
-    expect(playwrightConfig.use?.trace).toBe("off");
-    expect(playwrightConfig.use?.video).toBe("off");
-    expect(E2E_PROCESS_TERMINATION_OPTIONS).toEqual({
-      forceTimeoutMillis: 2000,
-      gracefulTimeoutMillis: 2000,
-    });
-    expect(E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS).toBe(4000);
-    expect(E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS).toBeGreaterThan(
-      E2E_PROCESS_TERMINATION_WORST_CASE_MILLISECONDS +
-        E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS
-    );
-    expect(E2E_SERVER_READY_TIMEOUT_MILLIS).toBe(240_000);
-    expect(E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS).toBe(300_000);
-    expect(E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS).toBeGreaterThan(
-      E2E_SERVER_READY_TIMEOUT_MILLIS +
-        E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS +
-        E2E_RESOURCE_CLEANUP_HEADROOM_MILLISECONDS
-    );
-    expect(playwrightConfig.webServer).toBeUndefined();
-    expect(playwrightConfig.globalSetup).toBeUndefined();
-    expect(E2E_LIFECYCLE_GLOBAL_SETUP).toBe(
-      "./tests/e2e/helpers/server-readiness.ts"
-    );
-    const runtimeInput = {
-      appUrl: "https://darkfactory.localhost:43123",
-      databaseUrl:
-        "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance",
-      portlessPort: 43_123,
-      previewHmacKey: "h".repeat(43),
-      runAdoption: "test-adoption",
-      runId: "test-run",
-    } as const;
-    const runtimeWebServer = createCanonicalWebServerConfig(runtimeInput);
-    expect(runtimeWebServer).not.toHaveProperty("url");
-    expect(runtimeWebServer).not.toHaveProperty("port");
-    expect(runtimeWebServer).toMatchObject({
-      command:
-        "node --experimental-strip-types --import ./tests/e2e/helpers/register-civet-loader.mjs ./tests/e2e/helpers/web-server.civet",
-      gracefulShutdown: {
-        signal: "SIGTERM",
-        timeout: E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
-      },
-      stderr: "pipe",
-      stdout: "pipe",
-      env: {
-        APP_ENV: "test",
-        DATABASE_URL:
-          "postgresql://darkfactory_test_runner:test-only@127.0.0.1:55432/darkfactory_test_maintenance",
-        E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
-        E2E_RUN_ADOPTION: "test-adoption",
-        E2E_RUN_ID: "test-run",
-        PORTLESS_PORT: "43123",
-      },
-      wait: {
-        stderr: new RegExp(`^${E2E_WEB_SERVER_READY_MARKER}$`, "mu"),
-      },
-      timeout: E2E_PLAYWRIGHT_WEB_SERVER_TIMEOUT_MILLISECONDS,
-    });
-    expect(
-      runtimeWebServer.wait.stderr.test(
-        `prefix-${E2E_WEB_SERVER_READY_MARKER}-suffix`
+  it("never bypasses TLS: no ignoreHTTPSErrors anywhere", async () => {
+    const config = await loadConfig();
+    const uses = [config.use, ...(config.projects ?? []).map((p) => p.use)];
+    for (const use of uses) {
+      expect(use).not.toHaveProperty("ignoreHTTPSErrors");
+    }
+    return expect(process.env["NODE_EXTRA_CA_CERTS"]).toBe(
+      join(
+        temporaryDirectory,
+        `darkfactory-e2e-portless-${process.getuid?.()}`,
+        "ca.pem"
       )
-    ).toBe(false);
-    for (const unsafeAppUrl of [
-      "http://darkfactory.localhost:43123",
-      "https://user@darkfactory.localhost:43123",
-      "https://darkfactory.localhost:43123/dashboard",
-      "https://darkfactory.localhost:43123?next=/sign-in",
-      "https://darkfactory.localhost:43124",
-    ]) {
-      expect(() =>
-        createCanonicalWebServerConfig({
-          ...runtimeInput,
-          appUrl: unsafeAppUrl,
+    );
+  });
+
+  it("pins exactly the generated CA key in worker browsers", async () => {
+    const stateDirectory = join(
+      temporaryDirectory,
+      `darkfactory-e2e-portless-${process.getuid?.()}`
+    );
+    mkdirSync(stateDirectory, { mode: 0o700 });
+    writeFileSync(join(stateDirectory, "ca.pem"), FIXTURE_CA);
+    expect(spkiPinArguments(join(stateDirectory, "ca.pem"))).toEqual([
+      FIXTURE_PIN,
+    ]);
+    const config = await loadConfig({ TEST_WORKER_INDEX: "0" });
+    expect(config.use?.launchOptions?.args).toEqual([FIXTURE_PIN]);
+    rmSync(join(stateDirectory, "ca.pem"));
+    // A worker without the CA fails closed instead of browsing unpinned.
+    return await expect(
+      loadConfig({ TEST_WORKER_INDEX: "0" })
+    ).rejects.toThrow();
+  });
+
+  it("gives servers only toolchain variables and blanks remote credentials", async () => {
+    const config = await loadConfig();
+    const allowed = new Set([
+      "CI",
+      "COREPACK_HOME",
+      "HOME",
+      "LANG",
+      "LC_ALL",
+      "LOGNAME",
+      "NO_COLOR",
+      "PATH",
+      "PNPM_HOME",
+      "SHELL",
+      "TEMP",
+      "TERM",
+      "TMP",
+      "TMPDIR",
+      "USER",
+      "XDG_CACHE_HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "PORTLESS_PORT",
+      "PORTLESS_STATE_DIR",
+      "PORTLESS_SYNC_HOSTS",
+    ]);
+    const [proxy, app] = webServers(config);
+    const proxyEnvironment = childEnvironment(proxy as WebServer);
+    expect(
+      Object.keys(proxyEnvironment).filter((key) => !allowed.has(key))
+    ).toEqual([]);
+    const appEnvironment = childEnvironment(app as WebServer);
+    expect(appEnvironment).not.toHaveProperty("PORTLESS_HTTPS");
+    for (const [key, value] of Object.entries(CALLER_SECRETS)) {
+      expect(Object.values(appEnvironment)).not.toContain(value);
+      expect(Object.values(proxyEnvironment)).not.toContain(value);
+      if (
+        key === "GROQ_API_KEY" ||
+        key === "RESEND_API_KEY" ||
+        key === "R2_SECRET_ACCESS_KEY"
+      ) {
+        expect(appEnvironment[key]).toBe("");
+      } else {
+        expect(appEnvironment).not.toHaveProperty(key);
+      }
+    }
+    expect(appEnvironment).toMatchObject({
+      APP_ENV: "test",
+      APP_URL: "https://darkfactory.localhost:1356",
+      BETTER_AUTH_URL: "https://darkfactory.localhost:1356",
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: "true",
+      DATABASE_PROVIDER: "postgres",
+      E2E_EMAIL_PREVIEW_ENDPOINT: "http://127.0.0.1:43125/v1/capture",
+      E2E_FIXTURES: "1",
+      EMAIL_TRANSPORT: "preview",
+      OTEL_ENABLED: "false",
+      PORTLESS_APP_PORT: "43124",
+      POSTHOG_KEY: "",
+      STORAGE_ENABLED: "false",
+    });
+    return expect(
+      new URL(appEnvironment["DATABASE_URL"] ?? "").pathname
+    ).toMatch(/^\/darkfactory_test_e2e_config_contract_[a-f0-9]+$/u);
+  });
+
+  it("runs every spec in exactly one project", async () => {
+    const config = await loadConfig();
+    expect(config.testMatch).toBe("**/*.spec.ts");
+    const specs = readdirSync("tests/e2e").filter((file) =>
+      file.endsWith(".spec.ts")
+    );
+    expect(specs.length).toBeGreaterThan(0);
+    const owners = (file: string) =>
+      (config.projects ?? [])
+        .filter((project) => {
+          const match = project.testMatch as RegExp | undefined;
+          const ignore = project.testIgnore as RegExp | undefined;
+          return (
+            (match === undefined || match.test(file)) &&
+            (ignore === undefined || !ignore.test(file))
+          );
         })
-      ).toThrow(/app URL is unsafe/i);
+        .map((project) => project.name);
+    for (const file of specs) {
+      expect(owners(file), file).toEqual([
+        file.endsWith(".a11y.spec.ts") ? "a11y" : "e2e",
+      ]);
     }
-    const serverEnvironment: Readonly<Record<string, string | undefined>> =
-      runtimeWebServer.env;
-    expect(serverEnvironment).toBeDefined();
-    for (const forbidden of [
-      "GROQ_API_KEY",
-      "OPENAI_API_KEY",
-      "RESEND_API_KEY",
-      "R2_SECRET_ACCESS_KEY",
-      "UNRELATED_SECRET",
-    ]) {
-      expect(serverEnvironment?.[forbidden]).toBeUndefined();
-    }
+  });
+
+  it("fails fast on CI: no .only, one retry, flaky counts as failure", async () => {
+    const local = await loadConfig();
+    expect(local).toMatchObject({
+      failOnFlakyTests: false,
+      forbidOnly: false,
+      retries: 0,
+    });
+    return expect(await loadConfig({ CI: "true" })).toMatchObject({
+      failOnFlakyTests: true,
+      forbidOnly: true,
+      retries: 1,
+    });
+  });
+
+  it("refuses any database but the local maintenance database", async () => {
+    await expect(
+      loadConfig({
+        DATABASE_URL:
+          "postgresql://darkfactory_test_runner:test-only@db.example.test:5432/darkfactory_test_maintenance",
+      })
+    ).rejects.toThrow("non-local host");
+    return await expect(
+      loadConfig({ DATABASE_URL: undefined })
+    ).rejects.toThrow("DATABASE_URL is required");
   });
 });
 

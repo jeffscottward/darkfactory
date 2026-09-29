@@ -1,0 +1,213 @@
+import { and as andWhere, eq, or as orWhere, sql } from "drizzle-orm";
+
+import { accounts, users } from "../schema/index.ts";
+import {
+  type Database,
+  type DatabaseExecutor,
+  withTransaction,
+} from "../server/client.ts";
+import { convergeDevelopmentContent } from "./content.ts";
+import { convergeDevelopmentPreferences } from "./preferences.ts";
+import { convergeDevelopmentProfiles } from "./profiles.ts";
+import {
+  DEVELOPMENT_PERSONAS,
+  type DevelopmentPersona,
+  type PrepareSeedIdentities,
+  seedIdentityInput,
+} from "./users.ts";
+
+export type DevelopmentEnvironment = "development" | "test" | "production";
+
+export type SeedDevelopmentOptions = Readonly<{
+  environment: DevelopmentEnvironment;
+  prepareIdentity: PrepareSeedIdentities;
+}>;
+
+export type SeedDevelopmentResult = Readonly<{
+  identitiesCreated: number;
+  usersConverged: number;
+  profilesConverged: number;
+  preferencesConverged: number;
+  addressesConverged: number;
+  featureItemsConverged: number;
+}>;
+
+export class DevelopmentSeedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DevelopmentSeedError";
+  }
+}
+
+export class SeedIdentityCollisionError extends DevelopmentSeedError {
+  constructor(message: string) {
+    super(message);
+    this.name = "SeedIdentityCollisionError";
+  }
+}
+
+type IdentityState = Readonly<{
+  persona: DevelopmentPersona;
+  exists: boolean;
+}>;
+
+const normalizedEmail = (email: string): string => email.trim().toLowerCase();
+const CREDENTIAL_HASH = /^[0-9a-f]{32}:[0-9a-f]{128}$/u;
+
+const isCredentialFor = (
+  account: typeof accounts.$inferSelect,
+  persona: DevelopmentPersona
+): boolean => {
+  return (
+    account.id === persona.accountId &&
+    account.userId === persona.userId &&
+    account.providerId === "credential" &&
+    account.accountId === persona.userId
+  );
+};
+
+const inspectIdentity = async (
+  database: DatabaseExecutor,
+  persona: DevelopmentPersona
+): Promise<IdentityState> => {
+  const email = normalizedEmail(persona.email);
+  const matchedUsers = await database
+    .select()
+    .from(users)
+    .where(
+      orWhere(
+        eq(users.id, persona.userId),
+        sql`lower(trim(${users.email})) = ${email}`
+      )
+    );
+
+  const matchedAccounts = await database
+    .select()
+    .from(accounts)
+    .where(
+      orWhere(
+        eq(accounts.id, persona.accountId),
+        eq(accounts.userId, persona.userId),
+        andWhere(
+          eq(accounts.providerId, "credential"),
+          eq(accounts.accountId, persona.userId)
+        )
+      )
+    );
+
+  const [matchedUser, ...otherMatchedUsers] = matchedUsers;
+  if (matchedUser === undefined) {
+    if (matchedAccounts.length > 0) {
+      throw new SeedIdentityCollisionError(
+        `Seed identity collision for ${persona.name}: deterministic account ID is already in use`
+      );
+    }
+    return { persona, exists: false };
+  }
+
+  if (
+    otherMatchedUsers.length > 0 ||
+    matchedUser.id !== persona.userId ||
+    normalizedEmail(matchedUser.email) !== email
+  ) {
+    throw new SeedIdentityCollisionError(
+      `Seed identity collision for ${persona.name}: deterministic user ID and normalized email do not identify the same user`
+    );
+  }
+
+  const credential = matchedAccounts.find((account) =>
+    isCredentialFor(account, persona)
+  );
+  if (!credential) {
+    throw new SeedIdentityCollisionError(
+      `Seed identity collision for ${persona.name}: required credential account is missing or mismatched`
+    );
+  }
+  if (
+    typeof credential.password !== "string" ||
+    !CREDENTIAL_HASH.test(credential.password)
+  ) {
+    throw new SeedIdentityCollisionError(
+      `Seed identity collision for ${persona.name}: credential password hash is malformed`
+    );
+  }
+
+  return { persona, exists: true };
+};
+
+const convergeApplicationRows = async (
+  database: DatabaseExecutor
+): Promise<void> => {
+  await convergeDevelopmentProfiles(database);
+  await convergeDevelopmentPreferences(database);
+  await convergeDevelopmentContent(database);
+};
+
+const lockDevelopmentIdentities = async (
+  database: DatabaseExecutor
+): Promise<void> => {
+  const personas = [...DEVELOPMENT_PERSONAS].sort((left, right) => {
+    return left.userId.localeCompare(right.userId);
+  });
+  for (const persona of personas) {
+    await database.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${persona.userId}, 0))`
+    );
+  }
+};
+
+export const seedDevelopment = async (
+  database: Database,
+  options: SeedDevelopmentOptions
+): Promise<SeedDevelopmentResult> => {
+  if (options.environment !== "development" && options.environment !== "test") {
+    throw new DevelopmentSeedError(
+      "Development seed requires an explicit development or test environment"
+    );
+  }
+
+  const identities = DEVELOPMENT_PERSONAS.map(seedIdentityInput);
+  const ensureIdentity = await options.prepareIdentity(identities);
+
+  return await withTransaction(database, async (transaction) => {
+    await lockDevelopmentIdentities(transaction);
+
+    const initialStates: IdentityState[] = [];
+    for (const persona of DEVELOPMENT_PERSONAS) {
+      initialStates.push(await inspectIdentity(transaction, persona));
+    }
+
+    let identitiesCreated = 0;
+    for (const state of initialStates) {
+      await ensureIdentity(
+        seedIdentityInput(state.persona),
+        state.exists,
+        transaction
+      );
+      const ensured = await inspectIdentity(transaction, state.persona);
+      if (!ensured.exists) {
+        throw new DevelopmentSeedError(
+          `Identity assurer did not persist ${state.persona.name}`
+        );
+      }
+      if (!state.exists) identitiesCreated += 1;
+    }
+
+    await convergeApplicationRows(transaction);
+
+    return Object.freeze({
+      identitiesCreated,
+      usersConverged: DEVELOPMENT_PERSONAS.length,
+      profilesConverged: DEVELOPMENT_PERSONAS.length,
+      preferencesConverged: DEVELOPMENT_PERSONAS.length,
+      addressesConverged: DEVELOPMENT_PERSONAS.length,
+      featureItemsConverged: DEVELOPMENT_PERSONAS.length,
+    });
+  });
+};
+
+export type {
+  EnsureSeedIdentity,
+  PrepareSeedIdentities,
+  SeedIdentityInput,
+} from "./users.ts";

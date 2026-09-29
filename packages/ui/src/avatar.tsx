@@ -1,0 +1,42 @@
+import type { ComponentPropsWithRef } from "react";
+
+import { cn } from "./utilities.ts";
+
+export interface AvatarProps
+  extends Omit<ComponentPropsWithRef<"span">, "children"> {
+  name: string;
+  fallback: string;
+  src?: string;
+  imageProps?: Omit<ComponentPropsWithRef<"img">, "src" | "alt">;
+}
+
+export const Avatar = ({
+  className,
+  fallback,
+  imageProps,
+  name,
+  src,
+  ...props
+}: AvatarProps) => (
+  <span
+    {...props}
+    className={cn(
+      "relative inline-flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-pill border border-border bg-muted font-body font-semibold text-foreground text-sm",
+      className
+    )}
+    {...(src === undefined ? { role: "img", "aria-label": name } : {})}
+  >
+    {src === undefined ? (
+      <span aria-hidden="true">{fallback}</span>
+    ) : (
+      <img
+        alt={name}
+        className="size-full object-cover"
+        height={40}
+        src={src}
+        width={40}
+        {...imageProps}
+      />
+    )}
+  </span>
+);

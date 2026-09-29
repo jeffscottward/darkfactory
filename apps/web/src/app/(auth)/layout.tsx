@@ -1,0 +1,11 @@
+import type { ReactNode } from "react";
+
+import { AuthShell } from "../../components/auth-shell.tsx";
+
+export default function AuthLayout({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
+  return <AuthShell>{children}</AuthShell>;
+}

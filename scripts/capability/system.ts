@@ -1,0 +1,127 @@
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
+import { type GuardHooks, guardedWrite } from "../docs/filesystem-guard.ts";
+import type { CapabilityFileSystem } from "./capability.ts";
+
+const MAX_MANIFEST_BYTES = 262_144;
+
+type Identity = Readonly<{ dev: number; ino: number }>;
+const sameIdentity = (left: Identity, right: Identity): boolean => {
+  return left.dev === right.dev && left.ino === right.ino;
+};
+
+type CapabilityManifestMetadata = Readonly<{
+  size: number;
+  isFile: () => boolean;
+}>;
+
+export type CapabilityManifestHandle = Readonly<{
+  stat: () => Promise<CapabilityManifestMetadata>;
+  readFile: (options: Readonly<{ encoding: "utf8" }>) => Promise<string>;
+  close: () => Promise<void>;
+}>;
+
+export type CapabilitySystemDependencies = Readonly<{
+  openManifest: (
+    path: string,
+    flags: number
+  ) => Promise<CapabilityManifestHandle>;
+}>;
+
+export const nodeCapabilitySystemDependencies: CapabilitySystemDependencies =
+  Object.freeze({
+    openManifest: open,
+  });
+
+export const createCapabilityFileSystem = async (
+  repositoryPath: string,
+  hooks: GuardHooks = {},
+  dependencies: CapabilitySystemDependencies = nodeCapabilitySystemDependencies
+): Promise<CapabilityFileSystem> => {
+  const root = await realpath(repositoryPath);
+  const manifestPath = resolve(root, "capabilities.yaml");
+  const contained = (path: string): string => {
+    const target = resolve(root, path);
+    const relation = relative(root, target);
+    if (relation === ".." || relation.startsWith(`..${sep}`)) {
+      throw new Error("Capability path escapes repository");
+    }
+    return target;
+  };
+  const readManifest = async (): Promise<string> => {
+    const handle = await dependencies.openManifest(
+      manifestPath,
+      constants.O_RDONLY | constants.O_NOFOLLOW
+    );
+    try {
+      const stats = await handle.stat();
+      if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES)
+        throw new Error("Capability manifest is invalid");
+      const source = await handle.readFile({ encoding: "utf8" });
+      if (Buffer.byteLength(source, "utf8") > MAX_MANIFEST_BYTES)
+        throw new Error("Capability manifest is too large");
+      return source;
+    } finally {
+      await handle.close();
+    }
+  };
+  const manifestIdentity = async (): Promise<Identity> => {
+    const stats = await lstat(manifestPath);
+    if (!stats.isFile() || stats.isSymbolicLink())
+      throw new Error("Capability manifest identity is unsafe");
+    return Object.freeze({ dev: stats.dev, ino: stats.ino });
+  };
+
+  return Object.freeze({
+    readManifest,
+    exists: async (path) => {
+      try {
+        await lstat(contained(path));
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    },
+    commit: async (plan) => {
+      if (plan.manifestSource !== plan.expectedManifestSource) {
+        throw new Error(
+          "Capability generator cannot mutate the strict v0.1 manifest"
+        );
+      }
+      const expectedIdentity = await manifestIdentity();
+      if ((await readManifest()) !== plan.expectedManifestSource)
+        throw new Error("Capability manifest changed during planning");
+      const assertManifest = async (): Promise<void> => {
+        if (!sameIdentity(expectedIdentity, await manifestIdentity()))
+          throw new Error("Capability manifest identity changed");
+        if ((await readManifest()) !== plan.expectedManifestSource)
+          throw new Error("Capability manifest content changed");
+      };
+      const beforePublish = async (): Promise<void> => {
+        await assertManifest();
+        await hooks.beforePublish?.();
+        await assertManifest();
+        return undefined;
+      };
+      const afterPublish = async (): Promise<void> => {
+        await assertManifest();
+        await hooks.afterPublish?.();
+        await assertManifest();
+        return undefined;
+      };
+      return await guardedWrite(
+        root,
+        plan.descriptorPath,
+        plan.descriptorSource,
+        "create",
+        { beforePublish, afterPublish }
+      );
+    },
+  });
+};
+
+export const nodeCapabilityFileSystem = await createCapabilityFileSystem(
+  process.cwd()
+);

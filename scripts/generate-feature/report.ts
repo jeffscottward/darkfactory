@@ -1,0 +1,47 @@
+import type {
+  GenerationPlan,
+  GenerationReport,
+  GenerationStatus,
+} from "./types.ts";
+
+export const createGenerationReport = (
+  plan: GenerationPlan,
+  status: GenerationStatus,
+  dryRun: boolean,
+  cleanup: GenerationReport["cleanup"] = dryRun ? "not-applicable" : "complete"
+): GenerationReport =>
+  Object.freeze({
+    version: 1 as const,
+    status,
+    feature: plan.names.kebab,
+    capsuleRoot: plan.capsuleRoot,
+    dryRun,
+    planId: plan.planId,
+    files: Object.freeze(plan.files.map((file) => file.path)),
+    integration: "generator-owned-registries" as const,
+    cleanup,
+  });
+
+export const formatHumanReport = (report: GenerationReport): string => {
+  const heading =
+    report.status === "planned"
+      ? "Feature generation plan"
+      : "Feature capsule generated";
+  const action = report.dryRun
+    ? "No files were written."
+    : "The capsule was atomically promoted and verified.";
+  return [
+    `${heading}: ${report.feature}`,
+    `Plan ${report.planId}`,
+    `Capsule: ${report.capsuleRoot}`,
+    `Files: ${report.files.length}`,
+    action,
+    `Cleanup: ${report.cleanup}`,
+    "Integration: generator-owned runtime registries and composition hooks were atomically updated.",
+    ...report.files.map((path) => `  - ${path}`),
+  ].join("\n");
+};
+
+export const serializeGenerationReport = (report: GenerationReport): string => {
+  return `${JSON.stringify(report, null, 2)}\n`;
+};

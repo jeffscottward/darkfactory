@@ -1,0 +1,931 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  createAuth,
+  createAuthHandler,
+  ensureUserResources,
+  PASSWORD_RESET_DELIVERY_ERROR_CODE,
+  requireRole,
+  requireSession,
+} from "@darkfactory/auth/server";
+import { createNodeDatabase } from "@darkfactory/db/server";
+import { migrate } from "@darkfactory/db/server/migration";
+import type {
+  EmailDeliveryResult,
+  EmailPort,
+  EmailVerificationEmailInput,
+} from "@darkfactory/email";
+import {
+  createPostgresTestDatabase,
+  dropPostgresTestDatabase,
+  type PostgresTestDatabase,
+} from "@darkfactory/testkit/postgres";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { handleAuthRequest } from "../../../apps/web/src/app/api/auth/[...all]/handler.ts";
+
+const BASE_URL = "https://darkfactory.localhost";
+const AUTH_SECRET = "integration-auth-secret-with-at-least-32-characters";
+const INITIAL_PASSWORD = "CorrectHorseBatteryStaple!42";
+const REPLACEMENT_PASSWORD = "NewCorrectHorseBatteryStaple!84";
+const SAFE_RESET_RESPONSE = {
+  status: true,
+  message:
+    "If this email exists in our system, check your email for the reset link",
+};
+const SAFE_SIGN_UP_RESPONSE = {
+  status: true,
+  message:
+    "If this email can be registered, check your email for a verification link",
+};
+
+type ResetDelivery = Readonly<{
+  to: string;
+  recipientName: string;
+  resetUrl: string;
+  expiresInMinutes: number;
+}>;
+
+type AuthInstance = ReturnType<typeof createAuth>;
+
+type HttpResult = Readonly<{
+  response: Response;
+  body: unknown;
+}>;
+
+let testDatabase: PostgresTestDatabase;
+let databaseResource: ReturnType<typeof createNodeDatabase>;
+let backgroundTasks: Promise<unknown>[];
+let deliveries: ResetDelivery[];
+let verificationDeliveries: EmailVerificationEmailInput[];
+let email: EmailPort;
+let auth: AuthInstance;
+let handler: (request: Request) => Promise<Response>;
+
+const resetDatabase = async (): Promise<void> => {
+  await testDatabase.query(
+    'TRUNCATE TABLE "verification", "session", "account", "profiles", "user_preferences", "user" CASCADE'
+  );
+};
+
+const jsonRequest = (
+  path: string,
+  body: Readonly<Record<string, unknown>>,
+  headers: Readonly<Record<string, string>> = {}
+): Request => {
+  return new Request(`${BASE_URL}/api/auth${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: BASE_URL,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+};
+
+const call = async (request: Request): Promise<HttpResult> => {
+  const response = await handler(request);
+  const text = await response.text();
+  return {
+    response,
+    body: text.length === 0 ? null : JSON.parse(text),
+  };
+};
+
+const cookieFrom = (response: Response): string => {
+  const setCookie = response.headers.get("set-cookie");
+  if (!setCookie) throw new Error("Expected an auth cookie");
+  return setCookie.split(";", 1)[0]!;
+};
+
+const signUp = async (
+  emailAddress = "member@example.test",
+  overrides: Readonly<Record<string, unknown>> = {}
+): Promise<HttpResult> => {
+  const deliveryCount = verificationDeliveries.length;
+  const result = await call(
+    jsonRequest("/sign-up/email", {
+      name: "Member Example",
+      email: emailAddress,
+      password: INITIAL_PASSWORD,
+      ...overrides,
+    })
+  );
+  await Promise.all(backgroundTasks);
+  backgroundTasks = [];
+  const verification = verificationDeliveries[deliveryCount];
+  if (result.response.status === 200 && verification !== undefined) {
+    const verified = await auth.handler(
+      new Request(verification.verificationUrl, {
+        headers: { origin: BASE_URL },
+      })
+    );
+    expect(verified.status).toBeLessThan(400);
+  }
+  return result;
+};
+
+const signIn = async (
+  emailAddress = "member@example.test",
+  password = INITIAL_PASSWORD
+): Promise<HttpResult> => {
+  return call(jsonRequest("/sign-in/email", { email: emailAddress, password }));
+};
+
+const authorizationError = async (
+  operation: () => Promise<unknown>
+): Promise<AuthAuthorizationError> => {
+  try {
+    await operation();
+  } catch (error) {
+    if (error instanceof AuthAuthorizationError) return error;
+    throw error;
+  }
+  throw new Error("Expected authorization to fail");
+};
+
+const resetTokenFrom = (delivery: ResetDelivery): string => {
+  const match = new URL(delivery.resetUrl).pathname.match(
+    /\/reset-password\/([^/]+)$/u
+  );
+  if (!match?.[1]) throw new Error("Reset URL did not contain a token");
+  return match[1];
+};
+
+describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
+  beforeAll(async () => {
+    testDatabase = await createPostgresTestDatabase();
+    databaseResource = createNodeDatabase({
+      connectionString: testDatabase.databaseUrl,
+      maxConnections: 4,
+    });
+    return await migrate(databaseResource.db);
+  }, 60_000);
+
+  beforeEach(async () => {
+    await resetDatabase();
+    backgroundTasks = [];
+    deliveries = [];
+    verificationDeliveries = [];
+    email = {
+      sendPasswordReset: async (input) => {
+        if (!input.recipientName) {
+          throw new Error("Expected reset recipient name");
+        }
+        deliveries.push({ ...input, recipientName: input.recipientName });
+        return {
+          status: "previewed",
+          provider: "preview",
+          artifactPath: `/tmp/reset-${deliveries.length}.html`,
+        };
+      },
+      sendEmailVerification: async (input) => {
+        verificationDeliveries.push(input);
+        return {
+          status: "previewed",
+          provider: "preview",
+          artifactPath: `/tmp/auth-verification-${verificationDeliveries.length}.html`,
+        };
+      },
+    };
+    auth = createAuth({
+      database: databaseResource.db,
+      secret: AUTH_SECRET,
+      baseURL: BASE_URL,
+      trustedOrigins: [BASE_URL],
+      email,
+      scheduleBackgroundTask: (task) => {
+        return backgroundTasks.push(task);
+      },
+      resetPasswordTokenExpiresInSeconds: 60,
+      resetRateLimitMax: 100,
+      rateLimitEnabled: false,
+    });
+    handler = createAuthHandler(auth);
+  });
+
+  afterEach(async () => await Promise.all(backgroundTasks));
+
+  afterAll(async () => {
+    try {
+      if (databaseResource !== undefined) return await databaseResource.close();
+      return;
+    } finally {
+      if (testDatabase !== undefined)
+        await dropPostgresTestDatabase(testDatabase);
+    }
+  }, 60_000);
+
+  it("DF-041 signs up through Better Auth hashing and reliably provisions defaults", async () => {
+    const { response, body } = await signUp();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(body).toEqual(SAFE_SIGN_UP_RESPONSE);
+
+    const [account] = await testDatabase.query<{
+      provider_id: string;
+      password: string | null;
+    }>('SELECT provider_id, password FROM "account"');
+    expect(account?.provider_id).toBe("credential");
+    expect(account?.password).toEqual(expect.any(String));
+    expect(account?.password).not.toBe(INITIAL_PASSWORD);
+
+    const [resources] = await testDatabase.query<{
+      first_name: string | null;
+      last_name: string | null;
+      display_name: string | null;
+      avatar_url: string | null;
+      phone: string | null;
+      business_name: string | null;
+      job_title: string | null;
+      biography: string | null;
+      timezone: string;
+      locale: string;
+      date_of_birth: string | null;
+      mode: string;
+      color_scheme: string;
+      email_notifications: boolean;
+      product_updates: boolean;
+      analytics_consent: boolean;
+      personalization_consent: boolean;
+      profile_visibility: string;
+    }>(
+      `SELECT
+         p.first_name, p.last_name, p.display_name, p.avatar_url, p.phone,
+         p.business_name, p.job_title, p.biography, p.timezone, p.locale,
+         p.date_of_birth, preferences.mode, preferences.color_scheme,
+         preferences.email_notifications, preferences.product_updates,
+         preferences.analytics_consent, preferences.personalization_consent,
+         preferences.profile_visibility
+       FROM profiles AS p
+       JOIN user_preferences AS preferences ON preferences.user_id = p.user_id`
+    );
+    return expect(resources).toEqual({
+      first_name: null,
+      last_name: null,
+      display_name: "Member Example",
+      avatar_url: null,
+      phone: null,
+      business_name: null,
+      job_title: null,
+      biography: null,
+      timezone: "UTC",
+      locale: "en",
+      date_of_birth: null,
+      mode: "system",
+      color_scheme: "neutral",
+      email_notifications: true,
+      product_updates: true,
+      analytics_consent: false,
+      personalization_consent: false,
+      profile_visibility: "private",
+    });
+  });
+
+  it("rolls back Better Auth user creation when credential account creation fails", async () => {
+    await testDatabase.query(
+      `CREATE FUNCTION auth_test_reject_account() RETURNS trigger AS $$
+       BEGIN
+         RAISE EXCEPTION 'forced account failure';
+       END;
+       $$ LANGUAGE plpgsql`
+    );
+    await testDatabase.query(
+      `CREATE TRIGGER auth_test_reject_account
+       BEFORE INSERT ON account
+       FOR EACH ROW EXECUTE FUNCTION auth_test_reject_account()`
+    );
+
+    try {
+      const failed = await signUp("rollback@example.test");
+      expect(failed.response.status).toBe(500);
+      const [counts] = await testDatabase.query<{
+        user_count: number;
+        account_count: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM "user") AS user_count,
+           (SELECT count(*)::int FROM account) AS account_count`
+      );
+      return expect(counts).toEqual({ user_count: 0, account_count: 0 });
+    } finally {
+      await testDatabase.query(
+        "DROP TRIGGER IF EXISTS auth_test_reject_account ON account"
+      );
+      await testDatabase.query(
+        "DROP FUNCTION IF EXISTS auth_test_reject_account()"
+      );
+    }
+  });
+
+  it("rolls back both provisioning rows while leaving the committed auth user repairable", async () => {
+    await testDatabase.query(
+      `CREATE FUNCTION auth_test_reject_preferences() RETURNS trigger AS $$
+       BEGIN
+         RAISE EXCEPTION 'forced preferences failure';
+       END;
+       $$ LANGUAGE plpgsql`
+    );
+    await testDatabase.query(
+      `CREATE TRIGGER auth_test_reject_preferences
+       BEFORE INSERT ON user_preferences
+       FOR EACH ROW EXECUTE FUNCTION auth_test_reject_preferences()`
+    );
+
+    try {
+      const failed = await signUp("repairable@example.test");
+      expect(failed.response.status).toBe(500);
+      const [counts] = await testDatabase.query<{
+        user_count: number;
+        account_count: number;
+        profile_count: number;
+        preference_count: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM "user") AS user_count,
+           (SELECT count(*)::int FROM account) AS account_count,
+           (SELECT count(*)::int FROM profiles) AS profile_count,
+           (SELECT count(*)::int FROM user_preferences) AS preference_count`
+      );
+      expect(counts).toEqual({
+        user_count: 1,
+        account_count: 1,
+        profile_count: 0,
+        preference_count: 0,
+      });
+    } finally {
+      await testDatabase.query(
+        "DROP TRIGGER IF EXISTS auth_test_reject_preferences ON user_preferences"
+      );
+      await testDatabase.query(
+        "DROP FUNCTION IF EXISTS auth_test_reject_preferences()"
+      );
+    }
+
+    const verificationRequested = await call(
+      jsonRequest("/send-verification-email", {
+        email: "repairable@example.test",
+        callbackURL: `${BASE_URL}/dashboard`,
+      })
+    );
+    expect(verificationRequested.response.status).toBe(200);
+    expect(verificationRequested.body).toEqual({ status: true });
+    await Promise.all(backgroundTasks);
+    backgroundTasks = [];
+    const repairVerification = verificationDeliveries.at(-1)!;
+    const repairVerified = await auth.handler(
+      new Request(repairVerification.verificationUrl, {
+        headers: { origin: BASE_URL },
+      })
+    );
+    expect(repairVerified.status).toBeLessThan(400);
+
+    const repairedSignIns = await Promise.all([
+      signIn("repairable@example.test"),
+      signIn("repairable@example.test"),
+    ]);
+    expect(repairedSignIns.map(({ response }) => response.status)).toEqual([
+      200, 200,
+    ]);
+    const [repaired] = await testDatabase.query<{
+      profile_count: number;
+      preference_count: number;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM profiles) AS profile_count,
+         (SELECT count(*)::int FROM user_preferences) AS preference_count`
+    );
+    return expect(repaired).toEqual({ profile_count: 1, preference_count: 1 });
+  });
+
+  it("DF-041 makes accepted and duplicate signup responses enumeration-safe", async () => {
+    const first = await signUp("Mixed.Member@Example.Test", {
+      role: "admin",
+      status: "suspended",
+    });
+    const duplicate = await signUp("mixed.member@example.test");
+
+    expect(first.response.status).toBe(200);
+    expect(duplicate.response.status).toBe(200);
+    expect(first.body).toEqual(SAFE_SIGN_UP_RESPONSE);
+    expect(duplicate.body).toEqual(SAFE_SIGN_UP_RESPONSE);
+    expect(duplicate.body).toEqual(first.body);
+    expect(first.response.headers.get("cache-control")).toBe("no-store");
+    expect(duplicate.response.headers.get("cache-control")).toBe("no-store");
+    expect(first.response.headers.get("content-type")).toBe(
+      duplicate.response.headers.get("content-type")
+    );
+
+    const rows = await testDatabase.query<{ role: string; status: string }>(
+      'SELECT role, status FROM "user"'
+    );
+    return expect(rows).toEqual([{ role: "member", status: "active" }]);
+  });
+
+  it("denies unverified sign-in safely and supports a generic resend path", async () => {
+    const signup = await call(
+      jsonRequest("/sign-up/email", {
+        name: "Unverified Member",
+        email: "unverified@example.test",
+        password: INITIAL_PASSWORD,
+      })
+    );
+    expect(signup.response.status).toBe(200);
+    await Promise.all(backgroundTasks);
+    backgroundTasks = [];
+    expect(verificationDeliveries).toHaveLength(1);
+    const denied = await call(
+      jsonRequest("/sign-in/email", {
+        email: "unverified@example.test",
+        password: INITIAL_PASSWORD,
+      })
+    );
+    expect(denied.response.status).toBe(403);
+    expect(denied.body).toMatchObject({ code: "EMAIL_NOT_VERIFIED" });
+    const resent = await call(
+      jsonRequest("/send-verification-email", {
+        email: "unverified@example.test",
+        callbackURL: `${BASE_URL}/dashboard`,
+      })
+    );
+    expect(resent.response.status).toBe(200);
+    expect(resent.body).toEqual({ status: true });
+    await Promise.all(backgroundTasks);
+    backgroundTasks = [];
+    return expect(verificationDeliveries).toHaveLength(2);
+  });
+
+  it("DF-042 signs in, restores a session, signs out, and emits canonical secure cookies", async () => {
+    await signUp();
+    const signedIn = await signIn();
+
+    expect(signedIn.response.status).toBe(200);
+    const setCookie = signedIn.response.headers.get("set-cookie");
+    expect(setCookie).toContain("__Secure-");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("SameSite=Lax");
+    expect(setCookie).toContain("Path=/");
+    const cookie = cookieFrom(signedIn.response);
+    expect(signedIn.body).not.toHaveProperty("token");
+
+    const restored = await call(
+      new Request(`${BASE_URL}/api/auth/get-session`, {
+        headers: { cookie, origin: BASE_URL },
+      })
+    );
+    expect(restored.response.status).toBe(200);
+    expect(restored.body).toMatchObject({
+      user: { email: "member@example.test", role: "member", status: "active" },
+    });
+    expect(restored.body).not.toHaveProperty("session.token");
+    const currentSessionId = (restored.body as { session?: { id?: unknown } })
+      .session?.id;
+    expect(typeof currentSessionId).toBe("string");
+
+    const listed = await call(
+      new Request(`${BASE_URL}/api/auth/list-sessions`, {
+        headers: { cookie, origin: BASE_URL },
+      })
+    );
+    expect(listed.response.status).toBe(200);
+    expect(Array.isArray(listed.body)).toBe(true);
+    const listedSessions = listed.body as Record<string, unknown>[];
+    expect(listedSessions.map((session) => session["id"])).toContain(
+      currentSessionId
+    );
+    for (const session of listedSessions) {
+      expect(session).not.toHaveProperty("token");
+    }
+
+    const signedOut = await call(jsonRequest("/sign-out", {}, { cookie }));
+    expect(signedOut.response.status).toBe(200);
+    expect(signedOut.response.headers.get("set-cookie")).toContain("Max-Age=0");
+
+    const afterSignOut = await call(
+      new Request(`${BASE_URL}/api/auth/get-session`, {
+        headers: { cookie, origin: BASE_URL },
+      })
+    );
+    return expect(afterSignOut.body).toBeNull();
+  });
+
+  it("DF-042 returns the trusted HTTPS sign-in callback for redirect-back", async () => {
+    await signUp();
+    const callbackURL = `${BASE_URL}/dashboard?from=sign-in`;
+    const signedIn = await call(
+      jsonRequest("/sign-in/email", {
+        email: "member@example.test",
+        password: INITIAL_PASSWORD,
+        callbackURL,
+      })
+    );
+
+    expect(signedIn.response.status).toBe(200);
+    expect(signedIn.body).toMatchObject({
+      redirect: true,
+      url: callbackURL,
+    });
+    return expect(signedIn.body).not.toHaveProperty("token");
+  });
+
+  it("DF-042 returns Better Auth's exact credential error code", async () => {
+    await signUp();
+    const rejected = await signIn("member@example.test", "wrong-password");
+
+    expect(rejected.response.status).toBe(401);
+    return expect(rejected.body).toMatchObject({
+      code: "INVALID_EMAIL_OR_PASSWORD",
+    });
+  });
+
+  it("DF-045 enforces member, admin, unauthenticated, and inactive guards directly", async () => {
+    await signUp();
+    const memberCookie = cookieFrom((await signIn()).response);
+    const memberHeaders = new Headers({ cookie: memberCookie });
+
+    const memberSession = await requireSession(auth, memberHeaders);
+    expect(memberSession.principal).toEqual(
+      expect.objectContaining({ role: "member", status: "active" })
+    );
+    expect(memberSession.session).not.toHaveProperty("token");
+
+    const forbidden = await authorizationError(() =>
+      requireRole(auth, memberHeaders, "admin")
+    );
+    expect(forbidden).toMatchObject({
+      code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+      status: 403,
+    });
+
+    const unauthenticated = await authorizationError(() =>
+      requireSession(auth, new Headers())
+    );
+    expect(unauthenticated).toMatchObject({
+      code: AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+      status: 401,
+    });
+
+    const [member] = await testDatabase.query<{ id: string }>(
+      'SELECT id FROM "user" LIMIT 1'
+    );
+    await testDatabase.query('UPDATE "user" SET role = $1 WHERE id = $2', [
+      "admin",
+      member!.id,
+    ]);
+    const adminSession = await requireRole(auth, memberHeaders, "admin");
+    expect(adminSession.principal.role).toBe("admin");
+
+    await testDatabase.query('UPDATE "user" SET status = $1 WHERE id = $2', [
+      "suspended",
+      member!.id,
+    ]);
+    const suspended = await authorizationError(() =>
+      requireSession(auth, memberHeaders)
+    );
+    expect(suspended).toMatchObject({
+      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
+      status: 403,
+    });
+
+    const inactiveSignIn = await signIn("member@example.test");
+    expect(inactiveSignIn.response.status).toBe(403);
+    expect(inactiveSignIn.body).toMatchObject({
+      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
+    });
+
+    const inactiveAccountOperation = await call(
+      jsonRequest(
+        "/change-password",
+        {
+          currentPassword: INITIAL_PASSWORD,
+          newPassword: REPLACEMENT_PASSWORD,
+        },
+        { cookie: memberCookie }
+      )
+    );
+    expect(inactiveAccountOperation.response.status).toBe(403);
+    return expect(inactiveAccountOperation.body).toMatchObject({
+      code: AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
+    });
+  });
+
+  it("DF-043 keeps reset requests enumeration-safe and sends only through the injected port", async () => {
+    await signUp();
+    const known = await call(
+      jsonRequest("/request-password-reset", {
+        email: "member@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+    const unknown = await call(
+      jsonRequest("/request-password-reset", {
+        email: "unknown@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+
+    expect(known.response.status).toBe(200);
+    expect(unknown.response.status).toBe(200);
+    expect(known.body).toEqual(SAFE_RESET_RESPONSE);
+    expect(unknown.body).toEqual(SAFE_RESET_RESPONSE);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({
+      to: "member@example.test",
+      recipientName: "Member Example",
+      expiresInMinutes: 1,
+    });
+    expect(deliveries[0]).not.toHaveProperty("token");
+    return expect(
+      new URL(deliveries[0]!.resetUrl).searchParams.get("callbackURL")
+    ).toBe(`${BASE_URL}/reset-password`);
+  });
+
+  it("schedules reset delivery without coupling the generic response to provider latency", async () => {
+    await signUp();
+    let releaseDelivery: (() => void) | undefined;
+    const scheduled: Promise<unknown>[] = [];
+    const delayedEmail: EmailPort = {
+      sendPasswordReset: async () => {
+        return await new Promise<EmailDeliveryResult>((resolve) => {
+          return (releaseDelivery = () => {
+            return resolve({
+              status: "previewed",
+              provider: "preview",
+              artifactPath: "/tmp/delayed-reset.html",
+            });
+          });
+        });
+      },
+      sendEmailVerification: async () => ({
+        status: "previewed",
+        provider: "preview",
+        artifactPath: "/tmp/delayed-auth-verification.html",
+      }),
+    };
+    const delayedAuth = createAuth({
+      database: databaseResource.db,
+      secret: AUTH_SECRET,
+      baseURL: BASE_URL,
+      trustedOrigins: [BASE_URL],
+      email: delayedEmail,
+      scheduleBackgroundTask: (task) => {
+        return scheduled.push(task);
+      },
+      resetPasswordTokenExpiresInSeconds: 60,
+      resetRateLimitMax: 100,
+      rateLimitEnabled: false,
+    });
+    const delayedHandler = createAuthHandler(delayedAuth);
+
+    const response = await delayedHandler(
+      jsonRequest("/request-password-reset", {
+        email: "member@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(SAFE_RESET_RESPONSE);
+    expect(scheduled).toHaveLength(1);
+
+    if (!releaseDelivery) throw new Error("Expected scheduled reset delivery");
+    releaseDelivery();
+    return await Promise.all(scheduled);
+  });
+
+  it("DF-043 rejects expired and consumed reset tokens with Better Auth's exact code", async () => {
+    await signUp();
+    const oldCookie = cookieFrom((await signIn()).response);
+    await call(
+      jsonRequest("/request-password-reset", {
+        email: "member@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+    const expiredToken = resetTokenFrom(deliveries[0]!);
+    const [storedVerification] = await testDatabase.query<{
+      identifier: string;
+    }>("SELECT identifier FROM verification ORDER BY created_at DESC LIMIT 1");
+    expect(storedVerification?.identifier).not.toContain(expiredToken);
+    await testDatabase.query(
+      `UPDATE verification
+       SET expires_at = now() - interval '1 second'
+       WHERE id = (
+         SELECT id FROM verification ORDER BY created_at DESC LIMIT 1
+       )`
+    );
+
+    const expired = await call(
+      jsonRequest("/reset-password", {
+        token: expiredToken,
+        newPassword: REPLACEMENT_PASSWORD,
+      })
+    );
+    expect(expired.response.status).toBe(400);
+    expect(expired.body).toMatchObject({ code: "INVALID_TOKEN" });
+
+    deliveries = [];
+    await call(
+      jsonRequest("/request-password-reset", {
+        email: "member@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+    const oneTimeToken = resetTokenFrom(deliveries[0]!);
+    const changed = await call(
+      jsonRequest("/reset-password", {
+        token: oneTimeToken,
+        newPassword: REPLACEMENT_PASSWORD,
+      })
+    );
+    const replayed = await call(
+      jsonRequest("/reset-password", {
+        token: oneTimeToken,
+        newPassword: INITIAL_PASSWORD,
+      })
+    );
+
+    expect(changed.response.status).toBe(200);
+    expect(replayed.response.status).toBe(400);
+    expect(replayed.body).toMatchObject({ code: "INVALID_TOKEN" });
+    expect(
+      (await signIn("member@example.test", REPLACEMENT_PASSWORD)).response
+        .status
+    ).toBe(200);
+    const oldSession = await call(
+      new Request(`${BASE_URL}/api/auth/get-session`, {
+        headers: { cookie: oldCookie, origin: BASE_URL },
+      })
+    );
+    return expect(oldSession.body).toBeNull();
+  });
+
+  it("DF-043 treats typed delivery failure as a hook error while the Fetch bridge stays enumeration-safe", async () => {
+    await signUp();
+    const failingEmail: EmailPort = {
+      sendPasswordReset: async () => ({
+        status: "failed",
+        provider: "disabled",
+        code: "EMAIL_DELIVERY_DISABLED",
+        retryable: false,
+      }),
+      sendEmailVerification: async () => ({
+        status: "failed",
+        provider: "disabled",
+        code: "EMAIL_DELIVERY_DISABLED",
+        retryable: false,
+      }),
+    };
+    const failingAuth = createAuth({
+      database: databaseResource.db,
+      secret: AUTH_SECRET,
+      baseURL: BASE_URL,
+      trustedOrigins: [BASE_URL],
+      email: failingEmail,
+      scheduleBackgroundTask: (task) => {
+        return backgroundTasks.push(task);
+      },
+      resetPasswordTokenExpiresInSeconds: 60,
+      resetRateLimitMax: 100,
+      rateLimitEnabled: false,
+    });
+
+    const resetHook = failingAuth.options.emailAndPassword?.sendResetPassword;
+    if (!resetHook) throw new Error("Expected reset delivery hook");
+    const [storedUser] = await testDatabase.query<{
+      id: string;
+      name: string;
+      email: string;
+      email_verified: boolean;
+    }>('SELECT id, name, email, email_verified FROM "user" LIMIT 1');
+    if (!storedUser) throw new Error("Expected signed-up user");
+    const signedUpUser = {
+      id: storedUser.id,
+      name: storedUser.name,
+      email: storedUser.email,
+      emailVerified: storedUser.email_verified,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Parameters<typeof resetHook>[0]["user"];
+    await expect(
+      resetHook({
+        user: signedUpUser,
+        url: `${BASE_URL}/api/auth/reset-password/test-token`,
+        token: "test-token",
+      })
+    ).rejects.toMatchObject({
+      body: { code: PASSWORD_RESET_DELIVERY_ERROR_CODE },
+    });
+
+    const safeHandler = createAuthHandler(failingAuth);
+    const known = await safeHandler(
+      jsonRequest("/request-password-reset", {
+        email: "member@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+    const unknown = await safeHandler(
+      jsonRequest("/request-password-reset", {
+        email: "unknown@example.test",
+        redirectTo: `${BASE_URL}/reset-password`,
+      })
+    );
+    expect(known.status).toBe(200);
+    expect(unknown.status).toBe(200);
+    expect(await known.json()).toEqual(SAFE_RESET_RESPONSE);
+    return expect(await unknown.json()).toEqual(SAFE_RESET_RESPONSE);
+  });
+
+  it("DF-041 repairs partially missing provisioning idempotently without claiming signup atomicity", async () => {
+    await signUp();
+    const [user] = await testDatabase.query<{ id: string; name: string }>(
+      'SELECT id, name FROM "user" LIMIT 1'
+    );
+    await testDatabase.query("DELETE FROM profiles WHERE user_id = $1", [
+      user!.id,
+    ]);
+
+    await Promise.all([
+      ensureUserResources(databaseResource.db, user!),
+      ensureUserResources(databaseResource.db, user!),
+    ]);
+
+    const [counts] = await testDatabase.query<{
+      profile_count: number;
+      preference_count: number;
+    }>(
+      "SELECT (SELECT count(*)::int FROM profiles) AS profile_count, (SELECT count(*)::int FROM user_preferences) AS preference_count"
+    );
+    return expect(counts).toEqual({ profile_count: 1, preference_count: 1 });
+  });
+
+  it("creates and closes a request database in the direct auth route", async () => {
+    vi.stubEnv("DATABASE_URL", testDatabase.databaseUrl);
+    vi.stubEnv("BETTER_AUTH_SECRET", AUTH_SECRET);
+    vi.stubEnv(
+      "CONTACT_THROTTLE_SECRET",
+      "integration-contact-throttle-secret-with-at-least-32-characters"
+    );
+    try {
+      const [before] = await testDatabase.query<{ connection_count: number }>(
+        "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()"
+      );
+      const response = await handleAuthRequest(
+        new Request(`${BASE_URL}/api/auth/ok`),
+        (task) => {
+          return backgroundTasks.push(task);
+        }
+      );
+      const [after] = await testDatabase.query<{ connection_count: number }>(
+        "SELECT count(*)::int AS connection_count FROM pg_stat_activity WHERE datname = current_database()"
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect(response.status).toBe(200);
+      return expect(after?.connection_count).toBe(before?.connection_count);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  return it("bridges Better Auth through Web Request/Response and rejects untrusted origins", async () => {
+    const ok = await handler(new Request(`${BASE_URL}/api/auth/ok`));
+    expect(ok).toBeInstanceOf(Response);
+    expect(ok.status).toBe(200);
+
+    const rejected = await call(
+      jsonRequest(
+        "/sign-up/email",
+        {
+          name: "Origin Attack",
+          email: "origin@example.test",
+          password: INITIAL_PASSWORD,
+        },
+        { origin: "https://evil.example" }
+      )
+    );
+    expect(rejected.response.status).toBe(403);
+    expect(rejected.body).toMatchObject({ code: "INVALID_ORIGIN" });
+
+    const untrustedRedirect = await call(
+      jsonRequest("/request-password-reset", {
+        email: "member@example.test",
+        redirectTo: "https://evil.example/reset-password",
+      })
+    );
+    expect(untrustedRedirect.response.status).toBe(403);
+    return expect(untrustedRedirect.body).toMatchObject({
+      code: "INVALID_REDIRECT_URL",
+    });
+  });
+});

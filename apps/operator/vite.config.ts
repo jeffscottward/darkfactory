@@ -1,9 +1,7 @@
-import civetVitePlugin from "@danielx/civet/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
 import vinext from "vinext";
+import { defineConfig } from "vite";
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
 const parsedPort = rawPort === undefined ? undefined : Number(rawPort);
 
@@ -34,14 +32,10 @@ export default defineConfig({
     strictPort: true,
   },
   plugins: [
-    civetVitePlugin({
-      ts: "esbuild",
-      typecheck: false,
-    }),
     tailwindcss(),
     vinext({
       nextConfig: {
-        pageExtensions: ["civet", "tsx", "ts", "jsx", "js"],
+        pageExtensions: ["tsx", "ts", "jsx", "js"],
       },
     }),
   ],

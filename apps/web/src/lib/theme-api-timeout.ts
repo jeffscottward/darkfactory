@@ -1,0 +1,97 @@
+export const THEME_API_REQUEST_TIMEOUT_MS = 8000 as const;
+export const THEME_API_RESPONSE_MAX_BYTES = 16_384 as const;
+
+const readBoundedThemeResponse = async (
+  response: Response,
+  signal: AbortSignal
+): Promise<Response> => {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > THEME_API_RESPONSE_MAX_BYTES
+  ) {
+    try {
+      await response.body?.cancel();
+    } catch (error) {
+      if (typeof error !== "object" || error === null) throw error;
+    }
+    throw new Error("Theme response exceeded the safe size limit");
+  }
+  if (response.body === null) return response;
+
+  const reader = response.body.getReader();
+  const cancelAtDeadline = (): void => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancelAtDeadline, { once: true });
+  if (signal.aborted) cancelAtDeadline();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      byteLength += result.value.byteLength;
+      if (byteLength > THEME_API_RESPONSE_MAX_BYTES) {
+        try {
+          await reader.cancel();
+        } catch (error) {
+          if (typeof error !== "object" || error === null) throw error;
+        }
+        throw new Error("Theme response exceeded the safe size limit");
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    signal.removeEventListener("abort", cancelAtDeadline);
+    reader.releaseLock();
+  }
+  if (signal.aborted) throw signal.reason;
+
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Response(body, {
+    headers: response.headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+};
+
+export const fetchThemeApiRequest = async ({
+  fetchRequest,
+  request,
+  timeoutMs = THEME_API_REQUEST_TIMEOUT_MS,
+}: {
+  readonly fetchRequest: typeof globalThis.fetch;
+  readonly request: Request;
+  readonly timeoutMs?: number;
+}): Promise<Response> => {
+  const controller = new AbortController();
+  const abortFromRequest = (): void => {
+    controller.abort(request.signal.reason);
+  };
+  if (request.signal.aborted) {
+    abortFromRequest();
+  } else
+    request.signal.addEventListener("abort", abortFromRequest, { once: true });
+
+  const timeout = setTimeout(() => {
+    return controller.abort(
+      new DOMException("Theme preference request timed out", "TimeoutError")
+    );
+  }, timeoutMs);
+
+  try {
+    const response = await fetchRequest(
+      new Request(request, { signal: controller.signal })
+    );
+    return await readBoundedThemeResponse(response, controller.signal);
+  } finally {
+    clearTimeout(timeout);
+    request.signal.removeEventListener("abort", abortFromRequest);
+  }
+};

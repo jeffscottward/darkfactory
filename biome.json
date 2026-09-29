@@ -9,7 +9,6 @@
   "files": {
     "ignoreUnknown": true,
     "includes": [
-      "!!**/*.civet",
       "!!.markdownlint-cli2.jsonc",
       "!!packages/api/openapi.json",
       "!!**/node_modules",
@@ -21,60 +20,73 @@
       "!!**/test-results"
     ]
   },
+  "linter": {
+    "rules": {
+      "complexity": {
+        "useLiteralKeys": "off",
+        "noUselessConstructor": "off",
+        "noVoid": "off",
+        "useArrowFunction": {
+          "level": "error",
+          "fix": "unsafe"
+        },
+        "noExcessiveCognitiveComplexity": "warn"
+      },
+      "performance": {
+        "useTopLevelRegex": "off"
+      },
+      "style": {
+        "useBlockStatements": "off",
+        "noNestedTernary": "off",
+        "useDefaultSwitchClause": "off"
+      },
+      "suspicious": {
+        "noControlCharactersInRegex": "off"
+      },
+      "a11y": {
+        "useSemanticElements": "off",
+        "noRedundantRoles": "off"
+      }
+    }
+  },
   "overrides": [
     {
       "includes": [
-        "playwright.config.ts",
-        "playwright.config.test.ts",
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/evidence.ts",
-        "tests/e2e/helpers/evidence.test.ts",
-        "tests/e2e/helpers/preview-email.ts",
-        "tests/e2e/helpers/register-civet-loader.test.ts",
-        "tests/e2e/helpers/run-artifacts.ts",
-        "tests/e2e/helpers/runtime.ts",
-        "tests/e2e/helpers/structured-evidence.test.ts"
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "tests/**",
+        "playwright.config.test.ts"
       ],
       "linter": {
         "rules": {
-          "complexity": {
-            "useLiteralKeys": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": [
-        "playwright.config.test.ts",
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/browser-errors.ts",
-        "tests/e2e/helpers/browser-errors.test.ts",
-        "tests/e2e/helpers/lifecycle-state.test.ts",
-        "tests/e2e/helpers/optimizer-cache.ts",
-        "tests/e2e/helpers/preview-email.ts",
-        "tests/e2e/helpers/preview-email.test.ts",
-        "tests/e2e/helpers/register-civet-loader.test.ts",
-        "tests/e2e/helpers/run-artifacts.test.ts",
-        "tests/e2e/helpers/server-readiness.ts",
-        "tests/e2e/helpers/server-readiness.test.ts"
-      ],
-      "linter": {
-        "rules": {
+          "style": {
+            "noNonNullAssertion": "off",
+            "useThrowOnlyError": "off"
+          },
+          "suspicious": {
+            "useAwait": "off",
+            "noMisplacedAssertion": "off",
+            "noAssignInExpressions": "off",
+            "noThenProperty": "off",
+            "useErrorMessage": "off",
+            "noTemplateCurlyInString": "off"
+          },
           "performance": {
-            "useTopLevelRegex": "off"
+            "noDelete": "off",
+            "noNamespaceImport": "off"
           }
         }
       }
     },
     {
       "includes": [
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/dev-vars.ts",
-        "tests/e2e/helpers/dev-vars.test.ts",
-        "tests/e2e/helpers/lifecycle-state.test.ts",
-        "tests/e2e/helpers/run-artifacts.ts",
-        "tests/e2e/helpers/run-artifacts.test.ts",
-        "tests/e2e/helpers/structured-evidence.test.ts"
+        "packages/jobs/src/server/omp.ts",
+        "packages/jobs/src/server/wayfinder.ts",
+        "packages/jobs/src/server/wayfinder.test.ts",
+        "packages/jobs/src/server/workflow-recovery-regression.test.ts",
+        "packages/email/src/server/preview.test.ts",
+        "packages/observability/src/redaction.ts",
+        "scripts/**"
       ],
       "linter": {
         "rules": {
@@ -86,15 +98,26 @@
     },
     {
       "includes": [
-        "tests/e2e/helpers/civet-loader-resolver.test.ts",
-        "tests/e2e/helpers/serialized-lifecycle.test.ts",
-        "tests/e2e/helpers/server-readiness.test.ts",
-        "tests/e2e/helpers/structured-evidence.test.ts"
+        "packages/api/src/contract.ts",
+        "packages/api/src/index.ts",
+        "packages/api/src/server/index.ts",
+        "packages/auth/src/db.ts",
+        "packages/auth/src/server.ts",
+        "packages/config/src/server/capabilities.ts",
+        "packages/db/src/schema/index.ts",
+        "packages/db/src/server/index.ts",
+        "packages/email/src/server.ts",
+        "packages/observability/src/index.ts",
+        "packages/operator/src/index.ts",
+        "packages/operator/src/server/index.ts",
+        "packages/state/src/workflow/index.ts",
+        "packages/ui/src/client/toaster.ts",
+        "packages/ui/src/index.ts"
       ],
       "linter": {
         "rules": {
-          "suspicious": {
-            "useAwait": "off"
+          "performance": {
+            "noBarrelFile": "off"
           }
         }
       }
@@ -102,11 +125,7 @@
     {
       "includes": [
         "tests/e2e/helpers/browser-errors.ts",
-        "tests/e2e/helpers/dev-vars.ts",
-        "tests/e2e/helpers/optimizer-cache.ts",
-        "tests/e2e/helpers/preview-email.ts",
-        "tests/e2e/helpers/run-artifacts.ts",
-        "tests/e2e/helpers/server-readiness.ts"
+        "tests/e2e/helpers/preview-email.ts"
       ],
       "linter": {
         "rules": {
@@ -117,27 +136,9 @@
       }
     },
     {
-      "includes": [
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/browser-errors.ts",
-        "tests/e2e/helpers/civet-loader-resolver.mjs"
-      ],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noControlCharactersInRegex": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["tests/e2e/helpers/lifecycle-state.test.ts"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noMisplacedAssertion": "off"
-          }
-        }
+      "includes": ["infra/docker/verifier/runner.ts"],
+      "javascript": {
+        "globals": ["Bun"]
       }
     }
   ]

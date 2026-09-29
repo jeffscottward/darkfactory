@@ -1,31 +1,14 @@
 import { fileURLToPath } from "node:url";
-import civet from "@danielx/civet/vite";
 import { defineConfig } from "vitest/config";
-import { transformWithEsbuild, type Plugin } from "vite";
-
-const transformCivetTypescript: Plugin = {
-  name: "darkfactory:civet-typescript",
-  enforce: "pre",
-  transform(code, id) {
-    if (!id.endsWith(".civet")) {
-      return null;
-    }
-    return transformWithEsbuild(code, `${id}.tsx`, {
-      loader: "tsx",
-      sourcemap: true,
-    });
-  },
-};
 
 export default defineConfig({
   resolve: {
     alias: {
       "next/link": fileURLToPath(
-        new URL("./apps/web/src/test/next-link.civet", import.meta.url)
+        new URL("./apps/web/src/test/next-link.tsx", import.meta.url)
       ),
     },
   },
-  plugins: [civet({ ts: "preserve" }), transformCivetTypescript],
   test: {
     environment: "node",
     coverage: {
@@ -39,15 +22,15 @@ export default defineConfig({
         statements: 100,
       },
       include: [
-        "apps/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-        "packages/*/src/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-        "scripts/**/*.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "apps/*/src/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "packages/*/src/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "scripts/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
       ],
       exclude: [
-        "**/*.{test,spec}.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/*.d.ts",
         "**/generated/**",
-        "apps/web/src/features/generated-navigation.civet",
+        "apps/web/src/features/generated-navigation.ts",
       ],
     },
     projects: [
@@ -55,11 +38,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: [
-            "**/*.test.civet",
-            "**/*.spec.civet",
-            "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-          ],
+          include: ["**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -67,7 +46,7 @@ export default defineConfig({
             "**/dist/**",
             "**/tests/e2e/**",
             "**/tests/integration/**",
-            "**/*contract.test.civet",
+            "**/*contract.test.ts",
             "**/scripts/**",
           ],
         },
@@ -76,7 +55,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "contract",
-          include: ["**/*contract.test.civet"],
+          include: ["**/*contract.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -91,7 +70,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "operations",
-          include: ["scripts/**/*.test.civet"],
+          include: ["scripts/**/*.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -104,10 +83,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "e2e-helpers",
-          include: [
-            "tests/e2e/helpers/*.test.civet",
-            "tests/e2e/helpers/*.test.ts",
-          ],
+          include: ["tests/e2e/helpers/*.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -120,7 +96,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "integration",
-          include: ["tests/integration/**/*.test.civet"],
+          include: ["tests/integration/**/*.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",

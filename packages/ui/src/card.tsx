@@ -1,0 +1,80 @@
+import type { ComponentPropsWithRef, JSX } from "react";
+
+import { cn } from "./utilities.ts";
+
+export const Card = ({ className, ...props }: ComponentPropsWithRef<"div">) => (
+  <div
+    className={cn(
+      "rounded-lg border border-border bg-surface text-foreground shadow-sm",
+      className
+    )}
+    {...props}
+  />
+);
+
+export const CardHeader = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"div">) => (
+  <div
+    className={cn("space-y-2 border-border border-b p-6", className)}
+    {...props}
+  />
+);
+
+export type CardHeadingLevel = 2 | 3 | 4 | 5 | 6;
+
+export interface CardTitleProps extends ComponentPropsWithRef<"h3"> {
+  headingLevel?: CardHeadingLevel;
+}
+
+export const CardTitle = ({
+  className,
+  headingLevel = 3,
+  ...props
+}: CardTitleProps) => {
+  const Heading = `h${headingLevel}` as keyof Pick<
+    JSX.IntrinsicElements,
+    "h2" | "h3" | "h4" | "h5" | "h6"
+  >;
+
+  return (
+    <Heading
+      className={cn(
+        "font-heading font-semibold text-xl tracking-tight",
+        className
+      )}
+      {...props}
+    />
+  );
+};
+
+export const CardDescription = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"p">) => (
+  <p
+    className={cn("text-muted-foreground text-sm leading-5", className)}
+    {...props}
+  />
+);
+
+export const CardContent = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"div">) => (
+  <div className={cn("p-6", className)} {...props} />
+);
+
+export const CardFooter = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"div">) => (
+  <div
+    className={cn(
+      "flex flex-wrap items-center gap-3 border-border border-t p-6",
+      className
+    )}
+    {...props}
+  />
+);

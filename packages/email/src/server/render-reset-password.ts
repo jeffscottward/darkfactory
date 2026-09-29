@@ -1,0 +1,148 @@
+import type { PasswordResetEmailInput } from "../index.ts";
+import { renderTransactionalEmailHtml } from "./render-email-html.ts";
+
+const DEFAULT_TRUSTED_APP_ORIGIN = "https://darkfactory.localhost";
+const RESET_PATH_PATTERN = /^\/api\/auth\/reset-password\/[A-Za-z0-9_-]+$/;
+
+export type RenderedPasswordResetEmail = Readonly<{
+  subject: string;
+  html: string;
+  text: string;
+}>;
+
+export type RenderPasswordResetEmailOptions = Readonly<{
+  trustedAppOrigin?: string | undefined;
+}>;
+
+const trustedResetUrlError = (): TypeError => {
+  return new TypeError("resetUrl must be a trusted password reset URL");
+};
+
+const parseTrustedOrigin = (origin: string): URL => {
+  let trustedUrl: URL;
+  try {
+    trustedUrl = new URL(origin);
+  } catch {
+    throw trustedResetUrlError();
+  }
+
+  if (
+    trustedUrl.protocol !== "https:" ||
+    trustedUrl.username !== "" ||
+    trustedUrl.password !== "" ||
+    trustedUrl.pathname !== "/" ||
+    trustedUrl.search !== "" ||
+    trustedUrl.hash !== ""
+  ) {
+    throw trustedResetUrlError();
+  }
+
+  return trustedUrl;
+};
+
+const assertTrustedResetUrl = (
+  resetUrlValue: string,
+  trustedAppOrigin: string
+): void => {
+  const trustedUrl = parseTrustedOrigin(trustedAppOrigin);
+  let resetUrl: URL;
+  try {
+    resetUrl = new URL(resetUrlValue);
+  } catch {
+    throw trustedResetUrlError();
+  }
+
+  const callbackValues = resetUrl.searchParams.getAll("callbackURL");
+  const [callbackValue] = callbackValues;
+  const queryKeys = [...resetUrl.searchParams.keys()];
+  if (
+    resetUrl.origin !== trustedUrl.origin ||
+    resetUrl.username !== "" ||
+    resetUrl.password !== "" ||
+    resetUrl.hash !== "" ||
+    !RESET_PATH_PATTERN.test(resetUrl.pathname) ||
+    queryKeys.length !== 1 ||
+    queryKeys[0] !== "callbackURL" ||
+    callbackValues.length !== 1 ||
+    callbackValue === undefined
+  ) {
+    throw trustedResetUrlError();
+  }
+
+  if (callbackValue === "/reset-password") return;
+
+  let callbackUrl: URL;
+  try {
+    callbackUrl = new URL(callbackValue);
+  } catch {
+    throw trustedResetUrlError();
+  }
+
+  if (
+    callbackUrl.origin !== trustedUrl.origin ||
+    callbackUrl.username !== "" ||
+    callbackUrl.password !== "" ||
+    callbackUrl.pathname !== "/reset-password" ||
+    callbackUrl.search !== "" ||
+    callbackUrl.hash !== ""
+  ) {
+    throw trustedResetUrlError();
+  }
+};
+
+const assertValidResetInput = (
+  input: PasswordResetEmailInput,
+  options: RenderPasswordResetEmailOptions
+): void => {
+  if (
+    !Number.isInteger(input.expiresInMinutes) ||
+    input.expiresInMinutes <= 0
+  ) {
+    throw new RangeError("expiresInMinutes must be a positive integer");
+  }
+
+  assertTrustedResetUrl(
+    input.resetUrl,
+    options.trustedAppOrigin ?? DEFAULT_TRUSTED_APP_ORIGIN
+  );
+};
+
+// biome-ignore lint/suspicious/useAwait: async keeps the promise contract so synchronous validation failures reject instead of throwing.
+export const renderPasswordResetEmail = async (
+  input: PasswordResetEmailInput,
+  options: RenderPasswordResetEmailOptions = {}
+): Promise<RenderedPasswordResetEmail> => {
+  assertValidResetInput(input, options);
+  const greeting = input.recipientName
+    ? `Hello ${input.recipientName},`
+    : "Hello,";
+  const expiryUnit = input.expiresInMinutes === 1 ? "minute" : "minutes";
+  const html = renderTransactionalEmailHtml({
+    actionAriaLabel: "Reset your DarkFactory password",
+    actionLabel: "Reset your password",
+    actionUrl: input.resetUrl,
+    backgroundColor: "#f4f4f5",
+    body: "We received a request to reset your DarkFactory password.",
+    containerColor: "#ffffff",
+    expiry: `This link expires in ${input.expiresInMinutes} ${expiryUnit} and can be used only once.`,
+    footer:
+      "If you did not request a password reset, you can ignore this email.",
+    greeting,
+    heading: "Reset your password",
+    title: "Reset your DarkFactory password",
+  });
+  const text = [
+    "Reset your password",
+    greeting,
+    "We received a request to reset your DarkFactory password.",
+    `Reset your password: ${input.resetUrl}`,
+    `This link expires in ${input.expiresInMinutes} ${expiryUnit} and can be used only once.`,
+    "If you did not request a password reset, you can ignore this email.",
+  ].join("\n\n");
+
+  return Object.freeze({
+    subject: "Reset your DarkFactory password",
+    html,
+    text,
+  });
+};

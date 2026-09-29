@@ -1,16 +1,18 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import AxeBuilder from "@axe-core/playwright";
 import type { BrowserContext, Cookie, Page, TestInfo } from "@playwright/test";
 
 import {
   E2E_IDENTITIES,
-  axeArtifactPath,
+  type E2EIdentity,
   expect,
+  expectHydrated,
   signInAs,
   test,
-  type E2EIdentity,
-} from "./fixtures";
+} from "./fixtures.ts";
+import { clearContactThrottle, resetDatabase } from "./helpers/database.ts";
+
 const CREDENTIAL_ARTIFACT_POLICY = {
   screenshot: "off",
   trace: "off",
@@ -23,6 +25,8 @@ const FORBIDDEN_A11Y_BINARY_FRAGMENTS = [
 ] as const;
 
 test.use(CREDENTIAL_ARTIFACT_POLICY);
+// Each file starts from the seeded identities, whatever ran before it.
+test.beforeAll(() => resetDatabase());
 
 const AXE_TAGS = [
   "wcag2a",
@@ -105,7 +109,7 @@ const installExpectedErrorConsoleNormalization = async (
         typeof first === "string" &&
         first.startsWith("The above error occurred in a React component:") &&
         (first.includes("at RecoverableErrorFixture") ||
-          first.includes("/recoverable-error-fixture.civet-"));
+          first.includes("/recoverable-error-fixture-"));
       if (isFixtureComponentError) {
         fixtureFollowupPending = false;
         console.error = reportConsoleError;
@@ -124,7 +128,7 @@ const installExpectedErrorConsoleNormalization = async (
 };
 
 const waitForStableDocument = async (page: Page): Promise<void> => {
-  await page.waitForLoadState("networkidle");
+  await expectHydrated(page.locator("main"));
   await page.evaluate(async () => {
     await Promise.all([
       document.fonts.load('16px "Public Sans Variable"'),
@@ -167,8 +171,6 @@ const runAxe = async (
   };
   const body = JSON.stringify(evidence, null, 2);
 
-  const artifactPath = await axeArtifactPath(testInfo, `${artifactName}.json`);
-  await writeFile(artifactPath, body, "utf8");
   await testInfo.attach(`${artifactName}-violations.json`, {
     body: Buffer.from(body),
     contentType: "application/json",
@@ -482,15 +484,10 @@ for (const viewport of AXE_VIEWPORTS) {
         return state.__DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__ ?? 0;
       })
     ).toBe(2);
-    const { _DARKFACTORY_E2E_WEB_SCRIPT: webScript } = process.env;
-    const runtimeErrorDialog = page.getByRole("dialog", {
-      name: "Runtime Error",
-    });
-    if (webScript !== "start") {
-      await expect(runtimeErrorDialog).toBeVisible();
-      await runtimeErrorDialog.getByRole("button", { name: "Dismiss" }).click();
-    }
-    await expect(runtimeErrorDialog).toBeHidden();
+    // The production build shows no development error overlay.
+    await expect(
+      page.getByRole("dialog", { name: "Runtime Error" })
+    ).toBeHidden();
     await assertDocumentContracts(page);
     await runAxe(page, testInfo, `public-error-${viewport.name}`);
 
@@ -596,6 +593,8 @@ test("@a11y open mobile navigation has no serious or critical violations", async
 test("@a11y contact invalid, pending, and success states pass axe", async ({
   page,
 }, testInfo) => {
+  // This test really submits; each attempt, retries included, needs a fresh throttle budget.
+  await clearContactThrottle();
   await page.setViewportSize({ height: 812, width: 375 });
   let releaseRequest = (): void => undefined;
   const requestGate = new Promise<void>((resolve) => {

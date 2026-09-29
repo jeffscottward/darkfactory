@@ -52,7 +52,7 @@ The aggregate test script runs unit, contract, operations, integration, E2E, and
 varlock run -- bun run test
 ```
 
-The pre-push requirement is the deterministic `verify:prepush` lifecycle: format, lint (including Markdown), Civet style, auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper Vitest projects. It skips `build`, which hosted core runs. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects mismatched source or uncommitted changes to tracked files rather than verifying one checkout while publishing another; untracked and ignored files do not block.
+The pre-push requirement is the deterministic `verify:prepush` lifecycle: format, lint (including Markdown), auth schema, OpenAPI, docs, types/typecheck, and the complete unit, contract, operations, and E2E-helper Vitest projects. It skips `build`, which hosted core runs. Git passes the actual destination and ref updates to the hook; it never assumes `origin`. The hook rejects mismatched source or uncommitted changes to tracked files rather than verifying one checkout while publishing another; untracked and ignored files do not block.
 
 ```bash
 varlock run -- bun run verify:prepush
@@ -77,7 +77,7 @@ varlock run -- bun run ci
 
 Heavy `ci.yml` selects only `pull_request` and explicit `workflow_dispatch`; every eligible PR gets all four lanes regardless of actor, target branch, or changed paths. Pushes, including merges to `main`, intentionally do not schedule another heavy matrix. CodeQL, Scorecard, and Dependency Review keep their own events and job-level `if:` guards, including applicable default-branch security scans; see [hosted security capabilities](capabilities-and-deployment.md#hosted-security-capabilities).
 
-Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. Project globs are disjoint, and the root `playwright.config.test.ts` belongs to `unit`. `scripts/ci/test-invariants.test.civet` proves that full `verify` runs every tracked Vitest test file exactly once and that `verify:prepush` and `verify:core` run every unit, contract, operations, and E2E-helper file. Package `test:unit` scripts select their whole package directory; root `test:unit` fans them out through Turborepo, then runs the root unit tests.
+Each Vitest project has one owner in the full lifecycle: `unit`, `contract`, and `operations` belong to coverage; `integration` belongs to integration; and `e2e-helpers` belongs to core. Project globs are disjoint, and the root `playwright.config.test.ts` belongs to `unit`. `scripts/ci/test-invariants.test.ts` proves that full `verify` runs every tracked Vitest test file exactly once and that `verify:prepush` and `verify:core` run every unit, contract, operations, and E2E-helper file. Package `test:unit` scripts select their whole package directory; root `test:unit` fans them out through Turborepo, then runs the root unit tests.
 
 Before pushing, install locked dependencies. Before explicit full verification, also prepare pinned Graphify/Chromium and the validated test environment with Docker/PostgreSQL. Run `varlock run -- git push <remote> <ref>` when Git needs that environment. Missing prerequisites, stale artifacts checked by `verify:prepush`, or a failed check block the push. Refresh generated artifacts deliberately, review and commit them, then retry; do not bypass the hook.
 
@@ -95,7 +95,7 @@ bun run db:test:down
 
 ## Coverage lane
 
-All Vitest invocations use the package-local binary under Node through `corepack pnpm exec`. This is a narrow measured compatibility exception: Bun 1.3.14 misloads Vitest's Vite `zod` dependency during test execution, and it does not implement the `node:inspector` coverage APIs required by `@vitest/coverage-v8`. Bun and Turbo continue to orchestrate the surrounding lifecycle and package tasks. `bun run test:coverage` runs the Vitest `unit`, `contract`, and `operations` projects serially with the V8 provider. The measured authored-source scope is `apps/*/src`, `packages/*/src`, and `scripts`. Test and spec files, declarations, generated directories, and the generated feature-navigation registry are excluded explicitly. Civet's intermediate TSX is mapped back to the authored `.civet` path and therefore does not enter the report separately; every authored module in the measured source trees remains included.
+All Vitest invocations use the package-local binary under Node through `corepack pnpm exec`. This is a narrow measured compatibility exception: Bun 1.3.14 misloads Vitest's Vite `zod` dependency during test execution, and it does not implement the `node:inspector` coverage APIs required by `@vitest/coverage-v8`. Bun and Turbo continue to orchestrate the surrounding lifecycle and package tasks. `bun run test:coverage` runs the Vitest `unit`, `contract`, and `operations` projects serially with the V8 provider. The measured authored-source scope is `apps/*/src`, `packages/*/src`, and `scripts`. Test and spec files, declarations, generated directories, and the generated feature-navigation registry are excluded explicitly. Every authored module in the measured source trees remains included.
 
 The email preview writer and the feature generator's path-safety and planning modules execute in the measured unit and operations projects alongside the rest of the authored source. Focused filesystem tests use isolated workspaces and deterministic fault seams so each instrumented line, statement, function, and branch in those modules contributes reproducibly. PostgreSQL integration tests, Playwright journeys, accessibility tests, and generated code are not executed. The percentages therefore describe the complete authored unit/contract/operations source scope; they are not evidence of browser, database, deployment, security, or production behavior.
 
@@ -104,7 +104,7 @@ bun run test:coverage
 bun run verify:coverage
 ```
 
-V8 writes the uncommitted raw report to `coverage/`; no coverage totals are committed. `verify:coverage` runs the lane and fails if any of the four metrics drops below 100%. The measured file set is pinned instead: `scripts/ci/test-invariants.test.civet` requires every tracked non-test source file under `apps/*/src`, `packages/*/src`, and `scripts` to be matched by `coverage.include`, and it requires `coverage.exclude` to equal the reviewed allowlist in that test.
+V8 writes the uncommitted raw report to `coverage/`; no coverage totals are committed. `verify:coverage` runs the lane and fails if any of the four metrics drops below 100%. The measured file set is pinned instead: `scripts/ci/test-invariants.test.ts` requires every tracked non-test source file under `apps/*/src`, `packages/*/src`, and `scripts` to be matched by `coverage.include`, and it requires `coverage.exclude` to equal the reviewed allowlist in that test.
 
 The committed deterministic scope measures 100% for lines, branches, functions, and statements across every included authored module. All four configured floors are 100%, and the pinned measured file set keeps new source from escaping the report. The README badge states this gate; it is not a live measurement.
 
@@ -114,7 +114,7 @@ The committed deterministic scope measures 100% for lines, branches, functions, 
 
 ## Browser evidence
 
-Automated browser coverage currently uses Chromium at <https://darkfactory.localhost>. Playwright starts or reuses the portless route, retains traces and video on failure, and captures screenshots only on failure.
+Automated browser coverage uses Chromium against the production build at `https://darkfactory.localhost:1356`. One Playwright invocation runs the `e2e` and `a11y` projects. It starts a private portless HTTPS proxy and the app itself, and trusts only the run's generated certificate authority (an SPKI pin, with no trust-store change). It records a trace on the first retry and a screenshot only on failure. `bun run verify:browser` builds first; `test:e2e` and `test:a11y` reuse the last build.
 
 For a DF item that requires visual, responsive, keyboard, authentication, cookie, or network evidence, record more than `bun run test:e2e`:
 
@@ -127,7 +127,7 @@ For a DF item that requires visual, responsive, keyboard, authentication, cookie
 7. Screenshot, trace, or video path and a short statement of what it proves.
 8. Exact failures and rerun result; never omit a failing viewport or persona.
 
-`playwright-report/` and `test-results/` are local/generated evidence. GitHub Actions preserves them for seven days only when the browser lane and its evidence scanner both succeed. Failed, contaminated, purged, or indeterminate material is never uploaded; use the redacted job log to diagnose that failure. A missing artifact must not be described as passing evidence.
+`playwright-report/` and `test-results/` are local/generated evidence. GitHub Actions uploads them for seven days only when the browser lane fails. A missing artifact must not be described as passing evidence.
 
 ## Graphify evidence
 

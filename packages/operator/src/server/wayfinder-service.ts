@@ -1,0 +1,141 @@
+import type { SafePrincipal } from "@darkfactory/auth/types";
+import type { WorkflowRepository } from "@darkfactory/db/server/workflow";
+import {
+  createOmpCliAdapter,
+  type OmpCliAdapterOptions,
+} from "@darkfactory/jobs/server/omp";
+import {
+  createLocalWayfinderExecutionAdapter,
+  createWayfinderWorkflowService,
+  WayfinderRequestError,
+} from "@darkfactory/jobs/server/wayfinder";
+import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime";
+
+import {
+  OPERATOR_WAYFINDER_TRACKER,
+  type OperatorWayfinderQueuedRunOutput,
+  type OperatorWayfinderStart,
+  type OperatorWayfinderStatusOutput,
+} from "../contract.ts";
+import {
+  OperatorServiceError,
+  type OperatorServiceErrorCode,
+  operatorServiceErrorMessage,
+} from "./operator-service.ts";
+
+export type OperatorWayfinderPort = Readonly<{
+  status: () => Promise<OperatorWayfinderStatusOutput>;
+  start: (
+    input: Readonly<{
+      ownerId: string;
+      repositoryId: string;
+      paths: readonly string[];
+      request: string;
+    }>
+  ) => Promise<OperatorWayfinderQueuedRunOutput>;
+}>;
+
+export type OperatorWayfinderService = Readonly<{
+  status: () => Promise<OperatorWayfinderStatusOutput>;
+  start: (
+    principal: SafePrincipal,
+    input: OperatorWayfinderStart
+  ) => Promise<OperatorWayfinderQueuedRunOutput>;
+}>;
+
+export type OperatorWayfinderWorkflowServiceOptions = Readonly<{
+  repository: WorkflowRepository;
+  authorizeRepository: (ownerId: string, repositoryId: string) => boolean;
+  omp: OmpCliAdapterOptions;
+  generateId?: () => string;
+  now?: () => Date;
+}>;
+
+const unavailableStatus = (): OperatorWayfinderStatusOutput =>
+  Object.freeze({
+    availability: "unavailable",
+    tracker: OPERATOR_WAYFINDER_TRACKER,
+  });
+
+const serviceError = (code: OperatorServiceErrorCode): OperatorServiceError => {
+  return new OperatorServiceError(code, operatorServiceErrorMessage(code));
+};
+
+const mapStartError = (error: unknown): never => {
+  if (error instanceof WayfinderRequestError) {
+    switch (error.code) {
+      case "INVALID_WAYFINDER_REQUEST": {
+        throw serviceError("VALIDATION_ERROR");
+      }
+      case "WAYFINDER_FORBIDDEN": {
+        throw serviceError("FORBIDDEN");
+      }
+      case "WAYFINDER_UNAVAILABLE": {
+        throw serviceError("SERVICE_UNAVAILABLE");
+      }
+    }
+  }
+  throw serviceError("STORAGE_ERROR");
+};
+
+export const createOperatorWayfinderService = (
+  port: OperatorWayfinderPort | undefined
+): OperatorWayfinderService =>
+  Object.freeze({
+    status: async () => {
+      if (port === undefined) return unavailableStatus();
+      try {
+        const status = await port.status();
+        return status.availability === "installed"
+          ? Object.freeze({
+              availability: "installed" as const,
+              tracker: OPERATOR_WAYFINDER_TRACKER,
+            })
+          : unavailableStatus();
+      } catch {
+        return unavailableStatus();
+      }
+    },
+
+    start: async (principal, input) => {
+      if (port === undefined) throw serviceError("SERVICE_UNAVAILABLE");
+      try {
+        const queued = await port.start({
+          ownerId: principal.userId,
+          repositoryId: input.scope.repositoryId,
+          paths: input.scope.paths,
+          request: input.request,
+        });
+        return Object.freeze({
+          runId: queued.runId,
+          status: "queued",
+          tracker: OPERATOR_WAYFINDER_TRACKER,
+        });
+      } catch (error) {
+        return mapStartError(error);
+      }
+    },
+  });
+
+export const createOperatorWayfinderWorkflowService = (
+  options: OperatorWayfinderWorkflowServiceOptions
+): OperatorWayfinderPort => {
+  const queue = createWorkflowApplication(
+    options.repository,
+    options.now === undefined ? {} : { now: options.now }
+  );
+  const omp = createOmpCliAdapter(options.omp);
+  const execution = createLocalWayfinderExecutionAdapter({
+    omp,
+    repositoriesRoot: options.omp.repositoriesRoot,
+  });
+  return createWayfinderWorkflowService({
+    queue,
+    execution,
+    authorizeRepository: options.authorizeRepository,
+    ...(options.generateId === undefined
+      ? {}
+      : { generateId: options.generateId }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+};

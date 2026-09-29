@@ -1,0 +1,202 @@
+import { describe, expect, it } from "vitest";
+
+import type { PasswordResetEmailInput } from "../index.ts";
+import { createPasswordResetEmailInput } from "../test.ts";
+import { renderPasswordResetEmail } from "./render-reset-password.ts";
+
+const resetToken = "raw-reset-token";
+const callbackUrl = "https://darkfactory.localhost/reset-password";
+const resetUrl =
+  `https://darkfactory.localhost/api/auth/reset-password/${resetToken}` +
+  `?callbackURL=${encodeURIComponent(callbackUrl)}`;
+const resetInput: PasswordResetEmailInput = {
+  to: "member@domain.test",
+  recipientName: "Alice Adams",
+  resetUrl,
+  expiresInMinutes: 60,
+};
+
+describe("renderPasswordResetEmail", () => {
+  it("renders accessible semantic HTML and useful plain text", async () => {
+    const rendered = await renderPasswordResetEmail(resetInput);
+
+    expect(rendered.subject).toBe("Reset your DarkFactory password");
+    expect(rendered.html).toMatch(/<html[^>]*lang="en"/);
+    expect(rendered.html).toMatch(/<html[^>]*dir="ltr"/);
+    expect(rendered.html).toMatch(/<body[^>]*lang="en"/);
+    expect(rendered.html).toMatch(/<body[^>]*dir="ltr"/);
+    expect(rendered.html).toContain("<main");
+    expect(rendered.html).toContain("<h1");
+    expect(rendered.html).toContain("Reset your password");
+    expect(rendered.html).toContain(
+      'aria-label="Reset your DarkFactory password"'
+    );
+    expect(rendered.text).toContain("Reset your password");
+    return expect(rendered.text).toContain(resetInput.resetUrl);
+  });
+
+  it("includes explicit expiry and ignored-request guidance", async () => {
+    const rendered = await renderPasswordResetEmail({
+      ...resetInput,
+      expiresInMinutes: 15,
+    });
+
+    expect(rendered.html).toMatch(/15(?:<!-- -->)? (?:<!-- -->)?minutes/);
+    expect(rendered.text).toContain("15 minutes");
+    return expect(rendered.text).toContain(
+      "If you did not request a password reset, you can ignore this email."
+    );
+  });
+
+  it("uses singular expiry guidance for one minute", async () => {
+    const rendered = await renderPasswordResetEmail({
+      ...resetInput,
+      expiresInMinutes: 1,
+    });
+
+    expect(rendered.text).toContain("1 minute");
+    return expect(rendered.text).not.toContain("1 minutes");
+  });
+
+  it("escapes recipient content and confines the reset token to the URL", async () => {
+    const dangerousName = '<img src=x onerror="alert(1)">';
+    const rendered = await renderPasswordResetEmail({
+      ...resetInput,
+      recipientName: dangerousName,
+    });
+
+    expect(rendered.html).not.toContain(dangerousName);
+    expect(rendered.html).toContain(
+      "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"
+    );
+    expect(rendered.html).toContain(`href="${resetUrl}"`);
+    expect(rendered.html.match(new RegExp(resetToken, "g"))).toHaveLength(1);
+    expect(rendered.text.match(new RegExp(resetToken, "g"))).toHaveLength(1);
+    expect(rendered.html).not.toMatch(/reset token/i);
+    return expect(rendered.text).not.toMatch(/reset token/i);
+  });
+
+  it("rejects attacker origins, credentials, fragments, unsafe paths, and callbacks", async () => {
+    const unsafeUrls = [
+      resetUrl.replace("darkfactory.localhost", "attacker.test"),
+      resetUrl.replace("https://", "https://user:password@"),
+      `${resetUrl}#fragment`,
+      resetUrl.replace("/api/auth/reset-password/", "/reset-password/"),
+      resetUrl.replace(
+        encodeURIComponent(callbackUrl),
+        encodeURIComponent("https://attacker.test/reset-password")
+      ),
+      resetUrl.replace("raw-reset-token", "nested/token"),
+    ];
+
+    for (const unsafeUrl of unsafeUrls) {
+      await expect(
+        renderPasswordResetEmail({ ...resetInput, resetUrl: unsafeUrl })
+      ).rejects.toThrowError("resetUrl must be a trusted password reset URL");
+    }
+  });
+
+  it("accepts Better Auth's exact relative reset callback", async () => {
+    const relativeCallbackUrl = resetUrl.replace(
+      encodeURIComponent(callbackUrl),
+      encodeURIComponent("/reset-password")
+    );
+
+    return await expect(
+      renderPasswordResetEmail({ ...resetInput, resetUrl: relativeCallbackUrl })
+    ).resolves.toMatchObject({
+      subject: "Reset your DarkFactory password",
+    });
+  });
+
+  it("accepts an explicitly configured trusted application origin", async () => {
+    const trustedAppOrigin = "https://app.domain.test";
+    const configuredInput = {
+      ...resetInput,
+      resetUrl: resetUrl
+        .replaceAll("https://darkfactory.localhost", trustedAppOrigin)
+        .replace(
+          encodeURIComponent(callbackUrl),
+          encodeURIComponent(`${trustedAppOrigin}/reset-password`)
+        ),
+    };
+
+    const rendered = await renderPasswordResetEmail(configuredInput, {
+      trustedAppOrigin,
+    });
+
+    return expect(rendered.html).toContain(configuredInput.resetUrl);
+  });
+
+  it("rejects non-positive or fractional expiry windows", async () => {
+    await expect(
+      renderPasswordResetEmail({ ...resetInput, expiresInMinutes: 0 })
+    ).rejects.toThrowError("expiresInMinutes must be a positive integer");
+    return await expect(
+      renderPasswordResetEmail({ ...resetInput, expiresInMinutes: 1.5 })
+    ).rejects.toThrowError("expiresInMinutes must be a positive integer");
+  });
+
+  it("uses a generic greeting when no recipient name is available", async () => {
+    const rendered = await renderPasswordResetEmail({
+      to: resetInput.to,
+      resetUrl: resetInput.resetUrl,
+      expiresInMinutes: resetInput.expiresInMinutes,
+    });
+
+    return expect(rendered.text).toContain("Hello,");
+  });
+
+  return it("rejects malformed configured origins, reset URLs, and callback URLs", async () => {
+    for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"]) {
+      await expect(
+        renderPasswordResetEmail(resetInput, {
+          trustedAppOrigin,
+        })
+      ).rejects.toThrowError("resetUrl must be a trusted password reset URL");
+    }
+
+    await expect(
+      renderPasswordResetEmail({
+        ...resetInput,
+        resetUrl: "not a URL",
+      })
+    ).rejects.toThrowError("resetUrl must be a trusted password reset URL");
+
+    const malformedCallbackUrl = resetUrl.replace(
+      encodeURIComponent(callbackUrl),
+      encodeURIComponent("http://[")
+    );
+    return await expect(
+      renderPasswordResetEmail({
+        ...resetInput,
+        resetUrl: malformedCallbackUrl,
+      })
+    ).rejects.toThrowError("resetUrl must be a trusted password reset URL");
+  });
+});
+
+describe("createPasswordResetEmailInput", () =>
+  it("returns a frozen safe default and applies explicit overrides", () => {
+    const defaultInput = createPasswordResetEmailInput();
+    const overridden = createPasswordResetEmailInput({
+      to: "other@domain.test",
+      expiresInMinutes: 15,
+    });
+
+    expect(defaultInput).toEqual({
+      to: "member@domain.test",
+      recipientName: "Example Member",
+      resetUrl:
+        "https://darkfactory.localhost/api/auth/reset-password/test-reset-token" +
+        "?callbackURL=https%3A%2F%2Fdarkfactory.localhost%2Freset-password",
+      expiresInMinutes: 60,
+    });
+    expect(Object.isFrozen(defaultInput)).toBe(true);
+    expect(overridden).toMatchObject({
+      to: "other@domain.test",
+      expiresInMinutes: 15,
+      recipientName: "Example Member",
+    });
+    return expect(Object.isFrozen(overridden)).toBe(true);
+  }));

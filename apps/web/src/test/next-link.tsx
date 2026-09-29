@@ -1,0 +1,9 @@
+import type { ComponentProps } from "react";
+
+const NextLinkStub = ({ children, href, ...props }: ComponentProps<"a">) => (
+  <a href={href} {...props}>
+    {children}
+  </a>
+);
+
+export default NextLinkStub;

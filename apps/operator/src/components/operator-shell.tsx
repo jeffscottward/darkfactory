@@ -1,0 +1,35 @@
+import { ShieldCheck } from "lucide-react";
+import type { ReactNode } from "react";
+
+export interface OperatorShellProps {
+  readonly children: ReactNode;
+  readonly name: string;
+}
+
+export const OperatorShell = ({ children, name }: OperatorShellProps) => (
+  <div className="min-h-screen bg-background text-foreground">
+    <header className="border-border border-b bg-surface">
+      <div className="mx-auto flex min-h-16 max-w-[var(--content-portal)] flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-10">
+        <a
+          className="flex min-h-11 items-center gap-3 rounded-sm font-heading font-semibold text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href="/operator"
+        >
+          <ShieldCheck aria-hidden="true" className="size-5" />
+          <span>DarkFactory Operator</span>
+        </a>
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-muted-foreground text-sm">
+          <span className="rounded-pill border border-border px-3 py-1 font-medium text-foreground">
+            Local development
+          </span>
+          <span>Signed in as {name}</span>
+        </div>
+      </div>
+    </header>
+    <main
+      className="mx-auto w-full max-w-[var(--content-portal)] px-4 py-8 sm:px-6 lg:px-10 lg:py-10"
+      id="main-content"
+    >
+      {children}
+    </main>
+  </div>
+);

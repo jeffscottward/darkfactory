@@ -1,0 +1,854 @@
+import type { ApiClient, ApiClientOptions } from "@darkfactory/api";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const contactReactRuntime = vi.hoisted(() => {
+  const stateSlots: Array<{ value: unknown }> = [];
+  const refSlots: Array<{ current: unknown }> = [];
+  let stateCursor = 0;
+  let refCursor = 0;
+  return {
+    begin: (): void => {
+      stateCursor = 0;
+      refCursor = 0;
+    },
+    reset: (): void => {
+      stateSlots.length = 0;
+      refSlots.length = 0;
+      stateCursor = 0;
+      refCursor = 0;
+    },
+    useRef: <Value,>(initialValue: Value): { current: Value } => {
+      const index = refCursor++;
+      refSlots[index] ??= { current: initialValue };
+      return refSlots[index] as { current: Value };
+    },
+    useState: <Value,>(
+      initializer: Value | (() => Value)
+    ): readonly [
+      Value,
+      (next: Value | ((current: Value) => Value)) => void,
+    ] => {
+      const index = stateCursor++;
+      stateSlots[index] ??= {
+        value:
+          typeof initializer === "function"
+            ? (initializer as () => Value)()
+            : initializer,
+      };
+      const slot = stateSlots[index]!;
+      return [
+        slot.value as Value,
+        (next) => {
+          return (slot.value =
+            typeof next === "function"
+              ? (next as (current: Value) => Value)(slot.value as Value)
+              : next);
+        },
+      ];
+    },
+  };
+});
+
+const contactFormRuntime = vi.hoisted(() => {
+  type ElementRecord = Readonly<{ props: Record<string, unknown> }>;
+  type Values = Record<string, string>;
+  type Validator = (context: Readonly<{ value: string }>) => string | undefined;
+  type Validators = Readonly<{
+    onBlur?: Validator;
+    onSubmit?: Validator;
+  }>;
+  type FormConfig = Readonly<{
+    defaultValues: Values;
+    onSubmit: (
+      context: Readonly<{ value: Values }>
+    ) => Promise<unknown> | unknown;
+  }>;
+
+  let config: FormConfig | undefined;
+  let initialValues: Values = {};
+  let values: Values = {};
+  let errors: Record<string, string | undefined> = {};
+  let validators: Record<string, Validators | undefined> = {};
+  let controls = new Map<string, ElementRecord>();
+  let buttons = new Map<string, ElementRecord>();
+  let resetCount = 0;
+  const state = {
+    canSubmit: true,
+    isSubmitting: false,
+    isValid: true,
+  };
+
+  const textOf = (node: unknown): string => {
+    if (typeof node === "string" || typeof node === "number")
+      return String(node);
+    if (Array.isArray(node)) return node.map(textOf).join("");
+    if (typeof node !== "object" || node === null) return "";
+    const props = Reflect.get(node, "props");
+    if (typeof props !== "object" || props === null) return "";
+    return textOf(Reflect.get(props, "children"));
+  };
+
+  const capture = (node: unknown, seen = new WeakSet<object>()): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        capture(child, seen);
+      }
+      return;
+    }
+    if (typeof node !== "object" || node === null || seen.has(node)) {
+      return;
+    }
+    seen.add(node);
+    const props = Reflect.get(node, "props");
+    if (typeof props !== "object" || props === null) {
+      return;
+    }
+    const element = node as ElementRecord;
+    if (typeof element.props["id"] === "string") {
+      controls.set(element.props["id"], element);
+    }
+    if (element.props["type"] === "submit") {
+      const label = textOf(element).replace(/\s+/gu, " ").trim();
+      buttons.set(label, element);
+    }
+    for (const value of Object.values(element.props)) {
+      capture(value, seen);
+    }
+  };
+
+  const synchronizeValidity = (): void => {
+    state.isValid = Object.values(errors).every((error) => error === undefined);
+    state.canSubmit = state.isValid;
+  };
+
+  const validate = (name: string, trigger: "onBlur" | "onSubmit"): void => {
+    const error = validators[name]?.[trigger]?.({ value: values[name] ?? "" });
+    if (error === undefined) {
+      delete errors[name];
+    } else errors[name] = error;
+    synchronizeValidity();
+  };
+
+  const Field = (
+    props: Readonly<{
+      children: (
+        field: Readonly<{
+          handleBlur: () => void;
+          handleChange: (value: string) => void;
+          name: string;
+          state: Readonly<{
+            meta: Readonly<{ errors: readonly string[] }>;
+            value: string;
+          }>;
+        }>
+      ) => unknown;
+      name: string;
+      validators?: Validators;
+    }>
+  ) => {
+    validators[props.name] = props.validators;
+    const tree = props.children({
+      handleBlur: () => validate(props.name, "onBlur"),
+      handleChange: (value) => {
+        return (values[props.name] = value);
+      },
+      name: props.name,
+      state: {
+        meta: {
+          errors: errors[props.name] === undefined ? [] : [errors[props.name]!],
+        },
+        value: values[props.name] ?? "",
+      },
+    });
+    capture(tree);
+    return tree;
+  };
+
+  const Subscribe = (
+    props: Readonly<{
+      children: (selection: readonly [boolean, boolean]) => unknown;
+      selector: (
+        value: Readonly<{
+          canSubmit: boolean;
+          isSubmitting: boolean;
+        }>
+      ) => readonly [boolean, boolean];
+    }>
+  ) => {
+    synchronizeValidity();
+    const tree = props.children(props.selector(state));
+    capture(tree);
+    return tree;
+  };
+
+  const resetValues = (): void => {
+    values = { ...initialValues };
+    errors = {};
+    resetCount += 1;
+    synchronizeValidity();
+  };
+
+  const submit = async (): Promise<void> => {
+    if (config === undefined)
+      throw new Error("Render the contact form before submitting it.");
+    for (const name of Object.keys(validators)) validate(name, "onSubmit");
+    if (!state.isValid) return;
+    state.isSubmitting = true;
+    try {
+      await config.onSubmit({ value: { ...values } });
+    } finally {
+      state.isSubmitting = false;
+    }
+  };
+
+  return {
+    blur: (id: string): void => {
+      const onBlur = controls.get(id)?.props["onBlur"];
+      if (typeof onBlur !== "function")
+        throw new Error(`Expected #${id} to support blur.`);
+      (onBlur as () => void)();
+    },
+    button: (label: string): ElementRecord => {
+      const button = buttons.get(label);
+      if (button === undefined)
+        throw new Error(`Expected button named ${label}.`);
+      return button;
+    },
+    changeText: (id: string, value: string): void => {
+      const onChange = controls.get(id)?.props["onChange"];
+      if (typeof onChange !== "function")
+        throw new Error(`Expected #${id} to accept text.`);
+      (
+        onChange as (
+          event: Readonly<{ target: Readonly<{ value: string }> }>
+        ) => void
+      )({
+        target: { value },
+      });
+    },
+    control: (id: string): ElementRecord => {
+      const control = controls.get(id);
+      if (control === undefined) throw new Error(`Expected control #${id}.`);
+      return control;
+    },
+    reset: (): void => {
+      config = undefined;
+      initialValues = {};
+      values = {};
+      errors = {};
+      validators = {};
+      controls = new Map();
+      buttons = new Map();
+      resetCount = 0;
+      state.canSubmit = true;
+      state.isSubmitting = false;
+      state.isValid = true;
+    },
+    resetCount: (): number => resetCount,
+    state: () => state,
+    submit,
+    useForm: (nextConfig: FormConfig) => {
+      if (config === undefined) {
+        initialValues = { ...nextConfig.defaultValues };
+        values = { ...nextConfig.defaultValues };
+      }
+      config = nextConfig;
+      controls.clear();
+      buttons.clear();
+      return {
+        Field,
+        Subscribe,
+        handleSubmit: submit,
+        reset: resetValues,
+        state,
+      };
+    },
+    values: (): Readonly<Values> => ({ ...values }),
+  };
+});
+
+const contactApiRuntime = vi.hoisted(() => {
+  type Factory = (options: ApiClientOptions) => ApiClient;
+  let factory: Factory | undefined;
+  let options: ApiClientOptions[] = [];
+  return {
+    configure: (nextFactory: Factory): void => {
+      factory = nextFactory;
+    },
+    create: (fallback: Factory, nextOptions: ApiClientOptions): ApiClient => {
+      options.push(nextOptions);
+      return (factory ?? fallback)(nextOptions);
+    },
+    options: (): readonly ApiClientOptions[] => options,
+    reset: (): void => {
+      factory = undefined;
+      options = [];
+    },
+  };
+});
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useRef: contactReactRuntime.useRef,
+    useState: contactReactRuntime.useState,
+  };
+});
+
+vi.mock("@tanstack/react-form", () => ({
+  useForm: contactFormRuntime.useForm,
+}));
+
+vi.mock("@darkfactory/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@darkfactory/api")>();
+  return {
+    ...actual,
+    createApiClient: (options: ApiClientOptions) =>
+      contactApiRuntime.create(actual.createApiClient, options),
+  };
+});
+
+import {
+  contactFeedbackForOutput,
+  createBrowserContactGateway,
+  createContactGateway,
+  safeContactFailure,
+  validateContactField,
+} from "./contact-client.ts";
+import { ContactForm, ContactStatus } from "./contact-form.tsx";
+
+const validValues = {
+  name: "Ada Lovelace",
+  email: "ada@example.test",
+  subject: "Architecture review",
+  message: "Please review the deployment boundary.",
+  website: "",
+} as const;
+
+const flushContactMicrotasks = async (): Promise<void> => {
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+};
+
+const renderContactForm = (props: Parameters<typeof ContactForm>[0]) => {
+  contactReactRuntime.begin();
+  const tree = ContactForm(props) as Readonly<{
+    props: Record<string, unknown>;
+  }>;
+  return {
+    html: renderToStaticMarkup(tree as never),
+    tree,
+  };
+};
+
+const installContactBrowser = () => {
+  const timers: Array<() => void> = [];
+  let statusTarget: Readonly<{ focus: () => void }> | null = null;
+  let validationTarget: Readonly<{ focus: () => void }> | null = null;
+  const getElementById = vi.fn(() => statusTarget);
+  const querySelector = vi.fn(() => validationTarget);
+  const setTimeout = vi.fn((callback: () => void, _delay: number) => {
+    timers.push(callback);
+    return timers.length;
+  });
+  vi.stubGlobal("document", { getElementById, querySelector });
+  vi.stubGlobal("window", {
+    location: { origin: "https://darkfactory.example" },
+    setTimeout,
+  });
+  return {
+    getElementById,
+    querySelector,
+    setStatusTarget: (target: Readonly<{ focus: () => void }> | null): void => {
+      statusTarget = target;
+    },
+    setValidationTarget: (
+      target: Readonly<{ focus: () => void }> | null
+    ): void => {
+      validationTarget = target;
+    },
+    setTimeout,
+    timers,
+  };
+};
+
+afterEach(() => {
+  contactReactRuntime.reset();
+  contactFormRuntime.reset();
+  contactApiRuntime.reset();
+  vi.unstubAllGlobals();
+  return vi.restoreAllMocks();
+});
+
+describe("contact field validation", () => {
+  it.each([
+    { field: "name", value: "", message: "Enter your name." },
+    {
+      field: "name",
+      value: "n".repeat(101),
+      message: "Name must be 100 characters or fewer.",
+    },
+    {
+      field: "email",
+      value: "not-an-email",
+      message: "Enter a valid email address.",
+    },
+    {
+      field: "email",
+      value: `${"a".repeat(245)}@test.test`,
+      message: "Email must be 254 characters or fewer.",
+    },
+    { field: "subject", value: "", message: "Enter a subject." },
+    {
+      field: "subject",
+      value: "s".repeat(201),
+      message: "Subject must be 200 characters or fewer.",
+    },
+    { field: "message", value: "", message: "Enter a message." },
+    {
+      field: "message",
+      value: "m".repeat(5001),
+      message: "Message must be 5,000 characters or fewer.",
+    },
+    {
+      field: "name",
+      value: "Ada\u0000Lovelace",
+      message: "Name contains unsupported control characters.",
+    },
+    {
+      field: "subject",
+      value: "Review\u001frequest",
+      message: "Subject contains unsupported control characters.",
+    },
+    {
+      field: "message",
+      value: "Details\u0000hidden",
+      message: "Message contains unsupported control characters.",
+    },
+  ] as const)("rejects $field boundary", ({ field, value, message }) =>
+    expect(validateContactField(field, value)).toBe(message));
+
+  return it("accepts strict boundary values and Unicode", () => {
+    expect(validateContactField("name", "名".repeat(100))).toBeUndefined();
+    expect(
+      validateContactField("email", "person+tag@example.test")
+    ).toBeUndefined();
+    expect(validateContactField("subject", "ø".repeat(200))).toBeUndefined();
+    expect(validateContactField("message", "界".repeat(5000))).toBeUndefined();
+    expect(
+      validateContactField("name", ` ${"n".repeat(100)} `)
+    ).toBeUndefined();
+    return expect(
+      validateContactField("email", " person+tag@example.test ")
+    ).toBeUndefined();
+  });
+});
+
+describe("contact gateway and safe feedback", () => {
+  it("uses the typed contact operation without inventing a fallback endpoint", async () => {
+    const submit = vi.fn().mockResolvedValue({ status: "sent" });
+    const gateway = createContactGateway({ contact: { submit } } as never);
+
+    await expect(gateway.submit(validValues)).resolves.toEqual({
+      status: "sent",
+    });
+    return expect(submit).toHaveBeenCalledWith(validValues);
+  });
+
+  it.each([
+    {
+      output: { status: "sent" },
+      tone: "success",
+      text: "Your message was sent.",
+    },
+    {
+      output: { status: "previewed" },
+      tone: "info",
+      text: "Your message was saved to the local email preview. It was not sent.",
+    },
+    {
+      output: { status: "not-delivered" },
+      tone: "warning",
+      text: "Contact delivery is not configured. Your message was not sent.",
+    },
+  ] as const)("reports $output.status truthfully", ({ output, tone, text }) =>
+    expect(contactFeedbackForOutput(output)).toEqual({
+      tone,
+      message: text,
+    }));
+
+  return it("maps rate limits and provider failures without exposing exception details", () => {
+    expect(
+      safeContactFailure({
+        code: "TOO_MANY_REQUESTS",
+        message: "raw ip and secret",
+      })
+    ).toEqual({
+      tone: "error",
+      message: "Too many messages were submitted. Try again in 15 minutes.",
+    });
+    expect(
+      safeContactFailure({
+        data: { code: "SERVICE_UNAVAILABLE" },
+        message: "provider secret",
+      })
+    ).toEqual({
+      tone: "error",
+      message:
+        "Email delivery is temporarily unavailable. Your message was not sent. Try again later.",
+    });
+    expect(safeContactFailure({ code: "PAYLOAD_TOO_LARGE" })).toEqual({
+      tone: "error",
+      message: "Your message is too large to submit. Reduce it and try again.",
+    });
+    return expect(
+      JSON.stringify(safeContactFailure(new Error("PII provider detail")))
+    ).not.toContain("PII provider detail");
+  });
+});
+
+describe("ContactForm", () => {
+  it("renders a mobile-safe accessible form with bounded fields and an inert honeypot", () => {
+    const html = renderToStaticMarkup(
+      <ContactForm gateway={{ submit: vi.fn() }} />
+    );
+
+    expect(html).toContain('id="contact-form"');
+    expect(html).toContain('role="form"');
+    expect(html).toContain('aria-labelledby="contact-form-title"');
+    expect(html).toContain('id="contact-form-title"');
+    expect(html).toContain('aria-required="true"');
+    expect(html).toContain('autoComplete="name"');
+    expect(html).toContain('autoComplete="email"');
+    expect(html).toContain('type="email"');
+    expect(html).toContain('inputMode="email"');
+    expect(html).not.toContain('maxLength="100"');
+    expect(html).not.toContain('maxLength="254"');
+    expect(html).not.toContain('maxLength="5000"');
+    expect(html).toContain("Maximum 100 characters.");
+    expect(html).toContain("Maximum 254 characters.");
+    expect(html).toContain("Maximum 200 characters.");
+    expect(html).toContain('name="website"');
+    expect(html).toContain('maxLength="200"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('class="hidden"');
+    expect(html).toContain("min-h-11");
+    expect(html).toContain("transition-none");
+    return expect(html).toContain("Send message");
+  });
+
+  return it.each([
+    {
+      tone: "success",
+      role: "status",
+      surface: "bg-success-subtle",
+      text: "Your message was sent.",
+    },
+    {
+      tone: "info",
+      role: "status",
+      surface: "bg-info-subtle",
+      text: "Your message was saved to the local email preview. It was not sent.",
+    },
+    {
+      tone: "warning",
+      role: "status",
+      surface: "bg-warning-subtle",
+      text: "Contact delivery is not configured. Your message was not sent.",
+    },
+    {
+      tone: "error",
+      role: "alert",
+      surface: "bg-destructive-subtle",
+      text: "Email delivery is temporarily unavailable. Your message was not sent. Try again later.",
+    },
+  ] as const)("announces $tone feedback", ({ tone, role, surface, text }) => {
+    const html = renderToStaticMarkup(
+      <ContactStatus feedback={{ tone, message: text }} />
+    );
+    expect(html).toContain(`role="${role}"`);
+    expect(html).not.toContain("aria-live");
+    expect(html).toContain(surface);
+    return expect(html).toContain(text);
+  });
+});
+
+describe("contact client edge paths", () => {
+  it("creates the same-origin browser gateway through the typed client", async () => {
+    const submit = vi.fn().mockResolvedValue({ status: "previewed" });
+    contactApiRuntime.configure(
+      () =>
+        ({
+          contact: { submit },
+        }) as unknown as ApiClient
+    );
+    vi.stubGlobal("window", {
+      location: { origin: "https://darkfactory.example" },
+    });
+
+    const gateway = createBrowserContactGateway();
+    await expect(gateway.submit(validValues)).resolves.toEqual({
+      status: "previewed",
+    });
+    expect(contactApiRuntime.options()).toHaveLength(1);
+    expect(contactApiRuntime.options()[0]?.baseUrl).toBe(
+      "https://darkfactory.example"
+    );
+    return expect(submit).toHaveBeenCalledWith(validValues);
+  });
+
+  it("fails closed for unsupported delivery statuses", () =>
+    expect(() =>
+      contactFeedbackForOutput({
+        status: "queued",
+      } as never)
+    ).toThrowError("Unsupported contact delivery status"));
+
+  return it.each([
+    {
+      error: undefined,
+      message:
+        "Your message could not be submitted. It was not sent. Try again.",
+    },
+    {
+      error: null,
+      message:
+        "Your message could not be submitted. It was not sent. Try again.",
+    },
+    {
+      error: "provider failure",
+      message:
+        "Your message could not be submitted. It was not sent. Try again.",
+    },
+    {
+      error: { code: 429 },
+      message:
+        "Your message could not be submitted. It was not sent. Try again.",
+    },
+    {
+      error: { data: null },
+      message:
+        "Your message could not be submitted. It was not sent. Try again.",
+    },
+    {
+      error: { data: { code: 503 } },
+      message:
+        "Your message could not be submitted. It was not sent. Try again.",
+    },
+    {
+      error: { code: "BAD_REQUEST" },
+      message: "Check the highlighted fields and try again.",
+    },
+    {
+      error: { data: { code: "VALIDATION_ERROR" } },
+      message: "Check the highlighted fields and try again.",
+    },
+  ])("maps opaque error shape $error without leaking details", ({
+    error,
+    message,
+  }) =>
+    expect(safeContactFailure(error)).toEqual({
+      tone: "error",
+      message,
+    }));
+});
+
+describe("ContactForm browser behavior", () => {
+  const fillValidFields = (): void => {
+    contactFormRuntime.changeText("name", validValues.name);
+    contactFormRuntime.changeText("email", validValues.email);
+    contactFormRuntime.changeText("subject", validValues.subject);
+    contactFormRuntime.changeText("message", validValues.message);
+  };
+
+  const submitRenderedForm = (
+    tree: Readonly<{ props: Record<string, unknown> }>
+  ) => {
+    const onSubmit = tree.props["onSubmit"];
+    if (typeof onSubmit !== "function")
+      throw new Error("Expected contact form submission.");
+    const event = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+    onSubmit(event);
+    return event;
+  };
+
+  it("announces submitted validation errors, focuses the first invalid field, and clears the summary on edit", async () => {
+    const browser = installContactBrowser();
+    const validationFocus = vi.fn();
+    browser.setValidationTarget({ focus: validationFocus });
+    const gateway = { submit: vi.fn() };
+
+    let rendered = renderContactForm({ gateway });
+    expect(contactFormRuntime.button("Send message").props).toMatchObject({
+      disabled: false,
+      loading: false,
+    });
+    contactFormRuntime.blur("name");
+    contactFormRuntime.blur("message");
+    rendered = renderContactForm({ gateway });
+    expect(rendered.html).toContain("Enter your name.");
+    expect(rendered.html).toContain("Enter a message.");
+    expect(contactFormRuntime.control("name").props["aria-invalid"]).toBe(true);
+    expect(contactFormRuntime.control("message").props["aria-invalid"]).toBe(
+      true
+    );
+    expect(contactFormRuntime.control("name").props["aria-describedby"]).toBe(
+      "name-help name-error"
+    );
+    expect(
+      contactFormRuntime.control("message").props["aria-describedby"]
+    ).toBe("message-help message-error");
+
+    const event = submitRenderedForm(rendered.tree);
+    await flushContactMicrotasks();
+    rendered = renderContactForm({ gateway });
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(rendered.html).toContain(
+      "Review the highlighted fields. Your message was not submitted."
+    );
+    expect(browser.querySelector).toHaveBeenCalledWith(
+      '#contact-form [aria-invalid="true"]'
+    );
+    expect(validationFocus).toHaveBeenCalledOnce();
+    expect(gateway.submit).not.toHaveBeenCalled();
+    expect(contactFormRuntime.button("Send message").props["disabled"]).toBe(
+      true
+    );
+
+    browser.setValidationTarget(null);
+    submitRenderedForm(rendered.tree);
+    await flushContactMicrotasks();
+    fillValidFields();
+    contactFormRuntime.changeText("website", "leave-empty.example");
+    rendered = renderContactForm({ gateway });
+    return expect(rendered.html).not.toContain(
+      "Review the highlighted fields. Your message was not submitted."
+    );
+  });
+
+  it("uses the browser gateway once, trims visible fields, exposes pending state, and resets after delivery", async () => {
+    const browser = installContactBrowser();
+    const statusFocus = vi.fn();
+    browser.setStatusTarget({ focus: statusFocus });
+    let resolveSubmission!: (value: { status: "sent" }) => void;
+    const submission = new Promise<{ status: "sent" }>((resolve) => {
+      return (resolveSubmission = resolve);
+    });
+    const submit = vi.fn(async () => submission);
+    contactApiRuntime.configure(
+      () =>
+        ({
+          contact: { submit },
+        }) as unknown as ApiClient
+    );
+
+    let rendered = renderContactForm({});
+    contactFormRuntime.changeText("name", `  ${validValues.name}  `);
+    contactFormRuntime.changeText("email", ` ${validValues.email} `);
+    contactFormRuntime.changeText("subject", ` ${validValues.subject} `);
+    contactFormRuntime.changeText("message", ` ${validValues.message} `);
+    contactFormRuntime.changeText("website", "  bot.example  ");
+    rendered = renderContactForm({});
+    const event = submitRenderedForm(rendered.tree);
+    await flushContactMicrotasks();
+    rendered = renderContactForm({});
+    expect(contactFormRuntime.button("Send message").props).toMatchObject({
+      disabled: true,
+      loading: true,
+      loadingLabel: "Sending message",
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith({
+      name: validValues.name,
+      email: validValues.email,
+      subject: validValues.subject,
+      message: validValues.message,
+      website: "  bot.example  ",
+    });
+    expect(contactApiRuntime.options()[0]?.baseUrl).toBe(
+      "https://darkfactory.example"
+    );
+
+    await contactFormRuntime.submit();
+    expect(submit).toHaveBeenCalledTimes(1);
+    resolveSubmission({ status: "sent" });
+    await flushContactMicrotasks();
+    rendered = renderContactForm({});
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(rendered.html).toContain("Your message was sent.");
+    expect(rendered.html).toContain('role="status"');
+    expect(contactFormRuntime.resetCount()).toBe(1);
+    expect(contactFormRuntime.values()).toEqual({
+      name: "",
+      email: "",
+      subject: "",
+      message: "",
+      website: "",
+    });
+    expect(browser.setTimeout).toHaveBeenCalledWith(expect.any(Function), 0);
+    expect(browser.timers).toHaveLength(1);
+    browser.timers[0]?.();
+    expect(browser.getElementById).toHaveBeenCalledWith("contact-status");
+    return expect(statusFocus).toHaveBeenCalledOnce();
+  });
+
+  return it("retains entries on a safe failure, clears stale feedback during retry, and reports preview delivery", async () => {
+    const browser = installContactBrowser();
+    browser.setStatusTarget(null);
+    let resolveRetry!: (value: { status: "previewed" }) => void;
+    const retrySubmission = new Promise<{ status: "previewed" }>((resolve) => {
+      return (resolveRetry = resolve);
+    });
+    const submit = vi
+      .fn()
+      .mockRejectedValueOnce({
+        data: { code: "SERVICE_UNAVAILABLE" },
+        message: "provider details",
+      })
+      .mockImplementationOnce(async () => retrySubmission);
+    const gateway = { submit };
+
+    let rendered = renderContactForm({ gateway });
+    fillValidFields();
+    await contactFormRuntime.submit();
+    rendered = renderContactForm({ gateway });
+    expect(rendered.html).toContain(
+      "Email delivery is temporarily unavailable. Your message was not sent. Try again later."
+    );
+    expect(rendered.html).not.toContain("provider details");
+    expect(contactFormRuntime.values()).toMatchObject(validValues);
+    expect(contactFormRuntime.resetCount()).toBe(0);
+    expect(browser.timers).toHaveLength(1);
+    browser.timers[0]?.();
+
+    const retry = contactFormRuntime.submit();
+    rendered = renderContactForm({ gateway });
+    expect(rendered.html).not.toContain(
+      "Email delivery is temporarily unavailable."
+    );
+    expect(contactFormRuntime.button("Send message").props).toMatchObject({
+      disabled: true,
+      loading: true,
+    });
+    resolveRetry({ status: "previewed" });
+    await retry;
+    const statusFocus = vi.fn();
+    browser.setStatusTarget({ focus: statusFocus });
+    rendered = renderContactForm({ gateway });
+    expect(rendered.html).toContain(
+      "Your message was saved to the local email preview. It was not sent."
+    );
+    expect(contactFormRuntime.values()).toMatchObject(validValues);
+    expect(contactFormRuntime.resetCount()).toBe(0);
+    expect(browser.timers).toHaveLength(2);
+    browser.timers[1]?.();
+    return expect(statusFocus).toHaveBeenCalledOnce();
+  });
+});

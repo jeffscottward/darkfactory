@@ -1,0 +1,48 @@
+import {
+  type DoctorDependencies,
+  type DoctorReport,
+  runDoctor,
+} from "./doctor.ts";
+
+export type DoctorCliDependencies = Readonly<{
+  doctor: DoctorDependencies;
+  writeOutput: (value: string) => void;
+  writeError: (value: string) => void;
+}>;
+
+const formatReport = (report: DoctorReport): string => {
+  const lines = report.checks.map(({ detail, name, status }) => {
+    return `${status.toUpperCase().padEnd(8)} ${name}: ${detail}`;
+  });
+  lines.push(
+    report.ok ? "Doctor passed" : "Doctor found missing prerequisites"
+  );
+  return `${lines.join("\n")}\n`;
+};
+
+export const runDoctorCli = async (
+  arguments_: readonly string[],
+  dependencies: DoctorCliDependencies
+): Promise<number> => {
+  const allowed = new Set(["--cert-fallback", "--json"]);
+  if (arguments_.some((argument) => !allowed.has(argument))) {
+    dependencies.writeError("Usage: doctor [--cert-fallback] [--json]\n");
+    return 2;
+  }
+
+  try {
+    const report = await runDoctor(dependencies.doctor, {
+      certificateFallback: arguments_.includes("--cert-fallback"),
+    });
+    const rendered = arguments_.includes("--json")
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : formatReport(report);
+    if (report.ok) {
+      dependencies.writeOutput(rendered);
+    } else dependencies.writeError(rendered);
+    return report.ok ? 0 : 1;
+  } catch {
+    dependencies.writeError("Doctor failed unexpectedly\n");
+    return 1;
+  }
+};

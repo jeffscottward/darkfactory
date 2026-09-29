@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { containsSensitiveData } from "./sensitive-data";
+import { containsSensitiveData } from "./sensitive-data.ts";
 
 describe("auth evidence sensitive-data detector", () => {
   it("detects nested sensitive keys and values without exposing them", () => {

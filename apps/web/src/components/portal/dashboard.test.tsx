@@ -1,0 +1,148 @@
+import type { FeatureItemOutput } from "@darkfactory/api";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import { DashboardContent } from "./dashboard-content.tsx";
+
+const recentItem: FeatureItemOutput = {
+  id: "item-1",
+  name: "Example workflow",
+  description: "A clearly labeled starter record.",
+  status: "active",
+  metadata: {},
+  ownerId: "user-1",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+};
+
+const memberSession = {
+  userId: "user-1",
+  name: "Example Member",
+  role: "member",
+  status: "active",
+  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+} as const;
+
+const unavailableCapabilities = {
+  ai: false,
+  emailDelivery: false,
+  analytics: false,
+  telemetryExport: false,
+  storage: false,
+  errorTracking: false,
+} as const;
+
+describe("DashboardContent", () => {
+  it("derives current identity from the ready owner summary", () => {
+    const html = renderToStaticMarkup(
+      <DashboardContent
+        summaryState={{
+          type: "ready",
+          summary: {
+            session: memberSession,
+            featureItems: {
+              total: 1,
+              draft: 0,
+              active: 1,
+              archived: 0,
+              recent: [recentItem],
+            },
+            capabilities: {
+              ...unavailableCapabilities,
+              ai: true,
+              analytics: true,
+            },
+          },
+        }}
+      />
+    );
+
+    expect(html).toContain("Welcome back, Example Member");
+    expect(html).toContain("Member access");
+    expect(html).toContain("1 feature item");
+    expect(html).toContain("Example workflow");
+    expect(html).toContain("Session authority");
+    expect(html).toContain("Verified by Better Auth");
+    expect(html).toContain("AI integration");
+    expect(html).toContain("Email delivery");
+    expect(html).toContain("Available");
+    expect(html).toContain("Unavailable");
+    expect(html).not.toMatch(/<div><dt/u);
+    return expect(html).not.toMatch(/revenue|growth|customers|conversion/i);
+  });
+
+  it("derives administrator identity only from a ready summary", () => {
+    const html = renderToStaticMarkup(
+      <DashboardContent
+        summaryState={{
+          type: "ready",
+          summary: {
+            session: {
+              ...memberSession,
+              userId: "admin-1",
+              name: "Example Administrator",
+              role: "admin",
+            },
+            featureItems: {
+              total: 0,
+              draft: 0,
+              active: 0,
+              archived: 0,
+              recent: [],
+            },
+            capabilities: unavailableCapabilities,
+          },
+        }}
+      />
+    );
+
+    expect(html).toContain("Administrator access");
+    return expect(html).toContain("Welcome back, Example Administrator");
+  });
+
+  it("keeps unavailable and unauthorized rendering identity-neutral", () => {
+    for (const summaryState of [
+      { type: "error" },
+      { type: "unauthorized" },
+    ] as const) {
+      const html = renderToStaticMarkup(
+        <DashboardContent summaryState={summaryState} />
+      );
+
+      expect(html).toContain("Dashboard data unavailable");
+      expect(html).toContain("Feature data unavailable");
+      expect(html).toContain("Unavailable on this request");
+      expect(html).not.toContain("Welcome back");
+      expect(html).not.toContain("Member access");
+      expect(html).not.toContain("Administrator access");
+      expect(html).not.toContain("Session authority");
+      expect(html).not.toContain("Verified by Better Auth");
+    }
+  });
+
+  return it("renders honest empty data without inventing an unavailable metric", () => {
+    const emptyHtml = renderToStaticMarkup(
+      <DashboardContent
+        summaryState={{
+          type: "ready",
+          summary: {
+            session: memberSession,
+            featureItems: {
+              total: 0,
+              draft: 0,
+              active: 0,
+              archived: 0,
+              recent: [],
+            },
+            capabilities: unavailableCapabilities,
+          },
+        }}
+      />
+    );
+
+    expect(emptyHtml).toContain("No feature items yet");
+    expect(emptyHtml).toContain("Create the first item");
+    expect(emptyHtml).toContain("0 feature items");
+    return expect(emptyHtml).not.toContain("Feature data unavailable");
+  });
+});

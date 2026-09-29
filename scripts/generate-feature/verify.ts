@@ -1,0 +1,55 @@
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
+import { join } from "node:path";
+
+import { GeneratorError } from "./errors.ts";
+import { assertNoSymlinkPath } from "./path-safety.ts";
+import { assertGenerationPlanIntegrity, sha256 } from "./plan.ts";
+import type { GenerationPlan, VerificationResult } from "./types.ts";
+
+export const verifyGeneration = async (
+  plan: GenerationPlan
+): Promise<VerificationResult> => {
+  assertGenerationPlanIntegrity(plan);
+  try {
+    for (const file of plan.files) {
+      await assertNoSymlinkPath(plan.targetRoot, file.path);
+      const absolutePath = join(plan.targetRoot, ...file.path.split("/"));
+      const handle = await open(
+        absolutePath,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+      );
+      try {
+        const stats = await handle.stat();
+        if (!stats.isFile()) {
+          throw new GeneratorError(
+            "VERIFICATION_FAILED",
+            "Generated artifact is not a regular file"
+          );
+        }
+        const content = await handle.readFile({ encoding: "utf8" });
+        if (sha256(content) !== file.sha256) {
+          throw new GeneratorError(
+            "VERIFICATION_FAILED",
+            "Generated artifact is stale"
+          );
+        }
+      } finally {
+        await handle.close();
+      }
+    }
+    return Object.freeze({
+      isValid: true as const,
+      filesChecked: plan.files.length,
+      planId: plan.planId,
+    });
+  } catch (error) {
+    if (error instanceof GeneratorError && error.code === "VERIFICATION_FAILED")
+      throw error;
+    throw new GeneratorError(
+      "VERIFICATION_FAILED",
+      "Generation verification failed",
+      { cause: error }
+    );
+  }
+};

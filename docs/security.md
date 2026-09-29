@@ -73,7 +73,7 @@ Deployment credentials must never be available to untrusted pull requests. An au
 
 Follow [hosted security capabilities](capabilities-and-deployment.md#hosted-security-capabilities). Public repositories always run CodeQL, Scorecard, and Dependency Review. Private repositories opt in per scan with repository variables `DF_CODEQL_ENABLED` / `DF_DEPENDENCY_REVIEW_ENABLED` set to `true`; a private scan that is not opted in is **NOT RUN**, never passing scan evidence, and an opted-in scan that cannot run fails.
 
-- CodeQL covers repository JavaScript/TypeScript and Actions, not authored Civet. Without CodeQL, that hosted analysis is absent.
+- CodeQL covers repository JavaScript/TypeScript and Actions, including all authored TypeScript. Without CodeQL, that hosted analysis is absent.
 - Dependency Review enforces the high-severity pull-request dependency-change policy when it runs.
 - Scorecard runs and publishes results only for public repositories.
 

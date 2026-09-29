@@ -9,89 +9,78 @@
   "private": true,
   "type": "module",
   "sideEffects": [
-    "./src/server/unsupported.civet"
+    "./src/server/unsupported.ts"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./server/inline": {
-      "types": "./src/server/inline.civet.d.ts",
-      "workerd": "./src/server/inline.civet",
-      "worker": "./src/server/inline.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/inline.civet",
-      "default": "./src/server/inline.civet"
+      "workerd": "./src/server/inline.ts",
+      "worker": "./src/server/inline.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/inline.ts",
+      "default": "./src/server/inline.ts"
     },
     "./server/omp": {
-      "types": "./src/server/omp.civet.d.ts",
-      "workerd": "./src/server/unsupported.civet",
-      "worker": "./src/server/unsupported.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/omp.civet",
-      "default": "./src/server/omp.civet"
+      "workerd": "./src/server/unsupported.ts",
+      "worker": "./src/server/unsupported.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/omp.ts",
+      "default": "./src/server/omp.ts"
     },
     "./server/wayfinder": {
-      "types": "./src/server/wayfinder.civet.d.ts",
-      "workerd": "./src/server/unsupported.civet",
-      "worker": "./src/server/unsupported.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/wayfinder.civet",
-      "default": "./src/server/wayfinder.civet"
+      "workerd": "./src/server/unsupported.ts",
+      "worker": "./src/server/unsupported.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/wayfinder.ts",
+      "default": "./src/server/wayfinder.ts"
     },
     "./server/workflow-worker": {
-      "types": "./src/server/workflow-worker.civet.d.ts",
-      "workerd": "./src/server/unsupported.civet",
-      "worker": "./src/server/unsupported.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/workflow-worker.civet",
-      "default": "./src/server/workflow-worker.civet"
+      "workerd": "./src/server/unsupported.ts",
+      "worker": "./src/server/unsupported.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/workflow-worker.ts",
+      "default": "./src/server/workflow-worker.ts"
     },
     "./server/workflow-runtime": {
-      "types": "./src/server/workflow-runtime.civet.d.ts",
-      "workerd": "./src/server/workflow-runtime.civet",
-      "worker": "./src/server/workflow-runtime.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/workflow-runtime.civet",
-      "default": "./src/server/workflow-runtime.civet"
+      "workerd": "./src/server/workflow-runtime.ts",
+      "worker": "./src/server/workflow-runtime.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/workflow-runtime.ts",
+      "default": "./src/server/workflow-runtime.ts"
     },
     "./server/plan-evidence": {
-      "types": "./src/server/plan-evidence.civet.d.ts",
-      "workerd": "./src/server/plan-evidence.civet",
-      "worker": "./src/server/plan-evidence.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/plan-evidence.civet",
-      "default": "./src/server/plan-evidence.civet"
+      "workerd": "./src/server/plan-evidence.ts",
+      "worker": "./src/server/plan-evidence.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/plan-evidence.ts",
+      "default": "./src/server/plan-evidence.ts"
     },
     "./server/pilot-worker": {
-      "types": "./src/server/pilot-worker.civet.d.ts",
-      "workerd": "./src/server/unsupported.civet",
-      "worker": "./src/server/unsupported.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/pilot-worker.civet",
-      "default": "./src/server/pilot-worker.civet"
+      "workerd": "./src/server/unsupported.ts",
+      "worker": "./src/server/unsupported.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/pilot-worker.ts",
+      "default": "./src/server/pilot-worker.ts"
     },
     "./test": {
-      "types": "./src/test.civet.d.ts",
-      "import": "./src/test.civet",
-      "default": "./src/test.civet"
+      "import": "./src/test.ts",
+      "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/inline.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/omp.civet src/server/wayfinder.civet src/server/plan-evidence.civet src/server/workflow-worker.civet src/server/workflow-runtime.civet src/server/pilot-worker.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "worker:pilot": "bun --preload @danielx/civet/bun-civet src/server/pilot-worker-cli.civet"
+    "worker:pilot": "bun src/server/pilot-worker-cli.ts"
   },
   "dependencies": {
     "@darkfactory/db": "workspace:*",
     "@darkfactory/state": "workspace:*"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

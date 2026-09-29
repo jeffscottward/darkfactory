@@ -9,21 +9,19 @@
   "private": true,
   "type": "module",
   "sideEffects": [
-    "./src/server/unsupported.civet"
+    "./src/server/unsupported.ts"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./server": {
-      "types": "./src/server-types.civet.d.ts",
-      "workerd": "./src/server.civet",
-      "worker": "./src/server.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server.civet",
-      "default": "./src/server.civet"
+      "workerd": "./src/server.ts",
+      "worker": "./src/server.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server.ts",
+      "default": "./src/server.ts"
     },
     "./recipient": {
       "types": "./src/recipient.ts",
@@ -31,14 +29,12 @@
       "default": "./src/recipient.ts"
     },
     "./test": {
-      "types": "./src/test.civet.d.ts",
-      "import": "./src/test.civet",
-      "default": "./src/test.civet"
+      "import": "./src/test.ts",
+      "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/server-types.civet src/test.civet",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
@@ -46,7 +42,6 @@
     "resend": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

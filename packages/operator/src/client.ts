@@ -1,0 +1,20 @@
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
+
+import type { OperatorClient } from "./contract.ts";
+
+export type OperatorClientOptions = Readonly<{
+  baseUrl: string | URL;
+  fetch?: (request: Request) => Promise<Response>;
+}>;
+
+export const createOperatorClient = (
+  options: OperatorClientOptions
+): OperatorClient => {
+  const baseUrl = new URL(options.baseUrl);
+  const link = new RPCLink({
+    url: () => new URL("/api/orpc", baseUrl),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  });
+  return createORPCClient<OperatorClient>(link);
+};

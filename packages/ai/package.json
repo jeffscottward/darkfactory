@@ -9,39 +9,34 @@
   "private": true,
   "type": "module",
   "sideEffects": [
-    "./src/server/unsupported.civet"
+    "./src/server/unsupported.ts"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./server/groq": {
-      "types": "./src/server/groq.civet.d.ts",
-      "workerd": "./src/server/groq.civet",
-      "worker": "./src/server/groq.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/groq.civet",
-      "default": "./src/server/groq.civet"
+      "workerd": "./src/server/groq.ts",
+      "worker": "./src/server/groq.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/groq.ts",
+      "default": "./src/server/groq.ts"
     },
     "./test": {
-      "types": "./src/test.civet.d.ts",
-      "import": "./src/test.civet",
-      "default": "./src/test.civet"
+      "import": "./src/test.ts",
+      "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet && bunx --bun --no-install civet --emit-declaration src/server/groq.civet && bunx --bun --no-install civet --emit-declaration src/test.civet",
-    "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet --exclude \"**/*contract.test.civet\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
     "groq-sdk": "catalog:"
   },
   "devDependencies": {
-    "@danielx/civet": "catalog:",
     "@types/node": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

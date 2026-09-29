@@ -1,0 +1,47 @@
+import { buttonVariants, cn, PageHeader } from "@darkfactory/ui";
+import type { ComponentPropsWithRef, ReactNode } from "react";
+
+export interface PublicLinkProps extends ComponentPropsWithRef<"a"> {
+  readonly variant?: "primary" | "secondary" | "link";
+}
+
+export const PublicLink = ({
+  children,
+  className,
+  variant = "primary",
+  ...props
+}: PublicLinkProps) => (
+  <a
+    className={cn(buttonVariants({ size: "large", variant }), className)}
+    {...props}
+  >
+    {children}
+  </a>
+);
+
+export interface PublicPageProps {
+  readonly actions?: ReactNode;
+  readonly children: ReactNode;
+  readonly description: ReactNode;
+  readonly eyebrow: ReactNode;
+  readonly title: ReactNode;
+}
+
+export const PublicPage = ({
+  actions,
+  children,
+  description,
+  eyebrow,
+  title,
+}: PublicPageProps) => (
+  <div className="df-container py-16 md:py-20 lg:py-24">
+    <PageHeader
+      actions={actions}
+      description={description}
+      eyebrow={eyebrow}
+      title={title}
+      variant="public"
+    />
+    {children}
+  </div>
+);

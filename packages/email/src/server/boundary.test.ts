@@ -1,0 +1,87 @@
+import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const workspaceRoot = fileURLToPath(new URL("../../../..", import.meta.url));
+
+describe("email package boundaries", () => {
+  it("keeps the public root runtime-free", async () =>
+    expect(Object.keys(await import("../index.ts"))).toEqual([]));
+
+  it("defers Node-only preview path resolution until preview selection", async () => {
+    const previewSources = await Promise.all([
+      readFile(new URL("./preview.ts", import.meta.url), "utf8"),
+      readFile(new URL("./contact-preview.ts", import.meta.url), "utf8"),
+    ]);
+    for (const source of previewSources) {
+      expect(source).not.toMatch(
+        /const\s+DEFAULT_PREVIEW_DIRECTORY\s*=\s*fileURLToPath/
+      );
+    }
+  });
+
+  return it("routes browser server imports to a provider-free poison module", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8")
+    );
+
+    const serverExport = manifest.exports["./server"];
+
+    expect(Object.keys(serverExport)).toEqual([
+      "workerd",
+      "worker",
+      "browser",
+      "import",
+      "default",
+    ]);
+    expect(serverExport.browser).toBe("./src/server/unsupported.ts");
+
+    const browserResolution = spawnSync(
+      process.execPath,
+      [
+        "--conditions",
+        "browser",
+        "--input-type=module",
+        "--eval",
+        'console.log(import.meta.resolve("@darkfactory/email/server"))',
+      ],
+      { cwd: workspaceRoot, encoding: "utf8" }
+    );
+    expect(browserResolution.status).toBe(0);
+    expect(
+      browserResolution.stdout
+        .trim()
+        .replaceAll("\\", "/")
+        .endsWith("/packages/email/src/server/unsupported.ts")
+    ).toBe(true);
+    await expect(import("./unsupported.ts")).rejects.toThrow(
+      "@darkfactory/email/server is unavailable in browser bundles"
+    );
+
+    for (const workerCondition of ["workerd", "worker"]) {
+      const workerResolution = spawnSync(
+        process.execPath,
+        [
+          "--conditions",
+          workerCondition,
+          "--conditions",
+          "browser",
+          "--input-type=module",
+          "--eval",
+          'console.log(import.meta.resolve("@darkfactory/email/server"))',
+        ],
+        { cwd: workspaceRoot, encoding: "utf8" }
+      );
+
+      expect(workerResolution.status).toBe(0);
+      expect(
+        workerResolution.stdout
+          .trim()
+          .replaceAll("\\", "/")
+          .endsWith("/packages/email/src/server.ts")
+      ).toBe(true);
+      expect(workerResolution.stderr).toBe("");
+    }
+  });
+});

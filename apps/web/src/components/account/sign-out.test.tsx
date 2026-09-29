@@ -1,0 +1,230 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import {
+  completeCurrentSessionSignOut,
+  createSignOutActionController,
+  restoreSignOutFocusAfterCommit,
+  SIGNED_OUT_DESTINATION,
+  SignOutAction,
+  SignOutActionView,
+} from "./sign-out-action.tsx";
+import {
+  browserCurrentSessionGateway,
+  type CurrentSessionSignOutResult,
+  createCurrentSessionGateway,
+  SIGN_OUT_FAILED_MESSAGE,
+  STRICT_SIGN_OUT_ENDPOINT,
+} from "./sign-out-client.ts";
+
+const deferred = <Value,>() => {
+  let resolve: (value: Value) => void = () => undefined;
+  const promise = new Promise<Value>((complete) => {
+    return (resolve = complete);
+  });
+  return { promise, resolve };
+};
+
+describe("current-session sign-out client boundary", () => {
+  it("uses the same-origin strict POST boundary and accepts only confirmed revocation", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        success: true,
+      })
+    );
+
+    await expect(createCurrentSessionGateway(fetch).signOut()).resolves.toEqual(
+      {
+        ok: true,
+      }
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(STRICT_SIGN_OUT_ENDPOINT, {
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+      method: "POST",
+    });
+    return expect(STRICT_SIGN_OUT_ENDPOINT).toBe("/api/auth/strict-sign-out");
+  });
+
+  it("delegates the browser singleton through global fetch", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ success: true }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      await expect(browserCurrentSessionGateway.signOut()).resolves.toEqual({
+        ok: true,
+      });
+      return expect(fetch).toHaveBeenCalledWith(STRICT_SIGN_OUT_ENDPOINT, {
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
+        method: "POST",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    [Response.json({ success: false }, { status: 503 })],
+    [Response.json({ success: true }, { status: 503 })],
+    [Response.json({ success: false })],
+    [new Response(undefined, { status: 200 })],
+  ])("does not claim success for an unconfirmed response", async (response) => {
+    const gateway = createCurrentSessionGateway(
+      vi.fn().mockResolvedValue(response)
+    );
+
+    return await expect(gateway.signOut()).resolves.toEqual({
+      ok: false,
+      message: SIGN_OUT_FAILED_MESSAGE,
+    });
+  });
+
+  return it("uses uncertainty-safe copy when the response is lost after revocation", async () => {
+    const gateway = createCurrentSessionGateway(
+      vi.fn().mockRejectedValue(new Error("network unavailable"))
+    );
+
+    await expect(gateway.signOut()).resolves.toEqual({
+      ok: false,
+      message: SIGN_OUT_FAILED_MESSAGE,
+    });
+    return expect(SIGN_OUT_FAILED_MESSAGE).toBe(
+      "Sign out could not be confirmed. Your session may still be active. Try again."
+    );
+  });
+});
+
+describe("current-session sign-out workflow", () => {
+  it("replaces history with the fixed sign-in route after confirmed sign-out", async () => {
+    const replace = vi.fn();
+    const result = await completeCurrentSessionSignOut(
+      { signOut: vi.fn().mockResolvedValue({ ok: true }) },
+      replace
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(replace).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledWith(SIGNED_OUT_DESTINATION);
+    return expect(SIGNED_OUT_DESTINATION).toBe("/sign-in");
+  });
+
+  it("keeps the user in place when revocation was not confirmed", async () => {
+    const replace = vi.fn();
+    const failure = { ok: false as const, message: SIGN_OUT_FAILED_MESSAGE };
+    const result = await completeCurrentSessionSignOut(
+      { signOut: vi.fn().mockResolvedValue(failure) },
+      replace
+    );
+
+    expect(result).toEqual(failure);
+    return expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("announces pending, ignores rapid repeats, and permits retry after failure", async () => {
+    const first = deferred<CurrentSessionSignOutResult>();
+    const signOut = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ ok: true });
+    const replace = vi.fn();
+    const setState = vi.fn();
+    const controller = createSignOutActionController({ signOut }, replace);
+
+    const request = controller.activate(setState);
+    await controller.activate(setState);
+
+    expect(signOut).toHaveBeenCalledOnce();
+    expect(setState).toHaveBeenCalledOnce();
+    expect(setState).toHaveBeenLastCalledWith({ type: "pending" });
+
+    first.resolve({ ok: false, message: SIGN_OUT_FAILED_MESSAGE });
+    await request;
+
+    expect(setState).toHaveBeenLastCalledWith({
+      type: "error",
+      message: SIGN_OUT_FAILED_MESSAGE,
+    });
+
+    await controller.activate(setState);
+
+    expect(signOut).toHaveBeenCalledTimes(2);
+    return expect(replace).toHaveBeenCalledWith(SIGNED_OUT_DESTINATION);
+  });
+
+  return it("restores the concrete button target only after an error commit", () => {
+    const button = { focus: vi.fn() };
+
+    restoreSignOutFocusAfterCommit({ type: "pending" }, button);
+    expect(button.focus).not.toHaveBeenCalled();
+
+    restoreSignOutFocusAfterCommit(
+      { type: "error", message: SIGN_OUT_FAILED_MESSAGE },
+      button
+    );
+    return expect(button.focus).toHaveBeenCalledOnce();
+  });
+});
+
+describe("portal sign-out action", () => {
+  it("keeps the server-rendered action inert until React hydration", () => {
+    const html = renderToStaticMarkup(
+      <SignOutAction
+        gateway={{ signOut: vi.fn().mockResolvedValue({ ok: true }) }}
+        replace={vi.fn()}
+      />
+    );
+
+    expect(html).toContain('data-hydration-state="pending"');
+    return expect(html).toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/);
+  });
+
+  it("renders a keyboard-native E2E-addressable action instead of a GET mutation", () => {
+    const html = renderToStaticMarkup(
+      <SignOutActionView
+        isHydrated
+        onSignOut={vi.fn()}
+        state={{ type: "idle" }}
+      />
+    );
+
+    expect(html).toContain("<button");
+    expect(html).toContain('type="button"');
+    expect(html).toContain('data-hydration-state="ready"');
+    expect(html).toContain("Sign out");
+    expect(html).toContain("min-h-11");
+    expect(html).not.toContain("<a");
+    expect(html).not.toContain("href=");
+    return expect(html).not.toContain("formaction=");
+  });
+
+  it("disables repeat activation and announces pending work", () => {
+    const html = renderToStaticMarkup(
+      <SignOutActionView
+        isHydrated
+        onSignOut={vi.fn()}
+        state={{ type: "pending" }}
+      />
+    );
+
+    expect(html).toContain("disabled");
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("Signing out");
+    return expect(html).not.toContain('role="alert"');
+  });
+
+  return it("keeps the retry action enabled and exposes truthful failure feedback", () => {
+    const html = renderToStaticMarkup(
+      <SignOutActionView
+        isHydrated
+        onSignOut={vi.fn()}
+        state={{ type: "error", message: SIGN_OUT_FAILED_MESSAGE }}
+      />
+    );
+
+    expect(html).toContain('aria-describedby="portal-sign-out-error"');
+    expect(html).toContain('data-hydration-state="ready"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(SIGN_OUT_FAILED_MESSAGE);
+    return expect(html).not.toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/);
+  });
+});

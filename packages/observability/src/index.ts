@@ -1,0 +1,32 @@
+export type {
+  AnalyticsCapture,
+  AnalyticsCaptureFacade,
+  AnalyticsConsent,
+  AnalyticsResult,
+  ConsentResolver,
+  CorrelationContext,
+  EventOutcome,
+  EventSource,
+  MetricObservation,
+  SemanticEmissionContext,
+  SemanticEmissionResult,
+  SemanticEvent,
+  SemanticEventPort,
+  SpanHandle,
+  SpanInput,
+  StructuredEventSink,
+  TelemetryPort,
+  TelemetryRuntime,
+  TelemetryRuntimeState,
+  WaitUntil,
+} from "./port.ts";
+
+export {
+  freezeSnapshot,
+  REDACTED,
+  type RedactedValue,
+  type RedactionOptions,
+  redact,
+  redactSemanticEvent,
+  TRUNCATED,
+} from "./redaction.ts";

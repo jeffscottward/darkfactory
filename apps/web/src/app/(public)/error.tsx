@@ -1,0 +1,67 @@
+"use client";
+
+import { Button } from "@darkfactory/ui";
+
+import { PublicLink, PublicPage } from "./_components/public-content.tsx";
+
+export interface PublicErrorProps {
+  readonly error: Error & { readonly digest?: string };
+  readonly reset: () => void;
+}
+
+export interface PublicErrorContentProps {
+  readonly reset: () => void;
+}
+
+const focusErrorActions = (element: HTMLElement | null): void => {
+  element?.focus();
+};
+
+export const PublicErrorContent = ({ reset }: PublicErrorContentProps) => (
+  <PublicPage
+    actions={
+      <PublicLink href="/" variant="secondary">
+        Return home
+      </PublicLink>
+    }
+    description="The public content could not be rendered. No form data or account changes were submitted from this page."
+    eyebrow="Page error"
+    title="This page needs another attempt."
+  >
+    <p className="sr-only" role="alert">
+      The page failed to render. Recovery options are ready.
+    </p>
+    <section
+      aria-labelledby="public-error-actions-title"
+      autoFocus
+      className="grid gap-8 py-16 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background md:grid-cols-12 md:py-20"
+      ref={focusErrorActions}
+      tabIndex={-1}
+    >
+      <div className="md:col-span-7">
+        <h2
+          className="font-heading font-semibold text-3xl text-foreground tracking-tight"
+          id="public-error-actions-title"
+        >
+          Retry the current route
+        </h2>
+        <p className="mt-4 max-w-reading text-base text-muted-foreground leading-7">
+          Try the render again. If the problem continues, the source index
+          remains available as a separate destination.
+        </p>
+      </div>
+      <div className="flex flex-col gap-3 sm:flex-row md:col-span-4 md:col-start-9 md:justify-end">
+        <PublicLink href="/resources" variant="secondary">
+          Open resources
+        </PublicLink>
+        <Button onClick={reset} size="large">
+          Try again
+        </Button>
+      </div>
+    </section>
+  </PublicPage>
+);
+
+export default function PublicError({ reset }: PublicErrorProps) {
+  return <PublicErrorContent reset={reset} />;
+}
