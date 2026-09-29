@@ -81,7 +81,7 @@ Optional providers are not automatically available merely because an adapter exi
 | --- | --- | --- | --- |
 | Host platform | macOS with Homebrew, or Debian/Ubuntu with `apt` and root/`sudo` | Deterministic workstation bootstrap | Uses the existing platform package manager; never installs Homebrew or guesses an unsupported platform |
 | Bun | Exactly 1.3.14 | Primary script and TypeScript runtime | Installs the exact user-scoped release when absent or mismatched |
-| Node.js | Node.js 24 (24.21.0 LTS; `.nvmrc`) | Corepack/pnpm, PM2/Portless, Vitest, and measured compatibility paths | Keeps a compatible installed runtime; bootstraps 22.13.1 through Homebrew or pinned `n` 10.2.0 only when Node is missing or too old |
+| Node.js | Node.js 24 (24.21.0 LTS; `.nvmrc`) | Corepack/pnpm, PM2/Portless, Vitest, and measured compatibility paths | Keeps a compatible installed runtime; bootstraps 24.21.0 through Homebrew `node@24` or pinned `n` 10.2.0 only when Node is missing or older than 24.21 |
 | Corepack and pnpm | Corepack 0.34.7; pnpm 11.16.0 | Sole dependency/workspace manager and lockfile owner | Activates the pinned pnpm release; installs workspace dependencies from the frozen lockfile |
 | Python and uv | Compatible Python 3.13 or 3.14; uv 0.11.32 | Graphify and Python-backed repository tooling | Keeps a compatible installed Python; installs the exact user-scoped uv release |
 | Docker, Compose, PostgreSQL | Docker and Compose installed; daemon running; isolated PostgreSQL service available | Local integration database | Installs Docker/Compose where supported; an operator must start the daemon before database work |

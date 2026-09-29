@@ -95,7 +95,7 @@ const healthyDependencies = (
   process: {
     run: async (command, arguments_) => {
       if (command === "node" && arguments_.join(" ") === "--version") {
-        return { exitCode: 0, stdout: "v22.13.1\n", stderr: "" };
+        return { exitCode: 0, stdout: "v24.21.0\n", stderr: "" };
       }
       if (command === "bun" && arguments_.join(" ") === "--version") {
         return { exitCode: 0, stdout: `${PINNED_BUN_VERSION}\n`, stderr: "" };
@@ -336,9 +336,10 @@ describe("doctor", () => {
   });
 
   it.each([
-    ["22.12.99", "fail"],
-    ["22.13.0-beta.1", "pass"],
-    ["23.0.0", "pass"],
+    ["22.13.1", "fail"],
+    ["24.20.99", "fail"],
+    ["24.21.0-beta.1", "pass"],
+    ["25.0.0", "pass"],
     ["not-semver", "fail"],
   ] as const)("maps Node boundary version %s to %s", async (nodeVersion, status) => {
     const base = healthyDependencies();
@@ -552,13 +553,11 @@ describe("doctor", () => {
 
   it("bounds or catches command failures while preserving safe command options", async () => {
     const base = healthyDependencies();
-    const calls: Array<
-      Readonly<{
-        command: string;
-        arguments_: readonly string[];
-        options: unknown;
-      }>
-    > = [];
+    const calls: Readonly<{
+      command: string;
+      arguments_: readonly string[];
+      options: unknown;
+    }>[] = [];
     const oversized = "x".repeat(1_048_577);
     const report = await runDoctor(
       healthyDependencies({

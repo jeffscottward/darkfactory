@@ -29,7 +29,7 @@ const pins = Object.freeze({
   corepack: "0.34.7",
   graphify: "0.9.2",
   n: "10.2.0",
-  node: "22.13.1",
+  node: "24.21.0",
   playwright: "1.61.1",
   pm2: "7.0.3",
   pnpm: "11.16.0",
@@ -185,7 +185,7 @@ esac
 `,
     brew: `
 case "$*" in
-  "install node@22")
+  "install node@24")
     printf '%s\\n' "brew $*" >> "$DARKFACTORY_TEST_LOG"
     printf '%s\\n' "${pins.node}" > "$DARKFACTORY_TEST_STATE/node"
     printf '%s\\n' "10.9.2" > "$DARKFACTORY_TEST_STATE/npm"
@@ -199,7 +199,7 @@ case "$*" in
     printf '%s\\n' "29.1.3" > "$DARKFACTORY_TEST_STATE/docker"
     printf '%s\\n' "5.0.2" > "$DARKFACTORY_TEST_STATE/docker-compose"
     ;;
-  "--prefix node@22"|"--prefix python@3.13")
+  "--prefix node@24"|"--prefix python@3.13")
     dirname "$DARKFACTORY_TEST_BIN"
     ;;
   *) exit 1 ;;
@@ -420,7 +420,7 @@ describe("prerequisite installer", () => {
       pins.playwright,
     ])
       expect(source).toContain(pin);
-    expect(source).toContain("brew install node@22");
+    expect(source).toContain("brew install node@24");
     expect(source).toContain("brew install python@3.13");
     expect(source).toContain("brew install --cask docker");
     expect(source).toContain("docker.io docker-compose-v2");
@@ -458,7 +458,7 @@ describe("prerequisite installer", () => {
 
     expect(result.status).toBe(1);
     for (const command of [
-      "brew install node@22",
+      "brew install node@24",
       "brew install python@3.13",
       "brew install --cask docker",
       `npm install --prefix ${join(fixture.toolHome, "node-bootstrap")} --no-save --package-lock=false n@${pins.n}`,

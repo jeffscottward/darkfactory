@@ -32,7 +32,7 @@
     "openapi:check": "bun scripts/openapi.ts"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=24.21.0"
   },
   "dependencies": {
     "@darkfactory/auth": "workspace:*",

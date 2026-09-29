@@ -130,9 +130,9 @@ const toolCheck = async (
 
 const supportedNode = (version: string): boolean => {
   const components = version.split(".");
-  const major = Number(components[0]!);
-  const minor = Number(components[1]!);
-  return major > 22 || (major === 22 && minor >= 13);
+  const major = Number(components[0]);
+  const minor = Number(components[1]);
+  return major > 24 || (major === 24 && minor >= 21);
 };
 
 const parsedVersion = (value: string): string | undefined => {

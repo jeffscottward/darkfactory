@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-NODE_VERSION=22.13.1
+NODE_VERSION=24.21.0
 N_VERSION=10.2.0
 BUN_VERSION=1.3.14
 COREPACK_VERSION=0.34.7
@@ -101,7 +101,7 @@ version_is_at_least() {
     || { [ "$candidate_major" -eq "$required_major" ] && [ "$candidate_minor" -ge "$required_minor" ]; }
 }
 
-node_is_compatible() { version_is_at_least "$1" 22 13; }
+node_is_compatible() { version_is_at_least "$1" 24 21; }
 python_is_compatible() { version_is_at_least "$1" 3 10; }
 
 ok() { printf '%s\n' "[ok] $1"; }
@@ -202,7 +202,7 @@ if [ "$MODE" = check ]; then
   if [ "$need_node" -eq 0 ]; then
     ok "Node $node_version with npm"
   else
-    manual_blocker "Node >=22.13 and npm are required (found ${node_version:-missing})"
+    manual_blocker "Node >=24.21 and npm are required (found ${node_version:-missing})"
   fi
   if [ "$need_python" -eq 0 ]; then
     ok "Python $python_version"
@@ -230,7 +230,7 @@ else
       manual_blocker "Homebrew is the required bootstrap precondition for missing macOS system packages"
     elif [ "$brew_required" -eq 1 ]; then
       if [ "$need_node" -eq 1 ] && [ -z "$npm_version" ]; then
-        run_command brew install node@22
+        run_command brew install node@24
         brew_node_installed=1
       fi
       if [ "$need_python" -eq 1 ]; then
@@ -243,7 +243,7 @@ else
     fi
 
     if [ "$MODE" = apply ] && [ "$brew_node_installed" -eq 1 ]; then
-      brew_node_prefix=$(brew --prefix node@22)
+      brew_node_prefix=$(brew --prefix node@24)
       [ -x "$brew_node_prefix/bin/npm" ] && bootstrap_npm="$brew_node_prefix/bin/npm"
     fi
     if [ "$MODE" = apply ] && [ "$brew_python_installed" -eq 1 ]; then
@@ -294,7 +294,7 @@ else
   if node_is_compatible "$node_version" && [ -n "$npm_version" ]; then
     ok "Node $node_version with npm"
   else
-    manual_blocker "Node >=22.13 with npm remains unavailable after installation"
+    manual_blocker "Node >=24.21 with npm remains unavailable after installation"
   fi
 
   if [ "$MODE" = apply ]; then

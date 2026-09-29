@@ -9,7 +9,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=24.21.0"
   },
   "scripts": {
     "dev": "bunx --no-install vinext dev",

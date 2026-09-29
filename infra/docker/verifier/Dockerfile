@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 ARG BUN_BASE_IMAGE
-FROM node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS dependencies
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS dependencies
 
 WORKDIR /opt/darkfactory-verifier/dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

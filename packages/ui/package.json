@@ -112,7 +112,7 @@
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=24.21.0"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "catalog:",

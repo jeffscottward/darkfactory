@@ -44,7 +44,7 @@
     "db:migrate": "bunx --bun --no-install drizzle-kit migrate --config drizzle.config.ts"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=24.21.0"
   },
   "dependencies": {
     "@darkfactory/observability": "workspace:*",
