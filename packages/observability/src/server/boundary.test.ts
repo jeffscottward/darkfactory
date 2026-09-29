@@ -45,11 +45,11 @@ describe("observability package boundaries", () => {
         /\/src\/server\/unsupported\.ts$/
       );
       expect(resolveExport(specifier, ["worker", "browser"])).toMatch(
-        /\/src\/server\/(otel|evlog|fanout)\.civet$/
+        /\/src\/server\/(otel|evlog|fanout)\.ts$/
       );
       results.push(
         expect(resolveExport(specifier, ["workerd", "browser"])).toMatch(
-          /\/src\/server\/(otel|evlog|fanout)\.civet$/
+          /\/src\/server\/(otel|evlog|fanout)\.ts$/
         )
       );
     }
