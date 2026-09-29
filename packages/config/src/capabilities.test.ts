@@ -26,7 +26,7 @@ const expectedManifest = {
   project: {
     name: "DarkFactory",
     slug: "darkfactory",
-    version: "0.3.0",
+    version: "0.3.1",
     framework_api: "next-app-router",
     framework_implementation: "vinext",
     build_tool: "vite",
@@ -105,7 +105,7 @@ describe("capability manifest", () => {
     const source = (await readManifest())
       .replace("name: DarkFactory", "name: Acme Widgets")
       .replace("slug: darkfactory", "slug: acme-widgets")
-      .replace("version: 0.3.0", "version: 1.0.0-rc.1+build.7")
+      .replace("version: 0.3.1", "version: 1.0.0-rc.1+build.7")
       .replace("service_name: darkfactory", "service_name: acme-widgets")
       .replace(
         "canonical_url: https://darkfactory.localhost",
@@ -128,7 +128,7 @@ describe("capability manifest", () => {
 
   it.each([
     ["slug", "slug: darkfactory", "slug: Dark-Factory", "project.slug"],
-    ["version", "version: 0.3.0", "version: v0.2", "project.version"],
+    ["version", "version: 0.3.1", "version: v0.2", "project.version"],
     [
       "canonical URL",
       "canonical_url: https://darkfactory.localhost",

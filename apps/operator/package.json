@@ -2,7 +2,7 @@
   "name": "@darkfactory/operator-app",
   "brick": "agent-sdlc",
   "description": "Opt-in console to plan, run and watch agent workflows.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "repository": {
     "type": "git",

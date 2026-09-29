@@ -54,6 +54,15 @@ The operator UI and API run anywhere, but no run can execute outside macOS. A Li
 
 Sign in as an admin (the seeded `admin@domain.test` locally), start a Wayfinder plan, review it, and approve it. HTTP and browser code never execute OMP; only the worker does, after the plan has been approved.
 
+## Rebuild the verifier image
+
+Rebuild after any change under `packages/jobs/verifier/`. The worker runs the image pinned in `.env`, so a rebuild alone changes nothing:
+
+1. Run `pnpm --filter @darkfactory/jobs verifier:image:setup`; it prints the new digest.
+2. Set `WORKFLOW_VERIFIER_IMAGE_DIGEST` in `.env` to that digest, then restart `worker:pilot`.
+3. Delete the old image (`docker image rm <old digest>`) and remove it from any registry it was pushed to.
+4. If the old image came from 0.3.0 or earlier, rotate the real credentials that were in `.env` when it was built. Those images copied each app's `.dev.vars`, which holds every non-empty `.env` value.
+
 ## Remove it
 
 For a product that does not need the agent plane:

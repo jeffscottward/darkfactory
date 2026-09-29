@@ -2,7 +2,7 @@
   "name": "@darkfactory/state",
   "brick": "product",
   "description": "UI-free state: XState lifecycles and Zustand stores.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "repository": {
     "type": "git",

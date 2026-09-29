@@ -2,7 +2,7 @@
   "name": "@darkfactory/operator",
   "brick": "agent-sdlc",
   "description": "Operator oRPC contract, client and service for workflow runs.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "repository": {
     "type": "git",

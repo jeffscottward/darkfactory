@@ -55,3 +55,5 @@ allowlist of files (manifests, lockfile, `checks.json`, `runner.ts`); never
 re-include a directory, or its whole subtree is sent, including `.dev.vars`,
 `.env` and host `node_modules`. Bases are pinned by digest and pnpm by tarball
 checksum; `scripts/ci/toolchain-invariants.test.ts` enforces all three rules.
+After a rebuild, pin the new digest in `.env`; see
+[Rebuild the verifier image](../../docs/operator.md#rebuild-the-verifier-image).
