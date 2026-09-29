@@ -9,6 +9,14 @@ type ReservedIdentity = Readonly<{
   apiNamespace?: string
 }>
 
+// Generated features reference the Better Auth user table; keep the FK target
+// and the Drizzle import derived from this single reserved identity.
+export const AUTH_USER_IDENTITY = Object.freeze({
+  name: "user",
+  schemaExport: "users",
+  table: "user",
+} as const)
+
 export const RESERVED_CORE_IDENTITIES: readonly ReservedIdentity[] = Object.freeze([
   { name: "account", schemaExport: "accounts", table: "account" },
   { name: "address", schemaExport: "addresses", table: "addresses" },
@@ -19,7 +27,7 @@ export const RESERVED_CORE_IDENTITIES: readonly ReservedIdentity[] = Object.free
   { name: "preference", route: "/preferences", apiNamespace: "preferences" },
   { name: "profile", schemaExport: "profiles", table: "profiles" },
   { name: "session", schemaExport: "sessions", table: "session" },
-  { name: "user", schemaExport: "users", table: "user" },
+  AUTH_USER_IDENTITY,
   { name: "user-preference", schemaExport: "userPreferences", table: "user_preferences" },
   { name: "verification", schemaExport: "verifications", table: "verification" },
 ].map((identity) => Object.freeze(identity)))

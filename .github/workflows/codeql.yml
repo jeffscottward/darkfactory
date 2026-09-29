@@ -11,40 +11,15 @@ on:
 permissions: {}
 
 jobs:
-  security-policy:
-    name: CodeQL policy
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      security-events: read
-    outputs:
-      codeql_enabled: ${{ steps.security-policy.outputs.codeql_enabled }}
-      upload_enabled: ${{ steps.security-policy.outputs.upload_enabled }}
-
-    steps:
-      - name: Check out trusted security policy
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          persist-credentials: false
-
-      - name: Check security capabilities
-        id: security-policy
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DF_CODEQL_ENABLED: ${{ vars.DF_CODEQL_ENABLED }}
-          DF_CODE_SCANNING_UPLOAD_ENABLED: ${{ vars.DF_CODE_SCANNING_UPLOAD_ENABLED }}
-          DF_DEPENDENCY_REVIEW_ENABLED: ${{ vars.DF_DEPENDENCY_REVIEW_ENABLED }}
-        run: node scripts/ci/generated/security-preflight.mjs workflow --workflow codeql
-
   analyze:
     name: Analyze (${{ matrix.language }})
-    needs: security-policy
-    if: ${{ !cancelled() && (needs.security-policy.result != 'success' || needs.security-policy.outputs.codeql_enabled == 'true') }}
+    # Public repositories always scan. Private repositories opt in with the
+    # DF_CODEQL_ENABLED repository variable; an opted-in scan that cannot run fails.
+    if: ${{ !github.event.repository.private || vars.DF_CODEQL_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       security-events: write
     strategy:
@@ -55,11 +30,6 @@ jobs:
         language: [javascript-typescript, actions]
 
     steps:
-      - name: Fail when security policy did not succeed
-        id: policy-failure
-        if: ${{ !cancelled() && needs.security-policy.result != 'success' }}
-        run: echo "Security policy did not succeed."; exit 1
-
       - name: Check out repository for analysis
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,25 +41,6 @@ jobs:
           languages: ${{ matrix.language }}
 
       - name: Analyze repository
-        id: analysis
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
-          category: "/language:${{ matrix.language }}"
-          upload: never
-          output: sarif-results
-
-      - name: Retain CodeQL SARIF artifact
-        if: ${{ always() && hashFiles('sarif-results/**/*.sarif') != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: codeql-sarif-${{ matrix.language }}
-          path: sarif-results
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload SARIF to code scanning
-        if: ${{ !cancelled() && needs.security-policy.outputs.upload_enabled == 'true' && steps.analysis.outcome == 'success' }}
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
-        with:
-          sarif_file: sarif-results
           category: "/language:${{ matrix.language }}"

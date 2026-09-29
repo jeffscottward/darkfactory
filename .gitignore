@@ -12,21 +12,18 @@ build/
 .alchemy/
 .cache/
 coverage/
-!scripts/coverage/
-scripts/coverage/**
-!scripts/coverage/cli.civet
-!scripts/coverage/coverage.civet
-!scripts/coverage/coverage.test.civet
-!scripts/coverage/system.civet
 playwright-report/
 test-results/
 graphify-out/
+.graphify/manifest.json
 *.civet.d.ts
 *.civet.tsx
 
 # Local agent recovery artifacts
 .session-recovery/
 /.scratch/
+# Per-machine agent checkpoint; never publish session state.
+/.omp-status.md
 
 # Environment and local credentials
 .env

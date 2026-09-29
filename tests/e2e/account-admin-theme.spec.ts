@@ -684,7 +684,6 @@ const newConfiguredContext = async (
 ): Promise<BrowserContext> => {
   const context = await browser.newContext({
     baseURL,
-    ignoreHTTPSErrors: true,
     viewport: { height: 900, width: 1440 },
     ...options,
   });

@@ -1,3 +1,4 @@
+import { AUTH_USER_IDENTITY } from "./reserved-identities.civet"
 import type { FeatureNames } from "./types.civet"
 
 export type RegisteredFeature = Readonly<{
@@ -83,13 +84,13 @@ export type ${names.pascal}Output = z.infer<typeof ${names.pascal}Schema>
 
 const schemaTemplate = (names: FeatureNames): string => `import { sql } from "drizzle-orm"
 import { check, index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
-import { users } from "../../schema/index.civet"
+import { ${AUTH_USER_IDENTITY.schemaExport} } from "../../schema/index.civet"
 
 const utcTimestamp = (name: string) => timestamp(name, { mode: "date", withTimezone: true })
 export const ${names.pluralCamel} = pgTable(
   "${names.pluralSnake}",
   {
-    id: text("id").primaryKey(), ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    id: text("id").primaryKey(), ownerId: text("owner_id").notNull().references(() => ${AUTH_USER_IDENTITY.schemaExport}.id, { onDelete: "cascade" }),
     name: text("name").notNull(), description: text("description").notNull(),
     status: text("status").$type<"draft" | "active" | "archived">().default("draft").notNull(),
     metadata: jsonb("metadata").$type<Readonly<Record<string, unknown>>>().default({}).notNull(),
@@ -105,6 +106,29 @@ export const ${names.pluralCamel} = pgTable(
 export type ${names.pascal} = typeof ${names.pluralCamel}.$inferSelect
 export type New${names.pascal} = typeof ${names.pluralCamel}.$inferInsert
 `
+
+// Mirrors `drizzle-kit generate` output for `schemaTemplate`; Drizzle stays the
+// source of truth and the generator integration test enforces parity.
+const migrationTemplate = (names: FeatureNames): string =>
+  const table = names.pluralSnake
+  const users = AUTH_USER_IDENTITY.table
+  return [
+    `CREATE TABLE "${table}" (
+\t"id" text PRIMARY KEY NOT NULL,
+\t"owner_id" text NOT NULL,
+\t"name" text NOT NULL,
+\t"description" text NOT NULL,
+\t"status" text DEFAULT 'draft' NOT NULL,
+\t"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+\t"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+\t"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+\tCONSTRAINT "${table}_status_check" CHECK ("${table}"."status" in ('draft', 'active', 'archived')),
+\tCONSTRAINT "${table}_name_check" CHECK (length(trim("${table}"."name")) > 0)
+);
+`,
+    `ALTER TABLE "${table}" ADD CONSTRAINT "${table}_owner_id_${users}_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."${users}"("id") ON DELETE cascade ON UPDATE no action;`,
+    `CREATE INDEX "${table}_owner_id_idx" ON "${table}" USING btree ("owner_id","updated_at" DESC NULLS LAST,"id" DESC NULLS LAST);`,
+  ].join("--> statement-breakpoint\n") + "\n"
 
 const repositoryTemplate = (names: FeatureNames): string => `import { and as andWhere, desc, eq } from "drizzle-orm"
 import { ${names.pluralCamel}, type ${names.pascal}, type New${names.pascal} } from "./schema.civet"
@@ -186,7 +210,7 @@ export const createLiveLeafFiles = (
   Object.freeze({ path: `docs/features/${names.kebab}.md`, content: docsTemplate(names) }),
   Object.freeze({ path: `packages/api/src/generated/${names.kebab}/contract.civet`, content: contractTemplate(names) }),
   Object.freeze({ path: `packages/api/src/generated/${names.kebab}/service.civet`, content: serviceTemplate(names) }),
-  Object.freeze({ path: `packages/db/migrations/${migrationTag}.sql`, content: `CREATE TABLE "${names.pluralSnake}" (\n  "id" text PRIMARY KEY, "owner_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,\n  "name" text NOT NULL, "description" text NOT NULL, "status" text DEFAULT 'draft' NOT NULL,\n  "metadata" jsonb DEFAULT '{}'::jsonb NOT NULL, "created_at" timestamptz DEFAULT now() NOT NULL, "updated_at" timestamptz DEFAULT now() NOT NULL,\n  CONSTRAINT "${names.pluralSnake}_status_check" CHECK ("status" in ('draft', 'active', 'archived'))\n);\nCREATE INDEX "${names.pluralSnake}_owner_id_idx" ON "${names.pluralSnake}" ("owner_id", "updated_at" DESC, "id" DESC);\n` }),
+  Object.freeze({ path: `packages/db/migrations/${migrationTag}.sql`, content: migrationTemplate(names) }),
   Object.freeze({ path: `packages/db/src/generated/${names.kebab}/repository.civet`, content: repositoryTemplate(names) }),
   Object.freeze({ path: `packages/db/src/generated/${names.kebab}/schema.civet`, content: schemaTemplate(names) }),
 ])

@@ -14,6 +14,7 @@ import {
   renderSchemaRegistry,
 } from "../../scripts/generate-feature/live-templates.civet"
 import { createGenerationPlan } from "../../scripts/generate-feature/plan.civet"
+import { AUTH_USER_IDENTITY } from "../../scripts/generate-feature/reserved-identities.civet"
 import type { GenerationPlan, PlannedFile } from "../../scripts/generate-feature/types.civet"
 import { validateFeatureName } from "../../scripts/generate-feature/validate.civet"
 import { verifyGeneration } from "../../scripts/generate-feature/verify.civet"
@@ -125,6 +126,19 @@ describe "DF-069 live feature registration", ->
     await expect(Promise.all(
       sources.map((file) => compile(file.content, { filename: file.path })),
     )).resolves.toHaveLength(sources.length)
+
+  it "points generated ownership at the reserved auth user table", async ->
+    const { root } = await fixture()
+    const plan = await createGenerationPlan(root, validateFeatureName("order-item"))
+    const contentOf = (path: string): string =>
+      liveFiles(plan).find((file) => file.path === path)!.content
+    const migration = contentOf("packages/db/migrations/0000_order_items.sql")
+    const schema = contentOf("packages/db/src/generated/order-item/schema.civet")
+
+    expect(AUTH_USER_IDENTITY).toMatchObject({ table: "user", schemaExport: "users" })
+    expect(migration).toContain('REFERENCES "public"."user"("id") ON DELETE cascade')
+    expect(migration).toContain('CONSTRAINT "order_items_name_check"')
+    expect(schema).toContain('import { users } from "../../schema/index.civet"')
 
   it "restores every registry and removes every leaf on mid-registration failure", async ->
     const { root } = await fixture()

@@ -40,7 +40,7 @@
     "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/server-types.civet src/test.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/"
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
     "resend": "catalog:"

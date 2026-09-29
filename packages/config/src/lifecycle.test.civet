@@ -5,6 +5,7 @@ type RootManifest = Readonly<{
   scripts: Readonly<{
     "test:unit": string
     "verify:core": string
+    "verify:prepush": string
     verify: string
     ci: string
   }>
@@ -25,17 +26,21 @@ describe("root lifecycle orchestration", () =>
     const { scripts } = await readRootManifest()
     const canonicalUnitInvocation = ["bun", "run", "test:unit"]
 
-    expect(tokenize(scripts["test:unit"])).toEqual([
-      "bunx",
-      "--no-install",
-      "turbo",
-      "run",
-      "test:unit",
-      "--concurrency=50%",
-      "--",
-      "--maxWorkers=1",
+    expect(lifecycleStages(scripts["test:unit"])).toEqual([
+      [
+        "bunx",
+        "--no-install",
+        "turbo",
+        "run",
+        "test:unit",
+        "--concurrency=50%",
+        "--",
+        "--maxWorkers=1",
+      ],
+      ["bun", "run", "test:unit:root"],
     ])
     expect(lifecycleStages(scripts["verify:core"])).toContainEqual(canonicalUnitInvocation)
+    expect(lifecycleStages(scripts["verify:prepush"])).toContainEqual(canonicalUnitInvocation)
     expect(lifecycleStages(scripts.verify)).toContainEqual([
       "bun",
       "run",

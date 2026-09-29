@@ -23,7 +23,8 @@
   },
   "scripts": {
     "types": "bunx --bun --no-install civet --emit-declaration src/index.civet src/postgres.civet",
-    "typecheck": "bunx --bun --no-install civet --typecheck src/index.civet src/postgres.civet"
+    "typecheck": "bunx --bun --no-install civet --typecheck src/index.civet src/postgres.civet",
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {
     "@danielx/civet": "catalog:",

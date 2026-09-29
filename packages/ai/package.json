@@ -35,7 +35,7 @@
     "types": "bunx --bun --no-install civet --emit-declaration src/index.civet && bunx --bun --no-install civet --emit-declaration src/server/groq.civet && bunx --bun --no-install civet --emit-declaration src/test.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet --exclude \"**/*contract.test.civet\"",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet --exclude \"**/*contract.test.civet\""
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
     "groq-sdk": "catalog:"

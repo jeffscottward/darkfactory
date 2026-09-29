@@ -45,7 +45,7 @@
     "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/types.civet src/server.civet src/rate-limit-storage.civet src/client.civet src/db.civet",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
     "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/db.test.civet src/server-bundle.test.civet src/verification-config.test.civet",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/boundary.test.civet src/db.test.civet src/server-bundle.test.civet src/verification-config.test.civet"
+    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {
     "node": ">=22.13"

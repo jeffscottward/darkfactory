@@ -381,6 +381,14 @@ const failure = (action: GraphAction, reason: string): GraphReport => Object.fre
   reason,
 })
 
+const GRAPH_NOT_BUILT = "Graph is not built; run bun run graph:build first"
+
+const isMissing = async (files: GraphFileSystem, path: string): Promise<boolean> =>
+  try
+    return (await files.inspect(path)).kind === "missing"
+  catch
+    return false
+
 const inspectFreshness = async (
   action: GraphAction,
   dependencies: GraphDependencies,
@@ -388,6 +396,9 @@ const inspectFreshness = async (
   configSource: string,
   graphifyVersion: string,
 ): Promise<GraphReport> =>
+  // The graph and its manifest are local, untracked build outputs.
+  for (const path of [config.graphPath, config.manifestPath])
+    if (await isMissing(dependencies.files, path)) return failure(action, GRAPH_NOT_BUILT)
   let graph: Readonly<{ digest: string }>
   try
     graph = await inspectGraph(dependencies, config)
