@@ -24,7 +24,6 @@ jobs:
     env:
       APP_ENV: test
       DATABASE_URL: postgresql://darkfactory_test_runner:darkfactory-test-only@127.0.0.1:5432/darkfactory_test_maintenance
-      PORTLESS_PORT: "1355"
 
     steps:
       - name: Check out repository
@@ -70,73 +69,20 @@ jobs:
         if: matrix.lane == 'integration' || matrix.lane == 'browser'
         run: docker compose -f infra/docker/postgres.compose.yml up --detach --wait
 
-      - name: Start local HTTPS proxy without system trust
-        if: matrix.lane == 'browser'
-        run: scripts/ci/portless-proxy.sh start
-
-      - name: Verify local HTTPS proxy readiness
-        if: matrix.lane == 'browser'
-        run: scripts/ci/portless-proxy.sh ready
-
-      # Chromium uses NSS, so trust the generated CA instead of bypassing HTTPS validation.
-      - name: Trust portless CA in Chromium
-        if: matrix.lane == 'browser'
-        run: |
-          set -euo pipefail
-          if ! command -v certutil >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install --yes libnss3-tools
-          fi
-
-          nss_db="$HOME/.pki/nssdb"
-          ca_nickname="portless-local-ca"
-          mkdir -p "$nss_db"
-          if [ ! -f "$nss_db/cert9.db" ]; then
-            certutil -N --empty-password -d "sql:$nss_db"
-          fi
-          if certutil -L -d "sql:$nss_db" -n "$ca_nickname" >/dev/null 2>&1; then
-            certutil -D -d "sql:$nss_db" -n "$ca_nickname"
-          fi
-          certutil -A -d "sql:$nss_db" -n "$ca_nickname" -t "C,," -i "$NODE_EXTRA_CA_CERTS"
-          certutil -L -d "sql:$nss_db" | grep -F -- "$ca_nickname"
-
-      # The E2E runner runs the first PATH `pnpm` with the first PATH `node` and
-      # rejects conflicting siblings. `corepack enable` puts its dispatcher shim
-      # beside node, so expose Node and the signature-verified pnpm entry.
-      - name: Pair Node with the Corepack pnpm entry for E2E
-        if: matrix.lane == 'browser'
-        run: |
-          set -euo pipefail
-          toolchain="$(mktemp -d "$RUNNER_TEMP/browser-toolchain.XXXXXX")"
-          ln -s "$(realpath -e "$(command -v node)")" "$toolchain/node"
-          ln -s "$(realpath -e "${COREPACK_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/node/corepack}/v1/pnpm/11.16.0/bin/pnpm.mjs")" "$toolchain/pnpm"
-          test "$("$toolchain/node" "$toolchain/pnpm" --version)" = 11.16.0
-          echo "$toolchain" >>"$GITHUB_PATH"
-
-      - name: Build production browser server
-        if: matrix.lane == 'browser'
-        run: |
-          set -euo pipefail
-          bun run build
-          printf '%s\n' '_DARKFACTORY_E2E_WEB_SCRIPT=start' >>"$GITHUB_ENV"
-
       - name: Run verification lane
         run: bun run "verify:${{ matrix.lane }}${{ matrix.lane == 'core' && ':ci' || '' }}"
 
-      - name: Preserve externally scanned Playwright evidence
-        if: matrix.lane == 'browser' && success()
+      # Playwright owns the HTTPS proxy and app server; keep evidence of failures only.
+      - name: Upload Playwright failure evidence
+        if: matrix.lane == 'browser' && failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Stop local HTTPS proxy
-        if: matrix.lane == 'browser' && always()
-        run: scripts/ci/portless-proxy.sh stop
 
       - name: Stop PostgreSQL integration service
         if: (matrix.lane == 'integration' || matrix.lane == 'browser') && always()
